@@ -260,6 +260,7 @@ const cats = categoryOrder
         console.log("✅ Supabase connected! Catalog items loaded:", data.length);
       }
     });
+// eslint-disable-next-line react-hooks/exhaustive-deps
 }, []);
 
   const allCategoryNames = categories.map(c => c.name);
