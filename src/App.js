@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import { supabase } from "./supabase";
 
 function useLocalStorage(key, defaultValue) {
   const [value, setValue] = useState(() => {
@@ -221,6 +222,21 @@ export default function ShoppingListApp() {
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemCategory, setNewItemCategory] = useState(DEFAULT_CATEGORIES[0].name);
   const [addError, setAddError] = useState("");
+  
+  useEffect(() => {
+  supabase
+    .from("catalog_items")
+    .select("*")
+    .eq("is_global", true)
+    .order("category")
+    .then(({ data, error }) => {
+      if (error) {
+        console.error("Supabase error:", error);
+      } else {
+        console.log("✅ Supabase connected! Catalog items loaded:", data.length);
+      }
+    });
+}, []);
 
   const allCategoryNames = categories.map(c => c.name);
 
