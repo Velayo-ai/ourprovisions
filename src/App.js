@@ -1,3 +1,4 @@
+import { SignInButton, SignUpButton, UserButton, useUser } from '@clerk/react';
 import { useState, useMemo, useRef, useEffect } from "react";
 import { supabase } from "./supabase";
 
@@ -205,6 +206,7 @@ function SplashScreen({ onDone }) {
 
 
 export default function ShoppingListApp() {
+  const { isSignedIn } = useUser();
   const [showSplash, setShowSplash] = useState(true);
   const [categories, setCategories] = useLocalStorage("op_categories", DEFAULT_CATEGORIES);
   const [quantities, setQuantities] = useLocalStorage("op_quantities", {});
@@ -489,9 +491,25 @@ const cats = categoryOrder
       `}</style>
 
       <div className="header">
-        <h1>OurProvisions</h1>
-        <p>Set quantities · Track your budget</p>
+  <h1><span style={{fontWeight:400}}>Our</span>Provisions</h1>
+  <p>Set quantities · Track your budget</p>
+  <div style={{ marginTop: "10px" }}>
+    {!isSignedIn ? (
+      <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
+        <SignInButton mode="modal">
+          <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 16px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign In</button>
+        </SignInButton>
+        <SignUpButton mode="modal">
+          <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 16px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign Up</button>
+        </SignUpButton>
       </div>
+    ) : (
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <UserButton afterSignOutUrl="/" />
+      </div>
+    )}
+  </div>
+</div>
 
       <div className="tab-bar">
         <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")}>Add Items</button>
