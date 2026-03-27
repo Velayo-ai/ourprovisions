@@ -222,7 +222,7 @@ export default function ShoppingListApp() {
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemCategory, setNewItemCategory] = useState(DEFAULT_CATEGORIES[0].name);
   const [addError, setAddError] = useState("");
-  
+
   useEffect(() => {
   supabase
     .from("catalog_items")
@@ -233,6 +233,30 @@ export default function ShoppingListApp() {
       if (error) {
         console.error("Supabase error:", error);
       } else {
+        // Group flat items into category buckets
+        const categoryEmoji = {
+          "Produce": "🥦",
+          "Meat & Seafood": "🥩",
+          "Dairy": "🥛",
+          "Pantry": "🥫",
+          "Beverages": "🧃",
+          "Household": "🧹",
+          "Bakery & Bread": "🍞",
+        };
+        const grouped = {};
+        data.forEach(item => {
+          const emoji = categoryEmoji[item.category] || "🛒";
+          const key = `${emoji} ${item.category}`;
+          if (!grouped[key]) grouped[key] = [];
+          const defaultPrice = buildDefaultPrices(DEFAULT_CATEGORIES)[item.name] || 0;
+          grouped[key].push({ name: item.name, price: defaultPrice });
+        });
+        const categoryOrder = ["🥦 Produce", "🥩 Meat & Seafood", "🥛 Dairy", "🍞 Bakery & Bread", "🥫 Pantry", "🧃 Beverages", "🧹 Household"];
+const cats = categoryOrder
+  .filter(name => grouped[name])
+  .map(name => ({ name, items: grouped[name] }));
+
+        setCategories(cats);
         console.log("✅ Supabase connected! Catalog items loaded:", data.length);
       }
     });
