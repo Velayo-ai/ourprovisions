@@ -203,7 +203,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
 
       if (qty <= 0) {
         // Soft-delete the list_items row
-        const { data: delData, error: delErr } = await db
+        const { error: delErr } = await db
           .from("list_items")
           .update({ deleted_at: new Date().toISOString() })
           .eq("household_id", hh.id)
@@ -236,7 +236,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
 
           if (!reactivateData || reactivateData.length === 0) {
             // Truly no row at all — insert fresh
-            const { data: insertData, error: insertErr } = await db
+            const { error: insertErr } = await db
               .from("list_items")
               .insert({
                 household_id: hh.id,
