@@ -2,21 +2,67 @@ import { SignInButton, SignUpButton, UserButton, useUser, useAuth } from '@clerk
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useProvisions } from './hooks/useProvisions';
 
-// Maps Supabase category names → display names with emoji
-const CATEGORY_DISPLAY = {
-  "Produce": "🥦 Produce",
-  "Meat & Seafood": "🥩 Meat & Seafood",
-  "Dairy": "🥛 Dairy",
-  "Pantry": "🥫 Pantry",
-  "Beverages": "🧃 Beverages",
-  "Household": "🧹 Household",
-  "Bakery": "🍞 Bakery & Bread",
-};
-
-// Preferred sort order for categories
-const CATEGORY_ORDER = [
-  "Produce", "Meat & Seafood", "Dairy", "Pantry", "Beverages", "Household", "Bakery"
+const DEFAULT_CATEGORIES = [
+  {
+    name: "🥦 Produce",
+    items: [
+      { name: "Bananas", price: 0.79 }, { name: "Apples", price: 1.29 }, { name: "Avocados", price: 1.49 },
+      { name: "Spinach", price: 3.49 }, { name: "Broccoli", price: 1.99 }, { name: "Carrots", price: 1.29 },
+      { name: "Tomatoes", price: 1.99 }, { name: "Onions", price: 0.99 }, { name: "Garlic", price: 0.79 },
+      { name: "Lemons", price: 0.69 }, { name: "Potatoes", price: 3.99 }, { name: "Bell Peppers", price: 1.29 },
+    ],
+  },
+  {
+    name: "🥩 Meat & Seafood",
+    items: [
+      { name: "Chicken Breast", price: 7.99 }, { name: "Ground Beef", price: 6.49 }, { name: "Salmon", price: 9.99 },
+      { name: "Bacon", price: 5.99 }, { name: "Eggs", price: 4.29 }, { name: "Shrimp", price: 10.99 },
+    ],
+  },
+  {
+    name: "🥛 Dairy",
+    items: [
+      { name: "Milk", price: 3.49 }, { name: "Butter", price: 4.99 }, { name: "Cheddar Cheese", price: 5.49 },
+      { name: "Greek Yogurt", price: 1.99 }, { name: "Cream Cheese", price: 3.29 }, { name: "Heavy Cream", price: 3.99 },
+    ],
+  },
+  {
+    name: "🍞 Bakery & Bread",
+    items: [
+      { name: "Sandwich Bread", price: 3.49 }, { name: "Bagels", price: 3.99 },
+      { name: "Tortillas", price: 2.99 }, { name: "Sourdough Loaf", price: 5.49 },
+    ],
+  },
+  {
+    name: "🥫 Pantry",
+    items: [
+      { name: "Pasta", price: 1.99 }, { name: "Rice", price: 2.49 }, { name: "Canned Tomatoes", price: 1.29 },
+      { name: "Olive Oil", price: 8.99 }, { name: "Chicken Broth", price: 2.49 }, { name: "Peanut Butter", price: 3.99 },
+      { name: "Honey", price: 5.99 }, { name: "Oats", price: 3.49 }, { name: "Flour", price: 2.99 }, { name: "Sugar", price: 2.79 },
+    ],
+  },
+  {
+    name: "🧃 Beverages",
+    items: [
+      { name: "Orange Juice", price: 4.49 }, { name: "Coffee", price: 9.99 },
+      { name: "Sparkling Water", price: 5.99 }, { name: "Almond Milk", price: 3.99 },
+    ],
+  },
+  {
+    name: "🧹 Household",
+    items: [
+      { name: "Paper Towels", price: 6.99 }, { name: "Dish Soap", price: 3.49 },
+      { name: "Laundry Detergent", price: 11.99 }, { name: "Trash Bags", price: 7.99 }, { name: "Toilet Paper", price: 8.99 },
+    ],
+  },
 ];
+
+const DEFAULT_CATEGORY_NAMES = new Set(DEFAULT_CATEGORIES.map(c => c.name));
+const buildDefaultPrices = (cats) => {
+  const p = {};
+  cats.forEach(cat => cat.items.forEach(item => { p[item.name] = item.price; }));
+  return p;
+};
 
 const CUSTOM_CAT = "⭐ My Custom Items";
 const SWIPE_THRESHOLD = 60;
@@ -152,7 +198,6 @@ export default function ShoppingListApp() {
     checked,
     prices: supabasePrices,
     household,
-    catalogMap,
     loading,
     error,
     dismissError,
@@ -161,7 +206,6 @@ export default function ShoppingListApp() {
     toggleChecked,
     clearAll,
     updateBudgetGoal,
-    deleteItem,
     createInvite,
   } = useProvisions({
     getToken,
@@ -171,7 +215,8 @@ export default function ShoppingListApp() {
   });
 
   const [showSplash, setShowSplash] = useState(true);
-  const [localPrices, setLocalPrices] = useState({});
+  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [localPrices, setLocalPrices] = useState(buildDefaultPrices(DEFAULT_CATEGORIES));
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
   const [view, setView] = useState("input");
@@ -182,7 +227,7 @@ export default function ShoppingListApp() {
   const [budgetInput, setBudgetInput] = useState("");
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
-  const [newItemCategory, setNewItemCategory] = useState(CATEGORY_ORDER[0]);
+  const [newItemCategory, setNewItemCategory] = useState(DEFAULT_CATEGORIES[0].name);
   const [addError, setAddError] = useState("");
   const [showInvitePanel, setShowInvitePanel] = useState(false);
   const [inviteUrl, setInviteUrl] = useState(null);
@@ -190,49 +235,8 @@ export default function ShoppingListApp() {
   const [joinBanner, setJoinBanner] = useState(null); // household name after accepting
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
-
-  // Build categories from live Supabase catalog
-  const categories = useMemo(() => {
-    // Reverse lookup: display name → raw name (handles legacy emoji-named catalog rows)
-    const displayToRaw = {};
-    Object.entries(CATEGORY_DISPLAY).forEach(([raw, display]) => {
-      displayToRaw[display] = raw;
-    });
-
-    const catMap = {};
-    Object.values(catalogMap).forEach(item => {
-      let cat = item.category || CUSTOM_CAT;
-      // Normalize: if the stored category is an emoji display name, map it back to raw
-      if (displayToRaw[cat]) cat = displayToRaw[cat];
-      if (!catMap[cat]) catMap[cat] = [];
-      catMap[cat].push({ name: item.name });
-    });
-
-    // Sort categories: known order first, then custom
-    const sorted = [];
-    CATEGORY_ORDER.forEach(catKey => {
-      if (catMap[catKey]) {
-        sorted.push({
-          name: CATEGORY_DISPLAY[catKey] || catKey,
-          rawName: catKey,
-          items: catMap[catKey].sort((a, b) => a.name.localeCompare(b.name)),
-        });
-      }
-    });
-    // Append any unknown categories (custom items etc)
-    Object.keys(catMap).forEach(catKey => {
-      if (!CATEGORY_ORDER.includes(catKey)) {
-        sorted.push({
-          name: CATEGORY_DISPLAY[catKey] || catKey,
-          rawName: catKey,
-          items: catMap[catKey].sort((a, b) => a.name.localeCompare(b.name)),
-        });
-      }
-    });
-    return sorted;
-  }, [catalogMap]);
-
-
+    
+  const allCategoryNames = categories.map(c => c.name);
 
   // Show join banner if user joined via invite during bootstrap
   useEffect(() => {
@@ -273,12 +277,15 @@ export default function ShoppingListApp() {
   const handleAddItem = () => {
     const name = newItemName.trim();
     if (!name) { setAddError("Please enter an item name."); return; }
-    const allItems = Object.keys(catalogMap).map(k => k.toLowerCase());
+    const allItems = categories.flatMap(c => c.items.map(i => i.name.toLowerCase()));
     if (allItems.includes(name.toLowerCase())) { setAddError("That item already exists."); return; }
     const price = parseFloat(newItemPrice) || 0;
-    if (price > 0) setLocalPrices(prev => ({ ...prev, [name]: price }));
-    // updateQty with qty=1 will auto-create the catalog item in Supabase if it doesn't exist
-    updateQty(name, 1, newItemCategory);
+    setCategories(prev => {
+      const existing = prev.find(c => c.name === newItemCategory);
+      if (existing) return prev.map(c => c.name === newItemCategory ? { ...c, items: [...c.items, { name, price }] } : c);
+      return [...prev, { name: newItemCategory, items: [{ name, price }] }];
+    });
+    setLocalPrices(prev => ({ ...prev, [name]: price }));
     setNewItemName(""); setNewItemPrice(""); setAddError(""); setShowAddModal(false);
   };
 
@@ -317,9 +324,6 @@ export default function ShoppingListApp() {
     }
     return result;
   }, [quantities, prices, categories]);
-
-  // Loading state for catalog
-  const catalogLoading = loading || Object.keys(catalogMap).length === 0;
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
@@ -663,58 +667,52 @@ export default function ShoppingListApp() {
               <button className="add-item-btn" onClick={() => { setShowAddModal(true); setAddError(""); }}>+ Add Item</button>
             </div>
 
-            {catalogLoading && isSignedIn ? (
-              <div style={{ textAlign: "center", padding: "40px 20px", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", letterSpacing: "1px" }}>
-                Loading your catalog…
-              </div>
-            ) : (
-              categories.map((cat) => (
-                <div className="category-block" key={cat.name}>
-                  <div className="cat-title">{cat.name}</div>
-                  <div className="items-grid">
-                    {cat.items.map((item) => {
-                      const qty = quantities[item.name] || 0;
-                      const price = prices[item.name] || 0;
-                      const isEditing = editingPrice === item.name;
-                      return (
-                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)}>
-                          <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
-                            <div className="item-top">
-                              <span className="item-name">{item.name}</span>
-                              <div className="qty-controls">
-                                <button className="qty-btn" onClick={() => updateQty(item.name, qty - 1, cat.rawName)}>−</button>
-                                <span className={`qty-display ${qty === 0 ? "zero" : ""}`}>{qty === 0 ? "—" : qty}</span>
-                                <button className="qty-btn" onClick={() => updateQty(item.name, qty + 1, cat.rawName)}>+</button>
-                              </div>
+            {categories.map((cat) => (
+              <div className="category-block" key={cat.name}>
+                <div className="cat-title">{cat.name}</div>
+                <div className="items-grid">
+                  {cat.items.map((item) => {
+                    const qty = quantities[item.name] || 0;
+                    const price = prices[item.name] || 0;
+                    const isEditing = editingPrice === item.name;
+                    return (
+                      <SwipeToRemove key={item.name} onRemove={() => updateQty(item.name, 0)}>
+                        <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
+                          <div className="item-top">
+                            <span className="item-name">{item.name}</span>
+                            <div className="qty-controls">
+                              <button className="qty-btn" onClick={() => updateQty(item.name, qty - 1, cat.name)}>−</button>
+                              <span className={`qty-display ${qty === 0 ? "zero" : ""}`}>{qty === 0 ? "—" : qty}</span>
+                              <button className="qty-btn" onClick={() => updateQty(item.name, qty + 1, cat.name)}>+</button>
                             </div>
-                            <div className="price-row">
-                              {isEditing ? (
-                                <div className="price-edit-wrap">
-                                  <span style={{ fontFamily: "'Lato',sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
-                                  <input
-                                    className="price-input" type="number" min="0" step="0.01"
-                                    value={priceInput} autoFocus
-                                    onChange={(e) => setPriceInput(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === "Enter") commitPrice(item.name); if (e.key === "Escape") setEditingPrice(null); }}
-                                  />
-                                  <button className="price-save-btn" onClick={() => commitPrice(item.name)}>Save</button>
-                                </div>
-                              ) : (
-                                <>
-                                  <span className="price-display">${price.toFixed(2)} each</span>
-                                  <button className="price-edit-btn" onClick={(e) => startEditPrice(e, item.name)}>Edit</button>
-                                </>
-                              )}
-                            </div>
-                            {qty > 0 && <div className="item-subtotal">Subtotal: ${(qty * price).toFixed(2)}</div>}
                           </div>
-                        </SwipeToRemove>
-                      );
-                    })}
-                  </div>
+                          <div className="price-row">
+                            {isEditing ? (
+                              <div className="price-edit-wrap">
+                                <span style={{ fontFamily: "'Lato',sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
+                                <input
+                                  className="price-input" type="number" min="0" step="0.01"
+                                  value={priceInput} autoFocus
+                                  onChange={(e) => setPriceInput(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === "Enter") commitPrice(item.name); if (e.key === "Escape") setEditingPrice(null); }}
+                                />
+                                <button className="price-save-btn" onClick={() => commitPrice(item.name)}>Save</button>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="price-display">${price.toFixed(2)} each</span>
+                                <button className="price-edit-btn" onClick={(e) => startEditPrice(e, item.name)}>Edit</button>
+                              </>
+                            )}
+                          </div>
+                          {qty > 0 && <div className="item-subtotal">Subtotal: ${(qty * price).toFixed(2)}</div>}
+                        </div>
+                      </SwipeToRemove>
+                    );
+                  })}
                 </div>
-              ))
-            )}
+              </div>
+            ))}
           </>
         )}
 
@@ -812,9 +810,7 @@ export default function ShoppingListApp() {
             <div className="modal-field">
               <label className="modal-label">Category</label>
               <select className="modal-select" value={newItemCategory} onChange={(e) => setNewItemCategory(e.target.value)}>
-                {CATEGORY_ORDER.map(rawName => (
-                  <option key={rawName} value={rawName}>{CATEGORY_DISPLAY[rawName] || rawName}</option>
-                ))}
+                {allCategoryNames.map(name => <option key={name} value={name}>{name}</option>)}
                 <option value={CUSTOM_CAT}>{CUSTOM_CAT}</option>
               </select>
             </div>
