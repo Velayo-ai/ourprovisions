@@ -253,6 +253,14 @@ export default function ShoppingListApp() {
     }
   }, [loading, household]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Lock orientation to portrait so the UI stays stable while shopping
+  useEffect(() => {
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('portrait').catch(() => {
+        // Browser doesn't support orientation lock — fail silently
+      });
+    }
+  }, []);
 
   const startEditPrice = (e, itemName) => {
     e.stopPropagation();
