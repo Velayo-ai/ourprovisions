@@ -581,7 +581,7 @@ export default function ShoppingListApp() {
               onClick={() => setShowHouseholdModal(true)}
               style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
             >
-              <span style={{ fontWeight: 400, fontStyle: "normal" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
+              <span style={{ fontWeight: 400, fontStyle: "italic" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
               <span style={{ fontSize: "1rem", opacity: 0.7 }}>👥</span>
             </button>
           ) : <span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>}
