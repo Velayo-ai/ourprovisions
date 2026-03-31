@@ -21,18 +21,21 @@ const CATEGORY_ORDER = [
 const CUSTOM_CAT = "⭐ My Custom Items";
 const SWIPE_THRESHOLD = 60;
 
-function SwipeToRemove({ onRemove, children }) {
+function SwipeToRemove({ onRemove, onEdit, children }) {
+  const REVEAL_WIDTH = 160;
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const [removing, setRemoving] = useState(false);
   const startX = useRef(null);
   const startY = useRef(null);
   const isHoriz = useRef(false);
+  const baseOffset = useRef(0);
 
   const handleStart = (clientX, clientY) => {
     startX.current = clientX;
     startY.current = clientY;
     isHoriz.current = false;
+    baseOffset.current = offsetX;
     setSwiping(true);
   };
 
@@ -45,36 +48,80 @@ function SwipeToRemove({ onRemove, children }) {
       isHoriz.current = Math.abs(dx) > Math.abs(dy);
     }
     if (!isHoriz.current) return;
-    if (dx < 0) setOffsetX(Math.max(dx, -120));
+    if (onEdit) {
+      setOffsetX(Math.min(0, Math.max(baseOffset.current + dx, -REVEAL_WIDTH)));
+    } else {
+      if (dx < 0) setOffsetX(Math.max(dx, -120));
+    }
   };
 
   const handleEnd = () => {
     startX.current = null;
     setSwiping(false);
-    if (offsetX < -SWIPE_THRESHOLD) {
-      setRemoving(true);
-      setOffsetX(-400);
-      setTimeout(() => {
-        onRemove();
-        setRemoving(false);
+    if (onEdit) {
+      if (offsetX < -REVEAL_WIDTH / 2) {
+        setOffsetX(-REVEAL_WIDTH);
+      } else {
         setOffsetX(0);
-      }, 400);
+      }
     } else {
-      setOffsetX(0);
+      if (offsetX < -SWIPE_THRESHOLD) {
+        setRemoving(true);
+        setOffsetX(-400);
+        setTimeout(() => {
+          onRemove();
+          setRemoving(false);
+          setOffsetX(0);
+        }, 400);
+      } else {
+        setOffsetX(0);
+      }
     }
   };
 
-  const revealed = offsetX < -10;
+  const close = () => setOffsetX(0);
+
+  const handleRemove = () => {
+    setRemoving(true);
+    setOffsetX(-400);
+    setTimeout(() => { onRemove(); setRemoving(false); setOffsetX(0); }, 400);
+  };
+
+  const isRevealing = offsetX < -10;
 
   return (
     <div style={{ position: "relative", overflow: "hidden", borderRadius: "8px", marginBottom: "0" }}>
-      <div style={{
-        position: "absolute", inset: 0, background: "#e05c5c", borderRadius: "8px",
-        display: "flex", alignItems: "center", justifyContent: "flex-end",
-        paddingRight: "18px", opacity: revealed ? 1 : 0, transition: "opacity 0.15s"
-      }}>
-        <span style={{ color: "white", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase" }}>Remove</span>
-      </div>
+      {onEdit ? (
+        <div style={{
+          position: "absolute", top: 0, right: 0, bottom: 0, width: `${REVEAL_WIDTH}px`,
+          display: "flex", opacity: isRevealing ? 1 : 0, transition: "opacity 0.15s"
+        }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); close(); onEdit(); }}
+            style={{
+              flex: 1, background: "#c8973a", border: "none", color: "white",
+              fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700,
+              letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer"
+            }}
+          >Edit</button>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleRemove(); }}
+            style={{
+              flex: 1, background: "#e05c5c", border: "none", color: "white",
+              fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700,
+              letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer"
+            }}
+          >Remove</button>
+        </div>
+      ) : (
+        <div style={{
+          position: "absolute", inset: 0, background: "#e05c5c", borderRadius: "8px",
+          display: "flex", alignItems: "center", justifyContent: "flex-end",
+          paddingRight: "18px", opacity: isRevealing ? 1 : 0, transition: "opacity 0.15s"
+        }}>
+          <span style={{ color: "white", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase" }}>Remove</span>
+        </div>
+      )}
       <div
         style={{
           transform: `translateX(${offsetX}px)`,
@@ -257,18 +304,30 @@ export default function ShoppingListApp() {
   }, [loading, household]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
-  const startEditPrice = (e, itemName) => {
-    e.stopPropagation();
+  const startEditPrice = (itemName) => {
     setEditingPrice(itemName);
-    setPriceInput(prices[itemName]?.toFixed(2) || "0.00");
+    // Convert existing price to cents string (e.g. 1.99 -> "199")
+    const existing = prices[itemName];
+    setPriceInput(existing ? String(Math.round(existing * 100)) : "");
+  };
+
+  const handlePriceInput = (raw) => {
+    // Strip non-digits, remove leading zeros
+    const digits = raw.replace(/\D/g, "").replace(/^0+/, "") || "";
+    setPriceInput(digits);
+  };
+
+  const centsToDisplay = (cents) => {
+    if (!cents) return "0.00";
+    const num = parseInt(cents, 10);
+    return (num / 100).toFixed(2);
   };
 
   const commitPrice = (itemName) => {
-    const val = parseFloat(priceInput);
+    const val = parseFloat(centsToDisplay(priceInput));
     if (!isNaN(val) && val >= 0) {
-      const rounded = parseFloat(val.toFixed(2));
-      setLocalPrices(prev => ({ ...prev, [itemName]: rounded }));
-      updatePrice(itemName, rounded);
+      setLocalPrices(prev => ({ ...prev, [itemName]: val }));
+      updatePrice(itemName, val);
     }
     setEditingPrice(null);
   };
@@ -423,8 +482,6 @@ export default function ShoppingListApp() {
         .qty-display.zero { color: #c8b89a; font-weight: 400; }
         .price-row { display: flex; align-items: center; gap: 8px; }
         .price-display { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; }
-        .price-edit-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; color: #c8973a; background: none; border: 1px solid #e8d5a0; border-radius: 3px; padding: 2px 6px; cursor: pointer; transition: all 0.15s; }
-        .price-edit-btn:hover { background: #FAF4EC; border-color: #c8973a; }
         .price-edit-wrap { display: flex; align-items: center; gap: 4px; width: 100%; }
         .price-input { font-family: 'Lato', sans-serif; font-size: 0.82rem; border: 1.5px solid #c8973a; border-radius: 4px; padding: 3px 6px; width: 70px; color: #2C1A0E; background: #F5EDE0; outline: none; }
         .price-save-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; background: #c8973a; color: white; border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; }
@@ -800,7 +857,7 @@ export default function ShoppingListApp() {
         {view === "input" && (
           <>
             <div className="toolbar">
-              <p className="hint">Swipe left on any item to remove it.</p>
+              <p className="hint">Swipe left on any item to edit price or remove it.</p>
               <button className="add-item-btn" onClick={() => { setShowAddModal(true); setAddError(""); }}>+ Add Item</button>
             </div>
 
@@ -818,7 +875,7 @@ export default function ShoppingListApp() {
                       const price = prices[item.name] || 0;
                       const isEditing = editingPrice === item.name;
                       return (
-                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)}>
+                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => startEditPrice(item.name)}>
                           <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
                             <div className="item-top">
                               <span className="item-name">{item.name}</span>
@@ -833,18 +890,15 @@ export default function ShoppingListApp() {
                                 <div className="price-edit-wrap">
                                   <span style={{ fontFamily: "'Lato',sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
                                   <input
-                                    className="price-input" type="number" min="0" step="0.01"
-                                    value={priceInput} autoFocus
-                                    onChange={(e) => setPriceInput(e.target.value)}
+                                    className="price-input" type="tel" inputMode="numeric"
+                                    value={centsToDisplay(priceInput)} autoFocus
+                                    onChange={(e) => handlePriceInput(e.target.value.replace(/[^0-9]/g, ""))}
                                     onKeyDown={(e) => { if (e.key === "Enter") commitPrice(item.name); if (e.key === "Escape") setEditingPrice(null); }}
                                   />
                                   <button className="price-save-btn" onClick={() => commitPrice(item.name)}>Save</button>
                                 </div>
                               ) : (
-                                <>
-                                  <span className="price-display">${price.toFixed(2)} each</span>
-                                  <button className="price-edit-btn" onClick={(e) => startEditPrice(e, item.name)}>Edit</button>
-                                </>
+                                <span className="price-display">${price.toFixed(2)} each</span>
                               )}
                             </div>
                             {qty > 0 && <div className="item-subtotal">Subtotal: ${(qty * price).toFixed(2)}</div>}
