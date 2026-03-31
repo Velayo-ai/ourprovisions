@@ -253,27 +253,32 @@ export default function ShoppingListApp() {
     }
   }, [loading, household]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Lock orientation to portrait so the UI stays stable while shopping
-  useEffect(() => {
-    if (screen.orientation && screen.orientation.lock) {
-      screen.orientation.lock('portrait').catch(() => {
-        // Browser doesn't support orientation lock — fail silently
-      });
-    }
-  }, []);
 
   const startEditPrice = (e, itemName) => {
     e.stopPropagation();
     setEditingPrice(itemName);
-    setPriceInput(prices[itemName]?.toFixed(2) || "0.00");
+    // Convert existing price to cents string (e.g. 1.99 -> "199")
+    const existing = prices[itemName];
+    setPriceInput(existing ? String(Math.round(existing * 100)) : "");
+  };
+
+  const handlePriceInput = (raw) => {
+    // Strip non-digits, remove leading zeros
+    const digits = raw.replace(/\D/g, "").replace(/^0+/, "") || "";
+    setPriceInput(digits);
+  };
+
+  const centsToDisplay = (cents) => {
+    if (!cents) return "0.00";
+    const num = parseInt(cents, 10);
+    return (num / 100).toFixed(2);
   };
 
   const commitPrice = (itemName) => {
-    const val = parseFloat(priceInput);
+    const val = parseFloat(centsToDisplay(priceInput));
     if (!isNaN(val) && val >= 0) {
-      const rounded = parseFloat(val.toFixed(2));
-      setLocalPrices(prev => ({ ...prev, [itemName]: rounded }));
-      updatePrice(itemName, rounded);
+      setLocalPrices(prev => ({ ...prev, [itemName]: val }));
+      updatePrice(itemName, val);
     }
     setEditingPrice(null);
   };
@@ -700,9 +705,9 @@ export default function ShoppingListApp() {
                                 <div className="price-edit-wrap">
                                   <span style={{ fontFamily: "'Lato',sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
                                   <input
-                                    className="price-input" type="number" min="0" step="0.01"
-                                    value={priceInput} autoFocus
-                                    onChange={(e) => setPriceInput(e.target.value)}
+                                    className="price-input" type="tel" inputMode="numeric"
+                                    value={centsToDisplay(priceInput)} autoFocus
+                                    onChange={(e) => handlePriceInput(e.target.value.replace(/[^0-9]/g, ""))}
                                     onKeyDown={(e) => { if (e.key === "Enter") commitPrice(item.name); if (e.key === "Escape") setEditingPrice(null); }}
                                   />
                                   <button className="price-save-btn" onClick={() => commitPrice(item.name)}>Save</button>
