@@ -7,6 +7,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
   const [checked, setChecked] = useState({});
   const [prices, setPrices] = useState({});
   const [household, setHousehold] = useState(null);
+  const [householdMembers, setHouseholdMembers] = useState([]);
   const [catalogMap, setCatalogMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -98,6 +99,13 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
         if (hh) {
           setHousehold(hh);
           householdRef.current = hh;
+
+          const { data: members } = await db
+            .from("household_members")
+            .select("id, user_id, users(clerk_id, email)")
+            .eq("household_id", hh.id)
+            .is("deleted_at", null);
+          setHouseholdMembers(members || []);
         }
 
         // Only load catalog and list if we have a household.
@@ -574,7 +582,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
   }, []);
 
   return {
-    quantities, checked, prices, household, catalogMap,
+    quantities, checked, prices, household, householdMembers, catalogMap,
     loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     deleteItem, createInvite, acceptInvite,

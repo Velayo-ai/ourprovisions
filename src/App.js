@@ -152,6 +152,7 @@ export default function ShoppingListApp() {
     checked,
     prices: supabasePrices,
     household,
+    householdMembers,
     catalogMap,
     loading,
     error,
@@ -188,6 +189,8 @@ export default function ShoppingListApp() {
   const [inviteUrl, setInviteUrl] = useState(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [joinBanner, setJoinBanner] = useState(null); // household name after accepting
+  const [showVelayoMenu, setShowVelayoMenu] = useState(false);
+  const [showHouseholdModal, setShowHouseholdModal] = useState(false);
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
 
@@ -373,9 +376,9 @@ export default function ShoppingListApp() {
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Lato:wght@300;400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #faf7f2; }
-        .header { background: #2c2416; color: #faf7f2; padding: 28px 24px 20px; text-align: center; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .header { background: #2c2416; color: #faf7f2; padding: 28px 24px 20px; text-align: center; position: relative; }
         .header h1 { font-family: 'Playfair Display', serif; font-size: 2.2rem; font-weight: 900; letter-spacing: -0.5px; }
-        .header p { font-family: 'Lato', sans-serif; font-size: 0.85rem; letter-spacing: 2px; text-transform: uppercase; color: #c8b89a; margin-top: 4px; }
         .tab-bar { display: flex; background: #2c2416; border-bottom: 3px solid #c8973a; }
         .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 2px; text-transform: uppercase; color: #c8b89a; transition: all 0.2s; border: none; background: transparent; }
         .tab.active { background: #faf7f2; color: #2c2416; font-weight: 700; }
@@ -485,36 +488,174 @@ export default function ShoppingListApp() {
       `}</style>
 
       <div className="header">
-  <h1><span style={{fontWeight:400}}>Our</span>Provisions</h1>
-  <p>Set quantities · Track your budget</p>
-  <div style={{ marginTop: "10px" }}>
-    {!isSignedIn ? (
-      <div style={{ display: "flex", gap: "10px", justifyContent: "center" }}>
-        <SignInButton mode="modal">
-          <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 16px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign In</button>
-        </SignInButton>
-        <SignUpButton mode="modal">
-          <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 16px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign Up</button>
-        </SignUpButton>
-      </div>
-    ) : (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "12px" }}>
-        <UserButton afterSignOutUrl="/" />
+        {/* Top-left: avatar */}
+        <div style={{ position: "absolute", top: "14px", left: "14px" }}>
+          {isSignedIn ? (
+            <UserButton afterSignOutUrl="/" />
+          ) : (
+            <div style={{ display: "flex", gap: "8px" }}>
+              <SignInButton mode="modal">
+                <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 16px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign In</button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 16px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign Up</button>
+              </SignUpButton>
+            </div>
+          )}
+        </div>
+
+        {/* Top-right: Velayo menu button */}
         <button
-          onClick={() => { setShowInvitePanel(p => !p); setInviteUrl(null); setInviteCopied(false); }}
+          onClick={() => setShowVelayoMenu(true)}
+          style={{ position: "absolute", top: "14px", right: "14px", background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center" }}
+          aria-label="Velayo menu"
+        >
+          <svg width="28" height="24" viewBox="0 0 28 24" fill="none">
+            <circle cx="5" cy="4" r="3.5" fill="#0D9488"/>
+            <circle cx="14" cy="16" r="3.5" fill="#0D9488"/>
+            <circle cx="23" cy="4" r="3.5" fill="#0D9488"/>
+          </svg>
+        </button>
+
+        {/* Dynamic title */}
+        <h1>
+          {householdMembers.length > 1 ? (
+            <button
+              onClick={() => setShowHouseholdModal(true)}
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
+            >
+              <span style={{fontWeight:400}}>Our</span>Provisions
+              <span style={{ fontSize: "1rem", opacity: 0.7 }}>👥</span>
+            </button>
+          ) : "Provisions"}
+        </h1>
+      </div>
+
+      {/* Velayo app menu */}
+      {showVelayoMenu && (
+        <div
+          onClick={() => setShowVelayoMenu(false)}
           style={{
-            fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "1.5px",
-            textTransform: "uppercase", padding: "5px 12px",
-            background: "transparent", border: "1px solid rgba(255,255,255,0.4)",
-            color: "white", borderRadius: "4px", cursor: "pointer",
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 1000, animation: "fadeIn 0.2s ease",
           }}
         >
-          Share
-        </button>
-      </div>
-    )}
-  </div>
-</div>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#faf7f2", borderRadius: "16px", padding: "32px 28px 28px",
+              width: "min(340px, 90vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
+              display: "flex", flexDirection: "column", alignItems: "center", gap: "24px",
+            }}
+          >
+            {/* Menu header */}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+              <img src={VELAYO_LOGO_TEAL} alt="Velayo" style={{ width: "48px", height: "48px", objectFit: "contain" }} />
+              <div style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "2.5px",
+                textTransform: "uppercase", color: "#8a7a60",
+              }}>Live Better. Live Smarter.</div>
+            </div>
+
+            {/* App list */}
+            <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: "10px" }}>
+              <button
+                onClick={() => setShowVelayoMenu(false)}
+                style={{
+                  width: "100%", background: "#2c2416", border: "2px solid #c8973a",
+                  borderRadius: "10px", padding: "14px 18px",
+                  display: "flex", alignItems: "center", gap: "14px",
+                  cursor: "pointer", textAlign: "left",
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{
+                    fontFamily: "'Playfair Display', serif", fontSize: "1.1rem",
+                    color: "#faf7f2", fontWeight: 700,
+                  }}>
+                    <span style={{ fontWeight: 400 }}>Our</span>Provisions
+                  </div>
+                </div>
+                <div style={{
+                  fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1.5px",
+                  textTransform: "uppercase", color: "#c8973a", fontWeight: 700,
+                }}>Active</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Household members modal */}
+      {showHouseholdModal && (
+        <div
+          onClick={() => setShowHouseholdModal(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            zIndex: 1000, animation: "fadeIn 0.2s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#faf7f2", borderRadius: "16px", padding: "28px 24px 24px",
+              width: "min(340px, 90vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
+              display: "flex", flexDirection: "column", gap: "20px",
+            }}
+          >
+            {/* Heading */}
+            <div>
+              {household?.name && (
+                <div style={{
+                  fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
+                  textTransform: "uppercase", color: "#8a7a60", marginBottom: "6px",
+                }}>{household.name}</div>
+              )}
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.3rem", fontWeight: 700, color: "#2c2416" }}>
+                Your Household
+              </div>
+            </div>
+
+            {/* Member list */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {householdMembers.map((m) => {
+                const clerkId = m.users?.clerk_id;
+                const isMe = clerkId === user?.id;
+                const displayName = isMe
+                  ? (user.fullName || user.firstName || user.primaryEmailAddress?.emailAddress || "You")
+                  : (m.users?.email ? m.users.email.split("@")[0] : "Member");
+                return (
+                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    {isMe && user.imageUrl ? (
+                      <img src={user.imageUrl} alt={displayName} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
+                    ) : (
+                      <div style={{
+                        width: "36px", height: "36px", borderRadius: "50%",
+                        background: "#e8dfc8", display: "flex", alignItems: "center", justifyContent: "center",
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700, color: "#8a7a60",
+                      }}>
+                        {displayName[0].toUpperCase()}
+                      </div>
+                    )}
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2c2416", flex: 1 }}>
+                      {displayName}
+                    </span>
+                    {isMe && (
+                      <span style={{
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1px",
+                        textTransform: "uppercase", color: "#8a7a60",
+                        background: "#e8dfc8", borderRadius: "4px", padding: "2px 7px",
+                      }}>you</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Join success banner */}
       {joinBanner && (
@@ -781,18 +922,20 @@ export default function ShoppingListApp() {
         )}
       </div>
 
-      {/* Velayo footer */}
-      <div style={{
-        textAlign: "center", padding: "28px 20px 36px",
-        borderTop: "1px solid #e8dfc8", marginTop: "12px",
-        display: "flex", flexDirection: "column", alignItems: "center", gap: "10px",
-      }}>
-        <img src={VELAYO_LOGO_TEAL} alt="Velayo" style={{ width: "72px", height: "auto", opacity: 0.55 }} />
+      {/* Velayo footer — only shown when there are items */}
+      {totalItems > 0 && (
         <div style={{
-          fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2px",
-          textTransform: "uppercase", color: "#b0a080", opacity: 0.7,
-        }}>A Velayo App</div>
-      </div>
+          textAlign: "center", padding: "28px 20px 36px",
+          borderTop: "1px solid #e8dfc8", marginTop: "12px",
+          display: "flex", flexDirection: "column", alignItems: "center", gap: "10px",
+        }}>
+          <img src={VELAYO_LOGO_TEAL} alt="Velayo" style={{ width: "72px", height: "auto", opacity: 0.55 }} />
+          <div style={{
+            fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2px",
+            textTransform: "uppercase", color: "#b0a080", opacity: 0.7,
+          }}>A Velayo App</div>
+        </div>
+      )}
 
       {/* Add Item Modal */}
       {showAddModal && (
