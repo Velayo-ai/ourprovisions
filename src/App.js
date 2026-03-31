@@ -338,13 +338,13 @@ export default function ShoppingListApp() {
   
 
   return (
-    <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#faf7f2", color: "#2c2416" }}>
+    <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
       {isSignedIn && loading && (
         <div style={{
-          position: "fixed", inset: 0, background: "rgba(250,247,242,0.88)",
+          position: "fixed", inset: 0, background: "rgba(250,244,236,0.88)",
           display: "flex", alignItems: "center", justifyContent: "center",
           zIndex: 50, backdropFilter: "blur(2px)",
         }}>
@@ -359,35 +359,35 @@ export default function ShoppingListApp() {
       {error && (
         <div style={{
           position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
-          background: "#2c2416", color: "#faf7f2", borderRadius: "8px",
+          background: "#2C1A0E", color: "#FAF4EC", borderRadius: "8px",
           padding: "12px 20px", display: "flex", alignItems: "center", gap: "14px",
           boxShadow: "0 4px 20px rgba(0,0,0,0.25)", zIndex: 200,
           fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", maxWidth: "90vw",
         }}>
           <span>⚠ {error}</span>
           <button onClick={dismissError} style={{
-            background: "none", border: "1px solid rgba(255,255,255,0.3)", color: "#faf7f2",
+            background: "none", border: "1px solid rgba(255,255,255,0.3)", color: "#FAF4EC",
             borderRadius: "4px", padding: "3px 10px", cursor: "pointer", fontSize: "0.75rem",
           }}>Dismiss</button>
         </div>
       )}
 
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Lato:wght@300;400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,700&family=Lato:wght@300;400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #faf7f2; }
+        body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .header { background: #2c2416; color: #faf7f2; padding: 28px 24px 20px; text-align: center; position: relative; }
-        .header h1 { font-family: 'Playfair Display', serif; font-size: 2.2rem; font-weight: 900; letter-spacing: -0.5px; }
-        .tab-bar { display: flex; background: #2c2416; border-bottom: 3px solid #c8973a; }
+        .header { background: #2C1A0E; color: #FAF4EC; padding: 28px 24px 20px; text-align: center; position: relative; }
+        .header h1 { font-size: 42px; letter-spacing: 0.02em; }
+        .tab-bar { display: flex; background: #2C1A0E; border-bottom: 3px solid #c8973a; }
         .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 2px; text-transform: uppercase; color: #c8b89a; transition: all 0.2s; border: none; background: transparent; }
-        .tab.active { background: #faf7f2; color: #2c2416; font-weight: 700; }
-        .tab:hover:not(.active) { color: #faf7f2; background: #3d3020; }
+        .tab.active { background: #FAF4EC; color: #2C1A0E; font-weight: 700; }
+        .tab:hover:not(.active) { color: #FAF4EC; background: #3d3020; }
         .badge { display: inline-block; background: #c8973a; color: white; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
         /* Budget banner */
-        .budget-banner { background: #2c2416; color: #faf7f2; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; max-width: 100%; border-bottom: 2px solid #c8973a; gap: 12px; }
+        .budget-banner { background: #2C1A0E; color: #FAF4EC; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; max-width: 100%; border-bottom: 2px solid #c8973a; gap: 12px; }
         .budget-banner.over { border-bottom-color: #e05c5c; }
         .budget-label { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 2px; text-transform: uppercase; color: #c8b89a; }
         .budget-amount { font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; color: #c8973a; }
@@ -396,7 +396,7 @@ export default function ShoppingListApp() {
         .budget-goal-section { text-align: right; }
         .budget-goal-label { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 1.5px; text-transform: uppercase; color: #c8b89a; }
         .budget-goal-remaining { font-family: 'Playfair Display', serif; font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
-        .budget-goal-remaining.ok { color: #7ec87e; }
+        .budget-goal-remaining.ok { color: #A0724A; }
         .budget-goal-remaining.over { color: #e05c5c; }
         .budget-bar-wrap { width: 100%; height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; margin-top: 6px; overflow: hidden; }
         .budget-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease, background 0.3s; }
@@ -405,28 +405,28 @@ export default function ShoppingListApp() {
 
         .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .hint { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 0.5px; }
-        .add-item-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; background: #2c2416; color: #faf7f2; border: none; border-radius: 5px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
-        .add-item-btn:hover { background: #c8973a; }
+        .add-item-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; background: #A0724A; color: #FAF4EC; border: none; border-radius: 5px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+        .add-item-btn:hover { background: #6B4423; }
         .category-block { margin-bottom: 28px; }
-        .cat-title { font-family: 'Playfair Display', serif; font-size: 1.15rem; font-weight: 700; color: #2c2416; border-bottom: 2px solid #e8dfc8; padding-bottom: 8px; margin-bottom: 12px; }
+        .cat-title { font-family: 'Playfair Display', serif; font-size: 1.15rem; font-weight: 700; color: #2C1A0E; border-bottom: 2px solid #E8D5B7; padding-bottom: 8px; margin-bottom: 12px; }
         .items-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         @media(max-width: 520px) { .items-grid { grid-template-columns: 1fr; } }
-        .item-row { display: flex; flex-direction: column; background: white; border: 1.5px solid #e8dfc8; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; }
+        .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; }
         .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); }
-        .item-row.has-qty { border-color: #c8973a; background: #fffbf2; }
+        .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-        .item-name { font-family: 'Lato', sans-serif; font-size: 0.88rem; color: #2c2416; flex: 1; }
+        .item-name { font-family: 'Lato', sans-serif; font-size: 0.88rem; color: #2C1A0E; flex: 1; }
         .qty-controls { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
-        .qty-btn { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid #c8b89a; background: white; color: #2c2416; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; transition: all 0.15s; line-height: 1; }
-        .qty-btn:hover { background: #c8973a; border-color: #c8973a; color: white; }
+        .qty-btn { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid #A0724A; background: #A0724A; color: white; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; transition: all 0.15s; line-height: 1; }
+        .qty-btn:hover { background: #6B4423; border-color: #6B4423; color: white; }
         .qty-display { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; width: 24px; text-align: center; color: #c8973a; }
         .qty-display.zero { color: #c8b89a; font-weight: 400; }
         .price-row { display: flex; align-items: center; gap: 8px; }
         .price-display { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; }
         .price-edit-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; color: #c8973a; background: none; border: 1px solid #e8d5a0; border-radius: 3px; padding: 2px 6px; cursor: pointer; transition: all 0.15s; }
-        .price-edit-btn:hover { background: #fffbf2; border-color: #c8973a; }
+        .price-edit-btn:hover { background: #FAF4EC; border-color: #c8973a; }
         .price-edit-wrap { display: flex; align-items: center; gap: 4px; width: 100%; }
-        .price-input { font-family: 'Lato', sans-serif; font-size: 0.82rem; border: 1.5px solid #c8973a; border-radius: 4px; padding: 3px 6px; width: 70px; color: #2c2416; background: white; outline: none; }
+        .price-input { font-family: 'Lato', sans-serif; font-size: 0.82rem; border: 1.5px solid #c8973a; border-radius: 4px; padding: 3px 6px; width: 70px; color: #2C1A0E; background: #F5EDE0; outline: none; }
         .price-save-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; background: #c8973a; color: white; border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; }
         .item-subtotal { font-family: 'Lato', sans-serif; font-size: 0.75rem; color: #c8973a; font-weight: 700; text-align: right; }
         .list-empty { text-align: center; padding: 60px 20px; }
@@ -434,11 +434,11 @@ export default function ShoppingListApp() {
         .list-empty p { font-family: 'Lato', sans-serif; color: #a89878; margin-top: 8px; font-size: 0.9rem; }
         .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
-        .progress-bar { height: 4px; background: #e8dfc8; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
-        .progress-fill { height: 100%; background: #c8973a; border-radius: 2px; transition: width 0.4s ease; }
+        .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
+        .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
         .list-cat-title { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 2px; text-transform: uppercase; color: #8a7a60; margin-bottom: 8px; margin-top: 20px; }
-        .list-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: white; border: 1.5px solid #e8dfc8; border-radius: 8px; transition: all 0.2s; user-select: none; }
-        .list-item.done { opacity: 0.5; background: #f5f5f0; }
+        .list-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; transition: all 0.2s; user-select: none; }
+        .list-item.done { opacity: 0.5; background: #E8D5B7; }
         .list-item.done .li-name { text-decoration: line-through; color: #a89878; }
         .checkbox { width: 20px; height: 20px; border-radius: 4px; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
         .checkbox.checked { background: #c8973a; border-color: #c8973a; }
@@ -452,10 +452,10 @@ export default function ShoppingListApp() {
         .clear-btn:hover { border-color: #e05c5c; color: #e05c5c; }
         .all-done { text-align: center; padding: 20px; }
         .all-done p { font-family: 'Playfair Display', serif; font-size: 1.2rem; color: #c8973a; }
-        .list-total { background: white; border: 2px solid #c8973a; border-radius: 10px; padding: 16px 18px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
+        .list-total { background: #F5EDE0; border: 2px solid #c8973a; border-radius: 10px; padding: 16px 18px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
         .list-total.over { border-color: #e05c5c; }
         .lt-left .lt-label { font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
-        .lt-amount { font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; color: #2c2416; }
+        .lt-amount { font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; color: #2C1A0E; }
         .lt-amount.over { color: #e05c5c; }
         .lt-checked { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; margin-top: 4px; }
         .lt-budget-row { font-family: 'Lato', sans-serif; font-size: 0.78rem; margin-top: 6px; font-weight: 700; }
@@ -463,25 +463,25 @@ export default function ShoppingListApp() {
         .lt-budget-row.over { color: #e05c5c; }
 
         /* Modals */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(44,36,22,0.55); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
-        .modal { background: #faf7f2; border-radius: 12px; padding: 28px 24px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-        .modal h2 { font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: #2c2416; margin-bottom: 8px; }
+        .modal-overlay { position: fixed; inset: 0; background: rgba(44,26,14,0.55); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+        .modal { background: #FAF4EC; border-radius: 12px; padding: 28px 24px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        .modal h2 { font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
         .modal-subtitle { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 20px; }
         .modal-field { margin-bottom: 16px; }
         .modal-label { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; margin-bottom: 6px; display: block; }
-        .modal-input { width: 100%; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: 1.5px solid #e8dfc8; border-radius: 6px; padding: 9px 12px; color: #2c2416; background: white; outline: none; transition: border-color 0.2s; }
+        .modal-input { width: 100%; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: 1.5px solid #E8D5B7; border-radius: 6px; padding: 9px 12px; color: #2C1A0E; background: #F5EDE0; outline: none; transition: border-color 0.2s; }
         .modal-input:focus { border-color: #c8973a; }
-        .modal-input-prefix { display: flex; align-items: center; border: 1.5px solid #e8dfc8; border-radius: 6px; background: white; overflow: hidden; transition: border-color 0.2s; }
+        .modal-input-prefix { display: flex; align-items: center; border: 1.5px solid #E8D5B7; border-radius: 6px; background: #F5EDE0; overflow: hidden; transition: border-color 0.2s; }
         .modal-input-prefix:focus-within { border-color: #c8973a; }
         .modal-prefix-symbol { font-family: 'Lato', sans-serif; font-size: 0.95rem; color: #8a7a60; padding: 9px 0 9px 12px; }
-        .modal-input-inner { flex: 1; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: none; padding: 9px 12px; color: #2c2416; background: transparent; outline: none; }
-        .modal-select { width: 100%; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: 1.5px solid #e8dfc8; border-radius: 6px; padding: 9px 12px; color: #2c2416; background: white; outline: none; cursor: pointer; }
+        .modal-input-inner { flex: 1; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: none; padding: 9px 12px; color: #2C1A0E; background: transparent; outline: none; }
+        .modal-select { width: 100%; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: 1.5px solid #E8D5B7; border-radius: 6px; padding: 9px 12px; color: #2C1A0E; background: #F5EDE0; outline: none; cursor: pointer; }
         .modal-error { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #e05c5c; margin-bottom: 12px; }
         .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
         .modal-actions-spaced { display: flex; gap: 10px; justify-content: space-between; align-items: center; margin-top: 8px; }
         .modal-cancel { font-family: 'Lato', sans-serif; font-size: 0.8rem; padding: 9px 18px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
-        .modal-cancel:hover { border-color: #2c2416; color: #2c2416; }
-        .modal-confirm { font-family: 'Lato', sans-serif; font-size: 0.8rem; padding: 9px 18px; background: #2c2416; color: #faf7f2; border: none; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
+        .modal-cancel:hover { border-color: #2C1A0E; color: #2C1A0E; }
+        .modal-confirm { font-family: 'Lato', sans-serif; font-size: 0.8rem; padding: 9px 18px; background: #A0724A; color: #FAF4EC; border: none; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
         .modal-confirm:hover { background: #c8973a; }
         .modal-remove { font-family: 'Lato', sans-serif; font-size: 0.8rem; padding: 9px 18px; border: 1.5px solid #e8d5d5; background: transparent; color: #e05c5c; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
         .modal-remove:hover { background: #fff0f0; border-color: #e05c5c; }
@@ -511,23 +511,23 @@ export default function ShoppingListApp() {
           aria-label="Velayo menu"
         >
           <svg width="28" height="24" viewBox="0 0 28 24" fill="none">
-            <circle cx="5" cy="4" r="3.5" fill="#0D9488"/>
-            <circle cx="14" cy="16" r="3.5" fill="#0D9488"/>
-            <circle cx="23" cy="4" r="3.5" fill="#0D9488"/>
+            <circle cx="5" cy="4" r="3.5" fill="#C9A97A"/>
+            <circle cx="14" cy="16" r="3.5" fill="#C9A97A"/>
+            <circle cx="23" cy="4" r="3.5" fill="#C9A97A"/>
           </svg>
         </button>
 
         {/* Dynamic title */}
-        <h1>
+        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: "42px", letterSpacing: "0.02em", color: "#FAF4EC", fontWeight: 400 }}>
           {householdMembers.length > 1 ? (
             <button
               onClick={() => setShowHouseholdModal(true)}
               style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
             >
-              <span style={{fontWeight:400}}>Our</span>Provisions
+              <span style={{ fontWeight: 400, fontStyle: "normal" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
               <span style={{ fontSize: "1rem", opacity: 0.7 }}>👥</span>
             </button>
-          ) : "Provisions"}
+          ) : <span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>}
         </h1>
       </div>
 
@@ -544,7 +544,7 @@ export default function ShoppingListApp() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "#faf7f2", borderRadius: "16px", padding: "32px 28px 28px",
+              background: "#FAF4EC", borderRadius: "16px", padding: "32px 28px 28px",
               width: "min(340px, 90vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
               display: "flex", flexDirection: "column", alignItems: "center", gap: "24px",
             }}
@@ -563,7 +563,7 @@ export default function ShoppingListApp() {
               <button
                 onClick={() => setShowVelayoMenu(false)}
                 style={{
-                  width: "100%", background: "#2c2416", border: "2px solid #c8973a",
+                  width: "100%", background: "#2C1A0E", border: "2px solid #c8973a",
                   borderRadius: "10px", padding: "14px 18px",
                   display: "flex", alignItems: "center", gap: "14px",
                   cursor: "pointer", textAlign: "left",
@@ -572,7 +572,7 @@ export default function ShoppingListApp() {
                 <div style={{ flex: 1 }}>
                   <div style={{
                     fontFamily: "'Playfair Display', serif", fontSize: "1.1rem",
-                    color: "#faf7f2", fontWeight: 700,
+                    color: "#FAF4EC", fontWeight: 700,
                   }}>
                     <span style={{ fontWeight: 400 }}>Our</span>Provisions
                   </div>
@@ -600,7 +600,7 @@ export default function ShoppingListApp() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "#faf7f2", borderRadius: "16px", padding: "28px 24px 24px",
+              background: "#FAF4EC", borderRadius: "16px", padding: "28px 24px 24px",
               width: "min(340px, 90vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
               display: "flex", flexDirection: "column", gap: "20px",
             }}
@@ -613,7 +613,7 @@ export default function ShoppingListApp() {
                   textTransform: "uppercase", color: "#8a7a60", marginBottom: "6px",
                 }}>{household.name}</div>
               )}
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.3rem", fontWeight: 700, color: "#2c2416" }}>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.3rem", fontWeight: 700, color: "#2C1A0E" }}>
                 Your Household
               </div>
             </div>
@@ -633,20 +633,20 @@ export default function ShoppingListApp() {
                     ) : (
                       <div style={{
                         width: "36px", height: "36px", borderRadius: "50%",
-                        background: "#e8dfc8", display: "flex", alignItems: "center", justifyContent: "center",
+                        background: "#E8D5B7", display: "flex", alignItems: "center", justifyContent: "center",
                         fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700, color: "#8a7a60",
                       }}>
                         {displayName[0].toUpperCase()}
                       </div>
                     )}
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2c2416", flex: 1 }}>
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E", flex: 1 }}>
                       {displayName}
                     </span>
                     {isMe && (
                       <span style={{
                         fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1px",
                         textTransform: "uppercase", color: "#8a7a60",
-                        background: "#e8dfc8", borderRadius: "4px", padding: "2px 7px",
+                        background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
                       }}>you</span>
                     )}
                   </div>
@@ -674,7 +674,7 @@ export default function ShoppingListApp() {
       {/* Invite panel */}
       {showInvitePanel && (
         <div style={{
-          background: "#fffbf2", borderBottom: "2px solid #e8dfc8",
+          background: "#FAF4EC", borderBottom: "2px solid #E8D5B7",
           padding: "20px 24px",
         }}>
           <div style={{ maxWidth: "680px", margin: "0 auto" }}>
@@ -682,7 +682,7 @@ export default function ShoppingListApp() {
               display: "flex", justifyContent: "space-between", alignItems: "center",
               marginBottom: "12px",
             }}>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.1rem", fontWeight: 700, color: "#2c2416" }}>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.1rem", fontWeight: 700, color: "#2C1A0E" }}>
                 Share Your Household
               </div>
               <button onClick={() => { setShowInvitePanel(false); setInviteUrl(null); setInviteCopied(false); }} style={{
@@ -701,7 +701,7 @@ export default function ShoppingListApp() {
                 style={{
                   fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", letterSpacing: "1px",
                   textTransform: "uppercase", padding: "10px 20px",
-                  background: "#2c2416", color: "#faf7f2", border: "none",
+                  background: "#A0724A", color: "#FAF4EC", border: "none",
                   borderRadius: "5px", cursor: "pointer",
                 }}
               >
@@ -714,8 +714,8 @@ export default function ShoppingListApp() {
                   value={inviteUrl}
                   style={{
                     flex: 1, minWidth: "200px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem",
-                    border: "1.5px solid #e8dfc8", borderRadius: "6px", padding: "9px 12px",
-                    background: "white", color: "#2c2416",
+                    border: "1.5px solid #E8D5B7", borderRadius: "6px", padding: "9px 12px",
+                    background: "#F5EDE0", color: "#2C1A0E",
                   }}
                   onFocus={(e) => e.target.select()}
                 />
@@ -760,7 +760,7 @@ export default function ShoppingListApp() {
                   className="budget-bar-fill"
                   style={{
                     width: `${budgetPct}%`,
-                    background: overBudget ? "#e05c5c" : budgetPct > 85 ? "#e0a030" : "#7ec87e"
+                    background: overBudget ? "#e05c5c" : budgetPct > 85 ? "#C9A97A" : "#A0724A"
                   }}
                 />
               </div>
@@ -789,7 +789,7 @@ export default function ShoppingListApp() {
       )}
 
       {totalItems === 0 && (
-        <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 20px", background: "#2c2416", borderBottom: "2px solid #c8973a" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 20px", background: "#2C1A0E", borderBottom: "2px solid #c8973a" }}>
           <button className="set-budget-btn" onClick={openBudgetModal}>
             {budgetNum !== null ? `Budget: $${budgetNum.toFixed(0)} ✎` : "+ Set Budget"}
           </button>
@@ -926,7 +926,7 @@ export default function ShoppingListApp() {
       {totalItems > 0 && (
         <div style={{
           textAlign: "center", padding: "28px 20px 36px",
-          borderTop: "1px solid #e8dfc8", marginTop: "12px",
+          borderTop: "1px solid #E8D5B7", marginTop: "12px",
           display: "flex", flexDirection: "column", alignItems: "center", gap: "10px",
         }}>
           <img src={VELAYO_LOGO_TEAL} alt="Velayo" style={{ width: "72px", height: "auto", opacity: 0.55 }} />
