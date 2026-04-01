@@ -9,11 +9,14 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
   const [household, setHousehold] = useState(null);
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [catalogMap, setCatalogMap] = useState({});
+  const [hiddenCatalogItems, setHiddenCatalogItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const supabaseRef = useRef(null);
   const householdRef = useRef(null);   // mirrors household for use inside callbacks
   const catalogRef = useRef({});       // mirrors catalogMap for use inside callbacks
+  const hiddenIdsRef = useRef(new Set());
+  const hiddenCatalogItemsRef = useRef([]);
   const internalUserIdRef = useRef(null);
   const clerkIdRef = useRef(null);
   const pendingWrites = useRef(0);  // count of in-flight DB writes
@@ -36,19 +39,52 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     items.forEach((item) => {
       const name = item.catalog_items?.name;
       if (!name) return;
+      if (hiddenIdsRef.current.has(item.catalog_item_id)) return;
       newQty[name] = item.quantity;
       newChecked[name] = item.status === "bought";
       if (item.price_per_unit != null) newPrices[name] = parseFloat(item.price_per_unit);
     });
+    // Merge: start with price_hints from catalog, then overwrite with any user-set prices
+    const mergedPrices = {};
+    Object.values(catalogRef.current).forEach(item => {
+      if (item.price_hint != null) mergedPrices[item.name] = parseFloat(item.price_hint);
+    });
+    Object.assign(mergedPrices, newPrices);
     setQuantities(newQty);
     setChecked(newChecked);
-    setPrices(newPrices);
+    setPrices(mergedPrices);
   }
 
   useEffect(() => {
-    // Don't attempt Supabase calls until Clerk has resolved auth
+    // If not signed in, fetch global catalog via direct REST call using anon key — no Supabase client needed
     if (!getToken || !userId || !clerkId) {
-      setLoading(false);
+      (async () => {
+        try {
+          const response = await fetch(
+            `${process.env.REACT_APP_SUPABASE_URL}/rest/v1/catalog_items?deleted_at=is.null&select=id,name,category,unit,price_hint`,
+            {
+              headers: {
+                apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${process.env.REACT_APP_SUPABASE_ANON_KEY}`,
+              },
+            }
+          );
+          const items = await response.json();
+          const cMap = {};
+          (Array.isArray(items) ? items : []).forEach(item => { cMap[item.name] = item; });
+          setCatalogMap(cMap);
+          catalogRef.current = cMap;
+          const hintPrices = {};
+          Object.values(cMap).forEach(item => {
+            if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
+          });
+          setPrices(hintPrices);
+        } catch (err) {
+          console.error("Anon catalog load error:", err.message);
+        } finally {
+          setLoading(false);
+        }
+      })();
       return;
     }
 
@@ -111,23 +147,26 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
         // Only load catalog and list if we have a household.
         // (If joining via invite, hh is null here — acceptInvite handles the rest.)
         if (hh) {
-          // Load this user's hidden item IDs
-          const { data: hiddenItems } = await db
+          // Load this user's hidden items with full catalog info
+          const { data: hiddenRows } = await db
             .from("user_hidden_items")
-            .select("catalog_item_id")
+            .select("catalog_item_id, catalog_items(id, name, category, is_global, price_hint)")
             .eq("clerk_id", clerkId);
-          const hiddenIds = new Set((hiddenItems || []).map(h => h.catalog_item_id));
-
+          const hiddenIds = new Set((hiddenRows || []).map(h => h.catalog_item_id));
+          hiddenIdsRef.current = hiddenIds;
+          const hiddenCatalogList = (hiddenRows || []).map(h => h.catalog_items).filter(Boolean);
+          hiddenCatalogItemsRef.current = hiddenCatalogList;
+          setHiddenCatalogItems(hiddenCatalogList);
           const { data: catalog, error: catalogErr } = await db
             .from("catalog_items")
-            .select("id, name, category, is_global")
+            .select("id, name, category, is_global, price_hint")
             .eq("is_global", true)
             .is("deleted_at", null);
           if (catalogErr) throw new Error(`Could not load catalog: ${catalogErr.message}`);
 
           const { data: customItems, error: customErr } = await db
             .from("catalog_items")
-            .select("id, name, category, is_global")
+            .select("id, name, category, is_global, price_hint")
             .eq("household_id", hh.id)
             .eq("is_global", false)
             .is("deleted_at", null);
@@ -139,6 +178,11 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
           });
           setCatalogMap(cMap);
           catalogRef.current = cMap;
+          const hintPrices = {};
+          Object.values(cMap).forEach(item => {
+            if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
+          });
+          setPrices(hintPrices);
 
           await loadListItems(db, hh.id);
 
@@ -175,7 +219,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
   // If the item isn't in the catalog yet, it's inserted first as
   // a household-specific item, then the list_items row is written.
   // ─────────────────────────────────────────────────────────────
-  const updateQty = useCallback(async (itemName, qty, categoryName) => {
+  const updateQty = useCallback(async (itemName, qty, categoryName, price) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return;
@@ -233,9 +277,11 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
 
         if (!updateData || updateData.length === 0) {
           // No active row — try to reactivate a soft-deleted row
+          const reactivateFields = { quantity: qty, status: "pending", deleted_at: null };
+          if (price != null && price > 0) reactivateFields.price_per_unit = price;
           const { data: reactivateData, error: reactivateErr } = await db
             .from("list_items")
-            .update({ quantity: qty, status: "pending", deleted_at: null })
+            .update(reactivateFields)
             .eq("household_id", hh.id)
             .eq("catalog_item_id", catalogItem.id)
             .not("deleted_at", "is", null)
@@ -244,15 +290,17 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
 
           if (!reactivateData || reactivateData.length === 0) {
             // Truly no row at all — insert fresh
+            const insertFields = {
+              household_id: hh.id,
+              catalog_item_id: catalogItem.id,
+              quantity: qty,
+              status: "pending",
+              added_by: internalUserIdRef.current,
+            };
+            if (price != null && price > 0) insertFields.price_per_unit = price;
             const { error: insertErr } = await db
               .from("list_items")
-              .insert({
-                household_id: hh.id,
-                catalog_item_id: catalogItem.id,
-                quantity: qty,
-                status: "pending",
-                added_by: internalUserIdRef.current,
-              })
+              .insert(insertFields)
               .select();
             if (insertErr) throw insertErr;
           }
@@ -565,6 +613,14 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
         if (catErr) throw catErr;
       }
 
+      // Update hiddenIdsRef immediately so polling can't restore this item
+      hiddenIdsRef.current = new Set([...hiddenIdsRef.current, catalogItem.id]);
+      // Track in hiddenCatalogItems so Restore button knows about it (global hides only)
+      if (catalogItem.is_global) {
+        hiddenCatalogItemsRef.current = [...hiddenCatalogItemsRef.current, catalogItem];
+        setHiddenCatalogItems(prev => [...prev, catalogItem]);
+      }
+
       // Also soft-delete any active list_items row for this household
       await db
         .from("list_items")
@@ -581,10 +637,41 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     }
   }, []);
 
+  const restoreHiddenByCategory = useCallback(async (rawCategoryName) => {
+    const db = supabaseRef.current;
+    if (!db) return;
+
+    const toRestore = hiddenCatalogItemsRef.current.filter(item => (item.category || "") === rawCategoryName);
+    if (toRestore.length === 0) return;
+
+    const ids = toRestore.map(item => item.id);
+    const { error: restoreErr } = await db
+      .from("user_hidden_items")
+      .delete()
+      .eq("clerk_id", clerkIdRef.current)
+      .in("catalog_item_id", ids);
+    if (restoreErr) { setError(`Could not restore items: ${restoreErr.message}`); return; }
+
+    // Remove from hiddenIdsRef
+    const newHiddenIds = new Set(hiddenIdsRef.current);
+    ids.forEach(id => newHiddenIds.delete(id));
+    hiddenIdsRef.current = newHiddenIds;
+
+    // Add restored items back to catalog
+    const restoredMap = {};
+    toRestore.forEach(item => { restoredMap[item.name] = item; });
+    catalogRef.current = { ...catalogRef.current, ...restoredMap };
+    setCatalogMap(prev => ({ ...prev, ...restoredMap }));
+
+    // Remove from hiddenCatalogItems
+    hiddenCatalogItemsRef.current = hiddenCatalogItemsRef.current.filter(item => !ids.includes(item.id));
+    setHiddenCatalogItems(prev => prev.filter(item => !ids.includes(item.id)));
+  }, []);
+
   return {
     quantities, checked, prices, household, householdMembers, catalogMap,
-    loading, error, dismissError,
+    hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    deleteItem, createInvite, acceptInvite,
+    deleteItem, createInvite, acceptInvite, restoreHiddenByCategory,
   };
 }

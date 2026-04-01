@@ -210,6 +210,8 @@ export default function ShoppingListApp() {
     clearAll,
     updateBudgetGoal,
     deleteItem,
+    hiddenCatalogItems,
+    restoreHiddenByCategory,
     createInvite,
   } = useProvisions({
     getToken,
@@ -232,6 +234,7 @@ export default function ShoppingListApp() {
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemCategory, setNewItemCategory] = useState(CATEGORY_ORDER[0]);
   const [addError, setAddError] = useState("");
+  const [addModalResetDone, setAddModalResetDone] = useState(false);
   const [showInvitePanel, setShowInvitePanel] = useState(false);
   const [inviteUrl, setInviteUrl] = useState(null);
   const [inviteCopied, setInviteCopied] = useState(false);
@@ -337,10 +340,10 @@ export default function ShoppingListApp() {
     if (!name) { setAddError("Please enter an item name."); return; }
     const allItems = Object.keys(catalogMap).map(k => k.toLowerCase());
     if (allItems.includes(name.toLowerCase())) { setAddError("That item already exists."); return; }
-    const price = parseFloat(newItemPrice) || 0;
+    const price = parseFloat(centsToDisplay(newItemPrice)) || 0;
     if (price > 0) setLocalPrices(prev => ({ ...prev, [name]: price }));
     // updateQty with qty=1 will auto-create the catalog item in Supabase if it doesn't exist
-    updateQty(name, 1, newItemCategory);
+    updateQty(name, 1, newItemCategory, price > 0 ? price : undefined);
     setNewItemName(""); setNewItemPrice(""); setAddError(""); setShowAddModal(false);
   };
 
@@ -380,8 +383,8 @@ export default function ShoppingListApp() {
     return result;
   }, [quantities, prices, categories]);
 
-  // Loading state for catalog
-  const catalogLoading = loading || Object.keys(catalogMap).length === 0;
+  // Loading state for catalog — only true while fetch is in flight, not based on result size
+  const catalogLoading = loading;
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
@@ -436,7 +439,7 @@ export default function ShoppingListApp() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .header { background: #2C1A0E; color: #FAF4EC; padding: 28px 24px 20px; text-align: center; position: relative; }
+        .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
         .header h1 { font-size: 42px; letter-spacing: 0.02em; }
         .tab-bar { display: flex; background: #2C1A0E; border-bottom: 3px solid #c8973a; }
         .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 2px; text-transform: uppercase; color: #c8b89a; transition: all 0.2s; border: none; background: transparent; }
@@ -545,47 +548,56 @@ export default function ShoppingListApp() {
       `}</style>
 
       <div className="header">
-        {/* Top-left: avatar */}
-        <div style={{ position: "absolute", top: "14px", left: "14px" }}>
-          {isSignedIn ? (
-            <UserButton afterSignOutUrl="/" />
-          ) : (
-            <div style={{ display: "flex", gap: "8px" }}>
-              <SignInButton mode="modal">
-                <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 16px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign In</button>
-              </SignInButton>
-              <SignUpButton mode="modal">
-                <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 16px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign Up</button>
-              </SignUpButton>
-            </div>
-          )}
+        {/* Row 1: Velayo bar — avatar left, three dots right */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: "#1a0e06" }}>
+          <div>
+            {isSignedIn ? (
+              <UserButton afterSignOutUrl="/" />
+            ) : (
+              <div style={{ display: "flex", gap: "8px" }}>
+                <SignInButton mode="modal">
+                  <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign In</button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign Up</button>
+                </SignUpButton>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setShowVelayoMenu(true)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center" }}
+            aria-label="Velayo menu"
+          >
+            <svg width="28" height="24" viewBox="0 0 28 24" fill="none">
+              <circle cx="5" cy="4" r="3.5" fill="#C9A97A"/>
+              <circle cx="14" cy="16" r="3.5" fill="#C9A97A"/>
+              <circle cx="23" cy="4" r="3.5" fill="#C9A97A"/>
+            </svg>
+          </button>
         </div>
 
-        {/* Top-right: Velayo menu button */}
-        <button
-          onClick={() => setShowVelayoMenu(true)}
-          style={{ position: "absolute", top: "14px", right: "14px", background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center" }}
-          aria-label="Velayo menu"
-        >
-          <svg width="28" height="24" viewBox="0 0 28 24" fill="none">
-            <circle cx="5" cy="4" r="3.5" fill="#C9A97A"/>
-            <circle cx="14" cy="16" r="3.5" fill="#C9A97A"/>
-            <circle cx="23" cy="4" r="3.5" fill="#C9A97A"/>
-          </svg>
-        </button>
-
-        {/* Dynamic title */}
-        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: "42px", letterSpacing: "0.02em", color: "#FAF4EC", fontWeight: 400 }}>
-          {householdMembers.length > 1 ? (
-            <button
-              onClick={() => setShowHouseholdModal(true)}
-              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
-            >
-              <span style={{ fontWeight: 400, fontStyle: "italic" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
-              <span style={{ fontSize: "1rem", opacity: 0.7 }}>👥</span>
-            </button>
-          ) : <span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>}
-        </h1>
+        {/* Row 2: OurProvisions title bar — centered */}
+        <div style={{ padding: "20px 16px", textAlign: "center", background: "#2C1A0E" }}>
+          <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: "42px", letterSpacing: "0.02em", color: "#FAF4EC", fontWeight: 400, margin: 0 }}>
+            {householdMembers.length > 1 ? (
+              <button
+                onClick={() => setShowHouseholdModal(true)}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
+              >
+                <span style={{ fontWeight: 400, fontStyle: "italic", marginRight: "0.25em" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
+                <svg width="22" height="18" viewBox="0 0 22 18" fill="none" style={{ opacity: 0.6, flexShrink: 0 }}>
+                  <circle cx="8" cy="5" r="3.5" fill="#C9A97A"/>
+                  <path d="M1 17c0-3.866 3.134-7 7-7s7 3.134 7 7" stroke="#C9A97A" strokeWidth="1.5" strokeLinecap="round"/>
+                  <circle cx="16" cy="4" r="2.5" fill="#C9A97A"/>
+                  <path d="M14 17c0-2.761 1.791-5.1 4.25-5.847" stroke="#C9A97A" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              </button>
+            ) : (
+              <><span style={{ fontWeight: 400, fontStyle: "italic", marginRight: "0.25em" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span></>
+            )}
+          </h1>
+        </div>
       </div>
 
       {/* Velayo app menu */}
@@ -858,10 +870,10 @@ export default function ShoppingListApp() {
           <>
             <div className="toolbar">
               <p className="hint">Swipe left on any item to edit price or remove it.</p>
-              <button className="add-item-btn" onClick={() => { setShowAddModal(true); setAddError(""); }}>+ Add Item</button>
+              <button className="add-item-btn" onClick={() => { setShowAddModal(true); setAddError(""); setAddModalResetDone(false); }}>+ Add Item</button>
             </div>
 
-            {catalogLoading && isSignedIn ? (
+            {catalogLoading ? (
               <div style={{ textAlign: "center", padding: "40px 20px", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", letterSpacing: "1px" }}>
                 Loading your catalog…
               </div>
@@ -938,7 +950,7 @@ export default function ShoppingListApp() {
                     {cat.items.map((item) => {
                       const isDone = checked[item.name];
                       return (
-                        <SwipeToRemove key={item.name} onRemove={() => updateQty(item.name, 0)}>
+                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)}>
                           <div className={`list-item ${isDone ? "done" : ""}`}>
                             <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
                               {isDone && <span className="checkmark">✓</span>}
@@ -1001,24 +1013,51 @@ export default function ShoppingListApp() {
               <input className="modal-input" placeholder="e.g. Kombucha" value={newItemName} autoFocus
                 onChange={(e) => setNewItemName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
             </div>
-            <div className="modal-field">
+            <div className="modal-field" style={{ opacity: newItemName.trim() ? 1 : 0.4, transition: "opacity 0.15s" }}>
               <label className="modal-label">Price ($)</label>
-              <input className="modal-input" type="number" placeholder="0.00" min="0" step="0.01" value={newItemPrice}
-                onChange={(e) => setNewItemPrice(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
+              <input className="modal-input" type="text" inputMode="numeric" placeholder="0.00" value={centsToDisplay(newItemPrice)}
+                onChange={(e) => newItemName.trim() && setNewItemPrice(e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "")} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
             </div>
             <div className="modal-field">
-              <label className="modal-label">Category</label>
-              <select className="modal-select" value={newItemCategory} onChange={(e) => setNewItemCategory(e.target.value)}>
+              <label className="modal-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>Category</span>
+                {isSignedIn && !newItemName.trim() && hiddenCatalogItems.some(h => h.category === newItemCategory) && (
+                  <span style={{ fontStyle: "italic", fontSize: "10px", color: "#C9A97A", fontWeight: 400 }}>select to reset</span>
+                )}
+              </label>
+              <select className="modal-select" value={newItemCategory} onChange={(e) => { setNewItemCategory(e.target.value); setAddModalResetDone(false); }}>
                 {CATEGORY_ORDER.map(rawName => (
                   <option key={rawName} value={rawName}>{CATEGORY_DISPLAY[rawName] || rawName}</option>
                 ))}
                 <option value={CUSTOM_CAT}>{CUSTOM_CAT}</option>
               </select>
+              {isSignedIn && !newItemName.trim() && (
+                addModalResetDone ? (
+                  <div style={{ fontSize: "12px", color: "#A0724A", fontStyle: "italic", marginTop: "6px" }}>
+                    ✓ {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} restored
+                  </div>
+                ) : hiddenCatalogItems.some(h => h.category === newItemCategory) ? (
+                  <button
+                    onClick={async () => {
+                      await restoreHiddenByCategory(newItemCategory);
+                      setAddModalResetDone(true);
+                      setTimeout(() => setAddModalResetDone(false), 2000);
+                    }}
+                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#A0724A", fontFamily: "'Lato', sans-serif", fontSize: "12px", padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block" }}
+                  >
+                    Reset {CATEGORY_DISPLAY[newItemCategory] || newItemCategory}
+                  </button>
+                ) : null
+              )}
             </div>
             {addError && <div className="modal-error">{addError}</div>}
             <div className="modal-actions">
               <button className="modal-cancel" onClick={() => setShowAddModal(false)}>Cancel</button>
-              <button className="modal-confirm" onClick={handleAddItem}>Add to List</button>
+              <button
+                className="modal-confirm"
+                onClick={newItemName.trim() ? handleAddItem : undefined}
+                style={{ opacity: newItemName.trim() ? 1 : 0.5, pointerEvents: newItemName.trim() ? "auto" : "none" }}
+              >Add to List</button>
             </div>
           </div>
         </div>
