@@ -582,8 +582,8 @@ export default function ShoppingListApp() {
           <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: "42px", letterSpacing: "0.02em", color: "#FAF4EC", fontWeight: 400, margin: 0 }}>
             {householdMembers.length > 1 ? (
               <button
-                onClick={() => setShowHouseholdModal(true)}
-                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
+                onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
+                style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
               >
                 <span style={{ fontWeight: 400, fontStyle: "italic", marginRight: "0.25em" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
                 <svg width="22" height="18" viewBox="0 0 22 18" fill="none" style={{ opacity: 0.6, flexShrink: 0 }}>
@@ -595,23 +595,25 @@ export default function ShoppingListApp() {
               </button>
             ) : (
               <button
-                onClick={() => setShowHouseholdModal(true)}
-                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", font: "inherit" }}
+                onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
+                style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit" }}
               >
                 <span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
               </button>
             )}
           </h1>
-          <div style={{
-            fontFamily: "'Lato', sans-serif",
-            fontSize: "0.65rem",
-            letterSpacing: "1.5px",
-            textTransform: "uppercase",
-            color: "rgba(250, 244, 236, 0.4)",
-            marginTop: "6px",
-          }}>
-            Tap to manage household
-          </div>
+          {isSignedIn && householdMembers.length <= 1 && (
+            <div style={{
+              fontFamily: "'Lato', sans-serif",
+              fontSize: "0.65rem",
+              letterSpacing: "1.5px",
+              textTransform: "uppercase",
+              color: "rgba(250, 244, 236, 0.4)",
+              marginTop: "6px",
+            }}>
+              Tap to manage household
+            </div>
+          )}
         </div>
       </div>
 
