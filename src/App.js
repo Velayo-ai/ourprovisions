@@ -594,9 +594,24 @@ export default function ShoppingListApp() {
                 </svg>
               </button>
             ) : (
-              <><span style={{ fontWeight: 400, fontStyle: "italic", marginRight: "0.25em" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span></>
+              <button
+                onClick={() => setShowHouseholdModal(true)}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "inherit", font: "inherit" }}
+              >
+                <span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
+              </button>
             )}
           </h1>
+          <div style={{
+            fontFamily: "'Lato', sans-serif",
+            fontSize: "0.65rem",
+            letterSpacing: "1.5px",
+            textTransform: "uppercase",
+            color: "rgba(250, 244, 236, 0.4)",
+            marginTop: "6px",
+          }}>
+            Tap to manage household
+          </div>
         </div>
       </div>
 
@@ -722,6 +737,17 @@ export default function ShoppingListApp() {
                 );
               })}
             </div>
+            <button
+              onClick={() => { setShowHouseholdModal(false); setShowInvitePanel(true); }}
+              style={{
+                width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
+                letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
+                background: "#A0724A", color: "#FAF4EC", border: "none",
+                borderRadius: "8px", cursor: "pointer", marginTop: "16px",
+              }}
+            >
+              + Invite Someone
+            </button>
           </div>
         </div>
       )}
