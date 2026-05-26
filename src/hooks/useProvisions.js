@@ -6,6 +6,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
   const [quantities, setQuantities] = useState({});
   const [checked, setChecked] = useState({});
   const [prices, setPrices] = useState({});
+  const [categoryAvgPrices, setCategoryAvgPrices] = useState({});
   const [household, setHousehold] = useState(null);
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [catalogMap, setCatalogMap] = useState({});
@@ -79,6 +80,25 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
             if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
           });
           setPrices(hintPrices);
+          try {
+            const avgResponse = await fetch(
+              `${process.env.REACT_APP_SUPABASE_URL}/rest/v1/category_avg_prices?select=category,avg_price`,
+              {
+                headers: {
+                  apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
+                  Authorization: `Bearer ${process.env.REACT_APP_SUPABASE_ANON_KEY}`,
+                },
+              }
+            );
+            const avgRows = await avgResponse.json();
+            const avgMap = {};
+            (Array.isArray(avgRows) ? avgRows : []).forEach(row => {
+              avgMap[row.category] = parseFloat(row.avg_price);
+            });
+            setCategoryAvgPrices(avgMap);
+          } catch (err) {
+            console.error("Category avg prices load error:", err.message);
+          }
         } catch (err) {
           console.error("Anon catalog load error:", err.message);
         } finally {
@@ -183,6 +203,17 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
             if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
           });
           setPrices(hintPrices);
+
+          const { data: avgRows, error: avgErr } = await db
+            .from("category_avg_prices")
+            .select("category, avg_price");
+          if (!avgErr && avgRows) {
+            const avgMap = {};
+            avgRows.forEach(row => {
+              avgMap[row.category] = parseFloat(row.avg_price);
+            });
+            setCategoryAvgPrices(avgMap);
+          }
 
           await loadListItems(db, hh.id);
 
@@ -669,7 +700,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
   }, []);
 
   return {
-    quantities, checked, prices, household, householdMembers, catalogMap,
+    quantities, checked, prices, categoryAvgPrices, household, householdMembers, catalogMap,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     deleteItem, createInvite, acceptInvite, restoreHiddenByCategory,

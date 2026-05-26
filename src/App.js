@@ -1,4 +1,4 @@
-import { SignInButton, SignUpButton, UserButton, useUser, useAuth } from '@clerk/clerk-react';
+import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useProvisions } from './hooks/useProvisions';
 
@@ -198,6 +198,7 @@ export default function ShoppingListApp() {
     quantities,
     checked,
     prices: supabasePrices,
+    categoryAvgPrices,
     household,
     householdMembers,
     catalogMap,
@@ -241,6 +242,16 @@ export default function ShoppingListApp() {
   const [joinBanner, setJoinBanner] = useState(null); // household name after accepting
   const [showVelayoMenu, setShowVelayoMenu] = useState(false);
   const [showHouseholdModal, setShowHouseholdModal] = useState(false);
+
+  const { signOut } = useClerk();
+  const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [showPrices, setShowPrices] = useState(() => {
+    return localStorage.getItem('op_showPrices') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('op_showPrices', showPrices);
+  }, [showPrices]);
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
 
@@ -388,6 +399,7 @@ export default function ShoppingListApp() {
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
+  const hasEstimatedPrices = shoppingList.some(c => c.items.some(i => !prices[i.name]));
   const checkedCount = Object.values(checked).filter(Boolean).length;
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.name] ? i.subtotal : 0), 0), 0);
@@ -552,7 +564,20 @@ export default function ShoppingListApp() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: "#1a0e06" }}>
           <div>
             {isSignedIn ? (
-              <UserButton afterSignOutUrl="/" />
+              <button
+                onClick={() => setShowProfileSheet(true)}
+                style={{
+                  width: "32px", height: "32px", borderRadius: "50%",
+                  background: "#0D9488", border: "2px solid #0D9488",
+                  color: "white", fontFamily: "'Lato', sans-serif",
+                  fontSize: "12px", fontWeight: 600, cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0
+                }}
+                aria-label="Open profile"
+              >
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </button>
             ) : (
               <div style={{ display: "flex", gap: "8px" }}>
                 <SignInButton mode="modal">
@@ -845,11 +870,11 @@ export default function ShoppingListApp() {
         </button>
       </div>
 
-      {totalItems > 0 && (
+      {showPrices && totalItems > 0 && (
         <div className={`budget-banner ${overBudget ? "over" : ""}`}>
           <div style={{ flex: 1 }}>
             <div className="budget-label">Estimated Total</div>
-            <div className={`budget-amount ${overBudget ? "over" : ""}`}>${totalCost.toFixed(2)}</div>
+            <div className={`budget-amount ${overBudget ? "over" : ""}`}>{hasEstimatedPrices ? "~" : ""}${totalCost.toFixed(2)}</div>
             <div className="budget-items">{totalItems} item{totalItems !== 1 ? "s" : ""} selected</div>
             {budgetNum !== null && (
               <div className="budget-bar-wrap">
@@ -912,7 +937,9 @@ export default function ShoppingListApp() {
                   <div className="items-grid">
                     {cat.items.map((item) => {
                       const qty = quantities[item.name] || 0;
-                      const price = prices[item.name] || 0;
+                      const rawFallback = categoryAvgPrices[cat.rawName] || 3.00;
+                      const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
+                      const isEstimatedPrice = !prices[item.name];
                       const isEditing = editingPrice === item.name;
                       return (
                         <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => startEditPrice(item.name)}>
@@ -925,6 +952,7 @@ export default function ShoppingListApp() {
                                 <button className="qty-btn" onClick={() => updateQty(item.name, qty + 1, cat.rawName)}>+</button>
                               </div>
                             </div>
+                            {showPrices && (
                             <div className="price-row">
                               {isEditing ? (
                                 <div className="price-edit-wrap">
@@ -941,7 +969,8 @@ export default function ShoppingListApp() {
                                 <span className="price-display">${price.toFixed(2)} each</span>
                               )}
                             </div>
-                            {qty > 0 && <div className="item-subtotal">Subtotal: ${(qty * price).toFixed(2)}</div>}
+                            )}
+                            {showPrices && qty > 0 && <div className="item-subtotal">Subtotal: ${(qty * price).toFixed(2)}</div>}
                           </div>
                         </SwipeToRemove>
                       );
@@ -994,6 +1023,7 @@ export default function ShoppingListApp() {
                     })}
                   </div>
                 ))}
+                {showPrices && (
                 <div className={`list-total ${overBudget ? "over" : ""}`}>
                   <div className="lt-left">
                     <div className="lt-label">Trip Total</div>
@@ -1008,8 +1038,9 @@ export default function ShoppingListApp() {
                       </div>
                     )}
                   </div>
-                  <div className={`lt-amount ${overBudget ? "over" : ""}`}>${totalCost.toFixed(2)}</div>
+                  <div className={`lt-amount ${overBudget ? "over" : ""}`}>{hasEstimatedPrices ? "~" : ""}${totalCost.toFixed(2)}</div>
                 </div>
+                )}
               </>
             )}
           </>
@@ -1041,11 +1072,13 @@ export default function ShoppingListApp() {
               <input className="modal-input" placeholder="e.g. Kombucha" value={newItemName} autoFocus
                 onChange={(e) => setNewItemName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
             </div>
+            {showPrices && (
             <div className="modal-field" style={{ opacity: newItemName.trim() ? 1 : 0.4, transition: "opacity 0.15s" }}>
               <label className="modal-label">Price ($)</label>
               <input className="modal-input" type="text" inputMode="numeric" placeholder="0.00" value={centsToDisplay(newItemPrice)}
                 onChange={(e) => newItemName.trim() && setNewItemPrice(e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "")} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
             </div>
+            )}
             <div className="modal-field">
               <label className="modal-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>Category</span>
@@ -1119,6 +1152,62 @@ export default function ShoppingListApp() {
                 <button className="modal-confirm" onClick={saveBudget}>Save</button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Profile Sheet */}
+      {showProfileSheet && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(2,15,26,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-end" }}
+          onClick={() => setShowProfileSheet(false)}
+        >
+          <div
+            style={{ background: "#FDF8F2", borderRadius: "20px 20px 0 0", width: "100%", paddingBottom: "32px" }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Handle */}
+            <div style={{ width: "36px", height: "4px", background: "#c8b89a", borderRadius: "2px", margin: "10px auto 0" }} />
+
+            {/* User row */}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 20px 12px", borderBottom: "0.5px solid #e8ddd0" }}>
+              <div style={{ width: "44px", height: "44px", borderRadius: "50%", background: "#0D9488", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: 600, color: "white", fontFamily: "'Lato', sans-serif", flexShrink: 0 }}>
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </div>
+              <div>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "15px", fontWeight: 600, color: "#2C1A0E" }}>{user?.firstName} {user?.lastName}</div>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#A0724A", marginTop: "2px" }}>{user?.primaryEmailAddress?.emailAddress}</div>
+              </div>
+            </div>
+
+            {/* Preferences */}
+            <div style={{ padding: "14px 20px 8px" }}>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#A0724A", marginBottom: "12px" }}>Preferences</div>
+
+              {/* Show prices toggle */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "12px", borderBottom: "0.5px solid #e8ddd0" }}>
+                <div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>Show prices &amp; budget</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "2px" }}>Display item prices and estimated total</div>
+                </div>
+                <div
+                  onClick={() => setShowPrices(p => !p)}
+                  style={{ width: "44px", height: "26px", borderRadius: "13px", background: showPrices ? "#c8973a" : "#d4c9b8", position: "relative", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" }}
+                >
+                  <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: "white", position: "absolute", top: "3px", left: showPrices ? "21px" : "3px", transition: "left 0.15s" }} />
+                </div>
+              </div>
+            </div>
+
+            {/* Sign out */}
+            <div style={{ height: "0.5px", background: "#e8ddd0", margin: "0 20px" }} />
+            <button
+              onClick={() => signOut(() => setShowProfileSheet(false))}
+              style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", width: "100%" }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#c0392b" }}>Sign out</span>
+            </button>
           </div>
         </div>
       )}
