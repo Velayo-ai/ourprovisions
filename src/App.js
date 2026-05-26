@@ -939,7 +939,6 @@ export default function ShoppingListApp() {
                       const qty = quantities[item.name] || 0;
                       const rawFallback = categoryAvgPrices[cat.rawName] || 3.00;
                       const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
-                      const isEstimatedPrice = !prices[item.name];
                       const isEditing = editingPrice === item.name;
                       return (
                         <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => startEditPrice(item.name)}>
