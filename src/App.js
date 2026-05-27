@@ -519,16 +519,19 @@ export default function ShoppingListApp() {
     for (const cat of categories) {
       const catItems = cat.items
         .filter((item) => (quantities[item.name] || 0) > 0)
-        .map((item) => ({
-          name: item.name, qty: quantities[item.name],
-          price: prices[item.name] || 0,
-          subtotal: (quantities[item.name] || 0) * (prices[item.name] || 0),
-          category: cat.name,
-        }));
+        .map((item) => {
+          const realPrice = prices[item.name] && supabasePrices[item.name] ? prices[item.name] : (localPrices[item.name] || 0);
+          return {
+            name: item.name, qty: quantities[item.name],
+            price: realPrice,
+            subtotal: (quantities[item.name] || 0) * realPrice,
+            category: cat.name,
+          };
+        });
       if (catItems.length > 0) result.push({ category: cat.name, items: catItems });
     }
     return result;
-  }, [quantities, prices, categories]);
+  }, [quantities, prices, supabasePrices, localPrices, categories]);
 
   // Loading state for catalog — only true while fetch is in flight, not based on result size
   const catalogLoading = loading;
@@ -1162,10 +1165,12 @@ export default function ShoppingListApp() {
                               {isDone && <span className="checkmark">✓</span>}
                             </div>
                             <span className="li-name" onClick={() => toggleChecked(item.name)}>{item.name}</span>
-                            <div className="li-right">
-                              <span className="li-qty">×{item.qty} @ ${item.price.toFixed(2)}</span>
-                              <span className={`li-subtotal ${isDone ? "done" : ""}`}>${item.subtotal.toFixed(2)}</span>
-                            </div>
+                            {prices[item.name] && (
+                              <div className="li-right">
+                                <span className="li-qty">×{item.qty} @ ${item.price.toFixed(2)}</span>
+                                <span className={`li-subtotal ${isDone ? "done" : ""}`}>${item.subtotal.toFixed(2)}</span>
+                              </div>
+                            )}
                           </div>
                         </SwipeToRemove>
                       );
