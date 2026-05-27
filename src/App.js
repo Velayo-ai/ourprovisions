@@ -21,8 +21,8 @@ const CATEGORY_ORDER = [
 const CUSTOM_CAT = "⭐ My Custom Items";
 const SWIPE_THRESHOLD = 60;
 
-function SwipeToRemove({ onRemove, onEdit, children }) {
-  const REVEAL_WIDTH = 160;
+function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, children }) {
+  const REVEAL_WIDTH = 240;
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -104,6 +104,14 @@ function SwipeToRemove({ onRemove, onEdit, children }) {
               letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer"
             }}
           >Edit</button>
+          <button
+            onClick={(e) => { e.stopPropagation(); close(); onStaple && onStaple(); }}
+            style={{
+              flex: 1, background: isStaple ? "#0D9488" : "#6B7E8F", border: "none", color: "white",
+              fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", fontWeight: 700,
+              letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer"
+            }}
+          >⭐ Staple</button>
           <button
             onClick={(e) => { e.stopPropagation(); handleRemove(); }}
             style={{
@@ -202,6 +210,7 @@ export default function ShoppingListApp() {
     household,
     householdMembers,
     catalogMap,
+    setCatalogMap,
     loading,
     error,
     dismissError,
@@ -214,6 +223,8 @@ export default function ShoppingListApp() {
     hiddenCatalogItems,
     restoreHiddenByCategory,
     createInvite,
+    toggleStaple,
+    supabase,
   } = useProvisions({
     getToken,
     userId: user?.id,
@@ -242,6 +253,14 @@ export default function ShoppingListApp() {
   const [joinBanner, setJoinBanner] = useState(null); // household name after accepting
   const [showVelayoMenu, setShowVelayoMenu] = useState(false);
   const [showHouseholdModal, setShowHouseholdModal] = useState(false);
+  const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [renamingCategory, setRenamingCategory] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deletingCategory, setDeletingCategory] = useState(null);
+  const [deleteMoveTarget, setDeleteMoveTarget] = useState("");
+  const [householdCategories, setHouseholdCategories] = useState(new Set());
+  const [stapleFilter, setStapleFilter] = useState(false);
 
   const { signOut } = useClerk();
   const [showProfileSheet, setShowProfileSheet] = useState(false);
@@ -293,10 +312,23 @@ export default function ShoppingListApp() {
         });
       }
     });
+    // Append empty household categories (created but no items yet)
+    householdCategories.forEach(catKey => {
+      if (!sorted.find(c => c.rawName === catKey)) {
+        sorted.push({ name: catKey, rawName: catKey, items: [] });
+      }
+    });
     return sorted;
-  }, [catalogMap]);
+  }, [catalogMap, householdCategories]);
 
-
+  const displayCategories = stapleFilter
+    ? categories
+        .map(cat => ({
+          ...cat,
+          items: cat.items.filter(item => catalogMap[item.name]?.is_staple),
+        }))
+        .filter(cat => cat.items.length > 0)
+    : categories;
 
   // Show join banner if user joined via invite during bootstrap
   useEffect(() => {
@@ -356,6 +388,68 @@ export default function ShoppingListApp() {
     // updateQty with qty=1 will auto-create the catalog item in Supabase if it doesn't exist
     updateQty(name, 1, newItemCategory, price > 0 ? price : undefined);
     setNewItemName(""); setNewItemPrice(""); setAddError(""); setShowAddModal(false);
+  };
+
+  const createCategory = (name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setHouseholdCategories(prev => new Set([...prev, trimmed]));
+    setNewCategoryName("");
+  };
+
+  const renameCategory = async (oldName, newName) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) return;
+    if (!supabase || !household) return;
+    const { error: renameErr } = await supabase
+      .from("catalog_items")
+      .update({ category: trimmed })
+      .eq("household_id", household.id)
+      .eq("category", oldName)
+      .is("deleted_at", null);
+    if (renameErr) { return; }
+    setCatalogMap(prev => {
+      const updated = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        updated[k] = v.category === oldName ? { ...v, category: trimmed } : v;
+      });
+      return updated;
+    });
+    setHouseholdCategories(prev => {
+      const s = new Set(prev);
+      if (s.has(oldName)) { s.delete(oldName); s.add(trimmed); }
+      return s;
+    });
+    setRenamingCategory(null);
+    setRenameValue("");
+  };
+
+  const deleteCategory = async (rawName, moveTo) => {
+    if (!supabase || !household) return;
+    if (moveTo) {
+      const { error: moveErr } = await supabase
+        .from("catalog_items")
+        .update({ category: moveTo })
+        .eq("household_id", household.id)
+        .eq("category", rawName)
+        .is("deleted_at", null);
+      if (moveErr) { return; }
+      setCatalogMap(prev => {
+        const updated = {};
+        Object.entries(prev).forEach(([k, v]) => {
+          updated[k] = v.category === rawName ? { ...v, category: moveTo } : v;
+        });
+        return updated;
+      });
+    } else {
+      const itemsInCat = Object.values(catalogMap).filter(i => i.category === rawName);
+      for (const item of itemsInCat) {
+        await deleteItem(item.name);
+      }
+    }
+    setHouseholdCategories(prev => { const s = new Set(prev); s.delete(rawName); return s; });
+    setDeletingCategory(null);
+    setDeleteMoveTarget("");
   };
 
  const openBudgetModal = () => {
@@ -923,7 +1017,20 @@ export default function ShoppingListApp() {
           <>
             <div className="toolbar">
               <p className="hint">Swipe left on any item to edit price or remove it.</p>
-              <button className="add-item-btn" onClick={() => { setShowAddModal(true); setAddError(""); setAddModalResetDone(false); }}>+ Add Item</button>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <button
+                  onClick={() => setStapleFilter(f => !f)}
+                  style={{
+                    fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", letterSpacing: "1px",
+                    textTransform: "uppercase", padding: "6px 12px",
+                    background: stapleFilter ? "#c8973a" : "transparent",
+                    color: stapleFilter ? "white" : "#8a7a60",
+                    border: `1px solid ${stapleFilter ? "#c8973a" : "#c8b89a"}`,
+                    borderRadius: "20px", cursor: "pointer", transition: "all 0.2s",
+                  }}
+                >⭐ Staples</button>
+                <button className="add-item-btn" onClick={() => { setShowAddModal(true); setAddError(""); setAddModalResetDone(false); }}>+ Add Item</button>
+              </div>
             </div>
 
             {catalogLoading ? (
@@ -931,7 +1038,7 @@ export default function ShoppingListApp() {
                 Loading your catalog…
               </div>
             ) : (
-              categories.map((cat) => (
+              displayCategories.map((cat) => (
                 <div className="category-block" key={cat.name}>
                   <div className="cat-title">{cat.name}</div>
                   <div className="items-grid">
@@ -940,8 +1047,9 @@ export default function ShoppingListApp() {
                       const rawFallback = categoryAvgPrices[cat.rawName] || 3.00;
                       const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
                       const isEditing = editingPrice === item.name;
+                      const isStaple = catalogMap[item.name]?.is_staple;
                       return (
-                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => startEditPrice(item.name)}>
+                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => startEditPrice(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple}>
                           <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
                             <div className="item-top">
                               <span className="item-name">{item.name}</span>
@@ -1085,11 +1193,20 @@ export default function ShoppingListApp() {
                   <span style={{ fontStyle: "italic", fontSize: "10px", color: "#C9A97A", fontWeight: 400 }}>select to reset</span>
                 )}
               </label>
-              <select className="modal-select" value={newItemCategory} onChange={(e) => { setNewItemCategory(e.target.value); setAddModalResetDone(false); }}>
-                {CATEGORY_ORDER.map(rawName => (
-                  <option key={rawName} value={rawName}>{CATEGORY_DISPLAY[rawName] || rawName}</option>
+              <select className="modal-select" value={newItemCategory}
+                onChange={(e) => {
+                  if (e.target.value === "__new__") {
+                    setShowManageCategoriesModal(true);
+                  } else {
+                    setNewItemCategory(e.target.value);
+                    setAddModalResetDone(false);
+                  }
+                }}>
+                {categories.map(cat => (
+                  <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                 ))}
-                <option value={CUSTOM_CAT}>{CUSTOM_CAT}</option>
+                <option disabled>──────────</option>
+                <option value="__new__">＋ Create New Category</option>
               </select>
               {isSignedIn && !newItemName.trim() && (
                 addModalResetDone ? (
@@ -1150,6 +1267,116 @@ export default function ShoppingListApp() {
                 <button className="modal-cancel" onClick={() => setShowBudgetModal(false)}>Cancel</button>
                 <button className="modal-confirm" onClick={saveBudget}>Save</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Categories Modal */}
+      {showManageCategoriesModal && (
+        <div className="modal-overlay" onClick={() => setShowManageCategoriesModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
+            <h2>Manage Categories</h2>
+
+            {/* Create */}
+            <div className="modal-field">
+              <label className="modal-label">Create New Category</label>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  className="modal-input"
+                  placeholder="e.g. Frozen Foods"
+                  value={newCategoryName}
+                  onChange={e => setNewCategoryName(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && createCategory(newCategoryName)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  className="modal-confirm"
+                  onClick={() => createCategory(newCategoryName)}
+                  style={{ opacity: newCategoryName.trim() ? 1 : 0.5, pointerEvents: newCategoryName.trim() ? "auto" : "none" }}
+                >Create</button>
+              </div>
+            </div>
+
+            {/* Rename */}
+            {isSignedIn && (
+              <div className="modal-field">
+                <label className="modal-label">Rename Category</label>
+                <select className="modal-select" value={renamingCategory || ""}
+                  onChange={e => { setRenamingCategory(e.target.value || null); setRenameValue(e.target.value); }}
+                  style={{ marginBottom: "8px" }}>
+                  <option value="">— select category —</option>
+                  {categories.filter(c => !CATEGORY_ORDER.includes(c.rawName)).map(cat => (
+                    <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
+                  ))}
+                </select>
+                {renamingCategory && (
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <input
+                      className="modal-input"
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && renameCategory(renamingCategory, renameValue)}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      className="modal-confirm"
+                      onClick={() => renameCategory(renamingCategory, renameValue)}
+                      style={{ opacity: renameValue.trim() ? 1 : 0.5, pointerEvents: renameValue.trim() ? "auto" : "none" }}
+                    >Rename</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Delete */}
+            {isSignedIn && (
+              <div className="modal-field">
+                <label className="modal-label">Delete Category</label>
+                <select className="modal-select" value={deletingCategory?.rawName || ""}
+                  onChange={e => {
+                    const rawName = e.target.value;
+                    if (!rawName) { setDeletingCategory(null); return; }
+                    const itemCount = Object.values(catalogMap).filter(i => i.category === rawName).length;
+                    setDeletingCategory({ rawName, itemCount });
+                    setDeleteMoveTarget("");
+                  }}
+                  style={{ marginBottom: "8px" }}>
+                  <option value="">— select category —</option>
+                  {categories.filter(c => !CATEGORY_ORDER.includes(c.rawName)).map(cat => (
+                    <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
+                  ))}
+                </select>
+                {deletingCategory && (
+                  <>
+                    {deletingCategory.itemCount > 0 && (
+                      <>
+                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#8a7a60", marginBottom: "8px" }}>
+                          {deletingCategory.itemCount} item{deletingCategory.itemCount !== 1 ? "s" : ""} in this category. Move them to:
+                        </div>
+                        <select className="modal-select" value={deleteMoveTarget}
+                          onChange={e => setDeleteMoveTarget(e.target.value)}
+                          style={{ marginBottom: "8px" }}>
+                          <option value="">— delete all items too —</option>
+                          {categories.filter(c => c.rawName !== deletingCategory.rawName).map(cat => (
+                            <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
+                          ))}
+                        </select>
+                      </>
+                    )}
+                    <button
+                      className="modal-remove"
+                      onClick={() => deleteCategory(deletingCategory.rawName, deleteMoveTarget || null)}
+                    >
+                      {deleteMoveTarget ? `Move & Delete Category` : `Delete${deletingCategory.itemCount > 0 ? " & Remove Items" : " Category"}`}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button className="modal-confirm" onClick={() => setShowManageCategoriesModal(false)}>Done</button>
             </div>
           </div>
         </div>

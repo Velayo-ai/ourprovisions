@@ -179,14 +179,14 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
           setHiddenCatalogItems(hiddenCatalogList);
           const { data: catalog, error: catalogErr } = await db
             .from("catalog_items")
-            .select("id, name, category, is_global, price_hint")
+            .select("id, name, category, is_global, price_hint, is_staple")
             .eq("is_global", true)
             .is("deleted_at", null);
           if (catalogErr) throw new Error(`Could not load catalog: ${catalogErr.message}`);
 
           const { data: customItems, error: customErr } = await db
             .from("catalog_items")
-            .select("id, name, category, is_global, price_hint")
+            .select("id, name, category, is_global, price_hint, is_staple")
             .eq("household_id", hh.id)
             .eq("is_global", false)
             .is("deleted_at", null);
@@ -565,13 +565,13 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
         // Load catalog (global + household custom items)
         const { data: catalog } = await db
           .from("catalog_items")
-          .select("id, name, category")
+          .select("id, name, category, is_staple")
           .eq("is_global", true)
           .is("deleted_at", null);
 
         const { data: customItems } = await db
           .from("catalog_items")
-          .select("id, name, category")
+          .select("id, name, category, is_staple")
           .eq("household_id", hhData.id)
           .eq("is_global", false)
           .is("deleted_at", null);
@@ -699,10 +699,28 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     setHiddenCatalogItems(prev => prev.filter(item => !ids.includes(item.id)));
   }, []);
 
+  const toggleStaple = useCallback(async (itemName) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return;
+    const item = catalogRef.current[itemName];
+    if (!item) return;
+    const newVal = !item.is_staple;
+    const { error: stapleErr } = await db
+      .from("catalog_items")
+      .update({ is_staple: newVal })
+      .eq("id", item.id);
+    if (stapleErr) { setError(`Could not update staple: ${stapleErr.message}`); return; }
+    const updated = { ...item, is_staple: newVal };
+    catalogRef.current = { ...catalogRef.current, [itemName]: updated };
+    setCatalogMap(prev => ({ ...prev, [itemName]: updated }));
+  }, []);
+
   return {
-    quantities, checked, prices, categoryAvgPrices, household, householdMembers, catalogMap,
+    quantities, checked, prices, categoryAvgPrices, household, householdMembers, catalogMap, setCatalogMap,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    deleteItem, createInvite, acceptInvite, restoreHiddenByCategory,
+    deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple,
+    supabase: supabaseRef.current,
   };
 }
