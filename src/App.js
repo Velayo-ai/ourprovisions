@@ -225,6 +225,10 @@ export default function ShoppingListApp() {
     createInvite,
     toggleStaple,
     supabase,
+    _supabase,
+    _household,
+    _clerkId,
+    _internalUserId,
   } = useProvisions({
     getToken,
     userId: user?.id,
@@ -261,6 +265,8 @@ export default function ShoppingListApp() {
   const [deleteMoveTarget, setDeleteMoveTarget] = useState("");
   const [householdCategories, setHouseholdCategories] = useState(new Set());
   const [stapleFilter, setStapleFilter] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [categoryError, setCategoryError] = useState(null);
 
   const { signOut } = useClerk();
   const [showProfileSheet, setShowProfileSheet] = useState(false);
@@ -397,31 +403,66 @@ export default function ShoppingListApp() {
     setNewCategoryName("");
   };
 
-  const renameCategory = async (oldName, newName) => {
+  const renameCategory = async (oldRawName, newName) => {
     const trimmed = newName.trim();
-    if (!trimmed || trimmed === oldName) return;
-    if (!supabase || !household) return;
-    const { error: renameErr } = await supabase
+    if (!trimmed || trimmed === oldRawName) return;
+    const db = _supabase.current;
+    const hh = _household.current;
+    if (!db || !hh) return;
+
+    const itemsInCat = Object.values(catalogMap).filter(i => i.category === oldRawName);
+    const globalItems = itemsInCat.filter(i => i.is_global);
+    const householdItems = itemsInCat.filter(i => !i.is_global);
+
+    for (const item of globalItems) {
+      const { error: insertErr } = await db
+        .from("catalog_items")
+        .insert({
+          name: item.name,
+          category: trimmed,
+          is_global: false,
+          household_id: hh.id,
+          created_by: _internalUserId.current,
+        })
+        .select().single();
+      if (insertErr) { setCategoryError(`Could not copy item: ${insertErr.message}`); return; }
+      await db.from("user_hidden_items").insert({
+        clerk_id: _clerkId.current,
+        catalog_item_id: item.id,
+      }).select();
+    }
+
+    if (householdItems.length > 0) {
+      const { error: updateErr } = await db
+        .from("catalog_items")
+        .update({ category: trimmed })
+        .eq("household_id", hh.id)
+        .eq("category", oldRawName)
+        .is("deleted_at", null);
+      if (updateErr) { setCategoryError(`Could not rename: ${updateErr.message}`); return; }
+    }
+
+    window.location.reload();
+  };
+
+  const handleResetCategories = async () => {
+    const db = _supabase.current;
+    const hh = _household.current;
+    if (!db || !hh) return;
+    const { error: delErr } = await db
       .from("catalog_items")
-      .update({ category: trimmed })
-      .eq("household_id", household.id)
-      .eq("category", oldName)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("household_id", hh.id)
+      .eq("is_global", false)
       .is("deleted_at", null);
-    if (renameErr) { return; }
-    setCatalogMap(prev => {
-      const updated = {};
-      Object.entries(prev).forEach(([k, v]) => {
-        updated[k] = v.category === oldName ? { ...v, category: trimmed } : v;
-      });
-      return updated;
-    });
-    setHouseholdCategories(prev => {
-      const s = new Set(prev);
-      if (s.has(oldName)) { s.delete(oldName); s.add(trimmed); }
-      return s;
-    });
-    setRenamingCategory(null);
-    setRenameValue("");
+    if (delErr) { setCategoryError(`Could not reset: ${delErr.message}`); return; }
+    await db
+      .from("user_hidden_items")
+      .delete()
+      .eq("clerk_id", user.id);
+    setShowResetConfirm(false);
+    setShowManageCategoriesModal(false);
+    window.location.reload();
   };
 
   const deleteCategory = async (rawName, moveTo) => {
@@ -1206,7 +1247,7 @@ export default function ShoppingListApp() {
                   <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                 ))}
                 <option disabled>──────────</option>
-                <option value="__new__">＋ Create New Category</option>
+                <option value="__new__">⚙ Manage Categories</option>
               </select>
               {isSignedIn && !newItemName.trim() && (
                 addModalResetDone ? (
@@ -1306,10 +1347,13 @@ export default function ShoppingListApp() {
                   onChange={e => { setRenamingCategory(e.target.value || null); setRenameValue(e.target.value); }}
                   style={{ marginBottom: "8px" }}>
                   <option value="">— select category —</option>
-                  {categories.filter(c => !CATEGORY_ORDER.includes(c.rawName)).map(cat => (
+                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName) && cat.rawName !== CUSTOM_CAT).map(cat => (
                     <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                   ))}
                 </select>
+                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "6px", fontStyle: "italic" }}>
+                  Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
+                </p>
                 {renamingCategory && (
                   <div style={{ display: "flex", gap: "8px" }}>
                     <input
@@ -1343,10 +1387,13 @@ export default function ShoppingListApp() {
                   }}
                   style={{ marginBottom: "8px" }}>
                   <option value="">— select category —</option>
-                  {categories.filter(c => !CATEGORY_ORDER.includes(c.rawName)).map(cat => (
+                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName) && cat.rawName !== CUSTOM_CAT).map(cat => (
                     <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                   ))}
                 </select>
+                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "6px", fontStyle: "italic" }}>
+                  Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
+                </p>
                 {deletingCategory && (
                   <>
                     {deletingCategory.itemCount > 0 && (
@@ -1375,8 +1422,30 @@ export default function ShoppingListApp() {
               </div>
             )}
 
+            {isSignedIn && (
+              <div style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#A0724A", marginBottom: "8px" }}>Danger Zone</div>
+                {!showResetConfirm ? (
+                  <button
+                    onClick={() => setShowResetConfirm(true)}
+                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#c0392b", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                  >Restore default categories</button>
+                ) : (
+                  <div>
+                    <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#2C1A0E", marginBottom: "10px" }}>
+                      This will remove all custom categories and items you've created, and restore the original catalog. Items from the standard catalog on your current list will not be affected.
+                    </p>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button onClick={() => setShowResetConfirm(false)} className="modal-cancel" style={{ fontSize: "12px" }}>Cancel</button>
+                      <button onClick={handleResetCategories} style={{ background: "#c0392b", color: "white", border: "none", borderRadius: "4px", padding: "6px 12px", fontFamily: "'Lato', sans-serif", fontSize: "12px", cursor: "pointer" }}>Yes, restore defaults</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="modal-actions">
-              <button className="modal-confirm" onClick={() => setShowManageCategoriesModal(false)}>Done</button>
+              <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setShowResetConfirm(false); }}>Done</button>
             </div>
           </div>
         </div>

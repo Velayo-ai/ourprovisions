@@ -722,5 +722,9 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple,
     supabase: supabaseRef.current,
+    _supabase: supabaseRef,
+    _household: householdRef,
+    _clerkId: clerkIdRef,
+    _internalUserId: internalUserIdRef,
   };
 }
