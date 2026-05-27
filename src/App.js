@@ -266,6 +266,7 @@ export default function ShoppingListApp() {
   const [householdCategories, setHouseholdCategories] = useState(new Set());
   const [stapleFilter, setStapleFilter] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
   const { signOut } = useClerk();
