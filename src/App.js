@@ -21,7 +21,7 @@ const CATEGORY_ORDER = [
 const CUSTOM_CAT = "⭐ My Custom Items";
 const SWIPE_THRESHOLD = 60;
 
-function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, children }) {
+function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, style: outerStyle, children }) {
   const REVEAL_WIDTH = 240;
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
@@ -90,7 +90,7 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, children }) {
   const isRevealing = offsetX < -10;
 
   return (
-    <div style={{ position: "relative", overflow: "hidden", borderRadius: "8px", marginBottom: "0" }}>
+    <div style={{ position: "relative", overflow: "hidden", borderRadius: "8px", marginBottom: "0", ...outerStyle }}>
       {onEdit ? (
         <div style={{
           position: "absolute", top: 0, right: 0, bottom: 0, width: `${REVEAL_WIDTH}px`,
@@ -686,11 +686,11 @@ export default function ShoppingListApp() {
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
-        .list-cat-title { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 2px; text-transform: uppercase; color: #8a7a60; margin-bottom: 8px; margin-top: 20px; }
-        .list-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; transition: all 0.2s; user-select: none; }
-        .list-item.done { opacity: 0.5; background: #E8D5B7; }
+        .list-cat-title { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #c8973a; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
+        .list-item { display: flex; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; }
+        .list-item.done { opacity: 0.45; }
         .list-item.done .li-name { text-decoration: line-through; color: #a89878; }
-        .checkbox { width: 20px; height: 20px; border-radius: 4px; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
+        .checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
         .checkbox.checked { background: #c8973a; border-color: #c8973a; }
         .checkmark { color: white; font-size: 0.7rem; font-weight: bold; }
         .li-name { font-family: 'Lato', sans-serif; font-size: 0.95rem; flex: 1; cursor: pointer; }
@@ -1042,7 +1042,7 @@ export default function ShoppingListApp() {
       )}
 
       <div className="tab-bar">
-        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")}>Add Items</button>
+        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")}>Browse</button>
         <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")}>
           My List {totalItems > 0 && <span className="badge">{totalItems}</span>}
         </button>
@@ -1100,7 +1100,6 @@ export default function ShoppingListApp() {
         {view === "input" && (
           <>
             <div className="toolbar">
-              <p className="hint">Swipe left on any item to edit price or remove it.</p>
               <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                 <button
                   onClick={() => setStapleFilter(f => !f)}
@@ -1113,7 +1112,6 @@ export default function ShoppingListApp() {
                     borderRadius: "20px", cursor: "pointer", transition: "all 0.2s",
                   }}
                 >⭐ Staples</button>
-                <button className="add-item-btn" onClick={() => { setShowAddModal(true); setAddError(""); setAddModalResetDone(false); }}>+ Add Item</button>
               </div>
             </div>
 
@@ -1124,7 +1122,20 @@ export default function ShoppingListApp() {
             ) : (
               displayCategories.map((cat) => (
                 <div className="category-block" key={cat.name}>
-                  <div className="cat-title">{cat.name}</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
+                    <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>{cat.name}</div>
+                    <button
+                      onClick={() => {
+                        setNewItemCategory(cat.rawName);
+                        setShowAddModal(true);
+                      }}
+                      style={{
+                        background: "none", border: "none", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.72rem", color: "#A0724A", cursor: "pointer",
+                        letterSpacing: "0.5px", padding: "0",
+                      }}
+                    >＋ Add item</button>
+                  </div>
                   <div className="items-grid">
                     {cat.items.map((item) => {
                       const qty = quantities[item.name] || 0;
@@ -1170,6 +1181,16 @@ export default function ShoppingListApp() {
                 </div>
               ))
             )}
+            <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
+              <button
+                onClick={() => setShowManageCategoriesModal(true)}
+                style={{
+                  background: "none", border: "none", fontFamily: "'Lato', sans-serif",
+                  fontSize: "0.75rem", color: "#A0724A", cursor: "pointer",
+                  letterSpacing: "1px", textDecoration: "underline",
+                }}
+              >Manage Categories</button>
+            </div>
           </>
         )}
 
@@ -1198,13 +1219,13 @@ export default function ShoppingListApp() {
                     {cat.items.map((item) => {
                       const isDone = checked[item.name];
                       return (
-                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)}>
+                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
                           <div className={`list-item ${isDone ? "done" : ""}`}>
                             <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
                               {isDone && <span className="checkmark">✓</span>}
                             </div>
                             <span className="li-name" onClick={() => toggleChecked(item.name)}>{item.name}</span>
-                            {prices[item.name] && (
+                            {showPrices && prices[item.name] && (
                               <div className="li-right">
                                 <span className="li-qty">×{item.qty} @ ${item.price.toFixed(2)}</span>
                                 <span className={`li-subtotal ${isDone ? "done" : ""}`}>${item.subtotal.toFixed(2)}</span>
@@ -1291,8 +1312,6 @@ export default function ShoppingListApp() {
                 {categories.map(cat => (
                   <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                 ))}
-                <option disabled>──────────</option>
-                <option value="__new__">⚙ Manage Categories</option>
               </select>
               {isSignedIn && !newItemName.trim() && (
                 addModalResetDone ? (
