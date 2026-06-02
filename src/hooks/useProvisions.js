@@ -170,7 +170,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
           // Load this user's hidden items with full catalog info
           const { data: hiddenRows } = await db
             .from("user_hidden_items")
-            .select("catalog_item_id, catalog_items(id, name, category, is_global, price_hint)")
+            .select("catalog_item_id, catalog_items(id, name, category, is_global, price_hint, created_by)")
             .eq("clerk_id", clerkId);
           const hiddenIds = new Set((hiddenRows || []).map(h => h.catalog_item_id));
           hiddenIdsRef.current = hiddenIds;
@@ -186,15 +186,18 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
 
           const { data: customItems, error: customErr } = await db
             .from("catalog_items")
-            .select("id, name, category, is_global, price_hint, is_staple")
+            .select("id, name, category, is_global, price_hint, is_staple, created_by")
             .eq("household_id", hh.id)
             .eq("is_global", false)
             .is("deleted_at", null);
           if (customErr) throw new Error(`Could not load custom items: ${customErr.message}`);
 
           const cMap = {};
-          [...(catalog || []), ...(customItems || [])].forEach((item) => {
-            if (!hiddenIds.has(item.id)) cMap[item.name] = item;
+          (catalog || []).forEach((item) => {
+            if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: null };
+          });
+          (customItems || []).forEach((item) => {
+            if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
           });
           setCatalogMap(cMap);
           catalogRef.current = cMap;
@@ -699,6 +702,62 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     setHiddenCatalogItems(prev => prev.filter(item => !ids.includes(item.id)));
   }, []);
 
+  const refreshCatalog = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return;
+
+    const { data: catalog, error: catalogErr } = await db
+      .from("catalog_items")
+      .select("id, name, category, is_global, price_hint, is_staple")
+      .eq("is_global", true)
+      .is("deleted_at", null);
+    if (catalogErr) { setError(`Could not refresh catalog: ${catalogErr.message}`); return; }
+
+    const { data: customItems, error: customErr } = await db
+      .from("catalog_items")
+      .select("id, name, category, is_global, price_hint, is_staple")
+      .eq("household_id", hh.id)
+      .eq("is_global", false)
+      .is("deleted_at", null);
+    if (customErr) { setError(`Could not refresh catalog: ${customErr.message}`); return; }
+
+    const cMap = {};
+    (catalog || []).forEach((item) => {
+      if (!hiddenIdsRef.current.has(item.id)) cMap[item.name] = { ...item, created_by: null };
+    });
+    (customItems || []).forEach((item) => {
+      if (!hiddenIdsRef.current.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
+    });
+    setCatalogMap(cMap);
+    catalogRef.current = cMap;
+  }, []);
+
+  const renameItem = useCallback(async (oldName, newName) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return;
+    const item = catalogRef.current[oldName];
+    if (!item || item.created_by == null) return; // only custom items
+    const { error: renameErr } = await db
+      .from("catalog_items")
+      .update({ name: newName })
+      .eq("id", item.id)
+      .eq("household_id", hh.id);
+    if (renameErr) { setError(`Could not rename item: ${renameErr.message}`); return; }
+    const updated = { ...item, name: newName };
+    const newRef = { ...catalogRef.current };
+    delete newRef[oldName];
+    newRef[newName] = updated;
+    catalogRef.current = newRef;
+    setCatalogMap(prev => {
+      const next = { ...prev };
+      delete next[oldName];
+      next[newName] = updated;
+      return next;
+    });
+  }, []);
+
   const toggleStaple = useCallback(async (itemName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -720,7 +779,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     quantities, checked, prices, categoryAvgPrices, household, householdMembers, catalogMap, setCatalogMap,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple,
+    deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,
     _household: householdRef,

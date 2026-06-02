@@ -94,7 +94,8 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, children }) {
       {onEdit ? (
         <div style={{
           position: "absolute", top: 0, right: 0, bottom: 0, width: `${REVEAL_WIDTH}px`,
-          display: "flex", opacity: isRevealing ? 1 : 0, transition: "opacity 0.15s"
+          display: "flex", opacity: isRevealing ? 1 : 0, transition: "opacity 0.15s",
+          pointerEvents: offsetX === 0 ? "none" : "auto"
         }}>
           <button
             onClick={(e) => { e.stopPropagation(); close(); onEdit(); }}
@@ -134,9 +135,10 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, children }) {
         style={{
           transform: `translateX(${offsetX}px)`,
           transition: swiping ? "none" : "transform 0.3s ease",
-          touchAction: "pan-y",
+          touchAction: offsetX < 0 ? "none" : "pan-y",
           cursor: "grab",
           opacity: removing ? 0 : 1,
+          pointerEvents: offsetX <= -REVEAL_WIDTH ? "none" : "auto",
         }}
         onTouchStart={(e) => handleStart(e.touches[0].clientX, e.touches[0].clientY)}
         onTouchMove={(e) => handleMove(e.touches[0].clientX, e.touches[0].clientY)}
@@ -224,6 +226,8 @@ export default function ShoppingListApp() {
     restoreHiddenByCategory,
     createInvite,
     toggleStaple,
+    renameItem,
+    refreshCatalog,
     supabase,
     _supabase,
     _household,
@@ -243,6 +247,9 @@ export default function ShoppingListApp() {
   const [view, setView] = useState("input");
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
+  const [editModalItem, setEditModalItem] = useState(null);
+  const [editModalName, setEditModalName] = useState("");
+  const [editModalPrice, setEditModalPrice] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
@@ -359,9 +366,39 @@ export default function ShoppingListApp() {
 
   const startEditPrice = (itemName) => {
     setEditingPrice(itemName);
-    // Convert existing price to cents string (e.g. 1.99 -> "199")
     const existing = prices[itemName];
     setPriceInput(existing ? String(Math.round(existing * 100)) : "");
+  };
+
+  const openEditModal = (itemName) => {
+    const catalogEntry = catalogMap[itemName];
+    const isCustom = catalogEntry && catalogEntry.created_by != null;
+    setEditModalItem({ name: itemName, isCustom });
+    setEditModalName(itemName);
+    const existing = prices[itemName];
+    setEditModalPrice(existing ? String(Math.round(existing * 100)) : "");
+  };
+
+  const commitEditModal = async () => {
+    if (!editModalItem) return;
+    const oldName = editModalItem.name;
+    const newName = editModalItem.isCustom ? editModalName.trim() : oldName;
+    const priceVal = parseFloat(centsToDisplay(editModalPrice));
+
+    if (!isNaN(priceVal) && priceVal >= 0) {
+      setLocalPrices(prev => {
+        const updated = { ...prev };
+        if (newName !== oldName) delete updated[oldName];
+        return { ...updated, [newName]: priceVal };
+      });
+      updatePrice(newName !== oldName ? newName : oldName, priceVal);
+    }
+
+    if (editModalItem.isCustom && newName && newName !== oldName) {
+      await renameItem(oldName, newName);
+    }
+
+    setEditModalItem(null);
   };
 
   const handlePriceInput = (raw) => {
@@ -443,7 +480,8 @@ export default function ShoppingListApp() {
       if (updateErr) { setCategoryError(`Could not rename: ${updateErr.message}`); return; }
     }
 
-    window.location.reload();
+    await refreshCatalog();
+    setShowManageCategoriesModal(false);
   };
 
   const handleResetCategories = async () => {
@@ -463,7 +501,7 @@ export default function ShoppingListApp() {
       .eq("clerk_id", user.id);
     setShowResetConfirm(false);
     setShowManageCategoriesModal(false);
-    window.location.reload();
+    await refreshCatalog();
   };
 
   const deleteCategory = async (rawName, moveTo) => {
@@ -1094,7 +1132,7 @@ export default function ShoppingListApp() {
                       const isEditing = editingPrice === item.name;
                       const isStaple = catalogMap[item.name]?.is_staple;
                       return (
-                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => startEditPrice(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple}>
+                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple}>
                           <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
                             <div className="item-top">
                               <span className="item-name">{item.name}</span>
@@ -1313,6 +1351,64 @@ export default function ShoppingListApp() {
               <div style={{ display: "flex", gap: "10px" }}>
                 <button className="modal-cancel" onClick={() => setShowBudgetModal(false)}>Cancel</button>
                 <button className="modal-confirm" onClick={saveBudget}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Item Modal */}
+      {editModalItem && (
+        <div className="modal-overlay" onClick={() => setEditModalItem(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>Edit Item</h2>
+
+            {editModalItem.isCustom && (
+              <div className="modal-field">
+                <label className="modal-label">Item Name</label>
+                <input
+                  className="modal-input"
+                  value={editModalName}
+                  onChange={e => setEditModalName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") commitEditModal(); if (e.key === "Escape") setEditModalItem(null); }}
+                  autoFocus
+                />
+              </div>
+            )}
+
+            <div className="modal-field">
+              <label className="modal-label">Price</label>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
+                <input
+                  className="modal-input"
+                  type="tel"
+                  inputMode="numeric"
+                  value={centsToDisplay(editModalPrice)}
+                  onChange={e => setEditModalPrice(e.target.value.replace(/[^0-9]/g, ""))}
+                  onKeyDown={e => { if (e.key === "Enter") commitEditModal(); if (e.key === "Escape") setEditModalItem(null); }}
+                  autoFocus={!editModalItem.isCustom}
+                />
+              </div>
+            </div>
+
+            {!editModalItem.isCustom && (
+              <p style={{
+                fontFamily: "'Lato', sans-serif",
+                fontSize: "0.75rem",
+                color: "#8a7a60",
+                margin: "12px 0 0 0",
+                fontStyle: "italic"
+              }}>
+                This is a catalog item — only the price can be edited.
+              </p>
+            )}
+
+            <div className="modal-actions-spaced">
+              <div />
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button className="modal-cancel" onClick={() => setEditModalItem(null)}>Cancel</button>
+                <button className="modal-confirm" onClick={commitEditModal}>Save</button>
               </div>
             </div>
           </div>
