@@ -364,6 +364,7 @@ export default function ShoppingListApp() {
   }, [loading, household]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
+  // eslint-disable-next-line no-unused-vars
   const startEditPrice = (itemName) => {
     setEditingPrice(itemName);
     const existing = prices[itemName];
