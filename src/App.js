@@ -209,6 +209,7 @@ export default function ShoppingListApp() {
     checked,
     prices: supabasePrices,
     categoryAvgPrices,
+    addedByMap,
     household,
     householdMembers,
     catalogMap,
@@ -560,17 +561,31 @@ export default function ShoppingListApp() {
         .filter((item) => (quantities[item.name] || 0) > 0)
         .map((item) => {
           const realPrice = prices[item.name] && supabasePrices[item.name] ? prices[item.name] : (localPrices[item.name] || 0);
+          const addedByUserId = addedByMap?.[item.name];
+          const addedByMember = householdMembers?.find(m => m.user_id === addedByUserId);
+          const addedByName = addedByMember?.users?.full_name
+            || addedByMember?.users?.email?.split("@")[0]
+            || null;
+          const isOwnItem = !addedByUserId || addedByMember?.users?.clerk_id === user?.id;
+          console.log('attribution check:', {
+            itemName: item.name,
+            addedByUserId,
+            addedByClerkId: addedByMember?.users?.clerk_id,
+            currentUserId: user?.id,
+            isOwnItem
+          });
           return {
             name: item.name, qty: quantities[item.name],
             price: realPrice,
             subtotal: (quantities[item.name] || 0) * realPrice,
             category: cat.name,
+            addedBy: isOwnItem ? null : addedByName,
           };
         });
       if (catItems.length > 0) result.push({ category: cat.name, items: catItems });
     }
     return result;
-  }, [quantities, prices, supabasePrices, localPrices, categories]);
+  }, [quantities, prices, supabasePrices, localPrices, categories, addedByMap, householdMembers, user?.id]);
 
   // Loading state for catalog — only true while fetch is in flight, not based on result size
   const catalogLoading = loading;
@@ -659,7 +674,7 @@ export default function ShoppingListApp() {
         .add-item-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; background: #A0724A; color: #FAF4EC; border: none; border-radius: 5px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
         .add-item-btn:hover { background: #6B4423; }
         .category-block { margin-bottom: 28px; }
-        .cat-title { font-family: 'Playfair Display', serif; font-size: 1.15rem; font-weight: 700; color: #2C1A0E; border-bottom: 2px solid #E8D5B7; padding-bottom: 8px; margin-bottom: 12px; }
+        .cat-title { font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: #A0724A; border-bottom: 2px solid #E8D5B7; padding-bottom: 8px; margin-bottom: 12px; }
         .items-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         @media(max-width: 520px) { .items-grid { grid-template-columns: 1fr; } }
         .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; }
@@ -1121,7 +1136,7 @@ export default function ShoppingListApp() {
         </div>
       )}
 
-      {totalItems === 0 && (
+      {showPrices && totalItems === 0 && (
         <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 20px", background: "#2C1A0E", borderBottom: "2px solid #c8973a" }}>
           <button className="set-budget-btn" onClick={openBudgetModal}>
             {budgetNum !== null ? `Budget: $${budgetNum.toFixed(0)} ✎` : "+ Set Budget"}
@@ -1131,7 +1146,7 @@ export default function ShoppingListApp() {
 
       <div className="container">
         {view === "plan" && (
-          <div style={{ padding: "40px 20px", textAlign: "center" }}>
+          <div style={{ padding: "40px 20px", textAlign: "center", minHeight: "60vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
             <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "1.3rem", color: "#8a7a60" }}>
               Plan coming soon.
             </p>
@@ -1268,13 +1283,34 @@ export default function ShoppingListApp() {
                             <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
                               {isDone && <span className="checkmark">✓</span>}
                             </div>
-                            <span className="li-name" onClick={() => toggleChecked(item.name)}>{item.name}</span>
-                            {showPrices && prices[item.name] && (
-                              <div className="li-right">
-                                <span className="li-qty">×{item.qty} @ ${item.price.toFixed(2)}</span>
-                                <span className={`li-subtotal ${isDone ? "done" : ""}`}>${item.subtotal.toFixed(2)}</span>
+                            <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name)}>
+                              <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
+                                {item.name}
                               </div>
-                            )}
+                              {item.addedBy && (
+                                <div style={{
+                                  fontFamily: "'Lato', sans-serif",
+                                  fontSize: "0.65rem",
+                                  letterSpacing: "1px",
+                                  color: "#C9A97A",
+                                  opacity: 0.85,
+                                  marginTop: "2px",
+                                }}>
+                                  {item.addedBy}
+                                </div>
+                              )}
+                            </div>
+                            <div className="li-right">
+                              {item.qty > 1 && (
+                                <span className="li-qty">×{item.qty}</span>
+                              )}
+                              {showPrices && item.price && (
+                                <>
+                                  <span className="li-qty">@ ${item.price.toFixed(2)}</span>
+                                  <span className={`li-subtotal ${isDone ? "done" : ""}`}>${item.subtotal.toFixed(2)}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </SwipeToRemove>
                       );

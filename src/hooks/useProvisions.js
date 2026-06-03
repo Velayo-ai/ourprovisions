@@ -6,6 +6,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
   const [quantities, setQuantities] = useState({});
   const [checked, setChecked] = useState({});
   const [prices, setPrices] = useState({});
+  const [addedByMap, setAddedByMap] = useState({});
   const [categoryAvgPrices, setCategoryAvgPrices] = useState({});
   const [household, setHousehold] = useState(null);
   const [householdMembers, setHouseholdMembers] = useState([]);
@@ -27,7 +28,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     if (pendingWrites.current > 0) return;
     const { data: items, error: listErr } = await db
       .from("list_items")
-      .select("id, catalog_item_id, quantity, price_per_unit, status, catalog_items(name)")
+      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name)")
       .eq("household_id", householdId)
       .is("deleted_at", null)
       .in("status", ["pending", "bought"]);
@@ -37,6 +38,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     const newQty = {};
     const newChecked = {};
     const newPrices = {};
+    const newAddedBy = {};
     items.forEach((item) => {
       const name = item.catalog_items?.name;
       if (!name) return;
@@ -44,6 +46,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
       newQty[name] = item.quantity;
       newChecked[name] = item.status === "bought";
       if (item.price_per_unit != null) newPrices[name] = parseFloat(item.price_per_unit);
+      if (item.added_by != null) newAddedBy[name] = item.added_by;
     });
     // Merge: start with price_hints from catalog, then overwrite with any user-set prices
     const mergedPrices = {};
@@ -54,6 +57,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     setQuantities(newQty);
     setChecked(newChecked);
     setPrices(mergedPrices);
+    setAddedByMap(newAddedBy);
   }
 
   useEffect(() => {
@@ -158,10 +162,19 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
 
           const { data: members } = await db
             .from("household_members")
-            .select("id, user_id, users(clerk_id, email)")
+            .select("id, user_id")
             .eq("household_id", hh.id)
             .is("deleted_at", null);
-          setHouseholdMembers(members || []);
+
+          const { data: profiles } = await db
+            .rpc("get_household_member_profiles", { p_household_id: hh.id });
+
+          const membersWithProfiles = (members || []).map(m => ({
+            ...m,
+            users: profiles?.find(p => p.user_id === m.user_id) || null
+          }));
+
+          setHouseholdMembers(membersWithProfiles);
         }
 
         // Only load catalog and list if we have a household.
@@ -298,46 +311,29 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
           .select();
         if (delErr) throw delErr;
       } else {
-        // Upsert quantity — also clears deleted_at so previously-removed items are restored
-        // First try to update an active row
         const { data: updateData, error: updateErr } = await db
           .from("list_items")
-          .update({ quantity: qty, status: "pending" })
+          .update({ quantity: qty, status: "pending", deleted_at: null })
           .eq("household_id", hh.id)
           .eq("catalog_item_id", catalogItem.id)
-          .is("deleted_at", null)
           .select();
         if (updateErr) throw updateErr;
 
         if (!updateData || updateData.length === 0) {
-          // No active row — try to reactivate a soft-deleted row
-          const reactivateFields = { quantity: qty, status: "pending", deleted_at: null };
-          if (price != null && price > 0) reactivateFields.price_per_unit = price;
-          const { data: reactivateData, error: reactivateErr } = await db
+          // Truly no row exists — insert fresh
+          const insertFields = {
+            household_id: hh.id,
+            catalog_item_id: catalogItem.id,
+            quantity: qty,
+            status: "pending",
+            added_by: internalUserIdRef.current,
+          };
+          if (price != null && price > 0) insertFields.price_per_unit = price;
+          const { error: insertErr } = await db
             .from("list_items")
-            .update(reactivateFields)
-            .eq("household_id", hh.id)
-            .eq("catalog_item_id", catalogItem.id)
-            .not("deleted_at", "is", null)
+            .insert(insertFields)
             .select();
-          if (reactivateErr) throw reactivateErr;
-
-          if (!reactivateData || reactivateData.length === 0) {
-            // Truly no row at all — insert fresh
-            const insertFields = {
-              household_id: hh.id,
-              catalog_item_id: catalogItem.id,
-              quantity: qty,
-              status: "pending",
-              added_by: internalUserIdRef.current,
-            };
-            if (price != null && price > 0) insertFields.price_per_unit = price;
-            const { error: insertErr } = await db
-              .from("list_items")
-              .insert(insertFields)
-              .select();
-            if (insertErr) throw insertErr;
-          }
+          if (insertErr) throw insertErr;
         }
 
       }
@@ -776,7 +772,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
   }, []);
 
   return {
-    quantities, checked, prices, categoryAvgPrices, household, householdMembers, catalogMap, setCatalogMap,
+    quantities, checked, prices, categoryAvgPrices, addedByMap, household, householdMembers, catalogMap, setCatalogMap,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
