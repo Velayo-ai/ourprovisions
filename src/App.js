@@ -274,6 +274,9 @@ export default function ShoppingListApp() {
   const [householdCategories, setHouseholdCategories] = useState(new Set());
   const [stapleFilter, setStapleFilter] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showCategories, setShowCategories] = useState(
+    () => localStorage.getItem('op_showCategories') !== 'false'
+  );
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -696,7 +699,9 @@ export default function ShoppingListApp() {
         .list-empty { text-align: center; padding: 60px 20px; }
         .list-empty h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: #8a7a60; }
         .list-empty p { font-family: 'Lato', sans-serif; color: #a89878; margin-top: 8px; font-size: 0.9rem; }
-        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px; }
+        .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
+        .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
@@ -1264,6 +1269,23 @@ export default function ShoppingListApp() {
               <>
                 <div className="list-header">
                   <span className="list-progress">{checkedCount} of {totalItems} checked</span>
+                  <button
+                    className="cat-toggle"
+                    onClick={() => {
+                      const next = !showCategories;
+                      setShowCategories(next);
+                      localStorage.setItem('op_showCategories', String(next));
+                    }}
+                    title={showCategories ? "Hide categories" : "Show categories"}
+                    style={{ color: showCategories ? "#A0724A" : "#c8b89a" }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <line x1="0" y1="2" x2="14" y2="2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                      <line x1="0" y1="7" x2="14" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                      <line x1="0" y1="12" x2="14" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                    {showCategories ? "Grouped" : "Flat"}
+                  </button>
                   <button className="clear-btn" onClick={clearAll}>Clear All</button>
                 </div>
                 <div className="progress-bar">
@@ -1272,51 +1294,81 @@ export default function ShoppingListApp() {
                 {checkedCount === totalItems && totalItems > 0 && (
                   <div className="all-done"><p>🎉 All done! Happy cooking.</p></div>
                 )}
-                {shoppingList.map((cat) => (
-                  <div key={cat.category}>
-                    <div className="list-cat-title">{cat.category}</div>
-                    {cat.items.map((item) => {
-                      const isDone = checked[item.name];
-                      return (
-                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
-                          <div className={`list-item ${isDone ? "done" : ""}`}>
-                            <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
-                              {isDone && <span className="checkmark">✓</span>}
-                            </div>
-                            <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name)}>
-                              <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
-                                {item.name}
+                {showCategories ? (
+                  shoppingList.map((cat) => (
+                    <div key={cat.category}>
+                      <div className="list-cat-title">{cat.category}</div>
+                      {cat.items.map((item) => {
+                        const isDone = checked[item.name];
+                        return (
+                          <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
+                            <div className={`list-item ${isDone ? "done" : ""}`}>
+                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
+                                {isDone && <span className="checkmark">✓</span>}
                               </div>
-                              {item.addedBy && (
-                                <div style={{
-                                  fontFamily: "'Lato', sans-serif",
-                                  fontSize: "0.65rem",
-                                  letterSpacing: "1px",
-                                  color: "#C9A97A",
-                                  opacity: 0.85,
-                                  marginTop: "2px",
-                                }}>
-                                  {item.addedBy}
+                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name)}>
+                                <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
+                                  {item.name}
                                 </div>
-                              )}
-                            </div>
-                            <div className="li-right">
+                                {item.addedBy && (
+                                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
+                                    {item.addedBy}
+                                  </div>
+                                )}
+                              </div>
                               {item.qty > 1 && (
                                 <span className="li-qty">×{item.qty}</span>
                               )}
-                              {showPrices && item.price && (
-                                <>
+                              {showPrices && item.price > 0 && (
+                                <div className="li-right">
                                   <span className="li-qty">@ ${item.price.toFixed(2)}</span>
                                   <span className={`li-subtotal ${isDone ? "done" : ""}`}>${item.subtotal.toFixed(2)}</span>
-                                </>
+                                </div>
                               )}
                             </div>
-                          </div>
-                        </SwipeToRemove>
-                      );
-                    })}
+                          </SwipeToRemove>
+                        );
+                      })}
+                    </div>
+                  ))
+                ) : (
+                  <div>
+                    {shoppingList
+                      .flatMap(cat => cat.items)
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((item) => {
+                        const isDone = checked[item.name];
+                        return (
+                          <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
+                            <div className={`list-item ${isDone ? "done" : ""}`}>
+                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
+                                {isDone && <span className="checkmark">✓</span>}
+                              </div>
+                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name)}>
+                                <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
+                                  {item.name}
+                                </div>
+                                {item.addedBy && (
+                                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
+                                    {item.addedBy}
+                                  </div>
+                                )}
+                              </div>
+                              {item.qty > 1 && (
+                                <span className="li-qty">×{item.qty}</span>
+                              )}
+                              {showPrices && item.price > 0 && (
+                                <div className="li-right">
+                                  <span className="li-qty">@ ${item.price.toFixed(2)}</span>
+                                  <span className={`li-subtotal ${isDone ? "done" : ""}`}>${item.subtotal.toFixed(2)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </SwipeToRemove>
+                        );
+                      })}
                   </div>
-                ))}
+                )}
                 {showPrices && (
                 <div className={`list-total ${overBudget ? "over" : ""}`}>
                   <div className="lt-left">
