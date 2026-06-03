@@ -632,9 +632,8 @@ export default function ShoppingListApp() {
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
         .header h1 { font-size: 42px; letter-spacing: 0.02em; }
         .tab-bar { display: flex; background: #2C1A0E; border-bottom: 3px solid #c8973a; }
-        .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 2px; text-transform: uppercase; color: #c8b89a; transition: all 0.2s; border: none; background: transparent; }
-        .tab.active { background: #FAF4EC; color: #2C1A0E; font-weight: 700; }
-        .tab:hover:not(.active) { color: #FAF4EC; background: #3d3020; }
+        .tab { flex: 1; padding: 8px 4px 10px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; background: none; border: none; color: #C9A97A; opacity: 0.5; border-bottom: 2px solid transparent; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: opacity 0.2s; }
+        .tab.active { opacity: 1; border-bottom: 2px solid #C9A97A; }
         .badge { display: inline-block; background: #c8973a; color: white; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
@@ -1042,10 +1041,44 @@ export default function ShoppingListApp() {
       )}
 
       <div className="tab-bar">
-        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")}>Browse</button>
-        <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")}>
-          My List {totalItems > 0 && <span className="badge">{totalItems}</span>}
+
+        {/* Plan tab — horizon icon */}
+        <button className={`tab ${view === "plan" ? "active" : ""}`} onClick={() => setView("plan")}>
+          <svg width="18" height="14" viewBox="0 0 18 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="9" cy="5" r="2" fill="currentColor"/>
+            <line x1="9" y1="1" x2="9" y2="0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="12.5" y1="2.5" x2="13.5" y2="1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="5.5" y1="2.5" x2="4.5" y2="1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="14" y1="5" x2="15.5" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <line x1="4" y1="5" x2="2.5" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            <path d="M1 9 Q9 4 17 9" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+            <line x1="0" y1="11" x2="18" y2="11" stroke="currentColor" strokeWidth="0.75" strokeLinecap="round" opacity="0.5"/>
+          </svg>
+          Plan
         </button>
+
+        {/* Browse tab — grid icon */}
+        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+            <rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+            <rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+            <rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+          </svg>
+          Browse
+        </button>
+
+        {/* Shop tab — basket icon */}
+        <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")}>
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M6 7 Q6 3 9 3 Q12 3 12 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+            <path d="M2 7 L3.5 15 Q5 16.5 9 16.5 Q13 16.5 14.5 15 L16 7 Z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
+            <line x1="2.5" y1="10.5" x2="15.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/>
+          </svg>
+          Shop
+          {totalItems > 0 && <span className="badge">{totalItems}</span>}
+        </button>
+
       </div>
 
       {showPrices && totalItems > 0 && (
@@ -1097,6 +1130,17 @@ export default function ShoppingListApp() {
       )}
 
       <div className="container">
+        {view === "plan" && (
+          <div style={{ padding: "40px 20px", textAlign: "center" }}>
+            <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "1.3rem", color: "#8a7a60" }}>
+              Plan coming soon.
+            </p>
+            <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", color: "#C9A97A", marginTop: "8px", letterSpacing: "1px" }}>
+              Meal planning &amp; AI list builder
+            </p>
+          </div>
+        )}
+
         {view === "input" && (
           <>
             <div className="toolbar">
