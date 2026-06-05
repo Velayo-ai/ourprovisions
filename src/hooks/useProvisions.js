@@ -2,11 +2,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
 
-export function useProvisions({ getToken, userId, clerkId, email }) {
+export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const [quantities, setQuantities] = useState({});
   const [checked, setChecked] = useState({});
   const [prices, setPrices] = useState({});
   const [addedByMap, setAddedByMap] = useState({});
+  const [contributorsMap, setContributorsMap] = useState({});
   const [categoryAvgPrices, setCategoryAvgPrices] = useState({});
   const [household, setHousehold] = useState(null);
   const [householdMembers, setHouseholdMembers] = useState([]);
@@ -28,7 +29,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     if (pendingWrites.current > 0) return;
     const { data: items, error: listErr } = await db
       .from("list_items")
-      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name)")
+      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name), list_item_contributors(user_id, quantity_added, added_at, users(full_name, clerk_id))")
       .eq("household_id", householdId)
       .is("deleted_at", null)
       .in("status", ["pending", "bought"]);
@@ -39,6 +40,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     const newChecked = {};
     const newPrices = {};
     const newAddedBy = {};
+    const newContributors = {};
     items.forEach((item) => {
       const name = item.catalog_items?.name;
       if (!name) return;
@@ -47,6 +49,16 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
       newChecked[name] = item.status === "bought";
       if (item.price_per_unit != null) newPrices[name] = parseFloat(item.price_per_unit);
       if (item.added_by != null) newAddedBy[name] = item.added_by;
+      if (item.list_item_contributors?.length > 0) {
+        newContributors[name] = item.list_item_contributors
+          .sort((a, b) => new Date(a.added_at) - new Date(b.added_at))
+          .map(c => ({
+            userId: c.user_id,
+            fullName: c.users?.full_name || null,
+            clerkId: c.users?.clerk_id || null,
+            quantityAdded: c.quantity_added,
+          }));
+      }
     });
     // Merge: start with price_hints from catalog, then overwrite with any user-set prices
     const mergedPrices = {};
@@ -58,6 +70,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     setChecked(newChecked);
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
+    setContributorsMap(newContributors);
   }
 
   useEffect(() => {
@@ -133,6 +146,7 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
             p_clerk_id: clerkId,
             p_email: email,
             p_invite_code: pendingInviteCode || null,
+            p_full_name: fullName || null,
           });
 
         if (bootstrapErr) throw new Error(`Bootstrap failed: ${bootstrapErr.message}`);
@@ -329,11 +343,34 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
             added_by: internalUserIdRef.current,
           };
           if (price != null && price > 0) insertFields.price_per_unit = price;
-          const { error: insertErr } = await db
+          const { data: newItem, error: insertErr } = await db
             .from("list_items")
             .insert(insertFields)
-            .select();
+            .select()
+            .single();
           if (insertErr) throw insertErr;
+
+          // Record this user as the first contributor
+          if (newItem && internalUserIdRef.current) {
+            await db
+              .from("list_item_contributors")
+              .upsert({
+                list_item_id: newItem.id,
+                user_id: internalUserIdRef.current,
+                quantity_added: qty,
+              }, { onConflict: "list_item_id,user_id" });
+          }
+        } else {
+          // Row already exists — update this user's contributor quantity
+          if (internalUserIdRef.current && updateData?.[0]?.id) {
+            await db
+              .from("list_item_contributors")
+              .upsert({
+                list_item_id: updateData[0].id,
+                user_id: internalUserIdRef.current,
+                quantity_added: Math.max(1, qty),
+              }, { onConflict: "list_item_id,user_id" });
+          }
         }
 
       }
@@ -771,8 +808,28 @@ export function useProvisions({ getToken, userId, clerkId, email }) {
     setCatalogMap(prev => ({ ...prev, [itemName]: updated }));
   }, []);
 
+  const updateFullName = useCallback(async (newName, onClerkUpdate) => {
+    const db = supabaseRef.current;
+    if (!db || !internalUserIdRef.current) return false;
+    const trimmed = newName.trim();
+    if (!trimmed) return false;
+    try {
+      const { error: nameErr } = await db
+        .from("users")
+        .update({ full_name: trimmed })
+        .eq("id", internalUserIdRef.current);
+      if (nameErr) throw nameErr;
+      if (onClerkUpdate) await onClerkUpdate(trimmed);
+      return true;
+    } catch (err) {
+      console.error("updateFullName error:", err.message);
+      setError(`Could not update name: ${err.message}`);
+      return false;
+    }
+  }, []);
+
   return {
-    quantities, checked, prices, categoryAvgPrices, addedByMap, household, householdMembers, catalogMap, setCatalogMap,
+    quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,

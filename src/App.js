@@ -229,6 +229,7 @@ export default function ShoppingListApp() {
     toggleStaple,
     renameItem,
     refreshCatalog,
+    updateFullName,
     supabase,
     _supabase,
     _household,
@@ -239,6 +240,7 @@ export default function ShoppingListApp() {
     userId: user?.id,
     clerkId: user?.id,
     email: user?.primaryEmailAddress?.emailAddress,
+    fullName: user?.fullName || null,
   });
 
   const [showSplash, setShowSplash] = useState(true);
@@ -282,6 +284,8 @@ export default function ShoppingListApp() {
 
   const { signOut } = useClerk();
   const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [profileName, setProfileName] = useState(() => user?.fullName || "");
   const [showPrices, setShowPrices] = useState(() => {
     return localStorage.getItem('op_showPrices') === 'true';
   });
@@ -1724,7 +1728,49 @@ export default function ShoppingListApp() {
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </div>
               <div>
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "15px", fontWeight: 600, color: "#2C1A0E" }}>{user?.firstName} {user?.lastName}</div>
+                {editingName ? (
+              <input
+                autoFocus
+                defaultValue={profileName}
+                onFocus={e => e.target.select()}
+                onBlur={async (e) => {
+                  const val = e.target.value.trim();
+                  if (val && val !== profileName) {
+                    const ok = await updateFullName(val, async (trimmed) => {
+                      const parts = trimmed.split(" ");
+                      const firstName = parts[0];
+                      const lastName = parts.slice(1).join(" ") || undefined;
+                      await user.update({ firstName, lastName });
+                    });
+                    if (ok) setProfileName(val);
+                  }
+                  setEditingName(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.target.blur();
+                  if (e.key === "Escape") { setEditingName(false); }
+                }}
+                style={{
+                  fontWeight: 600,
+                  fontSize: "inherit",
+                  fontFamily: "inherit",
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: "1px solid #C9A97A",
+                  outline: "none",
+                  width: "100%",
+                  padding: "0 0 2px 0",
+                  color: "inherit",
+                }}
+              />
+            ) : (
+              <div
+                style={{ fontWeight: 600, cursor: "pointer" }}
+                onClick={() => setEditingName(true)}
+              >
+                {profileName || user?.primaryEmailAddress?.emailAddress}
+              </div>
+            )}
                 <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#A0724A", marginTop: "2px" }}>{user?.primaryEmailAddress?.emailAddress}</div>
               </div>
             </div>
