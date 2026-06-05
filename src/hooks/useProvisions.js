@@ -46,6 +46,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         .select("list_item_id, user_id, quantity_added, added_at")
         .in("list_item_id", listItemIds);
       contributorRows = contribs || [];
+      console.log('contributor debug:', { listItemIds, contributorRows });
     }
 
     const newQty = {};
