@@ -21,6 +21,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const hiddenIdsRef = useRef(new Set());
   const hiddenCatalogItemsRef = useRef([]);
   const internalUserIdRef = useRef(null);
+  const householdMembersRef = useRef([]);
   const clerkIdRef = useRef(null);
   const pendingWrites = useRef(0);  // count of in-flight DB writes
 
@@ -42,7 +43,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     if (listItemIds.length > 0) {
       const { data: contribs } = await db
         .from("list_item_contributors")
-        .select("list_item_id, user_id, quantity_added, added_at, users(full_name, clerk_id)")
+        .select("list_item_id, user_id, quantity_added, added_at")
         .in("list_item_id", listItemIds);
       contributorRows = contribs || [];
     }
@@ -65,12 +66,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       const itemContribs = contributorRows
         .filter(c => c.list_item_id === item.id)
         .sort((a, b) => new Date(a.added_at) - new Date(b.added_at))
-        .map(c => ({
-          userId: c.user_id,
-          fullName: c.users?.full_name || null,
-          clerkId: c.users?.clerk_id || null,
-          quantityAdded: c.quantity_added,
-        }));
+        .map(c => {
+          const profile = householdMembersRef.current?.find(m => m.user_id === c.user_id);
+          return {
+            userId: c.user_id,
+            fullName: profile?.users?.full_name || null,
+            clerkId: profile?.users?.clerk_id || null,
+            quantityAdded: c.quantity_added,
+          };
+        });
 
       if (itemContribs.length > 0) newContributors[name] = itemContribs;
     });
@@ -203,6 +207,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           }));
 
           setHouseholdMembers(membersWithProfiles);
+          householdMembersRef.current = membersWithProfiles;
         }
 
         // Only load catalog and list if we have a household.
