@@ -210,6 +210,7 @@ export default function ShoppingListApp() {
     prices: supabasePrices,
     categoryAvgPrices,
     addedByMap,
+    contributorsMap,
     household,
     householdMembers,
     catalogMap,
