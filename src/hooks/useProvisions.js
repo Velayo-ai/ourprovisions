@@ -29,7 +29,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     if (pendingWrites.current > 0) return;
     const { data: items, error: listErr } = await db
       .from("list_items")
-      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name), list_item_contributors(user_id, quantity_added, added_at, users(full_name, clerk_id))")
+      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name), list_item_contributors!list_item_contributors_list_item_id_fkey(user_id, quantity_added, added_at, users!list_item_contributors_user_id_fkey(full_name, clerk_id))")
       .eq("household_id", householdId)
       .is("deleted_at", null)
       .in("status", ["pending", "bought"]);
