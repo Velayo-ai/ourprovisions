@@ -1316,7 +1316,30 @@ export default function ShoppingListApp() {
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
-                                {item.addedBy && (
+                                {item.contributors?.length > 1 && (
+                                  <div style={{ display: "flex", gap: "3px", marginTop: "4px" }}>
+                                    {item.contributors.map((c, i) => {
+                                      const initials = c.fullName
+                                        ? c.fullName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+                                        : "?";
+                                      const isMe = c.clerkId === user?.id;
+                                      return (
+                                        <span key={i} title={c.fullName || "Unknown"} style={{
+                                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                          width: "20px", height: "20px", borderRadius: "50%",
+                                          fontSize: "0.6rem", fontWeight: 600, letterSpacing: "0.02em",
+                                          background: isMe ? "#A0724A" : "#C9A97A",
+                                          color: "#FAF4EC",
+                                          border: "1.5px solid #FAF4EC",
+                                          opacity: 0.9,
+                                        }}>
+                                          {initials}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {item.contributors?.length <= 1 && item.addedBy && (
                                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
                                     {item.addedBy}
                                   </div>
@@ -1354,7 +1377,30 @@ export default function ShoppingListApp() {
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
-                                {item.addedBy && (
+                                {item.contributors?.length > 1 && (
+                                  <div style={{ display: "flex", gap: "3px", marginTop: "4px" }}>
+                                    {item.contributors.map((c, i) => {
+                                      const initials = c.fullName
+                                        ? c.fullName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+                                        : "?";
+                                      const isMe = c.clerkId === user?.id;
+                                      return (
+                                        <span key={i} title={c.fullName || "Unknown"} style={{
+                                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                          width: "20px", height: "20px", borderRadius: "50%",
+                                          fontSize: "0.6rem", fontWeight: 600, letterSpacing: "0.02em",
+                                          background: isMe ? "#A0724A" : "#C9A97A",
+                                          color: "#FAF4EC",
+                                          border: "1.5px solid #FAF4EC",
+                                          opacity: 0.9,
+                                        }}>
+                                          {initials}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {item.contributors?.length <= 1 && item.addedBy && (
                                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
                                     {item.addedBy}
                                   </div>
