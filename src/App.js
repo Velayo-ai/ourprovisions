@@ -587,12 +587,13 @@ export default function ShoppingListApp() {
             subtotal: (quantities[item.name] || 0) * realPrice,
             category: cat.name,
             addedBy: isOwnItem ? null : addedByName,
+            contributors: contributorsMap?.[item.name] || [],
           };
         });
       if (catItems.length > 0) result.push({ category: cat.name, items: catItems });
     }
     return result;
-  }, [quantities, prices, supabasePrices, localPrices, categories, addedByMap, householdMembers, user?.id]);
+  }, [quantities, prices, supabasePrices, localPrices, categories, addedByMap, contributorsMap, householdMembers, user?.id]);
 
   // Loading state for catalog — only true while fetch is in flight, not based on result size
   const catalogLoading = loading;
