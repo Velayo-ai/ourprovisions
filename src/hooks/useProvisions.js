@@ -273,7 +273,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       if (realtimeSub) realtimeSub.unsubscribe();
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [getToken, userId, clerkId, email]);
+  }, [getToken, userId, clerkId, email, fullName]);
 
   // ─────────────────────────────────────────────────────────────
   // updateQty: handles both global catalog items AND custom items.
