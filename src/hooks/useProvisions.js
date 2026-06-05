@@ -25,22 +25,34 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const pendingWrites = useRef(0);  // count of in-flight DB writes
 
   async function loadListItems(db, householdId) {
-    // Don't overwrite optimistic state while writes are in-flight
     if (pendingWrites.current > 0) return;
+
     const { data: items, error: listErr } = await db
       .from("list_items")
-      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name), list_item_contributors!list_item_contributors_list_item_id_fkey(user_id, quantity_added, added_at, users!list_item_contributors_user_id_fkey(full_name, clerk_id))")
+      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name)")
       .eq("household_id", householdId)
       .is("deleted_at", null)
       .in("status", ["pending", "bought"]);
 
     if (listErr) { setError(`Could not load list: ${listErr.message}`); return; }
 
+    const listItemIds = items.map(i => i.id);
+
+    let contributorRows = [];
+    if (listItemIds.length > 0) {
+      const { data: contribs } = await db
+        .from("list_item_contributors")
+        .select("list_item_id, user_id, quantity_added, added_at, users(full_name, clerk_id)")
+        .in("list_item_id", listItemIds);
+      contributorRows = contribs || [];
+    }
+
     const newQty = {};
     const newChecked = {};
     const newPrices = {};
     const newAddedBy = {};
     const newContributors = {};
+
     items.forEach((item) => {
       const name = item.catalog_items?.name;
       if (!name) return;
@@ -49,18 +61,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       newChecked[name] = item.status === "bought";
       if (item.price_per_unit != null) newPrices[name] = parseFloat(item.price_per_unit);
       if (item.added_by != null) newAddedBy[name] = item.added_by;
-      if (item.list_item_contributors?.length > 0) {
-        newContributors[name] = item.list_item_contributors
-          .sort((a, b) => new Date(a.added_at) - new Date(b.added_at))
-          .map(c => ({
-            userId: c.user_id,
-            fullName: c.users?.full_name || null,
-            clerkId: c.users?.clerk_id || null,
-            quantityAdded: c.quantity_added,
-          }));
-      }
+
+      const itemContribs = contributorRows
+        .filter(c => c.list_item_id === item.id)
+        .sort((a, b) => new Date(a.added_at) - new Date(b.added_at))
+        .map(c => ({
+          userId: c.user_id,
+          fullName: c.users?.full_name || null,
+          clerkId: c.users?.clerk_id || null,
+          quantityAdded: c.quantity_added,
+        }));
+
+      if (itemContribs.length > 0) newContributors[name] = itemContribs;
     });
-    // Merge: start with price_hints from catalog, then overwrite with any user-set prices
+
     const mergedPrices = {};
     Object.values(catalogRef.current).forEach(item => {
       if (item.price_hint != null) mergedPrices[item.name] = parseFloat(item.price_hint);
