@@ -575,13 +575,6 @@ export default function ShoppingListApp() {
             || addedByMember?.users?.email?.split("@")[0]
             || null;
           const isOwnItem = !addedByUserId || addedByMember?.users?.clerk_id === user?.id;
-          console.log('attribution check:', {
-            itemName: item.name,
-            addedByUserId,
-            addedByClerkId: addedByMember?.users?.clerk_id,
-            currentUserId: user?.id,
-            isOwnItem
-          });
           return {
             name: item.name, qty: quantities[item.name],
             price: realPrice,
@@ -1320,7 +1313,7 @@ export default function ShoppingListApp() {
                                   <div style={{ display: "flex", gap: "3px", marginTop: "4px" }}>
                                     {item.contributors.map((c, i) => {
                                       const initials = c.fullName
-                                        ? c.fullName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+                                        ? c.fullName.trim()[0].toUpperCase()
                                         : "?";
                                       const isMe = c.clerkId === user?.id;
                                       return (
@@ -1381,7 +1374,7 @@ export default function ShoppingListApp() {
                                   <div style={{ display: "flex", gap: "3px", marginTop: "4px" }}>
                                     {item.contributors.map((c, i) => {
                                       const initials = c.fullName
-                                        ? c.fullName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)
+                                        ? c.fullName.trim()[0].toUpperCase()
                                         : "?";
                                       const isMe = c.clerkId === user?.id;
                                       return (
