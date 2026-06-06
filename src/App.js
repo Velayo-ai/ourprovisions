@@ -562,9 +562,9 @@ export default function ShoppingListApp() {
 };
 
   const clearBudget = () => {
-  updateBudgetGoal(null);
-  setShowBudgetModal(false);
-};
+    updateBudgetGoal(null);
+    setShowBudgetModal(false);
+  };
 
   const handleWrapUp = async () => {
     setWrappingUp(true);
