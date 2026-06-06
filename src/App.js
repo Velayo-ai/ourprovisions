@@ -230,6 +230,8 @@ export default function ShoppingListApp() {
     renameItem,
     refreshCatalog,
     updateFullName,
+    activeCycle,
+    wrapUpTrip,
     supabase,
     _supabase,
     _household,
@@ -283,6 +285,9 @@ export default function ShoppingListApp() {
   const [categoryError, setCategoryError] = useState(null);
 
   const { signOut } = useClerk();
+  const [showWrapUpModal, setShowWrapUpModal] = useState(false);
+  const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set());
+  const [wrappingUp, setWrappingUp] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [profileName, setProfileName] = useState(() => user?.fullName || "");
@@ -593,6 +598,20 @@ export default function ShoppingListApp() {
     }
     return result;
   }, [quantities, prices, supabasePrices, localPrices, categories, addedByMap, householdMembers, user?.id]);
+
+  const pendingItems = shoppingList.flatMap(cat =>
+    cat.items.filter(item => !checked[item.name])
+  );
+  const boughtItems = shoppingList.flatMap(cat =>
+    cat.items.filter(item => checked[item.name])
+  );
+  const handleWrapUp = async () => {
+    setWrappingUp(true);
+    await wrapUpTrip(Array.from(wrapUpRollItems));
+    setWrappingUp(false);
+    setShowWrapUpModal(false);
+    setWrapUpRollItems(new Set());
+  };
 
   // Loading state for catalog — only true while fetch is in flight, not based on result size
   const catalogLoading = loading;
@@ -1290,13 +1309,23 @@ export default function ShoppingListApp() {
                     </svg>
                     {showCategories ? "Grouped" : "Flat"}
                   </button>
-                  <button className="clear-btn" onClick={clearAll}>Clear All</button>
+                  <button className="clear-btn" onClick={() => {
+                    const pending = new Set(shoppingList.flatMap(cat => cat.items.filter(i => !checked[i.name]).map(i => i.name)));
+                    setWrapUpRollItems(pending);
+                    setShowWrapUpModal(true);
+                  }}>Wrap Up</button>
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
                 </div>
                 {checkedCount === totalItems && totalItems > 0 && (
-                  <div className="all-done"><p>🎉 All done! Happy cooking.</p></div>
+                  <div className="all-done" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                    <p style={{ margin: 0 }}>🎉 All done!</p>
+                    <button onClick={() => { setWrapUpRollItems(new Set()); setShowWrapUpModal(true); }}
+                      style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "1px", textTransform: "uppercase", padding: "5px 12px", border: "1px solid #0D9488", background: "#0D9488", color: "white", cursor: "pointer", borderRadius: "4px", whiteSpace: "nowrap" }}>
+                      Wrap Up Trip →
+                    </button>
+                  </div>
                 )}
                 {showCategories ? (
                   shoppingList.map((cat) => (
@@ -1803,6 +1832,49 @@ export default function ShoppingListApp() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#c0392b" }}>Sign out</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {showWrapUpModal && (
+        <div className="modal-overlay" onClick={() => !wrappingUp && setShowWrapUpModal(false)}>
+          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: "360px" }}>
+            <div style={{ marginBottom: "16px" }}>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "1.1rem", color: "#3D2B1F", marginBottom: "4px" }}>Wrap up this trip</div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", color: "#8B6B4A" }}>
+                {boughtItems.length} item{boughtItems.length !== 1 ? "s" : ""} bought
+                {pendingItems.length > 0 && ` · ${pendingItems.length} still pending`}
+              </div>
+            </div>
+            {pendingItems.length > 0 && (
+              <div style={{ marginBottom: "16px" }}>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", textTransform: "uppercase", color: "#8B6B4A", marginBottom: "8px" }}>Roll onto next list?</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "200px", overflowY: "auto" }}>
+                  {pendingItems.map(item => {
+                    const selected = wrapUpRollItems.has(item.name);
+                    return (
+                      <div key={item.name} onClick={() => setWrapUpRollItems(prev => { const next = new Set(prev); if (next.has(item.name)) next.delete(item.name); else next.add(item.name); return next; })}
+                        style={{ display: "flex", alignItems: "center", gap: "8px", padding: "6px 8px", borderRadius: "4px", cursor: "pointer", background: selected ? "rgba(13,148,136,0.08)" : "transparent", border: `1px solid ${selected ? "#0D9488" : "rgba(160,114,74,0.2)"}` }}>
+                        <div style={{ width: "16px", height: "16px", borderRadius: "3px", flexShrink: 0, border: `1.5px solid ${selected ? "#0D9488" : "#C9A97A"}`, background: selected ? "#0D9488" : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          {selected && <span style={{ color: "white", fontSize: "10px" }}>✓</span>}
+                        </div>
+                        <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#3D2B1F" }}>{item.name}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
+                  <button onClick={() => setWrapUpRollItems(new Set(pendingItems.map(i => i.name)))} style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", color: "#A0724A", cursor: "pointer", padding: 0, textDecoration: "underline" }}>Select all</button>
+                  <button onClick={() => setWrapUpRollItems(new Set())} style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", color: "#A0724A", cursor: "pointer", padding: 0, textDecoration: "underline" }}>Clear all</button>
+                </div>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+              <button className="modal-cancel" onClick={() => setShowWrapUpModal(false)} disabled={wrappingUp}>Cancel</button>
+              <button className="modal-confirm" onClick={handleWrapUp} disabled={wrappingUp} style={{ minWidth: "100px" }}>
+                {wrappingUp ? "Saving..." : wrapUpRollItems.size > 0 ? `Roll ${wrapUpRollItems.size} forward` : "Close & clear"}
+              </button>
+            </div>
           </div>
         </div>
       )}
