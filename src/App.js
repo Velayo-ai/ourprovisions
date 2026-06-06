@@ -18,7 +18,6 @@ const CATEGORY_ORDER = [
   "Produce", "Meat & Seafood", "Dairy", "Pantry", "Beverages", "Household", "Bakery"
 ];
 
-const CUSTOM_CAT = "⭐ My Custom Items";
 const SWIPE_THRESHOLD = 60;
 
 function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, style: outerStyle, children }) {
@@ -277,6 +276,10 @@ export default function ShoppingListApp() {
   const [deleteMoveTarget, setDeleteMoveTarget] = useState("");
   const [householdCategories, setHouseholdCategories] = useState(new Set());
   const [stapleFilter, setStapleFilter] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState(new Set());
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchPickerOpen, setSearchPickerOpen] = useState(false);
+  const [newCategoryInput, setNewCategoryInput] = useState("");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
@@ -311,7 +314,7 @@ export default function ShoppingListApp() {
 
     const catMap = {};
     Object.values(catalogMap).forEach(item => {
-      let cat = item.category || CUSTOM_CAT;
+      let cat = item.category || "Household";
       // Normalize: if the stored category is an emoji display name, map it back to raw
       if (displayToRaw[cat]) cat = displayToRaw[cat];
       if (!catMap[cat]) catMap[cat] = [];
@@ -348,14 +351,38 @@ export default function ShoppingListApp() {
     return sorted;
   }, [catalogMap, householdCategories]);
 
-  const displayCategories = stapleFilter
-    ? categories
-        .map(cat => ({
-          ...cat,
-          items: cat.items.filter(item => catalogMap[item.name]?.is_staple),
-        }))
-        .filter(cat => cat.items.length > 0)
-    : categories;
+  const displayCategories = useMemo(() => {
+    // Layer 1 — Staples is a cross-cutting filter applied first
+    let result = stapleFilter
+      ? categories
+          .map(cat => ({
+            ...cat,
+            items: cat.items.filter(item => catalogMap[item.name]?.is_staple),
+          }))
+          .filter(cat => cat.items.length > 0)
+      : categories;
+
+    // Layer 2 — Category chips narrow within whatever Layer 1 produced
+    if (selectedCategories.size > 0) {
+      result = result.filter(cat => selectedCategories.has(cat.rawName));
+    }
+
+    return result;
+  }, [categories, stapleFilter, selectedCategories, catalogMap]);
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return null;
+    const q = searchQuery.trim().toLowerCase();
+    const matches = [];
+    categories.forEach(cat => {
+      cat.items.forEach(item => {
+        if (item.name.toLowerCase().includes(q)) {
+          matches.push({ name: item.name, category: cat.name, rawCategory: cat.rawName });
+        }
+      });
+    });
+    return matches;
+  }, [searchQuery, categories]);
 
   // Show join banner if user joined via invite during bootstrap
   useEffect(() => {
@@ -564,14 +591,6 @@ export default function ShoppingListApp() {
   const clearBudget = () => {
     updateBudgetGoal(null);
     setShowBudgetModal(false);
-  };
-
-  const handleWrapUp = async () => {
-    setWrappingUp(true);
-    await wrapUpTrip(Array.from(wrapUpRollItems));
-    setWrappingUp(false);
-    setShowWrapUpModal(false);
-    setWrapUpRollItems(new Set());
   };
 
   const handleWrapUp = async () => {
@@ -1189,98 +1208,339 @@ export default function ShoppingListApp() {
 
         {view === "input" && (
           <>
-            <div className="toolbar">
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <button
-                  onClick={() => setStapleFilter(f => !f)}
+            {/* ── Search bar — sticky at top ── */}
+            <div style={{
+              padding: "12px 0 10px",
+              background: "#FAF4EC",
+              position: "sticky",
+              top: 0,
+              zIndex: 10,
+              borderBottom: "1px solid #E8D5B7",
+              marginBottom: "12px",
+            }}>
+              <div style={{
+                display: "flex", alignItems: "center",
+                background: "#F5EDE0",
+                border: `1.5px solid ${searchQuery ? "#A0724A" : "#E8D5B7"}`,
+                borderRadius: "12px",
+                padding: "0 12px", gap: "8px", height: "42px",
+                boxShadow: searchQuery ? "0 0 0 3px rgba(160,114,74,0.12)" : "none",
+                transition: "border-color 0.2s, box-shadow 0.2s",
+              }}>
+                <span style={{ color: "#C9A97A", fontSize: "15px", flexShrink: 0 }}>🔍</span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => { setSearchQuery(e.target.value); setSearchPickerOpen(false); }}
+                  placeholder="Search your catalog…"
                   style={{
-                    fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", letterSpacing: "1px",
-                    textTransform: "uppercase", padding: "6px 12px",
-                    background: stapleFilter ? "#c8973a" : "transparent",
-                    color: stapleFilter ? "white" : "#8a7a60",
-                    border: `1px solid ${stapleFilter ? "#c8973a" : "#c8b89a"}`,
-                    borderRadius: "20px", cursor: "pointer", transition: "all 0.2s",
+                    flex: 1, border: "none", background: "none",
+                    fontFamily: "'Lato', sans-serif", fontSize: "15px",
+                    color: "#2C1A0E", outline: "none",
                   }}
-                >⭐ Staples</button>
+                />
+                {searchQuery && (
+                  <span
+                    onClick={() => { setSearchQuery(""); setSearchPickerOpen(false); }}
+                    style={{ color: "#C9A97A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
+                  >✕</span>
+                )}
               </div>
             </div>
 
+            {/* ── Filter chips — wrapping, no scrollbar ── */}
+            <div style={{
+              display: "flex", flexWrap: "wrap", gap: "7px",
+              paddingBottom: "14px",
+            }}>
+              {/* Staples — cross-cutting filter */}
+              <button
+                onClick={() => setStapleFilter(f => !f)}
+                style={{
+                  padding: "5px 13px", borderRadius: "20px",
+                  fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", letterSpacing: "0.4px",
+                  whiteSpace: "nowrap", cursor: "pointer",
+                  background: stapleFilter ? "#c8973a" : "#F5EDE0",
+                  color: stapleFilter ? "white" : "#6B4423",
+                  border: `1px solid ${stapleFilter ? "#c8973a" : "#E8D5B7"}`,
+                  transition: "all 0.15s",
+                }}
+              >⭐ Staples</button>
+
+              {/* Category chips — toggle to filter */}
+              {categories.map(cat => {
+                const isActive = selectedCategories.has(cat.rawName);
+                return (
+                  <button
+                    key={cat.rawName}
+                    onClick={() => {
+                      setSelectedCategories(prev => {
+                        const next = new Set(prev);
+                        if (next.has(cat.rawName)) {
+                          next.delete(cat.rawName);
+                        } else {
+                          next.add(cat.rawName);
+                        }
+                        return next;
+                      });
+                    }}
+                    style={{
+                      padding: "5px 13px", borderRadius: "20px",
+                      fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", letterSpacing: "0.4px",
+                      whiteSpace: "nowrap", cursor: "pointer",
+                      background: isActive ? "#A0724A" : "#F5EDE0",
+                      color: isActive ? "white" : "#6B4423",
+                      border: `1px solid ${isActive ? "#A0724A" : "#E8D5B7"}`,
+                      transition: "all 0.15s",
+                    }}
+                  >{cat.name}</button>
+                );
+              })}
+            </div>
+
+            {/* ── Catalog body ── */}
             {catalogLoading ? (
               <div style={{ textAlign: "center", padding: "40px 20px", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", letterSpacing: "1px" }}>
                 Loading your catalog…
               </div>
-            ) : (
-              displayCategories.map((cat) => (
-                <div className="category-block" key={cat.name}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
-                    <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>{cat.name}</div>
-                    <button
-                      onClick={() => {
-                        setNewItemCategory(cat.rawName);
-                        setShowAddModal(true);
-                      }}
-                      style={{
-                        background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                        fontSize: "0.72rem", color: "#A0724A", cursor: "pointer",
-                        letterSpacing: "0.5px", padding: "0",
-                      }}
-                    >＋ Add item</button>
-                  </div>
-                  <div className="items-grid">
-                    {cat.items.map((item) => {
+            ) : searchResults !== null ? (
+              /* ── SEARCH MODE ── */
+              <div>
+                {searchResults.length > 0 ? (
+                  <>
+                    <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
+                      {searchResults.length} result{searchResults.length !== 1 ? "s" : ""} for "{searchQuery}"
+                    </div>
+                    {searchResults.map(item => {
                       const qty = quantities[item.name] || 0;
-                      const rawFallback = categoryAvgPrices[cat.rawName] || 3.00;
-                      const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
-                      const isEditing = editingPrice === item.name;
-                      const isStaple = catalogMap[item.name]?.is_staple;
                       return (
-                        <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple}>
-                          <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
-                            <div className="item-top">
-                              <span className="item-name">{item.name}</span>
-                              <div className="qty-controls">
-                                <button className="qty-btn" onClick={() => updateQty(item.name, qty - 1, cat.rawName)}>−</button>
-                                <span className={`qty-display ${qty === 0 ? "zero" : ""}`}>{qty === 0 ? "—" : qty}</span>
-                                <button className="qty-btn" onClick={() => updateQty(item.name, qty + 1, cat.rawName)}>+</button>
-                              </div>
+                        <div key={item.name} style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "11px 14px", marginBottom: "6px",
+                          borderRadius: "10px",
+                          border: `1px solid ${qty > 0 ? "#C9A97A" : "#E8D5B7"}`,
+                          background: qty > 0 ? "#fff8f0" : "#F5EDE0",
+                        }}>
+                          <div>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>
+                              {item.name}
                             </div>
-                            {showPrices && (
-                            <div className="price-row">
-                              {isEditing ? (
-                                <div className="price-edit-wrap">
-                                  <span style={{ fontFamily: "'Lato',sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
-                                  <input
-                                    className="price-input" type="tel" inputMode="numeric"
-                                    value={centsToDisplay(priceInput)} autoFocus
-                                    onChange={(e) => handlePriceInput(e.target.value.replace(/[^0-9]/g, ""))}
-                                    onKeyDown={(e) => { if (e.key === "Enter") commitPrice(item.name); if (e.key === "Escape") setEditingPrice(null); }}
-                                  />
-                                  <button className="price-save-btn" onClick={() => commitPrice(item.name)}>Save</button>
-                                </div>
-                              ) : (
-                                <span className="price-display">${price.toFixed(2)} each</span>
-                              )}
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", textTransform: "uppercase", letterSpacing: "0.3px", marginTop: "2px" }}>
+                              {item.category}
                             </div>
-                            )}
-                            {showPrices && qty > 0 && <div className="item-subtotal">Subtotal: ${(qty * price).toFixed(2)}</div>}
                           </div>
-                        </SwipeToRemove>
+                          <button
+                            onClick={() => updateQty(item.name, qty + 1, item.rawCategory)}
+                            style={{
+                              width: "30px", height: "30px", borderRadius: "50%",
+                              background: qty > 0 ? "#4a9e4a" : "#A0724A",
+                              border: "none", color: "white",
+                              fontSize: qty > 0 ? "16px" : "20px",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              cursor: "pointer", flexShrink: 0,
+                            }}
+                          >{qty > 0 ? "✓" : "+"}</button>
+                        </div>
                       );
                     })}
+                  </>
+                ) : (
+                  /* ── NO MATCH: inline add with category picker ── */
+                  <>
+                    <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
+                      No results for "{searchQuery}"
+                    </div>
+                    <div style={{
+                      borderRadius: "10px",
+                      border: "1.5px dashed #C9A97A",
+                      background: "rgba(201,169,122,0.06)",
+                      overflow: "hidden",
+                      marginBottom: "6px",
+                    }}>
+                      {!searchPickerOpen ? (
+                        <div
+                          onClick={() => setSearchPickerOpen(true)}
+                          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", cursor: "pointer" }}
+                        >
+                          <div>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                              Add <strong>"{searchQuery}"</strong> to your list
+                            </div>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+                              Tap to choose a category
+                            </div>
+                          </div>
+                          <div style={{
+                            width: "30px", height: "30px", borderRadius: "50%",
+                            background: "#A0724A", color: "white",
+                            fontSize: "20px", display: "flex", alignItems: "center", justifyContent: "center",
+                            flexShrink: 0,
+                          }}>+</div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div
+                            onClick={() => setSearchPickerOpen(false)}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px 8px", cursor: "pointer" }}
+                          >
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                              Add <strong>"{searchQuery}"</strong> to your list
+                            </div>
+                            <span style={{ color: "#C9A97A", fontSize: "18px" }}>−</span>
+                          </div>
+                          <div style={{ padding: "0 14px 4px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
+                            Where does it belong?
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", padding: "0 14px 10px" }}>
+                            {categories.filter(cat => cat.rawName !== "⭐ My Custom Items").map(cat => (
+                              <button
+                                key={cat.rawName}
+                                onClick={() => {
+                                  updateQty(searchQuery.trim(), 1, cat.rawName);
+                                  setSearchQuery("");
+                                  setSearchPickerOpen(false);
+                                  setNewCategoryInput("");
+                                }}
+                                style={{
+                                  padding: "6px 14px", borderRadius: "20px",
+                                  fontFamily: "'Lato', sans-serif", fontSize: "12px",
+                                  cursor: "pointer",
+                                  border: "1px solid #E8D5B7",
+                                  background: "#F5EDE0", color: "#6B4423",
+                                  transition: "all 0.15s",
+                                }}
+                              >{cat.name}</button>
+                            ))}
+                          </div>
+                          {/* ── New category inline input ── */}
+                          <div style={{ padding: "0 14px 14px" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
+                              Or create a new category
+                            </div>
+                            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                              <input
+                                type="text"
+                                value={newCategoryInput}
+                                onChange={e => setNewCategoryInput(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter" && newCategoryInput.trim()) {
+                                    const newCat = newCategoryInput.trim();
+                                    setHouseholdCategories(prev => new Set([...prev, newCat]));
+                                    updateQty(searchQuery.trim(), 1, newCat);
+                                    setSearchQuery("");
+                                    setSearchPickerOpen(false);
+                                    setNewCategoryInput("");
+                                  }
+                                }}
+                                placeholder="e.g. Pet Supplies"
+                                style={{
+                                  flex: 1, border: "1.5px solid #E8D5B7", borderRadius: "20px",
+                                  padding: "6px 14px", fontFamily: "'Lato', sans-serif", fontSize: "12px",
+                                  color: "#2C1A0E", background: "#F5EDE0", outline: "none",
+                                }}
+                              />
+                              <button
+                                onClick={() => {
+                                  if (!newCategoryInput.trim()) return;
+                                  const newCat = newCategoryInput.trim();
+                                  setHouseholdCategories(prev => new Set([...prev, newCat]));
+                                  updateQty(searchQuery.trim(), 1, newCat);
+                                  setSearchQuery("");
+                                  setSearchPickerOpen(false);
+                                  setNewCategoryInput("");
+                                }}
+                                style={{
+                                  width: "30px", height: "30px", borderRadius: "50%",
+                                  background: newCategoryInput.trim() ? "#A0724A" : "#E8D5B7",
+                                  border: "none", color: "white",
+                                  fontSize: "18px", display: "flex", alignItems: "center", justifyContent: "center",
+                                  cursor: newCategoryInput.trim() ? "pointer" : "default",
+                                  flexShrink: 0, transition: "background 0.15s",
+                                }}
+                              >+</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              /* ── NORMAL BROWSE MODE ── */
+              <>
+                {displayCategories.map((cat) => (
+                  <div className="category-block" key={cat.name}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
+                      <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>{cat.name}</div>
+                      <button
+                        onClick={() => {
+                          setNewItemCategory(cat.rawName);
+                          setShowAddModal(true);
+                        }}
+                        style={{
+                          background: "none", border: "none", fontFamily: "'Lato', sans-serif",
+                          fontSize: "0.72rem", color: "#A0724A", cursor: "pointer",
+                          letterSpacing: "0.5px", padding: "0",
+                        }}
+                      >＋ Add item</button>
+                    </div>
+                    <div className="items-grid">
+                      {cat.items.map((item) => {
+                        const qty = quantities[item.name] || 0;
+                        const rawFallback = categoryAvgPrices[cat.rawName] || 3.00;
+                        const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
+                        const isEditing = editingPrice === item.name;
+                        const isStaple = catalogMap[item.name]?.is_staple;
+                        return (
+                          <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple}>
+                            <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
+                              <div className="item-top">
+                                <span className="item-name">{item.name}</span>
+                                <div className="qty-controls">
+                                  <button className="qty-btn" onClick={() => updateQty(item.name, qty - 1, cat.rawName)}>−</button>
+                                  <span className={`qty-display ${qty === 0 ? "zero" : ""}`}>{qty === 0 ? "—" : qty}</span>
+                                  <button className="qty-btn" onClick={() => updateQty(item.name, qty + 1, cat.rawName)}>+</button>
+                                </div>
+                              </div>
+                              {showPrices && (
+                                <div className="price-row">
+                                  {isEditing ? (
+                                    <div className="price-edit-wrap">
+                                      <span style={{ fontFamily: "'Lato',sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
+                                      <input
+                                        className="price-input" type="tel" inputMode="numeric"
+                                        value={centsToDisplay(priceInput)} autoFocus
+                                        onChange={(e) => handlePriceInput(e.target.value.replace(/[^0-9]/g, ""))}
+                                        onKeyDown={(e) => { if (e.key === "Enter") commitPrice(item.name); if (e.key === "Escape") setEditingPrice(null); }}
+                                      />
+                                      <button className="price-save-btn" onClick={() => commitPrice(item.name)}>Save</button>
+                                    </div>
+                                  ) : (
+                                    <span className="price-display">${price.toFixed(2)} each</span>
+                                  )}
+                                </div>
+                              )}
+                              {showPrices && qty > 0 && <div className="item-subtotal">Subtotal: ${(qty * price).toFixed(2)}</div>}
+                            </div>
+                          </SwipeToRemove>
+                        );
+                      })}
+                    </div>
                   </div>
+                ))}
+                <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
+                  <button
+                    onClick={() => setShowManageCategoriesModal(true)}
+                    style={{
+                      background: "none", border: "none", fontFamily: "'Lato', sans-serif",
+                      fontSize: "0.75rem", color: "#A0724A", cursor: "pointer",
+                      letterSpacing: "1px", textDecoration: "underline",
+                    }}
+                  >Manage Categories</button>
                 </div>
-              ))
+              </>
             )}
-            <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
-              <button
-                onClick={() => setShowManageCategoriesModal(true)}
-                style={{
-                  background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                  fontSize: "0.75rem", color: "#A0724A", cursor: "pointer",
-                  letterSpacing: "1px", textDecoration: "underline",
-                }}
-              >Manage Categories</button>
-            </div>
           </>
         )}
 
@@ -1711,7 +1971,7 @@ export default function ShoppingListApp() {
                   onChange={e => { setRenamingCategory(e.target.value || null); setRenameValue(e.target.value); }}
                   style={{ marginBottom: "8px" }}>
                   <option value="">— select category —</option>
-                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName) && cat.rawName !== CUSTOM_CAT).map(cat => (
+                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => (
                     <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                   ))}
                 </select>
@@ -1751,7 +2011,7 @@ export default function ShoppingListApp() {
                   }}
                   style={{ marginBottom: "8px" }}>
                   <option value="">— select category —</option>
-                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName) && cat.rawName !== CUSTOM_CAT).map(cat => (
+                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => (
                     <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                   ))}
                 </select>

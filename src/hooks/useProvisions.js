@@ -23,7 +23,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const internalUserIdRef = useRef(null);
   const householdMembersRef = useRef([]);
   const clerkIdRef = useRef(null);
-  const householdMembersRef = useRef([]);
   const pendingWrites = useRef(0);  // count of in-flight DB writes
   const wrappingUpRef = useRef(false);
   const [activeCycle, setActiveCycle] = useState(null);
@@ -34,10 +33,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   async function loadListItems(db, householdId) {
     if (pendingWrites.current > 0) return;
     if (wrappingUpRef.current) return;
-<<<<<<< HEAD
-
-=======
->>>>>>> dev
     const { data: items, error: listErr } = await db
       .from("list_items")
       .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name)")
@@ -72,7 +67,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       newChecked[name] = item.status === "bought";
       if (item.price_per_unit != null) newPrices[name] = parseFloat(item.price_per_unit);
       if (item.added_by != null) newAddedBy[name] = item.added_by;
-<<<<<<< HEAD
 
       const itemContribs = contributorRows
         .filter(c => c.list_item_id === item.id)
@@ -88,21 +82,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         });
 
       if (itemContribs.length > 0) newContributors[name] = itemContribs;
-=======
-      if (item.list_item_contributors?.length > 0) {
-        newContributors[name] = item.list_item_contributors
-          .sort((a, b) => new Date(a.added_at) - new Date(b.added_at))
-          .map(c => {
-            const member = householdMembersRef.current.find(m => m.user_id === c.user_id);
-            return {
-              userId: c.user_id,
-              fullName: member?.users?.full_name || c.users?.full_name || null,
-              clerkId: member?.users?.clerk_id || c.users?.clerk_id || null,
-              quantityAdded: c.quantity_added,
-            };
-          });
-      }
->>>>>>> dev
     });
 
     const mergedPrices = {};
@@ -361,7 +340,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
       // If not found, this is a brand-new custom item — insert it into catalog_items
       if (!catalogItem) {
-        const category = categoryName || "⭐ My Custom Items";
+        const category = categoryName || "Household";
         const { data: inserted, error: insertErr } = await db
           .from("catalog_items")
           .insert({
@@ -1075,135 +1054,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       console.error("updateFullName error:", err.message);
       setError(`Could not update name: ${err.message}`);
       return false;
-    }
-  }, []);
-
-  // ─────────────────────────────────────────────────────────────
-  // PROVISION CYCLES & SESSIONS
-  // ─────────────────────────────────────────────────────────────
-
-  const openCycle = useCallback(async (type = "planned") => {
-    const db = supabaseRef.current;
-    const hh = householdRef.current;
-    if (!hh || !db) return null;
-    if (activeCycleRef.current) return activeCycleRef.current;
-    const { data: newCycle, error: cycleErr } = await db
-      .from("provision_cycles")
-      .insert({ household_id: hh.id, cycle_type: type, created_by: internalUserIdRef.current })
-      .select()
-      .single();
-    if (cycleErr) { setError(`Could not open cycle: ${cycleErr.message}`); return null; }
-    setActiveCycle(newCycle);
-    activeCycleRef.current = newCycle;
-    return newCycle;
-  }, []);
-
-  const startSession = useCallback(async () => {
-    const db = supabaseRef.current;
-    const hh = householdRef.current;
-    if (!hh || !db) return null;
-    let cycle = activeCycleRef.current;
-    if (!cycle) cycle = await openCycle("planned");
-    if (!cycle) return null;
-    if (activeSessionRef.current) return activeSessionRef.current;
-    let gpsLat = null;
-    let gpsLng = null;
-    if (navigator.geolocation) {
-      try {
-        const pos = await new Promise((resolve, reject) =>
-          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 4000 })
-        );
-        gpsLat = pos.coords.latitude;
-        gpsLng = pos.coords.longitude;
-      } catch { /* GPS denied — continue without */ }
-    }
-    const { data: newSession, error: sessionErr } = await db
-      .from("shopping_sessions")
-      .insert({ household_id: hh.id, cycle_id: cycle.id, user_id: internalUserIdRef.current, gps_lat: gpsLat, gps_lng: gpsLng })
-      .select()
-      .single();
-    if (sessionErr) { setError(`Could not start session: ${sessionErr.message}`); return null; }
-    setActiveSession(newSession);
-    activeSessionRef.current = newSession;
-    return newSession;
-  }, [openCycle]);
-
-  const wrapUpTrip = useCallback(async (rollItemNames = []) => {
-    const db = supabaseRef.current;
-    const hh = householdRef.current;
-    if (!hh || !db) return;
-
-    wrappingUpRef.current = true;
-    try {
-      // If no active cycle, create one now so we have something to close
-      let cycle = activeCycleRef.current;
-      if (!cycle) {
-        const { data: newCycle } = await db
-          .from("provision_cycles")
-          .insert({ household_id: hh.id, cycle_type: "planned", created_by: internalUserIdRef.current })
-          .select()
-          .single();
-        if (!newCycle) { setError("Could not create cycle"); return; }
-        cycle = newCycle;
-        activeCycleRef.current = newCycle;
-        setActiveCycle(newCycle);
-      }
-
-      // Close active session if one is open
-      if (activeSessionRef.current) {
-        await db
-          .from("shopping_sessions")
-          .update({ ended_at: new Date().toISOString() })
-          .eq("id", activeSessionRef.current.id);
-        setActiveSession(null);
-        activeSessionRef.current = null;
-      }
-
-      // Resolve roll-forward item names → list_item IDs
-      let rollIds = [];
-      if (rollItemNames.length > 0) {
-        const { data: rollItems } = await db
-          .from("list_items")
-          .select("id, catalog_items(name)")
-          .eq("household_id", hh.id)
-          .eq("status", "pending")
-          .is("deleted_at", null);
-        rollIds = (rollItems || [])
-          .filter(li => rollItemNames.includes(li.catalog_items?.name))
-          .map(li => li.id);
-      }
-
-      await db.rpc("archive_trip_items", {
-        p_household_id: hh.id,
-        p_keep_item_ids: rollIds,
-      });
-
-      const { data: newCycleId, error: closeErr } = await db
-        .rpc("close_cycle", { p_cycle_id: cycle.id, p_roll_item_ids: rollIds });
-      if (closeErr) throw closeErr;
-
-      if (newCycleId) {
-        const { data: newCycle } = await db
-          .from("provision_cycles")
-          .select("id, cycle_type, label, started_at, seeded_from")
-          .eq("id", newCycleId)
-          .single();
-        setActiveCycle(newCycle || null);
-        activeCycleRef.current = newCycle || null;
-      } else {
-        setActiveCycle(null);
-        activeCycleRef.current = null;
-      }
-
-      setChecked({});
-      setQuantities({});
-      wrappingUpRef.current = false;
-      await loadListItems(db, hh.id);
-
-    } catch (err) {
-      wrappingUpRef.current = false;
-      console.error("wrapUpTrip error:", err.message);
-      setError(`Could not wrap up trip: ${err.message}`);
     }
   }, []);
 
