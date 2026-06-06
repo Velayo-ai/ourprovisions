@@ -22,6 +22,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const hiddenCatalogItemsRef = useRef([]);
   const internalUserIdRef = useRef(null);
   const clerkIdRef = useRef(null);
+  const householdMembersRef = useRef([]);
   const pendingWrites = useRef(0);  // count of in-flight DB writes
   const wrappingUpRef = useRef(false);
   const [activeCycle, setActiveCycle] = useState(null);
@@ -58,12 +59,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       if (item.list_item_contributors?.length > 0) {
         newContributors[name] = item.list_item_contributors
           .sort((a, b) => new Date(a.added_at) - new Date(b.added_at))
-          .map(c => ({
-            userId: c.user_id,
-            fullName: c.users?.full_name || null,
-            clerkId: c.users?.clerk_id || null,
-            quantityAdded: c.quantity_added,
-          }));
+          .map(c => {
+            const member = householdMembersRef.current.find(m => m.user_id === c.user_id);
+            return {
+              userId: c.user_id,
+              fullName: member?.users?.full_name || c.users?.full_name || null,
+              clerkId: member?.users?.clerk_id || c.users?.clerk_id || null,
+              quantityAdded: c.quantity_added,
+            };
+          });
       }
     });
     // Merge: start with price_hints from catalog, then overwrite with any user-set prices
@@ -210,6 +214,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           }));
 
           setHouseholdMembers(membersWithProfiles);
+          householdMembersRef.current = membersWithProfiles;
         }
 
         // Only load catalog and list if we have a household.
