@@ -23,10 +23,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const internalUserIdRef = useRef(null);
   const clerkIdRef = useRef(null);
   const pendingWrites = useRef(0);  // count of in-flight DB writes
+  const wrappingUpRef = useRef(false);
+  const [activeCycle, setActiveCycle] = useState(null);
+  const [activeSession, setActiveSession] = useState(null);
+  const activeCycleRef = useRef(null);
+  const activeSessionRef = useRef(null);
 
   async function loadListItems(db, householdId) {
     // Don't overwrite optimistic state while writes are in-flight
     if (pendingWrites.current > 0) return;
+    if (wrappingUpRef.current) return;
     const { data: items, error: listErr } = await db
       .from("list_items")
       .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name), list_item_contributors(user_id, quantity_added, added_at, users(full_name, clerk_id))")
@@ -71,6 +77,21 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
     setContributorsMap(newContributors);
+  }
+
+  async function loadActiveCycle(db, householdId) {
+    const { data, error: cycleErr } = await db
+      .from("provision_cycles")
+      .select("id, cycle_type, label, started_at, seeded_from")
+      .eq("household_id", householdId)
+      .is("closed_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (cycleErr) { console.error("loadActiveCycle error:", cycleErr.message); return null; }
+    setActiveCycle(data || null);
+    activeCycleRef.current = data || null;
+    return data || null;
   }
 
   useEffect(() => {
@@ -246,6 +267,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           }
 
           await loadListItems(db, hh.id);
+          await loadActiveCycle(db, hh.id);
 
           realtimeSub = db
             .channel(`list_items:${hh.id}`)
@@ -335,12 +357,30 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
         if (!updateData || updateData.length === 0) {
           // Truly no row exists — insert fresh
+          // Auto-open a planned cycle if none is active yet
+          if (!activeCycleRef.current) {
+            const { data: newCycle } = await db
+              .from("provision_cycles")
+              .insert({
+                household_id: hh.id,
+                cycle_type: "planned",
+                created_by: internalUserIdRef.current,
+              })
+              .select()
+              .single();
+            if (newCycle) {
+              activeCycleRef.current = newCycle;
+              setActiveCycle(newCycle);
+            }
+          }
+
           const insertFields = {
             household_id: hh.id,
             catalog_item_id: catalogItem.id,
             quantity: qty,
             status: "pending",
             added_by: internalUserIdRef.current,
+            ...(activeCycleRef.current ? { cycle_id: activeCycleRef.current.id } : {}),
           };
           if (price != null && price > 0) insertFields.price_per_unit = price;
           const { data: newItem, error: insertErr } = await db
@@ -828,11 +868,141 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     }
   }, []);
 
+  // ─────────────────────────────────────────────────────────────
+  // PROVISION CYCLES & SESSIONS
+  // ─────────────────────────────────────────────────────────────
+
+  const openCycle = useCallback(async (type = "planned") => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!hh || !db) return null;
+    if (activeCycleRef.current) return activeCycleRef.current;
+    const { data: newCycle, error: cycleErr } = await db
+      .from("provision_cycles")
+      .insert({ household_id: hh.id, cycle_type: type, created_by: internalUserIdRef.current })
+      .select()
+      .single();
+    if (cycleErr) { setError(`Could not open cycle: ${cycleErr.message}`); return null; }
+    setActiveCycle(newCycle);
+    activeCycleRef.current = newCycle;
+    return newCycle;
+  }, []);
+
+  const startSession = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!hh || !db) return null;
+    let cycle = activeCycleRef.current;
+    if (!cycle) cycle = await openCycle("planned");
+    if (!cycle) return null;
+    if (activeSessionRef.current) return activeSessionRef.current;
+    let gpsLat = null;
+    let gpsLng = null;
+    if (navigator.geolocation) {
+      try {
+        const pos = await new Promise((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 4000 })
+        );
+        gpsLat = pos.coords.latitude;
+        gpsLng = pos.coords.longitude;
+      } catch { /* GPS denied — continue without */ }
+    }
+    const { data: newSession, error: sessionErr } = await db
+      .from("shopping_sessions")
+      .insert({ household_id: hh.id, cycle_id: cycle.id, user_id: internalUserIdRef.current, gps_lat: gpsLat, gps_lng: gpsLng })
+      .select()
+      .single();
+    if (sessionErr) { setError(`Could not start session: ${sessionErr.message}`); return null; }
+    setActiveSession(newSession);
+    activeSessionRef.current = newSession;
+    return newSession;
+  }, [openCycle]);
+
+  const wrapUpTrip = useCallback(async (rollItemNames = []) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!hh || !db) return;
+
+    wrappingUpRef.current = true;
+    try {
+      // If no active cycle, create one now so we have something to close
+      let cycle = activeCycleRef.current;
+      if (!cycle) {
+        const { data: newCycle } = await db
+          .from("provision_cycles")
+          .insert({ household_id: hh.id, cycle_type: "planned", created_by: internalUserIdRef.current })
+          .select()
+          .single();
+        if (!newCycle) { setError("Could not create cycle"); return; }
+        cycle = newCycle;
+        activeCycleRef.current = newCycle;
+        setActiveCycle(newCycle);
+      }
+
+      // Close active session if one is open
+      if (activeSessionRef.current) {
+        await db
+          .from("shopping_sessions")
+          .update({ ended_at: new Date().toISOString() })
+          .eq("id", activeSessionRef.current.id);
+        setActiveSession(null);
+        activeSessionRef.current = null;
+      }
+
+      // Resolve roll-forward item names → list_item IDs
+      let rollIds = [];
+      if (rollItemNames.length > 0) {
+        const { data: rollItems } = await db
+          .from("list_items")
+          .select("id, catalog_items(name)")
+          .eq("household_id", hh.id)
+          .eq("status", "pending")
+          .is("deleted_at", null);
+        rollIds = (rollItems || [])
+          .filter(li => rollItemNames.includes(li.catalog_items?.name))
+          .map(li => li.id);
+      }
+
+      await db.rpc("archive_trip_items", {
+        p_household_id: hh.id,
+        p_keep_item_ids: rollIds,
+      });
+
+      const { data: newCycleId, error: closeErr } = await db
+        .rpc("close_cycle", { p_cycle_id: cycle.id, p_roll_item_ids: rollIds });
+      if (closeErr) throw closeErr;
+
+      if (newCycleId) {
+        const { data: newCycle } = await db
+          .from("provision_cycles")
+          .select("id, cycle_type, label, started_at, seeded_from")
+          .eq("id", newCycleId)
+          .single();
+        setActiveCycle(newCycle || null);
+        activeCycleRef.current = newCycle || null;
+      } else {
+        setActiveCycle(null);
+        activeCycleRef.current = null;
+      }
+
+      setChecked({});
+      setQuantities({});
+      wrappingUpRef.current = false;
+      await loadListItems(db, hh.id);
+
+    } catch (err) {
+      wrappingUpRef.current = false;
+      console.error("wrapUpTrip error:", err.message);
+      setError(`Could not wrap up trip: ${err.message}`);
+    }
+  }, []);
+
   return {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
+    activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,
     _household: householdRef,
