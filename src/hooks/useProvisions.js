@@ -281,6 +281,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
               { event: "*", schema: "public", table: "list_items", filter: `household_id=eq.${hh.id}` },
               () => loadListItems(db, hh.id)
             )
+            .on(
+              "postgres_changes",
+              { event: "*", schema: "public", table: "list_item_contributors" },
+              () => loadListItems(db, hh.id)
+            )
             .subscribe();
 
           // Polling fallback — syncs every 5 seconds in case realtime misses events
