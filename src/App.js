@@ -546,25 +546,33 @@ export default function ShoppingListApp() {
     setDeleteMoveTarget("");
   };
 
- const openBudgetModal = () => {
-  setBudgetInput(budgetNum !== null ? String(budgetNum) : "");
-  setShowBudgetModal(true);
-};
+  const openBudgetModal = () => {
+    setBudgetInput(budgetNum !== null ? String(budgetNum) : "");
+    setShowBudgetModal(true);
+  };
 
   const saveBudget = () => {
-  const val = parseFloat(budgetInput);
-  if (!isNaN(val) && val > 0) {
-    updateBudgetGoal(parseFloat(val.toFixed(2)));
-  } else if (budgetInput === "" || budgetInput === "0") {
-    updateBudgetGoal(null);
-  }
-  setShowBudgetModal(false);
-};
+    const val = parseFloat(budgetInput);
+    if (!isNaN(val) && val > 0) {
+      updateBudgetGoal(parseFloat(val.toFixed(2)));
+    } else if (budgetInput === "" || budgetInput === "0") {
+      updateBudgetGoal(null);
+    }
+    setShowBudgetModal(false);
+  };
 
   const clearBudget = () => {
-  updateBudgetGoal(null);
-  setShowBudgetModal(false);
-};
+    updateBudgetGoal(null);
+    setShowBudgetModal(false);
+  };
+
+  const handleWrapUp = async () => {
+    setWrappingUp(true);
+    await wrapUpTrip(Array.from(wrapUpRollItems));
+    setWrappingUp(false);
+    setShowWrapUpModal(false);
+    setWrapUpRollItems(new Set());
+  };
 
   const handleWrapUp = async () => {
     setWrappingUp(true);
