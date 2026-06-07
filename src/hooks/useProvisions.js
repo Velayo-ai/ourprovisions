@@ -29,7 +29,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const [activeSession, setActiveSession] = useState(null);
   const activeCycleRef = useRef(null);
   const activeSessionRef = useRef(null);
-  const realtimeChannelRef = useRef(null);
 
   async function loadListItems(db, householdId) {
     if (pendingWrites.current > 0) return;
@@ -288,25 +287,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           await loadListItems(db, hh.id);
           await loadActiveCycle(db, hh.id);
 
-          // Refresh the auth token before subscribing to realtime
-          // to prevent the channel closing due to a stale JWT
-          await getToken({ template: "supabase" });
-
-          console.log("[Realtime] subscribing to channel:", `provisions:${hh.id}`);
-          realtimeSub = db
-            .channel(`provisions:${hh.id}`, {
-              config: { broadcast: { ack: false } },
-            })
-            .on("broadcast", { event: "list_changed" }, () => {
-              loadListItems(db, hh.id);
-            })
-            .subscribe((status) => {
-              console.log("[Realtime] channel status:", status);
-            });
-          realtimeChannelRef.current = realtimeSub;
-
-          // Polling fallback — syncs every 5 seconds in case realtime misses events
-          pollInterval = setInterval(() => loadListItems(db, hh.id), 5000);
+          console.log("[Sync] using polling mode for household:", hh.id);
+          pollInterval = setInterval(() => loadListItems(db, hh.id), 2000);
         }
 
       } catch (err) {
@@ -319,7 +301,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
     bootstrap();
     return () => {
-      if (realtimeSub) realtimeSub.unsubscribe();
       if (pollInterval) clearInterval(pollInterval);
     };
   }, [getToken, userId, clerkId, email, fullName]);
@@ -441,13 +422,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         }
 
       }
-      if (realtimeChannelRef.current) {
-        realtimeChannelRef.current.send({
-          type: "broadcast",
-          event: "list_changed",
-          payload: {},
-        });
-      }
  } catch (err) {
   console.error("updateQty error:", err.message, err);
   console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
@@ -478,13 +452,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         .eq("catalog_item_id", catalogItem.id)
         .is("deleted_at", null);
       if (updateErr) throw updateErr;
-      if (realtimeChannelRef.current) {
-        realtimeChannelRef.current.send({
-          type: "broadcast",
-          event: "list_changed",
-          payload: {},
-        });
-      }
     } catch (err) {
       console.error("toggleChecked error:", err.message);
       setError(`Could not update item: ${err.message}`);
@@ -507,13 +474,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         .eq("household_id", hh.id)
         .is("deleted_at", null);
       if (clearErr) throw clearErr;
-      if (realtimeChannelRef.current) {
-        realtimeChannelRef.current.send({
-          type: "broadcast",
-          event: "list_changed",
-          payload: {},
-        });
-      }
     } catch (err) {
       console.error("clearAll error:", err.message);
       setError(`Could not clear list: ${err.message}`);
@@ -679,13 +639,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       setQuantities({});
       wrappingUpRef.current = false;
       await loadListItems(db, hh.id);
-      if (realtimeChannelRef.current) {
-        realtimeChannelRef.current.send({
-          type: "broadcast",
-          event: "list_changed",
-          payload: {},
-        });
-      }
 
     } catch (err) {
       wrappingUpRef.current = false;
