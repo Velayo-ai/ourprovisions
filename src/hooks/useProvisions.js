@@ -299,7 +299,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
               { event: "*", schema: "public", table: "list_item_contributors" },
               () => loadListItems(db, hh.id)
             )
-            .subscribe();
+            .subscribe((status) => {
+              console.log("[Realtime] channel status:", status);
+              if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+                console.warn("[Realtime] subscription failed — relying on polling fallback");
+              }
+            });
 
           // Polling fallback — syncs every 5 seconds in case realtime misses events
           pollInterval = setInterval(() => loadListItems(db, hh.id), 5000);
