@@ -292,6 +292,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           // to prevent the channel closing due to a stale JWT
           await getToken({ template: "supabase" });
 
+          console.log("[Realtime] subscribing to channel:", `provisions:${hh.id}`);
           realtimeSub = db
             .channel(`provisions:${hh.id}`)
             .on("broadcast", { event: "list_changed" }, () => {
