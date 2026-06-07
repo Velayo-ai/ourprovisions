@@ -292,22 +292,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           await getToken({ template: "supabase" });
 
           realtimeSub = db
-            .channel(`list_items:${hh.id}`)
-            .on(
-              "postgres_changes",
-              { event: "*", schema: "public", table: "list_items", filter: `household_id=eq.${hh.id}` },
-              () => loadListItems(db, hh.id)
-            )
-            .on(
-              "postgres_changes",
-              { event: "*", schema: "public", table: "list_item_contributors" },
-              () => loadListItems(db, hh.id)
-            )
+            .channel(`provisions:${hh.id}`)
+            .on("broadcast", { event: "list_changed" }, () => {
+              loadListItems(db, hh.id);
+            })
             .subscribe((status) => {
               console.log("[Realtime] channel status:", status);
-              if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-                console.warn("[Realtime] subscription failed — relying on polling fallback");
-              }
             });
 
           // Polling fallback — syncs every 5 seconds in case realtime misses events
@@ -446,6 +436,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         }
 
       }
+      supabaseRef.current
+        .channel(`provisions:${hh.id}`)
+        .send({ type: "broadcast", event: "list_changed", payload: {} });
  } catch (err) {
   console.error("updateQty error:", err.message, err);
   console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
@@ -476,6 +469,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         .eq("catalog_item_id", catalogItem.id)
         .is("deleted_at", null);
       if (updateErr) throw updateErr;
+      supabaseRef.current
+        .channel(`provisions:${hh.id}`)
+        .send({ type: "broadcast", event: "list_changed", payload: {} });
     } catch (err) {
       console.error("toggleChecked error:", err.message);
       setError(`Could not update item: ${err.message}`);
@@ -498,6 +494,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         .eq("household_id", hh.id)
         .is("deleted_at", null);
       if (clearErr) throw clearErr;
+      supabaseRef.current
+        .channel(`provisions:${hh.id}`)
+        .send({ type: "broadcast", event: "list_changed", payload: {} });
     } catch (err) {
       console.error("clearAll error:", err.message);
       setError(`Could not clear list: ${err.message}`);
@@ -663,6 +662,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       setQuantities({});
       wrappingUpRef.current = false;
       await loadListItems(db, hh.id);
+      supabaseRef.current
+        .channel(`provisions:${hh.id}`)
+        .send({ type: "broadcast", event: "list_changed", payload: {} });
 
     } catch (err) {
       wrappingUpRef.current = false;
