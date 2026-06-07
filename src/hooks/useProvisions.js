@@ -44,8 +44,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     if (listErr) { setError(`Could not load list: ${listErr.message}`); return; }
 
     const catalogItemIds = [...new Set(items.map(i => i.catalog_item_id))];
-    const { data: catalogItems } = await db
+    const { data: catalogItems, error: catalogErr } = await db
       .rpc("get_catalog_names_by_ids", { p_ids: catalogItemIds });
+    if (catalogErr) console.error("[loadListItems] catalog RPC error:", catalogErr.message);
+    console.log("[loadListItems] catalog IDs requested:", catalogItemIds.length, "names returned:", (catalogItems || []).length);
 
     const catalogNameMap = {};
     (catalogItems || []).forEach(ci => { catalogNameMap[ci.id] = ci.name; });
