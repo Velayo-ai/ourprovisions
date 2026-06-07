@@ -294,7 +294,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
           console.log("[Realtime] subscribing to channel:", `provisions:${hh.id}`);
           realtimeSub = db
-            .channel(`provisions:${hh.id}`)
+            .channel(`provisions:${hh.id}`, {
+              config: { broadcast: { ack: false } },
+            })
             .on("broadcast", { event: "list_changed" }, () => {
               loadListItems(db, hh.id);
             })
