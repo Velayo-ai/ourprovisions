@@ -163,7 +163,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       return;
     }
 
-    let realtimeSub;
     let pollInterval;
 
     async function bootstrap() {
