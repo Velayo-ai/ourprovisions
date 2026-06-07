@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useProvisions } from './hooks/useProvisions';
 
 // Maps Supabase category names → display names with emoji
@@ -163,7 +163,7 @@ function SplashScreen({ onDone }) {
     const fadeTimer = setTimeout(() => setFading(true), 3000);
     const doneTimer = setTimeout(() => onDone(), 3800);
     return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
-  }, [onDone]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{
@@ -245,6 +245,7 @@ export default function ShoppingListApp() {
   });
 
   const [showSplash, setShowSplash] = useState(true);
+  const handleSplashDone = useCallback(() => setShowSplash(false), []);
   const [localPrices, setLocalPrices] = useState({});
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
@@ -654,7 +655,7 @@ export default function ShoppingListApp() {
 
   return (
     <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
-      {showSplash && <SplashScreen onDone={() => setShowSplash(false)} />}
+      {showSplash && <SplashScreen onDone={handleSplashDone} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
       {isSignedIn && loading && (
