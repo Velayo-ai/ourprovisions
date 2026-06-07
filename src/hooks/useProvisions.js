@@ -287,6 +287,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           await loadListItems(db, hh.id);
           await loadActiveCycle(db, hh.id);
 
+          // Refresh the auth token before subscribing to realtime
+          // to prevent the channel closing due to a stale JWT
+          await getToken({ template: "supabase" });
+
           realtimeSub = db
             .channel(`list_items:${hh.id}`)
             .on(
