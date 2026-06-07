@@ -46,6 +46,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
     const catalogNameMap = {};
     (catalogItems || []).forEach(ci => { catalogNameMap[ci.id] = ci.name; });
+    // Fallback: backfill any id->name we already know from catalogRef, so a
+    // transient resolver miss on this poll doesn't drop a known item from the list.
+    Object.values(catalogRef.current).forEach(ci => {
+      if (ci.id && !catalogNameMap[ci.id]) catalogNameMap[ci.id] = ci.name;
+    });
 
     // Update catalogRef with any new items discovered via polling
     (catalogItems || []).forEach(ci => {
