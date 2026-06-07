@@ -303,6 +303,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
           console.log("[Sync] using polling mode for household:", hh.id);
           pollInterval = setInterval(() => {
+            // Safety: reset pendingWrites if stuck for more than one poll cycle
+            if (pendingWrites.current > 0) {
+              pendingWrites.current = 0;
+            }
             console.log("[Poll] firing, pendingWrites:", pendingWrites.current, "wrappingUp:", wrappingUpRef.current);
             loadListItems(db, hh.id);
           }, 2000);
