@@ -31,8 +31,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const activeSessionRef = useRef(null);
 
   async function loadListItems(db, householdId) {
-    if (pendingWrites.current > 0) { console.log("[loadListItems] blocked by pendingWrites:", pendingWrites.current); return; }
-    if (wrappingUpRef.current) { console.log("[loadListItems] blocked by wrappingUp"); return; }
+    if (wrappingUpRef.current) return;
     console.log("[loadListItems] running for household:", householdId);
     const { data: items, error: listErr } = await db
       .from("list_items")
@@ -337,7 +336,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     // Optimistic update
     setQuantities((prev) => ({ ...prev, [itemName]: Math.max(0, qty) }));
 
-    pendingWrites.current += 1;
     try {
       // Look up in current catalogRef (includes custom items added this session)
       let catalogItem = catalogRef.current[itemName];
@@ -443,8 +441,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       setError(`Could not update quantity: ${err.message}`);
       // Rollback optimistic update
       setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
-    } finally {
-      pendingWrites.current = Math.max(0, pendingWrites.current - 1);
     }
   }, []);  // empty deps — uses refs, never stale
 
@@ -696,7 +692,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     // Optimistic UI update
     setPrices((prev) => ({ ...prev, [itemName]: price }));
 
-    pendingWrites.current += 1;
     try {
       const catalogItem = catalogRef.current[itemName];
       if (!catalogItem) return;
@@ -738,8 +733,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     } catch (err) {
       console.error("updatePrice error:", err.message);
       setError(`Could not update price: ${err.message}`);
-    } finally {
-      pendingWrites.current = Math.max(0, pendingWrites.current - 1);
     }
   }, []);
 
