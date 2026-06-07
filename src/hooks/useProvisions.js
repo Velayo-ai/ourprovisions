@@ -36,12 +36,21 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     console.log("[loadListItems] running for household:", householdId);
     const { data: items, error: listErr } = await db
       .from("list_items")
-      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name)")
+      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by")
       .eq("household_id", householdId)
       .is("deleted_at", null)
       .in("status", ["pending", "bought"]);
 
     if (listErr) { setError(`Could not load list: ${listErr.message}`); return; }
+
+    const catalogItemIds = [...new Set(items.map(i => i.catalog_item_id))];
+    const { data: catalogItems } = await db
+      .from("catalog_items")
+      .select("id, name")
+      .in("id", catalogItemIds);
+
+    const catalogNameMap = {};
+    (catalogItems || []).forEach(ci => { catalogNameMap[ci.id] = ci.name; });
 
     const listItemIds = items.map(i => i.id);
 
@@ -61,7 +70,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     const newContributors = {};
 
     items.forEach((item) => {
-      const name = item.catalog_items?.name;
+      const name = catalogNameMap[item.catalog_item_id];
       if (!name) return;
       if (hiddenIdsRef.current.has(item.catalog_item_id)) return;
       newQty[name] = item.quantity;
