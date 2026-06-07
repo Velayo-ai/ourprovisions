@@ -50,6 +50,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     const catalogNameMap = {};
     (catalogItems || []).forEach(ci => { catalogNameMap[ci.id] = ci.name; });
 
+    // Update catalogRef with any new items discovered via polling
+    (catalogItems || []).forEach(ci => {
+      if (!catalogRef.current[ci.name]) {
+        catalogRef.current[ci.name] = { id: ci.id, name: ci.name };
+      }
+    });
+
     const listItemIds = items.map(i => i.id);
 
     let contributorRows = [];
