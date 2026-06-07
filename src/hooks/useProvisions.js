@@ -47,6 +47,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       .rpc("get_catalog_names_by_ids", { p_ids: catalogItemIds });
     if (catalogErr) console.error("[loadListItems] catalog RPC error:", catalogErr.message);
     console.log("[loadListItems] catalog IDs requested:", catalogItemIds.length, "names returned:", (catalogItems || []).length);
+    console.log("[loadListItems] requested IDs:", catalogItemIds);
+    console.log("[loadListItems] returned rows:", catalogItems);
 
     const catalogNameMap = {};
     (catalogItems || []).forEach(ci => { catalogNameMap[ci.id] = ci.name; });
