@@ -303,10 +303,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
           console.log("[Sync] using polling mode for household:", hh.id);
           pollInterval = setInterval(() => {
-            // Safety: reset pendingWrites if stuck for more than one poll cycle
-            if (pendingWrites.current > 0) {
-              pendingWrites.current = 0;
-            }
             console.log("[Poll] firing, pendingWrites:", pendingWrites.current, "wrappingUp:", wrappingUpRef.current);
             loadListItems(db, hh.id);
           }, 2000);
@@ -450,7 +446,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       // Rollback optimistic update
       setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
     } finally {
-      pendingWrites.current -= 1;
+      pendingWrites.current = Math.max(0, pendingWrites.current - 1);
     }
   }, []);  // empty deps — uses refs, never stale
 
@@ -745,7 +741,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       console.error("updatePrice error:", err.message);
       setError(`Could not update price: ${err.message}`);
     } finally {
-      pendingWrites.current -= 1;
+      pendingWrites.current = Math.max(0, pendingWrites.current - 1);
     }
   }, []);
 
