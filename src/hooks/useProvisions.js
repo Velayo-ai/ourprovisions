@@ -31,8 +31,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const activeSessionRef = useRef(null);
 
   async function loadListItems(db, householdId) {
-    if (pendingWrites.current > 0) return;
-    if (wrappingUpRef.current) return;
+    if (pendingWrites.current > 0) { console.log("[loadListItems] blocked by pendingWrites:", pendingWrites.current); return; }
+    if (wrappingUpRef.current) { console.log("[loadListItems] blocked by wrappingUp"); return; }
+    console.log("[loadListItems] running for household:", householdId);
     const { data: items, error: listErr } = await db
       .from("list_items")
       .select("id, catalog_item_id, quantity, price_per_unit, status, added_by, catalog_items(name)")
@@ -287,7 +288,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           await loadActiveCycle(db, hh.id);
 
           console.log("[Sync] using polling mode for household:", hh.id);
-          pollInterval = setInterval(() => loadListItems(db, hh.id), 2000);
+          pollInterval = setInterval(() => {
+            console.log("[Poll] firing, pendingWrites:", pendingWrites.current, "wrappingUp:", wrappingUpRef.current);
+            loadListItems(db, hh.id);
+          }, 2000);
         }
 
       } catch (err) {
