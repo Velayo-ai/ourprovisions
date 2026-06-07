@@ -45,9 +45,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
     const catalogItemIds = [...new Set(items.map(i => i.catalog_item_id))];
     const { data: catalogItems } = await db
-      .from("catalog_items")
-      .select("id, name")
-      .in("id", catalogItemIds);
+      .rpc("get_catalog_names_by_ids", { p_ids: catalogItemIds });
 
     const catalogNameMap = {};
     (catalogItems || []).forEach(ci => { catalogNameMap[ci.id] = ci.name; });
