@@ -34,11 +34,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     if (wrappingUpRef.current) return;
     console.log("[loadListItems] running for household:", householdId);
     const { data: items, error: listErr } = await db
-      .from("list_items")
-      .select("id, catalog_item_id, quantity, price_per_unit, status, added_by")
-      .eq("household_id", householdId)
-      .is("deleted_at", null)
-      .in("status", ["pending", "bought"]);
+      .rpc("get_list_items_for_household", { p_household_id: householdId });
 
     if (listErr) { setError(`Could not load list: ${listErr.message}`); return; }
 
