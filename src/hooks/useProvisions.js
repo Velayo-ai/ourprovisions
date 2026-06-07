@@ -395,21 +395,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
             }
           }
 
-          const insertFields = {
-            household_id: hh.id,
-            catalog_item_id: catalogItem.id,
-            quantity: qty,
-            status: "pending",
-            added_by: internalUserIdRef.current,
-            ...(activeCycleRef.current ? { cycle_id: activeCycleRef.current.id } : {}),
-          };
-          if (price != null && price > 0) insertFields.price_per_unit = price;
-          const { data: newItem, error: insertErr } = await db
-            .from("list_items")
-            .insert(insertFields)
-            .select()
-            .single();
+          const { data: newItemId, error: insertErr } = await db
+            .rpc("insert_list_item", {
+              p_household_id: hh.id,
+              p_catalog_item_id: catalogItem.id,
+              p_quantity: qty,
+              p_status: "pending",
+              p_added_by: internalUserIdRef.current,
+              p_cycle_id: activeCycleRef.current?.id || null,
+              p_price_per_unit: (price != null && price > 0) ? price : null,
+            });
           if (insertErr) throw insertErr;
+          const newItem = { id: newItemId };
 
           // Record this user as the first contributor
           if (newItem && internalUserIdRef.current) {
