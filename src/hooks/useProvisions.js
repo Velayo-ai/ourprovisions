@@ -29,6 +29,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const [activeSession, setActiveSession] = useState(null);
   const activeCycleRef = useRef(null);
   const activeSessionRef = useRef(null);
+  const realtimeChannelRef = useRef(null);
 
   async function loadListItems(db, householdId) {
     if (pendingWrites.current > 0) return;
@@ -299,6 +300,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
             .subscribe((status) => {
               console.log("[Realtime] channel status:", status);
             });
+          realtimeChannelRef.current = realtimeSub;
 
           // Polling fallback — syncs every 5 seconds in case realtime misses events
           pollInterval = setInterval(() => loadListItems(db, hh.id), 5000);
@@ -436,9 +438,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         }
 
       }
-      supabaseRef.current
-        .channel(`provisions:${hh.id}`)
-        .send({ type: "broadcast", event: "list_changed", payload: {} });
+      if (realtimeChannelRef.current) {
+        realtimeChannelRef.current.send({
+          type: "broadcast",
+          event: "list_changed",
+          payload: {},
+        });
+      }
  } catch (err) {
   console.error("updateQty error:", err.message, err);
   console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
@@ -469,9 +475,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         .eq("catalog_item_id", catalogItem.id)
         .is("deleted_at", null);
       if (updateErr) throw updateErr;
-      supabaseRef.current
-        .channel(`provisions:${hh.id}`)
-        .send({ type: "broadcast", event: "list_changed", payload: {} });
+      if (realtimeChannelRef.current) {
+        realtimeChannelRef.current.send({
+          type: "broadcast",
+          event: "list_changed",
+          payload: {},
+        });
+      }
     } catch (err) {
       console.error("toggleChecked error:", err.message);
       setError(`Could not update item: ${err.message}`);
@@ -494,9 +504,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         .eq("household_id", hh.id)
         .is("deleted_at", null);
       if (clearErr) throw clearErr;
-      supabaseRef.current
-        .channel(`provisions:${hh.id}`)
-        .send({ type: "broadcast", event: "list_changed", payload: {} });
+      if (realtimeChannelRef.current) {
+        realtimeChannelRef.current.send({
+          type: "broadcast",
+          event: "list_changed",
+          payload: {},
+        });
+      }
     } catch (err) {
       console.error("clearAll error:", err.message);
       setError(`Could not clear list: ${err.message}`);
@@ -662,9 +676,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       setQuantities({});
       wrappingUpRef.current = false;
       await loadListItems(db, hh.id);
-      supabaseRef.current
-        .channel(`provisions:${hh.id}`)
-        .send({ type: "broadcast", event: "list_changed", payload: {} });
+      if (realtimeChannelRef.current) {
+        realtimeChannelRef.current.send({
+          type: "broadcast",
+          event: "list_changed",
+          payload: {},
+        });
+      }
 
     } catch (err) {
       wrappingUpRef.current = false;
