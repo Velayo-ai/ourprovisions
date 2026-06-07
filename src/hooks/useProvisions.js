@@ -343,19 +343,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       // If not found, this is a brand-new custom item — insert it into catalog_items
       if (!catalogItem) {
         const category = categoryName || "Household";
-        const { data: inserted, error: insertErr } = await db
-          .from("catalog_items")
-          .insert({
-            name: itemName,
-            category: category,
-            is_global: false,
-            household_id: hh.id,
-            created_by: internalUserIdRef.current,
-          })
-          .select()
-          .single();
+        const { data: insertedId, error: insertErr } = await db
+          .rpc("insert_custom_catalog_item", {
+            p_name: itemName,
+            p_category: category,
+            p_household_id: hh.id,
+            p_created_by: internalUserIdRef.current,
+          });
         if (insertErr) throw insertErr;
-        catalogItem = inserted;
+        catalogItem = { id: insertedId, name: itemName, category: category, is_global: false, household_id: hh.id };
         // Keep catalogRef and catalogMap in sync
         catalogRef.current = { ...catalogRef.current, [itemName]: catalogItem };
         setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
