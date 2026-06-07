@@ -47,18 +47,21 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       .rpc("get_catalog_names_by_ids", { p_ids: catalogItemIds });
     if (catalogErr) console.error("[loadListItems] catalog RPC error:", catalogErr.message);
     console.log("[loadListItems] catalog IDs requested:", catalogItemIds.length, "names returned:", (catalogItems || []).length);
-    console.log("[loadListItems] requested IDs:", catalogItemIds);
-    console.log("[loadListItems] returned rows:", catalogItems);
 
     const catalogNameMap = {};
     (catalogItems || []).forEach(ci => { catalogNameMap[ci.id] = ci.name; });
 
     // Update catalogRef with any new items discovered via polling
+    const newCatalogEntries = {};
     (catalogItems || []).forEach(ci => {
       if (!catalogRef.current[ci.name]) {
         catalogRef.current[ci.name] = { id: ci.id, name: ci.name };
+        newCatalogEntries[ci.name] = { id: ci.id, name: ci.name };
       }
     });
+    if (Object.keys(newCatalogEntries).length > 0) {
+      setCatalogMap(prev => ({ ...prev, ...newCatalogEntries }));
+    }
 
     const listItemIds = items.map(i => i.id);
 
