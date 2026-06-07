@@ -52,16 +52,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     (catalogItems || []).forEach(ci => { catalogNameMap[ci.id] = ci.name; });
 
     // Update catalogRef with any new items discovered via polling
-    const newCatalogEntries = {};
     (catalogItems || []).forEach(ci => {
-      if (!catalogRef.current[ci.name]) {
-        catalogRef.current[ci.name] = { id: ci.id, name: ci.name };
-        newCatalogEntries[ci.name] = { id: ci.id, name: ci.name };
-      }
+      catalogRef.current[ci.name] = { ...catalogRef.current[ci.name], id: ci.id, name: ci.name };
     });
-    if (Object.keys(newCatalogEntries).length > 0) {
-      setCatalogMap(prev => ({ ...prev, ...newCatalogEntries }));
-    }
+    setCatalogMap(prev => {
+      let changed = false;
+      const next = { ...prev };
+      (catalogItems || []).forEach(ci => {
+        if (!next[ci.name]) {
+          next[ci.name] = { id: ci.id, name: ci.name };
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
 
     const listItemIds = items.map(i => i.id);
 
