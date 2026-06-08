@@ -90,7 +90,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     items.forEach((item) => {
       const name = catalogNameMap[item.catalog_item_id];
       if (!name) return;
-      if (hiddenIdsRef.current.has(item.catalog_item_id)) return;
       newListRows.push({
         id: item.id,
         catalogItemId: item.catalog_item_id,
