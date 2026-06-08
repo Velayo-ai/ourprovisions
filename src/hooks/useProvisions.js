@@ -38,30 +38,30 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
     if (listErr) { setError(`Could not load list: ${listErr.message}`); return; }
 
-    const catalogItemIds = [...new Set(items.map(i => i.catalog_item_id))];
-    const { data: catalogItems, error: catalogErr } = await db
-      .rpc("get_catalog_names_by_ids", { p_ids: catalogItemIds });
-    if (catalogErr) console.error("[loadListItems] catalog RPC error:", catalogErr.message);
-    console.log("[loadListItems] catalog IDs requested:", catalogItemIds.length, "names returned:", (catalogItems || []).length);
-
+    // Names/categories/staple flags now arrive inline from the list RPC join.
     const catalogNameMap = {};
-    (catalogItems || []).forEach(ci => { catalogNameMap[ci.id] = ci.name; });
-    // Fallback: backfill any id->name we already know from catalogRef, so a
-    // transient resolver miss on this poll doesn't drop a known item from the list.
-    Object.values(catalogRef.current).forEach(ci => {
-      if (ci.id && !catalogNameMap[ci.id]) catalogNameMap[ci.id] = ci.name;
-    });
+    items.forEach(it => { catalogNameMap[it.catalog_item_id] = it.name; });
 
-    // Update catalogRef with any new items discovered via polling
-    (catalogItems || []).forEach(ci => {
-      catalogRef.current[ci.name] = { ...catalogRef.current[ci.name], id: ci.id, name: ci.name };
+    // Merge full catalog entries (with category + is_staple) so items added by
+    // other users render in their correct category section.
+    items.forEach(it => {
+      catalogRef.current[it.name] = {
+        ...catalogRef.current[it.name],
+        id: it.catalog_item_id, name: it.name,
+        category: it.category, is_staple: it.is_staple,
+      };
     });
     setCatalogMap(prev => {
       let changed = false;
       const next = { ...prev };
-      (catalogItems || []).forEach(ci => {
-        if (!next[ci.name]) {
-          next[ci.name] = { id: ci.id, name: ci.name };
+      items.forEach(it => {
+        const existing = next[it.name];
+        if (!existing || existing.category !== it.category || existing.is_staple !== it.is_staple) {
+          next[it.name] = {
+            ...existing,
+            id: it.catalog_item_id, name: it.name,
+            category: it.category, is_staple: it.is_staple,
+          };
           changed = true;
         }
       });
