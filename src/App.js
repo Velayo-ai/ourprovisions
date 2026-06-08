@@ -208,12 +208,12 @@ export default function ShoppingListApp() {
     checked,
     prices: supabasePrices,
     categoryAvgPrices,
-    addedByMap,
     contributorsMap,
     household,
     householdMembers,
     catalogMap,
     setCatalogMap,
+    listRows,
     loading,
     error,
     dismissError,
@@ -603,31 +603,43 @@ export default function ShoppingListApp() {
   };
 
   const shoppingList = useMemo(() => {
-    const result = [];
-    for (const cat of categories) {
-      const catItems = cat.items
-        .filter((item) => (quantities[item.name] || 0) > 0)
-        .map((item) => {
-          const realPrice = prices[item.name] && supabasePrices[item.name] ? prices[item.name] : (localPrices[item.name] || 0);
-          const addedByUserId = addedByMap?.[item.name];
-          const addedByMember = householdMembers?.find(m => m.user_id === addedByUserId);
-          const addedByName = addedByMember?.users?.full_name
-            || addedByMember?.users?.email?.split("@")[0]
-            || null;
-          const isOwnItem = !addedByUserId || addedByMember?.users?.clerk_id === user?.id;
-          return {
-            name: item.name, qty: quantities[item.name],
-            price: realPrice,
-            subtotal: (quantities[item.name] || 0) * realPrice,
-            category: cat.name,
-            addedBy: isOwnItem ? null : addedByName,
-            contributors: contributorsMap?.[item.name] || [],
-          };
-        });
-      if (catItems.length > 0) result.push({ category: cat.name, items: catItems });
+    // Group directly from the RPC rows (listRows) — the source of truth that is
+    // identical on every client. catalogMap is no longer in the display path,
+    // so a stale/incomplete local catalog can never drop a synced item.
+    const groups = {}; // rawCategory -> items[]
+    for (const row of listRows) {
+      if ((row.quantity || 0) <= 0) continue;
+      const rawCat = row.category || "Household";
+      const realPrice = prices[row.name] && supabasePrices[row.name]
+        ? prices[row.name]
+        : (localPrices[row.name] || 0);
+      const addedByUserId = row.addedBy;
+      const addedByMember = householdMembers?.find(m => m.user_id === addedByUserId);
+      const addedByName = addedByMember?.users?.full_name
+        || addedByMember?.users?.email?.split("@")[0]
+        || null;
+      const isOwnItem = !addedByUserId || addedByMember?.users?.clerk_id === user?.id;
+      if (!groups[rawCat]) groups[rawCat] = [];
+      groups[rawCat].push({
+        name: row.name, qty: row.quantity,
+        price: realPrice,
+        subtotal: (row.quantity || 0) * realPrice,
+        category: CATEGORY_DISPLAY[rawCat] || rawCat,
+        addedBy: isOwnItem ? null : addedByName,
+        contributors: contributorsMap?.[row.name] || [],
+      });
     }
-    return result;
-  }, [quantities, prices, supabasePrices, localPrices, categories, addedByMap, contributorsMap, householdMembers, user?.id]);
+
+    const orderedRaw = [
+      ...CATEGORY_ORDER.filter(c => groups[c]),
+      ...Object.keys(groups).filter(c => !CATEGORY_ORDER.includes(c)),
+    ];
+
+    return orderedRaw.map(rawCat => ({
+      category: CATEGORY_DISPLAY[rawCat] || rawCat,
+      items: groups[rawCat].sort((a, b) => a.name.localeCompare(b.name)),
+    }));
+  }, [listRows, prices, supabasePrices, localPrices, contributorsMap, householdMembers, user?.id]);
 
   const pendingItems = shoppingList.flatMap(cat =>
     cat.items.filter(item => !checked[item.name])

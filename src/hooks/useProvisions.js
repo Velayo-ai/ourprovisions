@@ -12,6 +12,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const [household, setHousehold] = useState(null);
   const [householdMembers, setHouseholdMembers] = useState([]);
   const [catalogMap, setCatalogMap] = useState({});
+  const [listRows, setListRows] = useState([]); // raw surviving RPC rows — source of truth for the SHOP list
   const [hiddenCatalogItems, setHiddenCatalogItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -84,11 +85,23 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     const newPrices = {};
     const newAddedBy = {};
     const newContributors = {};
+    const newListRows = [];
 
     items.forEach((item) => {
       const name = catalogNameMap[item.catalog_item_id];
       if (!name) return;
       if (hiddenIdsRef.current.has(item.catalog_item_id)) return;
+      newListRows.push({
+        id: item.id,
+        catalogItemId: item.catalog_item_id,
+        name,
+        category: item.category,
+        isStaple: item.is_staple,
+        quantity: item.quantity,
+        status: item.status,
+        pricePerUnit: item.price_per_unit != null ? parseFloat(item.price_per_unit) : null,
+        addedBy: item.added_by ?? null,
+      });
       newQty[name] = item.quantity;
       newChecked[name] = item.status === "bought";
       if (item.price_per_unit != null) newPrices[name] = parseFloat(item.price_per_unit);
@@ -115,6 +128,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       if (item.price_hint != null) mergedPrices[item.name] = parseFloat(item.price_hint);
     });
     Object.assign(mergedPrices, newPrices);
+    setListRows(newListRows);
     setQuantities(newQty);
     setChecked(newChecked);
     setPrices(mergedPrices);
@@ -1058,7 +1072,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   }, []);
 
   return {
-    quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, updateFullName,
+    quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
