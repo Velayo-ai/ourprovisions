@@ -24,6 +24,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const internalUserIdRef = useRef(null);
   const householdMembersRef = useRef([]);
   const clerkIdRef = useRef(null);
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
   const pendingWrites = useRef(0);  // count of in-flight DB writes
   const wrappingUpRef = useRef(false);
   const [activeCycle, setActiveCycle] = useState(null);
@@ -155,7 +157,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
   useEffect(() => {
     // If not signed in, fetch global catalog via direct REST call using anon key — no Supabase client needed
-    if (!getToken || !userId || !clerkId) {
+    if (!getTokenRef.current || !userId || !clerkId) {
       (async () => {
         try {
           const response = await fetch(
@@ -212,7 +214,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       setError(null);
 
       try {
-        const db = createSupabaseClient(getToken);
+        const db = createSupabaseClient(getTokenRef.current);
         supabaseRef.current = db;
 
         // Check for pending invite before bootstrapping
@@ -347,7 +349,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     return () => {
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [getToken, userId, clerkId, email, fullName]);
+  }, [userId, clerkId, email, fullName]);
 
   // ─────────────────────────────────────────────────────────────
   // updateQty: handles both global catalog items AND custom items.
