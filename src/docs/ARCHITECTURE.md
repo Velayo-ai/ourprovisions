@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: June 8, 2026*
+*Last updated: June 9, 2026*
 
 ---
 
@@ -182,6 +182,12 @@ The SHOP list is grouped directly from `get_list_items_for_household`'s returned
 
 ### refreshCatalog()
 Replaces all `window.location.reload()` calls. Prevents jarring full-page reloads on mobile. Fetches fresh catalog data and updates state in-place.
+
+### hiddenIdsRef poll guard *(June 9)*
+`loadListItems` runs on every 2-second poll tick and merges catalog entries into `catalogRef.current` and `catalogMap`. Without a guard, this re-adds items the user has hidden. Both the `catalogRef.current` forEach and the `setCatalogMap` forEach now check `hiddenIdsRef.current.has(it.catalog_item_id)` and return early for any hidden item. `hideItem` updates `hiddenIdsRef` synchronously before the next poll tick, so the guard is always current.
+
+### getTokenRef stable-ref pattern *(June 9)*
+Clerk's `getToken` function has an unstable reference — it changes identity on every render, which caused the boot `useEffect` to re-run on every render, stacking poll intervals and triggering a hidden-items race. Fix: declare `const getTokenRef = useRef(getToken)` and update `getTokenRef.current = getToken` on every render (outside the effect). Inside the effect, use `getTokenRef.current` instead of `getToken` directly, and remove `getToken` from the effect's dependency array. The effect now only fires when `userId`/`clerkId`/`email`/`fullName` change.
 
 ### Contributor Merge Logic (app-side)
 When a user adds an item already on the list:
