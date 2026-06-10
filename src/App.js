@@ -115,19 +115,19 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, style: outerStyle
           <button
             onClick={(e) => { e.stopPropagation(); handleRemove(); }}
             style={{
-              flex: 1, background: "#e05c5c", border: "none", color: "white",
+              flex: 1, background: "#8A7968", border: "none", color: "white",
               fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700,
               letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer"
             }}
-          >Remove</button>
+          >Hide</button>
         </div>
       ) : (
         <div style={{
-          position: "absolute", inset: 0, background: "#e05c5c", borderRadius: "8px",
+          position: "absolute", inset: 0, background: "#8A7968", borderRadius: "8px",
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           paddingRight: "18px", opacity: isRevealing ? 1 : 0, transition: "opacity 0.15s"
         }}>
-          <span style={{ color: "white", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase" }}>Remove</span>
+          <span style={{ color: "white", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase" }}>Hide</span>
         </div>
       )}
       <div
@@ -221,6 +221,7 @@ export default function ShoppingListApp() {
     updatePrice,
     toggleChecked,
     updateBudgetGoal,
+    hideItem,
     deleteItem,
     hiddenCatalogItems,
     restoreHiddenByCategory,
@@ -1506,7 +1507,7 @@ export default function ShoppingListApp() {
                         const isEditing = editingPrice === item.name;
                         const isStaple = catalogMap[item.name]?.is_staple;
                         return (
-                          <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple}>
+                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple}>
                             <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
                               <div className="item-top">
                                 <span className="item-name">{item.name}</span>
@@ -1638,7 +1639,7 @@ export default function ShoppingListApp() {
                       {cat.items.map((item) => {
                         const isDone = checked[item.name];
                         return (
-                          <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
+                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
                             <div className={`list-item ${isDone ? "done" : ""}`}>
                               <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
                                 {isDone && <span className="checkmark">✓</span>}
@@ -1699,7 +1700,7 @@ export default function ShoppingListApp() {
                       .map((item) => {
                         const isDone = checked[item.name];
                         return (
-                          <SwipeToRemove key={item.name} onRemove={() => deleteItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
+                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
                             <div className={`list-item ${isDone ? "done" : ""}`}>
                               <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
                                 {isDone && <span className="checkmark">✓</span>}
@@ -1812,7 +1813,7 @@ export default function ShoppingListApp() {
               <label className="modal-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>Category</span>
                 {isSignedIn && !newItemName.trim() && hiddenCatalogItems.some(h => h.category === newItemCategory) && (
-                  <span style={{ fontStyle: "italic", fontSize: "10px", color: "#C9A97A", fontWeight: 400 }}>select to reset</span>
+                  <span style={{ fontStyle: "italic", fontSize: "10px", color: "#C9A97A", fontWeight: 400 }}>tap below to unhide</span>
                 )}
               </label>
               <select className="modal-select" value={newItemCategory}
@@ -1831,7 +1832,7 @@ export default function ShoppingListApp() {
               {isSignedIn && !newItemName.trim() && (
                 addModalResetDone ? (
                   <div style={{ fontSize: "12px", color: "#A0724A", fontStyle: "italic", marginTop: "6px" }}>
-                    ✓ {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} restored
+                    ✓ {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} items unhidden
                   </div>
                 ) : hiddenCatalogItems.some(h => h.category === newItemCategory) ? (
                   <button
@@ -1842,7 +1843,7 @@ export default function ShoppingListApp() {
                     }}
                     style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#A0724A", fontFamily: "'Lato', sans-serif", fontSize: "12px", padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block" }}
                   >
-                    Reset {CATEGORY_DISPLAY[newItemCategory] || newItemCategory}
+                    Unhide {hiddenCatalogItems.filter(h => h.category === newItemCategory).length} hidden {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} {hiddenCatalogItems.filter(h => h.category === newItemCategory).length === 1 ? "item" : "items"}
                   </button>
                 ) : null
               )}

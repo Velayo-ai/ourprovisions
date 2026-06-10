@@ -46,17 +46,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     // Merge full catalog entries (with category + is_staple) so items added by
     // other users render in their correct category section.
     items.forEach(it => {
+      if (hiddenIdsRef.current.has(it.catalog_item_id)) return; // never re-add a hidden item
       catalogRef.current[it.name] = {
         ...catalogRef.current[it.name],
         id: it.catalog_item_id, name: it.name,
         category: it.category, is_staple: it.is_staple,
       };
     });
+    console.log("[DEBUG loadListItems] hiddenIdsRef size:", hiddenIdsRef.current.size, "ids:", [...hiddenIdsRef.current]);
     setCatalogMap(prev => {
       let changed = false;
       const next = { ...prev };
       items.forEach(it => {
         const existing = next[it.name];
+        if (hiddenIdsRef.current.has(it.catalog_item_id)) return; // never re-add a hidden item
         if (!existing || existing.category !== it.category || existing.is_staple !== it.is_staple) {
           next[it.name] = {
             ...existing,
@@ -882,6 +885,48 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   }, []);
 
   // ─────────────────────────────────────────────────────────────
+  // hideItem: per-user, view-only. Hides any catalog item (global
+  // or custom) from THIS user's browse view. Never affects the
+  // shared list or other users. Reversible via Restore.
+  // ─────────────────────────────────────────────────────────────
+  const hideItem = useCallback(async (itemName) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return;
+
+    const catalogItem = catalogRef.current[itemName];
+    if (!catalogItem) return;
+
+    // Optimistically remove from this user's browse view
+    setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
+    setCatalogMap((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
+    const newRef = { ...catalogRef.current };
+    delete newRef[itemName];
+    catalogRef.current = newRef;
+
+    try {
+      const { error: hideErr } = await db
+        .from("user_hidden_items")
+        .insert({
+          clerk_id: clerkIdRef.current,
+          catalog_item_id: catalogItem.id,
+        });
+      if (hideErr && !hideErr.message.includes("duplicate")) throw hideErr;
+
+      hiddenIdsRef.current = new Set([...hiddenIdsRef.current, catalogItem.id]);
+      console.log("[DEBUG hideItem] hid", itemName, catalogItem.id, "-> hiddenIdsRef now:", [...hiddenIdsRef.current]);
+      hiddenCatalogItemsRef.current = [...hiddenCatalogItemsRef.current, catalogItem];
+      setHiddenCatalogItems(prev => [...prev, catalogItem]);
+    } catch (err) {
+      console.error("hideItem error:", err.message);
+      setError(`Could not hide item: ${err.message}`);
+      // Rollback
+      catalogRef.current = { ...catalogRef.current, [itemName]: catalogItem };
+      setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
+    }
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────
   // deleteItem: removes an item from this user's catalog view.
   // For household-specific items: soft-deletes the catalog_items row.
   // For global items: inserts into user_hidden_items so the item
@@ -1004,6 +1049,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     (customItems || []).forEach((item) => {
       if (!hiddenIdsRef.current.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
     });
+    console.log("[DEBUG refreshCatalog] rebuilding, hiddenIdsRef:", [...hiddenIdsRef.current], "cMap keys:", Object.keys(cMap).length);
     setCatalogMap(cMap);
     catalogRef.current = cMap;
   }, []);
@@ -1074,7 +1120,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
+    hideItem, deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,
