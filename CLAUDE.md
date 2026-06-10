@@ -48,35 +48,56 @@ and feature specs (`SPEC_*.md`).
 
 When I type "SESSION END", do all of the following in one pass:
 
-1. Read the full session (everything we did this session).
+### Step 0 — Check for a design handoff file (do this FIRST)
 
-2. **Update `src/docs/SESSION_LOG.md`** — prepend a NEW entry at the TOP of the
-   `## LOG` section (most recent first). Use the SESSION LOG ENTRY FORMAT below.
-   Single rolling file; do NOT create dated per-session files.
+Look for `handoff/design_handoff.md`.
 
-3. **Update `src/docs/ROADMAP.md`** — move completed items to DONE (stamp with
-   today's date), add new immediate priorities to NOW, queue anything new under
-   NEXT / LATER, record any model-level decisions in the DECISIONS LOG, and
-   update the "Last updated" date.
+- **If it exists**, it contains design/decision context from a separate Claude
+  CHAT session that you (Claude Code) could not see. It uses delimited sections.
+  Parse and route each, MERGING with your own session's notes — do not create
+  duplicate entries:
+  - `## SESSION_LOG` block → fold into THIS session's SESSION_LOG.md entry
+    (combine design rationale + what was built into ONE entry).
+  - `## ROADMAP_DECISIONS` block → append to the DECISIONS LOG in
+    `src/docs/ROADMAP.md`, and apply any NOW/NEXT/LATER/DONE moves it specifies.
+  - `## ARCHITECTURE` block → apply to `src/docs/ARCHITECTURE.md` (new tables,
+    constraints, patterns, principles); bump its "Last updated" date.
+  - After merging, **DELETE `handoff/design_handoff.md`** so it can't be
+    double-applied. The content now lives in the committed docs.
+- **If it does not exist**, proceed normally — log only what you witnessed.
 
-4. **Conditionally update `src/docs/ARCHITECTURE.md`** — ONLY if this session
-   changed the architecture: a new or changed table/column, a new RPC, a schema
-   constraint finding, a new cross-cutting pattern, or a new design principle. If
-   nothing architectural changed this session, LEAVE IT UNTOUCHED. When you do
-   update it, bump its "Last updated" date. If unsure whether a change is
-   "architectural enough," ASK me rather than guessing.
+### Step 1 — Update `src/docs/SESSION_LOG.md`
+Prepend a NEW entry at the TOP of the `## LOG` section (most recent first), using
+the SESSION LOG ENTRY FORMAT below. Single rolling file; do NOT create dated
+per-session files. If a handoff was found in Step 0, this entry combines its
+design notes with your implementation notes.
 
-5. **Do NOT modify `src/docs/SPEC_*.md`** unless I am explicitly building from a
-   spec this session and ask you to update it. Specs are episodic, not per-session.
+### Step 2 — Update `src/docs/ROADMAP.md`
+Move completed items to DONE (stamp with today's date), add new immediate
+priorities to NOW, queue anything new under NEXT / LATER, record any model-level
+decisions in the DECISIONS LOG (including any from the handoff), and update the
+"Last updated" date.
 
-6. **Commit the changed docs:**
-   `git add src/docs/` (stage whatever changed)
-   `git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
-   Do NOT push automatically — leave the commit local for my review. I'll push.
+### Step 3 — Conditionally update `src/docs/ARCHITECTURE.md`
+Update ONLY if this session (or the handoff) changed the architecture: a new or
+changed table/column, a new RPC, a schema constraint finding, a new cross-cutting
+pattern, or a new design principle. If nothing architectural changed, LEAVE IT
+UNTOUCHED. When you do update it, bump its "Last updated" date. If unsure whether
+a change is "architectural enough," ASK me rather than guessing.
 
-7. **Tell me which Project Knowledge files to re-upload** to the web chat: every
-   doc you changed this session, plus any source files (`App.js`,
-   `useProvisions.js`, etc.) that changed.
+### Step 4 — Do NOT modify `src/docs/SPEC_*.md`
+Unless I am explicitly building from a spec this session and ask you to update it.
+Specs are episodic, not per-session.
+
+### Step 5 — Commit the changed docs
+`git add src/docs/ handoff/` (stage doc changes and the handoff deletion)
+`git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
+Do NOT push automatically — leave the commit local for my review. I'll push.
+
+### Step 6 — Report
+Tell me which Project Knowledge files to re-upload to the web chat: every doc you
+changed this session, plus any source files (`App.js`, `useProvisions.js`, etc.)
+that changed.
 
 ### Rules
 - Infer today's date from the system date.
@@ -107,6 +128,18 @@ Done when: [clear success condition]
 - NEXT — clearly defined, ready to start
 - LATER — planned but not yet spec'd
 - DONE — shipped and live (always stamp with month/date)
+
+---
+
+## Handoff format reference (what design chats produce)
+
+A design chat session produces `handoff/design_handoff.md` with these delimited
+sections (any may be omitted if nothing applies):
+- `## SESSION_LOG` — session-log entry focused on decisions/design.
+- `## ROADMAP_DECISIONS` — DECISIONS LOG rows + any roadmap moves.
+- `## ARCHITECTURE` — structural changes (tables, constraints, patterns, principles).
+
+Step 0 of SESSION END consumes this file and then deletes it.
 
 ---
 
