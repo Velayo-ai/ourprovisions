@@ -415,7 +415,7 @@ export default function ShoppingListApp() {
 
   const openEditModal = (itemName) => {
     const catalogEntry = catalogMap[itemName];
-    const isCustom = catalogEntry && catalogEntry.created_by != null;
+    const isCustom = catalogEntry && catalogEntry.is_global === false;
     setEditModalItem({ name: itemName, isCustom });
     setEditModalName(itemName);
     const existing = prices[itemName];
@@ -1941,7 +1941,32 @@ export default function ShoppingListApp() {
             )}
 
             <div className="modal-actions-spaced">
-              <div />
+              <div>
+                {editModalItem.isCustom && (
+                  <button
+                    onClick={() => {
+                      const ok = window.confirm(
+                        `Delete "${editModalItem.name}" for the whole household? This removes it from the current list and can't be undone.`
+                      );
+                      if (ok) {
+                        deleteItem(editModalItem.name);
+                        setEditModalItem(null);
+                      }
+                    }}
+                    style={{
+                      fontFamily: "'Lato', sans-serif",
+                      fontSize: "0.82rem",
+                      color: "#b04a3f",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: "8px 4px"
+                    }}
+                  >
+                    Delete item
+                  </button>
+                )}
+              </div>
               <div style={{ display: "flex", gap: "10px" }}>
                 <button className="modal-cancel" onClick={() => setEditModalItem(null)}>Cancel</button>
                 <button className="modal-confirm" onClick={commitEditModal}>Save</button>
