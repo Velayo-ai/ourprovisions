@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Velayo OS — Dev Session Flight Checklist</title>
+<style>
+  :root{
+    --abyss:#020F1A;
+    --abyss-2:#06182a;
+    --teal:#0D9488;
+    --sky:#0EA5E9;
+    --paper:#f7f3ec;
+    --paper-2:#ece4d6;
+    --ink:#0b1620;
+    --muted:#5b6b78;
+    --line:#d9cdb8;
+    --done:#0D9488;
+    --warn:#b45309;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--abyss);
+    color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.5;
+    padding:0 0 80px;
+  }
+  header{
+    background:linear-gradient(160deg,var(--abyss) 0%,var(--abyss-2) 100%);
+    color:var(--paper);
+    padding:34px 28px 30px;
+    border-bottom:2px solid var(--teal);
+  }
+  header h1{
+    font-family:"Playfair Display",Georgia,serif;
+    font-style:italic;
+    font-weight:600;
+    margin:0 0 6px;
+    font-size:30px;
+    letter-spacing:.3px;
+  }
+  header .tag{color:var(--sky);font-size:13px;letter-spacing:.18em;text-transform:uppercase;}
+  header .sub{color:#b9c6d1;font-size:14px;margin-top:10px;max-width:760px;}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px;}
+  .controls{
+    display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+    margin:22px auto 6px;max-width:880px;padding:0 20px;
+  }
+  .controls button{
+    background:var(--teal);color:#fff;border:none;border-radius:8px;
+    padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer;
+  }
+  .controls button.secondary{background:transparent;color:#b9c6d1;border:1px solid #2a3d4d;}
+  .controls .progress{color:#b9c6d1;font-size:13px;margin-left:auto;}
+  section.card{
+    background:var(--paper);
+    border-radius:14px;
+    margin:18px auto;
+    max-width:880px;
+    padding:24px 26px 18px;
+    box-shadow:0 8px 28px rgba(0,0,0,.35);
+  }
+  section.card > h2{
+    font-family:"Playfair Display",Georgia,serif;
+    font-style:italic;font-weight:600;
+    margin:0 0 4px;font-size:23px;color:var(--ink);
+    display:flex;align-items:center;gap:10px;
+  }
+  section.card > .desc{color:var(--muted);font-size:13.5px;margin:0 0 16px;}
+  .phase-pill{
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:#fff;padding:3px 9px;border-radius:20px;font-weight:700;
+    font-family:-apple-system,sans-serif;font-style:normal;
+  }
+  .pre{background:var(--sky);}
+  .inflight{background:#7c6f56;}
+  .post{background:var(--teal);}
+  .item{
+    display:flex;gap:12px;align-items:flex-start;
+    padding:11px 0;border-top:1px solid var(--line);
+  }
+  .item:first-of-type{border-top:none;}
+  .item input[type=checkbox]{
+    appearance:none;-webkit-appearance:none;
+    width:20px;height:20px;border:2px solid var(--teal);border-radius:5px;
+    margin-top:2px;cursor:pointer;flex:0 0 auto;position:relative;background:#fff;
+  }
+  .item input[type=checkbox]:checked{background:var(--done);border-color:var(--done);}
+  .item input[type=checkbox]:checked::after{
+    content:"✓";color:#fff;font-size:14px;font-weight:700;
+    position:absolute;top:-1px;left:3px;
+  }
+  .item .body{flex:1;min-width:0;}
+  .item .label{font-size:15px;font-weight:600;color:var(--ink);}
+  .item .label.done{text-decoration:line-through;color:var(--muted);}
+  .item .note{font-size:13px;color:var(--muted);margin-top:3px;}
+  .item .note strong{color:var(--warn);}
+  .codeblock{
+    position:relative;background:var(--abyss);border-radius:9px;
+    margin:9px 0 4px;padding:12px 13px;overflow:auto;
+  }
+  .codeblock pre{
+    margin:0;color:#cfe3ef;font-family:"SF Mono",Consolas,Menlo,monospace;
+    font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;
+  }
+  .codeblock .copy{
+    position:absolute;top:8px;right:8px;background:#13344a;color:#9fc7df;
+    border:none;border-radius:6px;padding:4px 9px;font-size:11px;cursor:pointer;
+  }
+  .codeblock .copy:active{background:var(--teal);color:#fff;}
+  .gate{
+    background:#fff7ed;border:1px solid #f1d4a8;border-left:4px solid var(--warn);
+    border-radius:8px;padding:10px 13px;margin:8px 0 2px;font-size:13px;color:#7a4d11;
+  }
+  .gate strong{color:var(--warn);}
+  footer{max-width:880px;margin:30px auto 0;padding:0 20px;color:#6b7d8a;font-size:12px;text-align:center;}
+  .legend{font-size:12px;color:#90a0ac;margin-top:8px;}
+
+  /* help badge on an item */
+  .help-badge{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:19px;height:19px;border-radius:50%;
+    background:var(--sky);color:#fff;font-size:12px;font-weight:700;
+    cursor:pointer;margin-left:8px;flex:0 0 auto;border:none;
+    vertical-align:middle;line-height:1;
+  }
+  .help-badge:hover{background:var(--teal);}
+  .label-row{display:flex;align-items:center;flex-wrap:wrap;gap:2px;}
+
+  /* modal */
+  .modal-backdrop{
+    display:none;position:fixed;inset:0;z-index:50;
+    background:rgba(2,15,26,.72);
+    align-items:flex-start;justify-content:center;
+    padding:40px 16px;overflow-y:auto;
+  }
+  .modal-backdrop.open{display:flex;}
+  .modal{
+    background:var(--paper);border-radius:16px;max-width:620px;width:100%;
+    box-shadow:0 24px 70px rgba(0,0,0,.55);
+    border-top:4px solid var(--sky);
+    animation:pop .16s ease-out;
+  }
+  @keyframes pop{from{transform:translateY(8px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+  .modal-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:18px 22px 12px;border-bottom:1px solid var(--line);
+  }
+  .modal-head h3{
+    font-family:"Playfair Display",Georgia,serif;font-style:italic;font-weight:600;
+    margin:0;font-size:20px;color:var(--ink);
+  }
+  .modal-close{
+    background:none;border:none;font-size:24px;line-height:1;color:var(--muted);
+    cursor:pointer;padding:0 4px;
+  }
+  .modal-body{padding:16px 22px 22px;font-size:14px;color:var(--ink);}
+  .modal-body h4{
+    margin:16px 0 6px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--teal);
+  }
+  .modal-body h4:first-child{margin-top:0;}
+  .modal-body p{margin:0 0 8px;}
+  .modal-body .good{
+    background:#ecf7f0;border-left:3px solid var(--done);border-radius:6px;
+    padding:8px 11px;margin:6px 0;
+  }
+  .modal-body .bad{
+    background:#fdf1ec;border-left:3px solid #c2410c;border-radius:6px;
+    padding:8px 11px;margin:6px 0;
+  }
+  .modal-body code,.modal-body .mono{
+    font-family:"SF Mono",Consolas,Menlo,monospace;font-size:12.5px;
+    background:#e7ddca;border-radius:4px;padding:1px 5px;
+  }
+  .modal-body pre{
+    background:var(--abyss);color:#cfe3ef;border-radius:7px;padding:9px 11px;margin:6px 0;
+    font-family:"SF Mono",Consolas,Menlo,monospace;font-size:12px;line-height:1.5;
+    white-space:pre-wrap;overflow:auto;
+  }
+  .modal-body .fix{font-size:13px;color:var(--muted);margin:2px 0 10px;}
+  .modal-body .fix b{color:var(--ink);}
+</style>
+</head>
+<body>
+<header>
+  <div class="tag">Velayo OS</div>
+  <h1>Dev Session Flight Checklist</h1>
+  <div class="sub">Preflight before you build, in-flight discipline while you work, postflight to capture and ship cleanly. Check items as you go. State is held in this page only — use Reset to clear for the next session. (Nothing is saved to disk; this is a working surface, not a record.)</div>
+</header>
+
+<div class="controls">
+  <button onclick="resetAll()">↺ Reset for new session</button>
+  <button class="secondary" onclick="expandPrompts()">Toggle prompt details</button>
+  <span class="progress" id="progress">0 / 0 complete</span>
+</div>
+
+<!-- PREFLIGHT -->
+<section class="card">
+  <h2><span class="phase-pill pre">Preflight</span> Before you build</h2>
+  <p class="desc">Orient yourself and confirm you're starting from solid, known ground.</p>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label-row"><span class="label">Confirm which branch you're on and that it's clean</span><button class="help-badge" onclick="openHelp('gitstatus')" title="What am I looking for?">?</button></div>
+      <div class="note">You should almost always start on <code>dev</code> with a clean tree. Uncommitted changes from last time are a red flag — deal with them before building.</div>
+      <div class="codeblock"><button class="copy" onclick="cp(this)">copy</button><pre>git branch
+git status</pre></div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Pull latest so you're not building on a stale local copy</div>
+      <div class="codeblock"><button class="copy" onclick="cp(this)">copy</button><pre>git pull origin dev</pre></div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Read the top of SESSION_LOG.md and the current ROADMAP NOW items</div>
+      <div class="note">The last session's "Next session" block tells you the goal and the "Done when." Don't reinvent it.</div>
+      <div class="codeblock"><button class="copy" onclick="cp(this)">copy</button><pre>Read the top entry of src/docs/SESSION_LOG.md and the NOW
+section of src/docs/ROADMAP.md, then tell me today's goal,
+current state, and the "Done when" before we touch any code.</pre></div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">State today's goal and "Done when" out loud (one sentence each)</div>
+      <div class="note">If you can't say what "done" looks like, you're not ready to start — design it first (in chat) before building.</div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Decide: is this a DESIGN session (chat) or a BUILD session (Claude Code)?</div>
+      <div class="note">Design/architecture/decisions → do it in chat, produce a handoff file. Implementation → Claude Code. If both, design first, then hand off.</div>
+    </div>
+  </div>
+</section>
+
+<!-- IN-FLIGHT -->
+<section class="card">
+  <h2><span class="phase-pill inflight">In-flight</span> While you build</h2>
+  <p class="desc">The discipline reminders — these are the rules that, when skipped, cost you whole sessions.</p>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Commit before switching branches — every time</div>
+      <div class="note"><strong>Lost work before from branch-switching with uncommitted changes.</strong> One step at a time, verify between steps.</div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">After any deploy, hard-refresh ALL clients before judging (Ctrl+Shift+R)</div>
+      <div class="note"><strong>Stale JS produces false negatives</strong> — a fix that looks broken is often just an old bundle. Don't trust a soft refresh.</div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Keep Claude Code prompts surgical — single file, exact matches</div>
+      <div class="note">Grep for the target, view the exact line range, then edit. Large multi-file prompts fail more often.</div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">For Supabase function changes, verify the save actually took</div>
+      <div class="note">The SQL Editor has silently kept old versions. Confirm with the function definition.</div>
+      <div class="codeblock"><button class="copy" onclick="cp(this)">copy</button><pre>select pg_get_functiondef(oid) from pg_proc
+where proname = '&lt;function_name&gt;';</pre></div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Watch for debug console.log lines — note them to strip before merge</div>
+      <div class="note">Debug logging is fine on dev; it must not ride to main. Leave yourself a note in the commit if any remain.</div>
+    </div>
+  </div>
+</section>
+
+<!-- POSTFLIGHT -->
+<section class="card">
+  <h2><span class="phase-pill post">Postflight</span> Capture &amp; ship</h2>
+  <p class="desc">Log the work, get it into git, and respect the test→merge gate. This is where the operating system earns its keep.</p>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">IF this was a design chat: produce the handoff file</div>
+      <div class="note">Run this at the end of the chat. Save the output to <code>repo/handoff/design_handoff.md</code> <strong>before</strong> running SESSION END in Claude Code, or Step 0 finds nothing.</div>
+      <div class="codeblock"><button class="copy" onclick="cp(this)">copy</button><pre>Produce a design handoff file capturing everything from THIS
+chat session that should reach the repo docs. Output one
+downloadable .md file named design_handoff.md with EXACTLY
+these delimited sections (omit a section if nothing applies):
+
+## SESSION_LOG
+[session-log entry: Goal / Completed / Unfinished /
+Next session (SESSION START + Done when) / Files updated /
+DB changes — focused on the DESIGN and DECISIONS made here]
+
+## ROADMAP_DECISIONS
+[DECISIONS LOG rows: | date | decision + rationale |, plus
+any roadmap moves like "Move X to DONE", "Add Y to NEXT"]
+
+## ARCHITECTURE
+[structural changes only: new/changed tables or columns, new
+RPCs, schema constraints found, new patterns or principles]
+
+Be concise, Velayo voice, honest about what's unfinished.
+This is a HANDOFF — Claude Code will merge it into the
+canonical docs and delete it. Then remind me to save it to
+repo/handoff/design_handoff.md and run SESSION END in Claude Code.</pre></div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Run SESSION END in Claude Code</div>
+      <div class="note">Step 0 picks up the handoff file (if present), merges design + implementation into ONE entry across SESSION_LOG / ROADMAP / ARCHITECTURE, deletes the handoff, and commits. It does not auto-push.</div>
+      <div class="codeblock"><button class="copy" onclick="cp(this)">copy</button><pre>SESSION END</pre></div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Verify the working tree is clean and review the commit</div>
+      <div class="note">Trust <code>git status</code>, not the file explorer. "Working tree clean" is the real confirmation.</div>
+      <div class="codeblock"><button class="copy" onclick="cp(this)">copy</button><pre>git status
+git log --oneline -3</pre></div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Push dev</div>
+      <div class="codeblock"><button class="copy" onclick="cp(this)">copy</button><pre>git push origin dev</pre></div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Note which Project Knowledge files to re-upload</div>
+      <div class="note">SESSION END tells you. Typically the changed docs (SESSION_LOG, ROADMAP, maybe ARCHITECTURE) + any changed source files (App.js, useProvisions.js). Re-upload so chat-Claude stays current.</div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">TEST on the dev preview before any merge to main</div>
+      <div class="gate"><strong>GATE:</strong> Cold test — fresh tabs, cold sign-in, both clients. Confirm the feature AND that adds/deletes/sync still work. A warm-tab "looks fine" is not a pass. Don't merge on an unverified baseline.</div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Strip debug logs if any are still present (before merge)</div>
+      <div class="note">If your commit messages noted "debug logs still present," this is the gate to remove them.</div>
+    </div>
+  </div>
+
+  <div class="item">
+    <input type="checkbox" onchange="tick(this)">
+    <div class="body">
+      <div class="label">Merge dev → main and push (only if the cold test passed)</div>
+      <div class="codeblock"><button class="copy" onclick="cp(this)">copy</button><pre>git checkout main
+git merge dev
+git push origin main
+git checkout dev</pre></div>
+      <div class="note">Then verify production at ourprovisions.velayo.ai. Return to <code>dev</code> for next session.</div>
+    </div>
+  </div>
+</section>
+
+<!-- HELP MODAL -->
+<div class="modal-backdrop" id="helpModal" onclick="if(event.target===this)closeHelp()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="helpTitle">Reading git branch &amp; status</h3>
+      <button class="modal-close" onclick="closeHelp()">&times;</button>
+    </div>
+    <div class="modal-body" id="helpBody"></div>
+  </div>
+</div>
+
+<footer>
+  Velayo, Inc. — the boat is the office. · Reset this checklist at the start of each session.
+  <div class="legend">This page holds state in memory only. It is a working surface — the real record lives in git (src/docs/) via SESSION END.</div>
+</footer>
+
+<script>
+  function tick(cb){
+    const label = cb.parentElement.querySelector('.label');
+    if(label) label.classList.toggle('done', cb.checked);
+    updateProgress();
+  }
+  function updateProgress(){
+    const boxes = document.querySelectorAll('input[type=checkbox]');
+    const done = [...boxes].filter(b=>b.checked).length;
+    document.getElementById('progress').textContent = done + ' / ' + boxes.length + ' complete';
+  }
+  function resetAll(){
+    document.querySelectorAll('input[type=checkbox]').forEach(b=>{b.checked=false;});
+    document.querySelectorAll('.label.done').forEach(l=>l.classList.remove('done'));
+    updateProgress();
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  function cp(btn){
+    const pre = btn.parentElement.querySelector('pre');
+    const text = pre.innerText;
+    navigator.clipboard.writeText(text).then(()=>{
+      const orig = btn.textContent;
+      btn.textContent = 'copied ✓';
+      setTimeout(()=>btn.textContent=orig,1200);
+    }).catch(()=>{
+      btn.textContent='select & copy';
+    });
+  }
+  let promptsHidden=false;
+  function expandPrompts(){
+    promptsHidden=!promptsHidden;
+    document.querySelectorAll('.codeblock').forEach(c=>{
+      c.style.display = promptsHidden ? 'none':'block';
+    });
+  }
+
+  const HELP = {
+    gitstatus: {
+      title: "Reading git branch &amp; status",
+      body: `
+        <h4>git branch — what you want</h4>
+        <div class="good">The <code>*</code> should be on <b>dev</b>:
+        <pre>* dev
+  main</pre>
+        dev is your working/preview branch. You almost never start a session on main.</div>
+        <p class="fix"><b>If the * is on main:</b> <span class="mono">git checkout dev</span></p>
+        <p class="fix"><b>If you see "(HEAD detached at …)":</b> you're not on a branch. <span class="mono">git checkout dev</span></p>
+
+        <h4>git status — the three-green target</h4>
+        <div class="good">You're cleared for takeoff when you see all three:
+        <pre>On branch dev
+Your branch is up to date with 'origin/dev'.
+nothing to commit, working tree clean</pre>
+        &check; on dev &middot; &check; up to date with origin &middot; &check; working tree clean</div>
+
+        <h4>If "up to date" is missing</h4>
+        <p><b>"behind 'origin/dev' by N commits"</b> — GitHub has work your local doesn't. Pull first:</p>
+        <pre>git pull origin dev</pre>
+        <p><b>"ahead by N commits"</b> — you have a local commit never pushed. Push it:</p>
+        <pre>git push origin dev</pre>
+
+        <h4>If there are uncommitted changes &#9888;</h4>
+        <div class="bad"><b>"Changes not staged" / "Untracked files"</b> = leftover work in the tree. This is the situation that has lost work before. STOP and identify it before doing anything else.</div>
+        <p class="fix"><b>Keep it:</b> <span class="mono">git add -A</span> then <span class="mono">git commit -m "…"</span></p>
+        <p class="fix"><b>See what it is first:</b> <span class="mono">git diff</span></p>
+        <p class="fix"><b>Discard it (unrecoverable, be sure):</b> <span class="mono">git restore &lt;file&gt;</span></p>
+        <p class="fix"><b>A stray <span class="mono">handoff/design_handoff.md</span> at session start</b> means a prior SESSION END never consumed it — handle before building, or it merges into the wrong session.</p>
+
+        <h4>If the command gives nothing useful</h4>
+        <p><b>"not a git repository":</b> wrong folder. <span class="mono">cd c:\\Users\\mr_dh\\ourprovisions</span> then retry.</p>
+        <p><b>"git is not recognized":</b> Git isn't on PATH in that terminal — use the VS Code integrated terminal in the repo.</p>
+        <p><b>Screen full of <span class="mono">~</span> / stuck in an editor:</b> press <span class="mono">Esc</span>, type <span class="mono">:q</span>, Enter.</p>
+      `
+    }
+  };
+  function openHelp(key){
+    const h = HELP[key];
+    if(!h) return;
+    document.getElementById('helpTitle').innerHTML = h.title;
+    document.getElementById('helpBody').innerHTML = h.body;
+    document.getElementById('helpModal').classList.add('open');
+    document.body.style.overflow='hidden';
+  }
+  function closeHelp(){
+    document.getElementById('helpModal').classList.remove('open');
+    document.body.style.overflow='';
+  }
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')closeHelp();});
+
+  updateProgress();
+</script>
+</body>
+</html>
