@@ -27,14 +27,16 @@
 - Added `deletedIdsRef` poll guard in `loadListItems`: prevents 2-second poll from transiently re-adding a just-deleted item during the RPC round-trip; wired into `deleteItem` (mark before RPC, unmark on rollback)
 - Stripped 6 debug `console.log` statements from `useProvisions.js`
 **Unfinished:**
-- `delete_custom_catalog_item` SECURITY DEFINER RPC not yet written in Supabase — client is wired and ready, server-side is the remaining piece before Delete can ship
-**Next session:**
-SESSION START
-Goal: Write `delete_custom_catalog_item` RPC in Supabase, cold-test Delete end-to-end, then cold-test sync fix and merge dev → main.
-State: Client-side Delete fully implemented on `dev`. RPC call is wired but will error until the server-side function exists. Hide is stable. `dev` is clean.
-Done when: Delete works end-to-end on both clients (custom item only, list cascade confirmed, no ghost re-add on poll); cold cross-user test passes; `dev` merged to `main` and live.
+- Catalog propagation across clients is broken (DIAGNOSED, not fixed): custom items created on one client don't appear on others until hard-reload. Root cause: the 2s poll refreshes LIST state only; the catalog_items read runs once at boot, never on the interval. Confirmed live (proptest1 created on DT never reached DH).
+- ESLint exhaustive-deps warning on the boot effect — still present, blocks main merge.
+- dev NOT merged to main (gated on the two items above).
+- Note: dev preview + Supabase SQL Editor both currently run against PRODUCTION (main); no isolated dev DB branch exists. This session's test deletes hit prod (throwaway items only).
+**Next session (SESSION START):**
+Goal: Stand up a dev DB sandbox, THEN fix catalog propagation against it.
+Order: (1) Create Supabase `dev` branch + repoint Vercel preview env vars to it — stop testing against prod. (2) Fix catalog propagation (separate slower catalog poll + harden refreshCatalog into a guarded merge; it currently does a full setCatalogMap replace and ignores deletedIdsRef). (3) Resolve ESLint exhaustive-deps warning. (4) Merge dev → main.
+Done when: dev DB isolated; custom catalog adds + catalog-only deletes propagate cross-client within a poll cycle; lint clean; dev merged to main.
 **Files updated:** `src/hooks/useProvisions.js`, `src/App.js`
-**DB changes:** None (RPC not yet written)
+**DB changes:** `delete_custom_catalog_item` SECURITY DEFINER RPC deployed and tested
 
 ### June 10, 2026 — Repo housekeeping & handoff bridge
 **Goal:** Clean up repo structure and wire the design→implementation handoff path.
