@@ -26,7 +26,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const clerkIdRef = useRef(null);
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
-  const pendingWrites = useRef(0);  // count of in-flight DB writes
   const wrappingUpRef = useRef(false);
   const [activeCycle, setActiveCycle] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
@@ -924,21 +923,26 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   }, []);
 
   // ─────────────────────────────────────────────────────────────
-  // deleteItem: removes an item from this user's catalog view.
-  // For household-specific items: soft-deletes the catalog_items row.
-  // For global items: inserts into user_hidden_items so the item
-  // is hidden for this user only — other users unaffected.
-  // Also soft-deletes any active list_items row for this household.
+  // deleteItem: HARD-deletes a CUSTOM (household-owned) catalog item
+  // for the entire household via the delete_custom_catalog_item RPC.
+  // The RPC removes the catalog row plus all references (list_items,
+  // list_item_contributors, user_hidden_items, waste_events).
+  // Global/seed items are NOT deletable — use hideItem for those.
   // ─────────────────────────────────────────────────────────────
   const deleteItem = useCallback(async (itemName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return;
-
     const catalogItem = catalogRef.current[itemName];
     if (!catalogItem) return;
+    // Guard: deletion is custom-only. Seed/global items can only be hidden.
+    if (catalogItem.is_global) {
+      console.warn("deleteItem called on a global item — ignored. Use hideItem.");
+      return;
+    }
 
-    // Optimistically remove from UI immediately
+    // Snapshot for rollback, then optimistically remove from UI
+    const prevCatalogRef = catalogRef.current;
     setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
     setCatalogMap((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
     const newRef = { ...catalogRef.current };
@@ -946,44 +950,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     catalogRef.current = newRef;
 
     try {
-      if (catalogItem.is_global) {
-        // Global item — hide for this user only
-        const { error: hideErr } = await db
-          .from("user_hidden_items")
-          .insert({
-            clerk_id: clerkIdRef.current,
-            catalog_item_id: catalogItem.id,
-          });
-        if (hideErr && !hideErr.message.includes("duplicate")) throw hideErr;
-      } else {
-        // Household-specific custom item — soft-delete it entirely
-        const { error: catErr } = await db
-          .from("catalog_items")
-          .update({ deleted_at: new Date().toISOString() })
-          .eq("id", catalogItem.id);
-        if (catErr) throw catErr;
-      }
-
-      // Update hiddenIdsRef immediately so polling can't restore this item
-      hiddenIdsRef.current = new Set([...hiddenIdsRef.current, catalogItem.id]);
-      // Track in hiddenCatalogItems so Restore button knows about it (global hides only)
-      if (catalogItem.is_global) {
-        hiddenCatalogItemsRef.current = [...hiddenCatalogItemsRef.current, catalogItem];
-        setHiddenCatalogItems(prev => [...prev, catalogItem]);
-      }
-
-      // Also soft-delete any active list_items row for this household
-      await db
-        .from("list_items")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("household_id", hh.id)
-        .eq("catalog_item_id", catalogItem.id)
-        .is("deleted_at", null);
+      const { error: rpcErr } = await db.rpc("delete_custom_catalog_item", {
+        p_household_id: hh.id,
+        p_catalog_item_id: catalogItem.id,
+      });
+      if (rpcErr) throw rpcErr;
     } catch (err) {
       console.error("deleteItem error:", err.message);
       setError(`Could not delete item: ${err.message}`);
-      // Rollback — re-add to local catalog state
-      catalogRef.current = { ...catalogRef.current, [itemName]: catalogItem };
+      // Rollback — restore local catalog state
+      catalogRef.current = prevCatalogRef;
       setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
     }
   }, []);
