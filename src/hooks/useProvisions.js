@@ -35,7 +35,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
   async function loadListItems(db, householdId) {
     if (wrappingUpRef.current) return;
-    console.log("[loadListItems] running for household:", householdId);
     const { data: items, error: listErr } = await db
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
@@ -55,7 +54,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         category: it.category, is_staple: it.is_staple,
       };
     });
-    console.log("[DEBUG loadListItems] hiddenIdsRef size:", hiddenIdsRef.current.size, "ids:", [...hiddenIdsRef.current]);
     setCatalogMap(prev => {
       let changed = false;
       const next = { ...prev };
@@ -330,9 +328,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           await loadListItems(db, hh.id);
           await loadActiveCycle(db, hh.id);
 
-          console.log("[Sync] using polling mode for household:", hh.id);
           pollInterval = setInterval(() => {
-            console.log("[Poll] firing, pendingWrites:", pendingWrites.current, "wrappingUp:", wrappingUpRef.current);
             loadListItems(db, hh.id);
           }, 2000);
         }
@@ -916,7 +912,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       if (hideErr && !hideErr.message.includes("duplicate")) throw hideErr;
 
       hiddenIdsRef.current = new Set([...hiddenIdsRef.current, catalogItem.id]);
-      console.log("[DEBUG hideItem] hid", itemName, catalogItem.id, "-> hiddenIdsRef now:", [...hiddenIdsRef.current]);
       hiddenCatalogItemsRef.current = [...hiddenCatalogItemsRef.current, catalogItem];
       setHiddenCatalogItems(prev => [...prev, catalogItem]);
     } catch (err) {
@@ -1051,7 +1046,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     (customItems || []).forEach((item) => {
       if (!hiddenIdsRef.current.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
     });
-    console.log("[DEBUG refreshCatalog] rebuilding, hiddenIdsRef:", [...hiddenIdsRef.current], "cMap keys:", Object.keys(cMap).length);
     setCatalogMap(cMap);
     catalogRef.current = cMap;
   }, []);
