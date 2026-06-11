@@ -15,7 +15,7 @@ Vercel hosting, Anthropic Claude API.
 **Branches:** `dev` -> preview (dev.ourprovisions.velayo.ai); `main` -> production
 (ourprovisions.velayo.ai).
 **Key files:** `src/App.js`, `src/hooks/useProvisions.js`, `src/supabaseClient.js`.
-**Docs (all in `src/docs/`):** `SESSION_LOG.md`, `ROADMAP.md`, `ARCHITECTURE.md`,
+**Docs (all in `docs/`):** `SESSION_LOG.md`, `ROADMAP.md`, `ARCHITECTURE.md`,
 and feature specs (`SPEC_*.md`).
 
 ---
@@ -29,7 +29,7 @@ and feature specs (`SPEC_*.md`).
 
 ---
 
-## Architectural facts to respect (see src/docs/ARCHITECTURE.md for detail)
+## Architectural facts to respect (see docs/ARCHITECTURE.md for detail)
 
 - **`catalog_items.is_global`** is the ownership discriminator. `true` = seed item
   (system-owned; members can Hide but never Delete). `false` = custom item
@@ -59,38 +59,38 @@ Look for `handoff/design_handoff.md`.
   - `## SESSION_LOG` block → fold into THIS session's SESSION_LOG.md entry
     (combine design rationale + what was built into ONE entry).
   - `## ROADMAP_DECISIONS` block → append to the DECISIONS LOG in
-    `src/docs/ROADMAP.md`, and apply any NOW/NEXT/LATER/DONE moves it specifies.
-  - `## ARCHITECTURE` block → apply to `src/docs/ARCHITECTURE.md` (new tables,
+    `docs/ROADMAP.md`, and apply any NOW/NEXT/LATER/DONE moves it specifies.
+  - `## ARCHITECTURE` block → apply to `docs/ARCHITECTURE.md` (new tables,
     constraints, patterns, principles); bump its "Last updated" date.
   - After merging, **DELETE `handoff/design_handoff.md`** so it can't be
     double-applied. The content now lives in the committed docs.
 - **If it does not exist**, proceed normally — log only what you witnessed.
 
-### Step 1 — Update `src/docs/SESSION_LOG.md`
+### Step 1 — Update `docs/SESSION_LOG.md`
 Prepend a NEW entry at the TOP of the `## LOG` section (most recent first), using
 the SESSION LOG ENTRY FORMAT below. Single rolling file; do NOT create dated
 per-session files. If a handoff was found in Step 0, this entry combines its
 design notes with your implementation notes.
 
-### Step 2 — Update `src/docs/ROADMAP.md`
+### Step 2 — Update `docs/ROADMAP.md`
 Move completed items to DONE (stamp with today's date), add new immediate
 priorities to NOW, queue anything new under NEXT / LATER, record any model-level
 decisions in the DECISIONS LOG (including any from the handoff), and update the
 "Last updated" date.
 
-### Step 3 — Conditionally update `src/docs/ARCHITECTURE.md`
+### Step 3 — Conditionally update `docs/ARCHITECTURE.md`
 Update ONLY if this session (or the handoff) changed the architecture: a new or
 changed table/column, a new RPC, a schema constraint finding, a new cross-cutting
 pattern, or a new design principle. If nothing architectural changed, LEAVE IT
 UNTOUCHED. When you do update it, bump its "Last updated" date. If unsure whether
 a change is "architectural enough," ASK me rather than guessing.
 
-### Step 4 — Do NOT modify `src/docs/SPEC_*.md`
+### Step 4 — Do NOT modify `docs/SPEC_*.md`
 Unless I am explicitly building from a spec this session and ask you to update it.
 Specs are episodic, not per-session.
 
 ### Step 5 — Commit the changed docs
-`git add src/docs/ handoff/` (stage doc changes and the handoff deletion)
+`git add docs/ handoff/` (stage doc changes and the handoff deletion)
 `git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
 Do NOT push automatically — leave the commit local for my review. I'll push.
 
