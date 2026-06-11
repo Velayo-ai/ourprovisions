@@ -17,6 +17,25 @@
 
 ## LOG
 
+### June 11, 2026 — Delete verb (client side) + pre-merge cleanup
+**Goal:** Implement client-side Delete for custom catalog items; strip debug artifacts before dev→main merge.
+**Completed:**
+- Rewired `deleteItem` in `useProvisions.js` to call `delete_custom_catalog_item` RPC (hard-delete + reference cascade server-side); added `is_global` guard refusing deletion of seed items; optimistic UI removal with `prevCatalogRef` snapshot rollback on error
+- Removed dead `pendingWrites` ref (orphaned by prior debug-log removal)
+- Added Delete button to Edit Item modal footer — custom items only, `window.confirm` gate, left-slot placement, taupe-red text style
+- Fixed `isCustom` discriminator in `openEditModal`: `created_by != null` → `is_global === false` (canonical discriminator, reliably present in all catalog read paths)
+- Added `deletedIdsRef` poll guard in `loadListItems`: prevents 2-second poll from transiently re-adding a just-deleted item during the RPC round-trip; wired into `deleteItem` (mark before RPC, unmark on rollback)
+- Stripped 6 debug `console.log` statements from `useProvisions.js`
+**Unfinished:**
+- `delete_custom_catalog_item` SECURITY DEFINER RPC not yet written in Supabase — client is wired and ready, server-side is the remaining piece before Delete can ship
+**Next session:**
+SESSION START
+Goal: Write `delete_custom_catalog_item` RPC in Supabase, cold-test Delete end-to-end, then cold-test sync fix and merge dev → main.
+State: Client-side Delete fully implemented on `dev`. RPC call is wired but will error until the server-side function exists. Hide is stable. `dev` is clean.
+Done when: Delete works end-to-end on both clients (custom item only, list cascade confirmed, no ghost re-add on poll); cold cross-user test passes; `dev` merged to `main` and live.
+**Files updated:** `src/hooks/useProvisions.js`, `src/App.js`
+**DB changes:** None (RPC not yet written)
+
 ### June 10, 2026 — Repo housekeeping & handoff bridge
 **Goal:** Clean up repo structure and wire the design→implementation handoff path.
 **Completed:**

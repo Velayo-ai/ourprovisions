@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: June 9, 2026*
+*Last updated: June 11, 2026*
 
 ---
 
@@ -16,7 +16,7 @@
 | # | Feature | Notes |
 |---|---|---|
 | 1 | **Cold-test sync fix + merge `dev` → `main`** | Per-user-hide-leak fix is on `dev`, warm-tab confirmed (both clients match). Run a cold cross-user test (fresh tabs, cold sign-in, adds/deletes/render all correct on both clients) BEFORE merging. Establishes the verified baseline. Gates #2. |
-| 2 | **Delete verb** | Hide is done (June 9). Remaining: **Delete** for custom items only — household-wide, cascades to active `list_items`. Delete refuses on seed/global items. Requires multi-step SECURITY DEFINER RPC (FK constraints are NO ACTION). Open Q: what the other user sees when a custom item is deleted off the active list (silent vanish vs. signal). |
+| 2 | **Delete verb** | Client-side done (June 11): `deleteItem` wired to `delete_custom_catalog_item` RPC, Delete button in Edit modal (custom only), `is_global` discriminator fix, `deletedIdsRef` poll guard. **Remaining: write the `delete_custom_catalog_item` SECURITY DEFINER RPC in Supabase** — hard-deletes catalog row + cascades to `list_items`, `list_item_contributors`, `user_hidden_items`, `waste_events`. Open Q: what the other user sees when a custom item is deleted off the active list (silent vanish vs. signal). |
 | 3 | **Receipt scan entry point in wrap-up modal** | After rolling items forward, prompt appears: "Scan your receipt to capture prices." Natural on-ramp to Phase 3. |
 
 ---
@@ -32,8 +32,7 @@
 | 8 | **Global category rename** | `household_category_overrides` table. Lets a household rename "Pantry" → "Dry Goods" etc. Migration pending. |
 | 9 | **Reset Household (nuclear option)** | Confirmation-gated. Returns catalog to factory seed and clears household customizations. NOT the everyday undo for hides/deletes — recovery-from-chaos only. |
 | 10 | **Replace remaining `window.location.reload()` calls** | Audit codebase; replace all with `refreshCatalog()` pattern. |
-| 11 | **Remove debug console.log statements** | Attribution check logs firing on Helen's device — remove before beta. Three new `[DEBUG …]` logs added June 9 in `loadListItems`, `hideItem`, `refreshCatalog` — remove after confirming hide stability. |
-| 12 | **Email receipt parser** | Most actionable near-term price ingestion path. No partnerships required. Parse forwarded grocery receipts via email. |
+| 11 | **Email receipt parser** | Most actionable near-term price ingestion path. No partnerships required. Parse forwarded grocery receipts via email. |
 
 ---
 
@@ -141,6 +140,8 @@ Closes the loop. Turns data into action.
 | Per-user-hide-leak fix* | Jun 8, 2026 | Hides no longer suppress shared list rows. *On `dev` — promote once cold-test + merge (NOW #1) completes. |
 | Session Scribe moved to git (`CLAUDE.md`) | Jun 8, 2026 | Rolling log in `docs/`, committed to repo; off the Drive connector |
 | **Hide verb implemented** | Jun 9, 2026 | `hideItem` wired to SwipeToRemove (all three usages); UI renamed "Remove" → "Hide", recolored to taupe; Add Item restore copy updated with count; poll re-add bug fixed via `hiddenIdsRef` guard in `loadListItems`; boot stacked-poll race fixed via `getTokenRef` |
+| Strip debug console.logs | Jun 11, 2026 | 6 `[DEBUG …]` / `[loadListItems]` / `[Poll]` / `[Sync]` logs removed from `useProvisions.js` before main merge |
+| **Delete verb — client side** | Jun 11, 2026 | `deleteItem` rewired to `delete_custom_catalog_item` RPC; `is_global` guard; optimistic removal + rollback; Delete button in Edit modal (custom only); `isCustom` discriminator fix; `deletedIdsRef` poll guard against ghost re-add |
 
 ---
 
