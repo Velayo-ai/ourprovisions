@@ -17,6 +17,22 @@
 
 ## LOG
 
+### 2026-06-11 — OurProvisions — Add [SCOPE] tag to session log infrastructure
+**Goal:** Add a [SCOPE] field to CLAUDE.md so the single rolling session log can distinguish OurProvisions / Velayo OS / Platform / Cross work and support a future per-repo split.
+**Completed:**
+- Added `[SCOPE]` slot to `SESSION LOG ENTRY FORMAT` header (`### [YYYY-MM-DD] — [SCOPE] — [GOAL]`)
+- Appended scope-tagging paragraph to Step 1 of SESSION END routine (defines four values; explains why a filter beats a migration)
+- Added scope discipline bullet to Rules (directs against filing OS/Platform work as OurProvisions history; flags future velayo-os log)
+- Committed all three surgical edits (`8396b8e`, `dev`)
+**Unfinished:** None
+**Next session:**
+SESSION START
+Goal: Stand up dev DB sandbox, THEN fix catalog propagation.
+State: Delete verb (client side) done; `delete_custom_catalog_item` RPC not yet deployed; catalog propagation cross-client broken (catalog loaded once at boot, not on poll); ESLint exhaustive-deps warning present; dev NOT merged to main.
+Done when: dev DB isolated (Supabase branch + Vercel env repointed); custom catalog adds + catalog-only deletes propagate cross-client within a poll cycle; lint clean; dev merged to main.
+**Files updated:** `CLAUDE.md`
+**DB changes:** None
+
 ### June 11, 2026 — Delete verb (client side) + pre-merge cleanup
 **Goal:** Implement client-side Delete for custom catalog items; strip debug artifacts before dev→main merge.
 **Completed:**
