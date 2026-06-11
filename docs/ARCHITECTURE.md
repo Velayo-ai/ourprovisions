@@ -44,9 +44,9 @@ OurProvisions is a collaborative household grocery and provisioning app. It is A
 | `src/supabaseClient.js` | Supabase client initialization with Clerk JWT auth |
 | `public/index.html` | Shell — Open Graph tags, Clerk script, favicon |
 | `CLAUDE.md` (repo root) | Claude Code standing context + Session Scribe routine |
-| `src/docs/SESSION_LOG.md` | Rolling session history (newest on top); maintained by the Scribe |
-| `src/docs/ROADMAP.md` | Now/Next/Later/Done + Decisions log |
-| `src/docs/SPEC_hide_delete.md` | Implementation spec for the Hide/Delete build |
+| `docs/SESSION_LOG.md` | Rolling session history (newest on top); maintained by the Scribe |
+| `docs/ROADMAP.md` | Now/Next/Later/Done + Decisions log |
+| `docs/SPEC_hide_delete.md` | Implementation spec for the Hide/Delete build |
 
 ### Auth Pattern
 Clerk is configured as a Third-Party Auth provider in Supabase via JWKS endpoint. JWT uses RS256 (not HS256). Legacy anon key format required. All Supabase calls include explicit `apikey` + `Authorization` headers. `SECURITY DEFINER` functions required for RLS helpers that call `auth.jwt()`. `bootstrap_new_user` RPC handles new user onboarding atomically.

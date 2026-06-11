@@ -48,7 +48,7 @@ Done when: Hide survives 2-second poll on both clients with no reappearance; deb
 - Rendered SHOP list from raw RPC rows (`listRows`) instead of `catalogMap`, so synced items (e.g. Bakery) appear on every client regardless of local catalog state
 - Removed per-user `hiddenIdsRef` filter from the `listRows` loop — catalog hides must not suppress shared active list items
 - Removed now-unused `addedByMap` from App.js destructuring; build passes clean
-- Added `src/docs/` to repo: SESSION_LOG, ROADMAP, SPEC_hide_delete
+- Added `docs/` to repo: SESSION_LOG, ROADMAP, SPEC_hide_delete
 
 **Unfinished:**
 - SPEC_hide_delete implementation (hide/delete rework per spec)

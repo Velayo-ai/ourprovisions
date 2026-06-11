@@ -139,7 +139,7 @@ Closes the loop. Turns data into action.
 | `get_list_items_for_household` JOIN refactor | Jun 8, 2026 | name/category/is_staple inline; dropped separate name-resolver round-trip |
 | SHOP list renders from RPC rows (`listRows`) | Jun 8, 2026 | catalogMap out of the display path |
 | Per-user-hide-leak fix* | Jun 8, 2026 | Hides no longer suppress shared list rows. *On `dev` — promote once cold-test + merge (NOW #1) completes. |
-| Session Scribe moved to git (`CLAUDE.md`) | Jun 8, 2026 | Rolling log in `src/docs/`, committed to repo; off the Drive connector |
+| Session Scribe moved to git (`CLAUDE.md`) | Jun 8, 2026 | Rolling log in `docs/`, committed to repo; off the Drive connector |
 | **Hide verb implemented** | Jun 9, 2026 | `hideItem` wired to SwipeToRemove (all three usages); UI renamed "Remove" → "Hide", recolored to taupe; Add Item restore copy updated with count; poll re-add bug fixed via `hiddenIdsRef` guard in `loadListItems`; boot stacked-poll race fixed via `getTokenRef` |
 
 ---
