@@ -72,6 +72,12 @@ the SESSION LOG ENTRY FORMAT below. Single rolling file; do NOT create dated
 per-session files. If a handoff was found in Step 0, this entry combines its
 design notes with your implementation notes.
 
+Tag each entry with its [SCOPE]: OurProvisions (app work in this repo) /
+Velayo OS (the Harbour / company operating system) / Platform (shared product
+infra) / Cross (more than one). This single log is the company journal for now;
+the tag makes a future per-repo split a filter, not a migration. When a session
+spans app and OS work, use Cross and note both in Completed.
+
 ### Step 2 — Update `docs/ROADMAP.md`
 Move completed items to DONE (stamp with today's date), add new immediate
 priorities to NOW, queue anything new under NEXT / LATER, record any model-level
@@ -105,10 +111,14 @@ that changed.
 - Match the existing file formats exactly.
 - Never claim work as done if it's half-finished — that goes in Unfinished.
 - The "Next session" SESSION START block must include a clear "Done when".
+- Scope discipline: do NOT file Velayo OS / Platform work as OurProvisions
+  history. If a session is purely OS/Platform (e.g. building the Harbour), tag
+  it [Velayo OS] and flag to me that it likely belongs in the velayo-os log,
+  not this app's, once that repo's docs exist.
 
 ### SESSION LOG ENTRY FORMAT
 ```
-### [YYYY-MM-DD] — [GOAL]
+### [YYYY-MM-DD] — [SCOPE] — [GOAL]
 **Goal:** [one sentence]
 **Completed:**
 - [past-tense, action-verb led, max 7 items]
