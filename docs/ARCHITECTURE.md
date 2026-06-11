@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: June 9, 2026*
+*Last updated: 2026-06-11*
 
 ---
 
@@ -216,6 +216,33 @@ Persisted via localStorage. Defaults to `false`. Set in profile sheet. Applies g
 | Elly | Member | Active household |
 | Jean Hennessy | Owner | Independent test household |
 | Tyler Hennessy | Owner | Independent test household |
+
+---
+
+## Velayo OS — Company Operating System
+
+### Repo & Deployment
+
+| Item | Value |
+|---|---|
+| Repo | `Velayo-ai/velayo-os` (private) |
+| Hosting | Cloudflare Pages (`velayo-os` project), Git push-to-deploy |
+| Live URL | `harbour.velayo.ai` (HTTPS, custom domain) |
+| Access control | Cloudflare Zero Trust — OTP policy "Crew only" (named emails + `@velayo.ai` domain) |
+| Contents | `index.html` (The Harbour dashboard), `velayo_os_flight_checklist.html` |
+
+### Three-Repo Separation Principle
+`velayo-os` (how the company runs) / `velayo-platform` (product infra shipped into apps) / app repos (the fleet). The OS never ships to a customer and is never a production dependency. Cockpit ≠ engine.
+
+### Design Principles
+- **Narrative layer vs. environment layer split on different clocks.** The session log (narrative) can stay unified long after repos/deploys/access (environment) must separate. Don't let "keep it simple" creep from the log layer into the deploy layer.
+- **No secrets on the dashboard.** The Harbour lists doors (links), never contents; targets are independently auth-gated so "leaked = low stakes" stays true.
+
+### Known Gotcha — Cloudflare Access
+Access gates a *hostname*, not a Worker — sibling routes (`workers.dev`, preview URLs) aren't covered by the custom-domain app. The standalone Access app must be explicitly **Created** (not just policy-saved), or the door stays open. Hit this live: first incognito test loaded through because the app was unsaved.
+
+### Secret-Handling Confirmation (OurProvisions)
+`.env`/`.env.local` hold only publishable/anon keys (Supabase anon, Clerk `pk_`), correctly gitignored. No `service_role`/`sk_` secrets in client files. RLS is the real lock, not key-hiding.
 
 ---
 

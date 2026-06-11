@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: June 11, 2026*
+*Last updated: 2026-06-11*
 
 ---
 
@@ -25,6 +25,9 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **Wire Harbour live data** | C-suite seat URLs (Claude project links), tool chips (Banking, Cap table, Social, Brand deck), real lane content (priorities, agent counts, "moved Xd ago" dates). Push live once done. |
+| — | **Retire v1 chat-Scribe language** | Update this project's instructions + `VELAYO_PROJECT_TEMPLATE.md` to v2 "produce a handoff" language. v1 Drive-writing Scribe is retired. |
+| — | **Auto-stamp lane "last moved" dates** | SESSION END writes the active lane's date on close — self-maintaining neglect detector in the Harbour. |
 | 4 | **Cascade soft-delete (catalog → list)** | Deleting a custom catalog item should cascade to active `list_items` rows. Same gesture as the Delete half of #2 — pairs with it. |
 | 5 | **Fix close_cycle contributor carry-forward** | When rolling items forward, copy `list_item_contributors` rows to new `list_items`. Currently badges reset to `added_by` only after wrap-up. Fix is in the `close_cycle` RPC. |
 | 6 | **Re-enable RLS on provision_cycles, shopping_sessions, known_stores** | Currently disabled for dev. Need SECURITY DEFINER policies matching the auth pattern of other tables. (Verify current state — RLS-disabled is a prod risk.) |
@@ -35,6 +38,13 @@
 | 11 | **Email receipt parser** | Most actionable near-term price ingestion path. No partnerships required. Parse forwarded grocery receipts via email. |
 
 ---
+
+## LATER — Velayo OS / Infrastructure
+
+| Feature | Notes |
+|---|---|
+| Promote "Crew only" to a reusable Access Group | When a 2nd internal app or 4th person appears — scales without per-hire edits. |
+| Split company log into `velayo-os/docs` | Trigger = app #2's first session, not a date. Filter-based split, not a migration (scope tags already in place). |
 
 ## LATER — Catalog / View Refinements
 
@@ -107,11 +117,29 @@ Closes the loop. Turns data into action.
 
 | Date | Decision |
 |---|---|
+| Jun 11, 2026 | **Founder dashboard, not intranet.** Solo founder needs a launchpad/balance instrument; Drive stays source of truth for documents. |
+| Jun 11, 2026 | **Four-lane charter structure.** Dashboard organized around standing functional lanes (charters), not links — so agents/hires onboard into a charter that exists before headcount. |
+| Jun 11, 2026 | **Leverage ratio definition.** 1 human : tasks run by agents, summed from per-lane agent counts. Excludes C-suite "advice" Claude projects — keeps the number honest and un-inflatable. |
+| Jun 11, 2026 | **Three-repo separation: `velayo-os` / `velayo-platform` / app repos.** Cockpit ≠ engine. Different audience, lifecycle, blast radius. OS never ships to a customer. |
+| Jun 11, 2026 | **Automation-first hosting.** Cloudflare + Git push-to-deploy, not drag-and-drop. |
+| Jun 11, 2026 | **Private = secure auth, not obscure URL.** Cloudflare Access OTP over in-page PIN (PIN is client-side theater). |
+| Jun 11, 2026 | **Access policy: named emails + `@velayo.ai` domain rule.** Scales without per-hire edits. Coupling noted: issuing a velayo.ai email = granting Harbour access. |
+| Jun 11, 2026 | **SESSION END pipeline is v2.** Chat emits `design_handoff.md`; Claude Code owns the canonical write. v1 Drive-writing Scribe retired. One log, repo is source of truth. |
+| Jun 11, 2026 | **Single company log for now, scope-tagged.** Stays in `ourprovisions/docs` until app #2's first session — at that point split into `velayo-os/docs` as a filter, not a migration. |
 | June 8, 2026 | **Catalog visibility model.** Global seed list = permanent, undeletable household-wide, exists to get households started. Custom items = any member can add/delete, household-wide. **Hide** = per-user, browse-only, reversible, never touches the shared list. **Delete** = custom items only, household-wide, cascades. Global reset = separate, gated, re-seeds. Multi-item hide deferred until demand. Two principles: (1) the shared list is sacred — no per-user view preference suppresses it; (2) every removal has a proportionate undo (hide → unhide one-tap personal; custom delete → soft-delete recovery window; reset → deliberate and total). |
 
 ---
 
 ## DONE — Shipped & Live
+
+### Velayo OS ✓
+
+| Feature | Date | Notes |
+|---|---|---|
+| **The Harbour — company operating dashboard** | Jun 11, 2026 | Four-lane balance instrument (Business Foundation / Product / Marketing / Sales & Support). Leverage gauge (1 human : agent tasks, goal 1:20). Built + live at `harbour.velayo.ai`. |
+| **Private hosting + push-to-deploy pipeline** | Jun 11, 2026 | `velayo-os` repo (private), Cloudflare Pages Git-connected, custom domain `harbour.velayo.ai`. |
+| **Cloudflare Access gating** | Jun 11, 2026 | Zero Trust org, OTP "Crew only" policy (named emails + `@velayo.ai` domain rule). Verified end-to-end in incognito. |
+| **SESSION END v2 pipeline + scope tagging** | Jun 11, 2026 | Chat emits `design_handoff.md`; Claude Code owns canonical write. v1 Drive-writing Scribe retired. [SCOPE] tags in CLAUDE.md. |
 
 ### Phase 1 Foundation ✓
 

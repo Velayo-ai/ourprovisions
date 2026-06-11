@@ -17,6 +17,27 @@
 
 ## LOG
 
+### 2026-06-11 — Velayo OS — Build & ship The Harbour + harden the SESSION END pipeline
+**Goal:** Stand up a company "intranet" — refined into a private, push-to-deploy founder operating dashboard ("The Harbour") gated to crew only — then resolve the resulting logging-pipeline conflict.
+**Completed:**
+- Designed The Harbour: a four-lane balance instrument (Business Foundation / Product / Marketing / Sales & Support), not a link launchpad. Cold-signal hierarchy: neglect detector loudest, then priority, owner, tools.
+- Added a leverage gauge — 1 human : tasks run by agents, goal 1:20, summed from per-lane agent counts. Separated the "intelligence layer" (C-suite Claude projects = advice) from the ratio (keeps the number honest and un-inflatable).
+- Built + shipped: new repo `Velayo-ai/velayo-os` (private), Git-wired to Cloudflare (push-to-deploy), custom domain `harbour.velayo.ai` (HTTPS), gated with Cloudflare Access (OTP, "Crew only" policy). Verified end-to-end in incognito.
+- Decided repo architecture: OS stays its own repo, separate from `velayo-platform` and app repos. Cockpit ≠ engine.
+- Resolved the SESSION END conflict: retired v1 chat-Scribe (Drive-writing) in favor of v2 (chat emits handoff → Claude Code merges canonical docs). One record, chat is a feeder.
+- Added scope tagging to CLAUDE.md SESSION END routine ([SCOPE] = OurProvisions / Velayo OS / Platform / Cross) so the single rolling log stays one narrative now but splits cleanly later.
+**Unfinished:**
+- Harbour placeholders: C-suite seat URLs, tool chips (Banking, Cap table, Social, Brand deck), and lane content (priorities, agent counts, "moved Xd ago" dates) are all illustrative — need a real first pass.
+- v1 chat-Scribe language still lives in this project's instructions + `VELAYO_PROJECT_TEMPLATE.md` — needs the v2 "produce a handoff" replacement.
+- Company-log-in-app-repo is a conscious interim choice; split into `velayo-os/docs` at the trigger (app #2's first session).
+**Next session:**
+SESSION START
+Goal: Wire The Harbour's live data + retire v1 Scribe language.
+State: Harbour live + gated at harbour.velayo.ai, push-to-deploy via velayo-os. CLAUDE.md scope-tagging committed. Placeholders throughout the dashboard.
+Done when: C-suite seats open the right Claude projects; tool chips resolve; lane data reflects reality; pushed live; project instructions + template updated to v2 handoff-producer language.
+**Files updated:** `velayo-os/index.html`, `velayo-os/velayo_os_flight_checklist.html`, `CLAUDE.md` (scope tagging)
+**DB changes:** None
+
 ### 2026-06-11 — OurProvisions — Add [SCOPE] tag to session log infrastructure
 **Goal:** Add a [SCOPE] field to CLAUDE.md so the single rolling session log can distinguish OurProvisions / Velayo OS / Platform / Cross work and support a future per-repo split.
 **Completed:**
