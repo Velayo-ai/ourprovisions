@@ -17,6 +17,18 @@
 
 ## LOG
 
+### June 10, 2026 — Repo housekeeping & handoff bridge
+**Goal:** Clean up repo structure and wire the design→implementation handoff path.
+**Completed:**
+- Moved `src/docs/` → `docs/` and `src/handoff/` → `handoff/` (repo root); updated all path references in CLAUDE.md and the docs themselves
+- Tracked `tools/` (velayo OS flight checklist)
+- Added `handoff/.gitignore` (`*` / `!.gitignore`) so transient `design_handoff.md` files are never accidentally committed
+- Added `.gitattributes` to normalize all text files to LF; renormalized existing files
+- Removed `src/App_legacy.js` backup (unused)
+**Unfinished:** None
+**Next session:** —
+**Knowledge updated:** CLAUDE.md (all `src/docs/` → `docs/` refs, Step 5 git-add path), ARCHITECTURE.md, ROADMAP.md, SESSION_LOG.md
+
 ### June 9, 2026 — Implement Hide verb + fix poll/boot races
 **Goal:** Wire up per-user Hide (per SPEC_hide_delete) and eliminate the two root causes of hidden items reappearing.
 **Completed:**
