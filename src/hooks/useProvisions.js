@@ -20,6 +20,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const householdRef = useRef(null);   // mirrors household for use inside callbacks
   const catalogRef = useRef({});       // mirrors catalogMap for use inside callbacks
   const hiddenIdsRef = useRef(new Set());
+  const deletedIdsRef = useRef(new Set());
   const hiddenCatalogItemsRef = useRef([]);
   const internalUserIdRef = useRef(null);
   const householdMembersRef = useRef([]);
@@ -46,7 +47,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     // Merge full catalog entries (with category + is_staple) so items added by
     // other users render in their correct category section.
     items.forEach(it => {
-      if (hiddenIdsRef.current.has(it.catalog_item_id)) return; // never re-add a hidden item
+      if (hiddenIdsRef.current.has(it.catalog_item_id) || deletedIdsRef.current.has(it.catalog_item_id)) return; // never re-add a hidden or just-deleted item
       catalogRef.current[it.name] = {
         ...catalogRef.current[it.name],
         id: it.catalog_item_id, name: it.name,
@@ -58,7 +59,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       const next = { ...prev };
       items.forEach(it => {
         const existing = next[it.name];
-        if (hiddenIdsRef.current.has(it.catalog_item_id)) return; // never re-add a hidden item
+        if (hiddenIdsRef.current.has(it.catalog_item_id) || deletedIdsRef.current.has(it.catalog_item_id)) return; // never re-add a hidden or just-deleted item
         if (!existing || existing.category !== it.category || existing.is_staple !== it.is_staple) {
           next[it.name] = {
             ...existing,
@@ -949,6 +950,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     delete newRef[itemName];
     catalogRef.current = newRef;
 
+    // Guard the poll from re-adding this item during the RPC round-trip
+    deletedIdsRef.current = new Set([...deletedIdsRef.current, catalogItem.id]);
+
     try {
       const { error: rpcErr } = await db.rpc("delete_custom_catalog_item", {
         p_household_id: hh.id,
@@ -958,7 +962,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     } catch (err) {
       console.error("deleteItem error:", err.message);
       setError(`Could not delete item: ${err.message}`);
-      // Rollback — restore local catalog state
+      // Rollback — un-mark deleted and restore local catalog state
+      deletedIdsRef.current = new Set([...deletedIdsRef.current].filter(id => id !== catalogItem.id));
       catalogRef.current = prevCatalogRef;
       setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
     }
