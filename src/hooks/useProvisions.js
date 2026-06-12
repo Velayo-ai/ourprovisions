@@ -1052,6 +1052,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     }
   }, []);
 
+  // Keep the ref pointing at the latest refreshCatalog so the boot-effect
+  // catalog poll can call it without taking it as an effect dependency.
+  refreshCatalogRef.current = refreshCatalog;
+
   const renameItem = useCallback(async (oldName, newName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
