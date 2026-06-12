@@ -207,6 +207,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     }
 
     let pollInterval;
+    let catalogPollInterval;
 
     async function bootstrap() {
       setLoading(true);
