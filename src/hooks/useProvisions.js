@@ -21,6 +21,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const catalogRef = useRef({});       // mirrors catalogMap for use inside callbacks
   const hiddenIdsRef = useRef(new Set());
   const deletedIdsRef = useRef(new Set());
+  const refreshCatalogRef = useRef(() => {});
   const hiddenCatalogItemsRef = useRef([]);
   const internalUserIdRef = useRef(null);
   const householdMembersRef = useRef([]);
