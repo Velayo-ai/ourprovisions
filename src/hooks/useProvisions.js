@@ -1020,15 +1020,35 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       .is("deleted_at", null);
     if (customErr) { setError(`Could not refresh catalog: ${customErr.message}`); return; }
 
-    const cMap = {};
+    const next = {};
     (catalog || []).forEach((item) => {
-      if (!hiddenIdsRef.current.has(item.id)) cMap[item.name] = { ...item, created_by: null };
+      if (hiddenIdsRef.current.has(item.id) || deletedIdsRef.current.has(item.id)) return; // never show hidden or just-deleted
+      next[item.name] = { ...item, created_by: null };
     });
     (customItems || []).forEach((item) => {
-      if (!hiddenIdsRef.current.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
+      if (hiddenIdsRef.current.has(item.id) || deletedIdsRef.current.has(item.id)) return;
+      next[item.name] = { ...item, created_by: item.created_by ?? "custom" };
     });
-    setCatalogMap(cMap);
-    catalogRef.current = cMap;
+
+    // Guarded merge: only commit if the catalog actually changed, so a
+    // 20s poll doesn't clobber optimistic local edits or cause flicker.
+    const prev = catalogRef.current;
+    const prevKeys = Object.keys(prev);
+    const nextKeys = Object.keys(next);
+    let changed = prevKeys.length !== nextKeys.length;
+    if (!changed) {
+      for (const k of nextKeys) {
+        const a = prev[k], b = next[k];
+        if (!a || a.id !== b.id || a.category !== b.category || a.is_staple !== b.is_staple || a.price_hint !== b.price_hint) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed) {
+      catalogRef.current = next;
+      setCatalogMap(next);
+    }
   }, []);
 
   const renameItem = useCallback(async (oldName, newName) => {
