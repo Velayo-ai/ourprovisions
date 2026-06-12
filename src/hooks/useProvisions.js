@@ -355,6 +355,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     bootstrap();
     return () => {
       if (pollInterval) clearInterval(pollInterval);
+      if (catalogPollInterval) clearInterval(catalogPollInterval);
     };
   }, [userId, clerkId, email, fullName]);
 
