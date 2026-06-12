@@ -333,6 +333,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           pollInterval = setInterval(() => {
             loadListItems(db, hh.id);
           }, 2000);
+
+          // Slower catalog poll (20s): propagates custom-item adds and deletes
+          // across clients without a hard reload. refreshCatalog does a guarded
+          // merge (respects hiddenIdsRef/deletedIdsRef, only commits on real
+          // change) so this won't flicker or clobber optimistic local state.
+          // Called through refreshCatalogRef so it isn't an effect dependency.
+          catalogPollInterval = setInterval(() => {
+            refreshCatalogRef.current();
+          }, 20000);
         }
 
       } catch (err) {
