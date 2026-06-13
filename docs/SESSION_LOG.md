@@ -17,6 +17,27 @@
 
 ## LOG
 
+### 2026-06-12 — OurProvisions — Dev DB sandbox + catalog propagation + Browse tab UI overhaul
+**Goal:** Stand up isolated dev database, fix cross-client catalog propagation, and overhaul the Browse tab UI.
+**Completed:**
+- Set up isolated dev Supabase project (`zxwtxjjmssykhqrghouf`); repointed Vercel Preview to dev; reconciled four prod/file schema drifts into `003_apply.sql`, `007_functions.sql`, `008_policies.sql`; configured Clerk Third-Party Auth on dev project.
+- Fixed catalog propagation: guarded-merge `refreshCatalog` (respects `hiddenIdsRef`/`deletedIdsRef`, commits only on real field-level diff); added `refreshCatalogRef` for stable closure access; wired 20s `catalogPollInterval` alongside the 2s list poll.
+- Replaced direct `list_items`/`catalog_items` writes with SECURITY DEFINER RPCs (`insert_custom_catalog_item`, `insert_list_item`); switched list read to `get_list_items_for_household` RPC (inline name/category/is_staple); removed `pendingWrites` guard that was blocking cross-user poll visibility.
+- Built Browse tab UI: real-time search bar, wrapping category chip filters, two-layer `displayCategories` (staples cross-cut → chips narrow), no-match row with category picker and inline new-category creation.
+- Removed `CUSTOM_CAT = "⭐ My Custom Items"` constant entirely from App.js and useProvisions.js; all fallbacks replaced with `"Household"`.
+- Fixed pre-existing build failures (duplicate declarations, merge conflict markers, unused `realtimeSub`); stabilized splash screen timer (empty deps array + `useCallback`).
+- Merged `dev` → `main` (fast-forward), pushed both; production green at `9a3008d` — Hide/Delete/propagation features live.
+**Unfinished:**
+- Prod schema diverges from migration files on four axes (undocumented tables/columns, 15+ RPCs, RLS rewrite) — prod works, files are not canonical; clean rewrite not yet done.
+- Background-tab sync lags (~60s) due to browser `setInterval` throttling on unfocused tabs — accepted as non-issue for foreground use.
+**Next session:**
+SESSION START
+Goal: Regenerate a clean, canonical migration set from prod's actual live state.
+State: Catalog propagation shipped to prod. Dev sandbox isolated and functional. Migration files `001`–`006` are behind prod; `003_apply`/`007_functions`/`008_policies` exist as dev-only patches.
+Done when: A migration set that reproduces prod's real schema (tables, columns, RPCs, RLS) from scratch exists in repo, validated by a clean dev rebuild.
+**Files updated:** `src/hooks/useProvisions.js`, `src/App.js`
+**DB changes:** Dev only — `003_apply.sql`, `007_functions.sql`, `008_policies.sql` applied; RLS disabled on `provision_cycles`/`shopping_sessions`/`known_stores`; soft-deleted duplicate `household_members` row. Prod: code-only deploy.
+
 ### 2026-06-11 — Velayo OS — Build & ship The Harbour + harden the SESSION END pipeline
 **Goal:** Stand up a company "intranet" — refined into a private, push-to-deploy founder operating dashboard ("The Harbour") gated to crew only — then resolve the resulting logging-pipeline conflict.
 **Completed:**

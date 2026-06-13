@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-11*
+*Last updated: 2026-06-12*
 
 ---
 
@@ -19,7 +19,8 @@ OurProvisions is a collaborative household grocery and provisioning app. It is A
 |---|---|---|
 | Frontend | React (Create React App) | Web; React Native via Expo queued for iOS |
 | Auth | Clerk | Google login; shared Velayo identity across all apps |
-| Database | Supabase (PostgreSQL) | Project ID: `parpauldmbetptkmdwbd`, US East |
+| Database (prod) | Supabase (PostgreSQL) | Project ID: `parpauldmbetptkmdwbd`, US East |
+| Database (dev) | Supabase (PostgreSQL) | Project ID: `zxwtxjjmssykhqrghouf`; Vercel Preview env vars point here; `.env.local` also points here (gitignored — CRA precedence over `.env`) |
 | Hosting | Vercel | Auto-deploys from `main` branch |
 | DNS | Cloudflare | DNS only, not proxied |
 | AI | Anthropic Claude API | Receipt scanning, smart suggestions, pantry vision |
@@ -49,7 +50,9 @@ OurProvisions is a collaborative household grocery and provisioning app. It is A
 | `docs/SPEC_hide_delete.md` | Implementation spec for the Hide/Delete build |
 
 ### Auth Pattern
-Clerk is configured as a Third-Party Auth provider in Supabase via JWKS endpoint. JWT uses RS256 (not HS256). Legacy anon key format required. All Supabase calls include explicit `apikey` + `Authorization` headers. `SECURITY DEFINER` functions required for RLS helpers that call `auth.jwt()`. `bootstrap_new_user` RPC handles new user onboarding atomically.
+Clerk is configured as a Third-Party Auth provider in Supabase via JWKS endpoint. JWT uses RS256 (not HS256). Legacy anon key format required. All Supabase calls include explicit `apikey` + `Authorization` headers. `SECURITY DEFINER` functions required for RLS helpers that call `auth.jwt()`. `bootstrap_new_user` RPC handles new user onboarding atomically — canonical signature is 4-arg `(p_clerk_id, p_email, p_invite_code, p_full_name)`; prod has additional overloads (ambiguity risk).
+
+**Known RLS gap:** `provision_cycles`, `shopping_sessions`, `known_stores` have RLS disabled in prod. Anon key can cross-household read/write these tables. Low stakes now; address during migration rewrite (NEXT #6).
 
 ---
 
@@ -76,6 +79,9 @@ Clerk is configured as a Third-Party Auth provider in Supabase via JWKS endpoint
 | `003_live_schema_audit_june2026.sql` | Delta audit — documents column drift, views, undocumented tables |
 | `004_list_item_contributors.sql` | Contributor badges table (live as of June 1, 2026) |
 | `005_provision_cycles_sessions_stores.sql` | `provision_cycles`, `shopping_sessions`, `known_stores`; `cycle_id` + `rolled_from_item_id` on `list_items`; `get_active_cycle`, `close_cycle`, `match_known_store`, `archive_trip_items` RPCs (live June 6, 2026) |
+| `003_apply.sql` *(dev-only patch, Jun 12)* | Runnable version of the Jun 2026 audit: missing tables (`household_invites`, `user_hidden_items`), columns (`external_id`, `price_hint`, `is_staple` on `catalog_items`), and `category_avg_prices` view. Not yet a canonical migration. |
+| `007_functions.sql` *(dev-only patch, Jun 12)* | 15 deployed RPCs: `get_list_items_for_household`, `bootstrap_new_user` (4-arg canonical), `get_current_household_id`, `archive_trip_items`, `insert_custom_catalog_item`, `insert_list_item`, `delete_custom_catalog_item`, and others. |
+| `008_policies.sql` *(dev-only patch, Jun 12)* | Prod's live RLS policy set — uses `auth.jwt()->>'sub'` + SECURITY DEFINER helpers (vs. phase-1 files which used self-referential subqueries that cause `infinite recursion`). |
 
 ---
 
@@ -92,6 +98,7 @@ One per family group. Each user belongs to one household (multiple household sup
 #### `household_members`
 Join table. Realtime enabled.
 - `id`, `household_id`, `user_id`, `role` (owner/member), `joined_at`, `deleted_at`
+- **Fragility:** household fetch uses `.single()`/`.maybeSingle()` — throws 406 if a user has duplicate active memberships. Needs defensive handling before multi-household is supported.
 
 #### `catalog_items`
 The item library. Items are either **global/seed** (system-owned) or **household custom** (household-owned). The `is_global` boolean is the ownership discriminator and drives the Hide/Delete verb model:
@@ -188,6 +195,18 @@ Replaces all `window.location.reload()` calls. Prevents jarring full-page reload
 
 ### getTokenRef stable-ref pattern *(June 9)*
 Clerk's `getToken` function has an unstable reference — it changes identity on every render, which caused the boot `useEffect` to re-run on every render, stacking poll intervals and triggering a hidden-items race. Fix: declare `const getTokenRef = useRef(getToken)` and update `getTokenRef.current = getToken` on every render (outside the effect). Inside the effect, use `getTokenRef.current` instead of `getToken` directly, and remove `getToken` from the effect's dependency array. The effect now only fires when `userId`/`clerkId`/`email`/`fullName` change.
+
+### Two-tier polling *(June 12)*
+List state on a hot 2s poll (`loadListItems` via `get_list_items_for_household` RPC); catalog on a cooler 20s poll (`refreshCatalog` via `refreshCatalogRef`). Catalog changes rarely — no need to poll it hot. Both intervals declared in the boot effect and cleared in the cleanup return (`pollInterval` + `catalogPollInterval`).
+
+### Guarded catalog merge *(June 12)*
+`refreshCatalog` computes `next`, does a field-level diff (id, category, is_staple, price_hint) against `catalogRef.current`, and only commits (`setCatalogMap` + ref update) when something actually changed. Prevents flicker and clobbering optimistic local edits. Respects `hiddenIdsRef` and `deletedIdsRef` (hidden/deleted items excluded from `next`). The same `changed ? next : prev` guard is used in `loadListItems`' `setCatalogMap` call.
+
+### refreshCatalogRef pattern *(June 12)*
+Same approach as `getTokenRef` — `refreshCatalog` is a `useCallback` whose identity could change, so the boot effect calls it via `refreshCatalogRef.current()`. The ref is kept current by `refreshCatalogRef.current = refreshCatalog` on every render (outside the effect), avoiding adding `refreshCatalog` to the boot effect's dependency array.
+
+### SECURITY DEFINER helpers break RLS recursion *(June 12)*
+Policies on `household_members` that self-reference trigger `infinite recursion detected in policy for relation "household_members"`. The fix: write policies as `household_id = get_current_household_id()` where `get_current_household_id()` is a SECURITY DEFINER function that reads `household_members` without re-triggering the policy. This is the pattern in prod's live RLS (captured in `008_policies.sql`). The phase-1 migration files used self-referential subqueries and must not be re-applied.
 
 ### Contributor Merge Logic (app-side)
 When a user adds an item already on the list:

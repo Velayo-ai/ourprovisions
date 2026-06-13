@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-11*
+*Last updated: 2026-06-12*
 
 ---
 
@@ -15,9 +15,7 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| 1 | **Cold-test sync fix + merge `dev` → `main`** | Per-user-hide-leak fix is on `dev`, warm-tab confirmed (both clients match). Run a cold cross-user test (fresh tabs, cold sign-in, adds/deletes/render all correct on both clients) BEFORE merging. Establishes the verified baseline. Gates #2. |
-| 2 | **Delete verb** | Client-side done (June 11): `deleteItem` wired to `delete_custom_catalog_item` RPC, Delete button in Edit modal (custom only), `is_global` discriminator fix, `deletedIdsRef` poll guard. **Remaining: write the `delete_custom_catalog_item` SECURITY DEFINER RPC in Supabase** — hard-deletes catalog row + cascades to `list_items`, `list_item_contributors`, `user_hidden_items`, `waste_events`. Open Q: what the other user sees when a custom item is deleted off the active list (silent vanish vs. signal). |
-| 3 | **Receipt scan entry point in wrap-up modal** | After rolling items forward, prompt appears: "Scan your receipt to capture prices." Natural on-ramp to Phase 3. |
+| 1 | **Regenerate canonical migrations from prod** | Migration files `001`–`006` are behind prod's live schema by four drifts (undocumented tables/columns, 15+ RPCs, RLS rewrite). Goal: derive a clean runnable set from prod's actual state so a cold dev rebuild never requires manual reconciliation. |
 
 ---
 
@@ -25,13 +23,16 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **Receipt scan entry point in wrap-up modal** | After rolling items forward, prompt appears: "Scan your receipt to capture prices." Natural on-ramp to Phase 3. |
+| — | **Household member administration UI** | View members, remove members, manage/revoke invites. Absence is why orphaned memberships accumulated and needed raw SQL to fix (Jun 12). |
+| — | **Contributor display refinement** | Keep the full name of the original adder; when another member adds quantity, append their badge rather than replacing attribution with an icon. |
 | — | **Wire Harbour live data** | C-suite seat URLs (Claude project links), tool chips (Banking, Cap table, Social, Brand deck), real lane content (priorities, agent counts, "moved Xd ago" dates). Push live once done. |
 | — | **Retire v1 chat-Scribe language** | Update this project's instructions + `VELAYO_PROJECT_TEMPLATE.md` to v2 "produce a handoff" language. v1 Drive-writing Scribe is retired. |
 | — | **Auto-stamp lane "last moved" dates** | SESSION END writes the active lane's date on close — self-maintaining neglect detector in the Harbour. |
 | 4 | **Cascade soft-delete (catalog → list)** | Deleting a custom catalog item should cascade to active `list_items` rows. Same gesture as the Delete half of #2 — pairs with it. |
 | 5 | **Fix close_cycle contributor carry-forward** | When rolling items forward, copy `list_item_contributors` rows to new `list_items`. Currently badges reset to `added_by` only after wrap-up. Fix is in the `close_cycle` RPC. |
-| 6 | **Re-enable RLS on provision_cycles, shopping_sessions, known_stores** | Currently disabled for dev. Need SECURITY DEFINER policies matching the auth pattern of other tables. (Verify current state — RLS-disabled is a prod risk.) |
-| 7 | **Multiple household support** | Header-tap switcher UI. User belongs to more than one household and can toggle between them. |
+| 6 | **Re-enable RLS on provision_cycles, shopping_sessions, known_stores** | Confirmed disabled in prod (matches dev). Anon key can cross-household read/write these tables. Low stakes now; address during migration rewrite. |
+| 7 | **Multiple household support** | Header-tap switcher UI. User belongs to more than one household and can toggle between them. **Fragility found (Jun 12):** household fetch uses `.single()`/`.maybeSingle()` — throws 406 on duplicate active memberships; needs defensive handling before multi-household is real. |
 | 8 | **Global category rename** | `household_category_overrides` table. Lets a household rename "Pantry" → "Dry Goods" etc. Migration pending. |
 | 9 | **Reset Household (nuclear option)** | Confirmation-gated. Returns catalog to factory seed and clears household customizations. NOT the everyday undo for hides/deletes — recovery-from-chaos only. |
 | 10 | **Replace remaining `window.location.reload()` calls** | Audit codebase; replace all with `refreshCatalog()` pattern. |
@@ -45,6 +46,8 @@
 |---|---|
 | Promote "Crew only" to a reusable Access Group | When a 2nd internal app or 4th person appears — scales without per-hire edits. |
 | Split company log into `velayo-os/docs` | Trigger = app #2's first session, not a date. Filter-based split, not a migration (scope tags already in place). |
+| Sync on unfocused tabs | Browser `setInterval` throttles to ~1 min on backgrounded tabs, causing perceived lag. Consider `visibilitychange` refresh-on-focus, or Supabase Realtime if Clerk/Realtime auth incompatibility is ever resolved. |
+| Invite-accept creates duplicate memberships | Accepting an invite adds a membership without retiring the user's auto-bootstrapped household. Should move-or-block until multi-household is real. |
 
 ## LATER — Catalog / View Refinements
 
@@ -127,6 +130,10 @@ Closes the loop. Turns data into action.
 | Jun 11, 2026 | **SESSION END pipeline is v2.** Chat emits `design_handoff.md`; Claude Code owns the canonical write. v1 Drive-writing Scribe retired. One log, repo is source of truth. |
 | Jun 11, 2026 | **Single company log for now, scope-tagged.** Stays in `ourprovisions/docs` until app #2's first session — at that point split into `velayo-os/docs` as a filter, not a migration. |
 | June 8, 2026 | **Catalog visibility model.** Global seed list = permanent, undeletable household-wide, exists to get households started. Custom items = any member can add/delete, household-wide. **Hide** = per-user, browse-only, reversible, never touches the shared list. **Delete** = custom items only, household-wide, cascades. Global reset = separate, gated, re-seeds. Multi-item hide deferred until demand. Two principles: (1) the shared list is sacred — no per-user view preference suppresses it; (2) every removal has a proportionate undo (hide → unhide one-tap personal; custom delete → soft-delete recovery window; reset → deliberate and total). |
+| Jun 12, 2026 | **Dev isolation = second free Supabase project, not branching.** Branching is Pro-only and metered; a second free project is $0 and gives hard isolation. Trade-off accepted: schema changes don't auto-merge — applied via files by hand, matching existing migration discipline. |
+| Jun 12, 2026 | **`bootstrap_new_user` canonical = 4-arg form** `(p_clerk_id, p_email, p_invite_code, p_full_name)`. Prod has four overloads (ambiguity risk); dev installs only this one. |
+| Jun 12, 2026 | **Category persistence works as designed — revisit only on user friction.** Categories are item-derived; an empty category disappears when its last item is deleted. Considered promoting to first-class persisted entities; deferred. Edge case affects only the creator of an empty category, not the common case. |
+| Jun 12, 2026 | **`.env.local` now points at dev DB.** Was silently pinning local to PROD (CRA precedence: `.env.local` overrides `.env`). Root cause of repeated "test hits prod" confusion. `.env.local` is gitignored. |
 
 ---
 
@@ -169,7 +176,11 @@ Closes the loop. Turns data into action.
 | Session Scribe moved to git (`CLAUDE.md`) | Jun 8, 2026 | Rolling log in `docs/`, committed to repo; off the Drive connector |
 | **Hide verb implemented** | Jun 9, 2026 | `hideItem` wired to SwipeToRemove (all three usages); UI renamed "Remove" → "Hide", recolored to taupe; Add Item restore copy updated with count; poll re-add bug fixed via `hiddenIdsRef` guard in `loadListItems`; boot stacked-poll race fixed via `getTokenRef` |
 | Strip debug console.logs | Jun 11, 2026 | 6 `[DEBUG …]` / `[loadListItems]` / `[Poll]` / `[Sync]` logs removed from `useProvisions.js` before main merge |
-| **Delete verb — client side** | Jun 11, 2026 | `deleteItem` rewired to `delete_custom_catalog_item` RPC; `is_global` guard; optimistic removal + rollback; Delete button in Edit modal (custom only); `isCustom` discriminator fix; `deletedIdsRef` poll guard against ghost re-add |
+| **Delete verb** (complete) | Jun 11–12, 2026 | Client: `deleteItem` → `delete_custom_catalog_item` RPC; `is_global` guard; optimistic removal + rollback; Delete button in Edit modal; `isCustom` fix; `deletedIdsRef` poll guard. Server: `delete_custom_catalog_item` SECURITY DEFINER RPC deployed (hard-delete + cascade). |
+| **Dev DB sandbox** | Jun 12, 2026 | Second free Supabase project (`zxwtxjjmssykhqrghouf`); Vercel Preview repointed; dev schema rebuilt from `001`–`006` + drift patches; Clerk auth configured. |
+| **Catalog propagation — 20s cross-client poll** | Jun 12, 2026 | `refreshCatalog` rewritten as guarded merge (respects `hiddenIdsRef`/`deletedIdsRef`); `refreshCatalogRef` for stable closure access; 20s `catalogPollInterval` wired alongside 2s list poll. Two-client verified (add + delete, both directions, no flicker/clobber). |
+| **Browse tab UI overhaul** | Jun 12, 2026 | Real-time search bar; wrapping category chip filters; two-layer `displayCategories` (staples cross-cut → chips narrow); no-match row with category picker + inline new-category creation. `CUSTOM_CAT` constant removed. |
+| **dev → main merge, prod deploy** | Jun 12, 2026 | Fast-forward merge; production green at `9a3008d`. Hide/Delete/propagation features live for real users. |
 
 ---
 
