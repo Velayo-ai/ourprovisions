@@ -17,6 +17,25 @@
 
 ## LOG
 
+### 2026-06-12 — OurProvisions — Canonical schema baseline + migrations/ folder
+**Goal:** Close the schema drift between repo migration files and prod by producing one validated canonical baseline, and give schema files a real home in the repo.
+**Completed:**
+- Pulled six prod introspection dumps; diagnosed 14 live objects (13 tables + `category_avg_prices` view) vs. the 10 the docs claimed — 4 undocumented live tables: `household_invites`, `known_stores`, `provision_cycles`, `shopping_sessions`.
+- Wrote `000_canonical_baseline.sql` — single file rebuilding prod from empty: 14 objects, 17 canonical functions (3 dead `bootstrap_new_user` overloads dropped), 35 RLS policies, all constraints/indexes, clean 38-item seed.
+- Validated against a freshly wiped dev sandbox; deep diff caught one defect (`list_items` unique constraint auto-named vs. prod's explicit `list_items_household_catalog_unique`) — fixed in the file.
+- Created `migrations/` + `migrations/archive/` in repo; placed baseline + 6 historical files; committed on `dev` (`e43ce59`).
+**Unfinished:**
+- Dev carries the pre-fix baseline (auto-named constraint) — harmless, self-corrects on next dev rebuild from the committed file.
+- `category_avg_prices` view body is a reconstruction, not a verbatim dump — run `SELECT pg_get_viewdef('category_avg_prices'::regclass, true);` on prod to verify if exactness is wanted.
+- Constraints layer verified by inference, not row-by-row diff (Supabase export truncates at ~100 rows).
+**Next session:**
+SESSION START
+Goal: Fix the two known-debt items sitting on the clean baseline.
+State: Canonical baseline committed (`migrations/000_canonical_baseline.sql`, dev `e43ce59`). Six historical files in `migrations/archive/`. Prod untouched throughout.
+Done when: (1) RLS policies using `auth.uid()` on `known_stores`/`shopping_sessions`/`velayo_crews`/`velayo_crew_members` rewritten to `auth.jwt()->>'sub'` and tested in dev as a separate named migration; (2) duplicate helper pairs consolidated as a separate named migration. Neither fix touches `000_canonical_baseline.sql`.
+**Files updated:** `migrations/000_canonical_baseline.sql`, `migrations/README.md`, `migrations/archive/` (6 historical files)
+**DB changes:** None to prod. Dev sandbox wiped and rebuilt from baseline as validation test.
+
 ### 2026-06-12 — OurProvisions — Dev DB sandbox + catalog propagation + Browse tab UI overhaul
 **Goal:** Stand up isolated dev database, fix cross-client catalog propagation, and overhaul the Browse tab UI.
 **Completed:**

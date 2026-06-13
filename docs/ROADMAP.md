@@ -15,7 +15,8 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| 1 | **Regenerate canonical migrations from prod** | Migration files `001`–`006` are behind prod's live schema by four drifts (undocumented tables/columns, 15+ RPCs, RLS rewrite). Goal: derive a clean runnable set from prod's actual state so a cold dev rebuild never requires manual reconciliation. |
+| 1 | **Fix `auth.uid()` RLS bug (migration 001)** | RLS policies on `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members` compare a Clerk string ID against a uuid column — always false. Inert today but must be fixed before any live feature relies on row-level isolation for those tables. Rewrite to `(auth.jwt()->>'sub')::uuid`. Deliver as a named migration, not an edit to `000`. |
+| 2 | **Consolidate duplicate helper functions (migration 002)** | `get_household_id_for_current_user` / `get_current_household_id` and `get_user_id_from_clerk` / `get_current_user_id` are near-identical pairs. Drop the redundant copies; update any callers. Deliver as a named migration. |
 
 ---
 
@@ -134,6 +135,12 @@ Closes the loop. Turns data into action.
 | Jun 12, 2026 | **`bootstrap_new_user` canonical = 4-arg form** `(p_clerk_id, p_email, p_invite_code, p_full_name)`. Prod has four overloads (ambiguity risk); dev installs only this one. |
 | Jun 12, 2026 | **Category persistence works as designed — revisit only on user friction.** Categories are item-derived; an empty category disappears when its last item is deleted. Considered promoting to first-class persisted entities; deferred. Edge case affects only the creator of an empty category, not the common case. |
 | Jun 12, 2026 | **`.env.local` now points at dev DB.** Was silently pinning local to PROD (CRA precedence: `.env.local` overrides `.env`). Root cause of repeated "test hits prod" confusion. `.env.local` is gitignored. |
+| Jun 12, 2026 | **Single canonical baseline over renumbered ordered set.** One `000_canonical_baseline.sql` rebuilds prod from empty. Goal is reproducible truth validated by a clean rebuild — a single file makes the diff unambiguous. Evolutionary history stays in `archive/` + SESSION_LOG. |
+| Jun 12, 2026 | **Reproduce known debt AS-IS; never fold fixes into the baseline.** The baseline must match what's actually running, bugs included. Fixes go in separate, named, tested migrations so validation isn't muddied. Debt flagged inline with `-- KNOWN DEBT`. |
+| Jun 12, 2026 | **Drop the 3 dead `bootstrap_new_user` overloads; keep only the 4-arg version.** Overloads are an ambiguity landmine (PostgREST could resolve the wrong one). Confirmed against `useProvisions.js`. |
+| Jun 12, 2026 | **Live `close_cycle` is canonical, not the 005 file version.** Deployed function (upsert on `(household_id, catalog_item_id)` + pre-upsert badge clear) supersedes the plain-insert version in the 005 file. Prod wins over files. |
+| Jun 12, 2026 | **Don't seed the 10 duplicate catalog items in the baseline.** A clean baseline seeds clean (38 items). The duplicates remain a prod-only fixture for the future catalog-merge feature; add manually in dev if needed. |
+| Jun 12, 2026 | **`migrations/` is the permanent schema home.** Schema files previously lived only in Project knowledge. `migrations/` + `migrations/archive/` + `README.md` are now committed so every future schema change has an obvious, tracked location. |
 
 ---
 
@@ -181,6 +188,7 @@ Closes the loop. Turns data into action.
 | **Catalog propagation — 20s cross-client poll** | Jun 12, 2026 | `refreshCatalog` rewritten as guarded merge (respects `hiddenIdsRef`/`deletedIdsRef`); `refreshCatalogRef` for stable closure access; 20s `catalogPollInterval` wired alongside 2s list poll. Two-client verified (add + delete, both directions, no flicker/clobber). |
 | **Browse tab UI overhaul** | Jun 12, 2026 | Real-time search bar; wrapping category chip filters; two-layer `displayCategories` (staples cross-cut → chips narrow); no-match row with category picker + inline new-category creation. `CUSTOM_CAT` constant removed. |
 | **dev → main merge, prod deploy** | Jun 12, 2026 | Fast-forward merge; production green at `9a3008d`. Hide/Delete/propagation features live for real users. |
+| **Canonical schema baseline** | Jun 12, 2026 | `migrations/000_canonical_baseline.sql` — single file rebuilding prod from empty: 14 objects, 17 canonical functions, 35 RLS policies, 38-item seed. Validated against clean dev rebuild. Six historical files archived in `migrations/archive/`. |
 
 ---
 

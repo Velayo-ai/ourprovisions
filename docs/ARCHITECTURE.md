@@ -70,18 +70,20 @@ Clerk is configured as a Third-Party Auth provider in Supabase via JWKS endpoint
 
 ## Database Schema
 
-### Migration Files (in order)
+### Migration Files
 
-| File | Contents |
+**Source of truth: `migrations/000_canonical_baseline.sql`** — single file that rebuilds prod from empty. Validated against a clean dev rebuild on 2026-06-12. Never run against production — prod is already in this state; it's for rebuilding empty environments only.
+
+Historical files (superseded, in `migrations/archive/`):
+
+| File | Original Purpose |
 |---|---|
 | `001_initial_schema.sql` | Full Phase 1 schema — all core tables |
 | `002_harbor_crew.sql` | `velayo_crews`, `velayo_crew_members`, `crew_id` on households |
-| `003_live_schema_audit_june2026.sql` | Delta audit — documents column drift, views, undocumented tables |
-| `004_list_item_contributors.sql` | Contributor badges table (live as of June 1, 2026) |
-| `005_provision_cycles_sessions_stores.sql` | `provision_cycles`, `shopping_sessions`, `known_stores`; `cycle_id` + `rolled_from_item_id` on `list_items`; `get_active_cycle`, `close_cycle`, `match_known_store`, `archive_trip_items` RPCs (live June 6, 2026) |
-| `003_apply.sql` *(dev-only patch, Jun 12)* | Runnable version of the Jun 2026 audit: missing tables (`household_invites`, `user_hidden_items`), columns (`external_id`, `price_hint`, `is_staple` on `catalog_items`), and `category_avg_prices` view. Not yet a canonical migration. |
-| `007_functions.sql` *(dev-only patch, Jun 12)* | 15 deployed RPCs: `get_list_items_for_household`, `bootstrap_new_user` (4-arg canonical), `get_current_household_id`, `archive_trip_items`, `insert_custom_catalog_item`, `insert_list_item`, `delete_custom_catalog_item`, and others. |
-| `008_policies.sql` *(dev-only patch, Jun 12)* | Prod's live RLS policy set — uses `auth.jwt()->>'sub'` + SECURITY DEFINER helpers (vs. phase-1 files which used self-referential subqueries that cause `infinite recursion`). |
+| `003_live_schema_audit_june2026.sql` | Delta audit — documented column drift, views, undocumented tables |
+| `004_list_item_contributors.sql` | Contributor badges table |
+| `005_provision_cycles_sessions_stores.sql` | `provision_cycles`, `shopping_sessions`, `known_stores`; cycle columns; RPCs |
+| `006` | *(contents not captured in docs)* |
 
 ---
 
@@ -113,9 +115,11 @@ The item library. Items are either **global/seed** (system-owned) or **household
 The living household list. Items are never hard deleted — they move through statuses. Realtime enabled.
 - `id`, `household_id`, `catalog_item_id`, `quantity`, `price_per_unit`, `status` (pending/bought/skipped/deferred)
 - `added_by`, `checked_by`
+- `cycle_id` (→ `provision_cycles`), `rolled_from_item_id` (→ `list_items`, self-ref for carry-forward)
 - Phase 2 forward refs: `session_id`, `checked_sequence`, `checked_lat`, `checked_lng`
 - Phase 4: `deferred_reason`
 - `created_at`, `updated_at`, `deleted_at`
+- **Unique constraint:** `list_items_household_catalog_unique (household_id, catalog_item_id)` — named explicitly to match prod; `close_cycle`'s upsert targets this constraint.
 
 #### `waste_events`
 Every thrown-away unconsumed item. Most important AI training data in the app.
@@ -130,6 +134,23 @@ One row per person who contributed to a given list item. Powers contributor badg
 #### `velayo_crews` / `velayo_crew_members`
 Harbor-level identity layer. Links households across the Velayo app family.
 - Added by `002_harbor_crew.sql`
+- **RLS on, but `auth.uid()` bug** — policies compare Clerk string ID against a uuid column and never match. Inert while no live feature reads these tables. Fix queued (NEXT #1).
+
+#### `household_invites`
+Invite-by-code flow. Never had a migration file before `000_canonical_baseline.sql` — reconstructed from prod introspection.
+- `id`, `household_id`, `code` (6-char), `created_by`, `expires_at` (7-day TTL), `accepted_at`, `accepted_by`, `created_at`
+
+#### `provision_cycles`
+Planning cycles. One open cycle per household at a time. **RLS: DISABLED in prod** (reachable only via SECURITY DEFINER RPCs).
+- `id`, `household_id`, `started_at`, `closed_at`, `item_count`, `sessions_count`, `seeded_from`, `cycle_type`, `label`
+
+#### `shopping_sessions`
+Individual shopping trips within a cycle. **RLS: DISABLED in prod.**
+- `id`, `household_id`, `cycle_id`, `store_id`, `started_at`, `closed_at` (+ Phase 2 location/GPS fields)
+
+#### `known_stores`
+GPS-matched store locations. **RLS: DISABLED in prod.**
+- `id`, `household_id`, `name`, `lat`, `lng`, `radius_m`, `created_at`
 
 #### `user_hidden_items`
 Per-user catalog suppressions. `clerk_id` + `catalog_item_id`. No soft delete — delete the row to restore (unhide).
@@ -146,6 +167,43 @@ Every FK referencing `catalog_items` (and the list/contributor chain) is `delete
 - `list_item_contributors.list_item_id`, `list_item_contributors.user_id`
 
 **Design implication:** Postgres will *block* deletion of any referenced row (no cascade, no set-null). This protects against silently orphaning list data — but means the **Delete feature cannot be a simple `delete`**. Deleting a custom catalog item requires a multi-step SECURITY DEFINER RPC that handles references first (or soft-deletes the row via `deleted_at`, keeping FKs valid and history intact). See `SPEC_hide_delete.md`.
+
+---
+
+### Canonical Functions (17)
+
+All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` — **never `auth.uid()`**, which returns the Clerk string ID rather than an internal UUID. The event trigger is listed last.
+
+| Function | Purpose |
+|---|---|
+| `bootstrap_new_user(p_clerk_id, p_email, p_invite_code, p_full_name)` | Atomic onboarding. **4-arg is canonical** — prod had 4 overloads; 3 dead ones dropped in baseline. |
+| `get_current_household_id()` | Returns calling user's household UUID. Used by RLS policies to avoid self-referential recursion. |
+| `get_current_user_id()` | Returns calling user's internal UUID from Clerk sub. |
+| `get_household_id_for_current_user()` | Near-duplicate of `get_current_household_id` — **KNOWN DEBT: consolidate.** |
+| `get_user_id_from_clerk()` | Near-duplicate of `get_current_user_id` — **KNOWN DEBT: consolidate.** |
+| `get_household_user_ids()` | Returns array of user UUIDs in the calling user's household. |
+| `get_household_member_profiles()` | Returns member profiles for the calling user's household. |
+| `get_list_items_for_household()` | Primary list read — returns rows with name/category/is_staple inline. Bypasses stale `auth.uid()` RLS. |
+| `get_catalog_names_by_ids(p_ids uuid[])` | Batch catalog name lookup by ID array. |
+| `insert_custom_catalog_item(...)` | Inserts a household-owned catalog item. |
+| `insert_list_item(...)` | Inserts a `list_items` row. |
+| `delete_custom_catalog_item(p_catalog_item_id)` | Hard-deletes a custom catalog item + cascades to referencing rows. |
+| `get_active_cycle(p_household_id)` | Returns the current open provision cycle. |
+| `close_cycle(p_household_id)` | Archives a cycle — upserts items forward (targets `list_items_household_catalog_unique`), clears badges. Live version supersedes the 005 file. |
+| `archive_trip_items(...)` | Archives trip items at session close. |
+| `match_known_store(p_lat, p_lng, p_household_id)` | GPS-matches a coordinate to a known store within its radius. |
+| `rls_auto_enable` *(event trigger)* | Auto-enables RLS on any newly created public table. **Every new table comes up locked by default.** Include policies in the same migration or the table will be inaccessible. |
+
+---
+
+### Known Debt
+
+Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, tested migrations — never edit back into `000`.
+
+- **`auth.uid()` RLS bug** on `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members` — `auth.uid()` returns the Clerk string ID, not an internal UUID; comparison against uuid columns always fails. Inert today: the first three have RLS disabled; crew tables have RLS on but no live feature reads them. Fix: rewrite to `(auth.jwt()->>'sub')::uuid` (NEXT #1).
+- **RLS disabled** on `provision_cycles`, `known_stores`, `shopping_sessions` — anon key can cross-household read/write. Acceptable now; must fix before any live feature depends on row isolation (NEXT #1 + #6).
+- **Duplicate helper pairs** — `get_household_id_for_current_user` / `get_current_household_id` and `get_user_id_from_clerk` / `get_current_user_id` do near-identical work. Consolidate (NEXT #2).
+- **`category_avg_prices` view body** — baseline is a reconstruction, not a verbatim prod dump. Run `SELECT pg_get_viewdef('category_avg_prices'::regclass, true);` on prod to verify exactness if needed.
 
 ---
 
@@ -207,6 +265,9 @@ Same approach as `getTokenRef` — `refreshCatalog` is a `useCallback` whose ide
 
 ### SECURITY DEFINER helpers break RLS recursion *(June 12)*
 Policies on `household_members` that self-reference trigger `infinite recursion detected in policy for relation "household_members"`. The fix: write policies as `household_id = get_current_household_id()` where `get_current_household_id()` is a SECURITY DEFINER function that reads `household_members` without re-triggering the policy. This is the pattern in prod's live RLS (captured in `008_policies.sql`). The phase-1 migration files used self-referential subqueries and must not be re-applied.
+
+### rls_auto_enable event trigger *(June 12)*
+An event trigger auto-enables RLS on any new table created in the public schema. **New tables come up locked by default.** Always include the table's RLS policies in the same migration — or the table is inaccessible until policies are added.
 
 ### Contributor Merge Logic (app-side)
 When a user adds an item already on the list:
