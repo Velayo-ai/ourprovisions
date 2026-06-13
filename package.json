@@ -2,6 +2,9 @@
   "name": "ourprovisions",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+     "node": "24.x"
+  },
   "dependencies": {
     "@clerk/clerk-react": "^5.61.4",
     "@clerk/react": "^6.1.3",
