@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-12*
+*Last updated: 2026-06-15*
 
 ---
 
@@ -29,10 +29,23 @@ OurProvisions is a collaborative household grocery and provisioning app. It is A
 
 ## Repository & Git Workflow
 
-- **Org:** `Velayo-ai` on GitHub
+- **Org:** `Velayo-ai` on GitHub (canonical remote — stale clones may show `dan-velayo/ourprovisions`)
 - **Dev branch:** `dev` — all active work committed here first
 - **Production branch:** `main` — merge dev → main; Vercel auto-deploys
 - **Local path:** `C:\Users\mr_dh\ourprovisions`
+
+---
+
+## Development Environment
+
+Fresh-machine bootstrap is documented in `docs/DEV_SETUP.md`. The principle: **the machine is disposable, the repo is the source of truth.** Any machine rebuilds from `git clone` + `.env.local` + `npm install`.
+
+| Item | Value / Notes |
+|---|---|
+| Node version | Pinned to **major 24** via `.nvmrc` + `package.json engines: "24.x"`. Matches Vercel's default build runtime (Vercel guarantees major, auto-rolls minor/patch). |
+| npm config | `.npmrc` committed with `legacy-peer-deps=true` — required for clean installs given `react-scripts` 5.0.1 + React 19 ERESOLVE. Keeps every machine and Vercel consistent. |
+| Secrets | `.env.local` (anon/publishable Supabase + Clerk keys, gitignored). Interim: copied to Google Drive (My Drive, unshared). Planned: Bitwarden. `vercel env pull` is **NOT** safe yet — see env-scope debt below. |
+| Vercel env scopes | Production → prod DB (correct). Preview → dev DB (correct, `dev`-branch deploys). **Development → prod DB (debt** — carries 79-day-old prod vars). `vercel env pull` reads Development, so it silently returns prod until repointed. Preview also missing `REACT_APP_CLERK_PUBLISHABLE_KEY`. |
 
 ---
 

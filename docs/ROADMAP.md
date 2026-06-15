@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-12*
+*Last updated: 2026-06-15*
 
 ---
 
@@ -30,6 +30,9 @@
 | — | **Wire Harbour live data** | C-suite seat URLs (Claude project links), tool chips (Banking, Cap table, Social, Brand deck), real lane content (priorities, agent counts, "moved Xd ago" dates). Push live once done. |
 | — | **Retire v1 chat-Scribe language** | Update this project's instructions + `VELAYO_PROJECT_TEMPLATE.md` to v2 "produce a handoff" language. v1 Drive-writing Scribe is retired. |
 | — | **Auto-stamp lane "last moved" dates** | SESSION END writes the active lane's date on close — self-maintaining neglect detector in the Harbour. |
+| — | **Reconcile Vercel env scopes** | Development scope still carries prod Supabase vars (79-day-old). Repoint/remove to dev; add `REACT_APP_CLERK_PUBLISHABLE_KEY` to Preview. Unblocks `vercel env pull` as clean secrets-distribution route. |
+| — | **Stand up Bitwarden for secrets** | Replace Google Drive `.env.local` stopgap with Bitwarden. Delete the Drive copy once migrated. |
+| — | **Fix dev Supabase "permission denied for table households"** | Prod works; dev + localhost both fail for authenticated user. Likely `auth.uid()`-vs-`auth.jwt()->>'sub'` RLS bug (NEXT #1) and/or user not bootstrapped into a dev household. Focused Claude Code session against dev DB. |
 | 4 | **Cascade soft-delete (catalog → list)** | Deleting a custom catalog item should cascade to active `list_items` rows. Same gesture as the Delete half of #2 — pairs with it. |
 | 5 | **Fix close_cycle contributor carry-forward** | When rolling items forward, copy `list_item_contributors` rows to new `list_items`. Currently badges reset to `added_by` only after wrap-up. Fix is in the `close_cycle` RPC. |
 | 6 | **Re-enable RLS on provision_cycles, shopping_sessions, known_stores** | Confirmed disabled in prod (matches dev). Anon key can cross-household read/write these tables. Low stakes now; address during migration rewrite. |
@@ -49,6 +52,8 @@
 | Split company log into `velayo-os/docs` | Trigger = app #2's first session, not a date. Filter-based split, not a migration (scope tags already in place). |
 | Sync on unfocused tabs | Browser `setInterval` throttles to ~1 min on backgrounded tabs, causing perceived lag. Consider `visibilitychange` refresh-on-focus, or Supabase Realtime if Clerk/Realtime auth incompatibility is ever resolved. |
 | Invite-accept creates duplicate memberships | Accepting an invite adds a membership without retiring the user's auto-bootstrapped household. Should move-or-block until multi-household is real. |
+| Reconcile git remotes across machines | Canonical remote is `Velayo-ai/ourprovisions`; stale Surface clone pointed at `dan-velayo/ourprovisions`. Reconcile when doing next per-machine setup. |
+| Local Supabase (CLI/Docker) for offline dev | Seeded from `000_canonical_baseline.sql` — for genuinely-offline boat development. Only if offline dev becomes a real need. |
 
 ## LATER — Catalog / View Refinements
 
@@ -141,6 +146,10 @@ Closes the loop. Turns data into action.
 | Jun 12, 2026 | **Live `close_cycle` is canonical, not the 005 file version.** Deployed function (upsert on `(household_id, catalog_item_id)` + pre-upsert badge clear) supersedes the plain-insert version in the 005 file. Prod wins over files. |
 | Jun 12, 2026 | **Don't seed the 10 duplicate catalog items in the baseline.** A clean baseline seeds clean (38 items). The duplicates remain a prod-only fixture for the future catalog-merge feature; add manually in dev if needed. |
 | Jun 12, 2026 | **`migrations/` is the permanent schema home.** Schema files previously lived only in Project knowledge. `migrations/` + `migrations/archive/` + `README.md` are now committed so every future schema change has an obvious, tracked location. |
+| Jun 13, 2026 | **Dev environment is reproducible-from-git, not synced.** Any machine rebuilds from clone + `.env.local` + `npm install`. Same discipline as prod rebuilding from `000_canonical_baseline.sql`. Nothing precious lives on one device. |
+| Jun 13, 2026 | **Node pinned to major 24** via `.nvmrc` + `package.json engines`. Pin the major only — Vercel guarantees major version and auto-rolls minor/patch, so over-pinning a patch would drift from CI. |
+| Jun 13, 2026 | **`legacy-peer-deps=true` committed in `.npmrc`.** `react-scripts` 5.0.1 + React 19 trips fresh `npm install` with ERESOLVE; sticky flag keeps every machine + Vercel consistent so plain `npm install` works. |
+| Jun 13, 2026 | **Secrets interim = Google Drive file (My Drive, unshared); planned = Bitwarden.** Acceptable stopgap because `.env.local` holds anon/publishable keys only (RLS is the real lock). `vercel env pull` is NOT a safe distribution route until Development-scope vars are repointed to dev. |
 
 ---
 
@@ -154,6 +163,8 @@ Closes the loop. Turns data into action.
 | **Private hosting + push-to-deploy pipeline** | Jun 11, 2026 | `velayo-os` repo (private), Cloudflare Pages Git-connected, custom domain `harbour.velayo.ai`. |
 | **Cloudflare Access gating** | Jun 11, 2026 | Zero Trust org, OTP "Crew only" policy (named emails + `@velayo.ai` domain rule). Verified end-to-end in incognito. |
 | **SESSION END v2 pipeline + scope tagging** | Jun 11, 2026 | Chat emits `design_handoff.md`; Claude Code owns canonical write. v1 Drive-writing Scribe retired. [SCOPE] tags in CLAUDE.md. |
+| **Multi-machine dev environment + DEV_SETUP.md** | Jun 13, 2026 | Reproducible-from-git dev recipe: `.nvmrc` (Node 24), `.npmrc` (`legacy-peer-deps=true`), `docs/DEV_SETUP.md`. Committed `1409a5c`. |
+| **Lake Surface stood up** | Jun 13, 2026 | DEV_SETUP recipe proven end-to-end: git clone → drop `.env.local` → npm install → npm start → Clerk auth. Node 24.14.0, peer-dep workaround validated. |
 
 ### Phase 1 Foundation ✓
 

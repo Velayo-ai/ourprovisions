@@ -17,6 +17,33 @@
 
 ## LOG
 
+### 2026-06-13 — Cross — Multi-machine dev environment + Surface stand-up
+**Goal:** Make OurProvisions development reproducible on any machine (NH, NY, lake Surface, lake desktop, boat) so a new machine rebuilds a working env from clone + one secret file + npm install — and stand up the lake Surface as the first proof.
+**Completed:**
+- Established principle: the machine is disposable, the repo is the source of truth. Any machine rebuilds from `git clone` + `.env.local` + `npm install`.
+- Pinned Node to major 24 (matches Vercel's default build runtime): added `.nvmrc` (`24`) + `engines: { node: "24.x" }` in `package.json`.
+- Added `.npmrc` with `legacy-peer-deps=true` to pre-empt React 19 / `react-scripts` 5.0.1 peer-dep conflict on fresh installs.
+- Wrote `docs/DEV_SETUP.md` — fresh-machine recipe, multi-machine commit/pull discipline, boat/offline notes, per-machine checklist.
+- Diagnosed Vercel env-scope misconfig: Preview correctly points at dev DB, but Development scope still carries prod Supabase vars — `vercel env pull` silently returns prod. Documented as debt; warned in `DEV_SETUP.md`.
+- Chose interim secrets route: copied `.env.local` (anon/publishable keys only) to personal Google Drive (My Drive, unshared); documented Bitwarden as planned replacement.
+- Committed + pushed to `dev` (`1409a5c`): `.nvmrc`, `.npmrc`, `package.json`, `docs/DEV_SETUP.md`, `.gitignore`.
+- **Stood up lake Surface end-to-end:** removed accidental nested clone (`src/ourprovisions`); fetched + checked out `dev` (Surface was frozen at March initial commit); dropped `.env.local`; `npm install` clean; `npm start` compiled; Clerk sign-in succeeded.
+- **Isolated a dev-DB permission issue (→ OurProvisions project):** localhost AND `dev.ourprovisions.velayo.ai` both throw "permission denied for table households"; prod works fine. Dev-DB RLS/bootstrap problem, not a Surface/code issue.
+**Unfinished:**
+- Dev Supabase `households` returns "permission denied" for authenticated user — prod works (handed off to OurProvisions project).
+- Vercel Development-scope Supabase vars still point at prod — repoint or remove.
+- Preview missing `REACT_APP_CLERK_PUBLISHABLE_KEY` (only Production has it).
+- Google Drive `.env.local` copy is a stopgap — replace with Bitwarden, then delete Drive copy.
+- Lake desktop not yet stood up (will follow `DEV_SETUP.md`; Surface proved the recipe).
+- Stale-clone remote on Surface: `github.com/dan-velayo/ourprovisions` vs canonical `Velayo-ai/ourprovisions` — reconcile remotes across machines.
+**Next session:**
+SESSION START
+Goal: [Velayo OS] Reconcile Vercel env scopes + stand up lake desktop. (Separately, in OurProvisions: fix dev-DB households permission error.)
+State: Multi-machine setup committed to `dev` (`1409a5c`); Node pinned to 24 across machines + Vercel; lake Surface fully stood up and synced. Vercel Development scope still returns prod. Dev DB throws households permission-denied (prod fine) — owned by OurProvisions project.
+Done when: Vercel Development-scope Supabase vars repointed to dev and a test `vercel env pull` returns the dev URL; AND/OR lake desktop completes the DEV_SETUP recipe end-to-end.
+**Files updated:** `.nvmrc`, `.npmrc`, `package.json`, `docs/DEV_SETUP.md`, `.gitignore` (committed `1409a5c`)
+**DB changes:** None
+
 ### 2026-06-12 — OurProvisions — Canonical schema baseline + migrations/ folder
 **Goal:** Close the schema drift between repo migration files and prod by producing one validated canonical baseline, and give schema files a real home in the repo.
 **Completed:**
