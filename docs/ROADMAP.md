@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-16*
+*Last updated: 2026-06-16 (session 2)*
 
 ---
 
@@ -29,7 +29,7 @@
 | — | **Household member administration UI** | View members, remove members, manage/revoke invites. Absence is why orphaned memberships accumulated and needed raw SQL to fix (Jun 12). |
 | — | **Contributor display refinement** | Keep the full name of the original adder; when another member adds quantity, append their badge rather than replacing attribution with an icon. |
 | — | **Wire Harbour live data** | C-suite seat URLs (Claude project links), tool chips (Banking, Cap table, Social, Brand deck), real lane content (priorities, agent counts, "moved Xd ago" dates). Push live once done. |
-| — | **Retire v1 chat-Scribe language** | Update this project's instructions + `VELAYO_PROJECT_TEMPLATE.md` to v2 "produce a handoff" language. v1 Drive-writing Scribe is retired. |
+| — | **Verify Velayo OS project instructions are on v2 handoff flow** | The Velayo OS project's own instruction field may still carry v1 Drive-writing Scribe language (flagged in 06-11 Harbour entry). Dan to check and apply same v2 replacement. |
 | — | **Auto-stamp lane "last moved" dates** | SESSION END writes the active lane's date on close — self-maintaining neglect detector in the Harbour. |
 | — | **Reconcile Vercel env scopes** | Development scope still carries prod Supabase vars (79-day-old). Repoint/remove to dev; add `REACT_APP_CLERK_PUBLISHABLE_KEY` to Preview. Unblocks `vercel env pull` as clean secrets-distribution route. |
 | — | **Stand up Bitwarden for secrets** | Replace Google Drive `.env.local` stopgap with Bitwarden. Delete the Drive copy once migrated. |
@@ -160,6 +160,9 @@ Closes the loop. Turns data into action.
 | Jun 16, 2026 | **Ownership decision lives at the swipe site (App.js), not in SwipeToRemove.** SHOP `SwipeToRemove` is full-swipe-commits — row animates off before `onRemove` fires ~400ms later. Branching own-vs-shared in `handleSwipeRemove` avoids a confirm modal fighting a committed animation. Cancel springs the row back cleanly because `listRows` is never mutated on Cancel. |
 | Jun 16, 2026 | **Stop keying item actions on name; resolve by `catalog_item_id`.** The "not in catalog" bug was the same name-key footgun as the multi-session sync bug chain. `toggleChecked` and `removeFromList` now resolve the stable id from `listRows`. Name remains display and optimistic-state key only. |
 | Jun 16, 2026 | **Root cause of dev block was grants, not RLS.** "Permission denied for table" = role lacks table GRANT (fails before RLS is consulted), distinct from an RLS policy returning zero rows. "Reset Public Schema Permissions" query stripped `authenticated`/`anon`. Diagnostic: `information_schema.role_table_grants`. Fix goes in a standalone dev-only migration, never folded into `000`. |
+| Jun 16, 2026 | **Velayo project template is dual-mode (DESIGN vs HANDOFF), switched by one MODE line.** Rationale: new apps begin repo-less (chat must scribe directly); a single-mode template is wrong half the time. Matches the "split at app #2's first session" principle. |
+| Jun 16, 2026 | **Repo `docs/` is canonical; Project Knowledge is a mirror, not source of truth.** Rationale: the v2 flow made Claude Code the merge authority — the old "re-upload Project Knowledge" model inverted ownership. |
+| Jun 16, 2026 | **Template `[SCOPE]` uses `[APP NAME]` placeholder, not literal "OurProvisions".** Rationale: prevents every new app inheriting OurProvisions' scope vocabulary. |
 
 ---
 
@@ -173,6 +176,7 @@ Closes the loop. Turns data into action.
 | **Private hosting + push-to-deploy pipeline** | Jun 11, 2026 | `velayo-os` repo (private), Cloudflare Pages Git-connected, custom domain `harbour.velayo.ai`. |
 | **Cloudflare Access gating** | Jun 11, 2026 | Zero Trust org, OTP "Crew only" policy (named emails + `@velayo.ai` domain rule). Verified end-to-end in incognito. |
 | **SESSION END v2 pipeline + scope tagging** | Jun 11, 2026 | Chat emits `design_handoff.md`; Claude Code owns canonical write. v1 Drive-writing Scribe retired. [SCOPE] tags in CLAUDE.md. |
+| **Retire v1 Scribe; rebuild project template as dual-mode** | Jun 16, 2026 | OurProvisions project instructions + `VELAYO_PROJECT_TEMPLATE.md` both on v2 handoff flow. Template is dual-mode (DESIGN vs HANDOFF). Scope tagging canonical in CLAUDE.md. |
 | **Multi-machine dev environment + DEV_SETUP.md** | Jun 13, 2026 | Reproducible-from-git dev recipe: `.nvmrc` (Node 24), `.npmrc` (`legacy-peer-deps=true`), `docs/DEV_SETUP.md`. Committed `1409a5c`. |
 | **Lake Surface stood up** | Jun 13, 2026 | DEV_SETUP recipe proven end-to-end: git clone → drop `.env.local` → npm install → npm start → Clerk auth. Node 24.14.0, peer-dep workaround validated. |
 
