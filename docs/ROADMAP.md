@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-15*
+*Last updated: 2026-06-16*
 
 ---
 
@@ -15,6 +15,7 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **Merge dev → main + prod smoke test** | SHOP swipe redesign + toggleChecked fix fully tested on dev. Merge, verify Vercel deploy green, smoke-test prod (load + tap — no destructive actions on live household). |
 | 1 | **Fix `auth.uid()` RLS bug (migration 001)** | RLS policies on `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members` compare a Clerk string ID against a uuid column — always false. Inert today but must be fixed before any live feature relies on row-level isolation for those tables. Rewrite to `(auth.jwt()->>'sub')::uuid`. Deliver as a named migration, not an edit to `000`. |
 | 2 | **Consolidate duplicate helper functions (migration 002)** | `get_household_id_for_current_user` / `get_current_household_id` and `get_user_id_from_clerk` / `get_current_user_id` are near-identical pairs. Drop the redundant copies; update any callers. Deliver as a named migration. |
 
@@ -32,7 +33,10 @@
 | — | **Auto-stamp lane "last moved" dates** | SESSION END writes the active lane's date on close — self-maintaining neglect detector in the Harbour. |
 | — | **Reconcile Vercel env scopes** | Development scope still carries prod Supabase vars (79-day-old). Repoint/remove to dev; add `REACT_APP_CLERK_PUBLISHABLE_KEY` to Preview. Unblocks `vercel env pull` as clean secrets-distribution route. |
 | — | **Stand up Bitwarden for secrets** | Replace Google Drive `.env.local` stopgap with Bitwarden. Delete the Drive copy once migrated. |
-| — | **Fix dev Supabase "permission denied for table households"** | Prod works; dev + localhost both fail for authenticated user. Likely `auth.uid()`-vs-`auth.jwt()->>'sub'` RLS bug (NEXT #1) and/or user not bootstrapped into a dev household. Focused Claude Code session against dev DB. |
+| — | **"Fabric Softemer" orphan row cleanup** | Free-typed list row has no `catalog_item_id`. Rename or delete it on prod so it doesn't surface as a broken state for other members. |
+| — | **Roll-forward orphan guard** | Decide whether `close_cycle` should block (or skip) items with no `catalog_item_id` to stop new orphans accumulating across cycles. |
+| — | **Decommission "Reset Public Schema Permissions" query** | This saved query stripped all `authenticated`/`anon` grants on the dev sandbox (Jun 16 incident). Rename to "⚠️ DANGER — strips all grants" or delete from both dev and prod SQL editors. |
+| — | **Add "commit + push after edits" directive to CLAUDE.md** | Stranded commit at session start caused a Vercel-stale-build false alarm. Add explicit rule: after any code edit, commit + push before closing the session. |
 | 4 | **Cascade soft-delete (catalog → list)** | Deleting a custom catalog item should cascade to active `list_items` rows. Same gesture as the Delete half of #2 — pairs with it. |
 | 5 | **Fix close_cycle contributor carry-forward** | When rolling items forward, copy `list_item_contributors` rows to new `list_items`. Currently badges reset to `added_by` only after wrap-up. Fix is in the `close_cycle` RPC. |
 | 6 | **Re-enable RLS on provision_cycles, shopping_sessions, known_stores** | Confirmed disabled in prod (matches dev). Anon key can cross-household read/write these tables. Low stakes now; address during migration rewrite. |
@@ -150,6 +154,12 @@ Closes the loop. Turns data into action.
 | Jun 13, 2026 | **Node pinned to major 24** via `.nvmrc` + `package.json engines`. Pin the major only — Vercel guarantees major version and auto-rolls minor/patch, so over-pinning a patch would drift from CI. |
 | Jun 13, 2026 | **`legacy-peer-deps=true` committed in `.npmrc`.** `react-scripts` 5.0.1 + React 19 trips fresh `npm install` with ERESOLVE; sticky flag keeps every machine + Vercel consistent so plain `npm install` works. |
 | Jun 13, 2026 | **Secrets interim = Google Drive file (My Drive, unshared); planned = Bitwarden.** Acceptable stopgap because `.env.local` holds anon/publishable keys only (RLS is the real lock). `vercel env pull` is NOT a safe distribution route until Development-scope vars are repointed to dev. |
+| Jun 16, 2026 | **SHOP swipe acts on the list, not the catalog.** Swipe was calling `hideItem` (catalog, per-user, browse-only) — wrong layer for a shopping gesture. Split: SHOP swipe = remove `list_item` (`deleted_at`); Hide stays a BROWSE/catalog verb. "Shared list is sacred" preserved — removal is an explicit list action, never a silent side effect of browsing. |
+| Jun 16, 2026 | **"Not buying this trip" needs no gesture.** Leaving an item unchecked already means "still pending." SHOP swipe has exactly one destructive meaning (remove from shared list); Cancel on the shared-item modal is the "keep it for someone else" path. No third branch. |
+| Jun 16, 2026 | **Confirm modal for shared items, instant remove for own.** Own item = sole contributor = no one else affected → remove immediately. Any other contributor present → confirm modal naming the adder. Chose modal over undo-toast: the action crosses a person boundary, so explicit Cancel beats a silent timer. |
+| Jun 16, 2026 | **Ownership decision lives at the swipe site (App.js), not in SwipeToRemove.** SHOP `SwipeToRemove` is full-swipe-commits — row animates off before `onRemove` fires ~400ms later. Branching own-vs-shared in `handleSwipeRemove` avoids a confirm modal fighting a committed animation. Cancel springs the row back cleanly because `listRows` is never mutated on Cancel. |
+| Jun 16, 2026 | **Stop keying item actions on name; resolve by `catalog_item_id`.** The "not in catalog" bug was the same name-key footgun as the multi-session sync bug chain. `toggleChecked` and `removeFromList` now resolve the stable id from `listRows`. Name remains display and optimistic-state key only. |
+| Jun 16, 2026 | **Root cause of dev block was grants, not RLS.** "Permission denied for table" = role lacks table GRANT (fails before RLS is consulted), distinct from an RLS policy returning zero rows. "Reset Public Schema Permissions" query stripped `authenticated`/`anon`. Diagnostic: `information_schema.role_table_grants`. Fix goes in a standalone dev-only migration, never folded into `000`. |
 
 ---
 
@@ -200,6 +210,8 @@ Closes the loop. Turns data into action.
 | **Browse tab UI overhaul** | Jun 12, 2026 | Real-time search bar; wrapping category chip filters; two-layer `displayCategories` (staples cross-cut → chips narrow); no-match row with category picker + inline new-category creation. `CUSTOM_CAT` constant removed. |
 | **dev → main merge, prod deploy** | Jun 12, 2026 | Fast-forward merge; production green at `9a3008d`. Hide/Delete/propagation features live for real users. |
 | **Canonical schema baseline** | Jun 12, 2026 | `migrations/000_canonical_baseline.sql` — single file rebuilding prod from empty: 14 objects, 17 canonical functions, 35 RLS policies, 38-item seed. Validated against clean dev rebuild. Six historical files archived in `migrations/archive/`. |
+| **SHOP swipe redesign + toggleChecked id fix** | Jun 16, 2026 | SHOP swipe now calls `removeFromList` (list-layer soft-delete of `list_item`) instead of `hideItem` (catalog-layer). Own item: instant remove. Shared item: confirm modal naming the adder. `toggleChecked` rewired to resolve by `catalog_item_id` from `listRows`, eliminating "not in catalog" failures on rolled-forward items. Cold-tested on dev with two members. |
+| **Dev grant restoration** | Jun 16, 2026 | Restored `authenticated`/`anon` grants on dev sandbox after "Reset Public Schema Permissions" query stripped them. Wrote `007_dev_restore_role_grants.sql` (dev-only). Root cause of the Jun-13 "permission denied for table households" dev block — was grants, not the `auth.uid()` RLS bug assumed. |
 
 ---
 

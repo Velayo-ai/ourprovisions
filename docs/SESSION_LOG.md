@@ -17,6 +17,31 @@
 
 ## LOG
 
+### 2026-06-16 — OurProvisions — SHOP swipe redesign + toggleChecked id fix + dev grant restoration
+**Goal:** Fix the "not in catalog" error hit while shopping and resolve the design question it exposed — SHOP swipe was wrongly a catalog action (Hide) when it should act on the list only.
+**Completed:**
+- Diagnosed "not in catalog" toast as a name-key failure in `toggleChecked`: rolled-forward items missed the name-keyed catalog lookup. Rewired to resolve by `catalog_item_id` carried on `listRows` → `shoppingList` item → all tap handlers.
+- Shipped SHOP swipe redesign: swipe in SHOP now calls `removeFromList` (list-layer soft-delete), not `hideItem` (catalog-layer). Own item removes instantly; shared item opens an ownership-aware confirm modal naming the adder. Cancel springs the row back because `listRows` is never mutated on Cancel. BROWSE swipe unchanged (still Hides).
+- Added `catalogItemId` to `shoppingList` useMemo items; plumbed through all 4 `toggleChecked` call sites and both SHOP `SwipeToRemove` handlers.
+- Replaced `toggleChecked(itemName)` signature with `(itemName, catalogItemId)` — resolves stable id from caller first, falls back to name-keyed catalog map only if no id arrives.
+- Added `removeFromList` to `useProvisions`: soft-deletes one `list_item` by `catalog_item_id`, optimistic `listRows` filter with rollback on RPC failure. Added to hook return object.
+- Added `handleSwipeRemove` + `removeConfirmItem` state to `App.js`; inserted confirm modal for shared-item removes.
+- Closed the dev "permission denied for table households" bug open since Jun 13: root cause was missing `authenticated`/`anon` grants (not the `auth.uid()` RLS bug assumed). Wrote `007_dev_restore_role_grants.sql` (dev-only) to restore grants matching prod. Verified 28-row grant count matches prod.
+- Cold-tested on dev with two members (Dan + Dan Test): rolled-item toggle, own-item instant remove, shared-item confirm + Cancel spring-back + Remove, BROWSE hide regression — all passed.
+**Unfinished:**
+- `dev → main` merge not yet done — all tests green, immediate next action.
+- "Fabric Softemer" orphaned list row (no `catalog_item_id`, free-typed) — needs rename/cleanup on prod.
+- Open decision: block roll-forward of items with no `catalog_item_id` to prevent new orphans?
+- "Reset Public Schema Permissions" query still in dev + prod SQL editors — the loaded gun that caused tonight's detour. Rename or delete.
+- CLAUDE.md lacks an explicit "commit + push after edits" rule — stranded a commit early in the session, causing a Vercel-stale-build false alarm.
+**Next session:**
+SESSION START
+Goal: Merge dev → main, confirm prod green, then begin the email receipt parser (first AI feature).
+State: SHOP swipe redesign + toggleChecked fix live and fully tested on dev. Dev role grants restored to match prod. Prod healthy throughout.
+Done when: `main` deployed green on Vercel, prod smoke-tested (load + tap, no destructive actions on the live household), and the receipt parser is specced or the orphan-row cleanup is shipped.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js`, `migrations/007_dev_restore_role_grants.sql` (new), `docs/SPEC_shop_swipe_remove.md` (new)
+**DB changes:** DEV SANDBOX ONLY (`zxwtxjjmssykhqrghouf`) — restored `GRANT`s on all public tables/sequences/functions to `authenticated`, `anon`, `service_role` + matching `ALTER DEFAULT PRIVILEGES`. Mirrors prod. No prod DB changes. No schema changes.
+
 ### 2026-06-13 — Cross — Multi-machine dev environment + Surface stand-up
 **Goal:** Make OurProvisions development reproducible on any machine (NH, NY, lake Surface, lake desktop, boat) so a new machine rebuilds a working env from clone + one secret file + npm install — and stand up the lake Surface as the first proof.
 **Completed:**

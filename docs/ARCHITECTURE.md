@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-15*
+*Last updated: 2026-06-16*
 
 ---
 
@@ -250,6 +250,7 @@ Aggregates average `price_per_unit` per category across all list_items with real
 - **Merge don't duplicate.** When multiple users add the same item, merge with quantity increment + contributor attribution.
 - **`window.location.reload()` is an anti-pattern.** Always use `refreshCatalog()` instead.
 - **Vercel CI treats ESLint warnings as errors.** All declared variables must be used before pushing to main.
+- **Stable UUID is the key for all item actions; name strings are display only.** `catalog_item_id` from `listRows` is the durable identifier for every list/catalog operation (`toggleChecked`, `removeFromList`, `hideItem`, `deleteItem`). Item names are used only for optimistic UI state keys and display. Name-keyed lookups into `catalogRef`/`catalogMap` are a fallback of last resort, not the primary path. *(Established Jun 16 — the root cause of two separate name-key bugs: multi-session sync chain + "not in catalog" on rolled-forward items.)*
 
 ---
 
@@ -281,6 +282,26 @@ Policies on `household_members` that self-reference trigger `infinite recursion 
 
 ### rls_auto_enable event trigger *(June 12)*
 An event trigger auto-enables RLS on any new table created in the public schema. **New tables come up locked by default.** Always include the table's RLS policies in the same migration — or the table is inaccessible until policies are added.
+
+### List-layer vs catalog-layer action split *(Jun 16)*
+
+Three distinct removal verbs, distinct by layer and scope:
+
+| Function | Layer | Scope | Verb visible to user |
+|---|---|---|---|
+| `hideItem` | Catalog | Per-user, browse-only | "Hide" (BROWSE swipe) |
+| `removeFromList` | List | Household-wide, list-only | "Remove" (SHOP swipe) |
+| `deleteItem` | Catalog | Household-wide, custom items only | "Delete" (Edit modal) |
+
+`removeFromList` soft-deletes one `list_item` row (`deleted_at`) scoped by `household_id` + `catalog_item_id`. The catalog row is untouched — the item stays re-addable. Mirrors the `clearAll` mechanism scoped to one item. Optimistic `listRows` filter with rollback on RPC failure.
+
+### SHOP SwipeToRemove gesture constraint *(Jun 16)*
+
+`SwipeToRemove` in SHOP (no `onEdit`/`onStaple` props) is **full-swipe-commits** — the row animates off-screen before `onRemove()` fires (~400ms later). Any own-vs-shared branching must happen *outside* the component in `handleSwipeRemove`, not inside `SwipeToRemove`. On Cancel, `listRows` is NOT mutated, so the row springs back cleanly from the original state.
+
+### id-based toggleChecked *(Jun 16)*
+
+`toggleChecked(itemName, catalogItemId)` now resolves the target row via `catalogItemId` passed from the caller (carried on `listRows` → `shoppingList` items → tap handlers). Falls back to `catalogRef.current[itemName]?.id` only if no id arrives. Eliminates "not in catalog" failures on rolled-forward items whose names may have diverged from the current catalog map.
 
 ### Contributor Merge Logic (app-side)
 When a user adds an item already on the list:
