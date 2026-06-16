@@ -223,6 +223,7 @@ export default function ShoppingListApp() {
     updateBudgetGoal,
     hideItem,
     deleteItem,
+    removeFromList,
     hiddenCatalogItems,
     restoreHiddenByCategory,
     createInvite,
@@ -254,6 +255,24 @@ export default function ShoppingListApp() {
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
   const [editModalItem, setEditModalItem] = useState(null);
+
+  const [removeConfirmItem, setRemoveConfirmItem] = useState(null);
+
+  // SHOP swipe-to-remove. Own item (sole contributor) → remove immediately.
+  // Shared item (anyone else contributed) → confirm first.
+  const handleSwipeRemove = (item) => {
+    const contributors = item.contributors || [];
+    const sharedByOther = contributors.some(c => c.clerkId && c.clerkId !== user?.id);
+    if (sharedByOther) {
+      setRemoveConfirmItem({
+        name: item.name,
+        catalogItemId: item.catalogItemId,
+        addedByName: item.addedBy || (contributors.find(c => c.clerkId !== user?.id)?.fullName) || "someone else",
+      });
+    } else {
+      removeFromList(item.name, item.catalogItemId);
+    }
+  };
   const [editModalName, setEditModalName] = useState("");
   const [editModalPrice, setEditModalPrice] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -622,7 +641,7 @@ export default function ShoppingListApp() {
       const isOwnItem = !addedByUserId || addedByMember?.users?.clerk_id === user?.id;
       if (!groups[rawCat]) groups[rawCat] = [];
       groups[rawCat].push({
-        name: row.name, qty: row.quantity,
+        name: row.name, catalogItemId: row.catalogItemId, qty: row.quantity,
         price: realPrice,
         subtotal: (row.quantity || 0) * realPrice,
         category: CATEGORY_DISPLAY[rawCat] || rawCat,
@@ -1639,12 +1658,12 @@ export default function ShoppingListApp() {
                       {cat.items.map((item) => {
                         const isDone = checked[item.name];
                         return (
-                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
+                          <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} style={{ borderRadius: 0, background: "transparent" }}>
                             <div className={`list-item ${isDone ? "done" : ""}`}>
-                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
+                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.catalogItemId)}>
                                 {isDone && <span className="checkmark">✓</span>}
                               </div>
-                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name)}>
+                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name, item.catalogItemId)}>
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
@@ -1700,12 +1719,12 @@ export default function ShoppingListApp() {
                       .map((item) => {
                         const isDone = checked[item.name];
                         return (
-                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} style={{ borderRadius: 0, background: "transparent" }}>
+                          <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} style={{ borderRadius: 0, background: "transparent" }}>
                             <div className={`list-item ${isDone ? "done" : ""}`}>
-                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name)}>
+                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.catalogItemId)}>
                                 {isDone && <span className="checkmark">✓</span>}
                               </div>
-                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name)}>
+                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name, item.catalogItemId)}>
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
@@ -1888,6 +1907,29 @@ export default function ShoppingListApp() {
                 <button className="modal-cancel" onClick={() => setShowBudgetModal(false)}>Cancel</button>
                 <button className="modal-confirm" onClick={saveBudget}>Save</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {removeConfirmItem && (
+        <div className="modal-overlay" onClick={() => setRemoveConfirmItem(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Remove from list?</h2>
+            <p className="modal-subtitle">
+              "{removeConfirmItem.name}" was added by {removeConfirmItem.addedByName}. Removing it takes it off the shared list for everyone.
+            </p>
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setRemoveConfirmItem(null)}>Cancel</button>
+              <button
+                className="modal-remove"
+                onClick={() => {
+                  removeFromList(removeConfirmItem.name, removeConfirmItem.catalogItemId);
+                  setRemoveConfirmItem(null);
+                }}
+              >
+                Remove
+              </button>
             </div>
           </div>
         </div>

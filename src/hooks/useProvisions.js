@@ -477,13 +477,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     }
   }, []);  // empty deps — uses refs, never stale
 
-  const toggleChecked = useCallback(async (itemName) => {
+  const toggleChecked = useCallback(async (itemName, catalogItemId) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return;
 
-    const catalogItem = catalogRef.current[itemName];
-    if (!catalogItem) { setError(`"${itemName}" not in catalog`); return; }
+    // Resolve the catalog id from the id passed by the caller (stable, from
+    // listRows). Fall back to the name-keyed catalog map only if no id arrived.
+    const resolvedId = catalogItemId ?? catalogRef.current[itemName]?.id;
+    if (!resolvedId) { setError(`"${itemName}" not in catalog`); return; }
 
     const newStatus = checked[itemName] ? "pending" : "bought";
     setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
@@ -493,7 +495,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         .from("list_items")
         .update({ status: newStatus })
         .eq("household_id", hh.id)
-        .eq("catalog_item_id", catalogItem.id)
+        .eq("catalog_item_id", resolvedId)
         .is("deleted_at", null);
       if (updateErr) throw updateErr;
     } catch (err) {
@@ -894,6 +896,36 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     }
   }, []);
 
+  // removeFromList: list-layer action. Soft-deletes a single list_item from the
+  // shared list (catalog row untouched — item remains re-addable). This is the
+  // SHOP swipe-to-remove action, distinct from hideItem (catalog, per-user) and
+  // deleteItem (catalog, household-wide).
+  const removeFromList = useCallback(async (itemName, catalogItemId) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!hh || !db) return;
+
+    const resolvedId = catalogItemId ?? catalogRef.current[itemName]?.id;
+    if (!resolvedId) { setError(`"${itemName}" not in catalog`); return; }
+
+    const prevRows = listRows;
+    setListRows((rows) => rows.filter(r => r.catalogItemId !== resolvedId));
+
+    try {
+      const { error: rmErr } = await db
+        .from("list_items")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("household_id", hh.id)
+        .eq("catalog_item_id", resolvedId)
+        .is("deleted_at", null);
+      if (rmErr) throw rmErr;
+    } catch (err) {
+      console.error("removeFromList error:", err.message);
+      setError(`Could not remove item: ${err.message}`);
+      setListRows(prevRows);
+    }
+  }, [listRows]);
+
   // ─────────────────────────────────────────────────────────────
   // hideItem: per-user, view-only. Hides any catalog item (global
   // or custom) from THIS user's browse view. Never affects the
@@ -1133,7 +1165,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    hideItem, deleteItem, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
+    hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,
