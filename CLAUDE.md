@@ -50,7 +50,14 @@ When I type "SESSION END", do all of the following in one pass:
 
 ### Step 0 — Check for a design handoff file (do this FIRST)
 
-Look for `handoff/design_handoff.md`.
+Look for `handoff/design_handoff.md`. State out loud whether it exists before
+doing anything else.
+
+**HARD GATE:** If `handoff/design_handoff.md` exists, you MUST produce a new
+SESSION_LOG entry from it. "Nothing new to log" is FORBIDDEN whenever a handoff
+file is present — its presence is itself unmerged work. Reaching Step 6 without
+having (a) created/merged an entry AND (b) deleted the handoff file is a failure;
+stop and report it rather than committing.
 
 - **If it exists**, it contains design/decision context from a separate Claude
   CHAT session that you (Claude Code) could not see. It uses delimited sections.
@@ -95,7 +102,14 @@ a change is "architectural enough," ASK me rather than guessing.
 Unless I am explicitly building from a spec this session and ask you to update it.
 Specs are episodic, not per-session.
 
-### Step 5 — Commit the changed docs
+### Step 5 — Verify, then commit the changed docs
+
+Before committing, verify the handoff was consumed:
+- If a handoff existed in Step 0, confirm `handoff/design_handoff.md` no longer
+  exists and its entry is now at the top of `docs/SESSION_LOG.md`. If the file is
+  still present, you did NOT complete the merge — go back to Step 0; do not commit.
+
+Then:
 `git add docs/ handoff/` (stage doc changes and the handoff deletion)
 `git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
 Do NOT push automatically — leave the commit local for my review. I'll push.
@@ -115,6 +129,11 @@ that changed.
   history. If a session is purely OS/Platform (e.g. building the Harbour), tag
   it [Velayo OS] and flag to me that it likely belongs in the velayo-os log,
   not this app's, once that repo's docs exist.
+- ONE-TIME REPAIR: if `docs/SESSION_LOG.md` still has the old header
+  ("Maintained by Session Scribe") or an old FORMAT block lacking `[SCOPE]` and
+  `**DB changes:**`, update the header to "One entry per session. Most recent at
+  top." and replace the FORMAT block with the SESSION LOG ENTRY FORMAT below.
+  Do this without touching existing log entries. Remove this rule once done.
 
 ### SESSION LOG ENTRY FORMAT
 ```
