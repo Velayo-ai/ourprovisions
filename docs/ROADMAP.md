@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-16 (session 2)*
+*Last updated: 2026-06-17*
 
 ---
 
@@ -29,7 +29,8 @@
 | — | **Household member administration UI** | View members, remove members, manage/revoke invites. Absence is why orphaned memberships accumulated and needed raw SQL to fix (Jun 12). |
 | — | **Contributor display refinement** | Keep the full name of the original adder; when another member adds quantity, append their badge rather than replacing attribution with an icon. |
 | — | **Wire Harbour live data** | C-suite seat URLs (Claude project links), tool chips (Banking, Cap table, Social, Brand deck), real lane content (priorities, agent counts, "moved Xd ago" dates). Push live once done. |
-| — | **Multi-household implementation** | Data spine first: `myHouseholds` query + active-household context (React context + localStorage, fallback to oldest membership). Then re-scoping hook (realtime teardown/re-subscribe on switch). Then UI: toast primitive → sub-line → switcher sheet → create flow. Prerequisite: check that no existing RLS policy depends on `role = 'member'` default before the create flow writes 'owner'. |
+| — | **Bootstrap/active-household unification** ⚠️ HIGH EFFORT | Real fix for the three-way ordering bug (see ARCHITECTURE). Make `bootstrap_new_user` load the ACTIVE household resolved by `ActiveHouseholdContext` rather than picking one by heuristic. Supersedes migration 002 stopgap. One source of truth for "which household is current." |
+| — | **Switcher UI** | Title-bar household-name sub-line (reveals at 2+ households). Switcher bottom sheet (lists households + "Create new household"). Create-household flow (name → `create_household` RPC → auto-switch → land on empty list). Per approved mockups from 2026-06-16. |
 | — | **Verify migration 005 is applied to prod** | Column inventory suggests `list_items` lacks `cycle_id` — strong signal 005 was written but never run. Confirm; if unrun, apply as a tested migration. Prerequisite for the store-awareness arc. |
 | — | **Store-awareness arc (VERIFY-AND-SURFACE, post-multi-household)** | Foundation already designed in migration 005 (`known_stores`, `provision_cycles`, `shopping_sessions`, `match_known_store` RPC, Scenario D silent GPS auto-detect). First step: confirm 005 is live. North-star payoff: N3-style price steering ("cheaper at Market Basket") — build only once price-history data is dense enough to be honest. |
 | — | **Verify Velayo OS project instructions are on v2 handoff flow** | The Velayo OS project's own instruction field may still carry v1 Drive-writing Scribe language (flagged in 06-11 Harbour entry). Dan to check and apply same v2 replacement. |
@@ -59,6 +60,10 @@
 | Split company log into `velayo-os/docs` | Trigger = app #2's first session, not a date. Filter-based split, not a migration (scope tags already in place). |
 | Sync on unfocused tabs | Browser `setInterval` throttles to ~1 min on backgrounded tabs, causing perceived lag. Consider `visibilitychange` refresh-on-focus, or Supabase Realtime if Clerk/Realtime auth incompatibility is ever resolved. |
 | Invite-accept creates duplicate memberships | Accepting an invite adds a membership without retiring the user's auto-bootstrapped household. Should move-or-block until multi-household is real. |
+| Apply migrations 001 + 002 to prod | Required before multi-household ships to real users. Currently dev-only. |
+| Remove temp `[ActiveHousehold TEST]` console log from `App.js` | Added for spine verification; remove before multi-household UI ships. |
+| Audit SECURITY DEFINER functions for `set search_path` | `get_my_households()` and `get_household_id_for_current_user()` lack explicit `set search_path`. Low risk now; address when consolidating helper functions. |
+| `bootstrap_new_user` step-1 dead-logic cleanup | `if v_user_id is null` guard is always true because the INSERT above never sets `v_user_id` (no RETURNING clause). Harmless but misleading. Fix when rewriting bootstrap as the real active-household fix. |
 | Reconcile git remotes across machines | Canonical remote is `Velayo-ai/ourprovisions`; stale Surface clone pointed at `dan-velayo/ourprovisions`. Reconcile when doing next per-machine setup. |
 | Local Supabase (CLI/Docker) for offline dev | Seeded from `000_canonical_baseline.sql` — for genuinely-offline boat development. Only if offline dev becomes a real need. |
 
@@ -172,6 +177,10 @@ Closes the loop. Turns data into action.
 | Jun 16, 2026 | **Switcher reveals progressively: no switcher at 1 household, household-name sub-line appears at 2+.** "Create new household" is the act that unlocks the switcher. Zero new chrome until the feature is needed. |
 | Jun 16, 2026 | **Store awareness sequenced as its own arc AFTER multi-household — not interleaved.** Don't-stack discipline. |
 | Jun 16, 2026 | **Store awareness target model: silent GPS auto-detect (Scenario D from migration 005).** If location shared, auto-match to known_stores; manual define otherwise. N3-style price steering ("cheaper at Market Basket") is the north-star payoff — build only once price-history is dense enough to be honest. |
+| Jun 17, 2026 | **Multi-household reads go through `get_my_households()` SECURITY DEFINER RPC, not direct table queries.** `household_members` SELECT policy is scoped to the active household — a direct query cannot enumerate other memberships. Identity resolved internally from JWT (no user-id param). |
+| Jun 17, 2026 | **`repo migrations/` is the SINGLE SOURCE OF TRUTH for migrations.** Numbering resets after the 000 canonical baseline → new migrations are 001 onward. Google Drive SQL copies are stale/pre-baseline, NOT authoritative. New migrations born in repo via Claude Code, tested on dev, then applied to prod. |
+| Jun 17, 2026 | **`bootstrap_new_user` DESC ordering (migration 002) is an EXPLICIT TEMPORARY STOPGAP.** The real fix is to make bootstrap load the context's active household. Do not treat 002 as done. |
+| Jun 17, 2026 | **Future `create_household` flow must be a single SECURITY DEFINER RPC.** `households.created_by` is NOT NULL — two separate client writes (insert household, then insert membership) could half-complete. Wrap both in one atomic transaction server-side. |
 
 ---
 
@@ -186,6 +195,7 @@ Closes the loop. Turns data into action.
 | **Cloudflare Access gating** | Jun 11, 2026 | Zero Trust org, OTP "Crew only" policy (named emails + `@velayo.ai` domain rule). Verified end-to-end in incognito. |
 | **SESSION END v2 pipeline + scope tagging** | Jun 11, 2026 | Chat emits `design_handoff.md`; Claude Code owns canonical write. v1 Drive-writing Scribe retired. [SCOPE] tags in CLAUDE.md. |
 | **Retire v1 Scribe; rebuild project template as dual-mode** | Jun 16, 2026 | OurProvisions project instructions + `VELAYO_PROJECT_TEMPLATE.md` both on v2 handoff flow. Template is dual-mode (DESIGN vs HANDOFF). Scope tagging canonical in CLAUDE.md. |
+| **Multi-household data spine** | Jun 17, 2026 | `ActiveHouseholdContext` built + wired in `App.js`. `get_my_households()` SECURITY DEFINER RPC (migration 001). Proven end-to-end on dev with two-household test user through real Clerk JWT. Bootstrap stopgap (migration 002) unblocks the crash. |
 | **Multi-machine dev environment + DEV_SETUP.md** | Jun 13, 2026 | Reproducible-from-git dev recipe: `.nvmrc` (Node 24), `.npmrc` (`legacy-peer-deps=true`), `docs/DEV_SETUP.md`. Committed `1409a5c`. |
 | **Lake Surface stood up** | Jun 13, 2026 | DEV_SETUP recipe proven end-to-end: git clone → drop `.env.local` → npm install → npm start → Clerk auth. Node 24.14.0, peer-dep workaround validated. |
 

@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-16 (session 3)*
+*Last updated: 2026-06-17*
 
 ---
 
@@ -107,15 +107,17 @@ Maps Clerk user IDs to internal UUIDs. Created via `bootstrap_new_user` RPC on f
 - `id`, `clerk_id`, `email`, `full_name`, `created_at`, `deleted_at`
 
 #### `households`
-One per family group. Schema already supports multiple households per user (`household_members` is a junction table). Multi-household switching is in active design (app-layer work only — no new tables needed).
-- `id`, `name`, `created_by`, `crew_id` (→ velayo_crews), `created_at`, `deleted_at`
+One per family group. Schema already supports multiple households per user (`household_members` is a junction table). Multi-household switching is in active development.
+- `id`, `name`, `created_by` (**NOT NULL** — must supply on insert), `crew_id` (→ velayo_crews), `created_at`, `deleted_at`
+- **Create constraint:** `created_by` is NOT NULL, so inserting a new household + its first `household_members` row must be atomic. A client-side two-step write can half-complete. Use a SECURITY DEFINER `create_household` RPC for the create-household flow.
 
 #### `household_members`
 Join table. Realtime enabled.
 - `id`, `household_id`, `user_id`, `role` (owner/member), `joined_at`, `deleted_at`
 - **Role model:** `owner` = creator; can rename household, remove members, delete household. All list actions are shared across all roles. Succession on owner departure: oldest remaining member becomes owner. No co-owners.
 - **Re-scoping risk (multi-household):** `useProvisions` + realtime subscriptions must tear down and re-subscribe to the new `household_id` on switch, or stale realtime updates leak from the old household. Inspect before coding the switcher.
-- **Fragility:** household fetch uses `.single()`/`.maybeSingle()` — throws 406 if a user has duplicate active memberships. Needs defensive handling before multi-household is supported.
+- **Ordering:** `joined_at` is the timestamp column (not `created_at`). `get_current_household_id()` orders `DESC` (newest); `get_my_households()` orders `ASC` (oldest = context default); `bootstrap_new_user` step 3 now orders `DESC` (migration 002 stopgap). See three-way ordering bug in Known Debt.
+- **Fragility:** `useProvisions.js:244` does `.from("households").eq("id", bootstrapData.household_id).single()` — throws if bootstrap and `get_current_household_id()` disagree on which household is current (RLS blocks the read → 0 rows → `.single()` fails). Currently masked by migration 002 stopgap. Real fix is bootstrap/active-household unification.
 
 #### `catalog_items`
 The item library. Items are either **global/seed** (system-owned) or **household custom** (household-owned). The `is_global` boolean is the ownership discriminator and drives the Hide/Delete verb model:
@@ -209,6 +211,7 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `close_cycle(p_household_id)` | Archives a cycle — upserts items forward (targets `list_items_household_catalog_unique`), clears badges. Live version supersedes the 005 file. |
 | `archive_trip_items(...)` | Archives trip items at session close. |
 | `match_known_store(p_lat, p_lng, p_household_id)` | Bounding-box pre-filter + Haversine nearest-store lookup (no PostGIS). Returns closest store within `radius_m`; app enforces the radius. This IS the "auto-select via GPS" behavior from Scenario D. |
+| `get_my_households()` *(migration 001)* | Returns `(household_id, name, role)` for ALL of the caller's active, non-deleted memberships, `joined_at ASC`. SECURITY DEFINER — bypasses the `household_members` SELECT policy (which is scoped to the active household). Identity resolved via `get_current_user_id()` internally; takes no user-id parameter. Applied to DEV; prod pending. |
 | `rls_auto_enable` *(event trigger)* | Auto-enables RLS on any newly created public table. **Every new table comes up locked by default.** Include policies in the same migration or the table will be inaccessible. |
 
 ---
@@ -221,6 +224,12 @@ Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, t
 - **RLS disabled** on `provision_cycles`, `known_stores`, `shopping_sessions` — anon key can cross-household read/write. Acceptable now; must fix before any live feature depends on row isolation (NEXT #1 + #6).
 - **Duplicate helper pairs** — `get_household_id_for_current_user` / `get_current_household_id` and `get_user_id_from_clerk` / `get_current_user_id` do near-identical work. Consolidate (NEXT #2).
 - **`category_avg_prices` view body** — baseline is a reconstruction, not a verbatim prod dump. Run `SELECT pg_get_viewdef('category_avg_prices'::regclass, true);` on prod to verify exactness if needed.
+- **Three-way ordering bug (core debt, currently masked by migration 002 stopgap):** Three places independently answer "which household is active?" with conflicting tie-break rules:
+  1. `bootstrap_new_user` step 3 — was unordered `LIMIT 1` (non-deterministic). **Now (002): `joined_at DESC` (newest).** Matches the RLS gate.
+  2. `get_current_household_id()` — `joined_at DESC` (newest). Drives the `households_select` RLS gate.
+  3. `get_my_households()` / `ActiveHouseholdContext` default — `joined_at ASC` (oldest first). Context persists last-selected to localStorage.
+  Pre-002 failure mode: bootstrap picked a household (arbitrary heap order) that the RLS gate (`DESC`) would not permit reading → `useProvisions.js:244` `.single()` got 0 rows → "Cannot coerce to a single JSON object" (a 0-row PostgREST 406, not a too-many-rows error). Migration 002 aligns bootstrap to the RLS gate (`DESC`) to stop the crash. It does NOT reconcile the context default (`ASC`) — bootstrap picks newest (Lake House) while the context's fallback picks oldest (My Household). Harmless while they read different sources; the REAL FIX is a single source of truth = the context's `activeHouseholdId`, passed to bootstrap and used to rewrite `get_current_household_id()`.
+- **Migrations 001 + 002 applied to DEV only** — prod application pending before multi-household ships.
 
 ---
 
@@ -310,14 +319,15 @@ Three distinct removal verbs, distinct by layer and scope:
 
 `toggleChecked(itemName, catalogItemId)` now resolves the target row via `catalogItemId` passed from the caller (carried on `listRows` → `shoppingList` items → tap handlers). Falls back to `catalogRef.current[itemName]?.id` only if no id arrives. Eliminates "not in catalog" failures on rolled-forward items whose names may have diverged from the current catalog map.
 
-### Active Household Context *(designed Jun 16, not yet built)*
+### Active Household Context *(built Jun 17 — `src/contexts/ActiveHouseholdContext.js`)*
 
-New app-level concept required for multi-household: the ACTIVE household. Proposed implementation:
-- React context holds active `household_id` + full household record.
-- Persisted to localStorage (last-selected `household_id`); fallback = oldest membership on load.
-- Server-side last-active memory deferred — only needed for cross-device sync later.
-- New query: `myHouseholds` = `household_members` rows where `user_id = me`, joined to `households`. Drives the switch sub-line (show only at 2+ households) and the switcher bottom sheet.
-- **Critical risk:** `useProvisions` + all realtime subscriptions must tear down and re-subscribe when the active household changes. Failure to do so leaks stale realtime updates from the old household. Inspect before coding.
+App-level context that is the single source of truth for which household is active.
+- **Provider props:** `getToken`, `clerkId` (same values `useProvisions` receives from Clerk's `useAuth`/`useUser`).
+- **State exposed:** `myHouseholds` `[{id, name, role}]`, `activeHouseholdId`, `loadingHouseholds`, `switchHousehold(id)`, `hasMultiple`.
+- **Data source:** `db.rpc("get_my_households")` — maps `row.household_id` → `id`. `getTokenRef` stabilization pattern (per `useProvisions`). `myHouseholdsRef` kept in sync so `switchHousehold` validates without stale closure.
+- **Resolution:** reads `localStorage("activeHouseholdId")`; if valid in `myHouseholds` use it, else fall back to first returned (`get_my_households` orders `joined_at ASC` = oldest = default).
+- **Mounting:** wraps `ShoppingListApp`'s return JSX in `App.js`. `HouseholdDebugLog` null-component hosts the hook call (a component cannot consume a provider it renders). ⚠️ Temp verification `console.log` still present — remove next session.
+- **Critical risk (unresolved):** `useProvisions` + realtime subscriptions must tear down and re-subscribe when the active household changes. Not yet implemented — the switcher UI is not yet built.
 
 ### App-Level Toast *(designed Jun 16, not yet built)*
 

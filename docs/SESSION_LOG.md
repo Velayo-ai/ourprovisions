@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### 2026-06-17 — OurProvisions — Build & prove the multi-household data spine
+**Goal:** Stand up the multi-household spine (households query + active-household state) and prove it works end-to-end through real Clerk auth before building any switcher UI.
+**Completed:**
+- Built `ActiveHouseholdContext` (context + localStorage persistence, `switchHousehold`, `hasMultiple`); mounted `ActiveHouseholdProvider` in `App.js` via a null-rendering `HouseholdDebugLog` helper so it sits inside Clerk auth and above consumers.
+- Diagnosed the keystone RLS trap: `household_members` SELECT policy is `(household_id = get_current_household_id())`, scoped to the ACTIVE household — so a user cannot enumerate their other memberships via normal RLS. Authored `get_my_households()` SECURITY DEFINER RPC (migration 001) to return ALL of a user's households, resolving identity internally from the JWT.
+- Verified on dev: built a two-household test user (Dan Holmes in "My Household" + new "Lake House"), confirmed the RPC logic returns two rows in SQL, then confirmed the live app logs `Array(2)` households through a real Clerk token. Spine proven end-to-end.
+- Found & diagnosed a three-way "which household is active?" ordering bug exposed by multi-household (see ARCHITECTURE). Shipped migration 002 as a labeled TEMPORARY stopgap (align `bootstrap_new_user` to `joined_at DESC`) so the app stops crashing; applied to dev. App now loads clean with a two-household user.
+- Established `repo migrations/` as the single source of truth (baseline 000 + 001 + 002); Google Drive copies are stale/pre-baseline and are NOT authoritative.
+**Unfinished:**
+- Temp verification log still in `App.js` (`[ActiveHousehold TEST]`) — remove next session.
+- Migrations 001 and 002 applied to DEV ONLY — prod still needs them before multi-household ships.
+- Bootstrap stopgap (002) is a holdover, not the real fix.
+- No switcher UI yet: title-bar sub-line, switcher sheet, create flow all still unbuilt (mockups approved last session).
+- Minor: `bootstrap_new_user` step 1 has dead `if v_user_id is null` logic (insert never sets it via RETURNING). Harmless; cleanup later.
+**Next session:**
+SESSION START
+Goal: Replace the bootstrap stopgap with the real fix — make bootstrap/RLS read the ACTIVE household from `ActiveHouseholdContext` rather than each picking one by heuristic — then build the switcher UI.
+State: Spine built, wired, and proven on dev: `get_my_households()` returns all households through real Clerk JWT; context resolves + persists active household; provider mounted. App runs clean on dev with a two-household test user. Migrations 001 + 002 live on DEV ONLY. Three-way ordering bug documented (see ARCHITECTURE) — currently masked by the stopgap.
+Done when: Bootstrap loads the context's active household (one source of truth), superseding the 002 stopgap. Temp console log removed. 001 + 002 (or replacement) applied to prod. Then: title-bar switch sub-line (reveals at 2+ households), switcher sheet, create-household flow built per approved mockups.
+**Files updated:** `src/contexts/ActiveHouseholdContext.js` (new), `src/App.js` (provider mount + temp log), `migrations/001_get_my_households.sql` (new), `migrations/002_bootstrap_ordering_stopgap.sql` (new)
+**DB changes (DEV ONLY — prod pending):** `get_my_households()` created; `bootstrap_new_user` altered to `ORDER BY joined_at DESC`. Test data: "Lake House" household + Dan Holmes membership added on dev.
+
 ### 2026-06-16 — OurProvisions — Multi-household design + store-awareness discovery
 **Goal:** Design the multi-household switching experience (the last structural feature before AI) and scope store awareness.
 **Completed:**
