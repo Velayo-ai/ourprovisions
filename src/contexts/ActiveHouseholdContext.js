@@ -28,37 +28,19 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
       try {
         const db = createSupabaseClient(getTokenRef.current);
 
-        // Resolve the internal user UUID from the Clerk JWT sub claim.
-        // NOTE: household_members RLS is currently keyed by household_id
-        // (get_current_household_id()), not user_id — so the eq("user_id") filter below
-        // may only return one row even for multi-household users once the switcher is live.
-        // If that happens, replace with a dedicated get_my_households() RPC.
-        const { data: internalUserId, error: uidErr } = await db.rpc("get_current_user_id");
-        if (uidErr || !internalUserId) {
-          console.error("[ActiveHousehold] get_current_user_id failed:", uidErr);
-          if (!cancelled) setLoadingHouseholds(false);
-          return;
-        }
-
-        const { data, error } = await db
-          .from("household_members")
-          .select("role, households(id, name)")
-          .eq("user_id", internalUserId)
-          .is("deleted_at", null);
+        const { data, error } = await db.rpc("get_my_households");
 
         if (error) {
-          console.error("[ActiveHousehold] household_members query failed:", error);
+          console.error("[ActiveHousehold] get_my_households failed:", error);
           if (!cancelled) setLoadingHouseholds(false);
           return;
         }
 
-        const households = (data || [])
-          .filter((row) => row.households)
-          .map((row) => ({
-            id: row.households.id,
-            name: row.households.name,
-            role: row.role,
-          }));
+        const households = (data || []).map((row) => ({
+          id: row.household_id,
+          name: row.name,
+          role: row.role,
+        }));
 
         if (cancelled) return;
 
