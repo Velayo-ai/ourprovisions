@@ -29,6 +29,9 @@
 | — | **Household member administration UI** | View members, remove members, manage/revoke invites. Absence is why orphaned memberships accumulated and needed raw SQL to fix (Jun 12). |
 | — | **Contributor display refinement** | Keep the full name of the original adder; when another member adds quantity, append their badge rather than replacing attribution with an icon. |
 | — | **Wire Harbour live data** | C-suite seat URLs (Claude project links), tool chips (Banking, Cap table, Social, Brand deck), real lane content (priorities, agent counts, "moved Xd ago" dates). Push live once done. |
+| — | **Multi-household implementation** | Data spine first: `myHouseholds` query + active-household context (React context + localStorage, fallback to oldest membership). Then re-scoping hook (realtime teardown/re-subscribe on switch). Then UI: toast primitive → sub-line → switcher sheet → create flow. Prerequisite: check that no existing RLS policy depends on `role = 'member'` default before the create flow writes 'owner'. |
+| — | **Verify migration 005 is applied to prod** | Column inventory suggests `list_items` lacks `cycle_id` — strong signal 005 was written but never run. Confirm; if unrun, apply as a tested migration. Prerequisite for the store-awareness arc. |
+| — | **Store-awareness arc (VERIFY-AND-SURFACE, post-multi-household)** | Foundation already designed in migration 005 (`known_stores`, `provision_cycles`, `shopping_sessions`, `match_known_store` RPC, Scenario D silent GPS auto-detect). First step: confirm 005 is live. North-star payoff: N3-style price steering ("cheaper at Market Basket") — build only once price-history data is dense enough to be honest. |
 | — | **Verify Velayo OS project instructions are on v2 handoff flow** | The Velayo OS project's own instruction field may still carry v1 Drive-writing Scribe language (flagged in 06-11 Harbour entry). Dan to check and apply same v2 replacement. |
 | — | **Auto-stamp lane "last moved" dates** | SESSION END writes the active lane's date on close — self-maintaining neglect detector in the Harbour. |
 | — | **Reconcile Vercel env scopes** | Development scope still carries prod Supabase vars (79-day-old). Repoint/remove to dev; add `REACT_APP_CLERK_PUBLISHABLE_KEY` to Preview. Unblocks `vercel env pull` as clean secrets-distribution route. |
@@ -163,6 +166,12 @@ Closes the loop. Turns data into action.
 | Jun 16, 2026 | **Velayo project template is dual-mode (DESIGN vs HANDOFF), switched by one MODE line.** Rationale: new apps begin repo-less (chat must scribe directly); a single-mode template is wrong half the time. Matches the "split at app #2's first session" principle. |
 | Jun 16, 2026 | **Repo `docs/` is canonical; Project Knowledge is a mirror, not source of truth.** Rationale: the v2 flow made Claude Code the merge authority — the old "re-upload Project Knowledge" model inverted ownership. |
 | Jun 16, 2026 | **Template `[SCOPE]` uses `[APP NAME]` placeholder, not literal "OurProvisions".** Rationale: prevents every new app inheriting OurProvisions' scope vocabulary. |
+| Jun 16, 2026 | **Multi-household is the LAST structural feature before the AI phase.** Ship it clean before store awareness / receipt parser. Rationale: AI features are more valuable with multiple household contexts to learn from. |
+| Jun 16, 2026 | **Two roles only (owner/member in DB). No permission-variant creep.** Owner gets destructive/structural actions (rename, remove member, delete household); all list actions shared. Succession to oldest member on owner departure; no co-owners. |
+| Jun 16, 2026 | **Role vocabulary stays out of the UI.** Internal shorthand "captain/crew"; DB stores owner/member; UI shows capability (a Remove button), not role words or badges. Avoids "seafood restaurant" theming. |
+| Jun 16, 2026 | **Switcher reveals progressively: no switcher at 1 household, household-name sub-line appears at 2+.** "Create new household" is the act that unlocks the switcher. Zero new chrome until the feature is needed. |
+| Jun 16, 2026 | **Store awareness sequenced as its own arc AFTER multi-household — not interleaved.** Don't-stack discipline. |
+| Jun 16, 2026 | **Store awareness target model: silent GPS auto-detect (Scenario D from migration 005).** If location shared, auto-match to known_stores; manual define otherwise. N3-style price steering ("cheaper at Market Basket") is the north-star payoff — build only once price-history is dense enough to be honest. |
 
 ---
 

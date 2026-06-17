@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-16*
+*Last updated: 2026-06-16 (session 3)*
 
 ---
 
@@ -95,7 +95,7 @@ Historical files (superseded, in `migrations/archive/`):
 | `002_harbor_crew.sql` | `velayo_crews`, `velayo_crew_members`, `crew_id` on households |
 | `003_live_schema_audit_june2026.sql` | Delta audit — documented column drift, views, undocumented tables |
 | `004_list_item_contributors.sql` | Contributor badges table |
-| `005_provision_cycles_sessions_stores.sql` | `provision_cycles`, `shopping_sessions`, `known_stores`; cycle columns; RPCs |
+| `005_provision_cycles_sessions_stores.sql` | `provision_cycles`, `shopping_sessions`, `known_stores`; `cycle_id`/`rolled_from_item_id` on `list_items`; RPCs — **UNCONFIRMED if applied to prod** (column inventory Jun 16 suggests `cycle_id` absent from `list_items`) |
 | `006` | *(contents not captured in docs)* |
 
 ---
@@ -107,12 +107,14 @@ Maps Clerk user IDs to internal UUIDs. Created via `bootstrap_new_user` RPC on f
 - `id`, `clerk_id`, `email`, `full_name`, `created_at`, `deleted_at`
 
 #### `households`
-One per family group. Each user belongs to one household (multiple household support queued).
+One per family group. Schema already supports multiple households per user (`household_members` is a junction table). Multi-household switching is in active design (app-layer work only — no new tables needed).
 - `id`, `name`, `created_by`, `crew_id` (→ velayo_crews), `created_at`, `deleted_at`
 
 #### `household_members`
 Join table. Realtime enabled.
 - `id`, `household_id`, `user_id`, `role` (owner/member), `joined_at`, `deleted_at`
+- **Role model:** `owner` = creator; can rename household, remove members, delete household. All list actions are shared across all roles. Succession on owner departure: oldest remaining member becomes owner. No co-owners.
+- **Re-scoping risk (multi-household):** `useProvisions` + realtime subscriptions must tear down and re-subscribe to the new `household_id` on switch, or stale realtime updates leak from the old household. Inspect before coding the switcher.
 - **Fragility:** household fetch uses `.single()`/`.maybeSingle()` — throws 406 if a user has duplicate active memberships. Needs defensive handling before multi-household is supported.
 
 #### `catalog_items`
@@ -158,12 +160,14 @@ Planning cycles. One open cycle per household at a time. **RLS: DISABLED in prod
 - `id`, `household_id`, `started_at`, `closed_at`, `item_count`, `sessions_count`, `seeded_from`, `cycle_type`, `label`
 
 #### `shopping_sessions`
-Individual shopping trips within a cycle. **RLS: DISABLED in prod.**
-- `id`, `household_id`, `cycle_id`, `store_id`, `started_at`, `closed_at` (+ Phase 2 location/GPS fields)
+One person / one store / one trip, linked to a cycle and a known_store. GPS fields for store matching. `total_spent` + `receipt_scanned` hook into the Phase 3 receipt parser. **RLS: DISABLED in prod.**
+- `id`, `household_id`, `cycle_id`, `store_id` (→ known_stores), `started_at`, `closed_at`, `gps_lat`, `gps_lng`, `total_spent`, `receipt_scanned`
+- **Status: UNCONFIRMED if live on prod** — see known_stores caveat above.
 
 #### `known_stores`
-GPS-matched store locations. **RLS: DISABLED in prod.**
-- `id`, `household_id`, `name`, `lat`, `lng`, `radius_m`, `created_at`
+GPS-clustered store locations. Self-teaching store map — visit_count increments on each trip; confirmed_by_receipt flips on first receipt scan. `chain` key enables cross-location price comparison (all "Hannaford" stores share price history). **RLS: DISABLED in prod.**
+- `id`, `household_id`, `name`, `lat`, `lng` (centroid), `radius_m` (geofence, default 150m), `visit_count`, `chain`, `confirmed_by_receipt`, `created_at`
+- **Status: UNCONFIRMED if live on prod** — column inventory suggests migration 005 may not have been applied (see Queued Migrations). Verify before the store-awareness arc.
 
 #### `user_hidden_items`
 Per-user catalog suppressions. `clerk_id` + `catalog_item_id`. No soft delete — delete the row to restore (unhide).
@@ -204,7 +208,7 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `get_active_cycle(p_household_id)` | Returns the current open provision cycle. |
 | `close_cycle(p_household_id)` | Archives a cycle — upserts items forward (targets `list_items_household_catalog_unique`), clears badges. Live version supersedes the 005 file. |
 | `archive_trip_items(...)` | Archives trip items at session close. |
-| `match_known_store(p_lat, p_lng, p_household_id)` | GPS-matches a coordinate to a known store within its radius. |
+| `match_known_store(p_lat, p_lng, p_household_id)` | Bounding-box pre-filter + Haversine nearest-store lookup (no PostGIS). Returns closest store within `radius_m`; app enforces the radius. This IS the "auto-select via GPS" behavior from Scenario D. |
 | `rls_auto_enable` *(event trigger)* | Auto-enables RLS on any newly created public table. **Every new table comes up locked by default.** Include policies in the same migration or the table will be inaccessible. |
 
 ---
@@ -249,6 +253,9 @@ Aggregates average `price_per_unit` per category across all list_items with real
 - **Prices are infrastructure, not UI.** Manual price entry creates friction. Price data builds passively through receipt scanning.
 - **Merge don't duplicate.** When multiple users add the same item, merge with quantity increment + contributor attribution.
 - **`window.location.reload()` is an anti-pattern.** Always use `refreshCatalog()` instead.
+- **Two roles only (owner/member). UI shows capability, not role nouns.** Internal shorthand "captain/crew"; DB stores owner/member; product surfaces a Remove button, not a "Captain" badge. No nautical labels in the product.
+- **Switcher reveals progressively.** No switcher chrome at 1 household. A tappable household-name sub-line appears only at 2+ households. "Create new household" is the act that unlocks it. Zero friction for the common case.
+- **Store awareness is its own arc, sequenced after multi-household ships.** Don't interleave features. Foundation is already designed (migration 005); the arc begins with verification, not design.
 - **Vercel CI treats ESLint warnings as errors.** All declared variables must be used before pushing to main.
 - **Stable UUID is the key for all item actions; name strings are display only.** `catalog_item_id` from `listRows` is the durable identifier for every list/catalog operation (`toggleChecked`, `removeFromList`, `hideItem`, `deleteItem`). Item names are used only for optimistic UI state keys and display. Name-keyed lookups into `catalogRef`/`catalogMap` are a fallback of last resort, not the primary path. *(Established Jun 16 — the root cause of two separate name-key bugs: multi-session sync chain + "not in catalog" on rolled-forward items.)*
 
@@ -302,6 +309,23 @@ Three distinct removal verbs, distinct by layer and scope:
 ### id-based toggleChecked *(Jun 16)*
 
 `toggleChecked(itemName, catalogItemId)` now resolves the target row via `catalogItemId` passed from the caller (carried on `listRows` → `shoppingList` items → tap handlers). Falls back to `catalogRef.current[itemName]?.id` only if no id arrives. Eliminates "not in catalog" failures on rolled-forward items whose names may have diverged from the current catalog map.
+
+### Active Household Context *(designed Jun 16, not yet built)*
+
+New app-level concept required for multi-household: the ACTIVE household. Proposed implementation:
+- React context holds active `household_id` + full household record.
+- Persisted to localStorage (last-selected `household_id`); fallback = oldest membership on load.
+- Server-side last-active memory deferred — only needed for cross-device sync later.
+- New query: `myHouseholds` = `household_members` rows where `user_id = me`, joined to `households`. Drives the switch sub-line (show only at 2+ households) and the switcher bottom sheet.
+- **Critical risk:** `useProvisions` + all realtime subscriptions must tear down and re-subscribe when the active household changes. Failure to do so leaks stale realtime updates from the old household. Inspect before coding.
+
+### App-Level Toast *(designed Jun 16, not yet built)*
+
+Single-slot app-level toast — the first in-app notification primitive. Design:
+- State: `{message} | null` held in `App.js`.
+- `showToast(message)` sets it; `setTimeout` (~2.5s) clears it; a new call replaces the current toast (no queue).
+- Fixed-position pill, rendered in `App.js` so it outlives the modal that triggered it.
+- First use: household-create confirmation. Intended to be reused for: item added, list rolled, etc.
 
 ### Contributor Merge Logic (app-side)
 When a user adds an item already on the list:

@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### 2026-06-16 — OurProvisions — Multi-household design + store-awareness discovery
+**Goal:** Design the multi-household switching experience (the last structural feature before AI) and scope store awareness.
+**Completed:**
+- Designed multi-household model: schema already supports it (`household_members` is a junction table); the work is app-layer, not DB.
+- Settled title-bar UX: wordmark stays; a new tappable household-name sub-line appears ONLY at 2+ households and opens the switcher. One household = no switcher, zero new chrome.
+- Approved two mockups: switcher bottom sheet (lists households + "Create new household") and the create flow (name → insert → add creator as owner → auto-switch → land on empty list).
+- Settled roles: two only. Creator = owner (rename/remove-member/delete-household); everyone shares all list actions. Succession passes to oldest member if owner leaves. No co-owners.
+- Adopted reusable toast pattern (app-level slot + showToast, ~2.5s auto-dismiss, new replaces current) — first toast in the app; fires on household create.
+- Read migration 005 and discovered the store-awareness foundation is already fully designed (`known_stores`, `provision_cycles`, `shopping_sessions`, `match_known_store` RPC, silent GPS auto-detect = Scenario D). Likely written but NOT yet applied to prod.
+**Unfinished:**
+- No Claude Code prompts written yet (design-only session).
+- Re-scoping risk in `useProvisions` (realtime re-subscribe on household switch) NOT yet inspected — needs a fresh read of `useProvisions.js` + App.js state block.
+- Whether migration 005 is actually live on prod is UNCONFIRMED. Column inventory suggests `list_items` has `session_id`/`checked_lat`/`checked_lng` but NOT `cycle_id` — strong signal 005 was never run.
+- Default active-household rule proposed (last-selected from localStorage, fallback oldest membership) but not yet blessed/implemented.
+- Whether any existing RLS policy keys off `role` — needs a live check before the create flow writes 'owner'.
+**Next session:**
+SESSION START
+Goal: Begin multi-household implementation, starting with the data spine and the re-scoping hook (NOT the toast — that's the warm-up).
+State: Multi-household fully designed; two mockups approved (switcher sheet, create flow). Roles decided (owner/member in DB, capability-based UI, succession by seniority). Toast pattern agreed. Store awareness deferred to its OWN arc after multi-household ships.
+Done when: `useProvisions.js` + App.js state block read fresh and re-scope-on-switch plan (realtime teardown/re-subscribe) is written; first Claude Code prompt ready (candidate order: toast primitive → myHouseholds query + active-household context → switch sub-line → switcher sheet → create flow); default-active-household rule confirmed; `role` RLS dependency checked.
+**Files updated:** None (design only; mockups produced as artifacts, not repo files).
+**DB changes:** None this session. Pending verification: is migration 005 live on prod?
+
 ### 2026-06-16 — Velayo OS — Retire v1 Scribe; rebuild project template as dual-mode
 **Goal:** Kill the last of the v1 Google-Drive Session Scribe across the OurProvisions instructions and the parent project template, aligning both with the v2 handoff flow.
 **Completed:**
