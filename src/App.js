@@ -1,6 +1,7 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useProvisions } from './hooks/useProvisions';
+import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 
 // Maps Supabase category names → display names with emoji
 const CATEGORY_DISPLAY = {
@@ -197,6 +198,16 @@ function SplashScreen({ onDone }) {
       }}>Healthy · Happy · Earth Friendly</div>
     </div>
   );
+}
+
+function HouseholdDebugLog() {
+  const { myHouseholds, activeHouseholdId, loadingHouseholds } = useActiveHousehold();
+  useEffect(() => {
+    if (!loadingHouseholds) {
+      console.log("[ActiveHousehold TEST]", { activeHouseholdId, myHouseholds });
+    }
+  }, [loadingHouseholds, activeHouseholdId, myHouseholds]);
+  return null;
 }
 
 export default function ShoppingListApp() {
@@ -686,7 +697,9 @@ export default function ShoppingListApp() {
   
 
   return (
-    <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
+    <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id}>
+      <HouseholdDebugLog />
+      <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {showSplash && <SplashScreen onDone={handleSplashDone} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
@@ -2362,5 +2375,6 @@ export default function ShoppingListApp() {
         </div>
       )}
     </div>
+    </ActiveHouseholdProvider>
   );
 }
