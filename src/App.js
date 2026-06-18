@@ -213,6 +213,7 @@ function HouseholdDebugLog() {
 function ProvisionsApp() {
   const { user, isSignedIn } = useUser();
   const { getToken } = useAuth();
+  const { activeHouseholdId, myHouseholds } = useActiveHousehold();
 
   const {
     quantities,
@@ -255,6 +256,8 @@ function ProvisionsApp() {
     clerkId: user?.id,
     email: user?.primaryEmailAddress?.emailAddress,
     fullName: user?.fullName || null,
+    activeHouseholdId,
+    myHouseholds,
   });
 
   const [showSplash, setShowSplash] = useState(true);

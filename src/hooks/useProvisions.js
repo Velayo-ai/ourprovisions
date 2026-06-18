@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
 
-export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
+export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
   const [quantities, setQuantities] = useState({});
   const [checked, setChecked] = useState({});
   const [prices, setPrices] = useState({});
@@ -33,6 +33,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const [activeSession, setActiveSession] = useState(null);
   const activeCycleRef = useRef(null);
   const activeSessionRef = useRef(null);
+  const myHouseholdsRef = useRef(myHouseholds || []);
+  myHouseholdsRef.current = myHouseholds || [];
+  const bootstrapHouseholdIdRef = useRef(null);
+  const bootstrappedRef = useRef(false);
+  const justJoinedViaInviteRef = useRef(false);
+  const realtimeChannelRef = useRef(null);
 
   async function loadListItems(db, householdId) {
     if (wrappingUpRef.current) return;
@@ -154,6 +160,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     return data || null;
   }
 
+  // Effect 1 — session setup (keyed on user identity).
+  // Creates the Supabase client once and runs bootstrap_new_user.
+  // Does NOT fetch any household-scoped data — that belongs to Effect 2.
   useEffect(() => {
     // If not signed in, fetch global catalog via direct REST call using anon key — no Supabase client needed
     if (!getTokenRef.current || !userId || !clerkId) {
@@ -206,16 +215,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       return;
     }
 
-    let pollInterval;
-    let catalogPollInterval;
-
-    async function bootstrap() {
+    async function setupSession() {
       setLoading(true);
       setError(null);
 
       try {
-        const db = createSupabaseClient(getTokenRef.current);
-        supabaseRef.current = db;
+        // Create Supabase client once — guard prevents stacking GoTrueClient instances on switch
+        if (!supabaseRef.current) {
+          supabaseRef.current = createSupabaseClient(getTokenRef.current);
+        }
+        const db = supabaseRef.current;
 
         // Check for pending invite before bootstrapping
         const pendingInviteCode = new URLSearchParams(window.location.search).get("invite");
@@ -232,18 +241,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
         if (bootstrapErr) throw new Error(`Bootstrap failed: ${bootstrapErr.message}`);
 
-        const internalUserId = bootstrapData.user_id;
-        internalUserIdRef.current = internalUserId;
+        internalUserIdRef.current = bootstrapData.user_id;
         clerkIdRef.current = clerkId;
-
-        // Fetch the full household record
-        const { data: hhData, error: hhErr } = await db
-          .from("households")
-          .select("id, name, budget_goal")
-          .eq("id", bootstrapData.household_id)
-          .single();
-        if (hhErr) throw new Error(`Could not fetch household: ${hhErr.message}`);
-        const hh = hhData;
 
         // Clear invite from URL and flag for join banner
         if (bootstrapData.joined_via_invite) {
@@ -251,113 +250,184 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
           sessionStorage.setItem("just_joined_household", bootstrapData.household_name || "the household");
         }
 
-        if (hh) {
-          setHousehold(hh);
-          householdRef.current = hh;
+        // Stash bootstrap's chosen household as the fallback for Effect 2
+        bootstrapHouseholdIdRef.current = bootstrapData.household_id;
+        justJoinedViaInviteRef.current = bootstrapData.joined_via_invite === true;
 
-          const { data: members } = await db
-            .from("household_members")
-            .select("id, user_id")
-            .eq("household_id", hh.id)
-            .is("deleted_at", null);
-
-          const { data: profiles } = await db
-            .rpc("get_household_member_profiles", { p_household_id: hh.id });
-
-          const membersWithProfiles = (members || []).map(m => ({
-            ...m,
-            users: profiles?.find(p => p.user_id === m.user_id) || null
-          }));
-
-          setHouseholdMembers(membersWithProfiles);
-          householdMembersRef.current = membersWithProfiles;
-        }
-
-        // Only load catalog and list if we have a household.
-        // (If joining via invite, hh is null here — acceptInvite handles the rest.)
-        if (hh) {
-          // Load this user's hidden items with full catalog info
-          const { data: hiddenRows } = await db
-            .from("user_hidden_items")
-            .select("catalog_item_id, catalog_items(id, name, category, is_global, price_hint, created_by)")
-            .eq("clerk_id", clerkId);
-          const hiddenIds = new Set((hiddenRows || []).map(h => h.catalog_item_id));
-          hiddenIdsRef.current = hiddenIds;
-          const hiddenCatalogList = (hiddenRows || []).map(h => h.catalog_items).filter(Boolean);
-          hiddenCatalogItemsRef.current = hiddenCatalogList;
-          setHiddenCatalogItems(hiddenCatalogList);
-          const { data: catalog, error: catalogErr } = await db
-            .from("catalog_items")
-            .select("id, name, category, is_global, price_hint, is_staple")
-            .eq("is_global", true)
-            .is("deleted_at", null);
-          if (catalogErr) throw new Error(`Could not load catalog: ${catalogErr.message}`);
-
-          const { data: customItems, error: customErr } = await db
-            .from("catalog_items")
-            .select("id, name, category, is_global, price_hint, is_staple, created_by")
-            .eq("household_id", hh.id)
-            .eq("is_global", false)
-            .is("deleted_at", null);
-          if (customErr) throw new Error(`Could not load custom items: ${customErr.message}`);
-
-          const cMap = {};
-          (catalog || []).forEach((item) => {
-            if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: null };
-          });
-          (customItems || []).forEach((item) => {
-            if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
-          });
-          setCatalogMap(cMap);
-          catalogRef.current = cMap;
-          const hintPrices = {};
-          Object.values(cMap).forEach(item => {
-            if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
-          });
-          setPrices(hintPrices);
-
-          const { data: avgRows, error: avgErr } = await db
-            .from("category_avg_prices")
-            .select("category, avg_price");
-          if (!avgErr && avgRows) {
-            const avgMap = {};
-            avgRows.forEach(row => {
-              avgMap[row.category] = parseFloat(row.avg_price);
-            });
-            setCategoryAvgPrices(avgMap);
-          }
-
-          await loadListItems(db, hh.id);
-          await loadActiveCycle(db, hh.id);
-
-          pollInterval = setInterval(() => {
-            loadListItems(db, hh.id);
-          }, 2000);
-
-          // Slower catalog poll (20s): propagates custom-item adds and deletes
-          // across clients without a hard reload. refreshCatalog does a guarded
-          // merge (respects hiddenIdsRef/deletedIdsRef, only commits on real
-          // change) so this won't flicker or clobber optimistic local state.
-          // Called through refreshCatalogRef so it isn't an effect dependency.
-          catalogPollInterval = setInterval(() => {
-            refreshCatalogRef.current();
-          }, 20000);
-        }
+        // Signal Effect 2 that session setup is complete
+        bootstrappedRef.current = true;
 
       } catch (err) {
         console.error("Bootstrap error:", err.message);
         setError(err.message);
-      } finally {
-        setLoading(false);
+        setLoading(false);  // clear loading only on failure; Effect 2 owns the success signal
       }
     }
 
-    bootstrap();
+    setupSession();
+  }, [userId, clerkId, email, fullName]);
+
+  // Effect 2 — household-scoped loads (keyed on the resolved active household).
+  // Reruns whenever activeHouseholdId changes (household switch). Never re-creates
+  // the Supabase client — reads the one Effect 1 placed on supabaseRef.
+  useEffect(() => {
+    const db = supabaseRef.current;
+    if (!db || !bootstrappedRef.current) return;    // wait for Effect 1
+    if (!userId || !clerkId) return;                 // not signed in
+
+    // ── Resolve which household to load ──
+    const fallbackId = bootstrapHouseholdIdRef.current;
+    const list = myHouseholdsRef.current || [];
+    const isMember = (id) => !!id && list.some(h => h.id === id);
+
+    let targetId;
+    if (justJoinedViaInviteRef.current) {
+      // Explicit invite join wins over any stale stored active id
+      targetId = fallbackId;
+    } else if (isMember(activeHouseholdId)) {
+      targetId = activeHouseholdId;                  // the chosen household
+    } else {
+      targetId = fallbackId;                         // fresh device / unresolved context
+    }
+    if (!targetId) return;                           // nothing to load yet
+
+    let pollInterval;
+    let catalogPollInterval;
+    let cancelled = false;
+
+    async function loadForHousehold(householdId) {
+      setLoading(true);
+
+      // Reset per-household state so the previous household's rows don't flash
+      setListRows([]);
+      setQuantities({});
+      setChecked({});
+      setAddedByMap({});
+      setContributorsMap({});
+      setActiveCycle(null);
+      activeCycleRef.current = null;
+
+      try {
+        // Fetch the household record
+        const { data: hhData, error: hhErr } = await db
+          .from("households")
+          .select("id, name, budget_goal")
+          .eq("id", householdId)
+          .single();
+        if (hhErr) { setError(`Could not fetch household: ${hhErr.message}`); setLoading(false); return; }
+        if (cancelled) return;
+        const hh = hhData;
+        setHousehold(hh);
+        householdRef.current = hh;
+
+        // Members
+        const { data: members } = await db
+          .from("household_members")
+          .select("id, user_id")
+          .eq("household_id", hh.id)
+          .is("deleted_at", null);
+        if (cancelled) return;
+
+        const { data: profiles } = await db
+          .rpc("get_household_member_profiles", { p_household_id: hh.id });
+        if (cancelled) return;
+
+        const membersWithProfiles = (members || []).map(m => ({
+          ...m,
+          users: profiles?.find(p => p.user_id === m.user_id) || null
+        }));
+        setHouseholdMembers(membersWithProfiles);
+        householdMembersRef.current = membersWithProfiles;
+
+        // Hidden items (per-user; reload on switch to pick up any hides from the other household view)
+        const { data: hiddenRows } = await db
+          .from("user_hidden_items")
+          .select("catalog_item_id, catalog_items(id, name, category, is_global, price_hint, created_by)")
+          .eq("clerk_id", clerkIdRef.current);
+        if (cancelled) return;
+
+        const hiddenIds = new Set((hiddenRows || []).map(h => h.catalog_item_id));
+        hiddenIdsRef.current = hiddenIds;
+        const hiddenCatalogList = (hiddenRows || []).map(h => h.catalog_items).filter(Boolean);
+        hiddenCatalogItemsRef.current = hiddenCatalogList;
+        setHiddenCatalogItems(hiddenCatalogList);
+
+        // Global catalog
+        const { data: catalog, error: catalogErr } = await db
+          .from("catalog_items")
+          .select("id, name, category, is_global, price_hint, is_staple")
+          .eq("is_global", true)
+          .is("deleted_at", null);
+        if (catalogErr) { setError(`Could not load catalog: ${catalogErr.message}`); setLoading(false); return; }
+        if (cancelled) return;
+
+        // Custom catalog (household-scoped)
+        const { data: customItems, error: customErr } = await db
+          .from("catalog_items")
+          .select("id, name, category, is_global, price_hint, is_staple, created_by")
+          .eq("household_id", hh.id)
+          .eq("is_global", false)
+          .is("deleted_at", null);
+        if (customErr) { setError(`Could not load custom items: ${customErr.message}`); setLoading(false); return; }
+        if (cancelled) return;
+
+        const cMap = {};
+        (catalog || []).forEach((item) => {
+          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: null };
+        });
+        (customItems || []).forEach((item) => {
+          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
+        });
+        setCatalogMap(cMap);
+        catalogRef.current = cMap;
+        const hintPrices = {};
+        Object.values(cMap).forEach(item => {
+          if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
+        });
+        setPrices(hintPrices);
+
+        // Category avg prices
+        const { data: avgRows, error: avgErr } = await db
+          .from("category_avg_prices")
+          .select("category, avg_price");
+        if (!avgErr && avgRows) {
+          if (cancelled) return;
+          const avgMap = {};
+          avgRows.forEach(row => { avgMap[row.category] = parseFloat(row.avg_price); });
+          setCategoryAvgPrices(avgMap);
+        }
+
+        if (cancelled) return;
+        await loadListItems(db, hh.id);
+        if (cancelled) return;
+        await loadActiveCycle(db, hh.id);
+        if (cancelled) return;
+
+        pollInterval = setInterval(() => { loadListItems(db, hh.id); }, 2000);
+        catalogPollInterval = setInterval(() => { refreshCatalogRef.current(); }, 20000);
+
+        setLoading(false);
+      } catch (err) {
+        if (!cancelled) {
+          console.error("loadForHousehold error:", err.message);
+          setError(err.message);
+          setLoading(false);
+        }
+      }
+    }
+
+    loadForHousehold(targetId);
+
     return () => {
+      cancelled = true;
       if (pollInterval) clearInterval(pollInterval);
       if (catalogPollInterval) clearInterval(catalogPollInterval);
+      if (realtimeChannelRef.current) {
+        try { supabaseRef.current?.removeChannel(realtimeChannelRef.current); } catch (e) {}
+        realtimeChannelRef.current = null;
+      }
     };
-  }, [userId, clerkId, email, fullName]);
+  }, [activeHouseholdId, userId, clerkId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────────
   // updateQty: handles both global catalog items AND custom items.
