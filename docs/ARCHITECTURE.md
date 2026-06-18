@@ -106,6 +106,8 @@ Historical files (superseded, in `migrations/archive/`):
 | `migrations/002_bootstrap_ordering_stopgap.sql` | Align `bootstrap_new_user` to `joined_at DESC` — TEMPORARY stopgap; real fix is `useProvisions` re-scope. | Dev only |
 | `migrations/003_is_member_of.sql` | `is_member_of(household_id)` SECURITY DEFINER boolean authorization primitive. No new dependencies. | Dev only |
 | `migrations/004_list_items_authorize.sql` | Rewrite `list_items` write/update/delete RLS to `is_member_of`; add `with check` to UPDATE. Depends on 003. | Dev only |
+| `migrations/005_households_authorize_by_membership.sql` | Rewrite `households` SELECT/UPDATE RLS to `is_member_of(id)`; add `with check` on UPDATE; preserve invite-preview subquery on SELECT verbatim. Depends on 003. Fixes 406 on Effect 2 household fetch. | Dev only |
+| `migrations/006_create_household.sql` | `create_household(p_name, p_clerk_id)` SECURITY DEFINER RPC — atomically creates household + adds caller as owner-member, returns `{household_id, household_name}`. | Dev only |
 
 ---
 
@@ -126,7 +128,7 @@ Join table. Realtime enabled.
 - **Role model:** `owner` = creator; can rename household, remove members, delete household. All list actions are shared across all roles. Succession on owner departure: oldest remaining member becomes owner. No co-owners.
 - **Re-scoping risk (multi-household):** `useProvisions` + realtime subscriptions must tear down and re-subscribe to the new `household_id` on switch, or stale realtime updates leak from the old household. Inspect before coding the switcher.
 - **Ordering:** `joined_at` is the timestamp column (not `created_at`). `get_current_household_id()` orders `DESC` (newest); `get_my_households()` orders `ASC` (oldest = context default); `bootstrap_new_user` step 3 now orders `DESC` (migration 002 stopgap). See three-way ordering bug in Known Debt.
-- **Fragility:** `useProvisions.js:244` does `.from("households").eq("id", bootstrapData.household_id).single()` — throws if bootstrap and `get_current_household_id()` disagree on which household is current (RLS blocks the read → 0 rows → `.single()` fails). Currently masked by migration 002 stopgap. Real fix is bootstrap/active-household unification.
+- **Former fragility (resolved Jun 17):** `.from("households").eq("id", ...).single()` in bootstrap's return path threw if the households RLS blocked the read → 0 rows. Fixed by (a) migration 005 converting `households` SELECT to `is_member_of(id)` (authorizes any membership, not just the active-heuristic one), and (b) the `useProvisions` two-effect re-scope (Effect 2 fetches the household by the context's `activeHouseholdId`, bypassing bootstrap's return value for the household query).
 
 #### `catalog_items`
 The item library. Items are either **global/seed** (system-owned) or **household custom** (household-owned). The `is_global` boolean is the ownership discriminator and drives the Hide/Delete verb model:
@@ -222,7 +224,8 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `archive_trip_items(...)` | Archives trip items at session close. |
 | `match_known_store(p_lat, p_lng, p_household_id)` | Bounding-box pre-filter + Haversine nearest-store lookup (no PostGIS). Returns closest store within `radius_m`; app enforces the radius. This IS the "auto-select via GPS" behavior from Scenario D. |
 | `get_my_households()` *(migration 001)* | Returns `(household_id, name, role)` for ALL of the caller's active, non-deleted memberships, `joined_at ASC`. SECURITY DEFINER — bypasses the `household_members` SELECT policy (which is scoped to the active household). Identity resolved via `get_current_user_id()` internally; takes no user-id parameter. Applied to DEV; prod pending. |
-| `is_member_of(p_household_id uuid) returns boolean` *(migration 003)* | Shared authorization primitive. SECURITY DEFINER, STABLE, `search_path` pinned. Resolves `auth.jwt()->>'sub'` → `users.clerk_id`; returns whether the caller is a non-deleted member of the passed household. Null arg → false (fail closed). Used in `list_items` write/update/delete RLS policies. Applied to DEV; prod pending. |
+| `is_member_of(p_household_id uuid) returns boolean` *(migration 003)* | Shared authorization primitive. SECURITY DEFINER, STABLE, `search_path` pinned. Resolves `auth.jwt()->>'sub'` → `users.clerk_id`; returns whether the caller is a non-deleted member of the passed household. Null arg → false (fail closed). Used in `list_items` write/update/delete RLS policies and `households` SELECT/UPDATE RLS. Applied to DEV; prod pending. |
+| `create_household(p_name, p_clerk_id)` *(migration 006)* | Atomically creates a new household and adds the caller as owner-member. Returns `{household_id, household_name}`. SECURITY DEFINER — required because a client two-step INSERT (household, then membership) can half-complete; `households.created_by` is NOT NULL (mirrors bootstrap_new_user). Applied to DEV; prod pending. |
 | `rls_auto_enable` *(event trigger)* | Auto-enables RLS on any newly created public table. **Every new table comes up locked by default.** Include policies in the same migration or the table will be inaccessible. |
 
 ---
@@ -240,8 +243,9 @@ Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, t
   2. `get_current_household_id()` — `joined_at DESC` (newest). Drives the `households_select` RLS gate.
   3. `get_my_households()` / `ActiveHouseholdContext` default — `joined_at ASC` (oldest first). Context persists last-selected to localStorage.
   Pre-002 failure mode: bootstrap picked a household (arbitrary heap order) that the RLS gate (`DESC`) would not permit reading → `useProvisions.js:244` `.single()` got 0 rows → "Cannot coerce to a single JSON object" (a 0-row PostgREST 406, not a too-many-rows error). Migration 002 aligns bootstrap to the RLS gate (`DESC`) to stop the crash. It does NOT reconcile the context default (`ASC`) — bootstrap picks newest (Lake House) while the context's fallback picks oldest (My Household). Harmless while they read different sources; the REAL FIX is a single source of truth = the context's `activeHouseholdId`, passed to bootstrap and used to rewrite `get_current_household_id()`.
-- **Migrations 001 + 002 + 003 + 004 applied to DEV only** — prod application pending before multi-household ships. 003 + 004 must be applied as one bundle (004 depends on 003).
-- **`useProvisions` ↔ `ActiveHouseholdContext` disconnect (next session's opening problem):** `useProvisions` derives household from `bootstrap_new_user` and keys all reads/writes/realtime off `householdRef.current`; it does NOT read the context's `activeHouseholdId`. Until re-scoped, the management modal (reads context) and the list (reads `householdRef`) can disagree — the switcher modal showed "Lake House" while the context held "My Household" on Jun 17. Re-scope must: (1) make `activeHouseholdId` the single household source in `useProvisions`; (2) re-run catalog/list/cycle loads on switch; (3) tear down + re-subscribe the `list_items:{household_id}` realtime channel on switch; (4) separate "bootstrap the user" from "which household am I viewing," since `bootstrap_new_user` also handles user-create/invite/first-household-create.
+- **Migrations 001–006 applied to DEV only** — prod application pending. 003–006 must be applied as one bundle (004 depends on 003; 005 depends on 003; 006 depends on 003/005).
+- **`list_item_contributors` contributor 403:** upsert into `list_item_contributors` is rejected by RLS even on a fresh load (no household switching involved). The policies use `auth.jwt()->>'sub'` pattern correctly in theory but the insert 403s — likely `auth.uid()` vs `auth.jwt()` mismatch or a membership-join-lag gap. Blocks contributor badges under multi-household. Diagnose next session.
+- **Lemons 409 — revive-after-soft-delete constraint collision:** `list_items_household_catalog_unique (household_id, catalog_item_id)` is NOT a partial index — soft-deleted rows (`deleted_at IS NOT NULL`) still occupy the key. `updateQty`'s revive-UPDATE misses (soft-deleted row not visible to the UPDATE), and the fallback INSERT collides. Fix candidates: `CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL`; or a `revive_or_insert` SECURITY DEFINER RPC that does the conditional in-DB.
 
 ---
 
@@ -345,19 +349,29 @@ Migration 004 converts `list_items` write gates (hot path). Six remaining tables
 
 App-level context that is the single source of truth for which household is active.
 - **Provider props:** `getToken`, `clerkId` (same values `useProvisions` receives from Clerk's `useAuth`/`useUser`).
-- **State exposed:** `myHouseholds` `[{id, name, role}]`, `activeHouseholdId`, `loadingHouseholds`, `switchHousehold(id)`, `hasMultiple`.
-- **Data source:** `db.rpc("get_my_households")` — maps `row.household_id` → `id`. `getTokenRef` stabilization pattern (per `useProvisions`). `myHouseholdsRef` kept in sync so `switchHousehold` validates without stale closure.
+- **State exposed:** `myHouseholds [{id, name, role}]`, `activeHouseholdId`, `loadingHouseholds`, `switchHousehold(id)`, `refreshHouseholds()`, `hasMultiple`.
+- **Data source:** `db.rpc("get_my_households")` on mount — maps `row.household_id` → `id`. `getTokenRef` stabilization pattern. `myHouseholdsRef` kept in sync so `switchHousehold` validates without stale closure.
 - **Resolution:** reads `localStorage("activeHouseholdId")`; if valid in `myHouseholds` use it, else fall back to first returned (`get_my_households` orders `joined_at ASC` = oldest = default).
-- **Mounting:** wraps `ShoppingListApp`'s return JSX in `App.js`. `HouseholdDebugLog` null-component hosts the hook call (a component cannot consume a provider it renders). ⚠️ Temp verification `console.log` still present — remove next session.
-- **Critical risk (unresolved):** `useProvisions` + realtime subscriptions must tear down and re-subscribe when the active household changes. Not yet implemented — the switcher UI is not yet built.
+- **`refreshHouseholds()`:** re-fetches `get_my_households()` and updates `myHouseholds` + `myHouseholdsRef` WITHOUT touching `activeHouseholdId`. MUST be called after any mutation that changes the household roster (create, rename, future delete/join) — the context does not auto-refresh.
+- **Mounting:** `ShoppingListApp` (thin exported wrapper) wraps `<ActiveHouseholdProvider>` around inner `ProvisionsApp`. A consumer cannot live above the provider it mounts — this split is the structural prerequisite for `useProvisions` calling `useActiveHousehold()`.
+- **Temp note:** `[ActiveHousehold TEST]` console.log still in `App.js` — strip next session.
 
-### App-Level Toast *(designed Jun 16, not yet built)*
+### Two-effect hook pattern *(established Jun 17 — `src/hooks/useProvisions.js`)*
 
-Single-slot app-level toast — the first in-app notification primitive. Design:
-- State: `{message} | null` held in `App.js`.
-- `showToast(message)` sets it; `setTimeout` (~2.5s) clears it; a new call replaces the current toast (no queue).
-- Fixed-position pill, rendered in `App.js` so it outlives the modal that triggered it.
-- First use: household-create confirmation. Intended to be reused for: item added, list rolled, etc.
+`useProvisions` uses a deliberate two-effect split to separate identity setup from household-scoped data loading:
+
+- **Effect 1** (deps: `userId, clerkId, email, fullName`): creates the Supabase client once (guarded by `if (!supabaseRef.current)` against GoTrueClient stacking), runs `bootstrap_new_user`, stores the fallback household id and internal user id into refs, then sets `bootstrapped` STATE to `true`.
+- **Effect 2** (deps: `activeHouseholdId, userId, clerkId, bootstrapped`): resolves the target household (invite-join → `activeHouseholdId` if member → bootstrap fallback), runs all household-scoped loads + polls, and on teardown clears intervals + resets per-household state (`listRows`, `quantities`, `checked`, etc.).
+
+**Critical invariant:** the cross-effect handoff gate MUST be a STATE value (`bootstrapped`), not a ref. A ref change cannot re-trigger Effect 2. If Effect 2 runs before bootstrap finishes (which is intermittent), it returns early — and if only a ref is set, nothing re-fires. Using state ensures React re-runs Effect 2 the moment bootstrap completes. The `cancelled` flag in Effect 2 cleanup prevents stale async writes after a household switch mid-flight.
+
+### App-Level Toast *(built Jun 17 — `src/App.js`)*
+
+Single-slot app-level toast — the in-app notification primitive.
+- State: `toastMessage | null` + `toastTimerRef` held in `ProvisionsApp`.
+- `showToast(message)` sets message; cancels any pending timer; auto-clears after 2500ms.
+- Fixed-position dark pill, rendered in `App.js` so it outlives the modal that triggered it (`zIndex: 2000`).
+- Used for: household-create confirmation, rename confirmation. Reuse for: item added, list rolled, etc.
 
 ### Contributor Merge Logic (app-side)
 When a user adds an item already on the list:

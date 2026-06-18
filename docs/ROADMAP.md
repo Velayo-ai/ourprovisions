@@ -15,8 +15,8 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| — | **`useProvisions` re-scope to `ActiveHouseholdContext` (switcher prerequisite)** | `useProvisions` currently derives household from `bootstrap_new_user` and keys all reads/writes/realtime off `householdRef.current` — it does NOT read the context. Re-scope: make `activeHouseholdId` the single household source; re-run catalog/list/cycle loads on switch; tear down + re-subscribe the `list_items:{household_id}` realtime channel on switch; separate "bootstrap the user" from "which household am I viewing." Strict prerequisite — a switcher built without this would update context and change nothing visible. |
-| — | **Merge dev → main + prod smoke test** | SHOP swipe redesign + toggleChecked fix fully tested on dev. Merge, verify Vercel deploy green, smoke-test prod (load + tap — no destructive actions on live household). |
+| — | **Multi-household hardening batch** | Fix contributor 403 (`list_item_contributors` upsert rejected by RLS — `auth.uid()`/`auth.jwt()` mismatch likely). Fix Lemons 409 (revive-after-soft-delete collides with non-partial unique index — add `WHERE deleted_at IS NULL` or upsert RPC). Convert remaining `get_current_household_id()` write gates + `auth.uid()` mismatches to `is_member_of` / `auth.jwt()->>'sub'`. Design + build delete-household (owner-gated, `delete_household` RPC, can't delete last/active). Tighten rename to owner-only. Remove temp `[ActiveHousehold TEST]` log. Clean up test households. Ship 003–006 (+ fixes) to prod. |
+| — | **Merge dev → main + prod smoke test** | Requires hardening batch applied to prod first. Then: merge, verify Vercel deploy green, smoke-test prod (load + tap — no destructive actions on live household). |
 | 1 | **Fix `auth.uid()` RLS bug (migration 001)** | RLS policies on `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members` compare a Clerk string ID against a uuid column — always false. Inert today but must be fixed before any live feature relies on row-level isolation for those tables. Rewrite to `(auth.jwt()->>'sub')::uuid`. Deliver as a named migration, not an edit to `000`. |
 | 2 | **Consolidate duplicate helper functions (migration 002)** | `get_household_id_for_current_user` / `get_current_household_id` and `get_user_id_from_clerk` / `get_current_user_id` are near-identical pairs. Drop the redundant copies; update any callers. Deliver as a named migration. |
 
@@ -26,8 +26,7 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| — | **Apply migrations 003 + 004 to prod (bundled)** | `is_member_of` helper + `list_items` write/update/delete policies as one atomic bundle. Must not apply separately — 004 depends on 003. Dev-proven. |
-| — | **Household switcher UI** *(build on top of `useProvisions` re-scope — do not start before re-scope is complete and tested)* | Title-bar household-name sub-line (reveals at 2+ households). Switcher bottom sheet (lists households + "Create new household"). Create-household flow (name → `create_household` RPC → auto-switch → land on empty list). Per approved mockups from 2026-06-16. |
+| — | **Apply migrations 003–006 to prod (bundled)** | `is_member_of` (003) + `list_items` write policies (004) + `households` RLS (005) + `create_household` RPC (006) as one atomic bundle. Must not apply partially — each depends on prior. Ride with the hardening batch. |
 | — | **Receipt scan entry point in wrap-up modal** | After rolling items forward, prompt appears: "Scan your receipt to capture prices." Natural on-ramp to Phase 3. |
 | — | **Household member administration UI** | View members, remove members, manage/revoke invites. Absence is why orphaned memberships accumulated and needed raw SQL to fix (Jun 12). |
 | — | **Contributor display refinement** | Keep the full name of the original adder; when another member adds quantity, append their badge rather than replacing attribution with an icon. |
@@ -190,6 +189,12 @@ Closes the loop. Turns data into action.
 | Jun 17, 2026 | **UPDATE policies get a `with check`, not just `using`.** Membership must gate both which rows you touch AND which household you can move a row into. Hardening the originals lacked. |
 | Jun 17, 2026 | **Layered default-household rule.** device-last (localStorage) → home household (deterministic, replaces 002 stopgap) → future confident-GPS one-tap confirm. Human always commits the active context. |
 | Jun 17, 2026 | **Switcher is gated on a `useProvisions` re-scope, not just UI.** `useProvisions` must consume `activeHouseholdId` from `ActiveHouseholdContext` as its single household source before any switcher sheet is meaningful; the sheet alone would update context and change nothing visible. |
+| Jun 17, 2026 | **Wordmark encodes shared-vs-solo per active household.** "OurProvisions" when the active household has 2+ members; "Provisions" when solo. Falls out of `householdMembers.length`, which Effect 2 reloads per active household — no special logic needed. |
+| Jun 17, 2026 | **One unified "manage household" sheet.** Not separate switcher + members sheets: switch households at top, manage members/rename/invite of the active household below. Tapping at top re-scopes the app and the member section updates live. Single coherent "manage household" mental model. |
+| Jun 17, 2026 | **Title-bar tappability decoupled from member count.** Sheet opens whenever signed in (even a solo single-household user can create a second household). Only the wordmark TEXT stays member-count based. |
+| Jun 17, 2026 | **Create-new-household closes the sheet and lands on the new empty list with a toast (option B, fewer clicks)** rather than staying open or requiring a separate navigation step. |
+| Jun 17, 2026 | **`households` authorization converted to `is_member_of` (migration 005).** A user may read/update any household they belong to, not just the active-heuristic one. `with check` added to UPDATE (the original lacked it). Invite-preview subquery on SELECT preserved verbatim. Unblocked the 406 on Effect 2's household fetch. |
+| Jun 17, 2026 | **Owner-only enforcement on `households` UPDATE/DELETE deliberately deferred.** Migration 005 gates on membership as the correct authorization FLOOR; owner-vs-member is enforced in UI today. DB-level ownership gate ships alongside `delete_household` next session. |
 
 ---
 
@@ -206,6 +211,7 @@ Closes the loop. Turns data into action.
 | **Retire v1 Scribe; rebuild project template as dual-mode** | Jun 16, 2026 | OurProvisions project instructions + `VELAYO_PROJECT_TEMPLATE.md` both on v2 handoff flow. Template is dual-mode (DESIGN vs HANDOFF). Scope tagging canonical in CLAUDE.md. |
 | **Multi-household data spine** | Jun 17, 2026 | `ActiveHouseholdContext` built + wired in `App.js`. `get_my_households()` SECURITY DEFINER RPC (migration 001). Proven end-to-end on dev with two-household test user through real Clerk JWT. Bootstrap stopgap (migration 002) unblocks the crash. |
 | **Authorization spine — `is_member_of` (003) + `list_items` write policies (004)** | Jun 17, 2026 | SECURITY DEFINER membership primitive (boolean, fails closed, `search_path` pinned); `list_items` write/update/delete RLS policies rewritten to `is_member_of`; `with check` added to UPDATE. Proven on dev (smoke test: true/true/false/false). Committed to repo. DEV ONLY — prod apply is immediate next step. |
+| **Multi-household switcher** | Jun 17, 2026 | `useProvisions` re-scoped to `ActiveHouseholdContext` (two-effect split, `bootstrapped` state gate, GoTrueClient guard). Unified manage-household sheet: switch/create/rename/invite. `create_household` RPC + `households` RLS converted to `is_member_of` (migrations 005–006). Intermittent hang fixed; stale switcher fixed via `refreshHouseholds()`. DEV only; prod migration bundle pending. |
 | **Multi-machine dev environment + DEV_SETUP.md** | Jun 13, 2026 | Reproducible-from-git dev recipe: `.nvmrc` (Node 24), `.npmrc` (`legacy-peer-deps=true`), `docs/DEV_SETUP.md`. Committed `1409a5c`. |
 | **Lake Surface stood up** | Jun 13, 2026 | DEV_SETUP recipe proven end-to-end: git clone → drop `.env.local` → npm install → npm start → Clerk auth. Node 24.14.0, peer-dep workaround validated. |
 

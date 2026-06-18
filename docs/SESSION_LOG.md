@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### 2026-06-17 — Cross — Household switcher built end-to-end (re-scope → unified sheet → create/rename), authorized by membership
+**Goal:** Build the multi-household switcher — re-scope `useProvisions` so the list follows the active household, then layer the unified manage-household sheet on top — and authorize it server-side.
+**Completed:**
+- Lifted `ActiveHouseholdProvider` above the `useProvisions` call (split `ShoppingListApp` into a thin provider wrapper + inner `ProvisionsApp`) so the hook can consume `useActiveHousehold()` — structural prerequisite for the switcher (commit `edcd683`).
+- Re-scoped `useProvisions` via a two-effect split: Effect 1 (session setup + client creation, keyed on identity) and Effect 2 (household-scoped loads + polls, keyed on `activeHouseholdId + bootstrapped`). List now follows `ActiveHouseholdContext`; bootstrap's `household_id` is a fallback only. GoTrueClient-stacking guard; teardown clears polls + resets per-household state (commit `acecef5`). PROVEN: switching `activeHouseholdId` loads the chosen household's list.
+- Built the unified "manage household" sheet: household switcher (active marked, tap to switch in-place), create-new-household flow (name → `create_household` RPC → `switchHousehold` → land on empty list → toast), active-household member list with rename + invite. Toast primitive added (`toastMessage` state + 2500ms auto-dismiss). Title bar tappability + sub-line decoupled from member count (always available when signed in).
+- Fixed intermittent load hang: Effect 2 was gated on `bootstrappedRef` (a ref) that can't re-trigger the effect once bootstrap finishes — on some mounts the household load never fired, leaving the app stuck on "LOADING YOUR PROVISIONS" with zero Supabase requests. Re-gated on a `bootstrapped` STATE flag added to Effect 2's deps; closed the race (commit `e5b816e`).
+- Fixed stale switcher list: `createHousehold`/`renameHousehold` changed the DB but didn't refresh `myHouseholds` — new/renamed households only appeared after reload. Added `refreshHouseholds()` to `ActiveHouseholdContext`; called after create + rename (commit `e5b816e`).
+- Applied migration 005 (households SELECT/UPDATE → `is_member_of`; `with check` on UPDATE the original lacked; invite-preview branch preserved verbatim; fixes 406 "cannot coerce to single JSON object" on Effect 2 household fetch) and migration 006 (`create_household` SECURITY DEFINER RPC — atomic household + owner-membership insert, returns `{household_id, household_name}`) to dev; both smoke-tested (commits `0804d4b`, `18551c0`).
+**Unfinished:**
+- Contributor 403: `list_item_contributors` upsert rejected by RLS on a fresh load — `auth.jwt()->>'sub'` membership gate may be `auth.uid()` mismatch or membership-join gap on this table. Non-blocking; diagnose next session.
+- Lemons 409: revive-after-soft-delete collides with `list_items` unique constraint `(household_id, catalog_item_id)` — not a partial index, so soft-deleted rows still hold the key. Fix candidates: partial index `WHERE deleted_at IS NULL` or a revive-via-upsert RPC.
+- No-leak WRITE check not fully demonstrated end-to-end (blocked by above). Read isolation IS proven; write isolation is RLS-guaranteed (003/004) but not demo'd via add-to-one-verify-missing-from-other.
+- Temp `[ActiveHousehold TEST]` console log still in `App.js` — strip next session.
+- Rename is currently allowed for any member (migration 005 gates `households` UPDATE on membership, not ownership) — tighten to owner-only next session.
+- Migrations 003–006 are DEV ONLY — must ship to prod together as one authorization + create bundle.
+- Test households clutter dev (BVI, Bristol, "Lake House Test", Smoke/Test* leftovers) — clean up next session.
+**Next session:**
+SESSION START
+Goal: Multi-household hardening — fix the contributor 403 + Lemons 409, finish the RLS sweep, then design + build delete-household; ship the dev migration bundle to prod.
+State: Switcher works end-to-end on dev (switch/create/rename/invite, no hang, list follows active household). Authorization spine 003+004+005+006 live on dev only. Known bugs logged above. Owner-vs-member DB enforcement does not yet exist.
+Done when: contributor 403 fixed (badges write under multi-household); Lemons 409 fixed (revive-after-soft-delete works); remaining `get_current_household_id()` write gates + `auth.uid()` mismatches converted to `is_member_of` / `auth.jwt()->>'sub'`; delete-household designed (soft vs hard + cascade scope) and built (owner-gated RLS DELETE policy + `delete_household` RPC + guards: can't delete last/active household + UI); rename tightened to owner-only; temp `[ActiveHouseholdTEST]` log removed; test households cleaned up; 003–006 (plus hardening fixes) applied to prod.
+**Files updated:** `src/App.js` (provider split, `ProvisionsApp` inner, unified sheet, toast, `refreshHouseholds` wiring), `src/hooks/useProvisions.js` (two-effect split, `bootstrapped` state gate, `createHousehold`/`renameHousehold`), `src/contexts/ActiveHouseholdContext.js` (`refreshHouseholds` added + exposed). Commits: `edcd683`, `acecef5`, `0804d4b`, `18551c0`, `e5b816e`.
+**DB changes (DEV ONLY — prod pending):** Migration 005 (households SELECT/UPDATE → `is_member_of`; `with check` on UPDATE; invite-preview preserved). Migration 006 (`create_household` SECURITY DEFINER RPC). Both smoke-tested on dev.
+
 ### 2026-06-17 — Cross — Active-context standard set, authorization spine built & proven (003 + 004)
 **Goal:** Decide where "which household is active" resolves (and make it the Harbour standard), then build and prove the server-side authorization spine — before any switcher UI.
 **Completed:**
