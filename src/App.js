@@ -210,7 +210,7 @@ function HouseholdDebugLog() {
   return null;
 }
 
-export default function ShoppingListApp() {
+function ProvisionsApp() {
   const { user, isSignedIn } = useUser();
   const { getToken } = useAuth();
 
@@ -697,8 +697,6 @@ export default function ShoppingListApp() {
   
 
   return (
-    <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id}>
-      <HouseholdDebugLog />
       <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {showSplash && <SplashScreen onDone={handleSplashDone} />}
 
@@ -2375,6 +2373,16 @@ export default function ShoppingListApp() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ShoppingListApp() {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+  return (
+    <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id}>
+      <HouseholdDebugLog />
+      <ProvisionsApp />
     </ActiveHouseholdProvider>
   );
 }
