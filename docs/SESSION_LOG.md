@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### 2026-06-17 — Cross — Active-context standard set, authorization spine built & proven (003 + 004)
+**Goal:** Decide where "which household is active" resolves (and make it the Harbour standard), then build and prove the server-side authorization spine — before any switcher UI.
+**Completed:**
+- Set the **active-context standard** (Harbour-wide): active context is client-authoritative (held in `ActiveHouseholdContext` + localStorage, passed into writes); the server authorizes membership, never picks a household. Chosen over a server-global `users.active_household_id` because that forces cross-device lockstep (explicit non-goal) and prevents desired per-app divergence.
+- Settled the **layered default rule**: device-last (localStorage) → fresh device falls back to home household (deterministic, replaces 002 stopgap) → future confident-GPS one-tap confirm ("You're in Day, NY — shopping for NewLeaf?"), never a silent switch. Location gets a voice, never a vote.
+- Built & PROVEN migration **003 `is_member_of(p_household_id)`** — shared SECURITY DEFINER authorization primitive (boolean; resolves Clerk `sub`; `search_path` pinned; fails closed on null). Applied to dev; verified with `pg_get_functiondef` + JWT smoke test returning true/true/false/false for two-household test user.
+- Built & PROVEN migration **004** — converted `list_items` write/update/delete policies from `= get_current_household_id()` to `is_member_of(household_id)`; added `with check` on UPDATE the original lacked. Applied to dev; item write committed and round-tripped (Apples, SHOP badge ticked) under new policy.
+- Committed both migrations to repo (003 = `412f951`; 004 = `a1a9730`). Local only, not pushed, per convention.
+**Unfinished:**
+- **KEY DISCOVERY — the switcher's real work:** `useProvisions` and `ActiveHouseholdContext` are disconnected. `useProvisions` resolves its household via `bootstrap_new_user` and keys everything off `householdRef.current`; it does NOT read `activeHouseholdId` from the context. A switcher built today would update context and change nothing visible. The real work is re-scoping `useProvisions` to treat `activeHouseholdId` as its single household source, re-run load sequences, and tear down/re-subscribe realtime on switch.
+- Honest recalibration: the Apples write proved `004` lets a write SUCCEED under `is_member_of`, but because the write path uses `householdRef` (not the context), we did NOT cleanly prove "wrote to the chosen household." SQL-layer proof of 003/004 stands; app-layer "write to a chosen household" awaits the re-scope.
+- No-leak check (item added to one household staying out of the other) not yet confirmed. Verify once switching is easy.
+- 003 + 004 are dev-only — must ride to prod together (helper + policies as one bundle).
+- Temp `[ActiveHousehold TEST]` log still in `App.js:207` — strip before switcher ships.
+- No switcher UI built (title-bar sub-line, sheet, create flow still unbuilt; mockups approved earlier).
+- Six other `= get_current_household_id()` write gates remain (waste_events, catalog_items insert, households update/select, household_invites insert, household_members select) — same latent bug, dormant, flagged as future migration 005.
+**Next session:**
+SESSION START
+Goal: Build the household switcher — beginning with the `useProvisions` re-scope so the LIST follows the active household, then the title-bar sub-line + switcher sheet on top.
+State: Authorization spine (003 + 004) built and proven on dev. `ActiveHouseholdContext` resolves + persists active household and is wired into `App.js` (display-only today). Blocker: `useProvisions`/context disconnect documented above — re-scope is step one, visible switcher UI is step two. Strict don't-stack: do the re-scope as its own tested change before layering the sheet.
+Done when: `useProvisions` reads `activeHouseholdId` from `ActiveHouseholdContext` as its single household source; on switch it re-runs catalog/list/cycle loads and tears down + re-subscribes realtime to the new household; household modal and list agree on the active household; THEN title-bar sub-line (reveals at 2+) + switcher sheet + create flow per approved mockups. Temp debug log removed. 003 + 004 applied to prod.
+**Files updated:** `migrations/003_is_member_of.sql` (new, committed `412f951`), `migrations/004_list_items_authorize.sql` (new, committed `a1a9730`). No app source changed this session.
+**DB changes (DEV ONLY — prod pending):** Created `is_member_of(uuid)`; replaced `list_items_write` / `list_items_update` / `list_items_delete` policies to authorize via `is_member_of`.
+
 ### 2026-06-17 — OurProvisions — Build & prove the multi-household data spine
 **Goal:** Stand up the multi-household spine (households query + active-household state) and prove it works end-to-end through real Clerk auth before building any switcher UI.
 **Completed:**
