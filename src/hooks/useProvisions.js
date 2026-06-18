@@ -37,6 +37,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   myHouseholdsRef.current = myHouseholds || [];
   const bootstrapHouseholdIdRef = useRef(null);
   const bootstrappedRef = useRef(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
   const justJoinedViaInviteRef = useRef(false);
   const realtimeChannelRef = useRef(null);
 
@@ -256,6 +257,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
         // Signal Effect 2 that session setup is complete
         bootstrappedRef.current = true;
+        setBootstrapped(true);
 
       } catch (err) {
         console.error("Bootstrap error:", err.message);
@@ -272,7 +274,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // the Supabase client — reads the one Effect 1 placed on supabaseRef.
   useEffect(() => {
     const db = supabaseRef.current;
-    if (!db || !bootstrappedRef.current) return;    // wait for Effect 1
+    if (!db || !bootstrapped) return;               // wait for Effect 1
     if (!userId || !clerkId) return;                 // not signed in
 
     // ── Resolve which household to load ──
@@ -427,7 +429,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         realtimeChannelRef.current = null;
       }
     };
-  }, [activeHouseholdId, userId, clerkId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeHouseholdId, userId, clerkId, bootstrapped]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────────
   // updateQty: handles both global catalog items AND custom items.
@@ -1231,11 +1233,48 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, []);
 
+  const createHousehold = useCallback(async (name) => {
+    const db = supabaseRef.current;
+    if (!db || !clerkIdRef.current) return null;
+    try {
+      const { data, error: createErr } = await db
+        .rpc("create_household", { p_name: name, p_clerk_id: clerkIdRef.current });
+      if (createErr) throw createErr;
+      return data?.household_id || null;
+    } catch (err) {
+      console.error("createHousehold error:", err.message);
+      setError(`Could not create household: ${err.message}`);
+      return null;
+    }
+  }, []);
+
+  const renameHousehold = useCallback(async (newName) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return false;
+    const trimmed = (newName || "").trim();
+    if (!trimmed) return false;
+    try {
+      const { error: renameErr } = await db
+        .from("households").update({ name: trimmed }).eq("id", hh.id);
+      if (renameErr) throw renameErr;
+      const updated = { ...hh, name: trimmed };
+      setHousehold(updated);
+      householdRef.current = updated;
+      return true;
+    } catch (err) {
+      console.error("renameHousehold error:", err.message);
+      setError(`Could not rename household: ${err.message}`);
+      return false;
+    }
+  }, []);
+
   return {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
+    createHousehold, renameHousehold,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,

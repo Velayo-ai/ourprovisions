@@ -70,12 +70,34 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
     setActiveHouseholdId(id);
   }, []);
 
+  const refreshHouseholds = useCallback(async () => {
+    if (!clerkId || !getTokenRef.current) return;
+    try {
+      const db = createSupabaseClient(getTokenRef.current);
+      const { data, error } = await db.rpc("get_my_households");
+      if (error) {
+        console.error("[ActiveHousehold] refreshHouseholds failed:", error);
+        return;
+      }
+      const households = (data || []).map((row) => ({
+        id: row.household_id,
+        name: row.name,
+        role: row.role,
+      }));
+      myHouseholdsRef.current = households;
+      setMyHouseholds(households);
+    } catch (err) {
+      console.error("[ActiveHousehold] refreshHouseholds unexpected error:", err);
+    }
+  }, [clerkId]);
+
   return (
     <ActiveHouseholdContext.Provider
       value={{
         myHouseholds,
         activeHouseholdId,
         switchHousehold,
+        refreshHouseholds,
         loadingHouseholds,
         hasMultiple: myHouseholds.length > 1,
       }}

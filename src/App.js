@@ -213,7 +213,7 @@ function HouseholdDebugLog() {
 function ProvisionsApp() {
   const { user, isSignedIn } = useUser();
   const { getToken } = useAuth();
-  const { activeHouseholdId, myHouseholds } = useActiveHousehold();
+  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds } = useActiveHousehold();
 
   const {
     quantities,
@@ -245,6 +245,8 @@ function ProvisionsApp() {
     updateFullName,
     activeCycle,
     wrapUpTrip,
+    createHousehold,
+    renameHousehold,
     supabase,
     _supabase,
     _household,
@@ -303,6 +305,12 @@ function ProvisionsApp() {
   const [joinBanner, setJoinBanner] = useState(null); // household name after accepting
   const [showVelayoMenu, setShowVelayoMenu] = useState(false);
   const [showHouseholdModal, setShowHouseholdModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newHouseholdName, setNewHouseholdName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameHouseholdValue, setRenameHouseholdValue] = useState("");
+  const [toastMessage, setToastMessage] = useState(null);
+  const toastTimerRef = useRef(null);
   const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [renamingCategory, setRenamingCategory] = useState(null);
@@ -336,6 +344,12 @@ function ProvisionsApp() {
   useEffect(() => {
     localStorage.setItem('op_showPrices', showPrices);
   }, [showPrices]);
+
+  const showToast = useCallback((message) => {
+    setToastMessage(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 2500);
+  }, []);
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
 
@@ -916,7 +930,7 @@ function ProvisionsApp() {
               </button>
             )}
           </h1>
-          {isSignedIn && householdMembers.length <= 1 && (
+          {isSignedIn && (
             <div style={{
               fontFamily: "'Lato', sans-serif",
               fontSize: "0.65rem",
@@ -987,10 +1001,14 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {/* Household members modal */}
+      {/* Manage household sheet — switch, create, rename, members, invite */}
       {showHouseholdModal && (
         <div
-          onClick={() => setShowHouseholdModal(false)}
+          onClick={() => {
+            setShowHouseholdModal(false);
+            setCreating(false); setNewHouseholdName("");
+            setRenaming(false); setRenameHouseholdValue("");
+          }}
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -1001,70 +1019,224 @@ function ProvisionsApp() {
             onClick={(e) => e.stopPropagation()}
             style={{
               background: "#FAF4EC", borderRadius: "16px", padding: "28px 24px 24px",
-              width: "min(340px, 90vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
-              display: "flex", flexDirection: "column", gap: "20px",
+              width: "min(360px, 92vw)", maxHeight: "85vh", overflowY: "auto",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
+              display: "flex", flexDirection: "column", gap: "24px",
             }}
           >
-            {/* Heading */}
-            <div>
-              {household?.name && (
-                <div style={{
-                  fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
-                  textTransform: "uppercase", color: "#8a7a60", marginBottom: "6px",
-                }}>{household.name}</div>
-              )}
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.3rem", fontWeight: 700, color: "#2C1A0E" }}>
-                Your Household
-              </div>
-            </div>
 
-            {/* Member list */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {householdMembers.map((m) => {
-                const clerkId = m.users?.clerk_id;
-                const isMe = clerkId === user?.id;
-                const displayName = isMe
-                  ? (user.fullName || user.firstName || user.primaryEmailAddress?.emailAddress || "You")
-                  : (m.users?.email ? m.users.email.split("@")[0] : "Member");
+            {/* Section 1: Household switcher */}
+            <div>
+              <div style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
+                textTransform: "uppercase", color: "#8a7a60", marginBottom: "10px",
+              }}>Your Households</div>
+              {(myHouseholds || []).map((hh) => {
+                const isActive = hh.id === activeHouseholdId;
                 return (
-                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    {isMe && user.imageUrl ? (
-                      <img src={user.imageUrl} alt={displayName} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
-                    ) : (
-                      <div style={{
-                        width: "36px", height: "36px", borderRadius: "50%",
-                        background: "#E8D5B7", display: "flex", alignItems: "center", justifyContent: "center",
-                        fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700, color: "#8a7a60",
-                      }}>
-                        {displayName[0].toUpperCase()}
-                      </div>
-                    )}
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E", flex: 1 }}>
-                      {displayName}
-                    </span>
-                    {isMe && (
+                  <button
+                    key={hh.id}
+                    onClick={() => { if (!isActive) { switchHousehold(hh.id); setShowHouseholdModal(false); setRenaming(false); } }}
+                    style={{
+                      width: "100%", background: isActive ? "#2C1A0E" : "#E8D5B7",
+                      border: isActive ? "2px solid #c8973a" : "2px solid transparent",
+                      borderRadius: "8px", padding: "10px 14px",
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      cursor: isActive ? "default" : "pointer", marginBottom: "6px",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <span style={{
+                      fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                      color: isActive ? "#FAF4EC" : "#2C1A0E", fontWeight: isActive ? 700 : 400,
+                    }}>{hh.name}</span>
+                    {isActive && (
                       <span style={{
                         fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1px",
-                        textTransform: "uppercase", color: "#8a7a60",
-                        background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
-                      }}>you</span>
+                        textTransform: "uppercase", color: "#c8973a",
+                      }}>Active</span>
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>
-            <button
-              onClick={() => { setShowHouseholdModal(false); setShowInvitePanel(true); }}
-              style={{
-                width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
-                letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
-                background: "#A0724A", color: "#FAF4EC", border: "none",
-                borderRadius: "8px", cursor: "pointer", marginTop: "16px",
-              }}
-            >
-              + Invite Someone
-            </button>
+
+            {/* Section 2: Create new household */}
+            <div>
+              {!creating ? (
+                <button
+                  onClick={() => setCreating(true)}
+                  style={{
+                    width: "100%", background: "none", border: "1.5px dashed #A0724A",
+                    borderRadius: "8px", padding: "10px 14px",
+                    fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#A0724A",
+                    cursor: "pointer", textAlign: "left", boxSizing: "border-box",
+                  }}
+                >+ Create new household</button>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <input
+                    autoFocus
+                    value={newHouseholdName}
+                    onChange={(e) => setNewHouseholdName(e.target.value)}
+                    placeholder="Household name"
+                    style={{
+                      width: "100%", padding: "10px 12px", borderRadius: "8px",
+                      border: "1.5px solid #A0724A", fontFamily: "'Lato', sans-serif",
+                      fontSize: "0.9rem", boxSizing: "border-box", background: "#FAF4EC",
+                    }}
+                  />
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      onClick={() => { setCreating(false); setNewHouseholdName(""); }}
+                      style={{
+                        flex: 1, padding: "10px", background: "#E8D5B7", border: "none",
+                        borderRadius: "8px", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.8rem", cursor: "pointer", color: "#2C1A0E",
+                      }}
+                    >Cancel</button>
+                    <button
+                      onClick={async () => {
+                        const n = newHouseholdName.trim();
+                        if (!n) return;
+                        const newId = await createHousehold(n);
+                        if (newId) {
+                          await refreshHouseholds();
+                          switchHousehold(newId);
+                          setShowHouseholdModal(false);
+                          setCreating(false); setNewHouseholdName("");
+                          showToast(`"${n}" created`);
+                        }
+                      }}
+                      style={{
+                        flex: 2, padding: "10px", background: "#A0724A", border: "none",
+                        borderRadius: "8px", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", color: "#FAF4EC",
+                      }}
+                    >Create</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Section 3: Active household members + rename + invite */}
+            <div>
+              {/* Header row: household name + rename toggle */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                {!renaming ? (
+                  <>
+                    <div style={{
+                      fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
+                      textTransform: "uppercase", color: "#8a7a60",
+                    }}>{household?.name || "This Household"}</div>
+                    <button
+                      onClick={() => { setRenaming(true); setRenameHouseholdValue(household?.name || ""); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", color: "#8a7a60" }}
+                      title="Rename household"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
+                      </svg>
+                    </button>
+                  </>
+                ) : (
+                  <div style={{ display: "flex", gap: "6px", width: "100%" }}>
+                    <input
+                      autoFocus
+                      value={renameHouseholdValue}
+                      onChange={(e) => setRenameHouseholdValue(e.target.value)}
+                      style={{
+                        flex: 1, padding: "6px 10px", borderRadius: "6px",
+                        border: "1.5px solid #A0724A", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.85rem", background: "#FAF4EC",
+                      }}
+                    />
+                    <button
+                      onClick={async () => {
+                        const ok = await renameHousehold(renameHouseholdValue);
+                        if (ok) { await refreshHouseholds(); setRenaming(false); showToast("Household renamed"); }
+                      }}
+                      style={{
+                        padding: "6px 12px", background: "#A0724A", border: "none",
+                        borderRadius: "6px", color: "#FAF4EC", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.8rem", fontWeight: 700, cursor: "pointer",
+                      }}
+                    >Save</button>
+                    <button
+                      onClick={() => setRenaming(false)}
+                      style={{
+                        padding: "6px 10px", background: "#E8D5B7", border: "none",
+                        borderRadius: "6px", color: "#2C1A0E", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.8rem", cursor: "pointer",
+                      }}
+                    >✕</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Member list */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {householdMembers.map((m) => {
+                  const clerkId = m.users?.clerk_id;
+                  const isMe = clerkId === user?.id;
+                  const displayName = isMe
+                    ? (user.fullName || user.firstName || user.primaryEmailAddress?.emailAddress || "You")
+                    : (m.users?.email ? m.users.email.split("@")[0] : "Member");
+                  return (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      {isMe && user.imageUrl ? (
+                        <img src={user.imageUrl} alt={displayName} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
+                      ) : (
+                        <div style={{
+                          width: "36px", height: "36px", borderRadius: "50%",
+                          background: "#E8D5B7", display: "flex", alignItems: "center", justifyContent: "center",
+                          fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700, color: "#8a7a60",
+                        }}>
+                          {displayName[0].toUpperCase()}
+                        </div>
+                      )}
+                      <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E", flex: 1 }}>
+                        {displayName}
+                      </span>
+                      {isMe && (
+                        <span style={{
+                          fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1px",
+                          textTransform: "uppercase", color: "#8a7a60",
+                          background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
+                        }}>you</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => { setShowHouseholdModal(false); setShowInvitePanel(true); }}
+                style={{
+                  width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
+                  letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
+                  background: "#A0724A", color: "#FAF4EC", border: "none",
+                  borderRadius: "8px", cursor: "pointer", marginTop: "16px",
+                }}
+              >+ Invite Someone</button>
+            </div>
+
           </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toastMessage && (
+        <div style={{
+          position: "fixed", bottom: "28px", left: "50%", transform: "translateX(-50%)",
+          background: "rgba(44,26,14,0.92)", color: "#FAF4EC",
+          fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
+          padding: "10px 22px", borderRadius: "999px",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+          zIndex: 2000, whiteSpace: "nowrap",
+          animation: "fadeIn 0.18s ease",
+        }}>
+          {toastMessage}
         </div>
       )}
 
