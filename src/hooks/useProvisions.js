@@ -227,8 +227,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         }
         const db = supabaseRef.current;
 
-        // Check for pending invite before bootstrapping
-        const pendingInviteCode = new URLSearchParams(window.location.search).get("invite");
+        // Check for pending invite before bootstrapping.
+        // Prefer the URL param, fall back to the code persisted at app entry (survives
+        // Clerk's sign-up redirect, which strips the URL param for brand-new users).
+        const urlInvite = new URLSearchParams(window.location.search).get("invite");
+        const pendingInviteCode = urlInvite || sessionStorage.getItem("pending_invite_code");
 
         // Use bootstrap_new_user RPC (SECURITY DEFINER — bypasses RLS).
         // Pass invite code so joining happens in one atomic transaction.
@@ -242,6 +245,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
         if (bootstrapErr) throw new Error(`Bootstrap failed: ${bootstrapErr.message}`);
 
+        // Code has been attempted — clear the persisted copy so it can't re-trigger
+        // on a future visit, regardless of whether the join actually succeeded.
+        sessionStorage.removeItem("pending_invite_code");
+
         internalUserIdRef.current = bootstrapData.user_id;
         clerkIdRef.current = clerkId;
 
@@ -249,11 +256,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         if (bootstrapData.joined_via_invite) {
           window.history.replaceState({}, "", window.location.pathname);
           sessionStorage.setItem("just_joined_household", bootstrapData.household_name || "the household");
+          sessionStorage.setItem("just_joined_household_id", bootstrapData.household_id);
         }
 
         // Stash bootstrap's chosen household as the fallback for Effect 2
         bootstrapHouseholdIdRef.current = bootstrapData.household_id;
-        justJoinedViaInviteRef.current = bootstrapData.joined_via_invite === true;
+        justJoinedViaInviteRef.current = bootstrapData.joined_via_invite === true; // no longer read in resolver — safe to clean up
 
         // Signal Effect 2 that session setup is complete
         bootstrappedRef.current = true;
@@ -279,19 +287,21 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     // ── Resolve which household to load ──
     const fallbackId = bootstrapHouseholdIdRef.current;
-    const list = myHouseholdsRef.current || [];
-    const isMember = (id) => !!id && list.some(h => h.id === id);
 
     let targetId;
-    if (justJoinedViaInviteRef.current) {
-      // Explicit invite join wins over any stale stored active id
-      targetId = fallbackId;
-    } else if (isMember(activeHouseholdId)) {
-      targetId = activeHouseholdId;                  // the chosen household
+    if (activeHouseholdId) {
+      // Trust the context-validated active household in all cases. On auto-switch
+      // joins, App.js has already called switchHousehold(joinedId), so this equals
+      // the joined household. On silent joins, this stays on the prior household —
+      // which is exactly what "silent" means: the view must not move. The old
+      // justJoinedViaInvite forced-fallback overrode this and loaded the joined
+      // household's data even for silent joins, causing a highlight/data split.
+      targetId = activeHouseholdId;
     } else {
-      targetId = fallbackId;                         // fresh device / unresolved context
+      // No active context yet (fresh device, pre-restore): bootstrap fallback.
+      targetId = fallbackId;
     }
-    if (!targetId) return;                           // nothing to load yet
+    if (!targetId) return;
 
     let pollInterval;
     let catalogPollInterval;
