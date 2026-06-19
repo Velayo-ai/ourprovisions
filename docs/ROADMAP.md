@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-17*
+*Last updated: 2026-06-18*
 
 ---
 
@@ -15,8 +15,8 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| — | **Multi-household hardening batch** | Fix contributor 403 (`list_item_contributors` upsert rejected by RLS — `auth.uid()`/`auth.jwt()` mismatch likely). Fix Lemons 409 (revive-after-soft-delete collides with non-partial unique index — add `WHERE deleted_at IS NULL` or upsert RPC). Convert remaining `get_current_household_id()` write gates + `auth.uid()` mismatches to `is_member_of` / `auth.jwt()->>'sub'`. Design + build delete-household (owner-gated, `delete_household` RPC, can't delete last/active). Tighten rename to owner-only. Remove temp `[ActiveHousehold TEST]` log. Clean up test households. Ship 003–006 (+ fixes) to prod. |
-| — | **Merge dev → main + prod smoke test** | Requires hardening batch applied to prod first. Then: merge, verify Vercel deploy green, smoke-test prod (load + tap — no destructive actions on live household). |
+| — | **Merge dev → main + Vercel deploy (multi-household go-live)** | **Decision up front:** go live now vs. after owner-gate (invites/rename are member-gated only — no DB owner enforcement yet). Then: push `771effe` → merge `dev`→`main` → push → Vercel deploys. Hard-refresh prod; run behavioral test: switch to non-default household, add item, no 403; regression: single-household add/remove still works. |
+| — | **Remaining multi-household hardening** | Fix Lemons 409 (revive-after-soft-delete collides with non-partial unique index — partial index `WHERE deleted_at IS NULL` or revive RPC). Build delete-household (owner-gated, `delete_household` RPC, can't delete last/active). Tighten rename to owner-only. Remove `[ActiveHousehold TEST]` log (`App.js:207`). Clean up dev test households. |
 | 1 | **Fix `auth.uid()` RLS bug (migration 001)** | RLS policies on `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members` compare a Clerk string ID against a uuid column — always false. Inert today but must be fixed before any live feature relies on row-level isolation for those tables. Rewrite to `(auth.jwt()->>'sub')::uuid`. Deliver as a named migration, not an edit to `000`. |
 | 2 | **Consolidate duplicate helper functions (migration 002)** | `get_household_id_for_current_user` / `get_current_household_id` and `get_user_id_from_clerk` / `get_current_user_id` are near-identical pairs. Drop the redundant copies; update any callers. Deliver as a named migration. |
 
@@ -26,7 +26,6 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| — | **Apply migrations 003–006 to prod (bundled)** | `is_member_of` (003) + `list_items` write policies (004) + `households` RLS (005) + `create_household` RPC (006) as one atomic bundle. Must not apply partially — each depends on prior. Ride with the hardening batch. |
 | — | **Receipt scan entry point in wrap-up modal** | After rolling items forward, prompt appears: "Scan your receipt to capture prices." Natural on-ramp to Phase 3. |
 | — | **Household member administration UI** | View members, remove members, manage/revoke invites. Absence is why orphaned memberships accumulated and needed raw SQL to fix (Jun 12). |
 | — | **Contributor display refinement** | Keep the full name of the original adder; when another member adds quantity, append their badge rather than replacing attribution with an icon. |
@@ -61,7 +60,6 @@
 | Sync on unfocused tabs | Browser `setInterval` throttles to ~1 min on backgrounded tabs, causing perceived lag. Consider `visibilitychange` refresh-on-focus, or Supabase Realtime if Clerk/Realtime auth incompatibility is ever resolved. |
 | Invite-accept creates duplicate memberships | Accepting an invite adds a membership without retiring the user's auto-bootstrapped household. Should move-or-block until multi-household is real. |
 | Apply migrations 001 + 002 to prod | Required before multi-household ships to real users. Currently dev-only. |
-| **Migration 005 — convert remaining write gates to `is_member_of`** | Six tables still gate writes via `= get_current_household_id()` (waste_events, catalog_items insert, households update/select, household_invites insert, household_members select). Same latent multi-household bug as list_items had; currently dormant. The households gates encode "who may rename/delete a household" and need separate judgment before conversion. |
 | **Location-confirm first-landing** *(gated behind store-awareness arc)* | When location is shared and a confident GPS match exists, offer a one-tap confirm ("You're in Day, NY — shopping for NewLeaf?") — never a silent switch. Location gets a voice, never a vote. |
 | Remove temp `[ActiveHousehold TEST]` console log from `App.js` | Added for spine verification; remove before multi-household UI ships. |
 | Audit SECURITY DEFINER functions for `set search_path` | `get_my_households()` and `get_household_id_for_current_user()` lack explicit `set search_path`. Low risk now; address when consolidating helper functions. |
@@ -195,6 +193,12 @@ Closes the loop. Turns data into action.
 | Jun 17, 2026 | **Create-new-household closes the sheet and lands on the new empty list with a toast (option B, fewer clicks)** rather than staying open or requiring a separate navigation step. |
 | Jun 17, 2026 | **`households` authorization converted to `is_member_of` (migration 005).** A user may read/update any household they belong to, not just the active-heuristic one. `with check` added to UPDATE (the original lacked it). Invite-preview subquery on SELECT preserved verbatim. Unblocked the 406 on Effect 2's household fetch. |
 | Jun 17, 2026 | **Owner-only enforcement on `households` UPDATE/DELETE deliberately deferred.** Migration 005 gates on membership as the correct authorization FLOOR; owner-vs-member is enforced in UI today. DB-level ownership gate ships alongside `delete_household` next session. |
+| 2026-06-18 | **Contributor 403 root cause was `household_members_select`, not the contributor policy.** A SELECT policy gated on the single guessed household blinds every inline membership join. Fix: authorize `household_members` SELECT via `is_member_of` — the contributor policy needed no change. |
+| 2026-06-18 | **Use SECURITY DEFINER `is_member_of` (not inline subquery) on `household_members_select`.** Inline subquery against the same table re-triggers the policy (RLS recursion). SECURITY DEFINER bypasses RLS inside the function body. Recursion-safety rule: any policy that must read the table it guards must route through a SECURITY DEFINER helper. |
+| 2026-06-18 | **Migration 007 completes the authorize-don't-guess sweep.** Remaining five `get_current_household_id()` gates (household_members select, waste_events, catalog_items select+insert, household_invites insert) converted to `is_member_of`. `get_current_household_id()` is now retired from all active write/read policy paths. |
+| 2026-06-18 | **Prod bundles get one outer transaction; strip inner `begin/commit` from member migrations.** Migration 005's standalone transaction control would defeat the bundle's rollback protection, dropping 006+007 outside the transaction. Fix in the derived bundle, leave source migrations standalone-correct. |
+| 2026-06-18 | **Ship DB ahead of code, deliberately.** New policies are strictly more permissive in the correct direction; old single-household frontend operates safely over them. De-risks a large feature: migrate + prove-harmless first, then merge the frontend. |
+| 2026-06-18 | **`dev`→`main` merge is the multi-household go-live event, not a ride-along.** It deploys the switcher to all prod users on push. Treat as its own deliberate session with the live-now-vs-after-owner-gate product decision made up front. |
 
 ---
 
@@ -212,6 +216,7 @@ Closes the loop. Turns data into action.
 | **Multi-household data spine** | Jun 17, 2026 | `ActiveHouseholdContext` built + wired in `App.js`. `get_my_households()` SECURITY DEFINER RPC (migration 001). Proven end-to-end on dev with two-household test user through real Clerk JWT. Bootstrap stopgap (migration 002) unblocks the crash. |
 | **Authorization spine — `is_member_of` (003) + `list_items` write policies (004)** | Jun 17, 2026 | SECURITY DEFINER membership primitive (boolean, fails closed, `search_path` pinned); `list_items` write/update/delete RLS policies rewritten to `is_member_of`; `with check` added to UPDATE. Proven on dev (smoke test: true/true/false/false). Committed to repo. DEV ONLY — prod apply is immediate next step. |
 | **Multi-household switcher** | Jun 17, 2026 | `useProvisions` re-scoped to `ActiveHouseholdContext` (two-effect split, `bootstrapped` state gate, GoTrueClient guard). Unified manage-household sheet: switch/create/rename/invite. `create_household` RPC + `households` RLS converted to `is_member_of` (migrations 005–006). Intermittent hang fixed; stale switcher fixed via `refreshHouseholds()`. DEV only; prod migration bundle pending. |
+| **Authorization sweep — migrations 003–007 applied to prod** | Jun 18, 2026 | Contributor 403 root-caused to `household_members_select` (blinded inline joins). Migration 007 converted remaining five `get_current_household_id()` gates (`household_members` select, `waste_events`, `catalog_items` select+insert, `household_invites` insert) to `is_member_of`. Bundle 003–007 applied to PROD atomically — prod RLS now fully on `is_member_of`; `get_current_household_id()` gates retired from all write/read paths. |
 | **Multi-machine dev environment + DEV_SETUP.md** | Jun 13, 2026 | Reproducible-from-git dev recipe: `.nvmrc` (Node 24), `.npmrc` (`legacy-peer-deps=true`), `docs/DEV_SETUP.md`. Committed `1409a5c`. |
 | **Lake Surface stood up** | Jun 13, 2026 | DEV_SETUP recipe proven end-to-end: git clone → drop `.env.local` → npm install → npm start → Clerk auth. Node 24.14.0, peer-dep workaround validated. |
 

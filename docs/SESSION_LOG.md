@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### 2026-06-18 — Cross — Contributor 403 root-caused; migration 007 sweep; 003–007 applied to prod
+**Goal:** Fix the contributor 403, finish the `get_current_household_id()` → `is_member_of` sweep, and ship the migration bundle (003–007) to prod.
+**Completed:**
+- Root-caused contributor 403 to `household_members_select` (gated on single guessed household, blinding every inline membership join); ruled out duplicate `users` rows and orphaned memberships via Supabase "External user" impersonation — `get_my_households()` returned 5 households while direct `household_members` read returned 1, isolating the SELECT policy as the single blinding gate.
+- Authored migration 007 (`007_finish_authorize_sweep.sql`): converted five remaining `get_current_household_id()` gates to `is_member_of` — `household_members_select`, `waste_events_all`, `catalog_items_select`, `catalog_items_insert`, `household_invites invites_insert`. Used SECURITY DEFINER `is_member_of` (not inline subquery) on `household_members_select` to avoid RLS recursion.
+- Applied 007 to dev; verified end-to-end: badge writes with no 403 in non-default household; co-member "DT" now correctly visible; custom item created in My Household, absent in London, persisted across switch — proving `catalog_items` select/insert follow membership.
+- Committed 007 to dev, pushed to `origin/dev` (`c277021`). Built `bundle_003_007_prod.sql`; caught and fixed transaction-integrity bug (migration 005's inner `begin;`/`commit;` stripped from bundle only — source 005 untouched).
+- Applied corrected bundle to PROD (`parpauldmbetptkmdwbd`) atomically. Verified: `is_member_of`, `create_household`, `get_my_households` present; `household_members_select` reads `is_member_of(household_id)`.
+**Unfinished:**
+- `dev`→`main` merge NOT done — 19 commits on dev ahead of main; multi-household frontend undeployed. DB deliberately ahead of code (harmless direction; existing single-household users unaffected).
+- Unpushed `771effe` on local `main` (docs-only, 2026-06-16 SHOP swipe redesign) — push before merge session.
+- Prod behavioral regression not yet tapped (confirm single-household add/remove still works on live prod with new policies).
+- `bundle_003_007_prod.sql` untracked on dev — decide: commit as audit record or discard.
+- Owner-gate not built; Lemons 409 not started; delete-household not started; `[ActiveHousehold TEST]` log still at `App.js:207`; dev test households clutter.
+- Contributor INSERT/UPDATE policies still use inline joins; UPDATE lacks `WITH CHECK` (cleanup only — they work now that `household_members_select` is fixed).
+**Next session:**
+SESSION START
+Goal: Ship multi-household to prod users — push `771effe`, merge `dev`→`main`, deploy via Vercel, run full behavioral test on deployed prod.
+State: DB spine 003–007 live + verified on PROD. All multi-household frontend on `dev`, unmerged to `main`. Prod runs old single-household frontend over the new (correct, more-permissive) policies. `771effe` docs commit unpushed on local main.
+Done when: `771effe` pushed; `dev`→`main` merged + pushed; Vercel prod deploy live; hard-refreshed prod passes multi-household test (switch to non-default household, add item, no 403); regression confirmed for single-household path. **Decision required up front:** go live now vs. after owner-gate, given invites/rename are member-gated with no owner enforcement yet.
+**Files updated:** `migrations/007_finish_authorize_sweep.sql` (new, committed `c277021`, pushed `origin/dev`); `migrations/bundle_003_007_prod.sql` (new, untracked). No app source changed this session.
+**DB changes:** **PROD** (`parpauldmbetptkmdwbd`) — migrations 003–007 applied atomically (first multi-household DB migrations on prod). Created `is_member_of`, `create_household`, `get_my_households`; converted `list_items` (write/update/delete), `households` (select/update), `household_members` (select), `waste_events`, `catalog_items` (select/insert), `household_invites` (insert) policies to `is_member_of`. **DEV** — migration 007 applied (same five-policy sweep).
+
 ### 2026-06-17 — Cross — Household switcher built end-to-end (re-scope → unified sheet → create/rename), authorized by membership
 **Goal:** Build the multi-household switcher — re-scope `useProvisions` so the list follows the active household, then layer the unified manage-household sheet on top — and authorize it server-side.
 **Completed:**

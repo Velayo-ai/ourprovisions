@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-17*
+*Last updated: 2026-06-18*
 
 ---
 
@@ -98,16 +98,17 @@ Historical files (superseded, in `migrations/archive/`):
 | `005_provision_cycles_sessions_stores.sql` | `provision_cycles`, `shopping_sessions`, `known_stores`; `cycle_id`/`rolled_from_item_id` on `list_items`; RPCs — **UNCONFIRMED if applied to prod** (column inventory Jun 16 suggests `cycle_id` absent from `list_items`) |
 | `006` | *(contents not captured in docs)* |
 
-**Post-baseline migrations (applied to DEV only unless noted):**
+**Post-baseline migrations:**
 
 | File | Contents | Status |
 |---|---|---|
-| `migrations/001_get_my_households.sql` | `get_my_households()` SECURITY DEFINER RPC — enumerates all of a user's households bypassing the single-household SELECT policy. | Dev only |
+| `migrations/001_get_my_households.sql` | `get_my_households()` SECURITY DEFINER RPC — enumerates all of a user's households bypassing the single-household SELECT policy. | Dev + Prod (2026-06-18) |
 | `migrations/002_bootstrap_ordering_stopgap.sql` | Align `bootstrap_new_user` to `joined_at DESC` — TEMPORARY stopgap; real fix is `useProvisions` re-scope. | Dev only |
-| `migrations/003_is_member_of.sql` | `is_member_of(household_id)` SECURITY DEFINER boolean authorization primitive. No new dependencies. | Dev only |
-| `migrations/004_list_items_authorize.sql` | Rewrite `list_items` write/update/delete RLS to `is_member_of`; add `with check` to UPDATE. Depends on 003. | Dev only |
-| `migrations/005_households_authorize_by_membership.sql` | Rewrite `households` SELECT/UPDATE RLS to `is_member_of(id)`; add `with check` on UPDATE; preserve invite-preview subquery on SELECT verbatim. Depends on 003. Fixes 406 on Effect 2 household fetch. | Dev only |
-| `migrations/006_create_household.sql` | `create_household(p_name, p_clerk_id)` SECURITY DEFINER RPC — atomically creates household + adds caller as owner-member, returns `{household_id, household_name}`. | Dev only |
+| `migrations/003_is_member_of.sql` | `is_member_of(household_id)` SECURITY DEFINER boolean authorization primitive. No new dependencies. | Dev + Prod (2026-06-18) |
+| `migrations/004_list_items_authorize.sql` | Rewrite `list_items` write/update/delete RLS to `is_member_of`; add `with check` to UPDATE. Depends on 003. | Dev + Prod (2026-06-18) |
+| `migrations/005_households_authorize_by_membership.sql` | Rewrite `households` SELECT/UPDATE RLS to `is_member_of(id)`; add `with check` on UPDATE; preserve invite-preview subquery on SELECT verbatim. Depends on 003. Fixes 406 on Effect 2 household fetch. | Dev + Prod (2026-06-18) |
+| `migrations/006_create_household.sql` | `create_household(p_name, p_clerk_id)` SECURITY DEFINER RPC — atomically creates household + adds caller as owner-member, returns `{household_id, household_name}`. | Dev + Prod (2026-06-18) |
+| `migrations/007_finish_authorize_sweep.sql` | Converts last five `get_current_household_id()` gates to `is_member_of`: `household_members_select`, `waste_events_all`, `catalog_items_select`, `catalog_items_insert`, `household_invites invites_insert`. Uses SECURITY DEFINER `is_member_of` on `household_members_select` to avoid RLS recursion. Fixes contributor 403. | Dev + Prod (2026-06-18) |
 
 ---
 
@@ -148,7 +149,7 @@ The living household list. Items are never hard deleted — they move through st
 - Phase 4: `deferred_reason`
 - `created_at`, `updated_at`, `deleted_at`
 - **Unique constraint:** `list_items_household_catalog_unique (household_id, catalog_item_id)` — named explicitly to match prod; `close_cycle`'s upsert targets this constraint.
-- **RLS write policies (migration 004, DEV only — prod pending):** `list_items_write` (insert), `list_items_update` (using + with check), `list_items_delete` (using) gate on `is_member_of(household_id)` instead of `= get_current_household_id()`. SELECT policy unchanged (already returns all households the caller belongs to). Proven on dev.
+- **RLS write policies (migration 004, Dev + Prod 2026-06-18):** `list_items_write` (insert), `list_items_update` (using + with check), `list_items_delete` (using) gate on `is_member_of(household_id)` instead of `= get_current_household_id()`. SELECT policy unchanged (already returns all households the caller belongs to).
 
 #### `waste_events`
 Every thrown-away unconsumed item. Most important AI training data in the app.
@@ -223,9 +224,9 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `close_cycle(p_household_id)` | Archives a cycle — upserts items forward (targets `list_items_household_catalog_unique`), clears badges. Live version supersedes the 005 file. |
 | `archive_trip_items(...)` | Archives trip items at session close. |
 | `match_known_store(p_lat, p_lng, p_household_id)` | Bounding-box pre-filter + Haversine nearest-store lookup (no PostGIS). Returns closest store within `radius_m`; app enforces the radius. This IS the "auto-select via GPS" behavior from Scenario D. |
-| `get_my_households()` *(migration 001)* | Returns `(household_id, name, role)` for ALL of the caller's active, non-deleted memberships, `joined_at ASC`. SECURITY DEFINER — bypasses the `household_members` SELECT policy (which is scoped to the active household). Identity resolved via `get_current_user_id()` internally; takes no user-id parameter. Applied to DEV; prod pending. |
-| `is_member_of(p_household_id uuid) returns boolean` *(migration 003)* | Shared authorization primitive. SECURITY DEFINER, STABLE, `search_path` pinned. Resolves `auth.jwt()->>'sub'` → `users.clerk_id`; returns whether the caller is a non-deleted member of the passed household. Null arg → false (fail closed). Used in `list_items` write/update/delete RLS policies and `households` SELECT/UPDATE RLS. Applied to DEV; prod pending. |
-| `create_household(p_name, p_clerk_id)` *(migration 006)* | Atomically creates a new household and adds the caller as owner-member. Returns `{household_id, household_name}`. SECURITY DEFINER — required because a client two-step INSERT (household, then membership) can half-complete; `households.created_by` is NOT NULL (mirrors bootstrap_new_user). Applied to DEV; prod pending. |
+| `get_my_households()` *(migration 001)* | Returns `(household_id, name, role)` for ALL of the caller's active, non-deleted memberships, `joined_at ASC`. SECURITY DEFINER — bypasses the `household_members` SELECT policy. Identity resolved via `get_current_user_id()` internally; takes no user-id parameter. Dev + Prod (2026-06-18). |
+| `is_member_of(p_household_id uuid) returns boolean` *(migration 003)* | Shared authorization primitive. SECURITY DEFINER, STABLE, `search_path` pinned. Resolves `auth.jwt()->>'sub'` → `users.clerk_id`; returns whether the caller is a non-deleted member of the passed household. Null arg → false (fail closed). Used in all post-003 RLS policies. Dev + Prod (2026-06-18). |
+| `create_household(p_name, p_clerk_id)` *(migration 006)* | Atomically creates a new household and adds the caller as owner-member. Returns `{household_id, household_name}`. SECURITY DEFINER — required because a client two-step INSERT (household, then membership) can half-complete; `households.created_by` is NOT NULL (mirrors bootstrap_new_user). Dev + Prod (2026-06-18). |
 | `rls_auto_enable` *(event trigger)* | Auto-enables RLS on any newly created public table. **Every new table comes up locked by default.** Include policies in the same migration or the table will be inaccessible. |
 
 ---
@@ -243,8 +244,7 @@ Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, t
   2. `get_current_household_id()` — `joined_at DESC` (newest). Drives the `households_select` RLS gate.
   3. `get_my_households()` / `ActiveHouseholdContext` default — `joined_at ASC` (oldest first). Context persists last-selected to localStorage.
   Pre-002 failure mode: bootstrap picked a household (arbitrary heap order) that the RLS gate (`DESC`) would not permit reading → `useProvisions.js:244` `.single()` got 0 rows → "Cannot coerce to a single JSON object" (a 0-row PostgREST 406, not a too-many-rows error). Migration 002 aligns bootstrap to the RLS gate (`DESC`) to stop the crash. It does NOT reconcile the context default (`ASC`) — bootstrap picks newest (Lake House) while the context's fallback picks oldest (My Household). Harmless while they read different sources; the REAL FIX is a single source of truth = the context's `activeHouseholdId`, passed to bootstrap and used to rewrite `get_current_household_id()`.
-- **Migrations 001–006 applied to DEV only** — prod application pending. 003–006 must be applied as one bundle (004 depends on 003; 005 depends on 003; 006 depends on 003/005).
-- **`list_item_contributors` contributor 403:** upsert into `list_item_contributors` is rejected by RLS even on a fresh load (no household switching involved). The policies use `auth.jwt()->>'sub'` pattern correctly in theory but the insert 403s — likely `auth.uid()` vs `auth.jwt()` mismatch or a membership-join-lag gap. Blocks contributor badges under multi-household. Diagnose next session.
+- **Migration 002 DEV only** (bootstrap ordering stopgap). Migrations 001, 003–007 applied to Dev + Prod (2026-06-18) — 003–007 as one atomic bundle (`bundle_003_007_prod.sql`).
 - **Lemons 409 — revive-after-soft-delete constraint collision:** `list_items_household_catalog_unique (household_id, catalog_item_id)` is NOT a partial index — soft-deleted rows (`deleted_at IS NOT NULL`) still occupy the key. `updateQty`'s revive-UPDATE misses (soft-deleted row not visible to the UPDATE), and the fallback INSERT collides. Fix candidates: `CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL`; or a `revive_or_insert` SECURITY DEFINER RPC that does the conditional in-DB.
 
 ---
@@ -310,8 +310,8 @@ List state on a hot 2s poll (`loadListItems` via `get_list_items_for_household` 
 ### refreshCatalogRef pattern *(June 12)*
 Same approach as `getTokenRef` — `refreshCatalog` is a `useCallback` whose identity could change, so the boot effect calls it via `refreshCatalogRef.current()`. The ref is kept current by `refreshCatalogRef.current = refreshCatalog` on every render (outside the effect), avoiding adding `refreshCatalog` to the boot effect's dependency array.
 
-### SECURITY DEFINER helpers break RLS recursion *(June 12)*
-Policies on `household_members` that self-reference trigger `infinite recursion detected in policy for relation "household_members"`. The fix: write policies as `household_id = get_current_household_id()` where `get_current_household_id()` is a SECURITY DEFINER function that reads `household_members` without re-triggering the policy. This is the pattern in prod's live RLS (captured in `008_policies.sql`). The phase-1 migration files used self-referential subqueries and must not be re-applied.
+### SECURITY DEFINER helpers break RLS recursion *(June 12; reaffirmed June 18)*
+Policies on `household_members` that self-reference trigger `infinite recursion detected in policy for relation "household_members"`. The fix: route through a SECURITY DEFINER function that reads `household_members` without re-triggering the policy. The canonical current form: `using (is_member_of(household_id))` where `is_member_of` is SECURITY DEFINER (migration 003, Dev + Prod 2026-06-18). The phase-1 migration files used self-referential inline subqueries — do not re-apply them. An inline `SELECT ... FROM household_members` inside a `household_members` policy triggers the recursion even if the intent is correct; always route through a DEFINER helper.
 
 ### rls_auto_enable event trigger *(June 12)*
 An event trigger auto-enables RLS on any new table created in the public schema. **New tables come up locked by default.** Always include the table's RLS policies in the same migration — or the table is inaccessible until policies are added.
@@ -343,7 +343,7 @@ Write paths are migrated from `= get_current_household_id()` (server picks one h
 - **`is_member_of(household_id)`** — SECURITY DEFINER boolean: "is the caller a member of this household?" Fails closed on null. Used in RLS `using` / `with check` clauses on write policies.
 - **`get_current_household_id()`** — legacy helper; still used by some policies pending their 005-migration conversion. Do NOT add new callers.
 
-Migration 004 converts `list_items` write gates (hot path). Six remaining tables still use the legacy helper (waste_events, catalog_items, households, household_invites, household_members) — same latent bug, dormant, queued as migration 005.
+Migration 004 converts `list_items` write gates (hot path). Migration 007 converts the remaining five gates (household_members select, waste_events, catalog_items select+insert, household_invites insert). `get_current_household_id()` is now retired from all active RLS policy paths.
 
 ### Active Household Context *(built Jun 17 — `src/contexts/ActiveHouseholdContext.js`)*
 
