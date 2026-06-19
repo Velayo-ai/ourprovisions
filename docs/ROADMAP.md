@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-18*
+*Last updated: 2026-06-19*
 
 ---
 
@@ -26,6 +26,9 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **`insert_list_item` conflict-safety** | Two clients adding the same new item simultaneously both reach the INSERT path in `updateQty` (both see 0 rows on UPDATE) and the second 409s on `list_items_household_catalog_unique`. Fix: `insert_list_item` should upsert `ON CONFLICT (household_id, catalog_item_id) DO UPDATE`. Constraint is working correctly; error surface is wrong. Next-session priority. |
+| — | **Surface "invite no longer valid" on invalid/spent code** | Invalid or expired invite currently fails silently — user lands in blank "My Household" with no feedback. `bootstrap_new_user` detects the failed join; surface it to the client. |
+| — | **Re-key join detection off `joined_via_invite`, not household name** | Join-banner effect in `App.js` checks `household.name !== "My Household"` — fragile if a real household is named "My Household". Re-key off the `joined_via_invite` boolean already returned by `bootstrap_new_user`. |
 | — | **Receipt scan entry point in wrap-up modal** | After rolling items forward, prompt appears: "Scan your receipt to capture prices." Natural on-ramp to Phase 3. |
 | — | **Household member administration UI** | View members, remove members, manage/revoke invites. Absence is why orphaned memberships accumulated and needed raw SQL to fix (Jun 12). |
 | — | **Contributor display refinement** | Keep the full name of the original adder; when another member adds quantity, append their badge rather than replacing attribution with an icon. |
@@ -43,7 +46,6 @@
 | 4 | **Cascade soft-delete (catalog → list)** | Deleting a custom catalog item should cascade to active `list_items` rows. Same gesture as the Delete half of #2 — pairs with it. |
 | 5 | **Fix close_cycle contributor carry-forward** | When rolling items forward, copy `list_item_contributors` rows to new `list_items`. Currently badges reset to `added_by` only after wrap-up. Fix is in the `close_cycle` RPC. |
 | 6 | **Re-enable RLS on provision_cycles, shopping_sessions, known_stores** | Confirmed disabled in prod (matches dev). Anon key can cross-household read/write these tables. Low stakes now; address during migration rewrite. |
-| 7 | **Multiple household support** | Header-tap switcher UI. User belongs to more than one household and can toggle between them. **Fragility found (Jun 12):** household fetch uses `.single()`/`.maybeSingle()` — throws 406 on duplicate active memberships; needs defensive handling before multi-household is real. |
 | 8 | **Global category rename** | `household_category_overrides` table. Lets a household rename "Pantry" → "Dry Goods" etc. Migration pending. |
 | 9 | **Reset Household (nuclear option)** | Confirmation-gated. Returns catalog to factory seed and clears household customizations. NOT the everyday undo for hides/deletes — recovery-from-chaos only. |
 | 10 | **Replace remaining `window.location.reload()` calls** | Audit codebase; replace all with `refreshCatalog()` pattern. |
@@ -199,6 +201,8 @@ Closes the loop. Turns data into action.
 | 2026-06-18 | **Prod bundles get one outer transaction; strip inner `begin/commit` from member migrations.** Migration 005's standalone transaction control would defeat the bundle's rollback protection, dropping 006+007 outside the transaction. Fix in the derived bundle, leave source migrations standalone-correct. |
 | 2026-06-18 | **Ship DB ahead of code, deliberately.** New policies are strictly more permissive in the correct direction; old single-household frontend operates safely over them. De-risks a large feature: migrate + prove-harmless first, then merge the frontend. |
 | 2026-06-18 | **`dev`→`main` merge is the multi-household go-live event, not a ride-along.** It deploys the switcher to all prod users on push. Treat as its own deliberate session with the live-now-vs-after-owner-gate product decision made up front. |
+| 2026-06-19 | **Invite-join switching is intent-gated on user state.** First household ever → auto-switch (nothing to interrupt; invite is the front door). Established user joining another → silent join (don't yank an in-flight user; new household appears in switcher, available on tap). Extends "user holds the lens / confirmation not silent switch" from location to membership. Established-user-with-untouched-list auto-switch was specified but NOT built (requires a pre-join authored-state snapshot because Effect 2 wipes prior-household maps before the banner fires); `hadPrior`-only gate shipped instead. Rationale: silent join fails safe (one tap) vs. mid-work context loss; the edge case is rare and unmeasured, so deferred pending usage evidence. |
+| 2026-06-19 | **Resolver is single-source: Effect 2 follows `activeHouseholdId`, full stop.** Removed `justJoinedViaInviteRef` forced-fallback. In auto-switch, `switchHousehold` already sets `activeHouseholdId` to the joined household before Effect 2 resolves; in silent join, it stays on the prior household. Trusting `activeHouseholdId` is correct in both cases. The forced-fallback was the third instance of "multiple paths each decide which household to load, and disagree." |
 
 ---
 
@@ -256,6 +260,7 @@ Closes the loop. Turns data into action.
 | **Canonical schema baseline** | Jun 12, 2026 | `migrations/000_canonical_baseline.sql` — single file rebuilding prod from empty: 14 objects, 17 canonical functions, 35 RLS policies, 38-item seed. Validated against clean dev rebuild. Six historical files archived in `migrations/archive/`. |
 | **SHOP swipe redesign + toggleChecked id fix** | Jun 16, 2026 | SHOP swipe now calls `removeFromList` (list-layer soft-delete of `list_item`) instead of `hideItem` (catalog-layer). Own item: instant remove. Shared item: confirm modal naming the adder. `toggleChecked` rewired to resolve by `catalog_item_id` from `listRows`, eliminating "not in catalog" failures on rolled-forward items. Cold-tested on dev with two members. |
 | **Dev grant restoration** | Jun 16, 2026 | Restored `authenticated`/`anon` grants on dev sandbox after "Reset Public Schema Permissions" query stripped them. Wrote `007_dev_restore_role_grants.sql` (dev-only). Root cause of the Jun-13 "permission denied for table households" dev block — was grants, not the `auth.uid()` RLS bug assumed. |
+| **Multi-household invite-join flow** | Jun 19, 2026 | New-user auto-switch + established-user silent-join verified end-to-end. Three bugs fixed: invite code survives Clerk sign-up redirect (`index.js` sessionStorage capture before ClerkProvider), Effect 2 resolver trusts `activeHouseholdId` unconditionally (no data split on silent join), join-banner calls `refreshHouseholds()` on any confirmed join (switcher updates without reload). |
 
 ---
 

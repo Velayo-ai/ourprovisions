@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-19] — [OurProvisions] — Multi-household invite-join flow end-to-end
+**Goal:** Fix three sequential invite-join bugs so new and established users can join via invite code without reload, data split, or switcher lag — and verify both branches end-to-end with two real users.
+**Completed:**
+- Fixed invite code not surviving Clerk sign-up redirect: captured `?invite=` in `index.js` before `ClerkProvider` mounts, persisted to `sessionStorage`; bootstrap reads URL-or-stored; new users now join on first load.
+- Fixed resolver highlight/data split: Effect 2 trusts `activeHouseholdId` unconditionally; removed `justJoinedViaInviteRef` forced-fallback that loaded joined-household data even on silent joins.
+- Fixed silently-joined household missing from switcher: restructured join-banner effect — `hadPrior` captured before async work; silent join calls `refreshHouseholds()` directly; auto-switch awaits refresh before `switchHousehold`.
+- Verified Test 1 (first-household auto-switch) and Test A (established-user silent-join): both pass across data, highlight, and switcher list.
+- Confirmed `bootstrap_new_user` RPC is correct — all invite-join failures traced to client-side timing/redirect; RPC needed no change.
+- Characterized concurrent same-item insert race: two clients adding the same new item simultaneously → second client 409s (unique constraint working correctly; app surfaces it as an error). Root cause and fix direction identified.
+**Unfinished:**
+- Test B (two-window realtime sync) and Test C (4-household switch cycle) not formally run.
+- Concurrent same-item insert race not fixed — characterized, deferred to next session.
+- Invalid/spent invite silently lands user in blank "My Household" — no error feedback.
+- Join detection keys off fragile name string `household.name !== "My Household"` — should re-key off `joined_via_invite` from bootstrap.
+**Next session:**
+SESSION START
+Goal: Make `insert_list_item` conflict-safe so concurrent same-item adds don't 409.
+State: Multi-household join/switch/silent-join working and verified on dev. Three invite-join fixes shipped (index.js capture, resolver single-source, silent-join refresh). Data integrity sound — unique constraint works; the failure is a surfaced error on the losing client.
+Done when: Two users adding/bumping the same new item in the same household simultaneously results in one clean row and NO error toast on either client — the second writer updates instead of erroring.
+**Files updated:** `src/index.js` (pre-ClerkProvider sessionStorage capture), `src/hooks/useProvisions.js` (URL-or-stored invite code, resolver trusts `activeHouseholdId`), `src/App.js` (join-banner effect restructure: `hadPrior` before async, silent-join refresh, await before auto-switch).
+**DB changes:** None.
+
 ### 2026-06-18 — Cross — Contributor 403 root-caused; migration 007 sweep; 003–007 applied to prod
 **Goal:** Fix the contributor 403, finish the `get_current_household_id()` → `is_member_of` sweep, and ship the migration bundle (003–007) to prod.
 **Completed:**

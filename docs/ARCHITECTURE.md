@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-18*
+*Last updated: 2026-06-19*
 
 ---
 
@@ -208,7 +208,7 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 
 | Function | Purpose |
 |---|---|
-| `bootstrap_new_user(p_clerk_id, p_email, p_invite_code, p_full_name)` | Atomic onboarding. **4-arg is canonical** — prod had 4 overloads; 3 dead ones dropped in baseline. |
+| `bootstrap_new_user(p_clerk_id, p_email, p_invite_code, p_full_name)` | Atomic onboarding. **4-arg is canonical** — prod had 4 overloads; 3 dead ones dropped in baseline. Invite branch (step 2) uses `ON CONFLICT (household_id, user_id) DO NOTHING` — correctly handles both new and existing users. Prior invite-join failures confirmed client-side (Jun 19); RPC is correct. |
 | `get_current_household_id()` | Returns calling user's household UUID. Used by RLS policies to avoid self-referential recursion. |
 | `get_current_user_id()` | Returns calling user's internal UUID from Clerk sub. |
 | `get_household_id_for_current_user()` | Near-duplicate of `get_current_household_id` — **KNOWN DEBT: consolidate.** |
@@ -246,6 +246,8 @@ Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, t
   Pre-002 failure mode: bootstrap picked a household (arbitrary heap order) that the RLS gate (`DESC`) would not permit reading → `useProvisions.js:244` `.single()` got 0 rows → "Cannot coerce to a single JSON object" (a 0-row PostgREST 406, not a too-many-rows error). Migration 002 aligns bootstrap to the RLS gate (`DESC`) to stop the crash. It does NOT reconcile the context default (`ASC`) — bootstrap picks newest (Lake House) while the context's fallback picks oldest (My Household). Harmless while they read different sources; the REAL FIX is a single source of truth = the context's `activeHouseholdId`, passed to bootstrap and used to rewrite `get_current_household_id()`.
 - **Migration 002 DEV only** (bootstrap ordering stopgap). Migrations 001, 003–007 applied to Dev + Prod (2026-06-18) — 003–007 as one atomic bundle (`bundle_003_007_prod.sql`).
 - **Lemons 409 — revive-after-soft-delete constraint collision:** `list_items_household_catalog_unique (household_id, catalog_item_id)` is NOT a partial index — soft-deleted rows (`deleted_at IS NOT NULL`) still occupy the key. `updateQty`'s revive-UPDATE misses (soft-deleted row not visible to the UPDATE), and the fallback INSERT collides. Fix candidates: `CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL`; or a `revive_or_insert` SECURITY DEFINER RPC that does the conditional in-DB.
+- **Concurrent same-item INSERT race:** `updateQty`'s UPDATE-then-INSERT is safe against staleness but NOT under concurrency. Two clients adding the same new item simultaneously both observe 0 rows on UPDATE and both attempt INSERT — the second 409s on `list_items_household_catalog_unique`. The constraint is correct (one clean row results); the failure is a surfaced error on the losing client. Fix: `insert_list_item` should upsert `ON CONFLICT (household_id, catalog_item_id) DO UPDATE`. Next-session opener.
+- **`household_members` has no `created_at` column** (most tables do) — only `joined_at`. Any ordering or auditing on this table must use `joined_at`.
 
 ---
 
@@ -336,6 +338,10 @@ Three distinct removal verbs, distinct by layer and scope:
 
 `toggleChecked(itemName, catalogItemId)` now resolves the target row via `catalogItemId` passed from the caller (carried on `listRows` → `shoppingList` items → tap handlers). Falls back to `catalogRef.current[itemName]?.id` only if no id arrives. Eliminates "not in catalog" failures on rolled-forward items whose names may have diverged from the current catalog map.
 
+### Invite-code sessionStorage bridge *(Jun 19)*
+
+Clerk's sign-up redirect strips URL query parameters for users who are not yet signed in. An invite link carrying `?invite=CODE` loses the code before the React app can read it. Fix: capture the code in `index.js` at module level — before `ClerkProvider` mounts, the earliest point in the page lifecycle — and persist to `sessionStorage("pending_invite_code")`. Bootstrap reads the URL param first and falls back to the stored code. Cleared unconditionally after the bootstrap attempt, regardless of whether the join succeeded.
+
 ### Client-authoritative active context + `is_member_of` authorization *(Jun 17)*
 
 Write paths are migrated from `= get_current_household_id()` (server picks one household) to `is_member_of(household_id)` (caller names the household, server authorizes). Three-role split:
@@ -353,6 +359,7 @@ App-level context that is the single source of truth for which household is acti
 - **Data source:** `db.rpc("get_my_households")` on mount — maps `row.household_id` → `id`. `getTokenRef` stabilization pattern. `myHouseholdsRef` kept in sync so `switchHousehold` validates without stale closure.
 - **Resolution:** reads `localStorage("activeHouseholdId")`; if valid in `myHouseholds` use it, else fall back to first returned (`get_my_households` orders `joined_at ASC` = oldest = default).
 - **`refreshHouseholds()`:** re-fetches `get_my_households()` and updates `myHouseholds` + `myHouseholdsRef` WITHOUT touching `activeHouseholdId`. MUST be called after any mutation that changes the household roster (create, rename, future delete/join) — the context does not auto-refresh.
+- **Silent-join paths must call `refreshHouseholds()` explicitly.** `switchHousehold` (auto-switch, household create) triggers a refresh cascade internally; the silent-join path has no such trigger. The join-banner effect in `App.js` calls `refreshHouseholds()` on any confirmed join, regardless of whether an active-context switch occurs.
 - **Mounting:** `ShoppingListApp` (thin exported wrapper) wraps `<ActiveHouseholdProvider>` around inner `ProvisionsApp`. A consumer cannot live above the provider it mounts — this split is the structural prerequisite for `useProvisions` calling `useActiveHousehold()`.
 - **Temp note:** `[ActiveHousehold TEST]` console.log still in `App.js` — strip next session.
 
@@ -361,7 +368,7 @@ App-level context that is the single source of truth for which household is acti
 `useProvisions` uses a deliberate two-effect split to separate identity setup from household-scoped data loading:
 
 - **Effect 1** (deps: `userId, clerkId, email, fullName`): creates the Supabase client once (guarded by `if (!supabaseRef.current)` against GoTrueClient stacking), runs `bootstrap_new_user`, stores the fallback household id and internal user id into refs, then sets `bootstrapped` STATE to `true`.
-- **Effect 2** (deps: `activeHouseholdId, userId, clerkId, bootstrapped`): resolves the target household (invite-join → `activeHouseholdId` if member → bootstrap fallback), runs all household-scoped loads + polls, and on teardown clears intervals + resets per-household state (`listRows`, `quantities`, `checked`, etc.).
+- **Effect 2** (deps: `activeHouseholdId, userId, clerkId, bootstrapped`): resolves the target household by trusting `activeHouseholdId` unconditionally (already set to the joined household on auto-switch via `switchHousehold`, unchanged on silent join); falls back to bootstrap fallback only when context is empty (fresh device / pre-restore). `justJoinedViaInviteRef` is still set from bootstrap but is no longer read in the resolver. Effect 2 runs all household-scoped loads + polls, and on teardown clears intervals + resets per-household state (`listRows`, `quantities`, `checked`, etc.).
 
 **Critical invariant:** the cross-effect handoff gate MUST be a STATE value (`bootstrapped`), not a ref. A ref change cannot re-trigger Effect 2. If Effect 2 runs before bootstrap finishes (which is intermittent), it returns early — and if only a ref is set, nothing re-fires. Using state ensures React re-runs Effect 2 the moment bootstrap completes. The `cancelled` flag in Effect 2 cleanup prevents stale async writes after a household switch mid-flight.
 
