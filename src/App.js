@@ -211,7 +211,7 @@ function HouseholdDebugLog() {
 }
 
 function ProvisionsApp() {
-  const { user, isSignedIn } = useUser();
+  const { user, isSignedIn, isLoaded } = useUser();
   const { getToken } = useAuth();
   const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds } = useActiveHousehold();
 
@@ -254,8 +254,8 @@ function ProvisionsApp() {
     _internalUserId,
   } = useProvisions({
     getToken,
-    userId: user?.id,
-    clerkId: user?.id,
+    userId: isLoaded ? user?.id : undefined,
+    clerkId: isLoaded ? user?.id : undefined,
     email: user?.primaryEmailAddress?.emailAddress,
     fullName: user?.fullName || null,
     activeHouseholdId,
@@ -433,21 +433,38 @@ function ProvisionsApp() {
     return matches;
   }, [searchQuery, categories]);
 
-  // Show join banner if user joined via invite during bootstrap
+  // Show join banner if user joined via invite during bootstrap.
+  // Conditionally moves the active-household pointer to the joined one.
   useEffect(() => {
     if (loading || !household) return;
     const params = new URLSearchParams(window.location.search);
     const code = params.get("invite");
-    // If there's no invite code in URL but household loaded cleanly,
-    // check if we just joined (bootstrap clears the URL param on join)
-    // We detect this by checking if joinBanner hasn't been shown yet
-    // and the household name isn't "My Household" (default for new users)
     if (!code && household?.name && household.name !== "My Household" && !joinBanner) {
-      // Check sessionStorage to see if we just joined
       const justJoined = sessionStorage.getItem("just_joined_household");
       if (justJoined) {
-        setJoinBanner(justJoined);
+        setJoinBanner(justJoined); // always fires — sole feedback in the silent-join case
         sessionStorage.removeItem("just_joined_household");
+        const joinedId = sessionStorage.getItem("just_joined_household_id");
+        sessionStorage.removeItem("just_joined_household_id");
+        // Capture hadPrior from the pre-refresh list so the refresh below doesn't race the check.
+        // 0 = brand-new user with no prior household → auto-switch.
+        // ≥1 = established user → silent join, leave active context unchanged.
+        const hadPrior = (myHouseholds || []).length >= 1;
+        if (joinedId && !hadPrior) {
+          // New user: await refresh so the membership guard in switchHousehold
+          // sees the new household before we try to activate it.
+          (async () => {
+            await refreshHouseholds();
+            switchHousehold(joinedId);
+          })();
+        } else {
+          // Silent join (or no joinedId edge case): refresh so the new household
+          // appears in the switcher immediately — no reload needed.
+          // TODO(dan): established user with untouched prior list should also
+          // auto-switch, but the maps reflect the joined household by the time
+          // this effect fires. Needs a pre-join snapshot to implement safely.
+          refreshHouseholds();
+        }
       }
     }
   }, [loading, household]); // eslint-disable-line react-hooks/exhaustive-deps
