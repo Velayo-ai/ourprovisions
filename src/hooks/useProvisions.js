@@ -1,6 +1,8 @@
 // src/hooks/useProvisions.js
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
+import { classifyFetchError } from "../lib/classifyFetchError";
+import { useConnectivity } from "../contexts/ConnectivityContext";
 
 export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
   const [quantities, setQuantities] = useState({});
@@ -16,6 +18,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [hiddenCatalogItems, setHiddenCatalogItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { reportTransientFailure, reportSuccess } = useConnectivity();
   const supabaseRef = useRef(null);
   const householdRef = useRef(null);   // mirrors household for use inside callbacks
   const catalogRef = useRef({});       // mirrors catalogMap for use inside callbacks
@@ -46,7 +49,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const { data: items, error: listErr } = await db
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
-    if (listErr) { setError(`Could not load list: ${listErr.message}`); return; }
+    if (listErr) {
+      if (classifyFetchError(listErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not load list: ${listErr.message}`); }
+      return;
+    }
 
     // Names/categories/staple flags now arrive inline from the list RPC join.
     const catalogNameMap = {};
@@ -326,7 +332,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           .select("id, name, budget_goal")
           .eq("id", householdId)
           .single();
-        if (hhErr) { setError(`Could not fetch household: ${hhErr.message}`); setLoading(false); return; }
+        if (hhErr) {
+          if (classifyFetchError(hhErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not fetch household: ${hhErr.message}`); }
+          setLoading(false); return;
+        }
         if (cancelled) return;
         const hh = hhData;
         setHousehold(hh);
@@ -418,6 +427,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         pollInterval = setInterval(() => { loadListItems(db, hh.id); }, 2000);
         catalogPollInterval = setInterval(() => { refreshCatalogRef.current(); }, 20000);
 
+        reportSuccess();
         setLoading(false);
       } catch (err) {
         if (!cancelled) {
@@ -550,12 +560,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         }
 
       }
+      reportSuccess();
  } catch (err) {
   console.error("updateQty error:", err.message, err);
   console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
-      setError(`Could not update quantity: ${err.message}`);
-      // Rollback optimistic update
+      // Rollback unconditionally, then notify
       setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
+      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update quantity: ${err.message}`); }
     }
   }, []);  // empty deps — uses refs, never stale
 
@@ -580,10 +591,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .eq("catalog_item_id", resolvedId)
         .is("deleted_at", null);
       if (updateErr) throw updateErr;
+      reportSuccess();
     } catch (err) {
       console.error("toggleChecked error:", err.message);
-      setError(`Could not update item: ${err.message}`);
       setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
+      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
     }
   }, [checked]);
 
@@ -1136,7 +1148,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .select("id, name, category, is_global, price_hint, is_staple")
       .eq("is_global", true)
       .is("deleted_at", null);
-    if (catalogErr) { setError(`Could not refresh catalog: ${catalogErr.message}`); return; }
+    if (catalogErr) {
+      if (classifyFetchError(catalogErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not refresh catalog: ${catalogErr.message}`); }
+      return;
+    }
 
     const { data: customItems, error: customErr } = await db
       .from("catalog_items")
@@ -1144,7 +1159,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .eq("household_id", hh.id)
       .eq("is_global", false)
       .is("deleted_at", null);
-    if (customErr) { setError(`Could not refresh catalog: ${customErr.message}`); return; }
+    if (customErr) {
+      if (classifyFetchError(customErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not refresh catalog: ${customErr.message}`); }
+      return;
+    }
+
+    reportSuccess();
 
     const next = {};
     (catalog || []).forEach((item) => {
@@ -1175,7 +1195,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       catalogRef.current = next;
       setCatalogMap(next);
     }
-  }, []);
+  }, [reportTransientFailure, reportSuccess]);
 
   // Keep the ref pointing at the latest refreshCatalog so the boot-effect
   // catalog poll can call it without taking it as an effect dependency.
