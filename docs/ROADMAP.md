@@ -15,6 +15,7 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **Fix poll-clobber on offline (prompt 7)** | Offline write → optimistic shows ~1s → 2s list poll fires, fails/returns empty, resets quantity to 0 → reconnect heals. No data loss; cosmetic only. Fix: extend transient-failure handling to `loadListItems` poll path — a failed or empty background fetch should bail and preserve existing quantities, not reset. Reuse `classifyFetchError`; find the poll handler that sets quantities on failed/empty result. |
 | — | **Merge dev → main + Vercel deploy (multi-household go-live)** | **Decision up front:** go live now vs. after owner-gate (invites/rename are member-gated only — no DB owner enforcement yet). Then: push `771effe` → merge `dev`→`main` → push → Vercel deploys. Hard-refresh prod; run behavioral test: switch to non-default household, add item, no 403; regression: single-household add/remove still works. |
 | — | **Remaining multi-household hardening** | Build delete-household (owner-gated, `delete_household` RPC, can't delete last/active). Tighten rename to owner-only. Remove `[ActiveHousehold TEST]` log (`App.js:207`). Clean up dev test households. |
 | 1 | **Fix `auth.uid()` RLS bug (migration 001)** | RLS policies on `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members` compare a Clerk string ID against a uuid column — always false. Inert today but must be fixed before any live feature relies on row-level isolation for those tables. Rewrite to `(auth.jwt()->>'sub')::uuid`. Deliver as a named migration, not an edit to `000`. |
@@ -26,6 +27,8 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **Migration 009 — badge reset on zero (atomic RPC)** | Badge resurrection bug: `updateQty` to 0 soft-deletes the `list_items` row but does NOT clear `list_item_contributors`. Migration 008 upsert then resurrects the same row on re-add, restoring old badges from the tombstone. Fix = atomic `remove_list_item` RPC (soft-delete row + clear that row's contributors in ONE transaction — both-or-neither for marine-wifi robustness). Design decisions: quantity zero = off the list (hard reset, not paused); re-add credits only the re-adder; no veto layer. See design notes in handoff. |
+| — | **SPEC + build: Leave / Remove membership exit** | LEAVE ≈ HIDE (per-user, non-owner self-exit); REMOVE = owner-only on non-owner target. Gated on cycle-boundary question: is `provision_cycles` user-facing yet? If yes → ship with "applies at next cycle boundary." If no → ship simpler rule first (items stay, badge clears, no cycle dependency), design boundary participation separately when cycles surface. Produce SPEC_leave_remove_member.md + mockup before code. |
 | — | **Constraint-name reconciliation (dev↔prod)** | `list_items` unique constraint is named differently across environments — dev: auto-generated `list_items_household_id_catalog_item_id_key`; prod: explicit `list_items_household_catalog_unique`. Migration 008 uses the column-target form to dodge this. Any future ON CONSTRAINT migration must account for the split. Reconcile via a dedicated migration. |
 | — | **Quiet quantity-bump race** | Simultaneous +1 quantity increments on an already-existing `list_items` row serialize via Postgres row lock (no error) but can land as a single increment rather than summing — silent undercount, no toast. Concurrent-INSERT race is now closed (migration 008); this concurrent-UPDATE race on existing rows remains open. |
 | — | **Surface "invite no longer valid" on invalid/spent code** | Invalid or expired invite currently fails silently — user lands in blank "My Household" with no feedback. `bootstrap_new_user` detects the failed join; surface it to the client. |
@@ -50,6 +53,7 @@
 | 8 | **Global category rename** | `household_category_overrides` table. Lets a household rename "Pantry" → "Dry Goods" etc. Migration pending. |
 | 9 | **Reset Household (nuclear option)** | Confirmation-gated. Returns catalog to factory seed and clears household customizations. NOT the everyday undo for hides/deletes — recovery-from-chaos only. |
 | 10 | **Replace remaining `window.location.reload()` calls** | Audit codebase; replace all with `refreshCatalog()` pattern. |
+| — | **Avatar two-letter monograms (small UX)** | Single-initial contributor badges are ambiguous — two users can both render "D" (Dan Holmes / Dan Test User). Fix: two-letter monogram (DH / DT — names already provide the data). Alternatively: per-user distinct colors, or lean on the existing hover-name. Two-letter likely cleanest. |
 | 11 | **Email receipt parser** | Most actionable near-term price ingestion path. No partnerships required. Parse forwarded grocery receipts via email. |
 
 ---
@@ -207,6 +211,10 @@ Closes the loop. Turns data into action.
 | 2026-06-20 | **Use column-target ON CONFLICT (household_id, catalog_item_id), not ON CONFLICT ON CONSTRAINT name.** Dev and prod have drifted on the unique-constraint name (dev: auto-named; prod: `list_items_household_catalog_unique`). Column form resolves to whichever covering unique index exists — one migration file applies cleanly to both environments. |
 | 2026-06-20 | **insert_list_item upsert uses last-write-wins on quantity, not additive.** Additive would fight the `updateQty` UPDATE path (absolute set-value semantics); two competing semantics would cause drift. Concurrent-add race is rare enough that LWW is the safe, consistent choice. |
 | 2026-06-20 | **On conflict, clear deleted_at and force status='pending'.** Concurrent add against a soft-deleted slot resurrects cleanly instead of erroring. Eliminates the Lemons 409 scenario as a side-effect of the concurrent-add fix. |
+| 2026-06-20 | **Classify transport failures separately from HTTP errors (classifyFetchError pattern).** Transport failures (no HTTP response) → pill + keep last-good. HTTP/RLS/Supabase errors → red toast unchanged. Default `'real'` when uncertain — better a loud real error than silently swallowing one. |
+| 2026-06-20 | **Rollback optimistic writes unconditionally on any error — transient or real.** Rollback runs first; then branch the notification. User always returns to true-server-state on failure regardless of failure type. No phantom saves. |
+| 2026-06-20 | **Quantity zero = off the list (hard reset), not paused.** Re-add credits only the re-adder. Badge is present-tense ("who wants this now"), never historical. Zero-out path must atomically clear contributors (migration 009) or old badges resurrect from the tombstone on re-add (confirmed bug). |
+| 2026-06-20 | **Membership exit (Leave/Remove) gated on cycle-boundary question.** If provision_cycles are user-facing → ship with "applies at next boundary." If still backend-only → ship simpler rule first; design cycle-boundary participation when cycles surface. Don't stack a dependency on an unloaded seam. Owner cannot Leave — must transfer or delete. Items stay on list (shared list is sacred). Attribution badge clears on exit (display rule only; added_by is never nulled). |
 
 ---
 
@@ -266,6 +274,7 @@ Closes the loop. Turns data into action.
 | **Dev grant restoration** | Jun 16, 2026 | Restored `authenticated`/`anon` grants on dev sandbox after "Reset Public Schema Permissions" query stripped them. Wrote `007_dev_restore_role_grants.sql` (dev-only). Root cause of the Jun-13 "permission denied for table households" dev block — was grants, not the `auth.uid()` RLS bug assumed. |
 | **Multi-household invite-join flow** | Jun 19, 2026 | New-user auto-switch + established-user silent-join verified end-to-end. Three bugs fixed: invite code survives Clerk sign-up redirect (`index.js` sessionStorage capture before ClerkProvider), Effect 2 resolver trusts `activeHouseholdId` unconditionally (no data split on silent join), join-banner calls `refreshHouseholds()` on any confirmed join (switcher updates without reload). |
 | **Concurrent-add 409 + Lemons 409 fixed (migration 008)** | Jun 20, 2026 | `insert_list_item` converted to upsert (INSERT ... ON CONFLICT (household_id, catalog_item_id) DO UPDATE). Concurrent new-item add: second writer folds into update instead of 409ing. Soft-deleted slot resurrection: conflict path clears `deleted_at`, forces `status='pending'`. Both two-window tests passed on dev and prod. |
+| **Connectivity pill — soft offline/retry UX** | Jun 20, 2026 | `classifyFetchError` classifier + `ConnectivityContext` state machine + `ConnectivityPill` component. Read paths keep last-good data on transient fail; write paths roll back unconditionally + branch (pill vs red toast); `reportSuccess()` clears pill on any success. Converted: catalog-refresh ×2, list-load, household-fetch, updateQty, toggleChecked. Verified with DevTools network throttling on dev. |
 
 ---
 

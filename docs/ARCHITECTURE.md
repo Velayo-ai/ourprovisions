@@ -55,6 +55,9 @@ Fresh-machine bootstrap is documented in `docs/DEV_SETUP.md`. The principle: **t
 |---|---|
 | `src/App.js` | Main React component — all UI, tabs, modals, list rendering |
 | `src/hooks/useProvisions.js` | All data logic — Supabase queries, state, real-time subscriptions |
+| `src/lib/classifyFetchError.js` | Pure classifier: returns `'transient'` or `'real'` for any caught error. No imports. |
+| `src/contexts/ConnectivityContext.js` | State machine exposing `connState` + `reportTransientFailure` / `reportSuccess`. Provider + `useConnectivity` hook. |
+| `src/components/ConnectivityPill.js` | Bottom-center status pill; renders nothing when `connState === 'online'`. |
 | `src/supabaseClient.js` | Supabase client initialization with Clerk JWT auth |
 | `public/index.html` | Shell — Open Graph tags, Clerk script, favicon |
 | `CLAUDE.md` (repo root) | Claude Code standing context + Session Scribe routine |
@@ -281,6 +284,8 @@ Aggregates average `price_per_unit` per category across all list_items with real
 - **Prices are infrastructure, not UI.** Manual price entry creates friction. Price data builds passively through receipt scanning.
 - **Merge don't duplicate.** When multiple users add the same item, merge with quantity increment + contributor attribution.
 - **`window.location.reload()` is an anti-pattern.** Always use `refreshCatalog()` instead.
+- **Transient network failures degrade gracefully — never alarm the user.** A blip on marine wifi is not an error. Classify transport failures vs. real HTTP/RLS errors (`classifyFetchError`). Transient → silent pill + keep last-good data. Real → red toast as before. Default to `'real'` when uncertain (fail safe). See `classifyFetchError + ConnectivityPill` pattern.
+- **Optimistic writes roll back unconditionally.** On any write failure (transient or real), rollback runs first, then the notification branches. The user always returns to true-server-state. No phantom saves under any error type.
 - **Two roles only (owner/member). UI shows capability, not role nouns.** Internal shorthand "captain/crew"; DB stores owner/member; product surfaces a Remove button, not a "Captain" badge. No nautical labels in the product.
 - **Active context is client-authoritative (the Harbour standard).** Each app instance holds its own active household (React context + localStorage, keyed to the Clerk user); the server authorizes the claimed household, never infers or picks it. `is_member_of` is the authorization primitive; `get_my_households()` is the enumeration authority. `get_current_household_id()`'s "pick a household" role is retired for write paths — replaced by "authorize the claimed household." Generalizes to the fleet (active vessel, active kitchen). *(Established Jun 17.)*
 - **Switcher reveals progressively.** No switcher chrome at 1 household. A tappable household-name sub-line appears only at 2+ households. "Create new household" is the act that unlocks it. Zero friction for the common case.
@@ -351,6 +356,16 @@ Write paths are migrated from `= get_current_household_id()` (server picks one h
 - **`get_current_household_id()`** — legacy helper; still used by some policies pending their 005-migration conversion. Do NOT add new callers.
 
 Migration 004 converts `list_items` write gates (hot path). Migration 007 converts the remaining five gates (household_members select, waste_events, catalog_items select+insert, household_invites insert). `get_current_household_id()` is now retired from all active RLS policy paths.
+
+### classifyFetchError + ConnectivityPill — offline/retry handling *(Jun 20)*
+
+Transport-layer failures (no HTTP response) are classified separately from real HTTP errors, RLS denials, and Supabase error codes so the app can degrade gracefully without alarming the user.
+
+- **`src/lib/classifyFetchError.js`** — pure function (no imports). Returns `'transient'` for: message includes "Failed to fetch", "NetworkError", "ERR_CONNECTION", "ERR_NETWORK", "ERR_INTERNET_DISCONNECTED", "ERR_NAME_NOT_RESOLVED"; `name === 'AbortError'`; `name === 'TypeError'` with message matching `/fetch|network/i`. Returns `'real'` for everything else. **Default is `'real'`** (fail safe — a loud real error surfacing is better than silently swallowing one).
+- **`src/contexts/ConnectivityContext.js`** — state machine. `connState` starts `'online'`. `reportTransientFailure()`: if online or recovered → `'reconnecting'`; after 3 consecutive calls → `'offline'`. `reportSuccess()`: if reconnecting or offline → `'recovered'` + starts 2s timer → `'online'`; timer cleared on re-entry to prevent stacking. `failureCount` is a ref (UI doesn't need to render from it); `connState` is state. `ConnectivityProvider` wraps the tree outside `ActiveHouseholdProvider`. `useConnectivity()` hook.
+- **`src/components/ConnectivityPill.js`** — returns `null` when `connState === 'online'`. Three visible states: *Reconnecting* (sand `#EFE2CC`, amber `#B8860B` pulsing dot, 1.3s ease-in-out opacity+scale); *Offline* (`#F0E0BE`, steady dark dot, "showing last saved"); *Back online* (teal `#CDEDE8`, teal dot). Fixed bottom-center (`bottom: 28px`, mirrors toast), `pointerEvents: none`, `role=status aria-live=polite`.
+- **Read-path pattern:** catch block calls `classifyFetchError(err)`. Transient → `reportTransientFailure()`; keep last-good data; return without `setError`. Real → existing `setError(...)` unchanged. `reportSuccess()` called on boot load success and 20s catalog-poll success. Applied to: catalog-refresh ×2, `loadListItems`, household-fetch in `loadForHousehold`.
+- **Write-path pattern:** rollback is **unconditional** (runs on any catch — transient AND real). Then branch: transient → `reportTransientFailure()`, real → `setError(...)`. `reportSuccess()` after server confirms the write. Applied to: `updateQty`, `toggleChecked`.
 
 ### Active Household Context *(built Jun 17 — `src/contexts/ActiveHouseholdContext.js`)*
 

@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-20] — [OurProvisions] — Connectivity pill: soft offline/retry UX
+**Goal:** Replace the alarming red error toast on transient network drops with a gentle bottom pill (Reconnecting / Offline / Back online) that keeps last-good data visible.
+**Completed:**
+- Built `src/lib/classifyFetchError.js` — pure classifier (no imports): transient (Failed to fetch, ERR_CONNECTION*, NetworkError, AbortError, TypeError+network) → pill; real (HTTP error, Supabase code/status, RLS denial, anything else) → red toast. Default `'real'` (fail safe).
+- Built `src/contexts/ConnectivityContext.js` — state machine (online → reconnecting → [3 fails] offline → [success] recovered → [2s] online); `failureCount` ref; recovered timer cleared on re-entry + unmount. Built `src/components/ConnectivityPill.js` — brand-token styled (sand/amber pulse, dark-dot offline, teal back-online), bottom-center mirrors toast, `pointerEvents:none`, `role=status aria-live=polite`, returns null when online.
+- Wired `ConnectivityProvider` into `App.js` (outside `ActiveHouseholdProvider`); rendered `<ConnectivityPill />` adjacent to existing error toast.
+- Converted 4 read-path error guards in `useProvisions.js` (catalog-refresh ×2, list-load, household-fetch): transient → `reportTransientFailure()` + keep last-good; real → unchanged `setError()`. `reportSuccess()` on boot load success and 20s catalog-poll success.
+- Converted 2 write-path error guards (`updateQty`, `toggleChecked`): rollback UNCONDITIONAL (runs on any catch), then branch (transient → pill, real → setError); `reportSuccess()` on confirmed write. Verified: offline write rolls back + shows pill; reconnect reconciles server value.
+- Diagnosed badge resurrection bug (design chat): zero-out soft-deletes `list_items` row but does NOT clear `list_item_contributors`; migration 008 upsert resurrects the same row → old badges reappear. Fix = migration 009 atomic RPC (soft-delete + contributor clear, both-or-neither for marine-wifi robustness).
+- Designed membership exit (Leave/Remove) in principle (design chat): LEAVE ≈ HIDE (per-user, non-owner self-exit); REMOVE = owner-only. Gated on cycle-boundary question: if provision_cycles are user-facing, ship with "applies at next boundary"; if still backend-only, ship simpler rule first. Do not stack on an unloaded seam.
+**Unfinished:**
+- Poll-clobber on offline: offline write → optimistic shows correctly → ~1s later background 2s list poll fires, fails/returns empty, resets quantity to 0 → reconnect heals. Transient handling not yet extended to the poll/realtime path (next session).
+- Feature files not yet committed (verified on localhost dev). Commit: `feat(ux): connectivity pill — soft offline/retry for transient fetch failures`.
+- Remaining `setError` sites (clear list, open cycle, start session) still red toast — optional polish, not core.
+- SPEC_leave_remove_member.md not yet produced; cycle-boundary gating question unanswered.
+- Migration 009 (badge reset on zero) designed but not built.
+**Next session:**
+SESSION START
+Goal: Fix poll-clobber on offline — extend transient-failure handling to the 2s list poll so a failed/empty background fetch does not reset visible quantities to 0 while offline.
+State: Connectivity pill verified working on dev (not yet committed). Read paths keep last-good data on transient fail. Write paths roll back unconditionally and branch notification. Poll-clobber is a pre-existing bug exposed by offline testing: offline write shows correct optimistic value ~1s, then 2s poll fires, fails, resets quantity to 0, reconnect heals. No data loss; cosmetic only.
+Done when: An offline write optimistic value stays visible and stable for the full offline window — no collapse to 0 on the poll tick.
+**Files updated:** `src/lib/classifyFetchError.js` (new), `src/contexts/ConnectivityContext.js` (new), `src/components/ConnectivityPill.js` (new), `src/App.js` (ConnectivityProvider wrap + pill render), `src/hooks/useProvisions.js` (read-path + write-path error guard conversions).
+**DB changes:** None.
+
 ### [2026-06-20] — [OurProvisions] — Concurrent-add 409 fix (migration 008)
 **Goal:** Make insert_list_item conflict-safe so two members adding the same item at once stop throwing a 409 on the losing client.
 **Completed:**
