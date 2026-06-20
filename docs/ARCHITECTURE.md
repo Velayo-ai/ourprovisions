@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-19*
+*Last updated: 2026-06-20*
 
 ---
 
@@ -109,6 +109,7 @@ Historical files (superseded, in `migrations/archive/`):
 | `migrations/005_households_authorize_by_membership.sql` | Rewrite `households` SELECT/UPDATE RLS to `is_member_of(id)`; add `with check` on UPDATE; preserve invite-preview subquery on SELECT verbatim. Depends on 003. Fixes 406 on Effect 2 household fetch. | Dev + Prod (2026-06-18) |
 | `migrations/006_create_household.sql` | `create_household(p_name, p_clerk_id)` SECURITY DEFINER RPC — atomically creates household + adds caller as owner-member, returns `{household_id, household_name}`. | Dev + Prod (2026-06-18) |
 | `migrations/007_finish_authorize_sweep.sql` | Converts last five `get_current_household_id()` gates to `is_member_of`: `household_members_select`, `waste_events_all`, `catalog_items_select`, `catalog_items_insert`, `household_invites invites_insert`. Uses SECURITY DEFINER `is_member_of` on `household_members_select` to avoid RLS recursion. Fixes contributor 403. | Dev + Prod (2026-06-18) |
+| `migrations/008_insert_list_item_upsert.sql` | Converts `insert_list_item` from plain INSERT to INSERT ... ON CONFLICT (household_id, catalog_item_id) DO UPDATE. Merge semantics: quantity = last-write-wins (EXCLUDED), status forced to 'pending', deleted_at = NULL (resurrects tombstoned slots), cycle_id and price_per_unit preserved via COALESCE, updated_at bumped. Fixes concurrent-add 409 and Lemons 409 simultaneously. Signature, language (sql), SECURITY DEFINER, and search_path unchanged. | Dev + Prod (2026-06-20) |
 
 ---
 
@@ -148,7 +149,7 @@ The living household list. Items are never hard deleted — they move through st
 - Phase 2 forward refs: `session_id`, `checked_sequence`, `checked_lat`, `checked_lng`
 - Phase 4: `deferred_reason`
 - `created_at`, `updated_at`, `deleted_at`
-- **Unique constraint:** `list_items_household_catalog_unique (household_id, catalog_item_id)` — named explicitly to match prod; `close_cycle`'s upsert targets this constraint.
+- **Unique constraint:** `(household_id, catalog_item_id)` — prod names this `list_items_household_catalog_unique`; dev uses the Postgres auto-generated name `list_items_household_id_catalog_item_id_key` (constraint-name drift, see Known Debt). `close_cycle` and migration 008 use the column-target form to remain environment-agnostic.
 - **RLS write policies (migration 004, Dev + Prod 2026-06-18):** `list_items_write` (insert), `list_items_update` (using + with check), `list_items_delete` (using) gate on `is_member_of(household_id)` instead of `= get_current_household_id()`. SELECT policy unchanged (already returns all households the caller belongs to).
 
 #### `waste_events`
@@ -218,7 +219,7 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `get_list_items_for_household()` | Primary list read — returns rows with name/category/is_staple inline. Bypasses stale `auth.uid()` RLS. |
 | `get_catalog_names_by_ids(p_ids uuid[])` | Batch catalog name lookup by ID array. |
 | `insert_custom_catalog_item(...)` | Inserts a household-owned catalog item. |
-| `insert_list_item(...)` | Inserts a `list_items` row. |
+| `insert_list_item(...)` | Inserts a `list_items` row. **Now an upsert (migration 008):** ON CONFLICT (household_id, catalog_item_id) DO UPDATE — quantity last-write-wins, status='pending', deleted_at cleared (resurrects tombstoned slots), cycle_id and price_per_unit COALESCE-preserved. Signature, language (sql), SECURITY DEFINER, search_path unchanged. |
 | `delete_custom_catalog_item(p_catalog_item_id)` | Hard-deletes a custom catalog item + cascades to referencing rows. |
 | `get_active_cycle(p_household_id)` | Returns the current open provision cycle. |
 | `close_cycle(p_household_id)` | Archives a cycle — upserts items forward (targets `list_items_household_catalog_unique`), clears badges. Live version supersedes the 005 file. |
@@ -245,8 +246,8 @@ Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, t
   3. `get_my_households()` / `ActiveHouseholdContext` default — `joined_at ASC` (oldest first). Context persists last-selected to localStorage.
   Pre-002 failure mode: bootstrap picked a household (arbitrary heap order) that the RLS gate (`DESC`) would not permit reading → `useProvisions.js:244` `.single()` got 0 rows → "Cannot coerce to a single JSON object" (a 0-row PostgREST 406, not a too-many-rows error). Migration 002 aligns bootstrap to the RLS gate (`DESC`) to stop the crash. It does NOT reconcile the context default (`ASC`) — bootstrap picks newest (Lake House) while the context's fallback picks oldest (My Household). Harmless while they read different sources; the REAL FIX is a single source of truth = the context's `activeHouseholdId`, passed to bootstrap and used to rewrite `get_current_household_id()`.
 - **Migration 002 DEV only** (bootstrap ordering stopgap). Migrations 001, 003–007 applied to Dev + Prod (2026-06-18) — 003–007 as one atomic bundle (`bundle_003_007_prod.sql`).
-- **Lemons 409 — revive-after-soft-delete constraint collision:** `list_items_household_catalog_unique (household_id, catalog_item_id)` is NOT a partial index — soft-deleted rows (`deleted_at IS NOT NULL`) still occupy the key. `updateQty`'s revive-UPDATE misses (soft-deleted row not visible to the UPDATE), and the fallback INSERT collides. Fix candidates: `CREATE UNIQUE INDEX ... WHERE deleted_at IS NULL`; or a `revive_or_insert` SECURITY DEFINER RPC that does the conditional in-DB.
-- **Concurrent same-item INSERT race:** `updateQty`'s UPDATE-then-INSERT is safe against staleness but NOT under concurrency. Two clients adding the same new item simultaneously both observe 0 rows on UPDATE and both attempt INSERT — the second 409s on `list_items_household_catalog_unique`. The constraint is correct (one clean row results); the failure is a surfaced error on the losing client. Fix: `insert_list_item` should upsert `ON CONFLICT (household_id, catalog_item_id) DO UPDATE`. Next-session opener.
+- **CONSTRAINT-NAME DRIFT (dev↔prod):** `list_items` unique constraint on `(household_id, catalog_item_id)` is named differently across environments — dev: `list_items_household_id_catalog_item_id_key` (Postgres auto-generated); prod: `list_items_household_catalog_unique` (explicit). The `000` baseline comment incorrectly implied dev was renamed to match prod; it was not. Migration 008 uses the column-target form to avoid this. Any future migration referencing this constraint BY NAME must account for the split, or use the column-target form. Reconciliation deferred to a dedicated migration.
+- **Quiet quantity-bump race:** The add-item client path does UPDATE-then-fallthrough-to-insert. The concurrent-INSERT race is now closed by the migration 008 upsert. The concurrent-UPDATE race on an already-existing row is NOT addressed — two simultaneous +1 quantity bumps serialize via Postgres row lock (no error) but can land as a single increment rather than summing. No toast; possible silent undercount. Out of scope for 008; flagged for next session.
 - **`household_members` has no `created_at` column** (most tables do) — only `joined_at`. Any ordering or auditing on this table must use `joined_at`.
 
 ---
@@ -379,6 +380,17 @@ Single-slot app-level toast — the in-app notification primitive.
 - `showToast(message)` sets message; cancels any pending timer; auto-clears after 2500ms.
 - Fixed-position dark pill, rendered in `App.js` so it outlives the modal that triggered it (`zIndex: 2000`).
 - Used for: household-create confirmation, rename confirmation. Reuse for: item added, list rolled, etc.
+
+### Function body verification via pg_proc.prosrc *(Jun 20)*
+
+The Supabase dashboard SQL editor auto-appends `limit 100`, which silently breaks scalar-returning calls like `pg_get_functiondef('fn'::regprocedure)` with a misleading parse error. Reliable verification path: query `pg_proc.prosrc` with a position check:
+
+```sql
+SELECT proname, position('ON CONFLICT' in prosrc) > 0 AS upsert_present
+FROM pg_proc WHERE proname = 'insert_list_item';
+```
+
+Returns a clean boolean, immune to the auto-limit. Use this pattern over `pg_get_functiondef` whenever you need to confirm a function body change was saved. (Extends the existing "SQL Editor may silently keep old versions" caution in CLAUDE.md.)
 
 ### Contributor Merge Logic (app-side)
 When a user adds an item already on the list:

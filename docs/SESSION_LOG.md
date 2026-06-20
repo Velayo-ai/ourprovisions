@@ -25,6 +25,26 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-20] — [OurProvisions] — Concurrent-add 409 fix (migration 008)
+**Goal:** Make insert_list_item conflict-safe so two members adding the same item at once stop throwing a 409 on the losing client.
+**Completed:**
+- Designed migration 008: converted insert_list_item from plain INSERT to INSERT ... ON CONFLICT (household_id, catalog_item_id) DO UPDATE.
+- Chose column-target conflict form over named-constraint form after discovering dev/prod constraint-name drift (dev: auto-named key; prod: list_items_household_catalog_unique).
+- Settled merge semantics: last-write-wins on quantity (matches updateQty set-value model), force status='pending', clear deleted_at to resurrect tombstoned slots, COALESCE-preserve cycle_id and price_per_unit.
+- Applied 008 to dev; verified upsert_present = true via pg_proc.prosrc; passed both two-window manual tests (concurrent new-item add + concurrent add against soft-deleted tombstone).
+- Applied 008 to prod after two-way environment confirmation; verified upsert_present = true on prod.
+- Committed 008 (`6cb82c7`) and bundle_003_007_prod.sql historical record (`f764200`), both local on dev.
+**Unfinished:**
+- 3 commits on dev unpushed (deliberate — awaiting Dan's review/push).
+- bundle_003_007_prod.sql not yet annotated with "APPLIED TO PROD — historical record, do not re-run" header.
+**Next session:**
+SESSION START
+Goal: Reconcile the dev/prod constraint-name drift on list_items, and/or close the quiet quantity-bump race.
+State: Concurrent-add 409 and Lemons 409 both fully fixed and live in prod. Multi-household invite-join flow is live. insert_list_item is now an upsert on both DBs.
+Done when: (a) dev and prod agree on the list_items unique-constraint name via a deliberate reconciliation migration, and/or (b) simultaneous +1 quantity increments on an existing row no longer undercount.
+**Files updated:** `migrations/008_insert_list_item_upsert.sql` (new), `migrations/bundle_003_007_prod.sql` (now tracked).
+**DB changes:** insert_list_item replaced with upsert body on dev AND prod.
+
 ### [2026-06-19] — [OurProvisions] — Multi-household invite-join flow end-to-end
 **Goal:** Fix three sequential invite-join bugs so new and established users can join via invite code without reload, data split, or switcher lag — and verify both branches end-to-end with two real users.
 **Completed:**

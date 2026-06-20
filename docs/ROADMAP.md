@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-19*
+*Last updated: 2026-06-20*
 
 ---
 
@@ -16,7 +16,7 @@
 | # | Feature | Notes |
 |---|---|---|
 | — | **Merge dev → main + Vercel deploy (multi-household go-live)** | **Decision up front:** go live now vs. after owner-gate (invites/rename are member-gated only — no DB owner enforcement yet). Then: push `771effe` → merge `dev`→`main` → push → Vercel deploys. Hard-refresh prod; run behavioral test: switch to non-default household, add item, no 403; regression: single-household add/remove still works. |
-| — | **Remaining multi-household hardening** | Fix Lemons 409 (revive-after-soft-delete collides with non-partial unique index — partial index `WHERE deleted_at IS NULL` or revive RPC). Build delete-household (owner-gated, `delete_household` RPC, can't delete last/active). Tighten rename to owner-only. Remove `[ActiveHousehold TEST]` log (`App.js:207`). Clean up dev test households. |
+| — | **Remaining multi-household hardening** | Build delete-household (owner-gated, `delete_household` RPC, can't delete last/active). Tighten rename to owner-only. Remove `[ActiveHousehold TEST]` log (`App.js:207`). Clean up dev test households. |
 | 1 | **Fix `auth.uid()` RLS bug (migration 001)** | RLS policies on `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members` compare a Clerk string ID against a uuid column — always false. Inert today but must be fixed before any live feature relies on row-level isolation for those tables. Rewrite to `(auth.jwt()->>'sub')::uuid`. Deliver as a named migration, not an edit to `000`. |
 | 2 | **Consolidate duplicate helper functions (migration 002)** | `get_household_id_for_current_user` / `get_current_household_id` and `get_user_id_from_clerk` / `get_current_user_id` are near-identical pairs. Drop the redundant copies; update any callers. Deliver as a named migration. |
 
@@ -26,7 +26,8 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| — | **`insert_list_item` conflict-safety** | Two clients adding the same new item simultaneously both reach the INSERT path in `updateQty` (both see 0 rows on UPDATE) and the second 409s on `list_items_household_catalog_unique`. Fix: `insert_list_item` should upsert `ON CONFLICT (household_id, catalog_item_id) DO UPDATE`. Constraint is working correctly; error surface is wrong. Next-session priority. |
+| — | **Constraint-name reconciliation (dev↔prod)** | `list_items` unique constraint is named differently across environments — dev: auto-generated `list_items_household_id_catalog_item_id_key`; prod: explicit `list_items_household_catalog_unique`. Migration 008 uses the column-target form to dodge this. Any future ON CONSTRAINT migration must account for the split. Reconcile via a dedicated migration. |
+| — | **Quiet quantity-bump race** | Simultaneous +1 quantity increments on an already-existing `list_items` row serialize via Postgres row lock (no error) but can land as a single increment rather than summing — silent undercount, no toast. Concurrent-INSERT race is now closed (migration 008); this concurrent-UPDATE race on existing rows remains open. |
 | — | **Surface "invite no longer valid" on invalid/spent code** | Invalid or expired invite currently fails silently — user lands in blank "My Household" with no feedback. `bootstrap_new_user` detects the failed join; surface it to the client. |
 | — | **Re-key join detection off `joined_via_invite`, not household name** | Join-banner effect in `App.js` checks `household.name !== "My Household"` — fragile if a real household is named "My Household". Re-key off the `joined_via_invite` boolean already returned by `bootstrap_new_user`. |
 | — | **Receipt scan entry point in wrap-up modal** | After rolling items forward, prompt appears: "Scan your receipt to capture prices." Natural on-ramp to Phase 3. |
@@ -203,6 +204,9 @@ Closes the loop. Turns data into action.
 | 2026-06-18 | **`dev`→`main` merge is the multi-household go-live event, not a ride-along.** It deploys the switcher to all prod users on push. Treat as its own deliberate session with the live-now-vs-after-owner-gate product decision made up front. |
 | 2026-06-19 | **Invite-join switching is intent-gated on user state.** First household ever → auto-switch (nothing to interrupt; invite is the front door). Established user joining another → silent join (don't yank an in-flight user; new household appears in switcher, available on tap). Extends "user holds the lens / confirmation not silent switch" from location to membership. Established-user-with-untouched-list auto-switch was specified but NOT built (requires a pre-join authored-state snapshot because Effect 2 wipes prior-household maps before the banner fires); `hadPrior`-only gate shipped instead. Rationale: silent join fails safe (one tap) vs. mid-work context loss; the edge case is rare and unmeasured, so deferred pending usage evidence. |
 | 2026-06-19 | **Resolver is single-source: Effect 2 follows `activeHouseholdId`, full stop.** Removed `justJoinedViaInviteRef` forced-fallback. In auto-switch, `switchHousehold` already sets `activeHouseholdId` to the joined household before Effect 2 resolves; in silent join, it stays on the prior household. Trusting `activeHouseholdId` is correct in both cases. The forced-fallback was the third instance of "multiple paths each decide which household to load, and disagree." |
+| 2026-06-20 | **Use column-target ON CONFLICT (household_id, catalog_item_id), not ON CONFLICT ON CONSTRAINT name.** Dev and prod have drifted on the unique-constraint name (dev: auto-named; prod: `list_items_household_catalog_unique`). Column form resolves to whichever covering unique index exists — one migration file applies cleanly to both environments. |
+| 2026-06-20 | **insert_list_item upsert uses last-write-wins on quantity, not additive.** Additive would fight the `updateQty` UPDATE path (absolute set-value semantics); two competing semantics would cause drift. Concurrent-add race is rare enough that LWW is the safe, consistent choice. |
+| 2026-06-20 | **On conflict, clear deleted_at and force status='pending'.** Concurrent add against a soft-deleted slot resurrects cleanly instead of erroring. Eliminates the Lemons 409 scenario as a side-effect of the concurrent-add fix. |
 
 ---
 
@@ -261,6 +265,7 @@ Closes the loop. Turns data into action.
 | **SHOP swipe redesign + toggleChecked id fix** | Jun 16, 2026 | SHOP swipe now calls `removeFromList` (list-layer soft-delete of `list_item`) instead of `hideItem` (catalog-layer). Own item: instant remove. Shared item: confirm modal naming the adder. `toggleChecked` rewired to resolve by `catalog_item_id` from `listRows`, eliminating "not in catalog" failures on rolled-forward items. Cold-tested on dev with two members. |
 | **Dev grant restoration** | Jun 16, 2026 | Restored `authenticated`/`anon` grants on dev sandbox after "Reset Public Schema Permissions" query stripped them. Wrote `007_dev_restore_role_grants.sql` (dev-only). Root cause of the Jun-13 "permission denied for table households" dev block — was grants, not the `auth.uid()` RLS bug assumed. |
 | **Multi-household invite-join flow** | Jun 19, 2026 | New-user auto-switch + established-user silent-join verified end-to-end. Three bugs fixed: invite code survives Clerk sign-up redirect (`index.js` sessionStorage capture before ClerkProvider), Effect 2 resolver trusts `activeHouseholdId` unconditionally (no data split on silent join), join-banner calls `refreshHouseholds()` on any confirmed join (switcher updates without reload). |
+| **Concurrent-add 409 + Lemons 409 fixed (migration 008)** | Jun 20, 2026 | `insert_list_item` converted to upsert (INSERT ... ON CONFLICT (household_id, catalog_item_id) DO UPDATE). Concurrent new-item add: second writer folds into update instead of 409ing. Soft-deleted slot resurrection: conflict path clears `deleted_at`, forces `status='pending'`. Both two-window tests passed on dev and prod. |
 
 ---
 
