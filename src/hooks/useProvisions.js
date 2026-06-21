@@ -513,14 +513,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       }
 
       if (qty <= 0) {
-        // Soft-delete the list_items row
-        const { error: delErr } = await db
-          .from("list_items")
-          .update({ deleted_at: new Date().toISOString() })
-          .eq("household_id", hh.id)
-          .eq("catalog_item_id", catalogItem.id)
-          .is("deleted_at", null)
-          .select();
+        // Atomic remove: soft-delete the list_items row AND clear its
+        // contributor badges in one transaction (migration 009). Replaces the
+        // old client-side soft-delete that left contributors behind and caused
+        // badge-resurrection on re-add (008 upsert revives the same row).
+        const { error: delErr } = await db.rpc("remove_list_item", {
+          p_household_id: hh.id,
+          p_catalog_item_id: catalogItem.id,
+        });
         if (delErr) throw delErr;
       } else {
         const { data: updateData, error: updateErr } = await db
