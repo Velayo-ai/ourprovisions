@@ -2,6 +2,8 @@ import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/c
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useProvisions } from './hooks/useProvisions';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
+import { ConnectivityProvider } from './contexts/ConnectivityContext';
+import { ConnectivityPill } from './components/ConnectivityPill';
 
 // Maps Supabase category names → display names with emoji
 const CATEGORY_DISPLAY = {
@@ -747,6 +749,9 @@ function ProvisionsApp() {
           }}>Loading your provisions…</div>
         </div>
       )}
+
+      {/* Connectivity pill */}
+      <ConnectivityPill />
 
       {/* Error toast */}
       {error && (
@@ -2572,9 +2577,11 @@ export default function ShoppingListApp() {
   const { user } = useUser();
   const { getToken } = useAuth();
   return (
-    <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id}>
-      <HouseholdDebugLog />
-      <ProvisionsApp />
-    </ActiveHouseholdProvider>
+    <ConnectivityProvider>
+      <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id}>
+        <HouseholdDebugLog />
+        <ProvisionsApp />
+      </ActiveHouseholdProvider>
+    </ConnectivityProvider>
   );
 }

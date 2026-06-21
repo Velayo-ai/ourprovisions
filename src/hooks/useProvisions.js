@@ -32,6 +32,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
   const wrappingUpRef = useRef(false);
+  // Items with an in-flight local quantity write. The 2s poll must not
+  // overwrite these from the DB until the write confirms, or it'll briefly
+  // snap the optimistic value back to the stale server value (5→4→5 flicker).
+  const pendingQtyRef = useRef(new Set());
   const [activeCycle, setActiveCycle] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
   const activeCycleRef = useRef(null);
@@ -52,6 +56,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (listErr) {
       if (classifyFetchError(listErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not load list: ${listErr.message}`); }
       return;
+    }
+
+    // Suspect-empty guard: a dropped connection can resolve this RPC with no
+    // error but zero rows. If we currently hold state, treat it as a transient
+    // empty response and bail before any setters run — don't clobber quantities,
+    // checks, rows, or contributors to empty. A real clear-list calls the
+    // setters directly, not through this poll.
+    if (!items || items.length === 0) {
+      let hadItems = false;
+      setQuantities((prev) => { hadItems = Object.keys(prev).length > 0; return prev; });
+      if (hadItems) { reportTransientFailure(); return; }
     }
 
     // Names/categories/staple flags now arrive inline from the list RPC join.
@@ -145,7 +160,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     });
     Object.assign(mergedPrices, newPrices);
     setListRows(newListRows);
-    setQuantities(newQty);
+    // Preserve optimistic values for items with an in-flight write; commit the
+    // rest from the server. Prevents the poll from clobbering a not-yet-
+    // committed local edit.
+    setQuantities((prev) => {
+      if (pendingQtyRef.current.size === 0) return newQty;
+      const merged = { ...newQty };
+      pendingQtyRef.current.forEach((name) => {
+        if (name in prev) merged[name] = prev[name];
+      });
+      return merged;
+    });
     setChecked(newChecked);
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
@@ -461,7 +486,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     if (!hh || !db) return;
 
-    // Optimistic update
+    // Optimistic update + mark this item as having an in-flight write so the
+    // poll won't clobber it before the write confirms.
+    pendingQtyRef.current.add(itemName);
     setQuantities((prev) => ({ ...prev, [itemName]: Math.max(0, qty) }));
 
     try {
@@ -560,14 +587,24 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         }
 
       }
+      pendingQtyRef.current.delete(itemName);
       reportSuccess();
- } catch (err) {
-  console.error("updateQty error:", err.message, err);
-  console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
-      // Rollback unconditionally, then notify
-      setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
-      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update quantity: ${err.message}`); }
+    } catch (err) {
+      pendingQtyRef.current.delete(itemName);
+      console.error("updateQty error:", err.message, err);
+      console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
+      // Classify FIRST. On a transient (offline) failure, keep the optimistic
+      // value — it's the last-good intent that reconnect will reconcile. Only
+      // roll back on a genuine error (real rejection: bad data, RLS, etc.),
+      // where the value truly didn't take.
+      if (classifyFetchError(err) === 'transient') {
+        reportTransientFailure();
+      } else {
+        setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
+        setError(`Could not update quantity: ${err.message}`);
+      }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
 
   const toggleChecked = useCallback(async (itemName, catalogItemId) => {
@@ -597,6 +634,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
       if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checked]);
 
   const clearAll = useCallback(async () => {
@@ -619,6 +657,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setError(`Could not clear list: ${err.message}`);
       await loadListItems(db, hh.id);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─────────────────────────────────────────────────────────────
@@ -785,6 +824,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       console.error("wrapUpTrip error:", err.message);
       setError(`Could not wrap up trip: ${err.message}`);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updateBudgetGoal = useCallback(async (amount) => {
@@ -988,6 +1028,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setError(err.message);
       return false;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // removeFromList: list-layer action. Soft-deletes a single list_item from the
