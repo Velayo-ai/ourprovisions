@@ -249,6 +249,7 @@ function ProvisionsApp() {
     wrapUpTrip,
     createHousehold,
     renameHousehold,
+    refreshMembers,
     supabase,
     _supabase,
     _household,
@@ -668,6 +669,43 @@ function ProvisionsApp() {
     setShowWrapUpModal(false);
     setWrapUpRollItems(new Set());
   };
+
+  const handleRemoveMember = async (m) => {
+    const name = m.users?.email ? m.users.email.split("@")[0] : "this member";
+    if (!window.confirm(`Remove ${name} from this household? Anything they added to the current list stays.`)) return;
+    try {
+      const { error } = await supabase.rpc("remove_member", {
+        p_household_id: household.id,
+        p_user_id: m.user_id,
+      });
+      if (error) throw error;
+      await refreshMembers();
+      await refreshHouseholds();
+      showToast(`${name} removed`);
+    } catch (err) {
+      showToast(err.message || "Could not remove member");
+    }
+  };
+
+  const handleLeaveHousehold = async () => {
+    if (!window.confirm("Leave this household? Anything you added stays behind for the others.")) return;
+    try {
+      const leftId = household.id;
+      const { error } = await supabase.rpc("leave_household", {
+        p_household_id: leftId,
+      });
+      if (error) throw error;
+      setShowHouseholdModal(false);
+      await refreshHouseholds();
+      const remaining = myHouseholds.filter(h => h.id !== leftId);
+      if (remaining.length > 0) switchHousehold(remaining[0].id);
+      showToast("You left the household");
+    } catch (err) {
+      showToast(err.message || "Could not leave household");
+    }
+  };
+
+  const handleDeleteHousehold = () => { console.log('delete household'); };
 
   const shoppingList = useMemo(() => {
     // Group directly from the RPC rows (listRows) — the source of truth that is
@@ -1147,10 +1185,19 @@ function ProvisionsApp() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
                 {!renaming ? (
                   <>
-                    <div style={{
-                      fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
-                      textTransform: "uppercase", color: "#8a7a60",
-                    }}>{household?.name || "This Household"}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      <div style={{
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
+                        textTransform: "uppercase", color: "#8a7a60",
+                      }}>{household?.name || "This Household"}</div>
+                      {(() => {
+                        const owner = householdMembers.find(m => m.role === 'owner');
+                        if (!owner) return null;
+                        const ownerIsMe = owner.users?.clerk_id === user?.id;
+                        const creatorName = ownerIsMe ? "you" : (owner.users?.email ? owner.users.email.split("@")[0] : "Member");
+                        return <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.62rem", letterSpacing: "0.5px", color: "#b0a48c" }}>Created by {creatorName}</div>;
+                      })()}
+                    </div>
                     <button
                       onClick={() => { setRenaming(true); setRenameHouseholdValue(household?.name || ""); }}
                       style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", color: "#8a7a60" }}
@@ -1227,6 +1274,23 @@ function ProvisionsApp() {
                           background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
                         }}>you</span>
                       )}
+                      {m.role !== 'owner' && (
+                        <button
+                          onClick={() => handleRemoveMember(m)}
+                          title="Remove member"
+                          style={{
+                            background: "none", border: "none", cursor: "pointer",
+                            color: "#b08968", padding: "4px", display: "flex", alignItems: "center",
+                            borderRadius: "4px",
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = '#8a3a2a'; e.currentTarget.style.background = '#f0e3d0'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = '#b08968'; e.currentTarget.style.background = 'none'; }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -1241,6 +1305,28 @@ function ProvisionsApp() {
                   borderRadius: "8px", cursor: "pointer", marginTop: "16px",
                 }}
               >+ Invite Someone</button>
+              {householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner') ? (
+                <button
+                  onClick={() => handleDeleteHousehold()}
+                  style={{
+                    width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
+                    letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
+                    background: "#c0392b", color: "#FAF4EC", border: "none",
+                    borderRadius: "8px", cursor: "pointer", marginTop: "8px",
+                  }}
+                >Delete Household</button>
+              ) : (
+                <button
+                  onClick={() => handleLeaveHousehold()}
+                  style={{
+                    width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
+                    letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
+                    background: "transparent", color: "#c0392b",
+                    border: "1.5px solid #c0392b",
+                    borderRadius: "8px", cursor: "pointer", marginTop: "8px",
+                  }}
+                >Leave Household</button>
+              )}
             </div>
 
           </div>

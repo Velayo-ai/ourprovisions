@@ -369,7 +369,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // Members
         const { data: members } = await db
           .from("household_members")
-          .select("id, user_id")
+          .select("id, user_id, role")
           .eq("household_id", hh.id)
           .is("deleted_at", null);
         if (cancelled) return;
@@ -959,20 +959,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
       const internalUserId = internalUserIdRef.current;
 
-      const { data: existing } = await db
-        .from("household_members")
-        .select("id")
-        .eq("household_id", invite.household_id)
-        .eq("user_id", internalUserId)
-        .is("deleted_at", null)
-        .maybeSingle();
-
-      if (!existing) {
-        const { error: joinErr } = await db
-          .from("household_members")
-          .insert({ household_id: invite.household_id, user_id: internalUserId, role: "member" });
-        if (joinErr) throw joinErr;
-      }
+      // Atomic join: revives a soft-deleted membership (leave-then-rejoin)
+      // or inserts a fresh one. Replaces the old read-then-insert that hit
+      // the UNIQUE(household_id, user_id) constraint on the leftover
+      // soft-deleted row and silently failed (migration 011).
+      const { error: joinErr } = await db.rpc("join_household", {
+        p_household_id: invite.household_id,
+      });
+      if (joinErr) throw joinErr;
 
       await db
         .from("household_invites")
@@ -1242,6 +1236,30 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // catalog poll can call it without taking it as an effect dependency.
   refreshCatalogRef.current = refreshCatalog;
 
+  const refreshMembers = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return;
+    try {
+      const { data: members } = await db
+        .from("household_members")
+        .select("id, user_id, role")
+        .eq("household_id", hh.id)
+        .is("deleted_at", null);
+      const { data: profiles } = await db
+        .rpc("get_household_member_profiles", { p_household_id: hh.id });
+      const membersWithProfiles = (members || []).map(m => ({
+        ...m,
+        users: profiles?.find(p => p.user_id === m.user_id) || null
+      }));
+      setHouseholdMembers(membersWithProfiles);
+      householdMembersRef.current = membersWithProfiles;
+    } catch (err) {
+      console.error("refreshMembers error:", err.message);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // refs-only, intentional empty deps
+
   const renameItem = useCallback(async (oldName, newName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -1345,7 +1363,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
-    createHousehold, renameHousehold,
+    createHousehold, renameHousehold, refreshMembers,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,
