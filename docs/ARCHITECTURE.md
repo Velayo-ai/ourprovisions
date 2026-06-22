@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-20*
+*Last updated: 2026-06-22*
 
 ---
 
@@ -113,6 +113,10 @@ Historical files (superseded, in `migrations/archive/`):
 | `migrations/006_create_household.sql` | `create_household(p_name, p_clerk_id)` SECURITY DEFINER RPC — atomically creates household + adds caller as owner-member, returns `{household_id, household_name}`. | Dev + Prod (2026-06-18) |
 | `migrations/007_finish_authorize_sweep.sql` | Converts last five `get_current_household_id()` gates to `is_member_of`: `household_members_select`, `waste_events_all`, `catalog_items_select`, `catalog_items_insert`, `household_invites invites_insert`. Uses SECURITY DEFINER `is_member_of` on `household_members_select` to avoid RLS recursion. Fixes contributor 403. | Dev + Prod (2026-06-18) |
 | `migrations/008_insert_list_item_upsert.sql` | Converts `insert_list_item` from plain INSERT to INSERT ... ON CONFLICT (household_id, catalog_item_id) DO UPDATE. Merge semantics: quantity = last-write-wins (EXCLUDED), status forced to 'pending', deleted_at = NULL (resurrects tombstoned slots), cycle_id and price_per_unit preserved via COALESCE, updated_at bumped. Fixes concurrent-add 409 and Lemons 409 simultaneously. Signature, language (sql), SECURITY DEFINER, and search_path unchanged. | Dev + Prod (2026-06-20) |
+| `migrations/009_remove_list_item.sql` | `remove_list_item(p_household_id, p_catalog_item_id)` — atomically soft-deletes a `list_items` row AND clears its `list_item_contributors` rows in one transaction (both-or-neither). Fixes badge-resurrection bug: migration 008 upsert revived the tombstoned row with stale contributors on re-add. Client `updateQty` qty≤0 path swapped from `.update({deleted_at})` to this RPC. SECURITY DEFINER. | Dev + Prod (2026-06-22) |
+| `migrations/010_remove_member_leave_household.sql` | `remove_member(p_household_id, p_user_id)` returns `{removed, user_id}` — any member may soft-delete any non-owner membership row (guard reads target row's `role` inline). `leave_household(p_household_id)` returns `{left}` — self-exit; owner cannot leave (must delete household). Both SECURITY DEFINER. | Dev + Prod (2026-06-22) |
+| `migrations/011_join_household.sql` | `join_household(p_household_id)` returns `{joined, revived, user_id}` — atomic revive-or-insert: ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin UNIQUE constraint collision. Always lands as `role = 'member'` (no silent role re-elevation). Used by `acceptInvite` (manual code entry join path). | Dev + Prod (2026-06-22) |
+| `migrations/012_bootstrap_revive_fix.sql` | Fixes the URL-invite join path in `bootstrap_new_user` (4-arg signature). Step 2 now uses the same revive-or-insert upsert pattern as migration 011 instead of ON CONFLICT DO NOTHING. Closes the second instance of the leave-then-rejoin bug. Prod still carries three dead overloads — future cleanup. | Dev + Prod (2026-06-22) |
 
 ---
 
@@ -130,7 +134,9 @@ One per family group. Schema already supports multiple households per user (`hou
 #### `household_members`
 Join table. Realtime enabled.
 - `id`, `household_id`, `user_id`, `role` (owner/member), `joined_at`, `deleted_at`
-- **Role model:** `owner` = creator; can rename household, remove members, delete household. All list actions are shared across all roles. Succession on owner departure: oldest remaining member becomes owner. No co-owners.
+- **Role model:** `owner` = creator (the un-removable anchor); any member can rename household, remove any non-owner member (incl. self = leave). Owner cannot be removed by anyone and cannot leave — must delete the household to exit. All list actions are shared. No succession in phase 1 — owner exit is delete-only. No co-owners.
+- **Membership authorization rule:** "You may soft-delete any membership row in a household you belong to, as long as that row's `role` is not `'owner'`." Leave = the self case; owner-protection falls out for free. No separate is_owner_of helper needed — guard reads the TARGET row's role inline.
+- **Soft-delete + revive invariant:** Leaving sets `deleted_at = now()`. Re-join MUST revive (ON CONFLICT DO UPDATE SET deleted_at = null, role = 'member'), never plain INSERT — the leftover soft-deleted row collides with UNIQUE(household_id, user_id). Migration 011 covers the manual invite path; migration 012 covers the URL-invite `bootstrap_new_user` path. BOTH paths must be maintained independently.
 - **Re-scoping risk (multi-household):** `useProvisions` + realtime subscriptions must tear down and re-subscribe to the new `household_id` on switch, or stale realtime updates leak from the old household. Inspect before coding the switcher.
 - **Ordering:** `joined_at` is the timestamp column (not `created_at`). `get_current_household_id()` orders `DESC` (newest); `get_my_households()` orders `ASC` (oldest = context default); `bootstrap_new_user` step 3 now orders `DESC` (migration 002 stopgap). See three-way ordering bug in Known Debt.
 - **Former fragility (resolved Jun 17):** `.from("households").eq("id", ...).single()` in bootstrap's return path threw if the households RLS blocked the read → 0 rows. Fixed by (a) migration 005 converting `households` SELECT to `is_member_of(id)` (authorizes any membership, not just the active-heuristic one), and (b) the `useProvisions` two-effect re-scope (Effect 2 fetches the household by the context's `activeHouseholdId`, bypassing bootstrap's return value for the household query).
@@ -212,7 +218,7 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 
 | Function | Purpose |
 |---|---|
-| `bootstrap_new_user(p_clerk_id, p_email, p_invite_code, p_full_name)` | Atomic onboarding. **4-arg is canonical** — prod had 4 overloads; 3 dead ones dropped in baseline. Invite branch (step 2) uses `ON CONFLICT (household_id, user_id) DO NOTHING` — correctly handles both new and existing users. Prior invite-join failures confirmed client-side (Jun 19); RPC is correct. |
+| `bootstrap_new_user(p_clerk_id, p_email, p_invite_code, p_full_name)` | Atomic onboarding. **4-arg is canonical** — prod had 4 overloads; 3 dead ones dropped in baseline. Invite branch (step 2) **now uses revive-or-insert upsert (migration 012)** — ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin for the URL-invite path. Prod still carries 3 dead overloads — known cruft, future cleanup. |
 | `get_current_household_id()` | Returns calling user's household UUID. Used by RLS policies to avoid self-referential recursion. |
 | `get_current_user_id()` | Returns calling user's internal UUID from Clerk sub. |
 | `get_household_id_for_current_user()` | Near-duplicate of `get_current_household_id` — **KNOWN DEBT: consolidate.** |
@@ -231,6 +237,10 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `get_my_households()` *(migration 001)* | Returns `(household_id, name, role)` for ALL of the caller's active, non-deleted memberships, `joined_at ASC`. SECURITY DEFINER — bypasses the `household_members` SELECT policy. Identity resolved via `get_current_user_id()` internally; takes no user-id parameter. Dev + Prod (2026-06-18). |
 | `is_member_of(p_household_id uuid) returns boolean` *(migration 003)* | Shared authorization primitive. SECURITY DEFINER, STABLE, `search_path` pinned. Resolves `auth.jwt()->>'sub'` → `users.clerk_id`; returns whether the caller is a non-deleted member of the passed household. Null arg → false (fail closed). Used in all post-003 RLS policies. Dev + Prod (2026-06-18). |
 | `create_household(p_name, p_clerk_id)` *(migration 006)* | Atomically creates a new household and adds the caller as owner-member. Returns `{household_id, household_name}`. SECURITY DEFINER — required because a client two-step INSERT (household, then membership) can half-complete; `households.created_by` is NOT NULL (mirrors bootstrap_new_user). Dev + Prod (2026-06-18). |
+| `remove_list_item(p_household_id, p_catalog_item_id)` *(migration 009)* | Atomic soft-delete: sets `list_items.deleted_at` AND deletes all `list_item_contributors` rows for that item in one transaction. Fixes badge-resurrection (tombstoned row + stale contributors revived by 008 upsert on re-add). SECURITY DEFINER. Dev + Prod (2026-06-22). |
+| `remove_member(p_household_id, p_user_id)` *(migration 010)* | Soft-deletes a membership row. Any member may remove any non-owner (guard reads target row's `role` inline). Returns `{removed, user_id}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
+| `leave_household(p_household_id)` *(migration 010)* | Self-exit. Owner cannot leave (must delete household). Returns `{left}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
+| `join_household(p_household_id)` *(migration 011)* | Revive-or-insert upsert: ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin UNIQUE collision. Always lands as `role = 'member'`. Returns `{joined, revived, user_id}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
 | `rls_auto_enable` *(event trigger)* | Auto-enables RLS on any newly created public table. **Every new table comes up locked by default.** Include policies in the same migration or the table will be inaccessible. |
 
 ---
@@ -249,6 +259,9 @@ Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, t
   3. `get_my_households()` / `ActiveHouseholdContext` default — `joined_at ASC` (oldest first). Context persists last-selected to localStorage.
   Pre-002 failure mode: bootstrap picked a household (arbitrary heap order) that the RLS gate (`DESC`) would not permit reading → `useProvisions.js:244` `.single()` got 0 rows → "Cannot coerce to a single JSON object" (a 0-row PostgREST 406, not a too-many-rows error). Migration 002 aligns bootstrap to the RLS gate (`DESC`) to stop the crash. It does NOT reconcile the context default (`ASC`) — bootstrap picks newest (Lake House) while the context's fallback picks oldest (My Household). Harmless while they read different sources; the REAL FIX is a single source of truth = the context's `activeHouseholdId`, passed to bootstrap and used to rewrite `get_current_household_id()`.
 - **Migration 002 DEV only** (bootstrap ordering stopgap). Migrations 001, 003–007 applied to Dev + Prod (2026-06-18) — 003–007 as one atomic bundle (`bundle_003_007_prod.sql`).
+- **`bootstrap_new_user` dead overloads (prod):** Prod carries FOUR overloaded signatures; migration 012 fixed only the 4-arg form the client calls. The other three overloads are unused but live (ambiguity risk — PostgREST could resolve the wrong one). Drop them in a dedicated migration.
+- **`[ActiveHousehold TEST]` console.log in `App.js:207`:** Added for spine verification; strip before main merge.
+- **Realtime gap:** No `household_members` realtime subscription yet — a removed person's own window doesn't react live. RLS blocks their writes on the next action (graceful degradation), but they see stale state until manual refresh. Layer 2 (next session) closes this gap.
 - **CONSTRAINT-NAME DRIFT (dev↔prod):** `list_items` unique constraint on `(household_id, catalog_item_id)` is named differently across environments — dev: `list_items_household_id_catalog_item_id_key` (Postgres auto-generated); prod: `list_items_household_catalog_unique` (explicit). The `000` baseline comment incorrectly implied dev was renamed to match prod; it was not. Migration 008 uses the column-target form to avoid this. Any future migration referencing this constraint BY NAME must account for the split, or use the column-target form. Reconciliation deferred to a dedicated migration.
 - **Quiet quantity-bump race:** The add-item client path does UPDATE-then-fallthrough-to-insert. The concurrent-INSERT race is now closed by the migration 008 upsert. The concurrent-UPDATE race on an already-existing row is NOT addressed — two simultaneous +1 quantity bumps serialize via Postgres row lock (no error) but can land as a single increment rather than summing. No toast; possible silent undercount. Out of scope for 008; flagged for next session.
 - **`household_members` has no `created_at` column** (most tables do) — only `joined_at`. Any ordering or auditing on this table must use `joined_at`.
@@ -287,6 +300,9 @@ Aggregates average `price_per_unit` per category across all list_items with real
 - **Transient network failures degrade gracefully — never alarm the user.** A blip on marine wifi is not an error. Classify transport failures vs. real HTTP/RLS errors (`classifyFetchError`). Transient → silent pill + keep last-good data. Real → red toast as before. Default to `'real'` when uncertain (fail safe). See `classifyFetchError + ConnectivityPill` pattern.
 - **Optimistic writes roll back unconditionally.** On any write failure (transient or real), rollback runs first, then the notification branches. The user always returns to true-server-state. No phantom saves under any error type.
 - **Two roles only (owner/member). UI shows capability, not role nouns.** Internal shorthand "captain/crew"; DB stores owner/member; product surfaces a Remove button, not a "Captain" badge. No nautical labels in the product.
+- **Activator principle.** The person who creates a space carries no ongoing authority over the group — only the structural responsibility of being the un-removable anchor. Any member can remove any non-creator. Equal authority within the group is foundational to "Our*" products.
+- **Attribution is universal; ownership is pinned and rare.** Attribution (who created an item/category/household) is shown freely everywhere. Ownership gates only irreversible, group-affecting actions (delete household) and is pinned to the single creator anchor. Items and categories carry attribution — they carry no ownership anchor.
+- **Soft-delete + revive — never re-insert on rejoin.** Leaving sets `household_members.deleted_at = now()`. Re-join must revive via upsert (ON CONFLICT DO UPDATE), never plain INSERT — the leftover soft-deleted row collides with UNIQUE(household_id, user_id). Two join paths exist (`acceptInvite` + URL-invite `bootstrap_new_user`); a fix to one does NOT cover the other. Always use column-target conflict form — constraint names drift between dev and prod.
 - **Active context is client-authoritative (the Harbour standard).** Each app instance holds its own active household (React context + localStorage, keyed to the Clerk user); the server authorizes the claimed household, never infers or picks it. `is_member_of` is the authorization primitive; `get_my_households()` is the enumeration authority. `get_current_household_id()`'s "pick a household" role is retired for write paths — replaced by "authorize the claimed household." Generalizes to the fleet (active vessel, active kitchen). *(Established Jun 17.)*
 - **Switcher reveals progressively.** No switcher chrome at 1 household. A tappable household-name sub-line appears only at 2+ households. "Create new household" is the act that unlocks it. Zero friction for the common case.
 - **Store awareness is its own arc, sequenced after multi-household ships.** Don't interleave features. Foundation is already designed (migration 005); the arc begins with verification, not design.
@@ -395,6 +411,15 @@ Single-slot app-level toast — the in-app notification primitive.
 - `showToast(message)` sets message; cancels any pending timer; auto-clears after 2500ms.
 - Fixed-position dark pill, rendered in `App.js` so it outlives the modal that triggered it (`zIndex: 2000`).
 - Used for: household-create confirmation, rename confirmation. Reuse for: item added, list rolled, etc.
+
+### refreshMembers — on-demand member list reload *(Jun 22)*
+
+A `useCallback` (refs-only, empty deps — same pattern as `refreshCatalog`) that re-fetches `household_members` + `get_household_member_profiles` for the current household and commits to `householdMembers` state + `householdMembersRef`. Exposed from `useProvisions` alongside `refreshCatalog`.
+
+- **Layer 1 use (now):** called after `remove_member` succeeds — the actor's member list updates live without a household switch or page reload.
+- **Layer 2 use (next session):** the `household_members` realtime subscription handler will call `refreshMembers()` on any INSERT/DELETE event, then check if the removed `user_id` matches the current user (for the "you were removed" notice + auto-switch).
+
+The member query always selects `role` — both `loadForHousehold` and `refreshMembers` include it so creator-detection in the UI works correctly after a live refresh.
 
 ### Function body verification via pg_proc.prosrc *(Jun 20)*
 

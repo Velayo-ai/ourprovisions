@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-22] — [OurProvisions] — Member management (leave/remove/rejoin) + offline/online race hardening
+**Goal:** Ship offline optimistic-write race fixes (A), atomic badge-reset RPC (B), and the complete leave/remove/rejoin member management flow (C); bring dev and prod schemas in sync.
+**Completed:**
+- Fixed three optimistic-write races in `useProvisions.js`: suspect-empty poll guard (stale RPC response with zero rows bails before any setter runs); transient-vs-genuine rollback classification (offline write taps preserve optimistic value; genuine errors roll back); `pendingQtyRef` write guard (in-flight items excluded from 2s poll commits — eliminates 5→4→5 flicker).
+- Resolved Vercel CI build failure (`CI=true` + `react-hooks/exhaustive-deps` on ref-pattern callbacks) via surgical `eslint-disable-next-line` on dep-array lines — not by adding deps that would re-stack poll intervals.
+- Shipped migration 009 `remove_list_item` (atomic soft-delete + contributor clear in one transaction); swapped `updateQty` qty≤0 path from `.update({deleted_at})` to RPC; fixes badge-resurrection on re-add. Dev + prod.
+- Built member-management UI: `role` added to member select, "Created by {name}" household attribution, remove button on non-creator rows, Leave/Delete bottom action branched on creator status.
+- Shipped migrations 010 (`remove_member` + `leave_household`), 011 (`join_household` revive-or-insert upsert), 012 (`bootstrap_new_user` revive fix); all applied dev + prod.
+- Wired `handleRemoveMember` + `handleLeaveHousehold` to RPCs; diagnosed and fixed leave-then-rejoin bug on BOTH join paths (`acceptInvite` → 011; URL-invite `bootstrap_new_user` → 012).
+- Added `refreshMembers` `useCallback` to `useProvisions` and called it after remove — actor's member list updates live without page reload.
+**Unfinished:**
+- Layer 2: removed-person's live "you were removed" notice + auto-switch (needs `household_members` realtime subscription). Removed person sees stale state until manual refresh — gracefully degraded (RLS blocks their writes), not broken.
+- Delete-household: UI stub in place; RPC + cascade design NOT built. Cascade decisions needed before any code.
+- `dev → main` merge deliberately held — 2 local unpushed commits on dev. Not pushed, not deployed, not merged.
+**Next session:**
+SESSION START
+Goal: Complete C — build `household_members` realtime subscription (Layer 2: live "you were removed" notice + auto-switch for the removed person), then design + build delete-household with agreed cascade behavior.
+State: Working/live — race fixes, badge RPC (009), leave/remove/rejoin all functional; remove updates actor's view live. All RPCs (009–012) live on dev AND prod. Two unpushed commits on local dev branch. Delete-household stub present, handler is `console.log` only.
+Done when: Removed-while-viewing shows a live notice and auto-switches in the removed person's window; delete-household works with agreed cascade behavior and tested two-window; then deliberate `dev → main` merge with full multi-household behavioral test on prod.
+**Files updated:** `src/hooks/useProvisions.js` (race fixes, `remove_list_item` swap, `join_household` swap, `refreshMembers`), `src/App.js` (member-management UI, wired handlers).
+**DB changes:** 009 `remove_list_item`; 010 `remove_member` + `leave_household`; 011 `join_household`; 012 `bootstrap_new_user` revive fix — all applied dev + prod.
+
+---
+
 ### [2026-06-20] — [OurProvisions] — Connectivity pill: soft offline/retry UX
 **Goal:** Replace the alarming red error toast on transient network drops with a gentle bottom pill (Reconnecting / Offline / Back online) that keeps last-good data visible.
 **Completed:**
