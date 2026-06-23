@@ -261,7 +261,9 @@ Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, t
 - **Migration 002 DEV only** (bootstrap ordering stopgap). Migrations 001, 003–007 applied to Dev + Prod (2026-06-18) — 003–007 as one atomic bundle (`bundle_003_007_prod.sql`).
 - **`bootstrap_new_user` dead overloads (prod):** Prod carries FOUR overloaded signatures; migration 012 fixed only the 4-arg form the client calls. The other three overloads are unused but live (ambiguity risk — PostgREST could resolve the wrong one). Drop them in a dedicated migration.
 - **`[ActiveHousehold TEST]` console.log in `App.js:207`:** Added for spine verification; strip before main merge.
-- **Realtime gap:** No `household_members` realtime subscription yet — a removed person's own window doesn't react live. RLS blocks their writes on the next action (graceful degradation), but they see stale state until manual refresh. Layer 2 (next session) closes this gap.
+- **Realtime-on-soft-delete RLS suppression (load-bearing finding):** Supabase realtime applies the table's SELECT policy against the NEW row image to decide per-recipient delivery. `is_member_of` filters `deleted_at is null` → the soft-deleted row fails the check → the removed user's own broadcast is suppressed. `replica identity = default` (PK only) also makes old-image reads unavailable. This is a general pattern: ANY future realtime-on-soft-delete feature using an `is_member_of`-style policy (e.g. delete-household, crew removal) will hit the same suppression. Layer 2 detection uses a 30s membership-presence check instead.
+- **Canonical baseline `000` is stale on `household_members` SELECT policy.** The baseline shows `= get_current_household_id()` but the live policy (since migration 007) is `is_member_of(household_id)`. The baseline must be reconciled to reality before it can be used to rebuild a fresh environment reliably.
+- **Junk-household accumulation:** Repeated add-then-remove of a guest-only user spawns a repeated empty "My Household" on each removal (Layer 2 auto-provisions one per removal event). Accepted under KISS. Future fix: only auto-provision if the user has never had a personal household before; else switch to a dormant one.
 - **CONSTRAINT-NAME DRIFT (dev↔prod):** `list_items` unique constraint on `(household_id, catalog_item_id)` is named differently across environments — dev: `list_items_household_id_catalog_item_id_key` (Postgres auto-generated); prod: `list_items_household_catalog_unique` (explicit). The `000` baseline comment incorrectly implied dev was renamed to match prod; it was not. Migration 008 uses the column-target form to avoid this. Any future migration referencing this constraint BY NAME must account for the split, or use the column-target form. Reconciliation deferred to a dedicated migration.
 - **Quiet quantity-bump race:** The add-item client path does UPDATE-then-fallthrough-to-insert. The concurrent-INSERT race is now closed by the migration 008 upsert. The concurrent-UPDATE race on an already-existing row is NOT addressed — two simultaneous +1 quantity bumps serialize via Postgres row lock (no error) but can land as a single increment rather than summing. No toast; possible silent undercount. Out of scope for 008; flagged for next session.
 - **`household_members` has no `created_at` column** (most tables do) — only `joined_at`. Any ordering or auditing on this table must use `joined_at`.
@@ -411,6 +413,20 @@ Single-slot app-level toast — the in-app notification primitive.
 - `showToast(message)` sets message; cancels any pending timer; auto-clears after 2500ms.
 - Fixed-position dark pill, rendered in `App.js` so it outlives the modal that triggered it (`zIndex: 2000`).
 - Used for: household-create confirmation, rename confirmation. Reuse for: item added, list rolled, etc.
+
+### Membership-presence polling — realtime fallback when RLS suppresses soft-delete events *(Jun 22)*
+
+When Supabase realtime cannot deliver a soft-delete event to the affected user (because the SELECT policy filters `deleted_at is null` and the new row image fails that check), poll instead.
+
+- **Interval:** 30s, keyed only on `clerkId` in the effect dep array — all household state read via refs to avoid stale closures.
+- **Guard:** suspect-empty / transient guard mirrors `loadListItems` — a null or error result holds position rather than triggering a spurious notice.
+- **In-flight guard:** any create-on-detect action (auto-provision `create_household`) uses a ref flag to prevent duplicate spawns on double-fire.
+- **Disambiguation:** `selfDepartureRef` set in `handleLeaveHousehold` before the RPC fires; the presence check reads it to distinguish voluntary leave (silent) from forced removal (explain).
+- **General rule:** any future realtime-on-soft-delete feature using an `is_member_of`-style policy will hit the same RLS suppression — use this polling pattern as the fallback.
+
+### System-message channel *(seeded Jun 22, not yet built)*
+
+The Layer 2 removal notice introduces a typed message shape: `{ kind, text, subtext, durationMs, dismissible }`. This is the intended consolidation point for `showToast`, `joinBanner`, and connectivity/trip events — a single rendering slot with priority and queue. **Not yet built** — only the first tenant (removal notice) exists. Queueing and migration of existing notification paths deferred until a second real tenant emerges.
 
 ### refreshMembers — on-demand member list reload *(Jun 22)*
 

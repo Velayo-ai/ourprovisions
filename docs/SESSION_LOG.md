@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-22] — [OurProvisions] — Layer 2 removal notice + fresh-household auto-provision (design only)
+**Goal:** Design the "you were removed" detection and notice flow for the removed user, and confirm whether a realtime path is viable.
+**Completed:**
+- Probed live dev DB: confirmed `household_members` SELECT policy is `is_member_of(household_id)` (live state), not `get_current_household_id()` — the `000` canonical baseline is stale on this policy.
+- Ruled out realtime: Supabase applies the SELECT policy against the new (soft-deleted) row image to decide per-recipient delivery; `is_member_of` filters `deleted_at is null`, so the removed user's own removal broadcast is RLS-suppressed. `replica identity = default` (PK only) also makes old-image reads unavailable. General pattern: any realtime-on-soft-delete feature using an `is_member_of`-style policy will hit this.
+- Decided detection mechanism: 30s membership-presence re-check (KISS), not a realtime subscription. No new server surface, no RLS change.
+- Designed removed-vs-left asymmetry: local `selfDepartureRef` flag set in `handleLeaveHousehold`; fail-safe leans toward explaining on uncertainty (never silent-unexplained-removal).
+- Approved notice visual: Register-3 shape, teal-accent translucent espresso wash (variant B) — flagged PROVISIONAL pending daily-use validation.
+- Approved fresh-household auto-provision for the only-household case (reuse `create_household`, in-flight guard against duplicate spawn); notice line 2 explains the fresh empty list.
+- Produced full build spec `SPEC_layer2_removal_notice.md` with ordered surgical build steps and two-window verification checklist (in design chat — needs committing to `docs/` before build starts).
+**Unfinished:**
+- Live two-window listener test (empirical RLS-suppression confirmation) not run — spec rests on unambiguous function-body reading.
+- No implementation done (design-only session, correctly held for Claude Code).
+- `SPEC_layer2_removal_notice.md` content lives in design chat, not yet in `docs/`.
+**Next session:**
+SESSION START
+Goal: Commit `SPEC_layer2_removal_notice.md`, then implement Layer 2 — 30s presence check in `ActiveHouseholdContext`, removal notice component, auto-provision for removed-from-only-household case.
+State: Design complete, spec written, mockup approved (variant B). Realtime path ruled out and documented. All required RPCs (`is_member_of`, `create_household`, `remove_member`, `leave_household`) live on dev + prod. Three unpushed commits on local `dev`; dev→main still HELD.
+Done when: Removed user gets a contextual notice + household switch within ~30s; voluntary leave stays silent; transient blip holds position; no duplicate "My Household" on double-fire; full two-window dev regression passes.
+**Files updated:** None (design only). Implementation will touch `src/contexts/ActiveHouseholdContext.js`, `src/App.js`.
+**DB changes:** None.
+
+---
+
 ### [2026-06-22] — [OurProvisions] — Member management (leave/remove/rejoin) + offline/online race hardening
 **Goal:** Ship offline optimistic-write race fixes (A), atomic badge-reset RPC (B), and the complete leave/remove/rejoin member management flow (C); bring dev and prod schemas in sync.
 **Completed:**
