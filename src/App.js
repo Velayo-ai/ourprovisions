@@ -1274,7 +1274,7 @@ function ProvisionsApp() {
                           background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
                         }}>you</span>
                       )}
-                      {m.role !== 'owner' && (
+                      {!isMe && m.role !== 'owner' && (
                         <button
                           onClick={() => handleRemoveMember(m)}
                           title="Remove member"
