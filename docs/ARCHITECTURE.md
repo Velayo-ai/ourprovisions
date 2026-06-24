@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-22*
+*Last updated: 2026-06-24*
 
 ---
 
@@ -267,6 +267,7 @@ Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, t
 - **CONSTRAINT-NAME DRIFT (dev↔prod):** `list_items` unique constraint on `(household_id, catalog_item_id)` is named differently across environments — dev: `list_items_household_id_catalog_item_id_key` (Postgres auto-generated); prod: `list_items_household_catalog_unique` (explicit). The `000` baseline comment incorrectly implied dev was renamed to match prod; it was not. Migration 008 uses the column-target form to avoid this. Any future migration referencing this constraint BY NAME must account for the split, or use the column-target form. Reconciliation deferred to a dedicated migration.
 - **Quiet quantity-bump race:** The add-item client path does UPDATE-then-fallthrough-to-insert. The concurrent-INSERT race is now closed by the migration 008 upsert. The concurrent-UPDATE race on an already-existing row is NOT addressed — two simultaneous +1 quantity bumps serialize via Postgres row lock (no error) but can land as a single increment rather than summing. No toast; possible silent undercount. Out of scope for 008; flagged for next session.
 - **`household_members` has no `created_at` column** (most tables do) — only `joined_at`. Any ordering or auditing on this table must use `joined_at`.
+- **`households` has no unique constraint on `name`** (intentional — two real households may share a name). Duplicate-named households are valid and will accumulate in test environments. UI-level disambiguation (show creator name or creation date when names collide in the switcher) is the fix path, not a DB constraint.
 
 ---
 
@@ -388,8 +389,8 @@ Transport-layer failures (no HTTP response) are classified separately from real 
 ### Active Household Context *(built Jun 17 — `src/contexts/ActiveHouseholdContext.js`)*
 
 App-level context that is the single source of truth for which household is active.
-- **Provider props:** `getToken`, `clerkId` (same values `useProvisions` receives from Clerk's `useAuth`/`useUser`).
-- **State exposed:** `myHouseholds [{id, name, role}]`, `activeHouseholdId`, `loadingHouseholds`, `switchHousehold(id)`, `refreshHouseholds()`, `hasMultiple`.
+- **Provider props:** `getToken`, `clerkId` (same values `useProvisions` receives from Clerk's `useAuth`/`useUser`), `onRemoval(householdName, provisioned)` — callback fired when the user is detected as removed; `provisioned` = true when a fresh household was auto-created.
+- **State exposed:** `myHouseholds [{id, name, role}]`, `activeHouseholdId`, `loadingHouseholds`, `switchHousehold(id)`, `refreshHouseholds()`, `hasMultiple`, `markSelfDeparture()` — called before voluntary leave to suppress the removal notice on the next tick.
 - **Data source:** `db.rpc("get_my_households")` on mount — maps `row.household_id` → `id`. `getTokenRef` stabilization pattern. `myHouseholdsRef` kept in sync so `switchHousehold` validates without stale closure.
 - **Resolution:** reads `localStorage("activeHouseholdId")`; if valid in `myHouseholds` use it, else fall back to first returned (`get_my_households` orders `joined_at ASC` = oldest = default).
 - **`refreshHouseholds()`:** re-fetches `get_my_households()` and updates `myHouseholds` + `myHouseholdsRef` WITHOUT touching `activeHouseholdId`. MUST be called after any mutation that changes the household roster (create, rename, future delete/join) — the context does not auto-refresh.
@@ -419,7 +420,7 @@ Single-slot app-level toast — the in-app notification primitive.
 When Supabase realtime cannot deliver a soft-delete event to the affected user (because the SELECT policy filters `deleted_at is null` and the new row image fails that check), poll instead.
 
 - **Interval:** 30s, keyed only on `clerkId` in the effect dep array — all household state read via refs to avoid stale closures.
-- **Guard:** suspect-empty / transient guard mirrors `loadListItems` — a null or error result holds position rather than triggering a spurious notice.
+- **Guard:** `error || !data` — holds position only on genuine transient failures (error truthy or null data). A successful empty result (`{error:null, data:[]}`) is a legitimate removal signal (user was removed from their only household) and is allowed through to the auto-provision branch. A `data.length === 0` clause was deliberately removed when it was found to suppress valid auto-provision on the only-household path. Confirmed safe: PostgREST never returns `{error:null, data:[]}` on a network failure — those always surface as `error` truthy or `data` null.
 - **In-flight guard:** any create-on-detect action (auto-provision `create_household`) uses a ref flag to prevent duplicate spawns on double-fire.
 - **Disambiguation:** `selfDepartureRef` set in `handleLeaveHousehold` before the RPC fires; the presence check reads it to distinguish voluntary leave (silent) from forced removal (explain).
 - **General rule:** any future realtime-on-soft-delete feature using an `is_member_of`-style policy will hit the same RLS suppression — use this polling pattern as the fallback.
@@ -436,6 +437,18 @@ A `useCallback` (refs-only, empty deps — same pattern as `refreshCatalog`) tha
 - **Layer 2 use (next session):** the `household_members` realtime subscription handler will call `refreshMembers()` on any INSERT/DELETE event, then check if the removed `user_id` matches the current user (for the "you were removed" notice + auto-switch).
 
 The member query always selects `role` — both `loadForHousehold` and `refreshMembers` include it so creator-detection in the UI works correctly after a live refresh.
+
+### Sticky-resolved-value ref pattern *(Jun 24 — `activeHouseholdNameRef` in `ActiveHouseholdContext.js`)*
+
+When a ref value can be clobbered by a background mutation (e.g. `myHouseholdsRef` is overwritten by `refreshHouseholds` before `checkPresence` reads it), use a sticky ref that only updates when the value can be *positively resolved*:
+
+```js
+const activeHouseholdNameRef = useRef(null);
+const resolved = myHouseholds.find((h) => h.id === activeHouseholdId)?.name;
+if (resolved) activeHouseholdNameRef.current = resolved; // skip update when unresolvable
+```
+
+The sticky ref updates on every render where the active household is still in `myHouseholds`. After `refreshHouseholds` drops the departed household from the list, subsequent renders find `resolved = undefined` and skip the update — the ref **retains the last known correct name**. A belt-and-suspenders `??` fallback inside the consumer (`nameForNotice = activeHouseholdNameRef.current ?? oldListLookup`) provides "never worse than today" guarantees. This pattern applies to any mutable-ref value that can be pre-clobber by a concurrent async mutation before the interval reads it.
 
 ### Function body verification via pg_proc.prosrc *(Jun 20)*
 

@@ -25,6 +25,32 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-24] — [OurProvisions] — Layer 2 build: removal notice + auto-provision (steps 1–4, fixes, partial validation)
+**Goal:** Build Layer 2 (removed-user detection, contextual removal notice, fresh-household auto-provision) per `SPEC_layer2_removal_notice.md`, and validate via the four-point dev test.
+**Completed:**
+- Built Layer 2 in clean, individually-building commits: step 1 (presence-detection refs + `markSelfDeparture` scaffold), step 2 (30s `checkPresence` + `clerkId`-keyed interval, detection only), step 3 (removal response: switch-survivor or auto-provision + `provisioningRef` in-flight guard), step 4 (typed `systemMessage` channel + variant-B notice render + context `onRemoval` wiring).
+- Diagnosed and fixed a Layer-2-introduced GoTrueClient leak (`checkPresence` was calling `createSupabaseClient` every 30s tick); fixed by caching the client in a `dbRef`/`getDb()` getter, repointing all three call sites — folded into the step-3 commit (tested together).
+- Fixed Fix 1 (own-row trashcan): hid the remove control on the current user's own member row via the existing `isMe` condition (`clerkId === user?.id`), removing a redundant self-departure path that double-fired both the legacy toast and the new rectangle. LEAVE button is now the sole self-departure path. Owner/other-member trashcan behavior unchanged.
+- Fixed Fix 2 (notice name capture): root-caused the "No longer a member of your household" wording bug to a mutable-ref clobber (`oldHouseholdName` read from `myHouseholdsRef`, which `refreshHouseholds` overwrites before `checkPresence` reads it). Added a sticky `activeHouseholdNameRef` (updates only when the active household name positively resolves); softened the fallback from "your household" → "that household."
+- Fixed Bug 2 (transient guard vs. legitimate-empty): narrowed the `checkPresence` guard from `if (error || !data || data.length === 0) return;` to `if (error || !data) return;`, so a successful empty result (user removed from their only household) reaches the auto-provision branch instead of being treated as a transient failure. Confirmed safe: genuine transient failures always surface as `error` truthy or `data` null, never `{error:null, data:[]}`.
+- Validated four-point dev test: **points 1, 2, 3 PASSED** — leave button shows clean pill no rectangle (1); remove-others on a survivor household shows the removed user a real-name rectangle ("No longer a member of RemovalA") and auto-switches (2); own row has no trashcan, owner row protected (3).
+- Diagnosed Bug 1 (wrong name on auto-provision path) and traced root cause: sticky ref unpopulated + transient guard was blocking the only-household removal path entirely, meaning the "that household" notice came from a different code path (survivor branch with junk pre-existing household), not the auto-provision branch.
+**Unfinished:**
+- **Point 4 (auto-provision real-name notice) NOT validated — blocked by test-environment pollution.** Every point-4 attempt was invalidated by lookalike `+testN` accounts, accumulated junk "My Household"s, and (critically) watching the wrong window: the account removed from RemovalC was `+test4`, but the window observed was `+test5` (never a member). Genuinely unknown until a clean controlled retest.
+- **Bug 1 (notice name on auto-provision path) OPEN.** "That household" was observed but possibly on the wrong account/window. Genuinely unknown until a clean controlled retest with a DB-verified single-household user.
+- **TU5/`+test4` single-household question OPEN.** Decisive query set up but not run — need to confirm whether `+test4` was genuinely single-household or had a pre-existing "My Household."
+- **Part B (`selfDepartureRef` slow-network wiring) deliberately deferred** — scaffolded from step 1, unwired. Build only if a real slow-network voluntary-leave double-message appears in production.
+- `dev → main` merge HELD. Eight commits local on `dev`, nothing pushed.
+**Next session:**
+SESSION START
+Goal: Clean the dev test environment (purge junk households + lookalike accounts), THEN run a valid controlled point-4 test; if it passes, sign off Layer 2 and do the deliberate dev→main merge.
+State: Layer 2 fully built (steps 1–4 + Fix 1 + Fix 2 + Bug 2 fix), points 1–3 passed, point 4 blocked by environment pollution. Bug 2 fix committed (`2587b7d`). All commits local on `dev`, none pushed.
+Done when: On a DB-verified single-household user, removal from their only household shows a rectangle naming the REAL household (not "that household") + "fresh household" subtext + auto-provision fires on the poll within 30s; then dev→main merged and behaviorally tested on prod.
+**Files updated:** `src/contexts/ActiveHouseholdContext.js` (refs, `checkPresence`, interval, `dbRef`/`getDb` leak fix, sticky `activeHouseholdNameRef`, Bug 2 guard narrowing, `onRemoval` wiring), `src/App.js` (typed `systemMessage` state, `postSystemMessage`/`dismissSystemMessage`, variant-B notice render, own-row trashcan hide via `isMe`). Plus `docs/SPEC_layer2_removal_notice.md`, `docs/mockup_notice_translucent.html`, `.claude/settings.json`, `.gitignore` (chore commit).
+**DB changes:** None.
+
+---
+
 ### [2026-06-22] — [OurProvisions] — Layer 2 removal notice + fresh-household auto-provision (design only)
 **Goal:** Design the "you were removed" detection and notice flow for the removed user, and confirm whether a realtime path is viable.
 **Completed:**

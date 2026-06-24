@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-22*
+*Last updated: 2026-06-24*
 
 ---
 
@@ -15,7 +15,8 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| — | **Layer 2: removal notice + auto-provision (spec ready)** | Design complete. Detection = 30s membership-presence re-check (NOT realtime — RLS suppresses the removed user's own broadcast; see Architecture Known Debt). `selfDepartureRef` disambiguates voluntary leave from forced removal. Removed-from-only-household → auto-provision fresh "My Household" (in-flight guard against double-spawn). Notice: Register-3 shape, teal-accent translucent espresso wash (variant B — WATCH: provisional, revisit if it reads as error in daily use). Spec: `SPEC_layer2_removal_notice.md` — commit before build. Touches `ActiveHouseholdContext.js`, `App.js`. |
+| — | **Dev test-environment cleanup** | Prerequisite for point-4 retest and further multi-user testing. Purge junk "My Household" rows, duplicate-named households, and orphaned `+testN` test accounts. Run the decisive TU5/`+test4` query to confirm test-user state before retesting. |
+| — | **Layer 2: removal notice + auto-provision (built — retest pending)** | Steps 1–4 built and committed on `dev`. Points 1–3 validated: leave = clean pill; remove-others = named rectangle + auto-switch; own-row trashcan hidden. **Point 4 (auto-provision path) NOT validated** — blocked by test-environment pollution (junk households + lookalike accounts). Next session: clean the dev environment, then retest point 4 on a DB-verified single-household user. Do NOT merge dev→main until point 4 passes. |
 | — | **Delete household** | UI stub present, handler is `console.log`. Need: cascade decisions (list_items / contributors / catalog / cycles / all-members), `delete_household` RPC design, owner-only enforcement, "can't delete last household" guard. Design before code. |
 | — | **Merge dev → main + Vercel deploy (multi-household go-live)** | **Decision up front:** go live now (leave/remove shipped; delete still a stub) vs. after delete-household. Then: push local dev commits → merge `dev`→`main` → push → Vercel deploys. Run behavioral test: switch household, add item, leave, rejoin via invite; regression: single-household add/remove still works. |
 | — | **Remaining multi-household hardening** | Tighten rename to owner-only. Remove `[ActiveHousehold TEST]` log (`App.js:207`). Clean up dev test households. |
@@ -28,6 +29,7 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **Disambiguate duplicate-named households in UI** | `households.name` has no unique constraint (by design — two real households may share a name). When names collide in the switcher, show creator name or creation date to distinguish. |
 | — | **Constraint-name reconciliation (dev↔prod)** | `list_items` unique constraint is named differently across environments — dev: auto-generated `list_items_household_id_catalog_item_id_key`; prod: explicit `list_items_household_catalog_unique`. Migration 008 uses the column-target form to dodge this. Any future ON CONSTRAINT migration must account for the split. Reconcile via a dedicated migration. |
 | — | **Quiet quantity-bump race** | Simultaneous +1 quantity increments on an already-existing `list_items` row serialize via Postgres row lock (no error) but can land as a single increment rather than summing — silent undercount, no toast. Concurrent-INSERT race is now closed (migration 008); this concurrent-UPDATE race on existing rows remains open. |
 | — | **Surface "invite no longer valid" on invalid/spent code** | Invalid or expired invite currently fails silently — user lands in blank "My Household" with no feedback. `bootstrap_new_user` detects the failed join; surface it to the client. |
@@ -224,6 +226,12 @@ Closes the loop. Turns data into action.
 | 2026-06-20 | **Rollback optimistic writes unconditionally on any error — transient or real.** Rollback runs first; then branch the notification. User always returns to true-server-state on failure regardless of failure type. No phantom saves. |
 | 2026-06-20 | **Quantity zero = off the list (hard reset), not paused.** Re-add credits only the re-adder. Badge is present-tense ("who wants this now"), never historical. Zero-out path must atomically clear contributors (migration 009) or old badges resurrect from the tombstone on re-add (confirmed bug). |
 | 2026-06-20 | **Membership exit (Leave/Remove) gated on cycle-boundary question.** If provision_cycles are user-facing → ship with "applies at next boundary." If still backend-only → ship simpler rule first; design cycle-boundary participation when cycles surface. Don't stack a dependency on an unloaded seam. Owner cannot Leave — must transfer or delete. Items stay on list (shared list is sacred). Attribution badge clears on exit (display rule only; added_by is never nulled). |
+| 2026-06-24 | **Transient guard must distinguish "fetch failed, empty" from "succeeded, genuinely empty."** The marine-wifi guard conflated both. Narrowed `checkPresence` guard to `error \|\| !data` — a clean empty array (`{error:null, data:[]}`) only ever means a successful zero-row result and is a legitimate removal signal (user removed from their only household). Removing `data.length === 0` does not reopen the false-removal hole because genuine transient failures always surface as `error` truthy or `data` null. |
+| 2026-06-24 | **One self-departure path only.** The own-row trashcan (self-`remove_member`) was a redundant second leave path that double-fired the legacy toast AND the variant-B rectangle, and bypassed `selfDepartureRef`. Hidden via `!isMe &&` guard reusing the existing YOU-badge condition. LEAVE HOUSEHOLD button is the canonical and sole self-departure path. |
+| 2026-06-24 | **Removal-notice fallback wording: "that household," not "your household."** Avoids implying ownership of something the user may never have owned, when the real household name can't resolve. |
+| 2026-06-24 | **Part B (`selfDepartureRef` slow-network wiring) deferred, scaffolded.** KISS — build only if a real slow-network voluntary-leave double-message is observed in production use. The refs are in place; the check is a TODO comment in `checkPresence`. |
+| 2026-06-24 | **Hide the DELETE HOUSEHOLD button before the dev→main merge.** Delete-household is still a `console.log` stub; shipping an inert destructive button is a broken window. One-line conditional hide → merge all working multi-household value now → un-hide when delete-household is built. |
+| 2026-06-24 | **Dev test-environment pollution blocks valid multi-user testing.** Junk households + lookalike `+testN` accounts caused four separate false test signals (Berlin pointer-drift, duplicate Test333, junk My Households, wrong-window observation). Environment cleanup is a prerequisite for further multi-user validation — not optional. |
 
 ---
 
