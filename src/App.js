@@ -2719,7 +2719,7 @@ export default function ShoppingListApp() {
               <div style={{ fontSize: '13.5px', fontWeight: 400, lineHeight: '1.4', color: '#FAF4EC' }}>
                 No longer a member of{' '}
                 <strong style={{ color: '#5fd8c9', fontWeight: 700 }}>
-                  {systemMessage.householdName ?? 'your household'}
+                  {systemMessage.householdName ?? 'that household'}
                 </strong>.
               </div>
               {systemMessage.subtext && (

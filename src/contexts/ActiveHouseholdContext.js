@@ -29,6 +29,12 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
   const onRemovalRef = useRef(onRemoval);
   onRemovalRef.current = onRemoval;
 
+  // Sticky name ref — updates only when the active household is positively resolvable;
+  // retains the last known name across refreshHouseholds calls that drop the departed household.
+  const activeHouseholdNameRef = useRef(null);
+  const activeHouseholdNameResolved = myHouseholds.find((h) => h.id === activeHouseholdId)?.name;
+  if (activeHouseholdNameResolved) activeHouseholdNameRef.current = activeHouseholdNameResolved;
+
   // Cached client — created once per session; createSupabaseClient closes over getToken as a
   // function so every request fetches a fresh token. Re-creating per call stacks GoTrueClients.
   const dbRef = useRef(null);
@@ -132,9 +138,10 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
           name: row.name,
           role: row.role,
         }));
-        const oldHouseholdName = myHouseholdsRef.current.find(
-          (h) => h.id === activeHouseholdIdRef.current
-        )?.name;
+        // Snapshot before overwriting the ref — sticky ref is the primary source;
+        // old-list lookup is the fallback so we are never worse than before this fix.
+        const nameForNotice = activeHouseholdNameRef.current
+          ?? myHouseholdsRef.current.find((h) => h.id === activeHouseholdIdRef.current)?.name;
         myHouseholdsRef.current = households;
         setMyHouseholds(households);
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
@@ -142,11 +149,11 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         // TODO step 5: check selfDepartureRef.current here to suppress the notice for voluntary leaves.
         const remaining = households.filter((h) => h.id !== activeHouseholdIdRef.current);
         if (remaining.length >= 1) {
-          onRemovalRef.current?.(oldHouseholdName, false);
+          onRemovalRef.current?.(nameForNotice, false);
           switchHousehold(remaining[0].id);
         } else {
           // Removed from only household — auto-provision a fresh one.
-          onRemovalRef.current?.(oldHouseholdName, true);
+          onRemovalRef.current?.(nameForNotice, true);
           provisioningRef.current = true;
           try {
             const { data: created, error: createErr } = await db.rpc("create_household", {
