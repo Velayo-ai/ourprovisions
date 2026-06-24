@@ -25,6 +25,14 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
   // Voluntary-leave marker — set before leave RPC so presence check ignores the removal (step 5).
   const selfDepartureRef = useRef(false);
 
+  // Cached client — created once per session; createSupabaseClient closes over getToken as a
+  // function so every request fetches a fresh token. Re-creating per call stacks GoTrueClients.
+  const dbRef = useRef(null);
+  const getDb = () => {
+    if (!dbRef.current) dbRef.current = createSupabaseClient(getTokenRef.current);
+    return dbRef.current;
+  };
+
   useEffect(() => {
     if (!clerkId || !getTokenRef.current) {
       setLoadingHouseholds(false);
@@ -35,7 +43,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
 
     (async () => {
       try {
-        const db = createSupabaseClient(getTokenRef.current);
+        const db = getDb();
 
         const { data, error } = await db.rpc("get_my_households");
 
@@ -82,7 +90,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
   const refreshHouseholds = useCallback(async () => {
     if (!clerkId || !getTokenRef.current) return;
     try {
-      const db = createSupabaseClient(getTokenRef.current);
+      const db = getDb();
       const { data, error } = await db.rpc("get_my_households");
       if (error) {
         console.error("[ActiveHousehold] refreshHouseholds failed:", error);
@@ -111,7 +119,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
       if (provisioningRef.current) return;
       if (!getTokenRef.current) return;
       try {
-        const db = createSupabaseClient(getTokenRef.current);
+        const db = getDb();
         const { data, error } = await db.rpc("get_my_households");
         // Transient guard: error or empty list means we can't confirm removal — hold position.
         if (error || !data || data.length === 0) return;
@@ -123,7 +131,26 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
         myHouseholdsRef.current = households;
         setMyHouseholds(households);
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
-        console.log("[Layer2] active household vanished — removal response is step 3");
+        // Active household vanished from a healthy list — user was removed (or left).
+        // TODO step 5: check selfDepartureRef.current here to suppress the notice for voluntary leaves.
+        const remaining = households.filter((h) => h.id !== activeHouseholdIdRef.current);
+        if (remaining.length >= 1) {
+          switchHousehold(remaining[0].id);
+        } else {
+          // Removed from only household — auto-provision a fresh one.
+          provisioningRef.current = true;
+          try {
+            const { data: created, error: createErr } = await db.rpc("create_household", {
+              p_name: "My Household",
+              p_clerk_id: clerkId,
+            });
+            if (createErr) throw createErr;
+            await refreshHouseholds();
+            if (created?.household_id) switchHousehold(created.household_id);
+          } finally {
+            provisioningRef.current = false;
+          }
+        }
       } catch (err) {
         // transient — hold position
       }
