@@ -16,6 +16,15 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
   // Keep a ref in sync so switchHousehold can validate ids without capturing stale state.
   const myHouseholdsRef = useRef([]);
 
+  // Mirrors activeHouseholdId each render; read by the presence-check interval (step 2).
+  const activeHouseholdIdRef = useRef(null);
+  activeHouseholdIdRef.current = activeHouseholdId;
+
+  // In-flight guard — true while auto-provision is running (step 3).
+  const provisioningRef = useRef(false);
+  // Voluntary-leave marker — set before leave RPC so presence check ignores the removal (step 5).
+  const selfDepartureRef = useRef(false);
+
   useEffect(() => {
     if (!clerkId || !getTokenRef.current) {
       setLoadingHouseholds(false);
@@ -91,6 +100,10 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
     }
   }, [clerkId]);
 
+  const markSelfDeparture = useCallback(() => {
+    selfDepartureRef.current = true;
+  }, []);
+
   return (
     <ActiveHouseholdContext.Provider
       value={{
@@ -98,6 +111,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
         activeHouseholdId,
         switchHousehold,
         refreshHouseholds,
+        markSelfDeparture,
         loadingHouseholds,
         hasMultiple: myHouseholds.length > 1,
       }}
