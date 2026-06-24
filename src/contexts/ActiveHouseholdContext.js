@@ -104,6 +104,36 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
     selfDepartureRef.current = true;
   }, []);
 
+  useEffect(() => {
+    if (!clerkId) return;
+
+    const checkPresence = async () => {
+      if (provisioningRef.current) return;
+      if (!getTokenRef.current) return;
+      try {
+        const db = createSupabaseClient(getTokenRef.current);
+        const { data, error } = await db.rpc("get_my_households");
+        // Transient guard: error or empty list means we can't confirm removal — hold position.
+        if (error || !data || data.length === 0) return;
+        const households = data.map((row) => ({
+          id: row.household_id,
+          name: row.name,
+          role: row.role,
+        }));
+        myHouseholdsRef.current = households;
+        setMyHouseholds(households);
+        if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
+        console.log("[Layer2] active household vanished — removal response is step 3");
+      } catch (err) {
+        // transient — hold position
+      }
+    };
+
+    const intervalId = setInterval(checkPresence, 30000);
+    return () => clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clerkId]);
+
   return (
     <ActiveHouseholdContext.Provider
       value={{
