@@ -4,7 +4,7 @@ import { createSupabaseClient } from "../lib/supabaseClient";
 
 const ActiveHouseholdContext = createContext(null);
 
-export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
+export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children }) {
   const [myHouseholds, setMyHouseholds] = useState([]);
   const [activeHouseholdId, setActiveHouseholdId] = useState(null);
   const [loadingHouseholds, setLoadingHouseholds] = useState(true);
@@ -24,6 +24,10 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
   const provisioningRef = useRef(false);
   // Voluntary-leave marker — set before leave RPC so presence check ignores the removal (step 5).
   const selfDepartureRef = useRef(false);
+
+  // Kept current so checkPresence can fire the removal notice without a stale closure.
+  const onRemovalRef = useRef(onRemoval);
+  onRemovalRef.current = onRemoval;
 
   // Cached client — created once per session; createSupabaseClient closes over getToken as a
   // function so every request fetches a fresh token. Re-creating per call stacks GoTrueClients.
@@ -128,6 +132,9 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
           name: row.name,
           role: row.role,
         }));
+        const oldHouseholdName = myHouseholdsRef.current.find(
+          (h) => h.id === activeHouseholdIdRef.current
+        )?.name;
         myHouseholdsRef.current = households;
         setMyHouseholds(households);
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
@@ -135,9 +142,11 @@ export function ActiveHouseholdProvider({ getToken, clerkId, children }) {
         // TODO step 5: check selfDepartureRef.current here to suppress the notice for voluntary leaves.
         const remaining = households.filter((h) => h.id !== activeHouseholdIdRef.current);
         if (remaining.length >= 1) {
+          onRemovalRef.current?.(oldHouseholdName, false);
           switchHousehold(remaining[0].id);
         } else {
           // Removed from only household — auto-provision a fresh one.
+          onRemovalRef.current?.(oldHouseholdName, true);
           provisioningRef.current = true;
           try {
             const { data: created, error: createErr } = await db.rpc("create_household", {

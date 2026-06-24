@@ -2662,12 +2662,87 @@ function ProvisionsApp() {
 export default function ShoppingListApp() {
   const { user } = useUser();
   const { getToken } = useAuth();
+  const [systemMessage, setSystemMessage] = useState(null);
+  const systemMsgTimerRef = useRef(null);
+
+  const postSystemMessage = useCallback((msg) => {
+    setSystemMessage(msg);
+    if (systemMsgTimerRef.current) clearTimeout(systemMsgTimerRef.current);
+    systemMsgTimerRef.current = setTimeout(() => setSystemMessage(null), msg.durationMs);
+  }, []);
+
+  const dismissSystemMessage = useCallback(() => {
+    setSystemMessage(null);
+    if (systemMsgTimerRef.current) clearTimeout(systemMsgTimerRef.current);
+  }, []);
+
+  const onRemoval = useCallback((householdName, provisioned) => {
+    postSystemMessage({
+      kind: 'info',
+      householdName,
+      subtext: provisioned ? "We've set you up with a fresh household." : undefined,
+      durationMs: 30000,
+      dismissible: true,
+    });
+  }, [postSystemMessage]);
+
   return (
     <ConnectivityProvider>
-      <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id}>
+      <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id} onRemoval={onRemoval}>
         <HouseholdDebugLog />
         <ProvisionsApp />
       </ActiveHouseholdProvider>
+      {systemMessage && (
+        <>
+          <style>{`@keyframes shrinkBar { from { width: 100% } to { width: 0% } }`}</style>
+          <div style={{
+            position: 'fixed', left: '14px', right: '14px', bottom: '18px',
+            borderRadius: '10px', padding: '13px 15px',
+            display: 'flex', gap: '12px', alignItems: 'flex-start',
+            background: 'rgba(44, 26, 14, 0.5)',
+            border: '1px solid rgba(13, 148, 136, 0.4)',
+            borderLeft: '4px solid #0D9488',
+            color: '#FAF4EC',
+            boxShadow: '0 8px 26px rgba(44,26,14,0.18)',
+            backdropFilter: 'blur(7px)',
+            overflow: 'hidden',
+            zIndex: 1500,
+            fontFamily: "'Lato', sans-serif",
+          }}>
+            <div style={{
+              position: 'absolute', left: 0, bottom: 0, height: '2px',
+              background: '#0D9488', opacity: 0.9, borderBottomLeftRadius: '10px',
+              animation: `shrinkBar ${systemMessage.durationMs}ms linear forwards`,
+            }} />
+            <span style={{ fontSize: '18px', color: '#5fd8c9', flexShrink: 0, lineHeight: '1.3' }}>ⓘ</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 400, lineHeight: '1.4', color: '#FAF4EC' }}>
+                No longer a member of{' '}
+                <strong style={{ color: '#5fd8c9', fontWeight: 700 }}>
+                  {systemMessage.householdName ?? 'your household'}
+                </strong>.
+              </div>
+              {systemMessage.subtext && (
+                <div style={{ fontSize: '12px', marginTop: '4px', lineHeight: '1.4', color: 'rgba(250,244,236,0.8)' }}>
+                  {systemMessage.subtext}
+                </div>
+              )}
+            </div>
+            {systemMessage.dismissible && (
+              <button
+                onClick={dismissSystemMessage}
+                style={{
+                  background: 'none', border: 'none', color: '#FAF4EC',
+                  opacity: 0.6, fontSize: '16px', flexShrink: 0,
+                  cursor: 'pointer', padding: 0, lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </ConnectivityProvider>
   );
 }
