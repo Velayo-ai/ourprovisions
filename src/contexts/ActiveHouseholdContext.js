@@ -131,8 +131,10 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
       try {
         const db = getDb();
         const { data, error } = await db.rpc("get_my_households");
-        // Transient guard: error or empty list means we can't confirm removal — hold position.
-        if (error || !data || data.length === 0) return;
+        // Transient guard: only a failed fetch (error) or null data holds position.
+        // A successful empty result (error=null, data=[]) is a legitimate removal signal —
+        // the user was removed from their last household. Let it through.
+        if (error || !data) return;
         const households = data.map((row) => ({
           id: row.household_id,
           name: row.name,
