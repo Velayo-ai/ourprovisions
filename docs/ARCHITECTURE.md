@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-24*
+*Last updated: 2026-06-25*
 
 ---
 
@@ -218,7 +218,7 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 
 | Function | Purpose |
 |---|---|
-| `bootstrap_new_user(p_clerk_id, p_email, p_invite_code, p_full_name)` | Atomic onboarding. **4-arg is canonical** — prod had 4 overloads; 3 dead ones dropped in baseline. Invite branch (step 2) **now uses revive-or-insert upsert (migration 012)** — ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin for the URL-invite path. Prod still carries 3 dead overloads — known cruft, future cleanup. |
+| `bootstrap_new_user(p_clerk_id, p_email, p_invite_code, p_full_name)` | Atomic onboarding. **4-arg is canonical** — prod had 4 overloads; 3 dead ones dropped in baseline. Invite branch (step 2) **now uses revive-or-insert upsert (migration 012)** — ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin for the URL-invite path. **Invite-first early-return (confirmed Jun 25):** when a valid, unexpired, unaccepted invite code is provided, step 2 joins the user as `member`, marks the invite accepted, and returns **before** the "create My Household" block — invite-first users are single-household by construction and have no personal My Household. An expired or already-accepted code falls through to My Household creation. This is the structural basis for why only-household removal (Layer 2, point 4) fires exclusively for invite-first users in production. Prod still carries 3 dead overloads — known cruft, future cleanup. |
 | `get_current_household_id()` | Returns calling user's household UUID. Used by RLS policies to avoid self-referential recursion. |
 | `get_current_user_id()` | Returns calling user's internal UUID from Clerk sub. |
 | `get_household_id_for_current_user()` | Near-duplicate of `get_current_household_id` — **KNOWN DEBT: consolidate.** |
@@ -460,6 +460,20 @@ FROM pg_proc WHERE proname = 'insert_list_item';
 ```
 
 Returns a clean boolean, immune to the auto-limit. Use this pattern over `pg_get_functiondef` whenever you need to confirm a function body change was saved. (Extends the existing "SQL Editor may silently keep old versions" caution in CLAUDE.md.)
+
+### Dev-environment hygiene — multi-user removal testing *(established Jun 25)*
+
+Junk household accumulation and lookalike `+testN` accounts invalidate test signals. Before any multi-user removal/membership test:
+
+1. **Read-only inventory first.** Run queries mapping live users → live memberships → households (all joins filtered `deleted_at IS NULL`). Establish DB ground truth before touching anything.
+2. **Keep-list + reversible soft-delete.** Declare which accounts/households to keep; `SET deleted_at = now()` on everything outside the list. Never hard-delete test artifacts — they remain recoverable.
+3. **Build fresh fixtures via the real invite flow.** Create `+testN` accounts using the actual invite-join path, not SQL inserts. Invite-first guarantees the account is single-household with no personal My Household — the clean point-4 fixture.
+
+Root cause of four consecutive false signals before this discipline: two accounts both showed "My Household" in the switcher (lookalike aliases), and the observed window was a non-member account.
+
+### Point-4 test gate — DB assertion before only-household removal *(established Jun 25)*
+
+Before triggering an only-household removal test, assert the victim's state directly in the DB — do not trust the UI or memory. Expected: `live_household_count = 1` and the household name matches the expected fixture. A pre-existing "My Household" (from a prior auto-provision or fallback) invalidates the test: the user would switch to it rather than triggering auto-provision. Only proceed when the DB gate passes cleanly.
 
 ### Contributor Merge Logic (app-side)
 When a user adds an item already on the list:

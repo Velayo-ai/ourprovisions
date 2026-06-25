@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-25] — [OurProvisions] — Layer 2 point-4 validation: clean dev environment + controlled retest (PASSED)
+**Goal:** Clean the polluted dev test environment, then run a valid controlled point-4 test (removed-from-only-household auto-provision); if it passes, sign off Layer 2.
+**Completed:**
+- Ran a two-query read-only inventory of dev (`zxwtxjjmssykhqrghouf`) to establish ground truth before deleting anything; surfaced the exact source of prior point-4 failures — lookalike `+test4`/`+test5` accounts (both single "My Household", indistinguishable in the switcher) plus accumulated junk households.
+- Executed a targeted, reversible soft-delete cleanup (set `deleted_at`, never hard-deleted): retired Janet (`jan64holmes`) and all five `+test`–`+test5` aliases, plus named junk households under both kept accounts — incl. London + Bristol (real account) and Japan/Berlin/Removal A–C/Test* (Dan Test User). Verified clean end-state: only `dan@velayo.ai` (My Household, BVI) and `daniel.l.holmes@gmail.com` (member of My Household) remain.
+- Established a fresh, uncontaminated test fixture: Dan Test User as RemovalTest owner/remover; `+test9` joined RemovalTest **invite-first**.
+- Confirmed (via `bootstrap_new_user` body + live UI) that invite-first signup early-returns on a valid invite and **skips My Household creation** → invite-only users are single-household by construction. This made `+test9` a clean point-4 victim with zero SQL surgery.
+- Ran a DB gate query immediately before removal: `+test9` = `live_household_count = 1`, `households = {RemovalTest}` — the controlled single-household state never achieved on a clean run before.
+- **Point 4 PASSED:** Dan Test User removed `+test9`; within the 30s poll `+test9` saw the notice "No longer a member of **RemovalTest**." + "We've set you up with a fresh household.", auto-landed in a fresh empty My Household, notice survived the switch and auto-dismissed.
+- **Bug 1 RESOLVED:** the "that household" wording was a **test-environment artifact, not a code defect** — real household name rendered correctly on the clean run (sticky `activeHouseholdNameRef` populated as designed). In-flight guard confirmed: exactly **one** auto-provisioned household (`62737a3b…`), no duplicate spawn.
+**Unfinished:**
+- DELETE HOUSEHOLD button still visible + still a `console.log` stub — must be hidden before `dev→main` merge.
+- `dev → main` merge still HELD (now unblocked by point-4 pass, gated only on hiding DELETE). Eight Layer 2 commits remain local on `dev`, nothing pushed.
+- No application code changed this session (SQL/ops only) — nothing new to commit from the design chat.
+**Next session:**
+SESSION START
+Goal: Hide the DELETE HOUSEHOLD button, then do the deliberate `dev→main` merge + Vercel deploy and run the multi-household behavioral smoke-test on prod.
+State: Layer 2 fully validated on a clean dev environment (points 1–4 green, Bug 1 resolved, in-flight guard confirmed). Dev test environment is clean (only real account + Dan Test User + the live `+test9` fixture remain). Eight commits local on `dev`, unpushed.
+Done when: DELETE button hidden + committed; `dev` pushed and merged to `main`; Vercel prod deploy verified; prod smoke-test passes (switch household, add item, leave, rejoin via invite; regression: single-household add/remove still works).
+**Files updated:** None (no application code changed this session).
+**DB changes:** Dev-only operational cleanup (soft-delete of retired users/households/memberships/list_items). **NOT a migration — do not file in `migrations/`.** Prod is unaffected and does not carry this junk.
+
+---
+
 ### [2026-06-24] — [OurProvisions] — Layer 2 build: removal notice + auto-provision (steps 1–4, fixes, partial validation)
 **Goal:** Build Layer 2 (removed-user detection, contextual removal notice, fresh-household auto-provision) per `SPEC_layer2_removal_notice.md`, and validate via the four-point dev test.
 **Completed:**

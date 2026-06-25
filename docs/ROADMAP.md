@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-24*
+*Last updated: 2026-06-25*
 
 ---
 
@@ -15,10 +15,8 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| — | **Dev test-environment cleanup** | Prerequisite for point-4 retest and further multi-user testing. Purge junk "My Household" rows, duplicate-named households, and orphaned `+testN` test accounts. Run the decisive TU5/`+test4` query to confirm test-user state before retesting. |
-| — | **Layer 2: removal notice + auto-provision (built — retest pending)** | Steps 1–4 built and committed on `dev`. Points 1–3 validated: leave = clean pill; remove-others = named rectangle + auto-switch; own-row trashcan hidden. **Point 4 (auto-provision path) NOT validated** — blocked by test-environment pollution (junk households + lookalike accounts). Next session: clean the dev environment, then retest point 4 on a DB-verified single-household user. Do NOT merge dev→main until point 4 passes. |
+| — | **Hide DELETE HOUSEHOLD button → dev→main merge + prod smoke-test** | **Gate 1 (immediate):** hide the DELETE HOUSEHOLD button via a one-line conditional — it's a `console.log` stub and must not ship. **Gate 2 (now unblocked):** push 8 local `dev` commits → merge `dev`→`main` → push → Vercel deploys. Run behavioral test on prod: switch household, add item, leave, rejoin via invite; regression: single-household add/remove still works. |
 | — | **Delete household** | UI stub present, handler is `console.log`. Need: cascade decisions (list_items / contributors / catalog / cycles / all-members), `delete_household` RPC design, owner-only enforcement, "can't delete last household" guard. Design before code. |
-| — | **Merge dev → main + Vercel deploy (multi-household go-live)** | **Decision up front:** go live now (leave/remove shipped; delete still a stub) vs. after delete-household. Then: push local dev commits → merge `dev`→`main` → push → Vercel deploys. Run behavioral test: switch household, add item, leave, rejoin via invite; regression: single-household add/remove still works. |
 | — | **Remaining multi-household hardening** | Tighten rename to owner-only. Remove `[ActiveHousehold TEST]` log (`App.js:207`). Clean up dev test households. |
 | 1 | **Fix `auth.uid()` RLS bug (migration 001)** | RLS policies on `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members` compare a Clerk string ID against a uuid column — always false. Inert today but must be fixed before any live feature relies on row-level isolation for those tables. Rewrite to `(auth.jwt()->>'sub')::uuid`. Deliver as a named migration, not an edit to `000`. |
 | 2 | **Consolidate duplicate helper functions (migration 002)** | `get_household_id_for_current_user` / `get_current_household_id` and `get_user_id_from_clerk` / `get_current_user_id` are near-identical pairs. Drop the redundant copies; update any callers. Deliver as a named migration. |
@@ -29,6 +27,7 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **Migrate join banner into `systemMessage` channel** | Precondition (2nd real tenant) met — removal notice is now a shipped tenant. Scope: migrate `joinBanner` state into the typed `systemMessage` channel; decide queue/priority model (newest-wins vs. persistent vs. category-priority); match auto-dismiss parity with the removal notice. UX intent: the green "You joined …" banner auto-dismisses like the bottom notice. Do NOT bundle into the dev→main merge — own session. |
 | — | **Disambiguate duplicate-named households in UI** | `households.name` has no unique constraint (by design — two real households may share a name). When names collide in the switcher, show creator name or creation date to distinguish. |
 | — | **Constraint-name reconciliation (dev↔prod)** | `list_items` unique constraint is named differently across environments — dev: auto-generated `list_items_household_id_catalog_item_id_key`; prod: explicit `list_items_household_catalog_unique`. Migration 008 uses the column-target form to dodge this. Any future ON CONSTRAINT migration must account for the split. Reconcile via a dedicated migration. |
 | — | **Quiet quantity-bump race** | Simultaneous +1 quantity increments on an already-existing `list_items` row serialize via Postgres row lock (no error) but can land as a single increment rather than summing — silent undercount, no toast. Concurrent-INSERT race is now closed (migration 008); this concurrent-UPDATE race on existing rows remains open. |
@@ -232,6 +231,9 @@ Closes the loop. Turns data into action.
 | 2026-06-24 | **Part B (`selfDepartureRef` slow-network wiring) deferred, scaffolded.** KISS — build only if a real slow-network voluntary-leave double-message is observed in production use. The refs are in place; the check is a TODO comment in `checkPresence`. |
 | 2026-06-24 | **Hide the DELETE HOUSEHOLD button before the dev→main merge.** Delete-household is still a `console.log` stub; shipping an inert destructive button is a broken window. One-line conditional hide → merge all working multi-household value now → un-hide when delete-household is built. |
 | 2026-06-24 | **Dev test-environment pollution blocks valid multi-user testing.** Junk households + lookalike `+testN` accounts caused four separate false test signals (Berlin pointer-drift, duplicate Test333, junk My Households, wrong-window observation). Environment cleanup is a prerequisite for further multi-user validation — not optional. |
+| 2026-06-25 | **Bug 1 ("that household" wording) closed as test-environment artifact, not a code defect.** A clean, DB-verified single-household removal rendered the real household name correctly via `activeHouseholdNameRef`. Retroactively validates the Fix-2 sticky-ref design from 2026-06-24. |
+| 2026-06-25 | **Auto-provision's real-world trigger is invite-only users.** Owners cannot leave their auto-created My Household (Leave is blocked on owner role; Delete is a stub). The only-household-removal case in production fires specifically for invite-first users, who by construction never have a personal household. Resolves the open design question about when point 4 actually fires. |
+| 2026-06-25 | **Join-banner → `systemMessage` channel migration is promotable to NEXT.** SPEC §6 deferred this until a 2nd real tenant existed; the removal notice is now a shipped tenant, so the precondition is met. Migration owns the deferred queue/priority decision — must be its own session, NOT bundled into the dev→main merge. |
 
 ---
 
@@ -295,6 +297,7 @@ Closes the loop. Turns data into action.
 | **Poll-clobber / offline race hardening** | Jun 22, 2026 | Three races fixed: suspect-empty poll guard (empty RPC response bails before setters); transient-vs-genuine rollback classification (offline taps preserve optimistic value; genuine errors roll back); `pendingQtyRef` write guard (in-flight items excluded from 2s poll commits, eliminating 5→4→5 flicker). |
 | **Badge-reset RPC — migration 009** | Jun 22, 2026 | `remove_list_item` atomic RPC soft-deletes `list_items` row AND clears `list_item_contributors` in one transaction; fixes badge-resurrection on re-add. Client swapped from plain `.update({deleted_at})`. Dev + prod. |
 | **Member management — leave/remove/rejoin (migrations 010–012)** | Jun 22, 2026 | UI: "Created by" attribution, remove controls on non-creator rows, Leave/Delete branching. `remove_member` + `leave_household` (010); `join_household` revive-or-insert (011); `bootstrap_new_user` revive fix (012). Both join paths covered. `refreshMembers` for live actor update. Dev + prod. |
+| **Layer 2: removal notice + auto-provision** | Jun 25, 2026 | 30s membership-presence check; typed `systemMessage` channel; variant-B removal notice; auto-provision (`create_household`) on only-household removal; `provisioningRef` in-flight guard. Points 1–4 validated on clean dev env (point 4: DB-gated fixture, `activeHouseholdNameRef` resolved real household name, in-flight guard confirmed — single provisioned household). Bug 1 ("that household" wording) closed as test-environment artifact. Eight commits local on `dev`; merge gated on DELETE button hide. |
 
 ---
 
