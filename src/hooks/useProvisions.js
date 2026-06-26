@@ -1,8 +1,10 @@
 // src/hooks/useProvisions.js
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
+import { classifyFetchError } from "../lib/classifyFetchError";
+import { useConnectivity } from "../contexts/ConnectivityContext";
 
-export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
+export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
   const [quantities, setQuantities] = useState({});
   const [checked, setChecked] = useState({});
   const [prices, setPrices] = useState({});
@@ -16,6 +18,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const [hiddenCatalogItems, setHiddenCatalogItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { reportTransientFailure, reportSuccess } = useConnectivity();
   const supabaseRef = useRef(null);
   const householdRef = useRef(null);   // mirrors household for use inside callbacks
   const catalogRef = useRef({});       // mirrors catalogMap for use inside callbacks
@@ -29,17 +32,42 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
   const wrappingUpRef = useRef(false);
+  // Items with an in-flight local quantity write. The 2s poll must not
+  // overwrite these from the DB until the write confirms, or it'll briefly
+  // snap the optimistic value back to the stale server value (5→4→5 flicker).
+  const pendingQtyRef = useRef(new Set());
   const [activeCycle, setActiveCycle] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
   const activeCycleRef = useRef(null);
   const activeSessionRef = useRef(null);
+  const myHouseholdsRef = useRef(myHouseholds || []);
+  myHouseholdsRef.current = myHouseholds || [];
+  const bootstrapHouseholdIdRef = useRef(null);
+  const bootstrappedRef = useRef(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const justJoinedViaInviteRef = useRef(false);
+  const realtimeChannelRef = useRef(null);
 
   async function loadListItems(db, householdId) {
     if (wrappingUpRef.current) return;
     const { data: items, error: listErr } = await db
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
-    if (listErr) { setError(`Could not load list: ${listErr.message}`); return; }
+    if (listErr) {
+      if (classifyFetchError(listErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not load list: ${listErr.message}`); }
+      return;
+    }
+
+    // Suspect-empty guard: a dropped connection can resolve this RPC with no
+    // error but zero rows. If we currently hold state, treat it as a transient
+    // empty response and bail before any setters run — don't clobber quantities,
+    // checks, rows, or contributors to empty. A real clear-list calls the
+    // setters directly, not through this poll.
+    if (!items || items.length === 0) {
+      let hadItems = false;
+      setQuantities((prev) => { hadItems = Object.keys(prev).length > 0; return prev; });
+      if (hadItems) { reportTransientFailure(); return; }
+    }
 
     // Names/categories/staple flags now arrive inline from the list RPC join.
     const catalogNameMap = {};
@@ -132,7 +160,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     });
     Object.assign(mergedPrices, newPrices);
     setListRows(newListRows);
-    setQuantities(newQty);
+    // Preserve optimistic values for items with an in-flight write; commit the
+    // rest from the server. Prevents the poll from clobbering a not-yet-
+    // committed local edit.
+    setQuantities((prev) => {
+      if (pendingQtyRef.current.size === 0) return newQty;
+      const merged = { ...newQty };
+      pendingQtyRef.current.forEach((name) => {
+        if (name in prev) merged[name] = prev[name];
+      });
+      return merged;
+    });
     setChecked(newChecked);
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
@@ -154,6 +192,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     return data || null;
   }
 
+  // Effect 1 — session setup (keyed on user identity).
+  // Creates the Supabase client once and runs bootstrap_new_user.
+  // Does NOT fetch any household-scoped data — that belongs to Effect 2.
   useEffect(() => {
     // If not signed in, fetch global catalog via direct REST call using anon key — no Supabase client needed
     if (!getTokenRef.current || !userId || !clerkId) {
@@ -206,19 +247,22 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       return;
     }
 
-    let pollInterval;
-    let catalogPollInterval;
-
-    async function bootstrap() {
+    async function setupSession() {
       setLoading(true);
       setError(null);
 
       try {
-        const db = createSupabaseClient(getTokenRef.current);
-        supabaseRef.current = db;
+        // Create Supabase client once — guard prevents stacking GoTrueClient instances on switch
+        if (!supabaseRef.current) {
+          supabaseRef.current = createSupabaseClient(getTokenRef.current);
+        }
+        const db = supabaseRef.current;
 
-        // Check for pending invite before bootstrapping
-        const pendingInviteCode = new URLSearchParams(window.location.search).get("invite");
+        // Check for pending invite before bootstrapping.
+        // Prefer the URL param, fall back to the code persisted at app entry (survives
+        // Clerk's sign-up redirect, which strips the URL param for brand-new users).
+        const urlInvite = new URLSearchParams(window.location.search).get("invite");
+        const pendingInviteCode = urlInvite || sessionStorage.getItem("pending_invite_code");
 
         // Use bootstrap_new_user RPC (SECURITY DEFINER — bypasses RLS).
         // Pass invite code so joining happens in one atomic transaction.
@@ -232,132 +276,205 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
         if (bootstrapErr) throw new Error(`Bootstrap failed: ${bootstrapErr.message}`);
 
-        const internalUserId = bootstrapData.user_id;
-        internalUserIdRef.current = internalUserId;
-        clerkIdRef.current = clerkId;
+        // Code has been attempted — clear the persisted copy so it can't re-trigger
+        // on a future visit, regardless of whether the join actually succeeded.
+        sessionStorage.removeItem("pending_invite_code");
 
-        // Fetch the full household record
-        const { data: hhData, error: hhErr } = await db
-          .from("households")
-          .select("id, name, budget_goal")
-          .eq("id", bootstrapData.household_id)
-          .single();
-        if (hhErr) throw new Error(`Could not fetch household: ${hhErr.message}`);
-        const hh = hhData;
+        internalUserIdRef.current = bootstrapData.user_id;
+        clerkIdRef.current = clerkId;
 
         // Clear invite from URL and flag for join banner
         if (bootstrapData.joined_via_invite) {
           window.history.replaceState({}, "", window.location.pathname);
           sessionStorage.setItem("just_joined_household", bootstrapData.household_name || "the household");
+          sessionStorage.setItem("just_joined_household_id", bootstrapData.household_id);
         }
 
-        if (hh) {
-          setHousehold(hh);
-          householdRef.current = hh;
+        // Stash bootstrap's chosen household as the fallback for Effect 2
+        bootstrapHouseholdIdRef.current = bootstrapData.household_id;
+        justJoinedViaInviteRef.current = bootstrapData.joined_via_invite === true; // no longer read in resolver — safe to clean up
 
-          const { data: members } = await db
-            .from("household_members")
-            .select("id, user_id")
-            .eq("household_id", hh.id)
-            .is("deleted_at", null);
-
-          const { data: profiles } = await db
-            .rpc("get_household_member_profiles", { p_household_id: hh.id });
-
-          const membersWithProfiles = (members || []).map(m => ({
-            ...m,
-            users: profiles?.find(p => p.user_id === m.user_id) || null
-          }));
-
-          setHouseholdMembers(membersWithProfiles);
-          householdMembersRef.current = membersWithProfiles;
-        }
-
-        // Only load catalog and list if we have a household.
-        // (If joining via invite, hh is null here — acceptInvite handles the rest.)
-        if (hh) {
-          // Load this user's hidden items with full catalog info
-          const { data: hiddenRows } = await db
-            .from("user_hidden_items")
-            .select("catalog_item_id, catalog_items(id, name, category, is_global, price_hint, created_by)")
-            .eq("clerk_id", clerkId);
-          const hiddenIds = new Set((hiddenRows || []).map(h => h.catalog_item_id));
-          hiddenIdsRef.current = hiddenIds;
-          const hiddenCatalogList = (hiddenRows || []).map(h => h.catalog_items).filter(Boolean);
-          hiddenCatalogItemsRef.current = hiddenCatalogList;
-          setHiddenCatalogItems(hiddenCatalogList);
-          const { data: catalog, error: catalogErr } = await db
-            .from("catalog_items")
-            .select("id, name, category, is_global, price_hint, is_staple")
-            .eq("is_global", true)
-            .is("deleted_at", null);
-          if (catalogErr) throw new Error(`Could not load catalog: ${catalogErr.message}`);
-
-          const { data: customItems, error: customErr } = await db
-            .from("catalog_items")
-            .select("id, name, category, is_global, price_hint, is_staple, created_by")
-            .eq("household_id", hh.id)
-            .eq("is_global", false)
-            .is("deleted_at", null);
-          if (customErr) throw new Error(`Could not load custom items: ${customErr.message}`);
-
-          const cMap = {};
-          (catalog || []).forEach((item) => {
-            if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: null };
-          });
-          (customItems || []).forEach((item) => {
-            if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
-          });
-          setCatalogMap(cMap);
-          catalogRef.current = cMap;
-          const hintPrices = {};
-          Object.values(cMap).forEach(item => {
-            if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
-          });
-          setPrices(hintPrices);
-
-          const { data: avgRows, error: avgErr } = await db
-            .from("category_avg_prices")
-            .select("category, avg_price");
-          if (!avgErr && avgRows) {
-            const avgMap = {};
-            avgRows.forEach(row => {
-              avgMap[row.category] = parseFloat(row.avg_price);
-            });
-            setCategoryAvgPrices(avgMap);
-          }
-
-          await loadListItems(db, hh.id);
-          await loadActiveCycle(db, hh.id);
-
-          pollInterval = setInterval(() => {
-            loadListItems(db, hh.id);
-          }, 2000);
-
-          // Slower catalog poll (20s): propagates custom-item adds and deletes
-          // across clients without a hard reload. refreshCatalog does a guarded
-          // merge (respects hiddenIdsRef/deletedIdsRef, only commits on real
-          // change) so this won't flicker or clobber optimistic local state.
-          // Called through refreshCatalogRef so it isn't an effect dependency.
-          catalogPollInterval = setInterval(() => {
-            refreshCatalogRef.current();
-          }, 20000);
-        }
+        // Signal Effect 2 that session setup is complete
+        bootstrappedRef.current = true;
+        setBootstrapped(true);
 
       } catch (err) {
         console.error("Bootstrap error:", err.message);
         setError(err.message);
-      } finally {
-        setLoading(false);
+        setLoading(false);  // clear loading only on failure; Effect 2 owns the success signal
       }
     }
 
-    bootstrap();
+    setupSession();
+  }, [userId, clerkId, email, fullName]);
+
+  // Effect 2 — household-scoped loads (keyed on the resolved active household).
+  // Reruns whenever activeHouseholdId changes (household switch). Never re-creates
+  // the Supabase client — reads the one Effect 1 placed on supabaseRef.
+  useEffect(() => {
+    const db = supabaseRef.current;
+    if (!db || !bootstrapped) return;               // wait for Effect 1
+    if (!userId || !clerkId) return;                 // not signed in
+
+    // ── Resolve which household to load ──
+    const fallbackId = bootstrapHouseholdIdRef.current;
+
+    let targetId;
+    if (activeHouseholdId) {
+      // Trust the context-validated active household in all cases. On auto-switch
+      // joins, App.js has already called switchHousehold(joinedId), so this equals
+      // the joined household. On silent joins, this stays on the prior household —
+      // which is exactly what "silent" means: the view must not move. The old
+      // justJoinedViaInvite forced-fallback overrode this and loaded the joined
+      // household's data even for silent joins, causing a highlight/data split.
+      targetId = activeHouseholdId;
+    } else {
+      // No active context yet (fresh device, pre-restore): bootstrap fallback.
+      targetId = fallbackId;
+    }
+    if (!targetId) return;
+
+    let pollInterval;
+    let catalogPollInterval;
+    let cancelled = false;
+
+    async function loadForHousehold(householdId) {
+      setLoading(true);
+
+      // Reset per-household state so the previous household's rows don't flash
+      setListRows([]);
+      setQuantities({});
+      setChecked({});
+      setAddedByMap({});
+      setContributorsMap({});
+      setActiveCycle(null);
+      activeCycleRef.current = null;
+
+      try {
+        // Fetch the household record
+        const { data: hhData, error: hhErr } = await db
+          .from("households")
+          .select("id, name, budget_goal")
+          .eq("id", householdId)
+          .single();
+        if (hhErr) {
+          if (classifyFetchError(hhErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not fetch household: ${hhErr.message}`); }
+          setLoading(false); return;
+        }
+        if (cancelled) return;
+        const hh = hhData;
+        setHousehold(hh);
+        householdRef.current = hh;
+
+        // Members
+        const { data: members } = await db
+          .from("household_members")
+          .select("id, user_id, role")
+          .eq("household_id", hh.id)
+          .is("deleted_at", null);
+        if (cancelled) return;
+
+        const { data: profiles } = await db
+          .rpc("get_household_member_profiles", { p_household_id: hh.id });
+        if (cancelled) return;
+
+        const membersWithProfiles = (members || []).map(m => ({
+          ...m,
+          users: profiles?.find(p => p.user_id === m.user_id) || null
+        }));
+        setHouseholdMembers(membersWithProfiles);
+        householdMembersRef.current = membersWithProfiles;
+
+        // Hidden items (per-user; reload on switch to pick up any hides from the other household view)
+        const { data: hiddenRows } = await db
+          .from("user_hidden_items")
+          .select("catalog_item_id, catalog_items(id, name, category, is_global, price_hint, created_by)")
+          .eq("clerk_id", clerkIdRef.current);
+        if (cancelled) return;
+
+        const hiddenIds = new Set((hiddenRows || []).map(h => h.catalog_item_id));
+        hiddenIdsRef.current = hiddenIds;
+        const hiddenCatalogList = (hiddenRows || []).map(h => h.catalog_items).filter(Boolean);
+        hiddenCatalogItemsRef.current = hiddenCatalogList;
+        setHiddenCatalogItems(hiddenCatalogList);
+
+        // Global catalog
+        const { data: catalog, error: catalogErr } = await db
+          .from("catalog_items")
+          .select("id, name, category, is_global, price_hint, is_staple")
+          .eq("is_global", true)
+          .is("deleted_at", null);
+        if (catalogErr) { setError(`Could not load catalog: ${catalogErr.message}`); setLoading(false); return; }
+        if (cancelled) return;
+
+        // Custom catalog (household-scoped)
+        const { data: customItems, error: customErr } = await db
+          .from("catalog_items")
+          .select("id, name, category, is_global, price_hint, is_staple, created_by")
+          .eq("household_id", hh.id)
+          .eq("is_global", false)
+          .is("deleted_at", null);
+        if (customErr) { setError(`Could not load custom items: ${customErr.message}`); setLoading(false); return; }
+        if (cancelled) return;
+
+        const cMap = {};
+        (catalog || []).forEach((item) => {
+          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: null };
+        });
+        (customItems || []).forEach((item) => {
+          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
+        });
+        setCatalogMap(cMap);
+        catalogRef.current = cMap;
+        const hintPrices = {};
+        Object.values(cMap).forEach(item => {
+          if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
+        });
+        setPrices(hintPrices);
+
+        // Category avg prices
+        const { data: avgRows, error: avgErr } = await db
+          .from("category_avg_prices")
+          .select("category, avg_price");
+        if (!avgErr && avgRows) {
+          if (cancelled) return;
+          const avgMap = {};
+          avgRows.forEach(row => { avgMap[row.category] = parseFloat(row.avg_price); });
+          setCategoryAvgPrices(avgMap);
+        }
+
+        if (cancelled) return;
+        await loadListItems(db, hh.id);
+        if (cancelled) return;
+        await loadActiveCycle(db, hh.id);
+        if (cancelled) return;
+
+        pollInterval = setInterval(() => { loadListItems(db, hh.id); }, 2000);
+        catalogPollInterval = setInterval(() => { refreshCatalogRef.current(); }, 20000);
+
+        reportSuccess();
+        setLoading(false);
+      } catch (err) {
+        if (!cancelled) {
+          console.error("loadForHousehold error:", err.message);
+          setError(err.message);
+          setLoading(false);
+        }
+      }
+    }
+
+    loadForHousehold(targetId);
+
     return () => {
+      cancelled = true;
       if (pollInterval) clearInterval(pollInterval);
       if (catalogPollInterval) clearInterval(catalogPollInterval);
+      if (realtimeChannelRef.current) {
+        try { supabaseRef.current?.removeChannel(realtimeChannelRef.current); } catch (e) {}
+        realtimeChannelRef.current = null;
+      }
     };
-  }, [userId, clerkId, email, fullName]);
+  }, [activeHouseholdId, userId, clerkId, bootstrapped]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────────
   // updateQty: handles both global catalog items AND custom items.
@@ -369,7 +486,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     const hh = householdRef.current;
     if (!hh || !db) return;
 
-    // Optimistic update
+    // Optimistic update + mark this item as having an in-flight write so the
+    // poll won't clobber it before the write confirms.
+    pendingQtyRef.current.add(itemName);
     setQuantities((prev) => ({ ...prev, [itemName]: Math.max(0, qty) }));
 
     try {
@@ -394,14 +513,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       }
 
       if (qty <= 0) {
-        // Soft-delete the list_items row
-        const { error: delErr } = await db
-          .from("list_items")
-          .update({ deleted_at: new Date().toISOString() })
-          .eq("household_id", hh.id)
-          .eq("catalog_item_id", catalogItem.id)
-          .is("deleted_at", null)
-          .select();
+        // Atomic remove: soft-delete the list_items row AND clear its
+        // contributor badges in one transaction (migration 009). Replaces the
+        // old client-side soft-delete that left contributors behind and caused
+        // badge-resurrection on re-add (008 upsert revives the same row).
+        const { error: delErr } = await db.rpc("remove_list_item", {
+          p_household_id: hh.id,
+          p_catalog_item_id: catalogItem.id,
+        });
         if (delErr) throw delErr;
       } else {
         const { data: updateData, error: updateErr } = await db
@@ -468,13 +587,24 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         }
 
       }
- } catch (err) {
-  console.error("updateQty error:", err.message, err);
-  console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
-      setError(`Could not update quantity: ${err.message}`);
-      // Rollback optimistic update
-      setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
+      pendingQtyRef.current.delete(itemName);
+      reportSuccess();
+    } catch (err) {
+      pendingQtyRef.current.delete(itemName);
+      console.error("updateQty error:", err.message, err);
+      console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
+      // Classify FIRST. On a transient (offline) failure, keep the optimistic
+      // value — it's the last-good intent that reconnect will reconcile. Only
+      // roll back on a genuine error (real rejection: bad data, RLS, etc.),
+      // where the value truly didn't take.
+      if (classifyFetchError(err) === 'transient') {
+        reportTransientFailure();
+      } else {
+        setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
+        setError(`Could not update quantity: ${err.message}`);
+      }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
 
   const toggleChecked = useCallback(async (itemName, catalogItemId) => {
@@ -498,11 +628,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
         .eq("catalog_item_id", resolvedId)
         .is("deleted_at", null);
       if (updateErr) throw updateErr;
+      reportSuccess();
     } catch (err) {
       console.error("toggleChecked error:", err.message);
-      setError(`Could not update item: ${err.message}`);
       setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
+      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checked]);
 
   const clearAll = useCallback(async () => {
@@ -525,6 +657,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       setError(`Could not clear list: ${err.message}`);
       await loadListItems(db, hh.id);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─────────────────────────────────────────────────────────────
@@ -691,6 +824,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       console.error("wrapUpTrip error:", err.message);
       setError(`Could not wrap up trip: ${err.message}`);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updateBudgetGoal = useCallback(async (amount) => {
@@ -825,20 +959,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
 
       const internalUserId = internalUserIdRef.current;
 
-      const { data: existing } = await db
-        .from("household_members")
-        .select("id")
-        .eq("household_id", invite.household_id)
-        .eq("user_id", internalUserId)
-        .is("deleted_at", null)
-        .maybeSingle();
-
-      if (!existing) {
-        const { error: joinErr } = await db
-          .from("household_members")
-          .insert({ household_id: invite.household_id, user_id: internalUserId, role: "member" });
-        if (joinErr) throw joinErr;
-      }
+      // Atomic join: revives a soft-deleted membership (leave-then-rejoin)
+      // or inserts a fresh one. Replaces the old read-then-insert that hit
+      // the UNIQUE(household_id, user_id) constraint on the leftover
+      // soft-deleted row and silently failed (migration 011).
+      const { error: joinErr } = await db.rpc("join_household", {
+        p_household_id: invite.household_id,
+      });
+      if (joinErr) throw joinErr;
 
       await db
         .from("household_invites")
@@ -894,6 +1022,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       setError(err.message);
       return false;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // removeFromList: list-layer action. Soft-deletes a single list_item from the
@@ -1054,7 +1183,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       .select("id, name, category, is_global, price_hint, is_staple")
       .eq("is_global", true)
       .is("deleted_at", null);
-    if (catalogErr) { setError(`Could not refresh catalog: ${catalogErr.message}`); return; }
+    if (catalogErr) {
+      if (classifyFetchError(catalogErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not refresh catalog: ${catalogErr.message}`); }
+      return;
+    }
 
     const { data: customItems, error: customErr } = await db
       .from("catalog_items")
@@ -1062,7 +1194,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       .eq("household_id", hh.id)
       .eq("is_global", false)
       .is("deleted_at", null);
-    if (customErr) { setError(`Could not refresh catalog: ${customErr.message}`); return; }
+    if (customErr) {
+      if (classifyFetchError(customErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not refresh catalog: ${customErr.message}`); }
+      return;
+    }
+
+    reportSuccess();
 
     const next = {};
     (catalog || []).forEach((item) => {
@@ -1093,11 +1230,35 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
       catalogRef.current = next;
       setCatalogMap(next);
     }
-  }, []);
+  }, [reportTransientFailure, reportSuccess]);
 
   // Keep the ref pointing at the latest refreshCatalog so the boot-effect
   // catalog poll can call it without taking it as an effect dependency.
   refreshCatalogRef.current = refreshCatalog;
+
+  const refreshMembers = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return;
+    try {
+      const { data: members } = await db
+        .from("household_members")
+        .select("id, user_id, role")
+        .eq("household_id", hh.id)
+        .is("deleted_at", null);
+      const { data: profiles } = await db
+        .rpc("get_household_member_profiles", { p_household_id: hh.id });
+      const membersWithProfiles = (members || []).map(m => ({
+        ...m,
+        users: profiles?.find(p => p.user_id === m.user_id) || null
+      }));
+      setHouseholdMembers(membersWithProfiles);
+      householdMembersRef.current = membersWithProfiles;
+    } catch (err) {
+      console.error("refreshMembers error:", err.message);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // refs-only, intentional empty deps
 
   const renameItem = useCallback(async (oldName, newName) => {
     const db = supabaseRef.current;
@@ -1161,11 +1322,48 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName }) {
     }
   }, []);
 
+  const createHousehold = useCallback(async (name) => {
+    const db = supabaseRef.current;
+    if (!db || !clerkIdRef.current) return null;
+    try {
+      const { data, error: createErr } = await db
+        .rpc("create_household", { p_name: name, p_clerk_id: clerkIdRef.current });
+      if (createErr) throw createErr;
+      return data?.household_id || null;
+    } catch (err) {
+      console.error("createHousehold error:", err.message);
+      setError(`Could not create household: ${err.message}`);
+      return null;
+    }
+  }, []);
+
+  const renameHousehold = useCallback(async (newName) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return false;
+    const trimmed = (newName || "").trim();
+    if (!trimmed) return false;
+    try {
+      const { error: renameErr } = await db
+        .from("households").update({ name: trimmed }).eq("id", hh.id);
+      if (renameErr) throw renameErr;
+      const updated = { ...hh, name: trimmed };
+      setHousehold(updated);
+      householdRef.current = updated;
+      return true;
+    } catch (err) {
+      console.error("renameHousehold error:", err.message);
+      setError(`Could not rename household: ${err.message}`);
+      return false;
+    }
+  }, []);
+
   return {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
+    createHousehold, renameHousehold, refreshMembers,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,

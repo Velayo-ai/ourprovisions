@@ -1,21 +1,329 @@
 # SESSION LOG
-*Maintained by Session Scribe. One entry per session.*
+*One entry per session. Most recent at top.*
 
 ---
 
 ## FORMAT
 
 ```
-### [DATE] — [GOAL]
-**Completed:** 
-**Unfinished:** 
-**Next session:** 
-**Knowledge updated:** 
+### [YYYY-MM-DD] — [SCOPE] — [GOAL]
+**Goal:** [one sentence]
+**Completed:**
+- [past-tense, action-verb led, max 7 items]
+**Unfinished:**
+- [honest list, or "None"]
+**Next session:**
+SESSION START
+Goal: [logical next goal]
+State: [what's working, what's live, what's broken]
+Done when: [clear success condition]
+**Files updated:** [list or "None"]
+**DB changes:** [list or "None"]
 ```
 
 ---
 
 ## LOG
+
+### [2026-06-25] — [OurProvisions] — Layer 2 point-4 validation: clean dev environment + controlled retest (PASSED)
+**Goal:** Clean the polluted dev test environment, then run a valid controlled point-4 test (removed-from-only-household auto-provision); if it passes, sign off Layer 2.
+**Completed:**
+- Ran a two-query read-only inventory of dev (`zxwtxjjmssykhqrghouf`) to establish ground truth before deleting anything; surfaced the exact source of prior point-4 failures — lookalike `+test4`/`+test5` accounts (both single "My Household", indistinguishable in the switcher) plus accumulated junk households.
+- Executed a targeted, reversible soft-delete cleanup (set `deleted_at`, never hard-deleted): retired Janet (`jan64holmes`) and all five `+test`–`+test5` aliases, plus named junk households under both kept accounts — incl. London + Bristol (real account) and Japan/Berlin/Removal A–C/Test* (Dan Test User). Verified clean end-state: only `dan@velayo.ai` (My Household, BVI) and `daniel.l.holmes@gmail.com` (member of My Household) remain.
+- Established a fresh, uncontaminated test fixture: Dan Test User as RemovalTest owner/remover; `+test9` joined RemovalTest **invite-first**.
+- Confirmed (via `bootstrap_new_user` body + live UI) that invite-first signup early-returns on a valid invite and **skips My Household creation** → invite-only users are single-household by construction. This made `+test9` a clean point-4 victim with zero SQL surgery.
+- Ran a DB gate query immediately before removal: `+test9` = `live_household_count = 1`, `households = {RemovalTest}` — the controlled single-household state never achieved on a clean run before.
+- **Point 4 PASSED:** Dan Test User removed `+test9`; within the 30s poll `+test9` saw the notice "No longer a member of **RemovalTest**." + "We've set you up with a fresh household.", auto-landed in a fresh empty My Household, notice survived the switch and auto-dismissed.
+- **Bug 1 RESOLVED:** the "that household" wording was a **test-environment artifact, not a code defect** — real household name rendered correctly on the clean run (sticky `activeHouseholdNameRef` populated as designed). In-flight guard confirmed: exactly **one** auto-provisioned household (`62737a3b…`), no duplicate spawn.
+**Unfinished:**
+- DELETE HOUSEHOLD button still visible + still a `console.log` stub — must be hidden before `dev→main` merge.
+- `dev → main` merge still HELD (now unblocked by point-4 pass, gated only on hiding DELETE). Eight Layer 2 commits remain local on `dev`, nothing pushed.
+- No application code changed this session (SQL/ops only) — nothing new to commit from the design chat.
+**Next session:**
+SESSION START
+Goal: Hide the DELETE HOUSEHOLD button, then do the deliberate `dev→main` merge + Vercel deploy and run the multi-household behavioral smoke-test on prod.
+State: Layer 2 fully validated on a clean dev environment (points 1–4 green, Bug 1 resolved, in-flight guard confirmed). Dev test environment is clean (only real account + Dan Test User + the live `+test9` fixture remain). Eight commits local on `dev`, unpushed.
+Done when: DELETE button hidden + committed; `dev` pushed and merged to `main`; Vercel prod deploy verified; prod smoke-test passes (switch household, add item, leave, rejoin via invite; regression: single-household add/remove still works).
+**Files updated:** None (no application code changed this session).
+**DB changes:** Dev-only operational cleanup (soft-delete of retired users/households/memberships/list_items). **NOT a migration — do not file in `migrations/`.** Prod is unaffected and does not carry this junk.
+
+---
+
+### [2026-06-24] — [OurProvisions] — Layer 2 build: removal notice + auto-provision (steps 1–4, fixes, partial validation)
+**Goal:** Build Layer 2 (removed-user detection, contextual removal notice, fresh-household auto-provision) per `SPEC_layer2_removal_notice.md`, and validate via the four-point dev test.
+**Completed:**
+- Built Layer 2 in clean, individually-building commits: step 1 (presence-detection refs + `markSelfDeparture` scaffold), step 2 (30s `checkPresence` + `clerkId`-keyed interval, detection only), step 3 (removal response: switch-survivor or auto-provision + `provisioningRef` in-flight guard), step 4 (typed `systemMessage` channel + variant-B notice render + context `onRemoval` wiring).
+- Diagnosed and fixed a Layer-2-introduced GoTrueClient leak (`checkPresence` was calling `createSupabaseClient` every 30s tick); fixed by caching the client in a `dbRef`/`getDb()` getter, repointing all three call sites — folded into the step-3 commit (tested together).
+- Fixed Fix 1 (own-row trashcan): hid the remove control on the current user's own member row via the existing `isMe` condition (`clerkId === user?.id`), removing a redundant self-departure path that double-fired both the legacy toast and the new rectangle. LEAVE button is now the sole self-departure path. Owner/other-member trashcan behavior unchanged.
+- Fixed Fix 2 (notice name capture): root-caused the "No longer a member of your household" wording bug to a mutable-ref clobber (`oldHouseholdName` read from `myHouseholdsRef`, which `refreshHouseholds` overwrites before `checkPresence` reads it). Added a sticky `activeHouseholdNameRef` (updates only when the active household name positively resolves); softened the fallback from "your household" → "that household."
+- Fixed Bug 2 (transient guard vs. legitimate-empty): narrowed the `checkPresence` guard from `if (error || !data || data.length === 0) return;` to `if (error || !data) return;`, so a successful empty result (user removed from their only household) reaches the auto-provision branch instead of being treated as a transient failure. Confirmed safe: genuine transient failures always surface as `error` truthy or `data` null, never `{error:null, data:[]}`.
+- Validated four-point dev test: **points 1, 2, 3 PASSED** — leave button shows clean pill no rectangle (1); remove-others on a survivor household shows the removed user a real-name rectangle ("No longer a member of RemovalA") and auto-switches (2); own row has no trashcan, owner row protected (3).
+- Diagnosed Bug 1 (wrong name on auto-provision path) and traced root cause: sticky ref unpopulated + transient guard was blocking the only-household removal path entirely, meaning the "that household" notice came from a different code path (survivor branch with junk pre-existing household), not the auto-provision branch.
+**Unfinished:**
+- **Point 4 (auto-provision real-name notice) NOT validated — blocked by test-environment pollution.** Every point-4 attempt was invalidated by lookalike `+testN` accounts, accumulated junk "My Household"s, and (critically) watching the wrong window: the account removed from RemovalC was `+test4`, but the window observed was `+test5` (never a member). Genuinely unknown until a clean controlled retest.
+- **Bug 1 (notice name on auto-provision path) OPEN.** "That household" was observed but possibly on the wrong account/window. Genuinely unknown until a clean controlled retest with a DB-verified single-household user.
+- **TU5/`+test4` single-household question OPEN.** Decisive query set up but not run — need to confirm whether `+test4` was genuinely single-household or had a pre-existing "My Household."
+- **Part B (`selfDepartureRef` slow-network wiring) deliberately deferred** — scaffolded from step 1, unwired. Build only if a real slow-network voluntary-leave double-message appears in production.
+- `dev → main` merge HELD. Eight commits local on `dev`, nothing pushed.
+**Next session:**
+SESSION START
+Goal: Clean the dev test environment (purge junk households + lookalike accounts), THEN run a valid controlled point-4 test; if it passes, sign off Layer 2 and do the deliberate dev→main merge.
+State: Layer 2 fully built (steps 1–4 + Fix 1 + Fix 2 + Bug 2 fix), points 1–3 passed, point 4 blocked by environment pollution. Bug 2 fix committed (`2587b7d`). All commits local on `dev`, none pushed.
+Done when: On a DB-verified single-household user, removal from their only household shows a rectangle naming the REAL household (not "that household") + "fresh household" subtext + auto-provision fires on the poll within 30s; then dev→main merged and behaviorally tested on prod.
+**Files updated:** `src/contexts/ActiveHouseholdContext.js` (refs, `checkPresence`, interval, `dbRef`/`getDb` leak fix, sticky `activeHouseholdNameRef`, Bug 2 guard narrowing, `onRemoval` wiring), `src/App.js` (typed `systemMessage` state, `postSystemMessage`/`dismissSystemMessage`, variant-B notice render, own-row trashcan hide via `isMe`). Plus `docs/SPEC_layer2_removal_notice.md`, `docs/mockup_notice_translucent.html`, `.claude/settings.json`, `.gitignore` (chore commit).
+**DB changes:** None.
+
+---
+
+### [2026-06-22] — [OurProvisions] — Layer 2 removal notice + fresh-household auto-provision (design only)
+**Goal:** Design the "you were removed" detection and notice flow for the removed user, and confirm whether a realtime path is viable.
+**Completed:**
+- Probed live dev DB: confirmed `household_members` SELECT policy is `is_member_of(household_id)` (live state), not `get_current_household_id()` — the `000` canonical baseline is stale on this policy.
+- Ruled out realtime: Supabase applies the SELECT policy against the new (soft-deleted) row image to decide per-recipient delivery; `is_member_of` filters `deleted_at is null`, so the removed user's own removal broadcast is RLS-suppressed. `replica identity = default` (PK only) also makes old-image reads unavailable. General pattern: any realtime-on-soft-delete feature using an `is_member_of`-style policy will hit this.
+- Decided detection mechanism: 30s membership-presence re-check (KISS), not a realtime subscription. No new server surface, no RLS change.
+- Designed removed-vs-left asymmetry: local `selfDepartureRef` flag set in `handleLeaveHousehold`; fail-safe leans toward explaining on uncertainty (never silent-unexplained-removal).
+- Approved notice visual: Register-3 shape, teal-accent translucent espresso wash (variant B) — flagged PROVISIONAL pending daily-use validation.
+- Approved fresh-household auto-provision for the only-household case (reuse `create_household`, in-flight guard against duplicate spawn); notice line 2 explains the fresh empty list.
+- Produced full build spec `SPEC_layer2_removal_notice.md` with ordered surgical build steps and two-window verification checklist (in design chat — needs committing to `docs/` before build starts).
+**Unfinished:**
+- Live two-window listener test (empirical RLS-suppression confirmation) not run — spec rests on unambiguous function-body reading.
+- No implementation done (design-only session, correctly held for Claude Code).
+- `SPEC_layer2_removal_notice.md` content lives in design chat, not yet in `docs/`.
+**Next session:**
+SESSION START
+Goal: Commit `SPEC_layer2_removal_notice.md`, then implement Layer 2 — 30s presence check in `ActiveHouseholdContext`, removal notice component, auto-provision for removed-from-only-household case.
+State: Design complete, spec written, mockup approved (variant B). Realtime path ruled out and documented. All required RPCs (`is_member_of`, `create_household`, `remove_member`, `leave_household`) live on dev + prod. Three unpushed commits on local `dev`; dev→main still HELD.
+Done when: Removed user gets a contextual notice + household switch within ~30s; voluntary leave stays silent; transient blip holds position; no duplicate "My Household" on double-fire; full two-window dev regression passes.
+**Files updated:** None (design only). Implementation will touch `src/contexts/ActiveHouseholdContext.js`, `src/App.js`.
+**DB changes:** None.
+
+---
+
+### [2026-06-22] — [OurProvisions] — Member management (leave/remove/rejoin) + offline/online race hardening
+**Goal:** Ship offline optimistic-write race fixes (A), atomic badge-reset RPC (B), and the complete leave/remove/rejoin member management flow (C); bring dev and prod schemas in sync.
+**Completed:**
+- Fixed three optimistic-write races in `useProvisions.js`: suspect-empty poll guard (stale RPC response with zero rows bails before any setter runs); transient-vs-genuine rollback classification (offline write taps preserve optimistic value; genuine errors roll back); `pendingQtyRef` write guard (in-flight items excluded from 2s poll commits — eliminates 5→4→5 flicker).
+- Resolved Vercel CI build failure (`CI=true` + `react-hooks/exhaustive-deps` on ref-pattern callbacks) via surgical `eslint-disable-next-line` on dep-array lines — not by adding deps that would re-stack poll intervals.
+- Shipped migration 009 `remove_list_item` (atomic soft-delete + contributor clear in one transaction); swapped `updateQty` qty≤0 path from `.update({deleted_at})` to RPC; fixes badge-resurrection on re-add. Dev + prod.
+- Built member-management UI: `role` added to member select, "Created by {name}" household attribution, remove button on non-creator rows, Leave/Delete bottom action branched on creator status.
+- Shipped migrations 010 (`remove_member` + `leave_household`), 011 (`join_household` revive-or-insert upsert), 012 (`bootstrap_new_user` revive fix); all applied dev + prod.
+- Wired `handleRemoveMember` + `handleLeaveHousehold` to RPCs; diagnosed and fixed leave-then-rejoin bug on BOTH join paths (`acceptInvite` → 011; URL-invite `bootstrap_new_user` → 012).
+- Added `refreshMembers` `useCallback` to `useProvisions` and called it after remove — actor's member list updates live without page reload.
+**Unfinished:**
+- Layer 2: removed-person's live "you were removed" notice + auto-switch (needs `household_members` realtime subscription). Removed person sees stale state until manual refresh — gracefully degraded (RLS blocks their writes), not broken.
+- Delete-household: UI stub in place; RPC + cascade design NOT built. Cascade decisions needed before any code.
+- `dev → main` merge deliberately held — 2 local unpushed commits on dev. Not pushed, not deployed, not merged.
+**Next session:**
+SESSION START
+Goal: Complete C — build `household_members` realtime subscription (Layer 2: live "you were removed" notice + auto-switch for the removed person), then design + build delete-household with agreed cascade behavior.
+State: Working/live — race fixes, badge RPC (009), leave/remove/rejoin all functional; remove updates actor's view live. All RPCs (009–012) live on dev AND prod. Two unpushed commits on local dev branch. Delete-household stub present, handler is `console.log` only.
+Done when: Removed-while-viewing shows a live notice and auto-switches in the removed person's window; delete-household works with agreed cascade behavior and tested two-window; then deliberate `dev → main` merge with full multi-household behavioral test on prod.
+**Files updated:** `src/hooks/useProvisions.js` (race fixes, `remove_list_item` swap, `join_household` swap, `refreshMembers`), `src/App.js` (member-management UI, wired handlers).
+**DB changes:** 009 `remove_list_item`; 010 `remove_member` + `leave_household`; 011 `join_household`; 012 `bootstrap_new_user` revive fix — all applied dev + prod.
+
+---
+
+### [2026-06-20] — [OurProvisions] — Connectivity pill: soft offline/retry UX
+**Goal:** Replace the alarming red error toast on transient network drops with a gentle bottom pill (Reconnecting / Offline / Back online) that keeps last-good data visible.
+**Completed:**
+- Built `src/lib/classifyFetchError.js` — pure classifier (no imports): transient (Failed to fetch, ERR_CONNECTION*, NetworkError, AbortError, TypeError+network) → pill; real (HTTP error, Supabase code/status, RLS denial, anything else) → red toast. Default `'real'` (fail safe).
+- Built `src/contexts/ConnectivityContext.js` — state machine (online → reconnecting → [3 fails] offline → [success] recovered → [2s] online); `failureCount` ref; recovered timer cleared on re-entry + unmount. Built `src/components/ConnectivityPill.js` — brand-token styled (sand/amber pulse, dark-dot offline, teal back-online), bottom-center mirrors toast, `pointerEvents:none`, `role=status aria-live=polite`, returns null when online.
+- Wired `ConnectivityProvider` into `App.js` (outside `ActiveHouseholdProvider`); rendered `<ConnectivityPill />` adjacent to existing error toast.
+- Converted 4 read-path error guards in `useProvisions.js` (catalog-refresh ×2, list-load, household-fetch): transient → `reportTransientFailure()` + keep last-good; real → unchanged `setError()`. `reportSuccess()` on boot load success and 20s catalog-poll success.
+- Converted 2 write-path error guards (`updateQty`, `toggleChecked`): rollback UNCONDITIONAL (runs on any catch), then branch (transient → pill, real → setError); `reportSuccess()` on confirmed write. Verified: offline write rolls back + shows pill; reconnect reconciles server value.
+- Diagnosed badge resurrection bug (design chat): zero-out soft-deletes `list_items` row but does NOT clear `list_item_contributors`; migration 008 upsert resurrects the same row → old badges reappear. Fix = migration 009 atomic RPC (soft-delete + contributor clear, both-or-neither for marine-wifi robustness).
+- Designed membership exit (Leave/Remove) in principle (design chat): LEAVE ≈ HIDE (per-user, non-owner self-exit); REMOVE = owner-only. Gated on cycle-boundary question: if provision_cycles are user-facing, ship with "applies at next boundary"; if still backend-only, ship simpler rule first. Do not stack on an unloaded seam.
+**Unfinished:**
+- Poll-clobber on offline: offline write → optimistic shows correctly → ~1s later background 2s list poll fires, fails/returns empty, resets quantity to 0 → reconnect heals. Transient handling not yet extended to the poll/realtime path (next session).
+- Feature files not yet committed (verified on localhost dev). Commit: `feat(ux): connectivity pill — soft offline/retry for transient fetch failures`.
+- Remaining `setError` sites (clear list, open cycle, start session) still red toast — optional polish, not core.
+- SPEC_leave_remove_member.md not yet produced; cycle-boundary gating question unanswered.
+- Migration 009 (badge reset on zero) designed but not built.
+**Next session:**
+SESSION START
+Goal: Fix poll-clobber on offline — extend transient-failure handling to the 2s list poll so a failed/empty background fetch does not reset visible quantities to 0 while offline.
+State: Connectivity pill verified working on dev (not yet committed). Read paths keep last-good data on transient fail. Write paths roll back unconditionally and branch notification. Poll-clobber is a pre-existing bug exposed by offline testing: offline write shows correct optimistic value ~1s, then 2s poll fires, fails, resets quantity to 0, reconnect heals. No data loss; cosmetic only.
+Done when: An offline write optimistic value stays visible and stable for the full offline window — no collapse to 0 on the poll tick.
+**Files updated:** `src/lib/classifyFetchError.js` (new), `src/contexts/ConnectivityContext.js` (new), `src/components/ConnectivityPill.js` (new), `src/App.js` (ConnectivityProvider wrap + pill render), `src/hooks/useProvisions.js` (read-path + write-path error guard conversions).
+**DB changes:** None.
+
+### [2026-06-20] — [OurProvisions] — Concurrent-add 409 fix (migration 008)
+**Goal:** Make insert_list_item conflict-safe so two members adding the same item at once stop throwing a 409 on the losing client.
+**Completed:**
+- Designed migration 008: converted insert_list_item from plain INSERT to INSERT ... ON CONFLICT (household_id, catalog_item_id) DO UPDATE.
+- Chose column-target conflict form over named-constraint form after discovering dev/prod constraint-name drift (dev: auto-named key; prod: list_items_household_catalog_unique).
+- Settled merge semantics: last-write-wins on quantity (matches updateQty set-value model), force status='pending', clear deleted_at to resurrect tombstoned slots, COALESCE-preserve cycle_id and price_per_unit.
+- Applied 008 to dev; verified upsert_present = true via pg_proc.prosrc; passed both two-window manual tests (concurrent new-item add + concurrent add against soft-deleted tombstone).
+- Applied 008 to prod after two-way environment confirmation; verified upsert_present = true on prod.
+- Committed 008 (`6cb82c7`) and bundle_003_007_prod.sql historical record (`f764200`), both local on dev.
+**Unfinished:**
+- 3 commits on dev unpushed (deliberate — awaiting Dan's review/push).
+- bundle_003_007_prod.sql not yet annotated with "APPLIED TO PROD — historical record, do not re-run" header.
+**Next session:**
+SESSION START
+Goal: Reconcile the dev/prod constraint-name drift on list_items, and/or close the quiet quantity-bump race.
+State: Concurrent-add 409 and Lemons 409 both fully fixed and live in prod. Multi-household invite-join flow is live. insert_list_item is now an upsert on both DBs.
+Done when: (a) dev and prod agree on the list_items unique-constraint name via a deliberate reconciliation migration, and/or (b) simultaneous +1 quantity increments on an existing row no longer undercount.
+**Files updated:** `migrations/008_insert_list_item_upsert.sql` (new), `migrations/bundle_003_007_prod.sql` (now tracked).
+**DB changes:** insert_list_item replaced with upsert body on dev AND prod.
+
+### [2026-06-19] — [OurProvisions] — Multi-household invite-join flow end-to-end
+**Goal:** Fix three sequential invite-join bugs so new and established users can join via invite code without reload, data split, or switcher lag — and verify both branches end-to-end with two real users.
+**Completed:**
+- Fixed invite code not surviving Clerk sign-up redirect: captured `?invite=` in `index.js` before `ClerkProvider` mounts, persisted to `sessionStorage`; bootstrap reads URL-or-stored; new users now join on first load.
+- Fixed resolver highlight/data split: Effect 2 trusts `activeHouseholdId` unconditionally; removed `justJoinedViaInviteRef` forced-fallback that loaded joined-household data even on silent joins.
+- Fixed silently-joined household missing from switcher: restructured join-banner effect — `hadPrior` captured before async work; silent join calls `refreshHouseholds()` directly; auto-switch awaits refresh before `switchHousehold`.
+- Verified Test 1 (first-household auto-switch) and Test A (established-user silent-join): both pass across data, highlight, and switcher list.
+- Confirmed `bootstrap_new_user` RPC is correct — all invite-join failures traced to client-side timing/redirect; RPC needed no change.
+- Characterized concurrent same-item insert race: two clients adding the same new item simultaneously → second client 409s (unique constraint working correctly; app surfaces it as an error). Root cause and fix direction identified.
+**Unfinished:**
+- Test B (two-window realtime sync) and Test C (4-household switch cycle) not formally run.
+- Concurrent same-item insert race not fixed — characterized, deferred to next session.
+- Invalid/spent invite silently lands user in blank "My Household" — no error feedback.
+- Join detection keys off fragile name string `household.name !== "My Household"` — should re-key off `joined_via_invite` from bootstrap.
+**Next session:**
+SESSION START
+Goal: Make `insert_list_item` conflict-safe so concurrent same-item adds don't 409.
+State: Multi-household join/switch/silent-join working and verified on dev. Three invite-join fixes shipped (index.js capture, resolver single-source, silent-join refresh). Data integrity sound — unique constraint works; the failure is a surfaced error on the losing client.
+Done when: Two users adding/bumping the same new item in the same household simultaneously results in one clean row and NO error toast on either client — the second writer updates instead of erroring.
+**Files updated:** `src/index.js` (pre-ClerkProvider sessionStorage capture), `src/hooks/useProvisions.js` (URL-or-stored invite code, resolver trusts `activeHouseholdId`), `src/App.js` (join-banner effect restructure: `hadPrior` before async, silent-join refresh, await before auto-switch).
+**DB changes:** None.
+
+### 2026-06-18 — Cross — Contributor 403 root-caused; migration 007 sweep; 003–007 applied to prod
+**Goal:** Fix the contributor 403, finish the `get_current_household_id()` → `is_member_of` sweep, and ship the migration bundle (003–007) to prod.
+**Completed:**
+- Root-caused contributor 403 to `household_members_select` (gated on single guessed household, blinding every inline membership join); ruled out duplicate `users` rows and orphaned memberships via Supabase "External user" impersonation — `get_my_households()` returned 5 households while direct `household_members` read returned 1, isolating the SELECT policy as the single blinding gate.
+- Authored migration 007 (`007_finish_authorize_sweep.sql`): converted five remaining `get_current_household_id()` gates to `is_member_of` — `household_members_select`, `waste_events_all`, `catalog_items_select`, `catalog_items_insert`, `household_invites invites_insert`. Used SECURITY DEFINER `is_member_of` (not inline subquery) on `household_members_select` to avoid RLS recursion.
+- Applied 007 to dev; verified end-to-end: badge writes with no 403 in non-default household; co-member "DT" now correctly visible; custom item created in My Household, absent in London, persisted across switch — proving `catalog_items` select/insert follow membership.
+- Committed 007 to dev, pushed to `origin/dev` (`c277021`). Built `bundle_003_007_prod.sql`; caught and fixed transaction-integrity bug (migration 005's inner `begin;`/`commit;` stripped from bundle only — source 005 untouched).
+- Applied corrected bundle to PROD (`parpauldmbetptkmdwbd`) atomically. Verified: `is_member_of`, `create_household`, `get_my_households` present; `household_members_select` reads `is_member_of(household_id)`.
+**Unfinished:**
+- `dev`→`main` merge NOT done — 19 commits on dev ahead of main; multi-household frontend undeployed. DB deliberately ahead of code (harmless direction; existing single-household users unaffected).
+- Unpushed `771effe` on local `main` (docs-only, 2026-06-16 SHOP swipe redesign) — push before merge session.
+- Prod behavioral regression not yet tapped (confirm single-household add/remove still works on live prod with new policies).
+- `bundle_003_007_prod.sql` untracked on dev — decide: commit as audit record or discard.
+- Owner-gate not built; Lemons 409 not started; delete-household not started; `[ActiveHousehold TEST]` log still at `App.js:207`; dev test households clutter.
+- Contributor INSERT/UPDATE policies still use inline joins; UPDATE lacks `WITH CHECK` (cleanup only — they work now that `household_members_select` is fixed).
+**Next session:**
+SESSION START
+Goal: Ship multi-household to prod users — push `771effe`, merge `dev`→`main`, deploy via Vercel, run full behavioral test on deployed prod.
+State: DB spine 003–007 live + verified on PROD. All multi-household frontend on `dev`, unmerged to `main`. Prod runs old single-household frontend over the new (correct, more-permissive) policies. `771effe` docs commit unpushed on local main.
+Done when: `771effe` pushed; `dev`→`main` merged + pushed; Vercel prod deploy live; hard-refreshed prod passes multi-household test (switch to non-default household, add item, no 403); regression confirmed for single-household path. **Decision required up front:** go live now vs. after owner-gate, given invites/rename are member-gated with no owner enforcement yet.
+**Files updated:** `migrations/007_finish_authorize_sweep.sql` (new, committed `c277021`, pushed `origin/dev`); `migrations/bundle_003_007_prod.sql` (new, untracked). No app source changed this session.
+**DB changes:** **PROD** (`parpauldmbetptkmdwbd`) — migrations 003–007 applied atomically (first multi-household DB migrations on prod). Created `is_member_of`, `create_household`, `get_my_households`; converted `list_items` (write/update/delete), `households` (select/update), `household_members` (select), `waste_events`, `catalog_items` (select/insert), `household_invites` (insert) policies to `is_member_of`. **DEV** — migration 007 applied (same five-policy sweep).
+
+### 2026-06-17 — Cross — Household switcher built end-to-end (re-scope → unified sheet → create/rename), authorized by membership
+**Goal:** Build the multi-household switcher — re-scope `useProvisions` so the list follows the active household, then layer the unified manage-household sheet on top — and authorize it server-side.
+**Completed:**
+- Lifted `ActiveHouseholdProvider` above the `useProvisions` call (split `ShoppingListApp` into a thin provider wrapper + inner `ProvisionsApp`) so the hook can consume `useActiveHousehold()` — structural prerequisite for the switcher (commit `edcd683`).
+- Re-scoped `useProvisions` via a two-effect split: Effect 1 (session setup + client creation, keyed on identity) and Effect 2 (household-scoped loads + polls, keyed on `activeHouseholdId + bootstrapped`). List now follows `ActiveHouseholdContext`; bootstrap's `household_id` is a fallback only. GoTrueClient-stacking guard; teardown clears polls + resets per-household state (commit `acecef5`). PROVEN: switching `activeHouseholdId` loads the chosen household's list.
+- Built the unified "manage household" sheet: household switcher (active marked, tap to switch in-place), create-new-household flow (name → `create_household` RPC → `switchHousehold` → land on empty list → toast), active-household member list with rename + invite. Toast primitive added (`toastMessage` state + 2500ms auto-dismiss). Title bar tappability + sub-line decoupled from member count (always available when signed in).
+- Fixed intermittent load hang: Effect 2 was gated on `bootstrappedRef` (a ref) that can't re-trigger the effect once bootstrap finishes — on some mounts the household load never fired, leaving the app stuck on "LOADING YOUR PROVISIONS" with zero Supabase requests. Re-gated on a `bootstrapped` STATE flag added to Effect 2's deps; closed the race (commit `e5b816e`).
+- Fixed stale switcher list: `createHousehold`/`renameHousehold` changed the DB but didn't refresh `myHouseholds` — new/renamed households only appeared after reload. Added `refreshHouseholds()` to `ActiveHouseholdContext`; called after create + rename (commit `e5b816e`).
+- Applied migration 005 (households SELECT/UPDATE → `is_member_of`; `with check` on UPDATE the original lacked; invite-preview branch preserved verbatim; fixes 406 "cannot coerce to single JSON object" on Effect 2 household fetch) and migration 006 (`create_household` SECURITY DEFINER RPC — atomic household + owner-membership insert, returns `{household_id, household_name}`) to dev; both smoke-tested (commits `0804d4b`, `18551c0`).
+**Unfinished:**
+- Contributor 403: `list_item_contributors` upsert rejected by RLS on a fresh load — `auth.jwt()->>'sub'` membership gate may be `auth.uid()` mismatch or membership-join gap on this table. Non-blocking; diagnose next session.
+- Lemons 409: revive-after-soft-delete collides with `list_items` unique constraint `(household_id, catalog_item_id)` — not a partial index, so soft-deleted rows still hold the key. Fix candidates: partial index `WHERE deleted_at IS NULL` or a revive-via-upsert RPC.
+- No-leak WRITE check not fully demonstrated end-to-end (blocked by above). Read isolation IS proven; write isolation is RLS-guaranteed (003/004) but not demo'd via add-to-one-verify-missing-from-other.
+- Temp `[ActiveHousehold TEST]` console log still in `App.js` — strip next session.
+- Rename is currently allowed for any member (migration 005 gates `households` UPDATE on membership, not ownership) — tighten to owner-only next session.
+- Migrations 003–006 are DEV ONLY — must ship to prod together as one authorization + create bundle.
+- Test households clutter dev (BVI, Bristol, "Lake House Test", Smoke/Test* leftovers) — clean up next session.
+**Next session:**
+SESSION START
+Goal: Multi-household hardening — fix the contributor 403 + Lemons 409, finish the RLS sweep, then design + build delete-household; ship the dev migration bundle to prod.
+State: Switcher works end-to-end on dev (switch/create/rename/invite, no hang, list follows active household). Authorization spine 003+004+005+006 live on dev only. Known bugs logged above. Owner-vs-member DB enforcement does not yet exist.
+Done when: contributor 403 fixed (badges write under multi-household); Lemons 409 fixed (revive-after-soft-delete works); remaining `get_current_household_id()` write gates + `auth.uid()` mismatches converted to `is_member_of` / `auth.jwt()->>'sub'`; delete-household designed (soft vs hard + cascade scope) and built (owner-gated RLS DELETE policy + `delete_household` RPC + guards: can't delete last/active household + UI); rename tightened to owner-only; temp `[ActiveHouseholdTEST]` log removed; test households cleaned up; 003–006 (plus hardening fixes) applied to prod.
+**Files updated:** `src/App.js` (provider split, `ProvisionsApp` inner, unified sheet, toast, `refreshHouseholds` wiring), `src/hooks/useProvisions.js` (two-effect split, `bootstrapped` state gate, `createHousehold`/`renameHousehold`), `src/contexts/ActiveHouseholdContext.js` (`refreshHouseholds` added + exposed). Commits: `edcd683`, `acecef5`, `0804d4b`, `18551c0`, `e5b816e`.
+**DB changes (DEV ONLY — prod pending):** Migration 005 (households SELECT/UPDATE → `is_member_of`; `with check` on UPDATE; invite-preview preserved). Migration 006 (`create_household` SECURITY DEFINER RPC). Both smoke-tested on dev.
+
+### 2026-06-17 — Cross — Active-context standard set, authorization spine built & proven (003 + 004)
+**Goal:** Decide where "which household is active" resolves (and make it the Harbour standard), then build and prove the server-side authorization spine — before any switcher UI.
+**Completed:**
+- Set the **active-context standard** (Harbour-wide): active context is client-authoritative (held in `ActiveHouseholdContext` + localStorage, passed into writes); the server authorizes membership, never picks a household. Chosen over a server-global `users.active_household_id` because that forces cross-device lockstep (explicit non-goal) and prevents desired per-app divergence.
+- Settled the **layered default rule**: device-last (localStorage) → fresh device falls back to home household (deterministic, replaces 002 stopgap) → future confident-GPS one-tap confirm ("You're in Day, NY — shopping for NewLeaf?"), never a silent switch. Location gets a voice, never a vote.
+- Built & PROVEN migration **003 `is_member_of(p_household_id)`** — shared SECURITY DEFINER authorization primitive (boolean; resolves Clerk `sub`; `search_path` pinned; fails closed on null). Applied to dev; verified with `pg_get_functiondef` + JWT smoke test returning true/true/false/false for two-household test user.
+- Built & PROVEN migration **004** — converted `list_items` write/update/delete policies from `= get_current_household_id()` to `is_member_of(household_id)`; added `with check` on UPDATE the original lacked. Applied to dev; item write committed and round-tripped (Apples, SHOP badge ticked) under new policy.
+- Committed both migrations to repo (003 = `412f951`; 004 = `a1a9730`). Local only, not pushed, per convention.
+**Unfinished:**
+- **KEY DISCOVERY — the switcher's real work:** `useProvisions` and `ActiveHouseholdContext` are disconnected. `useProvisions` resolves its household via `bootstrap_new_user` and keys everything off `householdRef.current`; it does NOT read `activeHouseholdId` from the context. A switcher built today would update context and change nothing visible. The real work is re-scoping `useProvisions` to treat `activeHouseholdId` as its single household source, re-run load sequences, and tear down/re-subscribe realtime on switch.
+- Honest recalibration: the Apples write proved `004` lets a write SUCCEED under `is_member_of`, but because the write path uses `householdRef` (not the context), we did NOT cleanly prove "wrote to the chosen household." SQL-layer proof of 003/004 stands; app-layer "write to a chosen household" awaits the re-scope.
+- No-leak check (item added to one household staying out of the other) not yet confirmed. Verify once switching is easy.
+- 003 + 004 are dev-only — must ride to prod together (helper + policies as one bundle).
+- Temp `[ActiveHousehold TEST]` log still in `App.js:207` — strip before switcher ships.
+- No switcher UI built (title-bar sub-line, sheet, create flow still unbuilt; mockups approved earlier).
+- Six other `= get_current_household_id()` write gates remain (waste_events, catalog_items insert, households update/select, household_invites insert, household_members select) — same latent bug, dormant, flagged as future migration 005.
+**Next session:**
+SESSION START
+Goal: Build the household switcher — beginning with the `useProvisions` re-scope so the LIST follows the active household, then the title-bar sub-line + switcher sheet on top.
+State: Authorization spine (003 + 004) built and proven on dev. `ActiveHouseholdContext` resolves + persists active household and is wired into `App.js` (display-only today). Blocker: `useProvisions`/context disconnect documented above — re-scope is step one, visible switcher UI is step two. Strict don't-stack: do the re-scope as its own tested change before layering the sheet.
+Done when: `useProvisions` reads `activeHouseholdId` from `ActiveHouseholdContext` as its single household source; on switch it re-runs catalog/list/cycle loads and tears down + re-subscribes realtime to the new household; household modal and list agree on the active household; THEN title-bar sub-line (reveals at 2+) + switcher sheet + create flow per approved mockups. Temp debug log removed. 003 + 004 applied to prod.
+**Files updated:** `migrations/003_is_member_of.sql` (new, committed `412f951`), `migrations/004_list_items_authorize.sql` (new, committed `a1a9730`). No app source changed this session.
+**DB changes (DEV ONLY — prod pending):** Created `is_member_of(uuid)`; replaced `list_items_write` / `list_items_update` / `list_items_delete` policies to authorize via `is_member_of`.
+
+### 2026-06-17 — OurProvisions — Build & prove the multi-household data spine
+**Goal:** Stand up the multi-household spine (households query + active-household state) and prove it works end-to-end through real Clerk auth before building any switcher UI.
+**Completed:**
+- Built `ActiveHouseholdContext` (context + localStorage persistence, `switchHousehold`, `hasMultiple`); mounted `ActiveHouseholdProvider` in `App.js` via a null-rendering `HouseholdDebugLog` helper so it sits inside Clerk auth and above consumers.
+- Diagnosed the keystone RLS trap: `household_members` SELECT policy is `(household_id = get_current_household_id())`, scoped to the ACTIVE household — so a user cannot enumerate their other memberships via normal RLS. Authored `get_my_households()` SECURITY DEFINER RPC (migration 001) to return ALL of a user's households, resolving identity internally from the JWT.
+- Verified on dev: built a two-household test user (Dan Holmes in "My Household" + new "Lake House"), confirmed the RPC logic returns two rows in SQL, then confirmed the live app logs `Array(2)` households through a real Clerk token. Spine proven end-to-end.
+- Found & diagnosed a three-way "which household is active?" ordering bug exposed by multi-household (see ARCHITECTURE). Shipped migration 002 as a labeled TEMPORARY stopgap (align `bootstrap_new_user` to `joined_at DESC`) so the app stops crashing; applied to dev. App now loads clean with a two-household user.
+- Established `repo migrations/` as the single source of truth (baseline 000 + 001 + 002); Google Drive copies are stale/pre-baseline and are NOT authoritative.
+**Unfinished:**
+- Temp verification log still in `App.js` (`[ActiveHousehold TEST]`) — remove next session.
+- Migrations 001 and 002 applied to DEV ONLY — prod still needs them before multi-household ships.
+- Bootstrap stopgap (002) is a holdover, not the real fix.
+- No switcher UI yet: title-bar sub-line, switcher sheet, create flow all still unbuilt (mockups approved last session).
+- Minor: `bootstrap_new_user` step 1 has dead `if v_user_id is null` logic (insert never sets it via RETURNING). Harmless; cleanup later.
+**Next session:**
+SESSION START
+Goal: Replace the bootstrap stopgap with the real fix — make bootstrap/RLS read the ACTIVE household from `ActiveHouseholdContext` rather than each picking one by heuristic — then build the switcher UI.
+State: Spine built, wired, and proven on dev: `get_my_households()` returns all households through real Clerk JWT; context resolves + persists active household; provider mounted. App runs clean on dev with a two-household test user. Migrations 001 + 002 live on DEV ONLY. Three-way ordering bug documented (see ARCHITECTURE) — currently masked by the stopgap.
+Done when: Bootstrap loads the context's active household (one source of truth), superseding the 002 stopgap. Temp console log removed. 001 + 002 (or replacement) applied to prod. Then: title-bar switch sub-line (reveals at 2+ households), switcher sheet, create-household flow built per approved mockups.
+**Files updated:** `src/contexts/ActiveHouseholdContext.js` (new), `src/App.js` (provider mount + temp log), `migrations/001_get_my_households.sql` (new), `migrations/002_bootstrap_ordering_stopgap.sql` (new)
+**DB changes (DEV ONLY — prod pending):** `get_my_households()` created; `bootstrap_new_user` altered to `ORDER BY joined_at DESC`. Test data: "Lake House" household + Dan Holmes membership added on dev.
+
+### 2026-06-16 — OurProvisions — Multi-household design + store-awareness discovery
+**Goal:** Design the multi-household switching experience (the last structural feature before AI) and scope store awareness.
+**Completed:**
+- Designed multi-household model: schema already supports it (`household_members` is a junction table); the work is app-layer, not DB.
+- Settled title-bar UX: wordmark stays; a new tappable household-name sub-line appears ONLY at 2+ households and opens the switcher. One household = no switcher, zero new chrome.
+- Approved two mockups: switcher bottom sheet (lists households + "Create new household") and the create flow (name → insert → add creator as owner → auto-switch → land on empty list).
+- Settled roles: two only. Creator = owner (rename/remove-member/delete-household); everyone shares all list actions. Succession passes to oldest member if owner leaves. No co-owners.
+- Adopted reusable toast pattern (app-level slot + showToast, ~2.5s auto-dismiss, new replaces current) — first toast in the app; fires on household create.
+- Read migration 005 and discovered the store-awareness foundation is already fully designed (`known_stores`, `provision_cycles`, `shopping_sessions`, `match_known_store` RPC, silent GPS auto-detect = Scenario D). Likely written but NOT yet applied to prod.
+**Unfinished:**
+- No Claude Code prompts written yet (design-only session).
+- Re-scoping risk in `useProvisions` (realtime re-subscribe on household switch) NOT yet inspected — needs a fresh read of `useProvisions.js` + App.js state block.
+- Whether migration 005 is actually live on prod is UNCONFIRMED. Column inventory suggests `list_items` has `session_id`/`checked_lat`/`checked_lng` but NOT `cycle_id` — strong signal 005 was never run.
+- Default active-household rule proposed (last-selected from localStorage, fallback oldest membership) but not yet blessed/implemented.
+- Whether any existing RLS policy keys off `role` — needs a live check before the create flow writes 'owner'.
+**Next session:**
+SESSION START
+Goal: Begin multi-household implementation, starting with the data spine and the re-scoping hook (NOT the toast — that's the warm-up).
+State: Multi-household fully designed; two mockups approved (switcher sheet, create flow). Roles decided (owner/member in DB, capability-based UI, succession by seniority). Toast pattern agreed. Store awareness deferred to its OWN arc after multi-household ships.
+Done when: `useProvisions.js` + App.js state block read fresh and re-scope-on-switch plan (realtime teardown/re-subscribe) is written; first Claude Code prompt ready (candidate order: toast primitive → myHouseholds query + active-household context → switch sub-line → switcher sheet → create flow); default-active-household rule confirmed; `role` RLS dependency checked.
+**Files updated:** None (design only; mockups produced as artifacts, not repo files).
+**DB changes:** None this session. Pending verification: is migration 005 live on prod?
+
+### 2026-06-16 — Velayo OS — Retire v1 Scribe; rebuild project template as dual-mode
+**Goal:** Kill the last of the v1 Google-Drive Session Scribe across the OurProvisions instructions and the parent project template, aligning both with the v2 handoff flow.
+**Completed:**
+- Rewrote the OurProvisions project instructions whole: replaced the v1 Drive-writing Scribe with the v2 SESSION END (chat produces `design_handoff.md`, Claude Code merges), carrying the canonical `### [YYYY-MM-DD] — [SCOPE] — [GOAL]` header.
+- Confirmed scope tagging was already shipped (06-11, commit `8396b8e`): `[SCOPE]` = OurProvisions / Velayo OS / Platform / Cross lives in CLAUDE.md and is the merge-time authority — no chat-side duplication needed.
+- Corrected the model line to Opus 4.8 at Medium effort (had wrongly reverted to Sonnet 4.6 from the old model-strategy note).
+- Rebuilt `VELAYO_PROJECT_TEMPLATE.md` (Velayo OS project) as dual-mode with a MODE switch: DESIGN (no repo — chat is scribe, paste entries in) vs HANDOFF (repo + Claude Code — chat feeds `design_handoff.md`, Code merges). New apps default to DESIGN, flip to HANDOFF at first coding session.
+- Reframed the template's "Project Knowledge" section: repo `docs/` is canonical in HANDOFF mode; Project Knowledge is a convenience mirror, not source of truth. Dropped the retired "re-upload these files" step.
+- Generalized the template's `[SCOPE]` to `[APP NAME]` so new apps (OurChef, OurGarden) don't inherit OurProvisions' scope vocabulary; added `**DB changes:**` and the canonical header to the seed format.
+**Unfinished:**
+- Velayo OS project's OWN instructions may still carry v1 Scribe language (the second of the two surfaces flagged in the 06-11 Harbour entry) — Dan to verify and apply the same v2 replacement.
+**Next session:**
+SESSION START
+Goal: Confirm Velayo OS project instructions are on v2; then resume OurProvisions — merge dev → main and begin the email receipt parser.
+State: OurProvisions instructions + parent template both on v2 handoff flow. Template is dual-mode. Scope tagging canonical in CLAUDE.md. v1 Scribe debt from 06-11 now closed except the Velayo OS instruction field.
+Done when: Velayo OS project instructions verified on v2 (no Drive-writing language); OR OurProvisions dev→main merged green and receipt parser specced.
+**Files updated:** OurProvisions project instructions (chat-side, not repo); `VELAYO_PROJECT_TEMPLATE.md` (Velayo OS project + Drive backup)
+**DB changes:** None
 
 ### 2026-06-16 — OurProvisions — SHOP swipe redesign + toggleChecked id fix + dev grant restoration
 **Goal:** Fix the "not in catalog" error hit while shopping and resolve the design question it exposed — SHOP swipe was wrongly a catalog action (Hide) when it should act on the list only.

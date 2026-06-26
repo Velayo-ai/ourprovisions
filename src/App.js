@@ -1,6 +1,9 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useProvisions } from './hooks/useProvisions';
+import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
+import { ConnectivityProvider } from './contexts/ConnectivityContext';
+import { ConnectivityPill } from './components/ConnectivityPill';
 
 // Maps Supabase category names → display names with emoji
 const CATEGORY_DISPLAY = {
@@ -199,9 +202,19 @@ function SplashScreen({ onDone }) {
   );
 }
 
-export default function ShoppingListApp() {
-  const { user, isSignedIn } = useUser();
+function HouseholdDebugLog() {
+  const { myHouseholds, activeHouseholdId, loadingHouseholds } = useActiveHousehold();
+  useEffect(() => {
+    if (!loadingHouseholds) {
+    }
+  }, [loadingHouseholds, activeHouseholdId, myHouseholds]);
+  return null;
+}
+
+function ProvisionsApp() {
+  const { user, isSignedIn, isLoaded } = useUser();
   const { getToken } = useAuth();
+  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds } = useActiveHousehold();
 
   const {
     quantities,
@@ -233,6 +246,9 @@ export default function ShoppingListApp() {
     updateFullName,
     activeCycle,
     wrapUpTrip,
+    createHousehold,
+    renameHousehold,
+    refreshMembers,
     supabase,
     _supabase,
     _household,
@@ -240,10 +256,12 @@ export default function ShoppingListApp() {
     _internalUserId,
   } = useProvisions({
     getToken,
-    userId: user?.id,
-    clerkId: user?.id,
+    userId: isLoaded ? user?.id : undefined,
+    clerkId: isLoaded ? user?.id : undefined,
     email: user?.primaryEmailAddress?.emailAddress,
     fullName: user?.fullName || null,
+    activeHouseholdId,
+    myHouseholds,
   });
 
   const [showSplash, setShowSplash] = useState(true);
@@ -289,6 +307,12 @@ export default function ShoppingListApp() {
   const [joinBanner, setJoinBanner] = useState(null); // household name after accepting
   const [showVelayoMenu, setShowVelayoMenu] = useState(false);
   const [showHouseholdModal, setShowHouseholdModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newHouseholdName, setNewHouseholdName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameHouseholdValue, setRenameHouseholdValue] = useState("");
+  const [toastMessage, setToastMessage] = useState(null);
+  const toastTimerRef = useRef(null);
   const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [renamingCategory, setRenamingCategory] = useState(null);
@@ -322,6 +346,12 @@ export default function ShoppingListApp() {
   useEffect(() => {
     localStorage.setItem('op_showPrices', showPrices);
   }, [showPrices]);
+
+  const showToast = useCallback((message) => {
+    setToastMessage(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), 2500);
+  }, []);
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
 
@@ -405,21 +435,38 @@ export default function ShoppingListApp() {
     return matches;
   }, [searchQuery, categories]);
 
-  // Show join banner if user joined via invite during bootstrap
+  // Show join banner if user joined via invite during bootstrap.
+  // Conditionally moves the active-household pointer to the joined one.
   useEffect(() => {
     if (loading || !household) return;
     const params = new URLSearchParams(window.location.search);
     const code = params.get("invite");
-    // If there's no invite code in URL but household loaded cleanly,
-    // check if we just joined (bootstrap clears the URL param on join)
-    // We detect this by checking if joinBanner hasn't been shown yet
-    // and the household name isn't "My Household" (default for new users)
     if (!code && household?.name && household.name !== "My Household" && !joinBanner) {
-      // Check sessionStorage to see if we just joined
       const justJoined = sessionStorage.getItem("just_joined_household");
       if (justJoined) {
-        setJoinBanner(justJoined);
+        setJoinBanner(justJoined); // always fires — sole feedback in the silent-join case
         sessionStorage.removeItem("just_joined_household");
+        const joinedId = sessionStorage.getItem("just_joined_household_id");
+        sessionStorage.removeItem("just_joined_household_id");
+        // Capture hadPrior from the pre-refresh list so the refresh below doesn't race the check.
+        // 0 = brand-new user with no prior household → auto-switch.
+        // ≥1 = established user → silent join, leave active context unchanged.
+        const hadPrior = (myHouseholds || []).length >= 1;
+        if (joinedId && !hadPrior) {
+          // New user: await refresh so the membership guard in switchHousehold
+          // sees the new household before we try to activate it.
+          (async () => {
+            await refreshHouseholds();
+            switchHousehold(joinedId);
+          })();
+        } else {
+          // Silent join (or no joinedId edge case): refresh so the new household
+          // appears in the switcher immediately — no reload needed.
+          // TODO(dan): established user with untouched prior list should also
+          // auto-switch, but the maps reflect the joined household by the time
+          // this effect fires. Needs a pre-join snapshot to implement safely.
+          refreshHouseholds();
+        }
       }
     }
   }, [loading, household]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -622,6 +669,41 @@ export default function ShoppingListApp() {
     setWrapUpRollItems(new Set());
   };
 
+  const handleRemoveMember = async (m) => {
+    const name = m.users?.email ? m.users.email.split("@")[0] : "this member";
+    if (!window.confirm(`Remove ${name} from this household? Anything they added to the current list stays.`)) return;
+    try {
+      const { error } = await supabase.rpc("remove_member", {
+        p_household_id: household.id,
+        p_user_id: m.user_id,
+      });
+      if (error) throw error;
+      await refreshMembers();
+      await refreshHouseholds();
+      showToast(`${name} removed`);
+    } catch (err) {
+      showToast(err.message || "Could not remove member");
+    }
+  };
+
+  const handleLeaveHousehold = async () => {
+    if (!window.confirm("Leave this household? Anything you added stays behind for the others.")) return;
+    try {
+      const leftId = household.id;
+      const { error } = await supabase.rpc("leave_household", {
+        p_household_id: leftId,
+      });
+      if (error) throw error;
+      setShowHouseholdModal(false);
+      await refreshHouseholds();
+      const remaining = myHouseholds.filter(h => h.id !== leftId);
+      if (remaining.length > 0) switchHousehold(remaining[0].id);
+      showToast("You left the household");
+    } catch (err) {
+      showToast(err.message || "Could not leave household");
+    }
+  };
+
   const shoppingList = useMemo(() => {
     // Group directly from the RPC rows (listRows) — the source of truth that is
     // identical on every client. catalogMap is no longer in the display path,
@@ -686,7 +768,7 @@ export default function ShoppingListApp() {
   
 
   return (
-    <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
+      <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {showSplash && <SplashScreen onDone={handleSplashDone} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
@@ -702,6 +784,9 @@ export default function ShoppingListApp() {
           }}>Loading your provisions…</div>
         </div>
       )}
+
+      {/* Connectivity pill */}
+      <ConnectivityPill />
 
       {/* Error toast */}
       {error && (
@@ -902,7 +987,7 @@ export default function ShoppingListApp() {
               </button>
             )}
           </h1>
-          {isSignedIn && householdMembers.length <= 1 && (
+          {isSignedIn && (
             <div style={{
               fontFamily: "'Lato', sans-serif",
               fontSize: "0.65rem",
@@ -973,10 +1058,14 @@ export default function ShoppingListApp() {
         </div>
       )}
 
-      {/* Household members modal */}
+      {/* Manage household sheet — switch, create, rename, members, invite */}
       {showHouseholdModal && (
         <div
-          onClick={() => setShowHouseholdModal(false)}
+          onClick={() => {
+            setShowHouseholdModal(false);
+            setCreating(false); setNewHouseholdName("");
+            setRenaming(false); setRenameHouseholdValue("");
+          }}
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
             display: "flex", alignItems: "center", justifyContent: "center",
@@ -987,70 +1076,262 @@ export default function ShoppingListApp() {
             onClick={(e) => e.stopPropagation()}
             style={{
               background: "#FAF4EC", borderRadius: "16px", padding: "28px 24px 24px",
-              width: "min(340px, 90vw)", boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
-              display: "flex", flexDirection: "column", gap: "20px",
+              width: "min(360px, 92vw)", maxHeight: "85vh", overflowY: "auto",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
+              display: "flex", flexDirection: "column", gap: "24px",
             }}
           >
-            {/* Heading */}
-            <div>
-              {household?.name && (
-                <div style={{
-                  fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
-                  textTransform: "uppercase", color: "#8a7a60", marginBottom: "6px",
-                }}>{household.name}</div>
-              )}
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.3rem", fontWeight: 700, color: "#2C1A0E" }}>
-                Your Household
-              </div>
-            </div>
 
-            {/* Member list */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {householdMembers.map((m) => {
-                const clerkId = m.users?.clerk_id;
-                const isMe = clerkId === user?.id;
-                const displayName = isMe
-                  ? (user.fullName || user.firstName || user.primaryEmailAddress?.emailAddress || "You")
-                  : (m.users?.email ? m.users.email.split("@")[0] : "Member");
+            {/* Section 1: Household switcher */}
+            <div>
+              <div style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
+                textTransform: "uppercase", color: "#8a7a60", marginBottom: "10px",
+              }}>Your Households</div>
+              {(myHouseholds || []).map((hh) => {
+                const isActive = hh.id === activeHouseholdId;
                 return (
-                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                    {isMe && user.imageUrl ? (
-                      <img src={user.imageUrl} alt={displayName} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
-                    ) : (
-                      <div style={{
-                        width: "36px", height: "36px", borderRadius: "50%",
-                        background: "#E8D5B7", display: "flex", alignItems: "center", justifyContent: "center",
-                        fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700, color: "#8a7a60",
-                      }}>
-                        {displayName[0].toUpperCase()}
-                      </div>
-                    )}
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E", flex: 1 }}>
-                      {displayName}
-                    </span>
-                    {isMe && (
+                  <button
+                    key={hh.id}
+                    onClick={() => { if (!isActive) { switchHousehold(hh.id); setShowHouseholdModal(false); setRenaming(false); } }}
+                    style={{
+                      width: "100%", background: isActive ? "#2C1A0E" : "#E8D5B7",
+                      border: isActive ? "2px solid #c8973a" : "2px solid transparent",
+                      borderRadius: "8px", padding: "10px 14px",
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      cursor: isActive ? "default" : "pointer", marginBottom: "6px",
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <span style={{
+                      fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                      color: isActive ? "#FAF4EC" : "#2C1A0E", fontWeight: isActive ? 700 : 400,
+                    }}>{hh.name}</span>
+                    {isActive && (
                       <span style={{
                         fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1px",
-                        textTransform: "uppercase", color: "#8a7a60",
-                        background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
-                      }}>you</span>
+                        textTransform: "uppercase", color: "#c8973a",
+                      }}>Active</span>
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>
-            <button
-              onClick={() => { setShowHouseholdModal(false); setShowInvitePanel(true); }}
-              style={{
-                width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
-                letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
-                background: "#A0724A", color: "#FAF4EC", border: "none",
-                borderRadius: "8px", cursor: "pointer", marginTop: "16px",
-              }}
-            >
-              + Invite Someone
-            </button>
+
+            {/* Section 2: Create new household */}
+            <div>
+              {!creating ? (
+                <button
+                  onClick={() => setCreating(true)}
+                  style={{
+                    width: "100%", background: "none", border: "1.5px dashed #A0724A",
+                    borderRadius: "8px", padding: "10px 14px",
+                    fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#A0724A",
+                    cursor: "pointer", textAlign: "left", boxSizing: "border-box",
+                  }}
+                >+ Create new household</button>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <input
+                    autoFocus
+                    value={newHouseholdName}
+                    onChange={(e) => setNewHouseholdName(e.target.value)}
+                    placeholder="Household name"
+                    style={{
+                      width: "100%", padding: "10px 12px", borderRadius: "8px",
+                      border: "1.5px solid #A0724A", fontFamily: "'Lato', sans-serif",
+                      fontSize: "0.9rem", boxSizing: "border-box", background: "#FAF4EC",
+                    }}
+                  />
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      onClick={() => { setCreating(false); setNewHouseholdName(""); }}
+                      style={{
+                        flex: 1, padding: "10px", background: "#E8D5B7", border: "none",
+                        borderRadius: "8px", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.8rem", cursor: "pointer", color: "#2C1A0E",
+                      }}
+                    >Cancel</button>
+                    <button
+                      onClick={async () => {
+                        const n = newHouseholdName.trim();
+                        if (!n) return;
+                        const newId = await createHousehold(n);
+                        if (newId) {
+                          await refreshHouseholds();
+                          switchHousehold(newId);
+                          setShowHouseholdModal(false);
+                          setCreating(false); setNewHouseholdName("");
+                          showToast(`"${n}" created`);
+                        }
+                      }}
+                      style={{
+                        flex: 2, padding: "10px", background: "#A0724A", border: "none",
+                        borderRadius: "8px", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", color: "#FAF4EC",
+                      }}
+                    >Create</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Section 3: Active household members + rename + invite */}
+            <div>
+              {/* Header row: household name + rename toggle */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                {!renaming ? (
+                  <>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      <div style={{
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
+                        textTransform: "uppercase", color: "#8a7a60",
+                      }}>{household?.name || "This Household"}</div>
+                      {(() => {
+                        const owner = householdMembers.find(m => m.role === 'owner');
+                        if (!owner) return null;
+                        const ownerIsMe = owner.users?.clerk_id === user?.id;
+                        const creatorName = ownerIsMe ? "you" : (owner.users?.email ? owner.users.email.split("@")[0] : "Member");
+                        return <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.62rem", letterSpacing: "0.5px", color: "#b0a48c" }}>Created by {creatorName}</div>;
+                      })()}
+                    </div>
+                    <button
+                      onClick={() => { setRenaming(true); setRenameHouseholdValue(household?.name || ""); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", color: "#8a7a60" }}
+                      title="Rename household"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
+                      </svg>
+                    </button>
+                  </>
+                ) : (
+                  <div style={{ display: "flex", gap: "6px", width: "100%" }}>
+                    <input
+                      autoFocus
+                      value={renameHouseholdValue}
+                      onChange={(e) => setRenameHouseholdValue(e.target.value)}
+                      style={{
+                        flex: 1, padding: "6px 10px", borderRadius: "6px",
+                        border: "1.5px solid #A0724A", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.85rem", background: "#FAF4EC",
+                      }}
+                    />
+                    <button
+                      onClick={async () => {
+                        const ok = await renameHousehold(renameHouseholdValue);
+                        if (ok) { await refreshHouseholds(); setRenaming(false); showToast("Household renamed"); }
+                      }}
+                      style={{
+                        padding: "6px 12px", background: "#A0724A", border: "none",
+                        borderRadius: "6px", color: "#FAF4EC", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.8rem", fontWeight: 700, cursor: "pointer",
+                      }}
+                    >Save</button>
+                    <button
+                      onClick={() => setRenaming(false)}
+                      style={{
+                        padding: "6px 10px", background: "#E8D5B7", border: "none",
+                        borderRadius: "6px", color: "#2C1A0E", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.8rem", cursor: "pointer",
+                      }}
+                    >✕</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Member list */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {householdMembers.map((m) => {
+                  const clerkId = m.users?.clerk_id;
+                  const isMe = clerkId === user?.id;
+                  const displayName = isMe
+                    ? (user.fullName || user.firstName || user.primaryEmailAddress?.emailAddress || "You")
+                    : (m.users?.email ? m.users.email.split("@")[0] : "Member");
+                  return (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                      {isMe && user.imageUrl ? (
+                        <img src={user.imageUrl} alt={displayName} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
+                      ) : (
+                        <div style={{
+                          width: "36px", height: "36px", borderRadius: "50%",
+                          background: "#E8D5B7", display: "flex", alignItems: "center", justifyContent: "center",
+                          fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700, color: "#8a7a60",
+                        }}>
+                          {displayName[0].toUpperCase()}
+                        </div>
+                      )}
+                      <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E", flex: 1 }}>
+                        {displayName}
+                      </span>
+                      {isMe && (
+                        <span style={{
+                          fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1px",
+                          textTransform: "uppercase", color: "#8a7a60",
+                          background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
+                        }}>you</span>
+                      )}
+                      {!isMe && m.role !== 'owner' && (
+                        <button
+                          onClick={() => handleRemoveMember(m)}
+                          title="Remove member"
+                          style={{
+                            background: "none", border: "none", cursor: "pointer",
+                            color: "#b08968", padding: "4px", display: "flex", alignItems: "center",
+                            borderRadius: "4px",
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.color = '#8a3a2a'; e.currentTarget.style.background = '#f0e3d0'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.color = '#b08968'; e.currentTarget.style.background = 'none'; }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => { setShowHouseholdModal(false); setShowInvitePanel(true); }}
+                style={{
+                  width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
+                  letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
+                  background: "#A0724A", color: "#FAF4EC", border: "none",
+                  borderRadius: "8px", cursor: "pointer", marginTop: "16px",
+                }}
+              >+ Invite Someone</button>
+              {householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner') ? null : (
+                <button
+                  onClick={() => handleLeaveHousehold()}
+                  style={{
+                    width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
+                    letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
+                    background: "transparent", color: "#c0392b",
+                    border: "1.5px solid #c0392b",
+                    borderRadius: "8px", cursor: "pointer", marginTop: "8px",
+                  }}
+                >Leave Household</button>
+              )}
+            </div>
+
           </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toastMessage && (
+        <div style={{
+          position: "fixed", bottom: "28px", left: "50%", transform: "translateX(-50%)",
+          background: "rgba(44,26,14,0.92)", color: "#FAF4EC",
+          fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
+          padding: "10px 22px", borderRadius: "999px",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+          zIndex: 2000, whiteSpace: "nowrap",
+          animation: "fadeIn 0.18s ease",
+        }}>
+          {toastMessage}
         </div>
       )}
 
@@ -2362,5 +2643,93 @@ export default function ShoppingListApp() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ShoppingListApp() {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+  const [systemMessage, setSystemMessage] = useState(null);
+  const systemMsgTimerRef = useRef(null);
+
+  const postSystemMessage = useCallback((msg) => {
+    setSystemMessage(msg);
+    if (systemMsgTimerRef.current) clearTimeout(systemMsgTimerRef.current);
+    systemMsgTimerRef.current = setTimeout(() => setSystemMessage(null), msg.durationMs);
+  }, []);
+
+  const dismissSystemMessage = useCallback(() => {
+    setSystemMessage(null);
+    if (systemMsgTimerRef.current) clearTimeout(systemMsgTimerRef.current);
+  }, []);
+
+  const onRemoval = useCallback((householdName, provisioned) => {
+    postSystemMessage({
+      kind: 'info',
+      householdName,
+      subtext: provisioned ? "We've set you up with a fresh household." : undefined,
+      durationMs: 30000,
+      dismissible: true,
+    });
+  }, [postSystemMessage]);
+
+  return (
+    <ConnectivityProvider>
+      <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id} onRemoval={onRemoval}>
+        <HouseholdDebugLog />
+        <ProvisionsApp />
+      </ActiveHouseholdProvider>
+      {systemMessage && (
+        <>
+          <style>{`@keyframes shrinkBar { from { width: 100% } to { width: 0% } }`}</style>
+          <div style={{
+            position: 'fixed', left: '14px', right: '14px', bottom: '18px',
+            borderRadius: '10px', padding: '13px 15px',
+            display: 'flex', gap: '12px', alignItems: 'flex-start',
+            background: 'rgba(44, 26, 14, 0.5)',
+            border: '1px solid rgba(13, 148, 136, 0.4)',
+            borderLeft: '4px solid #0D9488',
+            color: '#FAF4EC',
+            boxShadow: '0 8px 26px rgba(44,26,14,0.18)',
+            backdropFilter: 'blur(7px)',
+            overflow: 'hidden',
+            zIndex: 1500,
+            fontFamily: "'Lato', sans-serif",
+          }}>
+            <div style={{
+              position: 'absolute', left: 0, bottom: 0, height: '2px',
+              background: '#0D9488', opacity: 0.9, borderBottomLeftRadius: '10px',
+              animation: `shrinkBar ${systemMessage.durationMs}ms linear forwards`,
+            }} />
+            <span style={{ fontSize: '18px', color: '#5fd8c9', flexShrink: 0, lineHeight: '1.3' }}>ⓘ</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '13.5px', fontWeight: 400, lineHeight: '1.4', color: '#FAF4EC' }}>
+                No longer a member of{' '}
+                <strong style={{ color: '#5fd8c9', fontWeight: 700 }}>
+                  {systemMessage.householdName ?? 'that household'}
+                </strong>.
+              </div>
+              {systemMessage.subtext && (
+                <div style={{ fontSize: '12px', marginTop: '4px', lineHeight: '1.4', color: 'rgba(250,244,236,0.8)' }}>
+                  {systemMessage.subtext}
+                </div>
+              )}
+            </div>
+            {systemMessage.dismissible && (
+              <button
+                onClick={dismissSystemMessage}
+                style={{
+                  background: 'none', border: 'none', color: '#FAF4EC',
+                  opacity: 0.6, fontSize: '16px', flexShrink: 0,
+                  cursor: 'pointer', padding: 0, lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </ConnectivityProvider>
   );
 }
