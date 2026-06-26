@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-25*
+*Last updated: 2026-06-26*
 
 ---
 
@@ -25,6 +25,7 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **Create household with cloned catalog** | Build `create_household_from_template` per `docs/SPEC_create_household_from_template.md`. New RPC wraps `create_household` (006); clones source household's custom catalog into the new one (snapshot, not live link); null source = passthrough ("Standard provisions"). Client: dropdown picker in manage-household sheet. Resolve item-count RPC shape + most-recently-active default during build. |
 | — | **Reconcile `migrations/` folder** | Fix the `007` numbering collision (disk: `007_dev_restore_role_grants` vs canonical `007_finish_authorize_sweep`); recover/locate `009`–`012` (described in docs and confirmed live on prod but absent from local folder); enforce gapless ordering. Prerequisite for Supabase CLI workflow and agent test harness Part B. |
 | — | **Replace native `window.confirm()` with branded modal** | 3 call sites in App.js (leave household, remove member, ~App.js:2284). Native browser confirm is unbranded — "ourprovisions.velayo.ai says…" box clashes with Layer 2's branded removal notice. Reuse the existing `showResetConfirm` modal pattern; preserve existing on-brand copy. |
 | — | **Wire agent test harness — Part C + Part A** | Part C (static repo checks): no DB needed, Claude Code can run today. Part A (read-only prod gate): paste queries into prod SQL editor before each `dev→main`. Both runnable with near-zero setup. See `qa/agent_test_harness.md`. |
@@ -240,6 +241,10 @@ Closes the loop. Turns data into action.
 | 2026-06-25 | **Test is event-triggered, not a SESSION END sub-step.** Pre-merge gate fires on dev→main; destructive suite fires after a dev migration; static checks on commit. SESSION END/handoff records Test results but does not invoke Test. Avoids firing tests on no-op sessions; ensures the merge gate blocks at merge time. |
 | 2026-06-25 | **Adopt Supabase CLI migration workflow (staged).** CLI's `schema_migrations` table makes prod self-describing; `db push` applies only the gap. Current DBs are hand-built/drifted. Sequence: (1) reconcile migrations folder; (2) `db pull` baseline + `migration repair` to mark history on dev+prod; (3) link both, switch to migration-files-only. Prerequisite: secrets hygiene (Bitwarden). Prod `db push` stays human-triggered — no auto-rollback on prod. |
 | 2026-06-25 | **Target agentic-QA pipeline (staged build order).** Stage 0: deterministic gate (the harness). Stage 1: automate verifiable file copies (handoff→Claude Code, docs→project) — only once the gate can catch a corrupted result. Stage 2: automate the QA run (report failures to human, don't auto-fix). Stage 3: guarded QA↔Claude Code autonomous fix loop — agents edit app code but NOT the tests; each fix a reviewable commit; bounded retries then escalate. Stage 4: handoff/Scribe records pipeline provenance. Principle: automate deterministic toil first, judgment last; keep a human at the prod (irreversible) boundary. |
+| 2026-06-26 | **Catalog carry-forward = clone-forward (snapshot at creation), NOT a persistent fleet catalog layer.** Three-tier `is_global` model solves an unfelt sync pain and destabilizes the binary discriminator driving Hide/Delete verbs. Clone-forward fully solves the felt pain (rebuilding categories). KISS — "wait until people complain." |
+| 2026-06-26 | **Clone scope = custom catalog ONLY.** Never clone `list_items`, waste events, cycles, sessions, or prices. New household opens with an empty shopping list. Lists are situational and independent; carrying them forward would break "the shared list is sacred" and confuse a fresh household with stale state. |
+| 2026-06-26 | **Source household is user-chosen; default = most-recently-active.** Users expect their catalog to carry forward; "Standard provisions" (no custom items, null source) is the deliberate opt-out. |
+| 2026-06-26 | **`create_household_from_template` WRAPS `create_household` (006), not modifies it.** The proven, prod-live empty-household path is preserved byte-for-byte; clone logic is purely additive; null source = identical passthrough. Two distinct RPCs, one delegates to the other. |
 | 2026-06-25 | **Secrets hygiene (Bitwarden) promoted to BLOCKER for agentic automation.** Agents need credentials to run DB tests or push to prod. Google Drive `.env` stopgap is acceptable for the current human-only flow; unacceptable once agents need access. Bitwarden is now a critical-path prerequisite for every automation stage past Stage 0. |
 
 ---

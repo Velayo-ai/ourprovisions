@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-26] — [OurProvisions] — Part C static checks (PASS/FINDINGS) + design "create household with cloned catalog"
+**Goal:** Run the first live Part C static checks against the repo and design the catalog-carry-forward feature for new household creation.
+**Completed:**
+- C1 PASS: 14 client `.rpc()` names exactly match the Part A1 prod list — no unknown or missing RPCs. Check confirmed working.
+- C2 FINDING: `009`–`012` migration files absent from local `migrations/` folder (all four functions confirmed live on prod); `007_dev_restore_role_grants.sql` documented in DONE but absent from repo. No current numbering collision. Check caught the expected gap — working as designed.
+- C3 FINDING: 3 `window.confirm` calls at [App.js:674](src/App.js#L674), [:690](src/App.js#L690), [:2271](src/App.js#L2271); no `window.alert`. Count unchanged — all three are the known tracked sites.
+- Designed "create household with cloned catalog": clone-forward (snapshot at creation) over persistent fleet catalog; scope = custom catalog only (lists never travel); source household user-chosen, most-recently-active default; "Standard provisions" as the no-custom opt-out label.
+- Decided new RPC `create_household_from_template(p_name, p_clerk_id, p_source_household_id default null)` wraps `create_household` (006) rather than modifying it; null source = passthrough; `is_member_of(p_source_household_id)` security guard before any clone.
+- Settled UI: single dropdown inline in manage-household sheet between name field and Cancel/Create; "Standard provisions" in Playfair Display 15px roman, muted sand-brown.
+- Authored `SPEC_create_household_from_template.md`; moved to `docs/` this SESSION END.
+**Unfinished:**
+- Feature not yet built — migration + client wiring + UI are next session.
+- Item-count-in-picker RPC shape unresolved: extend `get_my_households()` (alters prod column set) vs. new `get_my_household_catalog_counts()`. Defer to Claude Code build session.
+- "Most-recently-active" picker default must align with existing active-household resolution — resolve during build.
+- Migration folder reconciliation (009–012 gap) still deferred; C2 is the standing alert.
+**Next session:**
+SESSION START
+Goal: Build `create_household_from_template` per `docs/SPEC_create_household_from_template.md` — migration on dev, client wiring, manage-household sheet dropdown.
+State: Spec fully approved and in `docs/`. `create_household` (006) live on prod. No code or migration started. C2 gap (009–012) still open, not blocking this build.
+Done when: migration applied + verified on dev (prosrc check, functional clone count, security non-member raise, null-source passthrough); `createHousehold` wired with source param; manage-household sheet shows picker with item counts; item-count RPC question resolved.
+**Files updated:** `docs/SPEC_create_household_from_template.md` (moved from handoff/). `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** None.
+
+---
+
 ### [2026-06-25] — [Cross] — Hide DELETE button + dev→main merge + fix get_my_households prod drift + agentic testing strategy
 **Goal:** Hide the stub DELETE HOUSEHOLD button, merge 8 Layer 2 commits to prod, smoke-test — which surfaced and fixed critical DB drift (get_my_households missing on prod) and produced a testing strategy + harness for future sessions.
 **Completed:**
