@@ -206,7 +206,6 @@ function HouseholdDebugLog() {
   const { myHouseholds, activeHouseholdId, loadingHouseholds } = useActiveHousehold();
   useEffect(() => {
     if (!loadingHouseholds) {
-      console.log("[ActiveHousehold TEST]", { activeHouseholdId, myHouseholds });
     }
   }, [loadingHouseholds, activeHouseholdId, myHouseholds]);
   return null;
@@ -704,8 +703,6 @@ function ProvisionsApp() {
       showToast(err.message || "Could not leave household");
     }
   };
-
-  const handleDeleteHousehold = () => { console.log('delete household'); };
 
   const shoppingList = useMemo(() => {
     // Group directly from the RPC rows (listRows) — the source of truth that is
@@ -1305,17 +1302,7 @@ function ProvisionsApp() {
                   borderRadius: "8px", cursor: "pointer", marginTop: "16px",
                 }}
               >+ Invite Someone</button>
-              {householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner') ? (
-                <button
-                  onClick={() => handleDeleteHousehold()}
-                  style={{
-                    width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
-                    letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
-                    background: "#c0392b", color: "#FAF4EC", border: "none",
-                    borderRadius: "8px", cursor: "pointer", marginTop: "8px",
-                  }}
-                >Delete Household</button>
-              ) : (
+              {householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner') ? null : (
                 <button
                   onClick={() => handleLeaveHousehold()}
                   style={{
