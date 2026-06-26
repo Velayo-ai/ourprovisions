@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-25] — [Cross] — Hide DELETE button + dev→main merge + fix get_my_households prod drift + agentic testing strategy
+**Goal:** Hide the stub DELETE HOUSEHOLD button, merge 8 Layer 2 commits to prod, smoke-test — which surfaced and fixed critical DB drift (get_my_households missing on prod) and produced a testing strategy + harness for future sessions.
+**Completed:**
+- Hid owner-branch DELETE HOUSEHOLD button (rendered null); removed dead `handleDeleteHousehold` handler and `[ActiveHousehold TEST]` log; committed dev (`b8cd86b`), merged dev→main (9 commits, merge `f952c9f`), Vercel prod deploy green.
+- Prod smoke-test surfaced "created households never appear in switcher" — root-caused: `get_my_households` (migration 001) was missing on prod entirely despite docs claiming "Dev + Prod (2026-06-18)." Applied migration 001 to prod; switcher now enumerates correctly (DH: 3 households, DT: 5 households).
+- Ran full dev↔prod function audit: confirmed authorization spine (003 `is_member_of`, 004/005/007 policy sweep, 006 `create_household`, 008–012 RPCs) IS live on prod; 001 was the sole gap.
+- Verified on prod: owner sees no DELETE button (DH all households, DT on owned household). Verified Layer 2 auto-provision on prod: real-name removal notice ("No longer a member of Aquila 50 - BVI") + fresh "My Household" auto-provisioned, persisted across refresh, in-flight guard held.
+- Created `qa/` folder: `agent_test_harness.md` (Parts A/B/C), `prod_test_plan.md` (Sections 0–6), `fixture_gathering.dev.sql`, `qa/README.md`; gitignored `test_fixture.dev.json`. Committed + pushed dev (`c8e59c5`).
+- Defined human/agent test split: DB-correctness + static checks → agent; UI/visual/two-party real-time → human. Test is event-triggered (pre-merge gate + post-migration suite + static on commit), NOT a SESSION END sub-step.
+- Designed staged agentic-QA pipeline (Stage 0: deterministic gate → Stage 1: automate file copies → Stage 2: automate QA run → Stage 3: guarded fix loop → Stage 4: provenance handoff). Secrets hygiene (Bitwarden) promoted to BLOCKER for automation past Stage 0.
+**Unfinished:**
+- Prod smoke-test partially run: owner-hide ✅, Layer 2 auto-provision ✅, switcher reads ✅. DEFERRED (not failed): Sections 1 (create→appear loop), 2 (non-owner remove matrix), 4 (single-household regression), 5 (write isolation), 6 (invite/rejoin).
+- Migrations folder bookkeeping broken: `007` numbering collision (disk `007_dev_restore_role_grants` vs canonical `007_finish_authorize_sweep`); files `009`–`012` described in docs but absent from local `migrations/` folder.
+- `window.confirm()` branded-modal replacement designed (reuse `showResetConfirm` pattern) but not built — 3 call sites in App.js.
+- ARCHITECTURE.md docs incorrectly recorded `get_my_households` as "Dev + Prod (2026-06-18)" — corrected this session.
+**Next session:**
+SESSION START
+Goal: Reconcile the `migrations/` folder (fix 007 collision, recover 009–012, gapless ordering) — prerequisite for Supabase CLI workflow and agent test harness Part B.
+State: Layer 2 live + auto-provision verified on prod. `get_my_households` now on prod; switcher works. dev↔prod authorization spine confirmed in sync. Three test deliverables in `qa/` on dev. ARCHITECTURE.md corrected.
+Done when: migrations folder is gapless/canonical with no numbering collisions; `window.confirm` modal replacement specced or built; Part C static checks run via Claude Code.
+**Files updated:** `src/App.js` (hide DELETE button, remove dead handler + test log — `b8cd86b`). `qa/README.md`, `qa/agent_test_harness.md`, `qa/prod_test_plan.md`, `qa/fixture_gathering.dev.sql`, `.gitignore` (`c8e59c5`). `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/SESSION_LOG.md` (this commit).
+**DB changes:** PROD (`parpauldmbetptkmdwbd`) — applied migration 001 `get_my_households` (2026-06-25). Was dev-only since ≈06-12; never reached prod despite docs claiming "Dev + Prod (2026-06-18)".
+
+---
+
 ### [2026-06-25] — [OurProvisions] — Layer 2 point-4 validation: clean dev environment + controlled retest (PASSED)
 **Goal:** Clean the polluted dev test environment, then run a valid controlled point-4 test (removed-from-only-household auto-provision); if it passes, sign off Layer 2.
 **Completed:**
