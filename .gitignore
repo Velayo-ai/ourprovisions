@@ -26,3 +26,6 @@ yarn-error.log*
 
 # Claude Code — track shared project settings, ignore local overrides
 .claude/settings.local.json
+
+# QA fixture — real IDs live outside the repo (secrets hygiene)
+qa/test_fixture.dev.json
