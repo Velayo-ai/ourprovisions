@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-26] — [Velayo OS] — Generalize handoff folder into a payload airlock
+**Goal:** Let a design chat drop any produced files (specs, etc.) into `repo/handoff/` alongside `design_handoff.md`, and have Claude Code route each to its home on SESSION END — without confusing the reserved merge-and-delete logic.
+**Completed:**
+- Defined the AIRLOCK model: `handoff/` has exactly two permanent baseline files (`.gitignore`, `DESIGN_CHAT_handoff_prompt.md`); `design_handoff.md` keeps its reserved merge-and-delete role; every other file is payload, filed to its home and cleared out each SESSION END.
+- Added `## DROPPED_FILES` manifest to `DESIGN_CHAT_handoff_prompt.md` so each handoff declares its payload files and their destinations.
+- Added Step 0.5 to the SESSION END routine (`CLAUDE.md`): route payload files per manifest, protect the two baseline files, surface any unlisted payload rather than guessing.
+- Extended Step 5 verification to confirm the airlock is clear (only baseline two remain) before committing.
+- Updated the Handoff format reference in `CLAUDE.md` to document `## DROPPED_FILES` and the airlock model.
+- Applied both file edits to the repo this SESSION END (diff confirmed purely additive — nothing removed from existing rules).
+**Unfinished:**
+- `handoff/.gitignore` patterns not inspected — confirm they don't block payload files. Low risk (payloads land in `docs/`, not `handoff/`).
+- Two handoffs cannot sit in the airlock simultaneously (one `design_handoff.md` filename). Must go through SESSION END sequentially. Accepted.
+**Next session:**
+SESSION START
+Goal: Dry-run the new flow — SESSION END with a real payload spec present, confirm Step 0.5 routes it to `docs/` and leaves `handoff/` holding only the two baseline files.
+State: AIRLOCK convention live in repo. `CLAUDE.md` + `DESIGN_CHAT_handoff_prompt.md` both updated. Step 0.5 active next run.
+Done when: A SESSION END run with a payload spec files it to `docs/` correctly and the airlock ends clean.
+**Files updated:** `CLAUDE.md` (repo root, Step 0.5 + airlock model added), `handoff/DESIGN_CHAT_handoff_prompt.md` (## DROPPED_FILES section added).
+**DB changes:** None.
+
+*[Velayo OS] flag: this is company-wide workflow infra, not app-specific. Once a `velayo-os` repo exists, this entry belongs in that log.*
+
+---
+
 ### [2026-06-26] — [OurProvisions] — Part C static checks (PASS/FINDINGS) + design "create household with cloned catalog"
 **Goal:** Run the first live Part C static checks against the repo and design the catalog-carry-forward feature for new household creation.
 **Completed:**
