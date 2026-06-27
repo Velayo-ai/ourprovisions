@@ -712,7 +712,7 @@ function ProvisionsApp() {
       if (error) throw error;
       setShowHouseholdModal(false);
       setShowDeleteHouseholdConfirm(false);
-      showToast("Household closed");
+      showToast("Household deleted");
       await resolveAfterHouseholdLoss(deletedId, false);
     } catch (err) {
       showToast(err.message || "Could not delete household");
@@ -1334,7 +1334,7 @@ function ProvisionsApp() {
                   ) : (
                     <div>
                       <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.78rem", color: "#2C1A0E", marginBottom: "10px", lineHeight: "1.45" }}>
-                        Deleting &ldquo;{household?.name}&rdquo; removes it for all {householdMembers.length} members, including their lists. This can&rsquo;t be undone.
+                        Deleting &ldquo;{household?.name}&rdquo; removes it for all {householdMembers.length} member{householdMembers.length === 1 ? "" : "s"}, including their lists. This can&rsquo;t be undone.
                         {Object.values(catalogMap).filter(item => !item.is_global).length > 0 && (
                           <> This household has {Object.values(catalogMap).filter(item => !item.is_global).length} custom catalog items — they will be permanently removed.</>
                         )}
