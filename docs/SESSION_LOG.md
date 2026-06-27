@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-26] — [OurProvisions] — Build and validate delete_household end to end
+**Goal:** Take delete-household from a hidden console.log stub to a fully-tested feature on dev — owner-only soft-delete cascade RPC, branded confirm, and the reused Layer-2 switch/notice path — without shipping to prod.
+**Completed:**
+- Locked 7 design decisions (D1 soft-delete cascade; D2 waste/cycle history soft-deleted; D3 owner-only via created_by; D4 last-household auto-provision; D5 active-household switch-to-survivor; D6 surviving-member removal notice, neutral copy, no attribution; D7 catalog-loss warning now, clone-rescue deferred).
+- Derived migration number 013 — corroborated across ARCHITECTURE.md, SESSION_LOG (Jun 22 + Jun 25), and SPEC_create_household_from_template.md ("next in sequence, e.g. 013").
+- Wrote migration 013: two ALTERs (provision_cycles + list_item_contributors gain deleted_at) plus delete_household SECURITY DEFINER RPC (Clerk-JWT caller resolution, member_count captured pre-cascade, jsonb return, soft-delete cascade in FK order, user_hidden_items hard-deleted). Applied to dev by hand 2026-06-26; prod PENDING.
+- Refactored resolveAfterHouseholdLoss into ActiveHouseholdContext as the single switch-or-provision path guarded by provisioningRef — shared by checkPresence (detection-only, delegates resolution) and handleDeleteHousehold. Eliminated stale-closure read of myHouseholds and the raw createHousehold bypass that could race the in-flight guard.
+- Wired DELETE HOUSEHOLD button in owner-branch of household-manage sheet: two-stage showResetConfirm-pattern confirm, D7 custom-item count from loaded catalogMap (no extra round-trip), calls delete_household then resolveAfterHouseholdLoss(deletedId, false).
+- Validated live on dev (DH owner + DT member): owner deletes shared household → silent switch, no self-notice; member detects removal within ~30s via checkPresence → branded notice; owner deletes only household → exactly one fresh "My Household" provisioned.
+- Fixed copy across all surfaces: "close/closed" → "delete/deleted" (confirm sentence, button, toast); "1 members" → "1 member" (pluralisation guard).
+**Unfinished:**
+- Migration 013 on DEV ONLY — prod (parpauldmbetptkmdwbd) lacks the two ALTER columns and the RPC. Header says "prod apply PENDING."
+- dev→main merge held until 013 is on prod and smoke-tested.
+- D7 clone-first escape hatch deferred (clone-forward build; marker comment in App.js at confirm site).
+- checkPresence pre-existing TODO: selfDepartureRef not yet checked to suppress the notice on voluntary leave — Layer-2 debt, not introduced here.
+**Next session:**
+SESSION START
+Goal: Apply migration 013 to prod, smoke-test delete-household on prod, then dev→main merge + Vercel deploy.
+State: Feature fully built and dev-validated. Four local commits (021f902 migration, f606eed button wiring + confirm, 3cd5010 resolveAfterHouseholdLoss refactor, 620f223 + 5b680c6 copy fixes) awaiting review/push. RPC + deleted_at columns absent from prod.
+Done when: 013 applied clean to prod (pg_proc.prosrc check confirms body); controlled prod delete stamps household + all dependents with deleted_at, zero orphans; dev→main merged; Vercel deploy green; DELETE button live on ourprovisions.velayo.ai.
+**Files updated:** `migrations/013_delete_household.sql` (new), `src/App.js`, `src/contexts/ActiveHouseholdContext.js`.
+**DB changes:** DEV ONLY — `provision_cycles.deleted_at`, `list_item_contributors.deleted_at`, `delete_household` RPC. PROD PENDING.
+
+---
+
 ### [2026-06-26] — [Velayo OS] — Generalize handoff folder into a payload airlock
 **Goal:** Let a design chat drop any produced files (specs, etc.) into `repo/handoff/` alongside `design_handoff.md`, and have Claude Code route each to its home on SESSION END — without confusing the reserved merge-and-delete logic.
 **Completed:**

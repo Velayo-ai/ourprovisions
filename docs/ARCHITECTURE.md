@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-26*
+*Last updated: 2026-06-26 (migration 013 + resolveAfterHouseholdLoss)*
 
 ---
 
@@ -56,6 +56,7 @@ Fresh-machine bootstrap is documented in `docs/DEV_SETUP.md`. The principle: **t
 | `src/App.js` | Main React component — all UI, tabs, modals, list rendering |
 | `src/hooks/useProvisions.js` | All data logic — Supabase queries, state, real-time subscriptions |
 | `src/lib/classifyFetchError.js` | Pure classifier: returns `'transient'` or `'real'` for any caught error. No imports. |
+| `src/contexts/ActiveHouseholdContext.js` | Multi-household spine. Holds `myHouseholds`, `activeHouseholdId`, `switchHousehold`, `refreshHouseholds`. Runs 30s `checkPresence` interval (Layer-2 removal detection). Exports `resolveAfterHouseholdLoss(lostId, notifyRemoval)` — the single switch-or-provision path guarded by `provisioningRef`; shared by `checkPresence` and `handleDeleteHousehold` so there is one provisioning code path with one in-flight guard. `notifyRemoval=false` for the deleting owner (suppress the removal notice), `true` for external removal via `checkPresence`. |
 | `src/contexts/ConnectivityContext.js` | State machine exposing `connState` + `reportTransientFailure` / `reportSuccess`. Provider + `useConnectivity` hook. |
 | `src/components/ConnectivityPill.js` | Bottom-center status pill; renders nothing when `connState === 'online'`. |
 | `src/supabaseClient.js` | Supabase client initialization with Clerk JWT auth |
@@ -117,6 +118,7 @@ Historical files (superseded, in `migrations/archive/`):
 | `migrations/010_remove_member_leave_household.sql` | `remove_member(p_household_id, p_user_id)` returns `{removed, user_id}` — any member may soft-delete any non-owner membership row (guard reads target row's `role` inline). `leave_household(p_household_id)` returns `{left}` — self-exit; owner cannot leave (must delete household). Both SECURITY DEFINER. | Dev + Prod (2026-06-22) |
 | `migrations/011_join_household.sql` | `join_household(p_household_id)` returns `{joined, revived, user_id}` — atomic revive-or-insert: ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin UNIQUE constraint collision. Always lands as `role = 'member'` (no silent role re-elevation). Used by `acceptInvite` (manual code entry join path). | Dev + Prod (2026-06-22) |
 | `migrations/012_bootstrap_revive_fix.sql` | Fixes the URL-invite join path in `bootstrap_new_user` (4-arg signature). Step 2 now uses the same revive-or-insert upsert pattern as migration 011 instead of ON CONFLICT DO NOTHING. Closes the second instance of the leave-then-rejoin bug. Prod still carries three dead overloads — future cleanup. | Dev + Prod (2026-06-22) |
+| `migrations/013_delete_household.sql` | Two schema additions: `provision_cycles.deleted_at` (enables soft-delete in the household cascade) and `list_item_contributors.deleted_at` (soft-delete for recoverability, D1). Plus `delete_household(p_household_id uuid) → jsonb` SECURITY DEFINER RPC — owner-only cascade stamping `deleted_at = now()` across all household-bearing tables in FK order; `user_hidden_items` hard-deleted (disposable per-user view state); returns `{deleted, member_count, household_id}`. Applied to dev 2026-06-26 by hand. **Prod PENDING.** | Dev only (2026-06-26) |
 
 ---
 
@@ -167,7 +169,7 @@ Every thrown-away unconsumed item. Most important AI training data in the app.
 
 #### `list_item_contributors` *(added June 1, 2026)*
 One row per person who contributed to a given list item. Powers contributor badges `[D][H][E]`.
-- `id`, `list_item_id`, `user_id`, `quantity_added`, `added_at`
+- `id`, `list_item_id`, `user_id`, `quantity_added`, `added_at`, `deleted_at` *(added migration 013 — soft-delete for recoverability per D1; previously hard-deleted by remove_list_item RPC)*
 - Unique constraint: `(list_item_id, user_id)`
 - RLS: household-scoped. Realtime enabled.
 
@@ -182,7 +184,7 @@ Invite-by-code flow. Never had a migration file before `000_canonical_baseline.s
 
 #### `provision_cycles`
 Planning cycles. One open cycle per household at a time. **RLS: DISABLED in prod** (reachable only via SECURITY DEFINER RPCs).
-- `id`, `household_id`, `started_at`, `closed_at`, `item_count`, `sessions_count`, `seeded_from`, `cycle_type`, `label`
+- `id`, `household_id`, `started_at`, `closed_at`, `item_count`, `sessions_count`, `seeded_from`, `cycle_type`, `label`, `deleted_at` *(added migration 013 — enables soft-delete in the household cascade)*
 
 #### `shopping_sessions`
 One person / one store / one trip, linked to a cycle and a known_store. GPS fields for store matching. `total_spent` + `receipt_scanned` hook into the Phase 3 receipt parser. **RLS: DISABLED in prod.**
@@ -242,6 +244,7 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `remove_member(p_household_id, p_user_id)` *(migration 010)* | Soft-deletes a membership row. Any member may remove any non-owner (guard reads target row's `role` inline). Returns `{removed, user_id}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
 | `leave_household(p_household_id)` *(migration 010)* | Self-exit. Owner cannot leave (must delete household). Returns `{left}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
 | `join_household(p_household_id)` *(migration 011)* | Revive-or-insert upsert: ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin UNIQUE collision. Always lands as `role = 'member'`. Returns `{joined, revived, user_id}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
+| `delete_household(p_household_id uuid)` *(migration 013)* | Owner-only soft-delete cascade. Resolves caller via `auth.jwt()->>'sub'` → `users.clerk_id`; guards `created_by = caller AND deleted_at IS NULL` (owner-only + idempotency / double-tap safety). Captures `member_count` BEFORE cascade. Cascade in FK order: list_item_contributors → waste_events → shopping_sessions → list_items → provision_cycles → catalog_items → known_stores → household_invites → household_members → households. `user_hidden_items` hard-deleted (disposable view state; subquery still resolves against soft-deleted catalog_items). Returns `{deleted, member_count, household_id}`. **Dev only; prod PENDING.** Confirmed full household_id-bearing table set on dev (derived live, 2026-06-26): catalog_items, household_invites, household_members, known_stores, list_items, provision_cycles, shopping_sessions, waste_events; plus transitive list_item_contributors (via list_items) and user_hidden_items (via catalog_items). |
 | `rls_auto_enable` *(event trigger)* | Auto-enables RLS on any newly created public table. **Every new table comes up locked by default.** Include policies in the same migration or the table will be inaccessible. |
 
 ---
