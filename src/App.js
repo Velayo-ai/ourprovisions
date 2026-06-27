@@ -326,6 +326,7 @@ function ProvisionsApp() {
   const [searchPickerOpen, setSearchPickerOpen] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showDeleteHouseholdConfirm, setShowDeleteHouseholdConfirm] = useState(false);
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
   const [wrappingUp, setWrappingUp] = useState(false);
@@ -704,6 +705,30 @@ function ProvisionsApp() {
     }
   };
 
+  const handleDeleteHousehold = async () => {
+    const deletedId = activeHouseholdId;
+    try {
+      const { error } = await supabase.rpc('delete_household', { p_household_id: deletedId });
+      if (error) throw error;
+      setShowHouseholdModal(false);
+      setShowDeleteHouseholdConfirm(false);
+      await refreshHouseholds();
+      const remaining = myHouseholds.filter(h => h.id !== deletedId);
+      if (remaining.length > 0) {
+        switchHousehold(remaining[0].id);
+      } else {
+        const newId = await createHousehold("My Household");
+        if (newId) {
+          await refreshHouseholds();
+          switchHousehold(newId);
+        }
+      }
+      showToast("Household closed");
+    } catch (err) {
+      showToast(err.message || "Could not delete household");
+    }
+  };
+
   const shoppingList = useMemo(() => {
     // Group directly from the RPC rows (listRows) — the source of truth that is
     // identical on every client. catalogMap is no longer in the display path,
@@ -1065,6 +1090,7 @@ function ProvisionsApp() {
             setShowHouseholdModal(false);
             setCreating(false); setNewHouseholdName("");
             setRenaming(false); setRenameHouseholdValue("");
+            setShowDeleteHouseholdConfirm(false);
           }}
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
@@ -1302,7 +1328,39 @@ function ProvisionsApp() {
                   borderRadius: "8px", cursor: "pointer", marginTop: "16px",
                 }}
               >+ Invite Someone</button>
-              {householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner') ? null : (
+              {householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner') ? (
+                <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid #f0e6d8" }}>
+                  {!showDeleteHouseholdConfirm ? (
+                    <button
+                      onClick={() => setShowDeleteHouseholdConfirm(true)}
+                      style={{
+                        width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
+                        letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
+                        background: "transparent", color: "#c0392b",
+                        border: "1.5px solid #c0392b",
+                        borderRadius: "8px", cursor: "pointer",
+                      }}
+                    >Delete Household</button>
+                  ) : (
+                    <div>
+                      <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.78rem", color: "#2C1A0E", marginBottom: "10px", lineHeight: "1.45" }}>
+                        Closing &ldquo;{household?.name}&rdquo; removes it for all {householdMembers.length} members, including their lists. This can&rsquo;t be undone.
+                        {Object.values(catalogMap).filter(item => !item.is_global).length > 0 && (
+                          <> This household has {Object.values(catalogMap).filter(item => !item.is_global).length} custom catalog items — they will be permanently removed.</>
+                        )}
+                        {/* D7: clone-first escape hatch goes here when clone-forward ships */}
+                      </p>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <button onClick={() => setShowDeleteHouseholdConfirm(false)} className="modal-cancel" style={{ fontSize: "0.78rem" }}>Cancel</button>
+                        <button
+                          onClick={handleDeleteHousehold}
+                          style={{ background: "#c0392b", color: "white", border: "none", borderRadius: "4px", padding: "6px 12px", fontFamily: "'Lato', sans-serif", fontSize: "0.78rem", cursor: "pointer" }}
+                        >Yes, close household</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
                 <button
                   onClick={() => handleLeaveHousehold()}
                   style={{
