@@ -122,6 +122,36 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
     selfDepartureRef.current = true;
   }, []);
 
+  // Single switch-or-provision path — shared by checkPresence and resolveAfterHouseholdLoss.
+  // Fetches the authoritative current list (avoids stale-closure reads), then switches to a
+  // survivor or auto-provisions a fresh household, with provisioningRef guarding against races.
+  // notifyRemoval=false when the caller is the actor who voluntarily deleted (owner path);
+  // true when the caller is checkPresence reacting to an external removal.
+  const resolveAfterHouseholdLoss = useCallback(async (lostId, notifyRemoval) => {
+    if (provisioningRef.current) return;
+    await refreshHouseholds(); // populates myHouseholdsRef.current with the authoritative list
+    const remaining = myHouseholdsRef.current.filter((h) => h.id !== lostId);
+    if (remaining.length >= 1) {
+      if (notifyRemoval) onRemovalRef.current?.(activeHouseholdNameRef.current, false);
+      switchHousehold(remaining[0].id);
+    } else {
+      if (notifyRemoval) onRemovalRef.current?.(activeHouseholdNameRef.current, true);
+      provisioningRef.current = true;
+      try {
+        const db = getDb();
+        const { data: created, error: createErr } = await db.rpc("create_household", {
+          p_name: "My Household",
+          p_clerk_id: clerkId,
+        });
+        if (createErr) throw createErr;
+        await refreshHouseholds();
+        if (created?.household_id) switchHousehold(created.household_id);
+      } finally {
+        provisioningRef.current = false;
+      }
+    }
+  }, [clerkId, refreshHouseholds, switchHousehold]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!clerkId) return;
 
@@ -140,35 +170,12 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
           name: row.name,
           role: row.role,
         }));
-        // Snapshot before overwriting the ref — sticky ref is the primary source;
-        // old-list lookup is the fallback so we are never worse than before this fix.
-        const nameForNotice = activeHouseholdNameRef.current
-          ?? myHouseholdsRef.current.find((h) => h.id === activeHouseholdIdRef.current)?.name;
         myHouseholdsRef.current = households;
         setMyHouseholds(households);
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
         // Active household vanished from a healthy list — user was removed (or left).
         // TODO step 5: check selfDepartureRef.current here to suppress the notice for voluntary leaves.
-        const remaining = households.filter((h) => h.id !== activeHouseholdIdRef.current);
-        if (remaining.length >= 1) {
-          onRemovalRef.current?.(nameForNotice, false);
-          switchHousehold(remaining[0].id);
-        } else {
-          // Removed from only household — auto-provision a fresh one.
-          onRemovalRef.current?.(nameForNotice, true);
-          provisioningRef.current = true;
-          try {
-            const { data: created, error: createErr } = await db.rpc("create_household", {
-              p_name: "My Household",
-              p_clerk_id: clerkId,
-            });
-            if (createErr) throw createErr;
-            await refreshHouseholds();
-            if (created?.household_id) switchHousehold(created.household_id);
-          } finally {
-            provisioningRef.current = false;
-          }
-        }
+        await resolveAfterHouseholdLoss(activeHouseholdIdRef.current, true);
       } catch (err) {
         // transient — hold position
       }
@@ -186,6 +193,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         activeHouseholdId,
         switchHousehold,
         refreshHouseholds,
+        resolveAfterHouseholdLoss,
         markSelfDeparture,
         loadingHouseholds,
         hasMultiple: myHouseholds.length > 1,

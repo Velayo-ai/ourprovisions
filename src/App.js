@@ -214,7 +214,7 @@ function HouseholdDebugLog() {
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
   const { getToken } = useAuth();
-  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds } = useActiveHousehold();
+  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss } = useActiveHousehold();
 
   const {
     quantities,
@@ -712,18 +712,8 @@ function ProvisionsApp() {
       if (error) throw error;
       setShowHouseholdModal(false);
       setShowDeleteHouseholdConfirm(false);
-      await refreshHouseholds();
-      const remaining = myHouseholds.filter(h => h.id !== deletedId);
-      if (remaining.length > 0) {
-        switchHousehold(remaining[0].id);
-      } else {
-        const newId = await createHousehold("My Household");
-        if (newId) {
-          await refreshHouseholds();
-          switchHousehold(newId);
-        }
-      }
       showToast("Household closed");
+      await resolveAfterHouseholdLoss(deletedId, false);
     } catch (err) {
       showToast(err.message || "Could not delete household");
     }
