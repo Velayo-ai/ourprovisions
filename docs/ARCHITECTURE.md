@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-25*
+*Last updated: 2026-06-26 (migration 013 + resolveAfterHouseholdLoss)*
 
 ---
 
@@ -56,6 +56,7 @@ Fresh-machine bootstrap is documented in `docs/DEV_SETUP.md`. The principle: **t
 | `src/App.js` | Main React component — all UI, tabs, modals, list rendering |
 | `src/hooks/useProvisions.js` | All data logic — Supabase queries, state, real-time subscriptions |
 | `src/lib/classifyFetchError.js` | Pure classifier: returns `'transient'` or `'real'` for any caught error. No imports. |
+| `src/contexts/ActiveHouseholdContext.js` | Multi-household spine. Holds `myHouseholds`, `activeHouseholdId`, `switchHousehold`, `refreshHouseholds`. Runs 30s `checkPresence` interval (Layer-2 removal detection). Exports `resolveAfterHouseholdLoss(lostId, notifyRemoval)` — the single switch-or-provision path guarded by `provisioningRef`; shared by `checkPresence` and `handleDeleteHousehold` so there is one provisioning code path with one in-flight guard. `notifyRemoval=false` for the deleting owner (suppress the removal notice), `true` for external removal via `checkPresence`. |
 | `src/contexts/ConnectivityContext.js` | State machine exposing `connState` + `reportTransientFailure` / `reportSuccess`. Provider + `useConnectivity` hook. |
 | `src/components/ConnectivityPill.js` | Bottom-center status pill; renders nothing when `connState === 'online'`. |
 | `src/supabaseClient.js` | Supabase client initialization with Clerk JWT auth |
@@ -105,7 +106,7 @@ Historical files (superseded, in `migrations/archive/`):
 
 | File | Contents | Status |
 |---|---|---|
-| `migrations/001_get_my_households.sql` | `get_my_households()` SECURITY DEFINER RPC — enumerates all of a user's households bypassing the single-household SELECT policy. | Dev + Prod (2026-06-18) |
+| `migrations/001_get_my_households.sql` | `get_my_households()` SECURITY DEFINER RPC — enumerates all of a user's households bypassing the single-household SELECT policy. | Dev (≈06-12) → **Prod (2026-06-25)** *(was absent from prod despite docs claiming 2026-06-18 — applied manually 2026-06-25 after smoke-test surfaced the gap)* |
 | `migrations/002_bootstrap_ordering_stopgap.sql` | Align `bootstrap_new_user` to `joined_at DESC` — TEMPORARY stopgap; real fix is `useProvisions` re-scope. | Dev only |
 | `migrations/003_is_member_of.sql` | `is_member_of(household_id)` SECURITY DEFINER boolean authorization primitive. No new dependencies. | Dev + Prod (2026-06-18) |
 | `migrations/004_list_items_authorize.sql` | Rewrite `list_items` write/update/delete RLS to `is_member_of`; add `with check` to UPDATE. Depends on 003. | Dev + Prod (2026-06-18) |
@@ -117,6 +118,7 @@ Historical files (superseded, in `migrations/archive/`):
 | `migrations/010_remove_member_leave_household.sql` | `remove_member(p_household_id, p_user_id)` returns `{removed, user_id}` — any member may soft-delete any non-owner membership row (guard reads target row's `role` inline). `leave_household(p_household_id)` returns `{left}` — self-exit; owner cannot leave (must delete household). Both SECURITY DEFINER. | Dev + Prod (2026-06-22) |
 | `migrations/011_join_household.sql` | `join_household(p_household_id)` returns `{joined, revived, user_id}` — atomic revive-or-insert: ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin UNIQUE constraint collision. Always lands as `role = 'member'` (no silent role re-elevation). Used by `acceptInvite` (manual code entry join path). | Dev + Prod (2026-06-22) |
 | `migrations/012_bootstrap_revive_fix.sql` | Fixes the URL-invite join path in `bootstrap_new_user` (4-arg signature). Step 2 now uses the same revive-or-insert upsert pattern as migration 011 instead of ON CONFLICT DO NOTHING. Closes the second instance of the leave-then-rejoin bug. Prod still carries three dead overloads — future cleanup. | Dev + Prod (2026-06-22) |
+| `migrations/013_delete_household.sql` | Two schema additions: `provision_cycles.deleted_at` (enables soft-delete in the household cascade) and `list_item_contributors.deleted_at` (soft-delete for recoverability, D1). Plus `delete_household(p_household_id uuid) → jsonb` SECURITY DEFINER RPC — owner-only cascade stamping `deleted_at = now()` across all household-bearing tables in FK order; `user_hidden_items` hard-deleted (disposable per-user view state); returns `{deleted, member_count, household_id}`. Applied to dev 2026-06-26 by hand. **Prod PENDING.** | Dev only (2026-06-26) |
 
 ---
 
@@ -167,7 +169,7 @@ Every thrown-away unconsumed item. Most important AI training data in the app.
 
 #### `list_item_contributors` *(added June 1, 2026)*
 One row per person who contributed to a given list item. Powers contributor badges `[D][H][E]`.
-- `id`, `list_item_id`, `user_id`, `quantity_added`, `added_at`
+- `id`, `list_item_id`, `user_id`, `quantity_added`, `added_at`, `deleted_at` *(added migration 013 — soft-delete for recoverability per D1; previously hard-deleted by remove_list_item RPC)*
 - Unique constraint: `(list_item_id, user_id)`
 - RLS: household-scoped. Realtime enabled.
 
@@ -182,7 +184,7 @@ Invite-by-code flow. Never had a migration file before `000_canonical_baseline.s
 
 #### `provision_cycles`
 Planning cycles. One open cycle per household at a time. **RLS: DISABLED in prod** (reachable only via SECURITY DEFINER RPCs).
-- `id`, `household_id`, `started_at`, `closed_at`, `item_count`, `sessions_count`, `seeded_from`, `cycle_type`, `label`
+- `id`, `household_id`, `started_at`, `closed_at`, `item_count`, `sessions_count`, `seeded_from`, `cycle_type`, `label`, `deleted_at` *(added migration 013 — enables soft-delete in the household cascade)*
 
 #### `shopping_sessions`
 One person / one store / one trip, linked to a cycle and a known_store. GPS fields for store matching. `total_spent` + `receipt_scanned` hook into the Phase 3 receipt parser. **RLS: DISABLED in prod.**
@@ -234,13 +236,15 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `close_cycle(p_household_id)` | Archives a cycle — upserts items forward (targets `list_items_household_catalog_unique`), clears badges. Live version supersedes the 005 file. |
 | `archive_trip_items(...)` | Archives trip items at session close. |
 | `match_known_store(p_lat, p_lng, p_household_id)` | Bounding-box pre-filter + Haversine nearest-store lookup (no PostGIS). Returns closest store within `radius_m`; app enforces the radius. This IS the "auto-select via GPS" behavior from Scenario D. |
-| `get_my_households()` *(migration 001)* | Returns `(household_id, name, role)` for ALL of the caller's active, non-deleted memberships, `joined_at ASC`. SECURITY DEFINER — bypasses the `household_members` SELECT policy. Identity resolved via `get_current_user_id()` internally; takes no user-id parameter. Dev + Prod (2026-06-18). |
+| `get_my_households()` *(migration 001)* | Returns `(household_id, name, role)` for ALL of the caller's active, non-deleted memberships, `joined_at ASC`. SECURITY DEFINER — bypasses the `household_members` SELECT policy. Identity resolved via `get_current_user_id()` internally; takes no user-id parameter. Dev (≈06-12) → **Prod (2026-06-25)** *(was absent from prod — applied after smoke-test gap discovery)*. |
 | `is_member_of(p_household_id uuid) returns boolean` *(migration 003)* | Shared authorization primitive. SECURITY DEFINER, STABLE, `search_path` pinned. Resolves `auth.jwt()->>'sub'` → `users.clerk_id`; returns whether the caller is a non-deleted member of the passed household. Null arg → false (fail closed). Used in all post-003 RLS policies. Dev + Prod (2026-06-18). |
 | `create_household(p_name, p_clerk_id)` *(migration 006)* | Atomically creates a new household and adds the caller as owner-member. Returns `{household_id, household_name}`. SECURITY DEFINER — required because a client two-step INSERT (household, then membership) can half-complete; `households.created_by` is NOT NULL (mirrors bootstrap_new_user). Dev + Prod (2026-06-18). |
+| `create_household_from_template(p_name, p_clerk_id, p_source_household_id default null)` *(migration TBD — authored, not yet applied)* | Wraps `create_household` (006) and then clones the source household's custom catalog into the new household. Returns `{household_id, household_name, items_cloned}`. SECURITY DEFINER, `search_path = public`. **SECURITY-CRITICAL:** calls `is_member_of(p_source_household_id)` before cloning — prevents exfiltrating another household's catalog by passing an arbitrary id. Clones `catalog_items` where `household_id = source AND is_global = false AND deleted_at IS NULL`, deduped against global seed by `lower(name)`. New rows get fresh id, new `household_id`, `is_global = false`, `created_by = caller`; carries `name, category, unit, price_hint, is_staple`. When `p_source_household_id IS NULL`, behaves identically to `create_household` — `items_cloned = 0` ("Standard provisions" path). **Not yet applied to dev or prod.** See `docs/SPEC_create_household_from_template.md`. |
 | `remove_list_item(p_household_id, p_catalog_item_id)` *(migration 009)* | Atomic soft-delete: sets `list_items.deleted_at` AND deletes all `list_item_contributors` rows for that item in one transaction. Fixes badge-resurrection (tombstoned row + stale contributors revived by 008 upsert on re-add). SECURITY DEFINER. Dev + Prod (2026-06-22). |
 | `remove_member(p_household_id, p_user_id)` *(migration 010)* | Soft-deletes a membership row. Any member may remove any non-owner (guard reads target row's `role` inline). Returns `{removed, user_id}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
 | `leave_household(p_household_id)` *(migration 010)* | Self-exit. Owner cannot leave (must delete household). Returns `{left}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
 | `join_household(p_household_id)` *(migration 011)* | Revive-or-insert upsert: ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin UNIQUE collision. Always lands as `role = 'member'`. Returns `{joined, revived, user_id}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
+| `delete_household(p_household_id uuid)` *(migration 013)* | Owner-only soft-delete cascade. Resolves caller via `auth.jwt()->>'sub'` → `users.clerk_id`; guards `created_by = caller AND deleted_at IS NULL` (owner-only + idempotency / double-tap safety). Captures `member_count` BEFORE cascade. Cascade in FK order: list_item_contributors → waste_events → shopping_sessions → list_items → provision_cycles → catalog_items → known_stores → household_invites → household_members → households. `user_hidden_items` hard-deleted (disposable view state; subquery still resolves against soft-deleted catalog_items). Returns `{deleted, member_count, household_id}`. **Dev only; prod PENDING.** Confirmed full household_id-bearing table set on dev (derived live, 2026-06-26): catalog_items, household_invites, household_members, known_stores, list_items, provision_cycles, shopping_sessions, waste_events; plus transitive list_item_contributors (via list_items) and user_hidden_items (via catalog_items). |
 | `rls_auto_enable` *(event trigger)* | Auto-enables RLS on any newly created public table. **Every new table comes up locked by default.** Include policies in the same migration or the table will be inaccessible. |
 
 ---
@@ -258,9 +262,9 @@ Reproduced as-is in `000_canonical_baseline.sql`. Fixes go in separate, named, t
   2. `get_current_household_id()` — `joined_at DESC` (newest). Drives the `households_select` RLS gate.
   3. `get_my_households()` / `ActiveHouseholdContext` default — `joined_at ASC` (oldest first). Context persists last-selected to localStorage.
   Pre-002 failure mode: bootstrap picked a household (arbitrary heap order) that the RLS gate (`DESC`) would not permit reading → `useProvisions.js:244` `.single()` got 0 rows → "Cannot coerce to a single JSON object" (a 0-row PostgREST 406, not a too-many-rows error). Migration 002 aligns bootstrap to the RLS gate (`DESC`) to stop the crash. It does NOT reconcile the context default (`ASC`) — bootstrap picks newest (Lake House) while the context's fallback picks oldest (My Household). Harmless while they read different sources; the REAL FIX is a single source of truth = the context's `activeHouseholdId`, passed to bootstrap and used to rewrite `get_current_household_id()`.
-- **Migration 002 DEV only** (bootstrap ordering stopgap). Migrations 001, 003–007 applied to Dev + Prod (2026-06-18) — 003–007 as one atomic bundle (`bundle_003_007_prod.sql`).
+- **Migration 002 DEV only** (bootstrap ordering stopgap). Migrations 003–007 applied to Dev + Prod (2026-06-18) as one atomic bundle (`bundle_003_007_prod.sql`). Migration 001 was dev-only until **2026-06-25** when it was applied to prod after smoke-test revealed the gap (docs had incorrectly recorded it as "Dev + Prod (2026-06-18)").
 - **`bootstrap_new_user` dead overloads (prod):** Prod carries FOUR overloaded signatures; migration 012 fixed only the 4-arg form the client calls. The other three overloads are unused but live (ambiguity risk — PostgREST could resolve the wrong one). Drop them in a dedicated migration.
-- **`[ActiveHousehold TEST]` console.log in `App.js:207`:** Added for spine verification; strip before main merge.
+- **Migration-folder bookkeeping debt (discovered 2026-06-25):** Two issues: (1) `007` numbering collision — disk file `007_dev_restore_role_grants.sql` conflicts with the canonical post-baseline `007_finish_authorize_sweep.sql`. (2) Migration files `009`–`012` are described in this doc and their RPCs are confirmed live on prod, but the files are absent from the local `migrations/` folder (provenance unknown). Reconcile before enabling the Supabase CLI workflow — the CLI needs a consistent, gapless `schema_migrations` table.
 - **Realtime-on-soft-delete RLS suppression (load-bearing finding):** Supabase realtime applies the table's SELECT policy against the NEW row image to decide per-recipient delivery. `is_member_of` filters `deleted_at is null` → the soft-deleted row fails the check → the removed user's own broadcast is suppressed. `replica identity = default` (PK only) also makes old-image reads unavailable. This is a general pattern: ANY future realtime-on-soft-delete feature using an `is_member_of`-style policy (e.g. delete-household, crew removal) will hit the same suppression. Layer 2 detection uses a 30s membership-presence check instead.
 - **Canonical baseline `000` is stale on `household_members` SELECT policy.** The baseline shows `= get_current_household_id()` but the live policy (since migration 007) is `is_member_of(household_id)`. The baseline must be reconciled to reality before it can be used to rebuild a fresh environment reliably.
 - **Junk-household accumulation:** Repeated add-then-remove of a guest-only user spawns a repeated empty "My Household" on each removal (Layer 2 auto-provisions one per removal event). Accepted under KISS. Future fix: only auto-provision if the user has never had a personal household before; else switch to a dormant one.
@@ -309,6 +313,8 @@ Aggregates average `price_per_unit` per category across all list_items with real
 - **Active context is client-authoritative (the Harbour standard).** Each app instance holds its own active household (React context + localStorage, keyed to the Clerk user); the server authorizes the claimed household, never infers or picks it. `is_member_of` is the authorization primitive; `get_my_households()` is the enumeration authority. `get_current_household_id()`'s "pick a household" role is retired for write paths — replaced by "authorize the claimed household." Generalizes to the fleet (active vessel, active kitchen). *(Established Jun 17.)*
 - **Switcher reveals progressively.** No switcher chrome at 1 household. A tappable household-name sub-line appears only at 2+ households. "Create new household" is the act that unlocks it. Zero friction for the common case.
 - **Store awareness is its own arc, sequenced after multi-household ships.** Don't interleave features. Foundation is already designed (migration 005); the arc begins with verification, not design.
+- **A new household's catalog is a snapshot at birth, not a live link.** `create_household_from_template` copies custom items at creation time; households then diverge freely. No ongoing sync between a source and cloned household. Lists are independent — they never travel with the catalog clone. *(Established 2026-06-26.)*
+- **"Verified present on prod" means a live query against the prod tab — never a doc entry or self-report.** The 2026-06-25 `get_my_households` gap survived because the prod-applied status was self-reported (query likely run against dev). The DB is the source of truth; docs record what the query showed. No "applied to prod ✅" without the prod-tab result in evidence.
 - **Vercel CI treats ESLint warnings as errors.** All declared variables must be used before pushing to main.
 - **Stable UUID is the key for all item actions; name strings are display only.** `catalog_item_id` from `listRows` is the durable identifier for every list/catalog operation (`toggleChecked`, `removeFromList`, `hideItem`, `deleteItem`). Item names are used only for optimistic UI state keys and display. Name-keyed lookups into `catalogRef`/`catalogMap` are a fallback of last resort, not the primary path. *(Established Jun 16 — the root cause of two separate name-key bugs: multi-session sync chain + "not in catalog" on rolled-forward items.)*
 
@@ -396,7 +402,6 @@ App-level context that is the single source of truth for which household is acti
 - **`refreshHouseholds()`:** re-fetches `get_my_households()` and updates `myHouseholds` + `myHouseholdsRef` WITHOUT touching `activeHouseholdId`. MUST be called after any mutation that changes the household roster (create, rename, future delete/join) — the context does not auto-refresh.
 - **Silent-join paths must call `refreshHouseholds()` explicitly.** `switchHousehold` (auto-switch, household create) triggers a refresh cascade internally; the silent-join path has no such trigger. The join-banner effect in `App.js` calls `refreshHouseholds()` on any confirmed join, regardless of whether an active-context switch occurs.
 - **Mounting:** `ShoppingListApp` (thin exported wrapper) wraps `<ActiveHouseholdProvider>` around inner `ProvisionsApp`. A consumer cannot live above the provider it mounts — this split is the structural prerequisite for `useProvisions` calling `useActiveHousehold()`.
-- **Temp note:** `[ActiveHousehold TEST]` console.log still in `App.js` — strip next session.
 
 ### Two-effect hook pattern *(established Jun 17 — `src/hooks/useProvisions.js`)*
 

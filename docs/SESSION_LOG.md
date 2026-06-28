@@ -25,6 +25,105 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-26] — [OurProvisions] — Build and validate delete_household end to end
+**Goal:** Take delete-household from a hidden console.log stub to a fully-tested feature on dev — owner-only soft-delete cascade RPC, branded confirm, and the reused Layer-2 switch/notice path — without shipping to prod.
+**Completed:**
+- Locked 7 design decisions (D1 soft-delete cascade; D2 waste/cycle history soft-deleted; D3 owner-only via created_by; D4 last-household auto-provision; D5 active-household switch-to-survivor; D6 surviving-member removal notice, neutral copy, no attribution; D7 catalog-loss warning now, clone-rescue deferred).
+- Derived migration number 013 — corroborated across ARCHITECTURE.md, SESSION_LOG (Jun 22 + Jun 25), and SPEC_create_household_from_template.md ("next in sequence, e.g. 013").
+- Wrote migration 013: two ALTERs (provision_cycles + list_item_contributors gain deleted_at) plus delete_household SECURITY DEFINER RPC (Clerk-JWT caller resolution, member_count captured pre-cascade, jsonb return, soft-delete cascade in FK order, user_hidden_items hard-deleted). Applied to dev by hand 2026-06-26; prod PENDING.
+- Refactored resolveAfterHouseholdLoss into ActiveHouseholdContext as the single switch-or-provision path guarded by provisioningRef — shared by checkPresence (detection-only, delegates resolution) and handleDeleteHousehold. Eliminated stale-closure read of myHouseholds and the raw createHousehold bypass that could race the in-flight guard.
+- Wired DELETE HOUSEHOLD button in owner-branch of household-manage sheet: two-stage showResetConfirm-pattern confirm, D7 custom-item count from loaded catalogMap (no extra round-trip), calls delete_household then resolveAfterHouseholdLoss(deletedId, false).
+- Validated live on dev (DH owner + DT member): owner deletes shared household → silent switch, no self-notice; member detects removal within ~30s via checkPresence → branded notice; owner deletes only household → exactly one fresh "My Household" provisioned.
+- Fixed copy across all surfaces: "close/closed" → "delete/deleted" (confirm sentence, button, toast); "1 members" → "1 member" (pluralisation guard).
+**Unfinished:**
+- Migration 013 on DEV ONLY — prod (parpauldmbetptkmdwbd) lacks the two ALTER columns and the RPC. Header says "prod apply PENDING."
+- dev→main merge held until 013 is on prod and smoke-tested.
+- D7 clone-first escape hatch deferred (clone-forward build; marker comment in App.js at confirm site).
+- checkPresence pre-existing TODO: selfDepartureRef not yet checked to suppress the notice on voluntary leave — Layer-2 debt, not introduced here.
+**Next session:**
+SESSION START
+Goal: Apply migration 013 to prod, smoke-test delete-household on prod, then dev→main merge + Vercel deploy.
+State: Feature fully built and dev-validated. Four local commits (021f902 migration, f606eed button wiring + confirm, 3cd5010 resolveAfterHouseholdLoss refactor, 620f223 + 5b680c6 copy fixes) awaiting review/push. RPC + deleted_at columns absent from prod.
+Done when: 013 applied clean to prod (pg_proc.prosrc check confirms body); controlled prod delete stamps household + all dependents with deleted_at, zero orphans; dev→main merged; Vercel deploy green; DELETE button live on ourprovisions.velayo.ai.
+**Files updated:** `migrations/013_delete_household.sql` (new), `src/App.js`, `src/contexts/ActiveHouseholdContext.js`.
+**DB changes:** DEV ONLY — `provision_cycles.deleted_at`, `list_item_contributors.deleted_at`, `delete_household` RPC. PROD PENDING.
+
+---
+
+### [2026-06-26] — [Velayo OS] — Generalize handoff folder into a payload airlock
+**Goal:** Let a design chat drop any produced files (specs, etc.) into `repo/handoff/` alongside `design_handoff.md`, and have Claude Code route each to its home on SESSION END — without confusing the reserved merge-and-delete logic.
+**Completed:**
+- Defined the AIRLOCK model: `handoff/` has exactly two permanent baseline files (`.gitignore`, `DESIGN_CHAT_handoff_prompt.md`); `design_handoff.md` keeps its reserved merge-and-delete role; every other file is payload, filed to its home and cleared out each SESSION END.
+- Added `## DROPPED_FILES` manifest to `DESIGN_CHAT_handoff_prompt.md` so each handoff declares its payload files and their destinations.
+- Added Step 0.5 to the SESSION END routine (`CLAUDE.md`): route payload files per manifest, protect the two baseline files, surface any unlisted payload rather than guessing.
+- Extended Step 5 verification to confirm the airlock is clear (only baseline two remain) before committing.
+- Updated the Handoff format reference in `CLAUDE.md` to document `## DROPPED_FILES` and the airlock model.
+- Applied both file edits to the repo this SESSION END (diff confirmed purely additive — nothing removed from existing rules).
+**Unfinished:**
+- `handoff/.gitignore` patterns not inspected — confirm they don't block payload files. Low risk (payloads land in `docs/`, not `handoff/`).
+- Two handoffs cannot sit in the airlock simultaneously (one `design_handoff.md` filename). Must go through SESSION END sequentially. Accepted.
+**Next session:**
+SESSION START
+Goal: Dry-run the new flow — SESSION END with a real payload spec present, confirm Step 0.5 routes it to `docs/` and leaves `handoff/` holding only the two baseline files.
+State: AIRLOCK convention live in repo. `CLAUDE.md` + `DESIGN_CHAT_handoff_prompt.md` both updated. Step 0.5 active next run.
+Done when: A SESSION END run with a payload spec files it to `docs/` correctly and the airlock ends clean.
+**Files updated:** `CLAUDE.md` (repo root, Step 0.5 + airlock model added), `handoff/DESIGN_CHAT_handoff_prompt.md` (## DROPPED_FILES section added).
+**DB changes:** None.
+
+*[Velayo OS] flag: this is company-wide workflow infra, not app-specific. Once a `velayo-os` repo exists, this entry belongs in that log.*
+
+---
+
+### [2026-06-26] — [OurProvisions] — Part C static checks (PASS/FINDINGS) + design "create household with cloned catalog"
+**Goal:** Run the first live Part C static checks against the repo and design the catalog-carry-forward feature for new household creation.
+**Completed:**
+- C1 PASS: 14 client `.rpc()` names exactly match the Part A1 prod list — no unknown or missing RPCs. Check confirmed working.
+- C2 FINDING: `009`–`012` migration files absent from local `migrations/` folder (all four functions confirmed live on prod); `007_dev_restore_role_grants.sql` documented in DONE but absent from repo. No current numbering collision. Check caught the expected gap — working as designed.
+- C3 FINDING: 3 `window.confirm` calls at [App.js:674](src/App.js#L674), [:690](src/App.js#L690), [:2271](src/App.js#L2271); no `window.alert`. Count unchanged — all three are the known tracked sites.
+- Designed "create household with cloned catalog": clone-forward (snapshot at creation) over persistent fleet catalog; scope = custom catalog only (lists never travel); source household user-chosen, most-recently-active default; "Standard provisions" as the no-custom opt-out label.
+- Decided new RPC `create_household_from_template(p_name, p_clerk_id, p_source_household_id default null)` wraps `create_household` (006) rather than modifying it; null source = passthrough; `is_member_of(p_source_household_id)` security guard before any clone.
+- Settled UI: single dropdown inline in manage-household sheet between name field and Cancel/Create; "Standard provisions" in Playfair Display 15px roman, muted sand-brown.
+- Authored `SPEC_create_household_from_template.md`; moved to `docs/` this SESSION END.
+**Unfinished:**
+- Feature not yet built — migration + client wiring + UI are next session.
+- Item-count-in-picker RPC shape unresolved: extend `get_my_households()` (alters prod column set) vs. new `get_my_household_catalog_counts()`. Defer to Claude Code build session.
+- "Most-recently-active" picker default must align with existing active-household resolution — resolve during build.
+- Migration folder reconciliation (009–012 gap) still deferred; C2 is the standing alert.
+**Next session:**
+SESSION START
+Goal: Build `create_household_from_template` per `docs/SPEC_create_household_from_template.md` — migration on dev, client wiring, manage-household sheet dropdown.
+State: Spec fully approved and in `docs/`. `create_household` (006) live on prod. No code or migration started. C2 gap (009–012) still open, not blocking this build.
+Done when: migration applied + verified on dev (prosrc check, functional clone count, security non-member raise, null-source passthrough); `createHousehold` wired with source param; manage-household sheet shows picker with item counts; item-count RPC question resolved.
+**Files updated:** `docs/SPEC_create_household_from_template.md` (moved from handoff/). `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** None.
+
+---
+
+### [2026-06-25] — [Cross] — Hide DELETE button + dev→main merge + fix get_my_households prod drift + agentic testing strategy
+**Goal:** Hide the stub DELETE HOUSEHOLD button, merge 8 Layer 2 commits to prod, smoke-test — which surfaced and fixed critical DB drift (get_my_households missing on prod) and produced a testing strategy + harness for future sessions.
+**Completed:**
+- Hid owner-branch DELETE HOUSEHOLD button (rendered null); removed dead `handleDeleteHousehold` handler and `[ActiveHousehold TEST]` log; committed dev (`b8cd86b`), merged dev→main (9 commits, merge `f952c9f`), Vercel prod deploy green.
+- Prod smoke-test surfaced "created households never appear in switcher" — root-caused: `get_my_households` (migration 001) was missing on prod entirely despite docs claiming "Dev + Prod (2026-06-18)." Applied migration 001 to prod; switcher now enumerates correctly (DH: 3 households, DT: 5 households).
+- Ran full dev↔prod function audit: confirmed authorization spine (003 `is_member_of`, 004/005/007 policy sweep, 006 `create_household`, 008–012 RPCs) IS live on prod; 001 was the sole gap.
+- Verified on prod: owner sees no DELETE button (DH all households, DT on owned household). Verified Layer 2 auto-provision on prod: real-name removal notice ("No longer a member of Aquila 50 - BVI") + fresh "My Household" auto-provisioned, persisted across refresh, in-flight guard held.
+- Created `qa/` folder: `agent_test_harness.md` (Parts A/B/C), `prod_test_plan.md` (Sections 0–6), `fixture_gathering.dev.sql`, `qa/README.md`; gitignored `test_fixture.dev.json`. Committed + pushed dev (`c8e59c5`).
+- Defined human/agent test split: DB-correctness + static checks → agent; UI/visual/two-party real-time → human. Test is event-triggered (pre-merge gate + post-migration suite + static on commit), NOT a SESSION END sub-step.
+- Designed staged agentic-QA pipeline (Stage 0: deterministic gate → Stage 1: automate file copies → Stage 2: automate QA run → Stage 3: guarded fix loop → Stage 4: provenance handoff). Secrets hygiene (Bitwarden) promoted to BLOCKER for automation past Stage 0.
+**Unfinished:**
+- Prod smoke-test partially run: owner-hide ✅, Layer 2 auto-provision ✅, switcher reads ✅. DEFERRED (not failed): Sections 1 (create→appear loop), 2 (non-owner remove matrix), 4 (single-household regression), 5 (write isolation), 6 (invite/rejoin).
+- Migrations folder bookkeeping broken: `007` numbering collision (disk `007_dev_restore_role_grants` vs canonical `007_finish_authorize_sweep`); files `009`–`012` described in docs but absent from local `migrations/` folder.
+- `window.confirm()` branded-modal replacement designed (reuse `showResetConfirm` pattern) but not built — 3 call sites in App.js.
+- ARCHITECTURE.md docs incorrectly recorded `get_my_households` as "Dev + Prod (2026-06-18)" — corrected this session.
+**Next session:**
+SESSION START
+Goal: Reconcile the `migrations/` folder (fix 007 collision, recover 009–012, gapless ordering) — prerequisite for Supabase CLI workflow and agent test harness Part B.
+State: Layer 2 live + auto-provision verified on prod. `get_my_households` now on prod; switcher works. dev↔prod authorization spine confirmed in sync. Three test deliverables in `qa/` on dev. ARCHITECTURE.md corrected.
+Done when: migrations folder is gapless/canonical with no numbering collisions; `window.confirm` modal replacement specced or built; Part C static checks run via Claude Code.
+**Files updated:** `src/App.js` (hide DELETE button, remove dead handler + test log — `b8cd86b`). `qa/README.md`, `qa/agent_test_harness.md`, `qa/prod_test_plan.md`, `qa/fixture_gathering.dev.sql`, `.gitignore` (`c8e59c5`). `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/SESSION_LOG.md` (this commit).
+**DB changes:** PROD (`parpauldmbetptkmdwbd`) — applied migration 001 `get_my_households` (2026-06-25). Was dev-only since ≈06-12; never reached prod despite docs claiming "Dev + Prod (2026-06-18)".
+
+---
+
 ### [2026-06-25] — [OurProvisions] — Layer 2 point-4 validation: clean dev environment + controlled retest (PASSED)
 **Goal:** Clean the polluted dev test environment, then run a valid controlled point-4 test (removed-from-only-household auto-provision); if it passes, sign off Layer 2.
 **Completed:**

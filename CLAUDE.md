@@ -73,6 +73,26 @@ stop and report it rather than committing.
     double-applied. The content now lives in the committed docs.
 - **If it does not exist**, proceed normally — log only what you witnessed.
 
+### Step 0.5 — Route any payload files dropped in `handoff/`
+
+The `handoff/` folder is an AIRLOCK, not a home. It has exactly TWO permanent
+baseline files — `.gitignore` and `DESIGN_CHAT_handoff_prompt.md` — which you
+NEVER move, modify, or delete. `design_handoff.md` is the reserved merge-and-delete
+file handled in Step 0. EVERYTHING ELSE in `handoff/` is **payload**: files the
+design chat produced for this build (specs, etc.) that must be filed to their
+home and cleared out.
+
+- List the contents of `handoff/`. For every file that is NOT one of the two
+  baseline files and NOT `design_handoff.md`, treat it as payload.
+- The handoff's `## DROPPED_FILES` manifest (if present) tells you each payload
+  file's destination and what it is. Follow it: e.g. move `SPEC_*.md` to `docs/`.
+- If a payload file is present but the manifest does not list it, do NOT guess
+  and do NOT delete it — surface it to me and ask where it goes.
+- Default destination for `SPEC_*.md` is `docs/` (per the Key files convention).
+  Moving = `git mv handoff/<file> docs/<file>` so history is preserved.
+- After routing, `handoff/` must contain ONLY the two baseline files. That clean
+  state is the signal that nothing is pending.
+
 ### Step 1 — Update `docs/SESSION_LOG.md`
 Prepend a NEW entry at the TOP of the `## LOG` section (most recent first), using
 the SESSION LOG ENTRY FORMAT below. Single rolling file; do NOT create dated
@@ -108,9 +128,13 @@ Before committing, verify the handoff was consumed:
 - If a handoff existed in Step 0, confirm `handoff/design_handoff.md` no longer
   exists and its entry is now at the top of `docs/SESSION_LOG.md`. If the file is
   still present, you did NOT complete the merge — go back to Step 0; do not commit.
+- Confirm the AIRLOCK is clear: `handoff/` now contains ONLY the two baseline
+  files (`.gitignore`, `DESIGN_CHAT_handoff_prompt.md`). If any payload file
+  remains, Step 0.5 is incomplete — finish routing it (or ask me) before committing.
 
 Then:
-`git add docs/ handoff/` (stage doc changes and the handoff deletion)
+`git add docs/ handoff/` (stage doc changes, the handoff deletion, and any
+payload files moved into `docs/`)
 `git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
 Do NOT push automatically — leave the commit local for my review. I'll push.
 
@@ -167,8 +191,13 @@ sections (any may be omitted if nothing applies):
 - `## SESSION_LOG` — session-log entry focused on decisions/design.
 - `## ROADMAP_DECISIONS` — DECISIONS LOG rows + any roadmap moves.
 - `## ARCHITECTURE` — structural changes (tables, constraints, patterns, principles).
+- `## DROPPED_FILES` — manifest of payload files (specs, etc.) dropped into
+  `handoff/` alongside the handoff, with each file's destination.
 
-Step 0 of SESSION END consumes this file and then deletes it.
+Step 0 consumes `design_handoff.md` (merge + delete). Step 0.5 routes the payload
+files named in `## DROPPED_FILES` to their homes. `handoff/` is an AIRLOCK: its
+only permanent residents are `.gitignore` and `DESIGN_CHAT_handoff_prompt.md`;
+everything else passes through and is cleared each SESSION END.
 
 ---
 
