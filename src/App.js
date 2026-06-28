@@ -949,13 +949,19 @@ function ProvisionsApp() {
                 letterSpacing: "0.6px", color: "#C9A97A", whiteSpace: "nowrap", overflow: "hidden"
               }}
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }} aria-hidden="true">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, opacity: 0.5, marginInline: "3px" }}>
                 <circle cx="12" cy="5" r="2.4" stroke="#C9A97A" strokeWidth="1.6"/>
                 <path d="M12 7.4V21" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
                 <path d="M6 11h12" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
                 <path d="M3 13c0 5 4 7 9 7s9-2 9-7" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
               </svg>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{household.name}</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, opacity: 0.5, marginInline: "3px", transform: "scaleX(-1)" }}>
+                <circle cx="12" cy="5" r="2.4" stroke="#C9A97A" strokeWidth="1.6"/>
+                <path d="M12 7.4V21" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
+                <path d="M6 11h12" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
+                <path d="M3 13c0 5 4 7 9 7s9-2 9-7" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
+              </svg>
             </button>
           )}
           <div>
