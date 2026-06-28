@@ -935,8 +935,29 @@ function ProvisionsApp() {
       `}</style>
 
       <div className="header">
-        {/* Row 1: Velayo bar — avatar left, three dots right */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: "#1a0e06" }}>
+        {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
+        <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: "#1a0e06" }}>
+          {isSignedIn && household?.name && (
+            <button
+              onClick={() => setShowHouseholdModal(true)}
+              aria-label="Manage household"
+              style={{
+                position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
+                background: "none", border: "none", padding: "4px 8px", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", gap: "6px", maxWidth: "55%",
+                fontFamily: "'Lato', sans-serif", fontSize: "13px", textTransform: "uppercase",
+                letterSpacing: "0.6px", color: "#C9A97A", whiteSpace: "nowrap", overflow: "hidden"
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }} aria-hidden="true">
+                <circle cx="12" cy="5" r="2.4" stroke="#C9A97A" strokeWidth="1.6"/>
+                <path d="M12 7.4V21" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
+                <path d="M6 11h12" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
+                <path d="M3 13c0 5 4 7 9 7s9-2 9-7" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
+              </svg>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{household.name}</span>
+            </button>
+          )}
           <div>
             {isSignedIn ? (
               <button
@@ -986,12 +1007,6 @@ function ProvisionsApp() {
                 style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
               >
                 <span style={{ fontWeight: 400, fontStyle: "italic", marginRight: "0.25em" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
-                <svg width="22" height="18" viewBox="0 0 22 18" fill="none" style={{ opacity: 0.6, flexShrink: 0 }}>
-                  <circle cx="8" cy="5" r="3.5" fill="#C9A97A"/>
-                  <path d="M1 17c0-3.866 3.134-7 7-7s7 3.134 7 7" stroke="#C9A97A" strokeWidth="1.5" strokeLinecap="round"/>
-                  <circle cx="16" cy="4" r="2.5" fill="#C9A97A"/>
-                  <path d="M14 17c0-2.761 1.791-5.1 4.25-5.847" stroke="#C9A97A" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
               </button>
             ) : (
               <button
@@ -1002,18 +1017,6 @@ function ProvisionsApp() {
               </button>
             )}
           </h1>
-          {isSignedIn && (
-            <div style={{
-              fontFamily: "'Lato', sans-serif",
-              fontSize: "0.65rem",
-              letterSpacing: "1.5px",
-              textTransform: "uppercase",
-              color: "rgba(250, 244, 236, 0.4)",
-              marginTop: "6px",
-            }}>
-              Tap to manage household
-            </div>
-          )}
         </div>
       </div>
 
