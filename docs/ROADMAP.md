@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-26*
+*Last updated: 2026-06-28*
 
 ---
 
@@ -24,7 +24,7 @@
 
 | # | Feature | Notes |
 |---|---|---|
-| — | **Apply migration 013 to prod + dev→main merge (delete-household)** | Migration 013 built and dev-validated. Apply two ALTERs (provision_cycles + list_item_contributors get deleted_at) + delete_household RPC to prod (parpauldmbetptkmdwbd); verify via pg_proc.prosrc; smoke-test on prod (owner deletes, member detects, auto-provision); then dev→main merge + Vercel deploy. Gate: zero orphaned rows after controlled prod delete. |
+| — | **Build Phase I active-household indicator** | Outer chrome banner between avatar and kebab menu: anchor icon + plain household name, Sand `#C9A97A`, Lato ~13px uppercase, letter-spacing ~0.6px. onClick: `setShowHouseholdModal(true)`. Render guard: `{isSignedIn && household?.name && (…)}`. Simultaneously remove people glyph (~App.js 989–994) and "TAP TO MANAGE HOUSEHOLD" subline (~App.js 1005). Per `docs/SPEC_household_indicator.md`. |
 | — | **Create household with cloned catalog** | Build `create_household_from_template` per `docs/SPEC_create_household_from_template.md`. New RPC wraps `create_household` (006); clones source household's custom catalog into the new one (snapshot, not live link); null source = passthrough ("Standard provisions"). Client: dropdown picker in manage-household sheet. Resolve item-count RPC shape + most-recently-active default during build. |
 | — | **Reconcile `migrations/` folder** | Fix the `007` numbering collision (disk: `007_dev_restore_role_grants` vs canonical `007_finish_authorize_sweep`); recover/locate `009`–`012` (described in docs and confirmed live on prod but absent from local folder); enforce gapless ordering. Prerequisite for Supabase CLI workflow and agent test harness Part B. |
 | — | **Replace native `window.confirm()` with branded modal** | 3 call sites in App.js (leave household, remove member, ~App.js:2284). Native browser confirm is unbranded — "ourprovisions.velayo.ai says…" box clashes with Layer 2's branded removal notice. Reuse the existing `showResetConfirm` modal pattern; preserve existing on-brand copy. |
@@ -57,6 +57,14 @@
 | 10 | **Replace remaining `window.location.reload()` calls** | Audit codebase; replace all with `refreshCatalog()` pattern. |
 | — | **Avatar two-letter monograms (small UX)** | Single-initial contributor badges are ambiguous — two users can both render "D" (Dan Holmes / Dan Test User). Fix: two-letter monogram (DH / DT — names already provide the data). Alternatively: per-user distinct colors, or lean on the existing hover-name. Two-letter likely cleanest. |
 | 11 | **Email receipt parser** | Most actionable near-term price ingestion path. No partnerships required. Parse forwarded grocery receipts via email. |
+
+---
+
+## LATER — Phase 1.5: Active Household Identity
+
+| Feature | Notes |
+|---|---|
+| **Phase II shared active-household lens at the harbour/identity layer** | Once the Harbour / `velayo-os` identity layer exists, the "which household is active" signal should be a cross-app primitive shared by all Velayo apps (OurChef, OurManifest, etc.) — not re-implemented per app. Phase I outer-chrome indicator is the OurProvisions-only stopgap; Phase II retires it in favor of the shared lens. Scope belongs to a `velayo-os` session once app #2 starts. |
 
 ---
 
@@ -250,6 +258,11 @@ Closes the loop. Turns data into action.
 | 2026-06-26 | **D7 — catalog loss on delete: warn now, rescue later.** Honest in-confirm custom-item count warning ships with the delete feature. The clone-first escape hatch (a "Clone catalog first" button alongside "Delete anyway") is deferred to the clone-forward build. Delete and clone-forward are siblings; marker comment left at the confirm site. |
 | 2026-06-26 | **One provisioning path only — resolveAfterHouseholdLoss owns the guarded switch-or-provision flow.** checkPresence and handleDeleteHousehold share a single useCallback in ActiveHouseholdContext that holds the provisioningRef guard, refreshes the authoritative list (no stale-closure reads), and either switches to a survivor or auto-provisions. A hand-rolled second path in the delete handler risks duplicate "My Household" spawns. |
 | 2026-06-25 | **Secrets hygiene (Bitwarden) promoted to BLOCKER for agentic automation.** Agents need credentials to run DB tests or push to prod. Google Drive `.env` stopgap is acceptable for the current human-only flow; unacceptable once agents need access. Bitwarden is now a critical-path prerequisite for every automation stage past Stage 0. |
+| 2026-06-28 | **Active-household indicator lives in the outer App shell, not the per-household chrome.** Outer chrome (avatar, kebab menu row) is always rendered regardless of household context; per-household chrome (title bar, wordmark, action buttons) is contextual. Indicator that survives household switches belongs in the outer shell. Header layering principle: outer chrome = identity/navigation layer; inner chrome = household-context layer. |
+| 2026-06-28 | **Phase I/II indicator split: outer chrome now, harbour identity lens later.** Phase I ships a per-app (OurProvisions) indicator in the outer banner — minimal, ship-now. Phase II is a cross-app shared active-household lens at the harbour/Velayo OS identity layer. Two different scopes; deliberately separated so Phase I doesn't block on `velayo-os` maturity. |
+| 2026-06-28 | **Indicator form: anchor icon + plain household name, tap-to-manage.** Anchor glyph signals "this is home base, you can navigate from here." Plain name (no quotes, no role label) is how members already refer to the household. Tap opens manage-household modal — no new navigation pattern, no new surface. |
+| 2026-06-28 | **People glyph + "TAP TO MANAGE HOUSEHOLD" subline retired when Phase I indicator ships.** Both are crude substitutes for the indicator. Removing them at the same time avoids a permanent title-bar regression: the indicator only replaces them if they are gone; leaving them creates a duplicate-navigation clutter state. |
+| 2026-06-28 | **Prod probe before apply is mandatory migration discipline.** Before applying any migration that adds a column (or any additive schema change), run a live column-existence query against the prod tab to confirm current state — not docs, not memory, not the log. Today's discipline: `\d table` or `information_schema.columns` query in the prod SQL editor, result attached to the session before any `ALTER` is issued. Prevents duplicate-column errors and documents prod state at the moment of decision. |
 
 ---
 
@@ -315,6 +328,7 @@ Closes the loop. Turns data into action.
 | **Member management — leave/remove/rejoin (migrations 010–012)** | Jun 22, 2026 | UI: "Created by" attribution, remove controls on non-creator rows, Leave/Delete branching. `remove_member` + `leave_household` (010); `join_household` revive-or-insert (011); `bootstrap_new_user` revive fix (012). Both join paths covered. `refreshMembers` for live actor update. Dev + prod. |
 | **Layer 2: removal notice + auto-provision** | Jun 25, 2026 | 30s membership-presence check; typed `systemMessage` channel; variant-B removal notice; auto-provision (`create_household`) on only-household removal; `provisioningRef` in-flight guard. Points 1–4 validated on clean dev env (point 4: DB-gated fixture, `activeHouseholdNameRef` resolved real household name, in-flight guard confirmed — single provisioned household). Bug 1 ("that household" wording) closed as test-environment artifact. Verified on prod: real-name notice + fresh household auto-provisioned, in-flight guard held. |
 | **Hide DELETE HOUSEHOLD button + dev→main merge** | Jun 25, 2026 | Owner branch of household-manage ternary renders null (no household-destruction control visible to owners). Removed dead `handleDeleteHousehold` handler + `[ActiveHousehold TEST]` log. 9 commits (8 Layer 2 + cleanup) merged to main, Vercel deploy green. |
+| **Delete-household — migration 013 to prod + dev→main merge** | Jun 28, 2026 | Migration 013 (`provision_cycles.deleted_at`, `list_item_contributors.deleted_at`, `delete_household` RPC) applied and verified on prod (body_len 2550). Two-stage owner confirm, D7 custom-item count warning, `resolveAfterHouseholdLoss` shared Layer-2 path. Smoke-tested (DH owner + DT member, orphan count 0). Merged to main; Vercel green. |
 
 ---
 

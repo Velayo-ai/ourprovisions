@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-28] — [Cross] — Ship delete-household to prod and design active-household indicator
+**Goal:** Clear the prod-apply gate on migration 013, merge dev→main, deploy, and prove delete-household on prod — opening multi-household to real testers. Then design how the app shows which household you're editing.
+**Completed:**
+- Probed prod for `shopping_sessions.deleted_at` (exists) before applying 013 — closed the schema-drift risk; live query over stale CSV.
+- Applied migration 013 to prod by hand; verified via `pg_proc.prosrc` (body_len 2550, cascade markers present).
+- Merged dev→main in Claude Code (merge commit `d36a71b`); pushed main; Vercel deployed clean (Ready 16s, `CI=true` passed). DELETE HOUSEHOLD button live on `ourprovisions.velayo.ai`.
+- Smoke-tested on prod (DH owner + DT member): owner silent switch and member branded removal notice both confirmed.
+- Verified cascade honesty on prod: orphan count across five household-scoped tables returned 0 for the deleted household.
+- Designed active-household indicator: outer chrome banner, plain name + anchor icon centered between avatar and menu, tap-to-manage; retired two-people wordmark glyph; Phase I/II layer split framed.
+- Authored and filed `SPEC_household_indicator.md` (handoff payload → `docs/`).
+**Unfinished:**
+- `window.confirm()` → branded modal: three native dialogs in App.js (~674, 690, 2271) still live on prod.
+- D7 clone-rescue escape hatch deferred (clone-forward build).
+- `checkPresence` `selfDepartureRef` TODO — voluntary-leave still triggers the removal notice.
+**Next session:**
+SESSION START
+Goal: Build Phase I active-household indicator per `docs/SPEC_household_indicator.md` — house name + anchor icon in outer banner, tap-to-manage; remove people glyph and manage subline from title bar.
+State: delete-household fully live and prod-validated. Migration 013 on dev + prod. `main` = `origin/main`. Indicator spec written and filed in `docs/`.
+Done when: household name renders in outer banner from `ActiveHouseholdContext`; tap opens manage-house modal; people glyph and manage subline removed from title bar; dev-validated; merged; Vercel green.
+**Files updated:** `docs/SPEC_household_indicator.md` (new, filed this SESSION END).
+**DB changes:** Migration 013 now live on PROD — `provision_cycles.deleted_at`, `list_item_contributors.deleted_at`, `delete_household` RPC. Dev + prod in sync.
+
+---
+
 ### [2026-06-26] — [OurProvisions] — Build and validate delete_household end to end
 **Goal:** Take delete-household from a hidden console.log stub to a fully-tested feature on dev — owner-only soft-delete cascade RPC, branded confirm, and the reused Layer-2 switch/notice path — without shipping to prod.
 **Completed:**

@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-26 (migration 013 + resolveAfterHouseholdLoss)*
+*Last updated: 2026-06-28 (migration 013 prod-applied + header layering principle + cascade integrity pattern)*
 
 ---
 
@@ -118,7 +118,7 @@ Historical files (superseded, in `migrations/archive/`):
 | `migrations/010_remove_member_leave_household.sql` | `remove_member(p_household_id, p_user_id)` returns `{removed, user_id}` — any member may soft-delete any non-owner membership row (guard reads target row's `role` inline). `leave_household(p_household_id)` returns `{left}` — self-exit; owner cannot leave (must delete household). Both SECURITY DEFINER. | Dev + Prod (2026-06-22) |
 | `migrations/011_join_household.sql` | `join_household(p_household_id)` returns `{joined, revived, user_id}` — atomic revive-or-insert: ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin UNIQUE constraint collision. Always lands as `role = 'member'` (no silent role re-elevation). Used by `acceptInvite` (manual code entry join path). | Dev + Prod (2026-06-22) |
 | `migrations/012_bootstrap_revive_fix.sql` | Fixes the URL-invite join path in `bootstrap_new_user` (4-arg signature). Step 2 now uses the same revive-or-insert upsert pattern as migration 011 instead of ON CONFLICT DO NOTHING. Closes the second instance of the leave-then-rejoin bug. Prod still carries three dead overloads — future cleanup. | Dev + Prod (2026-06-22) |
-| `migrations/013_delete_household.sql` | Two schema additions: `provision_cycles.deleted_at` (enables soft-delete in the household cascade) and `list_item_contributors.deleted_at` (soft-delete for recoverability, D1). Plus `delete_household(p_household_id uuid) → jsonb` SECURITY DEFINER RPC — owner-only cascade stamping `deleted_at = now()` across all household-bearing tables in FK order; `user_hidden_items` hard-deleted (disposable per-user view state); returns `{deleted, member_count, household_id}`. Applied to dev 2026-06-26 by hand. **Prod PENDING.** | Dev only (2026-06-26) |
+| `migrations/013_delete_household.sql` | Two schema additions: `provision_cycles.deleted_at` (enables soft-delete in the household cascade) and `list_item_contributors.deleted_at` (soft-delete for recoverability, D1). Plus `delete_household(p_household_id uuid) → jsonb` SECURITY DEFINER RPC — owner-only cascade stamping `deleted_at = now()` across all household-bearing tables in FK order; `user_hidden_items` hard-deleted (disposable per-user view state); returns `{deleted, member_count, household_id}`. Applied to dev 2026-06-26 by hand; applied to prod 2026-06-28, verified via `pg_proc.prosrc` (body_len 2550, cascade markers present). | Dev + Prod (2026-06-28) |
 
 ---
 
@@ -244,7 +244,7 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `remove_member(p_household_id, p_user_id)` *(migration 010)* | Soft-deletes a membership row. Any member may remove any non-owner (guard reads target row's `role` inline). Returns `{removed, user_id}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
 | `leave_household(p_household_id)` *(migration 010)* | Self-exit. Owner cannot leave (must delete household). Returns `{left}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
 | `join_household(p_household_id)` *(migration 011)* | Revive-or-insert upsert: ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin UNIQUE collision. Always lands as `role = 'member'`. Returns `{joined, revived, user_id}`. SECURITY DEFINER. Dev + Prod (2026-06-22). |
-| `delete_household(p_household_id uuid)` *(migration 013)* | Owner-only soft-delete cascade. Resolves caller via `auth.jwt()->>'sub'` → `users.clerk_id`; guards `created_by = caller AND deleted_at IS NULL` (owner-only + idempotency / double-tap safety). Captures `member_count` BEFORE cascade. Cascade in FK order: list_item_contributors → waste_events → shopping_sessions → list_items → provision_cycles → catalog_items → known_stores → household_invites → household_members → households. `user_hidden_items` hard-deleted (disposable view state; subquery still resolves against soft-deleted catalog_items). Returns `{deleted, member_count, household_id}`. **Dev only; prod PENDING.** Confirmed full household_id-bearing table set on dev (derived live, 2026-06-26): catalog_items, household_invites, household_members, known_stores, list_items, provision_cycles, shopping_sessions, waste_events; plus transitive list_item_contributors (via list_items) and user_hidden_items (via catalog_items). |
+| `delete_household(p_household_id uuid)` *(migration 013)* | Owner-only soft-delete cascade. Resolves caller via `auth.jwt()->>'sub'` → `users.clerk_id`; guards `created_by = caller AND deleted_at IS NULL` (owner-only + idempotency / double-tap safety). Captures `member_count` BEFORE cascade. Cascade in FK order: list_item_contributors → waste_events → shopping_sessions → list_items → provision_cycles → catalog_items → known_stores → household_invites → household_members → households. `user_hidden_items` hard-deleted (disposable view state; subquery still resolves against soft-deleted catalog_items). Returns `{deleted, member_count, household_id}`. Dev + Prod (2026-06-28). Verified via `pg_proc.prosrc` body_len 2550; smoke-tested on prod (DH owner delete + DT member notice + auto-provision; orphan count 0 across five tables). Confirmed full household_id-bearing table set (derived live, 2026-06-26): catalog_items, household_invites, household_members, known_stores, list_items, provision_cycles, shopping_sessions, waste_events; plus transitive list_item_contributors (via list_items) and user_hidden_items (via catalog_items). |
 | `rls_auto_enable` *(event trigger)* | Auto-enables RLS on any newly created public table. **Every new table comes up locked by default.** Include policies in the same migration or the table will be inaccessible. |
 
 ---
@@ -465,6 +465,29 @@ FROM pg_proc WHERE proname = 'insert_list_item';
 ```
 
 Returns a clean boolean, immune to the auto-limit. Use this pattern over `pg_get_functiondef` whenever you need to confirm a function body change was saved. (Extends the existing "SQL Editor may silently keep old versions" caution in CLAUDE.md.)
+
+### Header layering principle *(established 2026-06-28 — `SPEC_household_indicator.md`)*
+
+The app shell has two distinct chrome layers with different rendering scopes:
+
+- **Outer chrome** (avatar row, active-household indicator, kebab menu): App-level. Always rendered whenever the user is signed in. Survives household switches — it wraps them. Correct home for identity signals and cross-household navigation.
+- **Inner chrome** (title bar, wordmark, action buttons, SHOP/BROWSE/PROFILE tabs): Household-context layer. Rendered inside the active-household scope. Reflects the current household's state (member count, wordmark singular/plural).
+
+Design rule: any chrome element that must remain stable across household switches belongs in the outer layer. Any element that reflects the *current* household's state belongs in the inner layer. Mixing them (e.g. household name in the title bar) creates a flash-of-old-name on switch. The active-household indicator (Phase I) lives in the outer layer for this reason.
+
+### Cascade integrity check — probe prod before migration apply *(established 2026-06-28)*
+
+Before applying any migration that adds a column (or any other additive schema change) to a table that exists on prod:
+
+1. Run a live column-existence query against the **prod SQL editor tab** (not dev, not docs, not memory):
+   ```sql
+   SELECT column_name FROM information_schema.columns
+   WHERE table_schema='public' AND table_name='<table>' AND column_name='<column>';
+   ```
+2. Confirm the result is empty (column does not yet exist) before issuing the `ALTER TABLE`.
+3. After apply, verify via `pg_proc.prosrc` (for RPCs) or a schema query (for columns).
+
+This pattern caught a potential `shopping_sessions.deleted_at` double-add on 2026-06-28 — the prod table already had the column (from an earlier untracked apply), which would have caused the `ALTER TABLE` to fail with a duplicate-column error if issued without checking first. **Never trust docs or session logs as prod-state authority.** The DB is the source of truth.
 
 ### Dev-environment hygiene — multi-user removal testing *(established Jun 25)*
 
