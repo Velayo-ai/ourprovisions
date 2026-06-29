@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-29] — [Cross] — Two catalog consistency bugs shipped to prod; brand-architecture direction set for the .app domains
+**Goal:** Fix the search-row stepper and price-gated Edit Item bugs, and establish how the newly secured `.app` domains serve the Harbour vision without sacrificing per-app identity.
+**Completed:**
+- Shipped Bug 1 (search results now use the full −/qty/+ stepper, identical to Browse) by extracting a shared `CatalogItemRow` component rendered by both the search and Browse call sites — so the two row presentations can no longer drift. Extraction landed as its own commit (`2163929`) ahead of the search wiring (`8f1e471`); search list now renders inside `.items-grid` for layout parity.
+- Shipped Bug 2 (Edit Item respects the pricing toggle, `378efec`): price `modal-field` gated on `showPrices`; the "only the price can be edited" catalog note gated too; new `canEdit` prop on `SwipeToRemove` hides only the Edit button (Staple/Hide remain) for catalog items when pricing is off; `openEditModal` early-returns as a guard — so no empty modal can appear. Custom items stay fully editable regardless of the toggle.
+- Confirmed the catalog-item edit truth table by eye: name locked on catalog items → Edit exists only when price is editable; custom items always editable.
+- Ran `/code-review` (high effort) on the diff: zero correctness findings; two non-blocking cleanup notes (duplicated price-fallback formula across Browse/Search; deliberate belt-and-suspenders `canEdit` + early-return). Smoke-tested by Dan, then promoted dev→main as a clean fast-forward (`90c4316`→`378efec`) and pushed; Vercel auto-deploys main to prod.
+- Set brand-architecture direction for the four secured `.app` domains (ourprovisions / ourkeep / ourmanifest / ourpoker): vanity domains are sayable front doors over a single shared Harbour; the auth domain stays singular and platform-owned; ourpoker is the likely standalone exception. Decided `ourprovisions.app` becomes canonical with the `velayo.ai` subdomain redirecting to it (pending a check of what `velayo.ai` currently serves). Auth-domain unification deferred (Phase II, KISS) — near-term domain work stays auth-neutral and reversible.
+**Unfinished:**
+- `ourprovisions.app` not yet wired (Cloudflare DNS + Vercel primary-domain + Clerk allowed-domain/redirect) — teed up for tonight; pre-step: confirm what `velayo.ai` root + `ourprovisions.velayo.ai` serve before retiring/redirecting the subdomain.
+- Swipe action does not work on search-filtered rows — `SwipeToRemove` wraps `CatalogItemRow` at the Browse call site but the search call site renders the bare shared row (deliberately out of scope this commit). Consistency bug, build pending.
+- `SwipeToRemove` latches open with no dismiss gesture — needs swipe-right / tap-away / single-open-at-a-time close paths.
+- Manage-household redesign (surface tangles household vs member actions, over-weights Delete) and filter show/hide toggle — design pending.
+- Household-scoped UI state audit — yesterday's authored goal, still deferred.
+**Next session:**
+SESSION START
+Goal: Wire `ourprovisions.app` (build) and work the design queue (household-scoped state audit, manage-household redesign, filter toggle).
+State: Three commits live on prod (CatalogItemRow extraction, search stepper, price-gated Edit). `main` = `dev` = `378efec`, Vercel green. App functioning across multi-account testing.
+Done when: `ourprovisions.app` reachable + canonical + auth working with the `velayo.ai` subdomain redirecting in; household-scoped state audit produces a pass/fix list; Test House 1–6 dev data cleaned up; manage-household and filter-toggle directions mocked.
+**Files updated:** `src/App.js` (CatalogItemRow extraction, search stepper, Edit price gate). `SPEC_search_row_and_price_gate.md` routed to `docs/`.
+**DB changes:** None.
+
+---
+
 ### [2026-06-29] — [OurProvisions] — Defect paydown: six member/household-flow fixes shipped to prod
 **Goal:** Fix a member display-name bug Elly reported; the session expanded into a focused defect-paydown sweep across the household/invite flow, shipping six fixes to production.
 **Completed:**

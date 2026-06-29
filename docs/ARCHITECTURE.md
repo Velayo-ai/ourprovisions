@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-29 (Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
+*Last updated: 2026-06-29 (shared `CatalogItemRow` for Browse+Search; one-shared-row design principle; domain/brand layering direction; Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
 
 ---
 
@@ -317,10 +317,14 @@ Aggregates average `price_per_unit` per category across all list_items with real
 - **"Verified present on prod" means a live query against the prod tab — never a doc entry or self-report.** The 2026-06-25 `get_my_households` gap survived because the prod-applied status was self-reported (query likely run against dev). The DB is the source of truth; docs record what the query showed. No "applied to prod ✅" without the prod-tab result in evidence.
 - **Vercel CI treats ESLint warnings as errors.** All declared variables must be used before pushing to main.
 - **Stable UUID is the key for all item actions; name strings are display only.** `catalog_item_id` from `listRows` is the durable identifier for every list/catalog operation (`toggleChecked`, `removeFromList`, `hideItem`, `deleteItem`). Item names are used only for optimistic UI state keys and display. Name-keyed lookups into `catalogRef`/`catalogMap` are a fallback of last resort, not the primary path. *(Established Jun 16 — the root cause of two separate name-key bugs: multi-session sync chain + "not in catalog" on rolled-forward items.)*
+- **Filtered views render the same row component as unfiltered views.** Filtering changes the dataset, never the presentation or behavior. The catalog row is one shared component (`CatalogItemRow`); search is a filter over the dataset and must reuse it — never substitute a different row. Applies to the qty stepper (done), the price line (done), and swipe (pending — search rows are not yet wrapped in `SwipeToRemove`). *(Established 2026-06-29 — the root cause of the search-row +1-only stepper bug.)*
 
 ---
 
 ## Key Patterns
+
+### Shared catalog row — `CatalogItemRow` renders Browse + Search *(2026-06-29 — `src/App.js`)*
+The inner `.item-row` body (qty stepper, price row, subtotal) is a single top-level component, `CatalogItemRow`, rendered from BOTH the Browse call site and the search-results call site. Extracted so the two presentations cannot drift (the search row had previously diverged into a +1-only button). It takes `item`, `qty`, `rawCategory`, `showPrices`, `price`, plus the price-edit state/handlers as props (`centsToDisplay` is passed in since it closes over `ProvisionsApp` state). `SwipeToRemove` wraps it at the Browse call site only — search rows render the bare component (swipe-parity is a pending follow-up). Implements the "filtered views render the same row component" design principle.
 
 ### SHOP list renders from the RPC, not from catalogMap *(June 8)*
 The SHOP list is grouped directly from `get_list_items_for_household`'s returned rows (`listRows` state — name, category, is_staple inline), NOT rebuilt from local `catalogMap`. This keeps `catalogMap` out of the display path, so a stale or incomplete local catalog can never drop a synced list row. The RPC is the single source of truth for what's on the list; rendering is a pure function of its response.
@@ -581,6 +585,9 @@ Access gates a *hostname*, not a Worker — sibling routes (`workers.dev`, previ
 | **OurChef** | Household | Phase 5 |
 | **OurGarden** | Household | Future |
 | **OurHelper** | Neighborhood | Future |
+
+### Domain / brand layering *(direction set 2026-06-29)*
+Three layers, top to bottom: **vanity domain (`.app`)** → **app (running deploy)** → **Harbour (`velayo-os` shared identity)**. The domain is a label on the front door, not the address of the house. Vanity `.app` domains (ourprovisions / ourkeep / ourmanifest / ourpoker) are sayable front doors that may repaint or multiply freely; the Harbour (shared identity + combined fleet data + OurExperience) is the house and can unify without changing what users type. The **auth domain stays singular and platform-owned** from the start — protecting Phase II shared-login across the fleet and letting an app (e.g. ourpoker) opt out later without a migration. Near-term: `ourprovisions.app` becomes canonical with the `velayo.ai` subdomain redirecting to it; auth-domain unification is deferred to Phase II and all near-term domain work stays auth-neutral and reversible.
 
 ---
 
