@@ -482,6 +482,31 @@ function ProvisionsApp() {
     }
   }, [loading, household]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-dismiss the join banner: on a timer (success confirmations self-clear),
+  // and immediately if the user switches away from the joined household (the
+  // banner would otherwise contradict the header).
+  //
+  // Subtlety: the explicit-accept flow sets the banner BEFORE the async
+  // switchHousehold(joinedId) lands, so for an existing user there is a brief
+  // window where the banner shows the joined name while `household` is still the
+  // PRIOR household. A naive "name !== joinBanner → clear" would fire in that
+  // window and kill the banner on its own arrival. So we only treat a name
+  // mismatch as "switched away" once the joined household has actually been
+  // active at least once (bannerSeenRef). The 5s timer runs regardless and is
+  // the safety net if arrival never happens.
+  const bannerSeenRef = useRef(false);
+  useEffect(() => {
+    if (!joinBanner) { bannerSeenRef.current = false; return; }
+    if (household?.name === joinBanner) {
+      bannerSeenRef.current = true; // arrived at the joined household
+    } else if (bannerSeenRef.current) {
+      setJoinBanner(null); // arrived earlier, now switched away → stale, clear
+      return;
+    }
+    const t = setTimeout(() => setJoinBanner(null), 5000);
+    return () => clearTimeout(t);
+  }, [joinBanner, household?.name]);
+
 
   // eslint-disable-next-line no-unused-vars
   const startEditPrice = (itemName) => {
