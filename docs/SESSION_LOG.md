@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-29] — [OurProvisions] — Defect paydown: six member/household-flow fixes shipped to prod
+**Goal:** Fix a member display-name bug Elly reported; the session expanded into a focused defect-paydown sweep across the household/invite flow, shipping six fixes to production.
+**Completed:**
+- Fixed member display name (3 sites: roster, creator label, remove-confirm) to read Supabase `full_name` first with email-prefix fallback — was rendering email prefix, ignoring the name members set (`ec4d4af`).
+- Added refresh-on-open for the manage-households sheet so member name changes surface without a full page reload (`270377e`).
+- Diagnosed + fixed the name-change hang: removed cosmetic `fullName` from Effect 1 (session bootstrap) deps; a Clerk name write was re-firing bootstrap and wedging the loading state. Clerk write retained for accuracy (`4a27ada`).
+- Fixed invite-paste auto-switch: gated on explicit-accept signal (`joinedId`) instead of `hadPrior`, so an existing user who accepts an invite lands in the joined household. Retired the stale "Effect 2 map-wipe" landmine (no longer real after resolver rewrite) (`75c1481`).
+- Fixed join-banner persistence: auto-dismiss on 5s timer + immediate clear on switch-away, guarded by `bannerSeenRef` against clearing on the arrival switch that shows it (`0c24e5b`).
+- Fixed stale invite link: Share panel's `inviteUrl` now resets on active-household change (switch or create-new auto-switch), so users can't share the wrong household's link (`90c4316`).
+- Promoted all six (`ec4d4af` → `90c4316`) dev→main as a clean fast-forward; prod Ready/green on `90c4316`, verified on dashboard.
+**Unfinished:**
+- Multiple Supabase client instances (`useProvisions.js` client create, `ActiveHouseholdContext.js` `getDb`) share one auth storage key — GoTrueClient warning persists, confirmed SEPARATE from the hang. Non-urgent; design session first (single-shared-client pattern).
+- Idle-client name propagation: refresh-on-open covers fresh loads; a name change still doesn't reach an already-open idle client until refresh. Deferred per KISS (live-push = over-engineering for a rare event).
+- Test-data sprawl: Test House 1–6 cluttering dev switchers — needs cleanup before next test session.
+**Next session:**
+SESSION START
+Goal: Household-scoped UI state audit — enumerate every piece of UI state scoped to a household and verify it resets on active-household change, fixing the whole class at once.
+State: Six fixes live on prod (`main` @ `90c4316`, Ready/green). `dev` = `main` = `90c4316`. App functioning across multi-account testing. Three instances of "household-scoped state not reset on switch" found and fixed this session (join banner, invite link, plus a near-miss read as desync) — the pattern is systemic.
+Done when: Every household-scoped UI state surface is confirmed to reset on switch (audited list with pass/fix per item); any remaining instances fixed; Test House 1–6 test data cleaned up.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js` (both via Claude Code); five SPECs routed to `docs/` (`SPEC_member_display_name`, `SPEC_name_change_hang`, `SPEC_invite_paste_autoswitch`, `SPEC_join_banner_autodismiss`, `SPEC_stale_invite_link`).
+**DB changes:** None.
+
+---
+
 ### [2026-06-28] — [Cross] — Ship delete-household to prod and design active-household indicator
 **Goal:** Clear the prod-apply gate on migration 013, merge dev→main, deploy, and prove delete-household on prod — opening multi-household to real testers. Then design how the app shows which household you're editing.
 **Completed:**

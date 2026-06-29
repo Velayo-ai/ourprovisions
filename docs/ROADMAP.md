@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-06-28*
+*Last updated: 2026-06-29*
 
 ---
 
@@ -24,6 +24,8 @@
 
 | # | Feature | Notes |
 |---|---|---|
+| — | **Household-scoped UI state audit** *(headline)* | Enumerate every piece of UI state scoped to a single household and verify it resets on active-household change — fix the whole class at once. Surfaced 2026-06-29 as systemic: join banner, invite link, and a near-miss desync all stemmed from household-scoped state surviving a switch. Deliver an audited list (pass/fix per surface) + fixes for any remaining instances. |
+| — | **Clean up Test House 1–6 dev test data** | Test households 1–6 clutter the dev switchers and have caused false test signals before. Remove before the next multi-account test session. |
 | — | **Build Phase I active-household indicator** | Outer chrome banner between avatar and kebab menu: anchor icon + plain household name, Sand `#C9A97A`, Lato ~13px uppercase, letter-spacing ~0.6px. onClick: `setShowHouseholdModal(true)`. Render guard: `{isSignedIn && household?.name && (…)}`. Simultaneously remove people glyph (~App.js 989–994) and "TAP TO MANAGE HOUSEHOLD" subline (~App.js 1005). Per `docs/SPEC_household_indicator.md`. |
 | — | **Create household with cloned catalog** | Build `create_household_from_template` per `docs/SPEC_create_household_from_template.md`. New RPC wraps `create_household` (006); clones source household's custom catalog into the new one (snapshot, not live link); null source = passthrough ("Standard provisions"). Client: dropdown picker in manage-household sheet. Resolve item-count RPC shape + most-recently-active default during build. |
 | — | **Reconcile `migrations/` folder** | Fix the `007` numbering collision (disk: `007_dev_restore_role_grants` vs canonical `007_finish_authorize_sweep`); recover/locate `009`–`012` (described in docs and confirmed live on prod but absent from local folder); enforce gapless ordering. Prerequisite for Supabase CLI workflow and agent test harness Part B. |
@@ -72,6 +74,10 @@
 
 | Feature | Notes |
 |---|---|
+| **Consolidate multiple Supabase client instances to one shared client** *(design-first)* | `useProvisions.js` and `ActiveHouseholdContext.js` each create a Supabase client sharing one auth storage key → persistent GoTrueClient multiple-instance warning. Confirmed SEPARATE from the name-change hang (2026-06-29). Non-urgent; auth/token-flow blast radius means a design session before touching. |
+| **Required first/last name at signup** | Clerk config + backfill + social-auth check. Reduces email-prefix display fallbacks; decided 2026-06-29 this makes the rare unnamed-member case a non-issue rather than something to engineer around. |
+| **Show which household an invite link is for, in the Share panel** *(ExD polish)* | "Invite to <name>" in the Share panel — makes the household↔link binding legible and prevents stale-link confusion structurally (complements the 2026-06-29 stale-link reset). |
+| **Authenticate/link the `vercel` CLI for Claude Code** | So deploy status can be verified directly instead of gating on a human dashboard check. Surfaced 2026-06-29 when promotion couldn't confirm prod-build-green programmatically (no `gh`, `vercel` CLI not authed/linked). |
 | Promote "Crew only" to a reusable Access Group | When a 2nd internal app or 4th person appears — scales without per-hire edits. |
 | Split company log into `velayo-os/docs` | Trigger = app #2's first session, not a date. Filter-based split, not a migration (scope tags already in place). |
 | Sync on unfocused tabs | Browser `setInterval` throttles to ~1 min on backgrounded tabs, causing perceived lag. Consider `visibilitychange` refresh-on-focus, or Supabase Realtime if Clerk/Realtime auth incompatibility is ever resolved. |
@@ -263,6 +269,12 @@ Closes the loop. Turns data into action.
 | 2026-06-28 | **Indicator form: anchor icon + plain household name, tap-to-manage.** Anchor glyph signals "this is home base, you can navigate from here." Plain name (no quotes, no role label) is how members already refer to the household. Tap opens manage-household modal — no new navigation pattern, no new surface. |
 | 2026-06-28 | **People glyph + "TAP TO MANAGE HOUSEHOLD" subline retired when Phase I indicator ships.** Both are crude substitutes for the indicator. Removing them at the same time avoids a permanent title-bar regression: the indicator only replaces them if they are gone; leaving them creates a duplicate-navigation clutter state. |
 | 2026-06-28 | **Prod probe before apply is mandatory migration discipline.** Before applying any migration that adds a column (or any additive schema change), run a live column-existence query against the prod tab to confirm current state — not docs, not memory, not the log. Today's discipline: `\d table` or `information_schema.columns` query in the prod SQL editor, result attached to the session before any `ALTER` is issued. Prevents duplicate-column errors and documents prod state at the moment of decision. |
+| Jun 29, 2026 | **`SPEC` mid-session command added.** Lightweight, repeatable feeder distinct from SESSION END: emits one implementation spec (grepped anchors + str_replace/SQL + test + LOG_SEED), no session-log/roadmap/next-session. Files into `docs/` as a durable record matching the existing `SPEC_*.md` family (NOT delete-after-merge). Used successfully across 4 SPECs this session. Separates the frequent "hand a change to Claude Code" act from the once-per-session close. |
+| Jun 29, 2026 | **Supabase is the source of truth for display names; Clerk is auth-only.** The app reads names (and, going forward, roles/RBAC) from Supabase, never Clerk. Clerk holds a name only as a write-only mirror (kept accurate for its own transactional emails / signup-typo correction) that the app never reads for display. Keeps Clerk portable for a future Harbour-native RBAC layer across the fleet. |
+| Jun 29, 2026 | **Session-bootstrap effects key on IDENTITY, never cosmetic attributes.** `fullName` in Effect 1's deps was a latent bug — a display-name change re-fired full session setup and wedged the loading state. Bootstrap re-runs on `userId`/`clerkId`/`email` only. |
+| Jun 29, 2026 | **Harbour membership primitive: explicit-accept switches the active view; passive/admin grant does not.** Encoded by gating the invite auto-switch on `joinedId` (set only on explicit invite-accept) rather than user-history. A future passive/admin-provisioned join creates a membership without `joinedId`, so it correctly does not move the user's view. First fleet app establishes the pattern OurKeep et al. inherit. |
+| Jun 29, 2026 | **Household-scoped UI state must reset on active-household change.** Surfaced as a systemic pattern (join banner, invite link, near-miss desync) — UI state describing a specific household must clear when the user switches or creates a new household. Elevated to the next-session audit goal. |
+| Jun 29, 2026 | **SESSION START needs a sync + airlock gate.** A `git fetch` + behind-check and a "handoff/ not empty" check at session start. Tonight surfaced FOUR repo-state surprises (63-commit-stale machine, orphaned June-13 handoff, snapshot-vs-working-tree drift, "is the batch pushed?" at promote) — each caught by chance or by running the actual git command, not by assumption. The gate makes repo state visible at session open. |
 
 ---
 
@@ -329,6 +341,7 @@ Closes the loop. Turns data into action.
 | **Layer 2: removal notice + auto-provision** | Jun 25, 2026 | 30s membership-presence check; typed `systemMessage` channel; variant-B removal notice; auto-provision (`create_household`) on only-household removal; `provisioningRef` in-flight guard. Points 1–4 validated on clean dev env (point 4: DB-gated fixture, `activeHouseholdNameRef` resolved real household name, in-flight guard confirmed — single provisioned household). Bug 1 ("that household" wording) closed as test-environment artifact. Verified on prod: real-name notice + fresh household auto-provisioned, in-flight guard held. |
 | **Hide DELETE HOUSEHOLD button + dev→main merge** | Jun 25, 2026 | Owner branch of household-manage ternary renders null (no household-destruction control visible to owners). Removed dead `handleDeleteHousehold` handler + `[ActiveHousehold TEST]` log. 9 commits (8 Layer 2 + cleanup) merged to main, Vercel deploy green. |
 | **Delete-household — migration 013 to prod + dev→main merge** | Jun 28, 2026 | Migration 013 (`provision_cycles.deleted_at`, `list_item_contributors.deleted_at`, `delete_household` RPC) applied and verified on prod (body_len 2550). Two-stage owner confirm, D7 custom-item count warning, `resolveAfterHouseholdLoss` shared Layer-2 path. Smoke-tested (DH owner + DT member, orphan count 0). Merged to main; Vercel green. |
+| **Member/household-flow defect paydown — six fixes to prod** | Jun 29, 2026 | (1) Member display name reads Supabase `full_name` first at 3 sites (`ec4d4af`); (2) manage-sheet refresh-on-open (`270377e`); (3) name-change hang fixed — `fullName` removed from Effect 1 deps (`4a27ada`); (4) invite-paste auto-switch gated on `joinedId` not `hadPrior` (`75c1481`); (5) join-banner auto-dismiss (5s timer + switch-away clear, `bannerSeenRef` arrival guard) (`0c24e5b`); (6) stale invite-link reset on household change (`90c4316`). Promoted dev→main as clean fast-forward (`eefaa72`→`90c4316`); prod Ready/green, dashboard-verified. No DB changes. |
 
 ---
 

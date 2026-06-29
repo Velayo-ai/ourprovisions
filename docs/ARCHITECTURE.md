@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-28 (migration 013 prod-applied + header layering principle + cascade integrity pattern)*
+*Last updated: 2026-06-29 (Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
 
 ---
 
@@ -407,7 +407,7 @@ App-level context that is the single source of truth for which household is acti
 
 `useProvisions` uses a deliberate two-effect split to separate identity setup from household-scoped data loading:
 
-- **Effect 1** (deps: `userId, clerkId, email, fullName`): creates the Supabase client once (guarded by `if (!supabaseRef.current)` against GoTrueClient stacking), runs `bootstrap_new_user`, stores the fallback household id and internal user id into refs, then sets `bootstrapped` STATE to `true`.
+- **Effect 1** (deps: `userId, clerkId, email`): creates the Supabase client once (guarded by `if (!supabaseRef.current)` against GoTrueClient stacking), runs `bootstrap_new_user`, stores the fallback household id and internal user id into refs, then sets `bootstrapped` STATE to `true`. **Deps key on IDENTITY only (2026-06-29):** `fullName` was removed — it is a cosmetic attribute that only feeds `bootstrap_new_user`'s `p_full_name` (a no-op for existing users). Including it meant a display-name edit (which writes Clerk → changes `fullName`) re-fired full session bootstrap, calling `setLoading(true)` with no matching clear (the success-path `setLoading(false)` is owned by Effect 2, which did not re-run), wedging the app on "LOADING YOUR PROVISIONS…". Session-bootstrap effects must depend on identity, never cosmetic state.
 - **Effect 2** (deps: `activeHouseholdId, userId, clerkId, bootstrapped`): resolves the target household by trusting `activeHouseholdId` unconditionally (already set to the joined household on auto-switch via `switchHousehold`, unchanged on silent join); falls back to bootstrap fallback only when context is empty (fresh device / pre-restore). `justJoinedViaInviteRef` is still set from bootstrap but is no longer read in the resolver. Effect 2 runs all household-scoped loads + polls, and on teardown clears intervals + resets per-household state (`listRows`, `quantities`, `checked`, etc.).
 
 **Critical invariant:** the cross-effect handoff gate MUST be a STATE value (`bootstrapped`), not a ref. A ref change cannot re-trigger Effect 2. If Effect 2 runs before bootstrap finishes (which is intermittent), it returns early — and if only a ref is set, nothing re-fires. Using state ensures React re-runs Effect 2 the moment bootstrap completes. The `cancelled` flag in Effect 2 cleanup prevents stale async writes after a household switch mid-flight.
@@ -419,6 +419,17 @@ Single-slot app-level toast — the in-app notification primitive.
 - `showToast(message)` sets message; cancels any pending timer; auto-clears after 2500ms.
 - Fixed-position dark pill, rendered in `App.js` so it outlives the modal that triggered it (`zIndex: 2000`).
 - Used for: household-create confirmation, rename confirmation. Reuse for: item added, list rolled, etc.
+
+### Household-scoped UI state resets on active-household change *(2026-06-29 — `src/App.js`)*
+
+Any UI state that *describes a specific household* must be cleared when the active household changes, or it goes stale and contradicts the new context. Three such surfaces were found and fixed this session; the class is systemic (elevated to a next-session audit). Because creating a new household auto-switches active context, a single reset keyed on the active household covers BOTH the switch and create-new paths — no separate create handling needed.
+
+- **Invite-link reset:** `useEffect(() => { setInviteUrl(null); setInviteCopied(false); }, [household?.id])`. The Share panel's generated `inviteUrl` is scoped to the household it was generated for; surviving a switch let a user share the wrong household's link. `createInvite` was already correct (reads live `householdRef.current`) — the bug was purely stale displayed state.
+- **Join-banner auto-dismiss:** keyed on `[joinBanner, household?.name]`, with a 5s timer and immediate clear when the active household name no longer equals the banner. **Arrival-race guard (`bannerSeenRef`):** the explicit-accept flow sets the banner BEFORE the async `switchHousehold(joinedId)` lands, so for an existing user there is a window where the banner shows the joined name while `household` is still the prior one. A naive "name !== banner → clear" would fire in that window and kill the banner on its own arrival. The ref records whether the joined household has actually been active at least once; a name mismatch only clears once it has. General rule: when UI state is set before an async context switch completes, guard "switched away" against "not yet arrived."
+
+### Display-name resolution — Supabase `full_name` first *(2026-06-29 — cross-cutting, `src/App.js`)*
+
+All member-name render sites resolve in the same order: Supabase `full_name` → email-prefix (`email.split("@")[0]`) → role-aware generic (`"You"` / `"Member"` / `"this member"`). The email-prefix is a deliberate fallback (best handle an owner has for an invited-but-unnamed member), not the primary. Clerk-derived names (`user.fullName`) are NOT read for display — Supabase is the source of truth; Clerk is auth-only (see DECISIONS LOG 2026-06-29). Applied at the roster, the "Created by" creator label, and the remove-member confirm; the "added by" label was the pre-existing reference implementation.
 
 ### Membership-presence polling — realtime fallback when RLS suppresses soft-delete events *(Jun 22)*
 
