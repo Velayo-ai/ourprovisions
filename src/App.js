@@ -507,6 +507,16 @@ function ProvisionsApp() {
     return () => clearTimeout(t);
   }, [joinBanner, household?.name]);
 
+  // Reset the stale invite link when the active household changes (switch OR
+  // create-new, which auto-switches). The displayed inviteUrl is scoped to the
+  // household it was generated for; surviving a household change would let the
+  // user share the WRONG household's link. Clearing falls back to the "Generate
+  // Invite Link" button so the next link is fresh for the current household.
+  useEffect(() => {
+    setInviteUrl(null);
+    setInviteCopied(false);
+  }, [household?.id]);
+
 
   // eslint-disable-next-line no-unused-vars
   const startEditPrice = (itemName) => {
