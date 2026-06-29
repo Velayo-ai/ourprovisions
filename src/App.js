@@ -211,6 +211,45 @@ function HouseholdDebugLog() {
   return null;
 }
 
+// Shared catalog row body (the inner .item-row, NOT the SwipeToRemove wrapper).
+// Rendered from both Browse and Search so the two can't drift apart.
+function CatalogItemRow({
+  item, qty, rawCategory, showPrices, price, isEditing, priceInput,
+  centsToDisplay, onUpdateQty, onPriceInput, onCommitPrice, onCancelEditPrice,
+}) {
+  return (
+    <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
+      <div className="item-top">
+        <span className="item-name">{item.name}</span>
+        <div className="qty-controls">
+          <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty - 1, rawCategory)}>−</button>
+          <span className={`qty-display ${qty === 0 ? "zero" : ""}`}>{qty === 0 ? "—" : qty}</span>
+          <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty + 1, rawCategory)}>+</button>
+        </div>
+      </div>
+      {showPrices && (
+        <div className="price-row">
+          {isEditing ? (
+            <div className="price-edit-wrap">
+              <span style={{ fontFamily: "'Lato',sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
+              <input
+                className="price-input" type="tel" inputMode="numeric"
+                value={centsToDisplay(priceInput)} autoFocus
+                onChange={(e) => onPriceInput(e.target.value.replace(/[^0-9]/g, ""))}
+                onKeyDown={(e) => { if (e.key === "Enter") onCommitPrice(item.name); if (e.key === "Escape") onCancelEditPrice(); }}
+              />
+              <button className="price-save-btn" onClick={() => onCommitPrice(item.name)}>Save</button>
+            </div>
+          ) : (
+            <span className="price-display">${price.toFixed(2)} each</span>
+          )}
+        </div>
+      )}
+      {showPrices && qty > 0 && <div className="item-subtotal">Subtotal: ${(qty * price).toFixed(2)}</div>}
+    </div>
+  );
+}
+
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
   const { getToken } = useAuth();
@@ -1909,35 +1948,20 @@ function ProvisionsApp() {
                         const isStaple = catalogMap[item.name]?.is_staple;
                         return (
                           <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple}>
-                            <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
-                              <div className="item-top">
-                                <span className="item-name">{item.name}</span>
-                                <div className="qty-controls">
-                                  <button className="qty-btn" onClick={() => updateQty(item.name, qty - 1, cat.rawName)}>−</button>
-                                  <span className={`qty-display ${qty === 0 ? "zero" : ""}`}>{qty === 0 ? "—" : qty}</span>
-                                  <button className="qty-btn" onClick={() => updateQty(item.name, qty + 1, cat.rawName)}>+</button>
-                                </div>
-                              </div>
-                              {showPrices && (
-                                <div className="price-row">
-                                  {isEditing ? (
-                                    <div className="price-edit-wrap">
-                                      <span style={{ fontFamily: "'Lato',sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
-                                      <input
-                                        className="price-input" type="tel" inputMode="numeric"
-                                        value={centsToDisplay(priceInput)} autoFocus
-                                        onChange={(e) => handlePriceInput(e.target.value.replace(/[^0-9]/g, ""))}
-                                        onKeyDown={(e) => { if (e.key === "Enter") commitPrice(item.name); if (e.key === "Escape") setEditingPrice(null); }}
-                                      />
-                                      <button className="price-save-btn" onClick={() => commitPrice(item.name)}>Save</button>
-                                    </div>
-                                  ) : (
-                                    <span className="price-display">${price.toFixed(2)} each</span>
-                                  )}
-                                </div>
-                              )}
-                              {showPrices && qty > 0 && <div className="item-subtotal">Subtotal: ${(qty * price).toFixed(2)}</div>}
-                            </div>
+                            <CatalogItemRow
+                              item={item}
+                              qty={qty}
+                              rawCategory={cat.rawName}
+                              showPrices={showPrices}
+                              price={price}
+                              isEditing={isEditing}
+                              priceInput={priceInput}
+                              centsToDisplay={centsToDisplay}
+                              onUpdateQty={updateQty}
+                              onPriceInput={handlePriceInput}
+                              onCommitPrice={commitPrice}
+                              onCancelEditPrice={() => setEditingPrice(null)}
+                            />
                           </SwipeToRemove>
                         );
                       })}
