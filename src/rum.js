@@ -2,6 +2,7 @@ import SplunkOtelWeb from '@splunk/otel-web';
 import SplunkSessionRecorder from '@splunk/otel-web-session-recorder';
 
 const rumToken = process.env.REACT_APP_RUM_TOKEN;
+const deployEnv = process.env.REACT_APP_DEPLOY_ENV || 'local';
 
 // Skip init if no token (prevents boot errors in local dev without env set)
 if (rumToken) {
@@ -9,7 +10,7 @@ if (rumToken) {
     realm: 'us1',
     rumAccessToken: rumToken,
     applicationName: 'OurProvisions',
-    deploymentEnvironment: process.env.NODE_ENV, // 'production' / 'development'
+    deploymentEnvironment: deployEnv,  // 'production' | 'preview' | 'local'
     version: '1.0.0',
   });
 
