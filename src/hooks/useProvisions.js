@@ -306,7 +306,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
 
     setupSession();
-  }, [userId, clerkId, email, fullName]);
+    // fullName intentionally excluded: it is a cosmetic attribute that feeds
+    // bootstrap_new_user (no-op for existing users) only. Including it caused a
+    // name edit (which writes Clerk → changes fullName) to re-fire session
+    // bootstrap and wedge the loading state. Bootstrap re-runs on identity
+    // change only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, clerkId, email]);
 
   // Effect 2 — household-scoped loads (keyed on the resolved active household).
   // Reruns whenever activeHouseholdId changes (household switch). Never re-creates
