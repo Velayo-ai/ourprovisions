@@ -348,6 +348,14 @@ function ProvisionsApp() {
     localStorage.setItem('op_showPrices', showPrices);
   }, [showPrices]);
 
+  // Re-fetch the member roster each time the manage-households sheet opens,
+  // so name changes by other members appear without a full page reload.
+  useEffect(() => {
+    if (showHouseholdModal) {
+      refreshMembers();
+    }
+  }, [showHouseholdModal, refreshMembers]);
+
   const showToast = useCallback((message) => {
     setToastMessage(message);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
