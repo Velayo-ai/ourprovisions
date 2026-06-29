@@ -1765,38 +1765,31 @@ function ProvisionsApp() {
                     <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
                       {searchResults.length} result{searchResults.length !== 1 ? "s" : ""} for "{searchQuery}"
                     </div>
-                    {searchResults.map(item => {
-                      const qty = quantities[item.name] || 0;
-                      return (
-                        <div key={item.name} style={{
-                          display: "flex", alignItems: "center", justifyContent: "space-between",
-                          padding: "11px 14px", marginBottom: "6px",
-                          borderRadius: "10px",
-                          border: `1px solid ${qty > 0 ? "#C9A97A" : "#E8D5B7"}`,
-                          background: qty > 0 ? "#fff8f0" : "#F5EDE0",
-                        }}>
-                          <div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>
-                              {item.name}
-                            </div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", textTransform: "uppercase", letterSpacing: "0.3px", marginTop: "2px" }}>
-                              {item.category}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => updateQty(item.name, qty + 1, item.rawCategory)}
-                            style={{
-                              width: "30px", height: "30px", borderRadius: "50%",
-                              background: qty > 0 ? "#4a9e4a" : "#A0724A",
-                              border: "none", color: "white",
-                              fontSize: qty > 0 ? "16px" : "20px",
-                              display: "flex", alignItems: "center", justifyContent: "center",
-                              cursor: "pointer", flexShrink: 0,
-                            }}
-                          >{qty > 0 ? "✓" : "+"}</button>
-                        </div>
-                      );
-                    })}
+                    <div className="items-grid">
+                      {searchResults.map(item => {
+                        const qty = quantities[item.name] || 0;
+                        const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
+                        const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
+                        const isEditing = editingPrice === item.name;
+                        return (
+                          <CatalogItemRow
+                            key={item.name}
+                            item={item}
+                            qty={qty}
+                            rawCategory={item.rawCategory}
+                            showPrices={showPrices}
+                            price={price}
+                            isEditing={isEditing}
+                            priceInput={priceInput}
+                            centsToDisplay={centsToDisplay}
+                            onUpdateQty={updateQty}
+                            onPriceInput={handlePriceInput}
+                            onCommitPrice={commitPrice}
+                            onCancelEditPrice={() => setEditingPrice(null)}
+                          />
+                        );
+                      })}
+                    </div>
                   </>
                 ) : (
                   /* ── NO MATCH: inline add with category picker ── */
