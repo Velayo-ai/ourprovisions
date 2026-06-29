@@ -671,7 +671,7 @@ function ProvisionsApp() {
   };
 
   const handleRemoveMember = async (m) => {
-    const name = m.users?.email ? m.users.email.split("@")[0] : "this member";
+    const name = m.users?.full_name || (m.users?.email ? m.users.email.split("@")[0] : "this member");
     if (!window.confirm(`Remove ${name} from this household? Anything they added to the current list stays.`)) return;
     try {
       const { error } = await supabase.rpc("remove_member", {
@@ -1216,7 +1216,7 @@ function ProvisionsApp() {
                         const owner = householdMembers.find(m => m.role === 'owner');
                         if (!owner) return null;
                         const ownerIsMe = owner.users?.clerk_id === user?.id;
-                        const creatorName = ownerIsMe ? "you" : (owner.users?.email ? owner.users.email.split("@")[0] : "Member");
+                        const creatorName = ownerIsMe ? "you" : (owner.users?.full_name || (owner.users?.email ? owner.users.email.split("@")[0] : "Member"));
                         return <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.62rem", letterSpacing: "0.5px", color: "#b0a48c" }}>Created by {creatorName}</div>;
                       })()}
                     </div>
@@ -1270,9 +1270,8 @@ function ProvisionsApp() {
                 {householdMembers.map((m) => {
                   const clerkId = m.users?.clerk_id;
                   const isMe = clerkId === user?.id;
-                  const displayName = isMe
-                    ? (user.fullName || user.firstName || user.primaryEmailAddress?.emailAddress || "You")
-                    : (m.users?.email ? m.users.email.split("@")[0] : "Member");
+                  const displayName = m.users?.full_name
+                    || (m.users?.email ? m.users.email.split("@")[0] : (isMe ? "You" : "Member"));
                   return (
                     <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       {isMe && user.imageUrl ? (
