@@ -457,23 +457,25 @@ function ProvisionsApp() {
         sessionStorage.removeItem("just_joined_household");
         const joinedId = sessionStorage.getItem("just_joined_household_id");
         sessionStorage.removeItem("just_joined_household_id");
-        // Capture hadPrior from the pre-refresh list so the refresh below doesn't race the check.
-        // 0 = brand-new user with no prior household → auto-switch.
-        // ≥1 = established user → silent join, leave active context unchanged.
-        const hadPrior = (myHouseholds || []).length >= 1;
-        if (joinedId && !hadPrior) {
-          // New user: await refresh so the membership guard in switchHousehold
-          // sees the new household before we try to activate it.
+        // joinedId is set (useProvisions Effect 1) ONLY when an invite was
+        // explicitly accepted this load (joined_via_invite). That is the correct
+        // signal to auto-switch: an explicit accept moves the user into the
+        // joined household, for new AND established users. A future passive /
+        // admin-provisioned join would NOT set joinedId, so it correctly does
+        // not move the user's active view. (Harbour membership model: explicit
+        // accept switches; passive grant does not.)
+        // Switch is safe — Effect 2 reloads per-household state from the DB on
+        // activeHouseholdId change; no in-memory state to clobber, no snapshot.
+        if (joinedId) {
+          // await refresh so switchHousehold's membership guard sees the new
+          // household before we activate it.
           (async () => {
             await refreshHouseholds();
             switchHousehold(joinedId);
           })();
         } else {
-          // Silent join (or no joinedId edge case): refresh so the new household
-          // appears in the switcher immediately — no reload needed.
-          // TODO(dan): established user with untouched prior list should also
-          // auto-switch, but the maps reflect the joined household by the time
-          // this effect fires. Needs a pre-join snapshot to implement safely.
+          // No joinedId (edge case): refresh so any new household appears in the
+          // switcher; leave active context unchanged.
           refreshHouseholds();
         }
       }
