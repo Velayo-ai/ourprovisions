@@ -23,7 +23,7 @@ const CATEGORY_ORDER = [
 
 const SWIPE_THRESHOLD = 60;
 
-function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, style: outerStyle, children }) {
+function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, style: outerStyle, children }) {
   const REVEAL_WIDTH = 240;
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
@@ -99,14 +99,16 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, style: outerStyle
           display: "flex", opacity: isRevealing ? 1 : 0, transition: "opacity 0.15s",
           pointerEvents: offsetX === 0 ? "none" : "auto"
         }}>
-          <button
-            onClick={(e) => { e.stopPropagation(); close(); onEdit(); }}
-            style={{
-              flex: 1, background: "#c8973a", border: "none", color: "white",
-              fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700,
-              letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer"
-            }}
-          >Edit</button>
+          {canEdit && (
+            <button
+              onClick={(e) => { e.stopPropagation(); close(); onEdit(); }}
+              style={{
+                flex: 1, background: "#c8973a", border: "none", color: "white",
+                fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700,
+                letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer"
+              }}
+            >Edit</button>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); close(); onStaple && onStaple(); }}
             style={{
@@ -567,6 +569,10 @@ function ProvisionsApp() {
   const openEditModal = (itemName) => {
     const catalogEntry = catalogMap[itemName];
     const isCustom = catalogEntry && catalogEntry.is_global === false;
+    // Catalog (non-custom) items can only have their price edited; the name is
+    // locked. With pricing off there's nothing to edit, so don't open an empty
+    // modal. (The swipe Edit affordance is also suppressed for this case.)
+    if (!isCustom && !showPrices) return;
     setEditModalItem({ name: itemName, isCustom });
     setEditModalName(itemName);
     const existing = prices[itemName];
@@ -1939,8 +1945,11 @@ function ProvisionsApp() {
                         const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
                         const isEditing = editingPrice === item.name;
                         const isStaple = catalogMap[item.name]?.is_staple;
+                        const isCustom = catalogMap[item.name]?.is_global === false;
+                        // Catalog items only expose price editing — nothing to edit when pricing is off.
+                        const canEdit = isCustom || showPrices;
                         return (
-                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple}>
+                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple} canEdit={canEdit}>
                             <CatalogItemRow
                               item={item}
                               qty={qty}
@@ -2353,23 +2362,25 @@ function ProvisionsApp() {
               </div>
             )}
 
-            <div className="modal-field">
-              <label className="modal-label">Price</label>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
-                <input
-                  className="modal-input"
-                  type="tel"
-                  inputMode="numeric"
-                  value={centsToDisplay(editModalPrice)}
-                  onChange={e => setEditModalPrice(e.target.value.replace(/[^0-9]/g, ""))}
-                  onKeyDown={e => { if (e.key === "Enter") commitEditModal(); if (e.key === "Escape") setEditModalItem(null); }}
-                  autoFocus={!editModalItem.isCustom}
-                />
+            {showPrices && (
+              <div className="modal-field">
+                <label className="modal-label">Price</label>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#8a7a60" }}>$</span>
+                  <input
+                    className="modal-input"
+                    type="tel"
+                    inputMode="numeric"
+                    value={centsToDisplay(editModalPrice)}
+                    onChange={e => setEditModalPrice(e.target.value.replace(/[^0-9]/g, ""))}
+                    onKeyDown={e => { if (e.key === "Enter") commitEditModal(); if (e.key === "Escape") setEditModalItem(null); }}
+                    autoFocus={!editModalItem.isCustom}
+                  />
+                </div>
               </div>
-            </div>
+            )}
 
-            {!editModalItem.isCustom && (
+            {!editModalItem.isCustom && showPrices && (
               <p style={{
                 fontFamily: "'Lato', sans-serif",
                 fontSize: "0.75rem",
