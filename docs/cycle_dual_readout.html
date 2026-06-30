@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Declutter cycle — dual readout</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{--espresso:#2C1A0E;--cream:#FAF4EC;--sand:#C9A97A;--teal:#0D9488;
+    --chip-bg:#F5EDE0;--chip-text:#6B4423;--chip-border:#E8D5B7;--cat-active:#A0724A;--staple-active:#c8973a;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:#d8cdbb;font-family:'Lato',sans-serif;display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:22px;padding:24px 12px 60px;}
+  .col{display:flex;flex-direction:column;gap:14px;align-items:center;}
+  .caption{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#5a4633;font-weight:700;}
+  .phone{width:360px;max-width:100%;background:var(--cream);border-radius:18px;overflow:hidden;box-shadow:0 12px 40px rgba(20,10,4,.28);}
+  .hdr{background:var(--espresso);padding:12px 0 0;text-align:center;}
+  .nameplate{font-size:11px;letter-spacing:2px;color:var(--sand);text-transform:uppercase;}
+  .wordmark{font-family:'Playfair Display';font-style:italic;font-weight:700;color:var(--cream);font-size:28px;margin:6px 0 10px;}
+  .tabs{display:flex;justify-content:space-around;padding:0 18px 10px;}
+  .tab{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--sand);opacity:.7;}
+  .tab.active{opacity:1;color:var(--cream);border-bottom:2px solid var(--staple-active);padding-bottom:7px;}
+  .body{padding:16px 16px 22px;}
+
+  .searchline{display:flex;gap:6px;align-items:center;margin-bottom:10px;}
+  .search{flex:1;min-width:0;height:46px;display:flex;align-items:center;background:#fff;border:1px solid var(--chip-border);border-radius:11px;padding:0 14px;color:#9b8a72;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .leftmeta{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:#8a7a60;}
+  .cycle{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;}
+  .cyc-ico{position:relative;width:46px;height:46px;flex:none;border-radius:11px;display:flex;align-items:center;justify-content:center;border:1px solid var(--chip-border);background:#fff;color:var(--cat-active);transition:.18s;cursor:pointer;}
+  .cyc-ico.on{background:var(--cat-active);border-color:var(--cat-active);color:#fff;}
+  .cyc-ico svg{width:22px;height:22px;}
+  .wrapup{flex:none;display:flex;align-items:center;justify-content:center;border:1px solid var(--chip-border);background:#fff;border-radius:11px;height:48px;padding:0 18px;font-size:14px;letter-spacing:.2px;font-weight:700;color:var(--espresso);cursor:pointer;white-space:nowrap;}
+  .cyc-label{display:none;font-size:11px;letter-spacing:.6px;text-transform:uppercase;font-weight:700;color:var(--cat-active);line-height:1.3;text-align:left;}
+  .cyc-label .sub{display:block;font-size:9.5px;letter-spacing:.5px;color:#a08a6c;font-weight:400;}
+  .metarow{display:flex;align-items:center;gap:8px;justify-content:space-between;margin:0 0 10px;min-height:0;}
+  .leftmeta-grow{flex:1;}
+  .descriptor{font-size:11px;color:#a9967c;font-style:italic;margin:-4px 0 10px;letter-spacing:.3px;}
+  .rule{height:3px;background:#efe4d2;border-radius:2px;margin:6px 0 12px;}
+
+  .seedline{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--cat-active);padding:2px 0 4px;border-bottom:1px solid var(--cat-active);margin-bottom:5px;}
+  .flatline{font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#8a7a60;padding:2px 0 7px;}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
+  .chip{padding:5px 11px;border-radius:18px;font-size:11.5px;white-space:nowrap;cursor:pointer;background:var(--chip-bg);color:var(--chip-text);border:1px solid var(--chip-border);user-select:none;}
+  .chip.on{background:var(--cat-active);color:#fff;border-color:var(--cat-active);}
+  .chip.staple.on{background:var(--staple-active);border-color:var(--staple-active);}
+  .barwrap{overflow:hidden;max-height:120px;opacity:1;transition:.22s;}
+  .barwrap.hide{max-height:0;opacity:0;margin:0;}
+
+  .row{display:flex;align-items:center;gap:12px;padding:11px 2px;border-bottom:1px solid #efe4d2;}
+  .row .ck{width:20px;height:20px;border-radius:50%;border:1.5px solid #cbb89a;flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;}
+  .row.checked .ck{background:var(--teal);border-color:var(--teal);color:#fff;}
+  .row .nm{font-size:14px;color:#3a2a1a;}
+  .row.checked .nm{text-decoration:line-through;color:#a9967c;}
+  .row .who{margin-left:auto;font-size:10.5px;color:#a9967c;}
+  .stp{margin-left:auto;display:flex;gap:10px;align-items:center;}
+  .stp .b{width:26px;height:26px;border-radius:50%;background:#8a7050;color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;}
+  .stp .b.p{background:var(--cat-active);}
+  .stp .q{font-size:13px;color:#8a7050;min-width:12px;text-align:center;font-weight:700;}
+
+  .hint{width:100%;text-align:center;font-size:12px;color:#5a4633;background:#efe4d2;border-radius:8px;padding:8px;max-width:360px;}
+</style></head>
+<body>
+
+<div class="col">
+  <div class="caption">Browse</div>
+  <div class="phone">
+    <div class="hdr"><div class="nameplate">⚓ MADBURY ⚓</div><div class="wordmark">Provisions</div>
+      <div class="tabs"><span class="tab">Plan</span><span class="tab active">Browse</span><span class="tab">Shop</span></div></div>
+    <div class="body">
+      <div class="searchline">
+        <div class="search">🔍 Search your catalog…</div>
+        <span class="cyc-ico" id="b_ico" onclick="tap('b')"></span>
+      </div>
+      <div class="metarow"><span class="descriptor" id="b_desc"></span></div>
+      <div class="rule"></div>
+      <div class="barwrap" id="b_bar"><div class="chips" id="b_chips"></div></div>
+      <div id="b_list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="col">
+  <div class="caption">Shop</div>
+  <div class="phone">
+    <div class="hdr"><div class="nameplate">⚓ MADBURY ⚓</div><div class="wordmark">Provisions</div>
+      <div class="tabs"><span class="tab">Plan</span><span class="tab">Browse</span><span class="tab active">Shop</span></div></div>
+    <div class="body">
+      <div class="searchline">
+        <span class="leftmeta leftmeta-grow" id="s_meta"></span>
+        <span class="cyc-ico" id="s_ico" onclick="tap('s')"></span>
+        <span class="wrapup">Wrap up</span>
+      </div>
+      <div class="metarow"><span class="descriptor" id="s_desc"></span></div>
+      <div class="rule"></div>
+      <div id="s_list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="hint">Tap the icon (right of search on Browse; top-right on Shop). Phase 0 → 1 → 2 → 0. Icon: light bg = Filter Off, dark bg = Filter On; tapering ∨ lines = Grouped, equal lines = Flat.</div>
+
+<script>
+  // ICONS
+  const FUNNEL='<line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/>';
+  const FLAT='<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>';
+  function svg(p){const lines=p===2?FLAT:FUNNEL;return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">'+lines+'</svg>';}
+
+  // BROWSE
+  const bcats=[{k:'Produce',l:'🥬 Produce',sel:false},{k:'Meat',l:'🥩 Meat & Seafood',sel:false},{k:'Dairy',l:'🥛 Dairy',sel:false},{k:'Pantry',l:'🥫 Pantry',sel:false}];
+  let bstaple=false, bphase=0;
+  const bcatalog=[{n:'Apples',c:'Produce',q:2},{n:'Bananas',c:'Produce',q:2},{n:'Broccoli',c:'Produce',q:0},{n:'Carrots',c:'Produce',q:0},{n:'Cheddar',c:'Dairy',q:0,st:true},{n:'Milk',c:'Dairy',q:0,st:true},{n:'Chicken',c:'Meat',q:0},{n:'Rice',c:'Pantry',q:0,st:true}];
+  const BORDER=['Produce','Meat','Dairy','Pantry'],BLAB={Produce:'🥬 Produce',Meat:'🥩 Meat & Seafood',Dairy:'🥛 Dairy',Pantry:'🥫 Pantry'};
+  const bActive=()=>(bstaple?1:0)+bcats.filter(c=>c.sel).length;
+
+  // SHOP
+  const sitems=[{n:'Apples',c:'Produce',w:'Elly',ck:false},{n:'Broccoli',c:'Produce',w:'Helen',ck:false},{n:'Lettuce',c:'Produce',w:'DH',ck:false},{n:'Chicken breast',c:'Meat',w:'DH',ck:false},{n:'Shrimp',c:'Meat',w:'Elly',ck:false},{n:'Butter',c:'Dairy',w:'Helen',ck:false},{n:'Eggs',c:'Dairy',w:'DH',ck:false}];
+  const SORDER=['Produce','Meat','Dairy'],SLAB={Produce:'🥬 Produce',Meat:'🥩 Meat & Seafood',Dairy:'🥛 Dairy'};
+  let sphase=0;
+  const sChecked=()=>sitems.filter(i=>i.ck).length;
+
+  function labelHTML(phase){
+    const group = phase===2?'FLAT':'GROUPED';
+    const filt  = phase===0?'Filter Off':'Filter On';
+    return group+'<span class="sub">'+filt+'</span>';
+  }
+
+  function renderBrowse(){
+    document.getElementById('b_ico').className='cyc-ico'+(bphase!==0?' on':'');
+    document.getElementById('b_ico').innerHTML=svg(bphase);
+    
+    document.getElementById('b_bar').classList.toggle('hide',bphase!==0);
+    const chips=document.getElementById('b_chips');chips.innerHTML='';
+    const s=document.createElement('span');s.className='chip staple'+(bstaple?' on':'');s.textContent='⭐ Staples';s.onclick=()=>{bstaple=!bstaple;renderBrowse();};chips.appendChild(s);
+    bcats.forEach(c=>{const e=document.createElement('span');e.className='chip'+(c.sel?' on':'');e.textContent=c.l;e.onclick=()=>{c.sel=!c.sel;renderBrowse();};chips.appendChild(e);});
+
+    let items=bcatalog.slice();const sk=bcats.filter(c=>c.sel).map(c=>c.k);
+    if(sk.length)items=items.filter(i=>sk.includes(i.c));if(bstaple)items=items.filter(i=>i.st);
+    const la=document.getElementById('b_list');la.innerHTML='';
+    if(bphase===2){const f=items.slice().sort((a,b)=>a.n.localeCompare(b.n));const h=document.createElement('div');h.className='flatline';h.textContent='A–Z · '+f.length+' items';la.appendChild(h);f.forEach(i=>la.appendChild(bRow(i)));}
+    else{BORDER.forEach(k=>{const ic=items.filter(i=>i.c===k);if(!ic.length)return;const h=document.createElement('div');h.className='seedline';h.textContent=BLAB[k];la.appendChild(h);ic.forEach(i=>la.appendChild(bRow(i)));});}
+
+    
+    const d=document.getElementById('b_desc');
+    d.textContent = bphase===0?'' : (bActive()? bActive()+' filter'+(bActive()>1?'s':'')+' active · filters hidden' : 'filters hidden');
+  }
+  function bRow(i){const r=document.createElement('div');r.className='row';r.innerHTML='<span class="nm">'+i.n+'</span><div class="stp"><span class="b">−</span><span class="q">'+(i.q>0?i.q:'—')+'</span><span class="b p">+</span></div>';return r;}
+
+  function renderShop(){
+    document.getElementById('s_ico').className='cyc-ico'+(sphase!==0?' on':'');
+    document.getElementById('s_ico').innerHTML=svg(sphase);
+    
+    const vis = sphase===0? sitems : sitems.filter(i=>!i.ck);
+    const la=document.getElementById('s_list');la.innerHTML='';
+    if(sphase===2){const f=vis.slice().sort((a,b)=>a.n.localeCompare(b.n));const h=document.createElement('div');h.className='flatline';h.textContent='A–Z · '+f.length+' items';la.appendChild(h);f.forEach(i=>la.appendChild(sRow(i)));}
+    else{SORDER.forEach(k=>{const ic=vis.filter(i=>i.c===k);if(!ic.length)return;const h=document.createElement('div');h.className='seedline';h.textContent=SLAB[k];la.appendChild(h);ic.forEach(i=>la.appendChild(sRow(i)));});}
+    document.getElementById('s_meta').textContent=sChecked()+' of '+sitems.length+' checked';
+    const d=document.getElementById('s_desc');
+    d.textContent = sphase===0?'' : (sChecked()? sChecked()+' checked item'+(sChecked()>1?'s':'')+' hidden' : 'no checked items yet');
+  }
+  function sRow(i){const r=document.createElement('div');r.className='row'+(i.ck?' checked':'');r.innerHTML='<span class="ck">'+(i.ck?'✓':'')+'</span><span class="nm">'+i.n+'</span><span class="who">'+i.w+'</span>';r.querySelector('.ck').onclick=()=>{i.ck=!i.ck;renderShop();};return r;}
+
+  function tap(which){ if(which==='b'){bphase=(bphase+1)%3;renderBrowse();}else{sphase=(sphase+1)%3;renderShop();} }
+  renderBrowse();renderShop();
+</script>
+</body></html>

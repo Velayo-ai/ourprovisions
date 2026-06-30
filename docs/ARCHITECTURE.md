@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-29 (migrations 014/015 + no-migration-tracker principle; canonical RLS helpers is_member_of/get_current_user_id; catalog SwipeToRemove close-gesture + pointerEvents constraint; is_staple global-boolean data-model defect; shared `CatalogItemRow` for Browse+Search; one-shared-row design principle; domain/brand layering direction; Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
+*Last updated: 2026-06-30 (declutter cycle cross-tab view primitive; migrations 014/015 + no-migration-tracker principle; canonical RLS helpers is_member_of/get_current_user_id; catalog SwipeToRemove close-gesture + pointerEvents constraint; is_staple global-boolean data-model defect; shared `CatalogItemRow` for Browse+Search; one-shared-row design principle; domain/brand layering direction; Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
 
 ---
 
@@ -384,6 +384,10 @@ Two helpers are the canonical authorization primitives — do not reintroduce th
 - **`is_member_of(household_id)`** — household-membership gating, wherever the check is pure membership.
 - **`get_current_user_id()`** — caller-identity / ownership checks (owner-is-you) and crew-keyed policies (no `household_id`).
 Both are SECURITY DEFINER with a pinned `search_path`. The `auth.uid()`-vs-uuid comparison is a permanent anti-pattern here (Clerk returns a text `sub`, never a uuid); harness check A5 guards the four 014 tables against any revert.
+
+### Declutter cycle — cross-tab view primitive *(designed 2026-06-30; not yet built — `docs/SPEC_declutter_cycle.md`)*
+
+The declutter control is a **cross-tab UI primitive, not a per-screen widget.** Browse and Shop share the same shape: a filter/declutter axis + a grouped/flat axis, expressed as one fixed 48×48 icon (bg light/dark = Filter Off/On; line shape tapering/equal = Grouped/Flat) cycling through 3 phases (all-shown/grouped → noise-hidden/grouped → hidden/flat A–Z). **Two axes, kept separate:** the *cycle* handles the **view** axis (how you see the list — grouped/flat + hide-noise); filter *pills* handle the **content** axis (what's shown). This split must hold as Shop's filters grow (who-added, per-store). **Design rule: the cycle changes view only and never clears filters or checked-state.** Build the Browse phase-2 flat render by lifting Shop's existing `showCategories` flat pattern (`src/App.js` ~2003–2063). Reference mockup: `docs/cycle_dual_readout.html`.
 
 ### id-based toggleChecked *(Jun 16)*
 

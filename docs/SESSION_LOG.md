@@ -25,8 +25,8 @@ Done when: [clear success condition]
 
 ## LOG
 
-### [2026-06-29] — [Cross] — Shipped the two NOW migrations (auth.uid RLS fix + helper consolidation), completed the swipe arc, and added the BUILD command to the workflow
-**Goal:** Clear the NOW sprint — fix the `auth.uid()` RLS type-mismatch and consolidate the duplicate helper functions — then work the swipe queue; a staple data-model bug was found and queued along the way.
+### [2026-06-29 → 06-30] — [Cross] — Shipped the two NOW migrations + swipe arc, added the BUILD command, cleaned up Test House data, and designed the shared declutter-cycle control for Browse + Shop
+**Goal:** Clear the NOW sprint — fix the `auth.uid()` RLS type-mismatch and consolidate the duplicate helper functions — then work the queue; expanded into completing the swipe arc, building the BUILD command, Test House cleanup, and a long design session turning "filter show/hide toggle" into a cross-tab declutter primitive. A staple data-model bug was found and queued.
 **Completed:**
 - Shipped **migration 014** (auth.uid RLS fix) to dev + prod, verified both ways (0 rows on auth.uid check; all 8 policies read `ok` on the affirmative is_member_of/get_current_user_id check). Rewrote 8 policies across `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members`. RLS enabled/disabled state left untouched (auth-neutral). Repo record committed `a081d59`.
 - Shipped **migration 015** (drop duplicate helpers) to dev + prod, verified exactly 2 survivors remain (`get_current_household_id`, `get_current_user_id`, both search_path-pinned). The two NULL-config variants dropped; zero callers confirmed on both envs.
@@ -35,17 +35,21 @@ Done when: [clear success condition]
 - Refined the **workflow-discipline model** (supplemental design handoff): `BUILD` earns being a real command (it compresses a six-step routine); `SPEC` is *not* a trigger — the design chat produces specs by judgment, with `SPEC` retained only as a manual override. Adopted a **"fewer artifacts" spec rule** — write a `SPEC_*.md` only when a change carries a decision, risk, or verification need; plain instruction otherwise (this session's ~7 specs, incl. the one-line pointerEvents fix, were over-ceremony). Captured in the DECISIONS LOG + design-chat instructions.
 - Added **A5** to the agent test harness — guards the four 014-tables against ever reverting to `auth.uid()`. Ran Part A by hand on prod as the post-migration gate; all green. Part C static checks run + reported (C2 flags the standing 007 collision + 009–012 gap; C3 = 3 window.confirm, the tracked item).
 - Logged the **git-HEAD drift** caught at SESSION START (RUM + session-replay commits had landed unlogged) and marked roadmap items 014/015 DONE (`5970a37`).
+- Cleaned up **Test House 1–6** test data on **both dev and prod** via the app's own delete-household feature (migration 013 soft-delete) — a real end-to-end exercise of the `delete_household` RPC through the prod UI, not just dev. Rows remain in `households` with `deleted_at` set (soft-deleted, the intended posture); switcher cleared cleanly on both envs.
+- **Designed and mocked-approved the shared declutter-cycle control** (`SPEC_declutter_cycle.md`, reference mockup `cycle_dual_readout.html`). Started as the "filter show/hide toggle" design-queue item; iterated ~6 mockups into a 3-phase cycle shared by **Browse and Shop**. One fixed 48×48 icon (bg light/dark = Filter Off/On; line shape tapering/equal = Grouped/Flat); phases all-shown/grouped → noise-hidden/grouped → hidden/flat A–Z. On Browse phase-1 hides filter pills; on Shop phase-1 hides checked items. A descriptor line gives plain-English state. Designed + spec'd, **NOT built** — strong agent-build candidate.
 **Unfinished:**
 - **Staple bug (dev, found this session) — queued as headline NEXT.** `is_staple` is a single boolean on the shared global `catalog_items` row (`is_global=true`, `household_id=NULL`). Tapping Staple on a global item paints green optimistically, but per-household staple preference has no storage, so the 20s catalog poll re-reads `false` and reverts to grey. Root cause is data-model, not UI. Prod-leak check (`is_global=true and is_staple=true`) returned **0 rows** — no cross-household leak has occurred.
 - `ourprovisions.app` domain wiring — parked this session pending domain-ownership consolidation (see ROADMAP decisions).
 - Deferred swipe gestures (per "wait until users complain"): tap-away to close, single-open-at-a-time, velocity flick. Dan will watch real usage before building.
+- **Declutter cycle — designed, spec'd, NOT built.** Substantial build: new Shop "hide checked" feature + new Browse flat (A–Z) render + unifying both tabs onto one control. `SPEC_declutter_cycle.md` routed to `docs/`, agent-build candidate. Supersedes `SPEC_filter_show_hide` (retired this merge) and the standalone grouped/flat item.
+- **Shop filter axes — future, not built:** filter-by-who-added (Elly/Helen/DH) and per-store filtering point toward Shop gaining its own filter-pill bar (cycle handles *view*; pills handle *what-to-show*). Captured in the spec's future-facing section.
 **Next session:**
 SESSION START
 Goal: Design the per-household staple model — `household_staples` join table + rewrite of toggleStaple (write/read) — fixing the global-staple data-model bug.
 State: NOW sprint cleared (014+015 on prod). Swipe arc fully on prod (`22a811d`), all branches converged. App functioning across multi-account testing. BUILD command live.
 Done when: a mockup-before-code spec exists for per-household staple storage (table + RLS via is_member_of + toggleStaple read/write rewrite + global-vs-custom decision), ready to BUILD.
-**Files updated:** `src/App.js` (swipe parity, close-gesture, pointerEvents fix), `CLAUDE.md` (BUILD), `qa/agent_test_harness.md` (A5), migrations `014`/`015`, docs.
-**DB changes:** Migrations 014 + 015 applied to dev + prod.
+**Files updated:** `src/App.js` (swipe parity, close-gesture, pointerEvents fix), `CLAUDE.md` (BUILD), `qa/agent_test_harness.md` (A5), migrations `014`/`015`, docs (SESSION_LOG/ROADMAP/ARCHITECTURE + routed specs `SPEC_declutter_cycle.md`, `cycle_dual_readout.html`; retired `SPEC_filter_show_hide`).
+**DB changes:** Migrations 014 + 015 applied to dev + prod. Test House 1–6 soft-deleted on dev + prod (via `delete_household`).
 
 ---
 
