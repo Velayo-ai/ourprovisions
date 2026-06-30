@@ -25,6 +25,23 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-29] — [OurProvisions] — Backfill: Splunk RUM + session-replay instrumentation (drift capture)
+**Goal:** Capture three production commits that shipped real-user-monitoring + session-replay masking but never landed in the SESSION_LOG — found as git-state drift at session start (HEAD `1037e52` was ahead of the last-logged `378efec`).
+**Completed:**
+- Logged the drift: `bc8edca` (environment-aware Splunk RUM instrumentation — new `src/rum.js`, wired in `src/index.js`, Splunk deps in `package.json`/`package-lock.json`), `7be2662` (tag RUM `deploymentEnvironment` via `REACT_APP_DEPLOY_ENV`), `1037e52` (session-replay masking: unmask UI, mask inputs, exclude Clerk auth) — all live on prod, all previously unlogged.
+- Noted the cause for future discipline: code shipped + pushed without a SESSION_LOG entry; reinforces the queued "commit + push after edits / log before close" roadmap item.
+**Unfinished:**
+- None for this backfill. (RUM dashboards/alerting tuning, if any, tracked separately.)
+**Next session:**
+SESSION START
+Goal: Resume the design queue (household-scoped UI state audit headline) per the prior entry.
+State: RUM + replay masking live on prod; migrations 014/015 live + recorded on disk.
+Done when: Household-scoped state audit produces a pass/fix list.
+**Files updated:** None this entry (backfill only — documents `src/rum.js`, `src/index.js`, `package.json`, `package-lock.json` from the earlier commits).
+**DB changes:** None.
+
+---
+
 ### [2026-06-29] — [Cross] — Two catalog consistency bugs shipped to prod; brand-architecture direction set for the .app domains
 **Goal:** Fix the search-row stepper and price-gated Edit Item bugs, and establish how the newly secured `.app` domains serve the Harbour vision without sacrificing per-app identity.
 **Completed:**

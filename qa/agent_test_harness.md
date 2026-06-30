@@ -103,6 +103,34 @@ order by p.proname, args;
 -- ASSERT: prod set ⊇ dev set, EXCEPT documented dev-only items (002 stopgap). Any other gap = investigate.
 ```
 
+## A5 — Store/crew policies never revert to auth.uid() (added 2026-06-29, migration 014)
+Guards the four tables fixed in 014. A silent revert to the Clerk-string-vs-uuid
+bug would otherwise be invisible. Household-table policies must use is_member_of
+or get_current_user_id; crew tables use get_current_user_id (crew-keyed, no household_id).
+```sql
+select tablename, policyname, cmd,
+       case
+         when (coalesce(qual,'') ilike '%auth.uid()%'
+               or coalesce(with_check,'') ilike '%auth.uid()%')
+              then 'FAIL: reverted to auth.uid() (Clerk-string vs uuid, always false)'
+         when (coalesce(qual,'') ilike '%is_member_of%'
+               or coalesce(with_check,'') ilike '%is_member_of%'
+               or coalesce(qual,'') ilike '%get_current_user_id%'
+               or coalesce(with_check,'') ilike '%get_current_user_id%')
+              then 'ok'
+         else 'CHECK: unexpected policy body'
+       end as status
+from pg_policies
+where schemaname='public'
+  and tablename in ('known_stores','shopping_sessions',
+                    'velayo_crews','velayo_crew_members')
+order by status desc, tablename, policyname;
+-- ASSERT: no 'FAIL'. 'CHECK' rows get human eyes.
+-- NOTE: known_stores + shopping_sessions have RLS DISABLED, so these policies
+-- are inert today; the check still guards the definitions against revert for
+-- when RLS is eventually enabled. Crew tables have RLS ENABLED (live).
+```
+
 ---
 
 # PART B — DESTRUCTIVE BEHAVIORAL SUITE (DEV ONLY, self-cleaning)
