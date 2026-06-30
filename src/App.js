@@ -1777,22 +1777,27 @@ function ProvisionsApp() {
                         const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
                         const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
                         const isEditing = editingPrice === item.name;
+                        const isStaple = catalogMap[item.name]?.is_staple;
+                        const isCustom = catalogMap[item.name]?.is_global === false;
+                        // Catalog items only expose price editing — nothing to edit when pricing is off.
+                        const canEdit = isCustom || showPrices;
                         return (
-                          <CatalogItemRow
-                            key={item.name}
-                            item={item}
-                            qty={qty}
-                            rawCategory={item.rawCategory}
-                            showPrices={showPrices}
-                            price={price}
-                            isEditing={isEditing}
-                            priceInput={priceInput}
-                            centsToDisplay={centsToDisplay}
-                            onUpdateQty={updateQty}
-                            onPriceInput={handlePriceInput}
-                            onCommitPrice={commitPrice}
-                            onCancelEditPrice={() => setEditingPrice(null)}
-                          />
+                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple} canEdit={canEdit}>
+                            <CatalogItemRow
+                              item={item}
+                              qty={qty}
+                              rawCategory={item.rawCategory}
+                              showPrices={showPrices}
+                              price={price}
+                              isEditing={isEditing}
+                              priceInput={priceInput}
+                              centsToDisplay={centsToDisplay}
+                              onUpdateQty={updateQty}
+                              onPriceInput={handlePriceInput}
+                              onCommitPrice={commitPrice}
+                              onCancelEditPrice={() => setEditingPrice(null)}
+                            />
+                          </SwipeToRemove>
                         );
                       })}
                     </div>
