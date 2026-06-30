@@ -61,10 +61,16 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, s
     startX.current = null;
     setSwiping(false);
     if (onEdit) {
-      if (offsetX < -REVEAL_WIDTH / 2) {
-        setOffsetX(-REVEAL_WIDTH);
+      const delta = offsetX - baseOffset.current; // + = dragged right, - = dragged left
+      const startedOpen = baseOffset.current <= -REVEAL_WIDTH / 2;
+      if (startedOpen) {
+        // open row: a right drag past threshold closes; otherwise stay open
+        if (delta > SWIPE_THRESHOLD) setOffsetX(0);
+        else setOffsetX(-REVEAL_WIDTH);
       } else {
-        setOffsetX(0);
+        // closed row: a left drag past threshold opens; otherwise stay closed
+        if (delta < -SWIPE_THRESHOLD) setOffsetX(-REVEAL_WIDTH);
+        else setOffsetX(0);
       }
     } else {
       if (offsetX < -SWIPE_THRESHOLD) {
