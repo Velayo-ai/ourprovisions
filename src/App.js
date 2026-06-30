@@ -148,7 +148,7 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, s
           touchAction: offsetX < 0 ? "none" : "pan-y",
           cursor: "grab",
           opacity: removing ? 0 : 1,
-          pointerEvents: offsetX <= -REVEAL_WIDTH ? "none" : "auto",
+          pointerEvents: "auto",
         }}
         onTouchStart={(e) => handleStart(e.touches[0].clientX, e.touches[0].clientY)}
         onTouchMove={(e) => handleMove(e.touches[0].clientX, e.touches[0].clientY)}
