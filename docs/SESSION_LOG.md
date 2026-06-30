@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-06-29] — [Cross] — Shipped the two NOW migrations (auth.uid RLS fix + helper consolidation), completed the swipe arc, and added the BUILD command to the workflow
+**Goal:** Clear the NOW sprint — fix the `auth.uid()` RLS type-mismatch and consolidate the duplicate helper functions — then work the swipe queue; a staple data-model bug was found and queued along the way.
+**Completed:**
+- Shipped **migration 014** (auth.uid RLS fix) to dev + prod, verified both ways (0 rows on auth.uid check; all 8 policies read `ok` on the affirmative is_member_of/get_current_user_id check). Rewrote 8 policies across `known_stores`, `shopping_sessions`, `velayo_crews`, `velayo_crew_members`. RLS enabled/disabled state left untouched (auth-neutral). Repo record committed `a081d59`.
+- Shipped **migration 015** (drop duplicate helpers) to dev + prod, verified exactly 2 survivors remain (`get_current_household_id`, `get_current_user_id`, both search_path-pinned). The two NULL-config variants dropped; zero callers confirmed on both envs.
+- Shipped the **swipe arc** to prod (`41f4952` parity, `212dfed` close-gesture, `22a811d` pointerEvents fix): each built via BUILD (stopped at dev), Dan verified the deployed preview, then dev→main merged — all branches now converged at `22a811d`. Search rows expose swipe actions identical to Browse; catalog rows close on swipe-right past the 60px threshold; the `pointerEvents:none`-on-open bug that blocked the gesture was fixed. Prod smoke-tested clean (open/close/button-tap all pass).
+- Added the **`BUILD` command** to `CLAUDE.md` (`a195319`) — Claude Code implements a spec from the airlock as one scoped commit, grep-before-edit, test on deployed dev, stop at dev. Used it 3× this session; works.
+- Added **A5** to the agent test harness — guards the four 014-tables against ever reverting to `auth.uid()`. Ran Part A by hand on prod as the post-migration gate; all green. Part C static checks run + reported (C2 flags the standing 007 collision + 009–012 gap; C3 = 3 window.confirm, the tracked item).
+- Logged the **git-HEAD drift** caught at SESSION START (RUM + session-replay commits had landed unlogged) and marked roadmap items 014/015 DONE (`5970a37`).
+**Unfinished:**
+- **Staple bug (dev, found this session) — queued as headline NEXT.** `is_staple` is a single boolean on the shared global `catalog_items` row (`is_global=true`, `household_id=NULL`). Tapping Staple on a global item paints green optimistically, but per-household staple preference has no storage, so the 20s catalog poll re-reads `false` and reverts to grey. Root cause is data-model, not UI. Prod-leak check (`is_global=true and is_staple=true`) returned **0 rows** — no cross-household leak has occurred.
+- `ourprovisions.app` domain wiring — parked this session pending domain-ownership consolidation (see ROADMAP decisions).
+- Deferred swipe gestures (per "wait until users complain"): tap-away to close, single-open-at-a-time, velocity flick. Dan will watch real usage before building.
+**Next session:**
+SESSION START
+Goal: Design the per-household staple model — `household_staples` join table + rewrite of toggleStaple (write/read) — fixing the global-staple data-model bug.
+State: NOW sprint cleared (014+015 on prod). Swipe arc fully on prod (`22a811d`), all branches converged. App functioning across multi-account testing. BUILD command live.
+Done when: a mockup-before-code spec exists for per-household staple storage (table + RLS via is_member_of + toggleStaple read/write rewrite + global-vs-custom decision), ready to BUILD.
+**Files updated:** `src/App.js` (swipe parity, close-gesture, pointerEvents fix), `CLAUDE.md` (BUILD), `qa/agent_test_harness.md` (A5), migrations `014`/`015`, docs.
+**DB changes:** Migrations 014 + 015 applied to dev + prod.
+
+---
+
 ### [2026-06-29] — [OurProvisions] — Backfill: Splunk RUM + session-replay instrumentation (drift capture)
 **Goal:** Capture three production commits that shipped real-user-monitoring + session-replay masking but never landed in the SESSION_LOG — found as git-state drift at session start (HEAD `1037e52` was ahead of the last-logged `378efec`).
 **Completed:**

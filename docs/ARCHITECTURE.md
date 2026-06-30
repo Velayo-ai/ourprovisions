@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-29 (shared `CatalogItemRow` for Browse+Search; one-shared-row design principle; domain/brand layering direction; Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
+*Last updated: 2026-06-29 (migrations 014/015 + no-migration-tracker principle; canonical RLS helpers is_member_of/get_current_user_id; catalog SwipeToRemove close-gesture + pointerEvents constraint; is_staple global-boolean data-model defect; shared `CatalogItemRow` for Browse+Search; one-shared-row design principle; domain/brand layering direction; Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
 
 ---
 
@@ -119,6 +119,10 @@ Historical files (superseded, in `migrations/archive/`):
 | `migrations/011_join_household.sql` | `join_household(p_household_id)` returns `{joined, revived, user_id}` — atomic revive-or-insert: ON CONFLICT (household_id, user_id) DO UPDATE SET deleted_at = NULL, role = 'member'. Fixes leave-then-rejoin UNIQUE constraint collision. Always lands as `role = 'member'` (no silent role re-elevation). Used by `acceptInvite` (manual code entry join path). | Dev + Prod (2026-06-22) |
 | `migrations/012_bootstrap_revive_fix.sql` | Fixes the URL-invite join path in `bootstrap_new_user` (4-arg signature). Step 2 now uses the same revive-or-insert upsert pattern as migration 011 instead of ON CONFLICT DO NOTHING. Closes the second instance of the leave-then-rejoin bug. Prod still carries three dead overloads — future cleanup. | Dev + Prod (2026-06-22) |
 | `migrations/013_delete_household.sql` | Two schema additions: `provision_cycles.deleted_at` (enables soft-delete in the household cascade) and `list_item_contributors.deleted_at` (soft-delete for recoverability, D1). Plus `delete_household(p_household_id uuid) → jsonb` SECURITY DEFINER RPC — owner-only cascade stamping `deleted_at = now()` across all household-bearing tables in FK order; `user_hidden_items` hard-deleted (disposable per-user view state); returns `{deleted, member_count, household_id}`. Applied to dev 2026-06-26 by hand; applied to prod 2026-06-28, verified via `pg_proc.prosrc` (body_len 2550, cascade markers present). | Dev + Prod (2026-06-28) |
+| `migrations/014_fix_authuid_rls.sql` | Rewrites 8 RLS policies on `known_stores`, `shopping_sessions`, `velayo_crew_members`, `velayo_crews` that compared `auth.uid()` (Clerk text `sub`) against uuid columns — always false. Household-membership checks → `is_member_of(household_id)`; ownership (`sessions_insert_own`/`sessions_update_own`) → `get_current_user_id()` (owner-is-you); crew policies → `get_current_user_id()` (crew-keyed). RLS enabled/disabled state UNCHANGED. Idempotent drop-and-recreate. Verified: `auth.uid()` check = 0 rows, A5 presence ok on all 8. | Dev + Prod (2026-06-29) |
+| `migrations/015_consolidate_helpers.sql` | Drops the two `proconfig=NULL` helper variants (`get_household_id_for_current_user`, `get_user_id_from_clerk`); survivors `get_current_household_id` / `get_current_user_id` pin `search_path` and are deterministic. Zero callers verified both envs before drop. Verified: exactly 2 survivors remain. | Dev + Prod (2026-06-29) |
+
+> **No Supabase migration tracker exists on this project** — `supabase_migrations.schema_migrations` does not exist on prod. Migrations are applied by hand in the SQL editor, never via CLI. Filing numbers are a folder convention, not load-bearing. Record applied state by querying the live catalog (`pg_proc`, `pg_policies`), not by trusting the folder or any doc. Write all migrations idempotent (`drop ... if exists` / drop-and-recreate). *(On disk the high-water mark is now `015`; the `009`–`012` gap and the `007` collision — `docs/007_dev_restore_role_grants.sql` vs `migrations/007_finish_authorize_sweep.sql` — still stand; see ROADMAP reconciliation item.)*
 
 ---
 
@@ -150,6 +154,7 @@ The item library. Items are either **global/seed** (system-owned) or **household
 - `id`, `name`, `category`, `unit`, `is_global`, `created_by`, `household_id`
 - `external_id` (future retailer SKU), `price_hint` (fallback price), `is_staple` (⭐ toggle)
 - `created_at`, `deleted_at`
+- **⚠️ KNOWN DATA-MODEL DEFECT (found 2026-06-29): `is_staple` is a single global boolean on the shared `is_global=true` row** (`household_id=NULL`), so it cannot hold a *per-household* preference. Tapping Staple on a global item paints green optimistically, but the 20s catalog poll re-reads `false` and reverts to grey — staple does not persist per-household. Fix direction: a `household_staples` join table (`household_id`, `catalog_item_id`) where staple-status is **row-presence**, RLS-gated on `is_member_of`; rewrite `toggleStaple` write + the catalog read (`refreshCatalog`) + the staple filter; decide whether custom items (real `household_id`) keep the column. Prod-leak check (`is_global=true and is_staple=true`) returned 0 rows — no cross-household leak has occurred. Tracked NOW headline.
 - **Seed set: 50 distinct items.** (Cleaned June 8 — collapsed 3 fragmented "Bakery" categories into canonical `Bakery`, re-homed 5 misfiled items, removed 10 unreferenced duplicate seed rows. 10 both-referenced duplicate seed items remain — Flour, Sugar, Bananas, Broccoli, Carrots, Garlic, Lemons, Potatoes, Spinach, Tomatoes — pending the merge logic that ships with/after Delete.)
 
 #### `list_items`
@@ -368,6 +373,17 @@ Three distinct removal verbs, distinct by layer and scope:
 ### SHOP SwipeToRemove gesture constraint *(Jun 16)*
 
 `SwipeToRemove` in SHOP (no `onEdit`/`onStaple` props) is **full-swipe-commits** — the row animates off-screen before `onRemove()` fires (~400ms later). Any own-vs-shared branching must happen *outside* the component in `handleSwipeRemove`, not inside `SwipeToRemove`. On Cancel, `listRows` is NOT mutated, so the row springs back cleanly from the original state.
+
+### Catalog SwipeToRemove close-gesture *(2026-06-29 — `src/App.js`)*
+
+Catalog rows (the `onEdit` branch — Browse **and** Search, since both wrap the shared `SwipeToRemove`) latch open at `-REVEAL_WIDTH` after a left swipe and close on a **direction-aware** release in `handleEnd`: net gesture delta (`offsetX - baseOffset.current`) vs. the 60px `SWIPE_THRESHOLD` — an open row closes on a right drag past threshold, a closed row opens on a left drag past threshold, sub-threshold drags return to prior state. **Constraint:** the draggable content layer must keep `pointerEvents: "auto"` even when fully latched open — a conditional `"none"` at `offsetX <= -REVEAL_WIDTH` blocks `onTouchStart`/`onMouseDown` so the close gesture can't even start. The action-button panel is absolutely-positioned *beneath* the translated content (content slides `translateX(-240px)` off the right edge), so unconditional `auto` does not block button taps. Deferred (per "wait until users complain"): tap-away, single-open-at-a-time, velocity flick.
+
+### Canonical RLS authorization helpers *(reaffirmed 2026-06-29 after migrations 014/015)*
+
+Two helpers are the canonical authorization primitives — do not reintroduce the dropped duplicates (`get_household_id_for_current_user`, `get_user_id_from_clerk`):
+- **`is_member_of(household_id)`** — household-membership gating, wherever the check is pure membership.
+- **`get_current_user_id()`** — caller-identity / ownership checks (owner-is-you) and crew-keyed policies (no `household_id`).
+Both are SECURITY DEFINER with a pinned `search_path`. The `auth.uid()`-vs-uuid comparison is a permanent anti-pattern here (Clerk returns a text `sub`, never a uuid); harness check A5 guards the four 014 tables against any revert.
 
 ### id-based toggleChecked *(Jun 16)*
 
