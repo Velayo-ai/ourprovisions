@@ -1,0 +1,42 @@
+-- ============================================================
+-- OurProvisions — Migration 015
+-- Drop duplicate helper functions.
+-- ============================================================
+-- Two pairs of near-identical SECURITY DEFINER helpers. In each pair
+-- the survivor pins search_path (a real security property) and is
+-- behaviorally superior; the drop-candidate has proconfig = NULL
+-- (no pinned search_path → search-path-injection smell).
+--
+--   keep:  get_current_household_id()  search_path = public, extensions
+--                                      (order by joined_at desc limit 1)
+--   keep:  get_current_user_id()       search_path = public, extensions
+--   drop:  get_household_id_for_current_user()  proconfig = NULL
+--   drop:  get_user_id_from_clerk()             proconfig = NULL
+--
+-- Verified on prod (parpauldmbetptkmdwbd): caller check (functions +
+-- policies) returned 0 rows for BOTH drop-candidates → clean drop,
+-- no repointing.
+--
+-- ⚠️ Re-run the caller check on dev immediately before applying there —
+--    dev may differ. If anything references a drop-candidate on dev,
+--    repoint it to the survivor first.
+--
+-- Apply AFTER 014 (no hard dependency, keep ordering).
+-- Apply path: manual SQL-editor paste. Dev first → verify → prod.
+-- ============================================================
+
+drop function if exists public.get_household_id_for_current_user();
+drop function if exists public.get_user_id_from_clerk();
+
+-- ============================================================
+-- Verify after apply (dev, then prod)
+-- ============================================================
+-- Expect exactly 2 rows: the survivors only.
+--   select p.proname, array_to_string(p.proconfig, ', ') as config
+--   from pg_proc p
+--   join pg_namespace n on n.oid = p.pronamespace
+--   where n.nspname = 'public'
+--     and p.proname in ('get_current_household_id','get_current_user_id',
+--                       'get_household_id_for_current_user','get_user_id_from_clerk')
+--   order by p.proname;
+-- ============================================================
