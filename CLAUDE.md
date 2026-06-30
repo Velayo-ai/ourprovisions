@@ -44,6 +44,48 @@ and feature specs (`SPEC_*.md`).
 
 ---
 
+## BUILD — implement a spec from the airlock (mid-session)
+
+When I type "BUILD" (optionally naming a spec, e.g. "BUILD swipe parity"):
+
+### Step 1 — Locate the spec
+List `handoff/`. Find the `SPEC_*.md` payload to build:
+- If I named one, use it.
+- If exactly one `SPEC_*.md` payload is present, use it.
+- If several are present and I did not name one, list them and ASK which —
+  do not guess.
+- If none are present, say so and stop.
+
+### Step 2 — Read it fully before touching code
+Read the entire spec. Note its stated scope, its out-of-scope carve-outs, and
+any warnings (especially grep-before-edit notes — line numbers in specs drift).
+
+### Step 3 — Grep before edit
+Specs reference line numbers from a possibly-stale tree. ALWAYS grep for the
+exact current strings before authoring any `str_replace`. Never trust a spec's
+line numbers.
+
+### Step 4 — Implement as ONE scoped commit
+Make only the change the spec describes. Separate logical changes = separate
+commits — if the spec carves out follow-on work, do NOT bundle it. Respect the
+"one tested change before the next" rule.
+
+### Step 5 — Test on the deployed dev preview
+Commit + push dev, then verify on dev.ourprovisions.velayo.ai — NOT localhost.
+Local edits don't reach the deployed domain. Report what you verified.
+
+### Step 6 — Stop at dev unless told otherwise
+Do NOT merge dev->main as part of BUILD. The dev->main gate is a separate,
+explicit step I trigger once I've verified the deployed preview.
+
+### What BUILD does NOT do
+- Does NOT route the spec to `docs/` — it stays in `handoff/` for SESSION END.
+- Does NOT write SESSION_LOG / ROADMAP / ARCHITECTURE — that's SESSION END.
+- Does NOT clear the airlock.
+BUILD is implement-and-stop. Bookkeeping is SESSION END's job.
+
+---
+
 ## SESSION END — Scribe routine
 
 When I type "SESSION END", do all of the following in one pass:
