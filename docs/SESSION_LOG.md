@@ -25,6 +25,26 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-01 — AMENDMENT] — [OurProvisions] — Promoted both changes to prod; list text-size DONE, join-activation REOPENED after prod failure
+**Goal:** Promote the two dev-verified changes to prod and confirm there. *(Corrects the same-day entry below, which marked join-activation DONE on dev evidence only.)*
+**Completed:**
+- Pushed `dev` and fast-forward-merged `dev`→`main` (`15712ba`→`b3ee74d`); Vercel deployed to prod. Both changes live on `ourprovisions.velayo.ai`.
+- Verified **list text-size on prod** — scales rows, persists across regular + hard reload. **Stays DONE. Green.**
+- Tested **join-activation on prod** (existing user Test User 60 with a prior "My Household", incognito; inviter DH in household Madbury; fresh invite `Z8165W`) and **reproduced the original bug**: after a genuine invite-consuming load (`bootstrap_new_user` fired), the header stayed on My Household; Madbury populated into the switcher late but was never activated.
+- Captured console evidence in the failed prod state: `localStorage.activeHouseholdId` = My Household's id (lens never moved); `sessionStorage.just_joined_household_id` = Madbury's id (flag SET but never consumed/cleared). GoTrueClient project id = `parpauldmbetptkmdwbd` (genuinely prod).
+- Root-caused: the shipped `pendingJoinId` fix (`1c5a916`) is a **single-fire reconcile** — it switches only when `myHouseholds` already contains the joined id. On prod's slower membership propagation, Madbury arrives in `myHouseholds` late, the effect doesn't re-fire, and the flag parks forever. This is the exact "late-membership window" flagged as reasoned-but-not-reproduced in `1c5a916` — now reproduced on prod by real latency.
+- Wrote `docs/SPEC_join_activates_household_ADDENDUM_reopen.md` (diagnosis + console evidence + the concrete three-part durable/retriable fix); supersedes the original spec's "Fix" section.
+**Unfinished:**
+- **Join-activation is REOPENED and not shipped-as-working.** The fix is live but incomplete; prod still exhibits the bug. Fix direction specified (durable/retriable flag consumption) but not built.
+- "No longer a member of that household" banner fired on a brand-new user's first prod sign-in (Test User 50) during testing — the separately-tracked pre-existing BACKLOG bug, not caused by tonight's work. Noted, not fixed.
+**Next session:**
+SESSION START
+Goal: Build the join-activation reopen fix per `docs/SPEC_join_activates_household_ADDENDUM_reopen.md`, and verify it ON PROD (dev-green is insufficient — the failure is latency-triggered).
+State: List text-size DONE on prod. Join-activation fix `1c5a916` live on prod but INCOMPLETE — `just_joined_household_id` is set but never consumed into a switch when membership propagates late. Cause identified; fix = re-derive `pendingJoinId` from the surviving flag, re-fire the switch on every `myHouseholds` change while unresolved, clear the flag only after a confirmed switch (+ optional bounded refresh retry).
+Done when: On prod, an existing multi-household user pasting a fresh invite lands in the joined household, `just_joined_household_id` reads null afterward, active id = joined id, and it survives a hard reload — including a run where the joined household populates late.
+**Files updated:** None to source (prod verification + diagnosis only; the fix is next session's build).
+**DB changes:** None. Cause is client-side; `bootstrap_new_user` confirmed correct on prod (flag was set).
+
 ### [2026-07-01] — [OurProvisions] — Shipped list text-size control to dev; diagnosed + fixed join-doesn't-activate-household (both dev-only)
 **Goal:** BUILD the fully-specced device-local list text-size control, then diagnose and fix "join should activate the joined household" — client-only, no RPC.
 **Completed:**
