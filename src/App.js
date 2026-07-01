@@ -356,6 +356,7 @@ function ProvisionsApp() {
   const [inviteUrl, setInviteUrl] = useState(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [joinBanner, setJoinBanner] = useState(null); // household name after accepting
+  const [pendingJoinId, setPendingJoinId] = useState(null); // joined household id awaiting the lens switch (reactive; see join effect)
   const [showVelayoMenu, setShowVelayoMenu] = useState(false);
   const [showHouseholdModal, setShowHouseholdModal] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -529,12 +530,18 @@ function ProvisionsApp() {
         // Switch is safe — Effect 2 reloads per-household state from the DB on
         // activeHouseholdId change; no in-memory state to clobber, no snapshot.
         if (joinedId) {
-          // await refresh so switchHousehold's membership guard sees the new
-          // household before we activate it.
-          (async () => {
-            await refreshHouseholds();
-            switchHousehold(joinedId);
-          })();
+          // Capture the switch INTENT in component state rather than firing the
+          // switch inline here. The sessionStorage flags are single-load (bootstrap
+          // strips ?invite= and the invite is single-use), so an inline switch that
+          // is interrupted before switchHousehold writes localStorage.activeHouseholdId
+          // — a slow refreshHouseholds, a mid-flight reload, the membership guard
+          // rejecting on a slower network — loses the intent forever: the flags are
+          // gone and the spent invite never re-flags. pendingJoinId keeps the intent
+          // alive in React state so the reactive effect below completes the switch
+          // whenever myHouseholds resolves. refreshHouseholds() nudges that list to
+          // include the joined household.
+          setPendingJoinId(joinedId);
+          refreshHouseholds();
         } else {
           // No joinedId (edge case): refresh so any new household appears in the
           // switcher; leave active context unchanged.
@@ -543,6 +550,19 @@ function ProvisionsApp() {
       }
     }
   }, [loading, household]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reactive completion of the invite-join switch. Decoupled from the single-load
+  // sessionStorage flags and from localStorage timing: once myHouseholds contains
+  // the pending id (membership resolved), route the switch through the lens — the
+  // single writer of the active household — then clear the intent. If the id never
+  // appears (e.g. join failed), the intent simply stays parked and no switch fires.
+  useEffect(() => {
+    if (!pendingJoinId) return;
+    if (myHouseholds.some((h) => h.id === pendingJoinId)) {
+      switchHousehold(pendingJoinId);
+      setPendingJoinId(null);
+    }
+  }, [pendingJoinId, myHouseholds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-dismiss the join banner: on a timer (success confirmations self-clear),
   // and immediately if the user switches away from the joined household (the
