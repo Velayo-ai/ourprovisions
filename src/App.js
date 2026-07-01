@@ -23,6 +23,10 @@ const CATEGORY_ORDER = [
 
 const SWIPE_THRESHOLD = 60;
 
+// Device-local list text-size steps. Index (0–4) is persisted; scale drives --op-list-scale.
+const TEXT_STEPS = [0.9, 1.0, 1.2, 1.45, 1.75];
+const TEXT_LABELS = ["Compact", "Default", "Large", "XL", "XXL"];
+
 function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, style: outerStyle, children }) {
   const REVEAL_WIDTH = 240;
   const [offsetX, setOffsetX] = useState(0);
@@ -394,6 +398,17 @@ function ProvisionsApp() {
   useEffect(() => {
     localStorage.setItem('op_showPrices', showPrices);
   }, [showPrices]);
+
+  // Device-local list text size — persists the index (0–4), not the scale.
+  const [textSizeIdx, setTextSizeIdx] = useState(() => {
+    const saved = parseInt(localStorage.getItem("op_list_text_size"), 10);
+    return Number.isInteger(saved) && saved >= 0 && saved < TEXT_STEPS.length ? saved : 1;
+  });
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--op-list-scale", TEXT_STEPS[textSizeIdx]);
+    localStorage.setItem("op_list_text_size", String(textSizeIdx));
+  }, [textSizeIdx]);
 
   // Re-fetch the member roster each time the manage-households sheet opens,
   // so name changes by other members appear without a full page reload.
@@ -919,6 +934,7 @@ function ProvisionsApp() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,700&family=Lato:wght@300;400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root { --op-list-scale: 1; }
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
@@ -957,19 +973,19 @@ function ProvisionsApp() {
         .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; }
         .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); }
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
-        .item-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-        .item-name { font-family: 'Lato', sans-serif; font-size: 0.88rem; color: #2C1A0E; flex: 1; }
+        .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+        .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-list-scale)); color: #2C1A0E; flex: 1; }
         .qty-controls { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
         .qty-btn { width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid #A0724A; background: #A0724A; color: white; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; transition: all 0.15s; line-height: 1; }
         .qty-btn:hover { background: #6B4423; border-color: #6B4423; color: white; }
         .qty-display { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; width: 24px; text-align: center; color: #c8973a; }
         .qty-display.zero { color: #c8b89a; font-weight: 400; }
         .price-row { display: flex; align-items: center; gap: 8px; }
-        .price-display { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; }
+        .price-display { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-list-scale)); color: #8a7a60; }
         .price-edit-wrap { display: flex; align-items: center; gap: 4px; width: 100%; }
         .price-input { font-family: 'Lato', sans-serif; font-size: 0.82rem; border: 1.5px solid #c8973a; border-radius: 4px; padding: 3px 6px; width: 70px; color: #2C1A0E; background: #F5EDE0; outline: none; }
         .price-save-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; background: #c8973a; color: white; border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; }
-        .item-subtotal { font-family: 'Lato', sans-serif; font-size: 0.75rem; color: #c8973a; font-weight: 700; text-align: right; }
+        .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-list-scale)); color: #c8973a; font-weight: 700; text-align: right; }
         .list-empty { text-align: center; padding: 60px 20px; }
         .list-empty h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: #8a7a60; }
         .list-empty p { font-family: 'Lato', sans-serif; color: #a89878; margin-top: 8px; font-size: 0.9rem; }
@@ -980,16 +996,16 @@ function ProvisionsApp() {
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
         .list-cat-title { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #c8973a; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
-        .list-item { display: flex; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; }
+        .list-item { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; }
         .list-item.done { opacity: 0.45; }
         .list-item.done .li-name { text-decoration: line-through; color: #a89878; }
         .checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
         .checkbox.checked { background: #c8973a; border-color: #c8973a; }
         .checkmark { color: white; font-size: 0.7rem; font-weight: bold; }
-        .li-name { font-family: 'Lato', sans-serif; font-size: 0.95rem; flex: 1; cursor: pointer; }
+        .li-name { font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-list-scale)); flex: 1; cursor: pointer; }
         .li-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
-        .li-qty { font-family: 'Lato', sans-serif; font-size: 0.75rem; color: #8a7a60; }
-        .li-subtotal { font-family: 'Playfair Display', serif; font-size: 0.95rem; color: #c8973a; font-weight: 700; }
+        .li-qty { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-list-scale)); color: #8a7a60; }
+        .li-subtotal { font-family: 'Playfair Display', serif; font-size: calc(0.95rem * var(--op-list-scale)); color: #c8973a; font-weight: 700; }
         .li-subtotal.done { color: #a89878; }
         .clear-btn { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 16px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
         .clear-btn:hover { border-color: #e05c5c; color: #e05c5c; }
@@ -2660,6 +2676,27 @@ function ProvisionsApp() {
                   style={{ width: "44px", height: "26px", borderRadius: "13px", background: showPrices ? "#c8973a" : "#d4c9b8", position: "relative", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" }}
                 >
                   <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: "white", position: "absolute", top: "3px", left: showPrices ? "21px" : "3px", transition: "left 0.15s" }} />
+                </div>
+              </div>
+
+              {/* List text size stepper */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "12px" }}>
+                <div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>List text size</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "2px" }}>Bigger text for the list, on this device</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", border: "1px solid #E8D5B7", borderRadius: "7px", background: "#fff", padding: "5px 10px", flexShrink: 0 }}>
+                  <button
+                    onClick={() => setTextSizeIdx(i => Math.max(0, i - 1))}
+                    disabled={textSizeIdx === 0}
+                    style={{ background: "none", border: "none", cursor: textSizeIdx === 0 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "0.78rem", color: textSizeIdx === 0 ? "#d8c8aa" : "#A0724A", lineHeight: 1, padding: 0 }}
+                  >A</button>
+                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", textTransform: "uppercase", letterSpacing: "1.5px", color: "#A0724A", minWidth: "56px", textAlign: "center" }}>{TEXT_LABELS[textSizeIdx]}</span>
+                  <button
+                    onClick={() => setTextSizeIdx(i => Math.min(TEXT_STEPS.length - 1, i + 1))}
+                    disabled={textSizeIdx === TEXT_STEPS.length - 1}
+                    style={{ background: "none", border: "none", cursor: textSizeIdx === TEXT_STEPS.length - 1 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "1.05rem", color: textSizeIdx === TEXT_STEPS.length - 1 ? "#d8c8aa" : "#A0724A", lineHeight: 1, padding: 0 }}
+                  >A</button>
                 </div>
               </div>
             </div>
