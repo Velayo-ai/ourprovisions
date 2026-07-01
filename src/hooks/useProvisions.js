@@ -314,6 +314,47 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, clerkId, email]);
 
+  // Effect 1b — Reconcile users.full_name from Clerk on each session.
+  // WHY its own effect: bootstrap runs once and is a no-op for existing users, and
+  // deliberately excludes fullName from its deps (feeding it there wedged loading).
+  // So the name that arrives from Clerk *after* first bootstrap never persists.
+  // This effect closes that gap: idempotent, own dep on fullName, only writes on a
+  // real change. Does NOT go through bootstrap_new_user (avoids its 4-overload
+  // ambiguity entirely).
+  const lastSyncedNameRef = useRef(null);
+  useEffect(() => {
+    const db = supabaseRef.current;
+    const name = (fullName || "").trim();
+    if (!db) return;
+    if (!bootstrappedRef.current || !internalUserIdRef.current) return; // need our user id
+    if (!name) return;                        // Clerk has no name yet — nothing to write
+    if (lastSyncedNameRef.current === name) return; // already reconciled this value
+
+    (async () => {
+      try {
+        // Only write if stored value actually differs (avoid needless writes/realtime churn)
+        const { data: existing } = await db
+          .from("users")
+          .select("full_name")
+          .eq("id", internalUserIdRef.current)
+          .maybeSingle();
+        if (existing && existing.full_name === name) {
+          lastSyncedNameRef.current = name;
+          return;
+        }
+        const { error } = await db
+          .from("users")
+          .update({ full_name: name })
+          .eq("id", internalUserIdRef.current);
+        if (error) throw error;
+        lastSyncedNameRef.current = name;
+      } catch (err) {
+        console.error("full_name reconcile error:", err.message);
+        // Non-fatal: attribution degrades to email prefix, never blocks the app.
+      }
+    })();
+  }, [fullName, bootstrapped]); // fires when Clerk name arrives or changes, post-bootstrap
+
   // Effect 2 — household-scoped loads (keyed on the resolved active household).
   // Reruns whenever activeHouseholdId changes (household switch). Never re-creates
   // the Supabase client — reads the one Effect 1 placed on supabaseRef.
