@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Preferences — Text size</title>
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: rgba(2,15,26,0.6);
+    font-family: 'Lato', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  /* The sheet, matching the real profile sheet styles */
+  .sheet {
+    background: #FDF8F2;
+    border-radius: 20px 20px 0 0;
+    width: 100%;
+    max-width: 440px;
+    padding-bottom: 32px;
+  }
+  .handle { width: 36px; height: 4px; background: #c8b89a; border-radius: 2px; margin: 10px auto 0; }
+
+  .user-row { display: flex; align-items: center; gap: 12px; padding: 14px 20px 12px; border-bottom: 0.5px solid #e8ddd0; }
+  .avatar { width: 44px; height: 44px; border-radius: 50%; background: #0D9488; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 600; color: white; flex-shrink: 0; }
+  .uname { font-weight: 600; color: #2C1A0E; }
+  .uemail { font-size: 12px; color: #A0724A; margin-top: 2px; }
+
+  .prefs { padding: 14px 20px 8px; }
+  .prefs-title { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #A0724A; margin-bottom: 12px; }
+
+  .pref-row { display: flex; justify-content: space-between; align-items: center; padding-bottom: 12px; border-bottom: 0.5px solid #e8ddd0; margin-bottom: 12px; }
+  .pref-label { font-size: 14px; color: #2C1A0E; }
+  .pref-sub { font-size: 11px; color: #A0724A; margin-top: 2px; }
+
+  /* existing toggle */
+  .toggle { width: 44px; height: 26px; border-radius: 13px; background: #c8973a; position: relative; cursor: pointer; flex-shrink: 0; }
+  .toggle .knob { width: 20px; height: 20px; border-radius: 50%; background: white; position: absolute; top: 3px; left: 21px; }
+
+  /* the new stepper, sitting where the toggle sits */
+  .stepper { display: flex; align-items: center; border: 1px solid #E8D5B7; border-radius: 7px; overflow: hidden; background: #fff; flex-shrink: 0; }
+  .step-btn { border: none; background: transparent; cursor: pointer; color: #A0724A; font-family: 'Playfair Display', serif; font-weight: 700; line-height: 1; width: 32px; height: 30px; display: flex; align-items: center; justify-content: center; transition: background 0.15s, color 0.15s; }
+  .step-btn:hover:not(:disabled) { background: #F5EDE0; }
+  .step-btn:disabled { color: #d8c8aa; cursor: default; }
+  .step-btn.minus { font-size: 0.78rem; }
+  .step-btn.plus  { font-size: 1.05rem; }
+  .step-readout { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #A0724A; min-width: 58px; text-align: center; border-left: 1px solid #E8D5B7; border-right: 1px solid #E8D5B7; padding: 0 4px; }
+
+  .signout { display: flex; align-items: center; gap: 10px; padding: 14px 20px; width: 100%; background: none; border: none; cursor: pointer; }
+  .divider { height: 0.5px; background: #e8ddd0; margin: 0 20px; }
+
+  /* Live preview strip so the choice is felt, not just labeled */
+  .preview { margin: 2px 20px 0; padding: 12px 14px; background: #FAF4EC; border: 1px solid #E8D5B7; border-radius: 8px; }
+  .preview-eyebrow { font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: #c8b89a; margin-bottom: 8px; }
+  .pv-item { display: flex; align-items: center; gap: 12px; padding: 5px 0; }
+  .pv-check { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #c8b89a; flex-shrink: 0; }
+  .pv-name { flex: 1; font-size: calc(0.95rem * var(--op-list-scale, 1)); color: #2C1A0E; }
+  .pv-qty { font-size: calc(0.75rem * var(--op-list-scale, 1)); color: #8a7a60; }
+  .pv-sub { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(0.95rem * var(--op-list-scale, 1)); color: #c8973a; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="handle"></div>
+
+    <div class="user-row">
+      <div class="avatar">DH</div>
+      <div>
+        <div class="uname">Dan Holmes</div>
+        <div class="uemail">dan@velayo.ai</div>
+      </div>
+    </div>
+
+    <div class="prefs">
+      <div class="prefs-title">Preferences</div>
+
+      <!-- existing row, unchanged -->
+      <div class="pref-row">
+        <div>
+          <div class="pref-label">Show prices &amp; budget</div>
+          <div class="pref-sub">Display item prices and estimated total</div>
+        </div>
+        <div class="toggle"><div class="knob"></div></div>
+      </div>
+
+      <!-- NEW row -->
+      <div class="pref-row" style="border-bottom:none; margin-bottom:0;">
+        <div>
+          <div class="pref-label">List text size</div>
+          <div class="pref-sub">Bigger text for the list, on this device</div>
+        </div>
+        <div class="stepper" role="group" aria-label="List text size">
+          <button class="step-btn minus" id="minus" aria-label="Smaller">A</button>
+          <span class="step-readout" id="readout">Default</span>
+          <button class="step-btn plus" id="plus" aria-label="Larger">A</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- live preview -->
+    <div class="preview">
+      <div class="preview-eyebrow">Preview</div>
+      <div class="pv-item">
+        <div class="pv-check"></div>
+        <div class="pv-name">Oat milk, half gallon</div>
+        <div class="pv-qty">×1</div>
+        <div class="pv-sub">$4.29</div>
+      </div>
+    </div>
+
+    <div class="divider" style="margin-top:14px;"></div>
+    <button class="signout">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      <span style="font-size:14px; color:#c0392b;">Sign out</span>
+    </button>
+  </div>
+
+<script>
+  const STEPS = [
+    { scale: 0.9,  label: 'Compact' },
+    { scale: 1.0,  label: 'Default' },
+    { scale: 1.2,  label: 'Large'   },
+    { scale: 1.45, label: 'XL'      },
+    { scale: 1.75, label: 'XXL'     },
+  ];
+  let i = 1;
+  const root = document.documentElement;
+  const minusBtn = document.getElementById('minus');
+  const plusBtn  = document.getElementById('plus');
+  const readout  = document.getElementById('readout');
+  function apply() {
+    root.style.setProperty('--op-list-scale', STEPS[i].scale);
+    readout.textContent = STEPS[i].label;
+    minusBtn.disabled = (i === 0);
+    plusBtn.disabled  = (i === STEPS.length - 1);
+  }
+  minusBtn.addEventListener('click', () => { if (i > 0) { i--; apply(); } });
+  plusBtn.addEventListener('click',  () => { if (i < STEPS.length - 1) { i++; apply(); } });
+  apply();
+</script>
+</body>
+</html>

@@ -25,6 +25,26 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-01] — [OurProvisions] — Fixed item-badge / member attribution showing wrong or missing names (full_name never persisted) + profile-heading email-over-email fix
+**Goal:** Diagnose why item badges and member lists showed wrong, missing, or inconsistent adder names ("Test User 30", sometimes blank, sometimes stale), ship a fix, and merge to prod.
+**Completed:**
+- Root-caused the attribution bug through five overturned hypotheses, each killed by a direct prod query rather than reasoning (stale `added_by` from revive → orphaned contributor rows → ghost member → deleted-user/broken FK → NULL `full_name`). True cause: `users.full_name` is NULL for ALL real users (5/5 in prod, incl. one created that day) — names live in Clerk but were never persisted, because `full_name` was only ever written once at bootstrap (before Clerk's name is reliably available), and bootstrap is a no-op on later sessions and structurally cannot re-run (`fullName` excluded from Effect 1 deps to avoid the loading-wedge regression).
+- Built **Effect 1b** — a dedicated name-reconciliation effect in `useProvisions.js` (`2b223ff`), decoupled from bootstrap, that writes Clerk's `fullName` to `users.full_name` on each session when it differs. Guarded by `bootstrappedRef` + `internalUserIdRef`, deps `[fullName, bootstrapped]`, `lastSyncedNameRef` prevents write loops, reads-before-writes to skip needless updates. Reuses the RLS-proven `updateFullName` write path; never touches `bootstrap_new_user` (avoids its 4-overload ambiguity).
+- Shipped a second small fix (`15712ba`): profile-sheet heading (`App.js` ~2639) now composes name from Clerk `firstName`+`lastName` before falling back to email — fixes an email-over-email display for accounts whose Clerk composed `fullName` is empty (e.g. Test User 34).
+- Verified on deployed dev across every case: existing named user (Dan Test User) and fresh named signups (Test User 33/34/35) all land `full_name` in the DB automatically with no manual edit; nameless account (Test User 32) degrades to email-prefix fallback with no error and no write loop.
+- Merged both to `main` as clean fast-forwards (`2b223ff` full_name, `15712ba` heading); Vercel deploying to prod. Existing NULL users self-heal on next load — no SQL backfill.
+- Deliberately did NOT fix several pre-existing bugs surfaced during multi-account testing (join-not-activating, propagation latency, first-sign-in banner) to keep the merge clean — queued for follow-up.
+**Unfinished:**
+- Prod spot-checks pending Vercel deploy: confirm a signed-in user with a Clerk name has `users.full_name` populated + heading composes on `ourprovisions.velayo.ai`.
+- New pre-existing bugs surfaced during testing, queued not fixed (see Next session / roadmap BACKLOG).
+**Next session:**
+SESSION START
+Goal: Fix "join should activate the joined household" — joining via invite lands membership but does not switch the active-household lens (existing users stay in their prior household).
+State: full_name reconciliation (Effect 1b) + profile heading fix live on main/prod. Attribution names now correct in DB and UI. Invite membership works and is single-use; realtime converges but lags (~30s).
+Done when: pasting an invite URL (or accepting an invite) sets the joined household as active and resets household-scoped UI state, so the user lands IN the household they just joined — verified for an existing user with prior households.
+**Files updated:** src/hooks/useProvisions.js (Effect 1b), src/App.js (profile heading fallback).
+**DB changes:** None (client-only; no schema/RPC/migration).
+
 ### [2026-06-29 → 06-30] — [Cross] — Shipped the two NOW migrations + swipe arc, added the BUILD command, cleaned up Test House data, and designed the shared declutter-cycle control for Browse + Shop
 **Goal:** Clear the NOW sprint — fix the `auth.uid()` RLS type-mismatch and consolidate the duplicate helper functions — then work the queue; expanded into completing the swipe arc, building the BUILD command, Test House cleanup, and a long design session turning "filter show/hide toggle" into a cross-tab declutter primitive. A staple data-model bug was found and queued.
 **Completed:**

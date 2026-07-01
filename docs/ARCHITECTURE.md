@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-06-30 (declutter cycle cross-tab view primitive; migrations 014/015 + no-migration-tracker principle; canonical RLS helpers is_member_of/get_current_user_id; catalog SwipeToRemove close-gesture + pointerEvents constraint; is_staple global-boolean data-model defect; shared `CatalogItemRow` for Browse+Search; one-shared-row design principle; domain/brand layering direction; Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
+*Last updated: 2026-07-01 (client-side reconciliation effects — Effect 1b writes Clerk full_name → users.full_name, decoupled from bootstrap; profile-heading composes Clerk name parts; householdMembers.users.full_name vs users.full_name divergence; declutter cycle cross-tab view primitive; migrations 014/015 + no-migration-tracker principle; canonical RLS helpers is_member_of/get_current_user_id; catalog SwipeToRemove close-gesture + pointerEvents constraint; is_staple global-boolean data-model defect; shared `CatalogItemRow` for Browse+Search; one-shared-row design principle; domain/brand layering direction; Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
 
 ---
 
@@ -436,6 +436,19 @@ App-level context that is the single source of truth for which household is acti
 
 **Critical invariant:** the cross-effect handoff gate MUST be a STATE value (`bootstrapped`), not a ref. A ref change cannot re-trigger Effect 2. If Effect 2 runs before bootstrap finishes (which is intermittent), it returns early — and if only a ref is set, nothing re-fires. Using state ensures React re-runs Effect 2 the moment bootstrap completes. The `cancelled` flag in Effect 2 cleanup prevents stale async writes after a household switch mid-flight.
 
+### Client-side reconciliation effects — Effect 1b (`full_name` from Clerk) *(2026-07-01 — `src/hooks/useProvisions.js`)*
+
+**Cross-cutting pattern:** Clerk-sourced user attributes that bootstrap cannot reliably capture must be reconciled by their own idempotent effect, decoupled from bootstrap. `bootstrap_new_user` writes such attributes at most once, at the worst possible time (Clerk's `firstName`/`lastName` often arrive *after* the initial session), is a no-op on later sessions, and — critically — cannot take `fullName` as a dep without reintroducing the loading-wedge (see Two-effect pattern). So an attribute written only by bootstrap is written once, too early, and never reconciled.
+
+**Effect 1b** is the reference implementation for `users.full_name`:
+- **Own effect**, deps `[fullName, bootstrapped]` — re-evaluates once bootstrap finishes and again whenever Clerk's name arrives/changes.
+- **Guards:** body no-ops unless `bootstrappedRef.current` && `internalUserIdRef.current` are set and the trimmed name is non-empty.
+- **`lastSyncedNameRef`** prevents a write loop / repeated no-op writes; a reads-before-writes check skips the update when the stored value already equals the incoming name (avoids needless realtime churn).
+- **Reuses the RLS-proven write path** (`db.from("users").update({ full_name }).eq("id", internalUserIdRef.current)` — the same update `updateFullName` runs, which RLS already permits for a user's own row). **Never calls `bootstrap_new_user`**, sidestepping its 4-overload ambiguity entirely.
+- **Non-fatal:** on error it logs and returns — attribution degrades to the email-prefix fallback, never blocks the app.
+- **MUST stay decoupled from the bootstrap effect** — coupling reintroduces the `fullName` loading-wedge the Effect 1 dep-list warns about.
+- **Self-heal, no backfill:** existing NULL `full_name` rows repopulate the next time each user opens the app with a Clerk name present. Do not hand-write names into `users`.
+
 ### App-Level Toast *(built Jun 17 — `src/App.js`)*
 
 Single-slot app-level toast — the in-app notification primitive.
@@ -453,7 +466,11 @@ Any UI state that *describes a specific household* must be cleared when the acti
 
 ### Display-name resolution — Supabase `full_name` first *(2026-06-29 — cross-cutting, `src/App.js`)*
 
-All member-name render sites resolve in the same order: Supabase `full_name` → email-prefix (`email.split("@")[0]`) → role-aware generic (`"You"` / `"Member"` / `"this member"`). The email-prefix is a deliberate fallback (best handle an owner has for an invited-but-unnamed member), not the primary. Clerk-derived names (`user.fullName`) are NOT read for display — Supabase is the source of truth; Clerk is auth-only (see DECISIONS LOG 2026-06-29). Applied at the roster, the "Created by" creator label, and the remove-member confirm; the "added by" label was the pre-existing reference implementation.
+All member-name render sites resolve in the same order: Supabase `full_name` → email-prefix (`email.split("@")[0]`) → role-aware generic (`"You"` / `"Member"` / `"this member"`). The email-prefix is a deliberate fallback (best handle an owner has for an invited-but-unnamed member), not the primary. Clerk-derived names (`user.fullName`) are NOT read for *member* display — Supabase is the source of truth; Clerk is auth-only (see DECISIONS LOG 2026-06-29). Applied at the roster, the "Created by" creator label, and the remove-member confirm; the "added by" label was the pre-existing reference implementation.
+
+**How Supabase `full_name` gets populated (2026-07-01):** it is reconciled *from* Clerk each session by Effect 1b (see "Client-side reconciliation effects" above) — Clerk remains the upstream origin, Supabase the durable source of truth all display reads hit. The one place a Clerk name is read directly at render is the **profile-sheet heading** (`App.js` ~2639), whose own-user fallback chain is `profileName || [firstName, lastName].filter(Boolean).join(" ") || email` — composing from Clerk's name *parts* prevents an email-over-email display when Clerk's composed `fullName` is empty but the parts are set. Long-term this heading should seed `profileName` from `users.full_name` (single source of truth); the compose-from-parts form is the immediate fix.
+
+**Divergence to watch:** `householdMembers.users.full_name` — the embedded snapshot in the client's member array — can lag the base `users.full_name` (the source of truth), so two viewers may briefly see different names for the same member until the stale client re-fetches. This underlies the ~30s propagation symptom; same family as the household-scoped-UI-state-reset pattern. Confirm the member load reads the same source of truth once reconciliation is broadly live.
 
 ### Membership-presence polling — realtime fallback when RLS suppresses soft-delete events *(Jun 22)*
 
