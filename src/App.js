@@ -2636,7 +2636,9 @@ function ProvisionsApp() {
                 style={{ fontWeight: 600, cursor: "pointer" }}
                 onClick={() => setEditingName(true)}
               >
-                {profileName || user?.primaryEmailAddress?.emailAddress}
+                {profileName
+                  || [user?.firstName, user?.lastName].filter(Boolean).join(" ")
+                  || user?.primaryEmailAddress?.emailAddress}
               </div>
             )}
                 <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#A0724A", marginTop: "2px" }}>{user?.primaryEmailAddress?.emailAddress}</div>
