@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-01] — [OurProvisions] — Shipped list text-size control to dev; diagnosed + fixed join-doesn't-activate-household (both dev-only)
+**Goal:** BUILD the fully-specced device-local list text-size control, then diagnose and fix "join should activate the joined household" — client-only, no RPC.
+**Completed:**
+- Built the **list text-size control** (`SPEC_list_text_size.md`) as one scoped commit (`b8368f5`): 5-step stepper (Compact/Default/Large/XL/XXL → 0.9/1.0/1.2/1.45/1.75) in the profile-sheet Preferences (sibling to "Show prices & budget"), persisting the index (not the scale) under `localStorage.op_list_text_size` (default 1). Effect sets `--op-list-scale` on `documentElement`; `:root{--op-list-scale:1}` prevents first-paint flash. Scaled the six row-content classes via `calc(<existing> * var(--op-list-scale))`; added `flex-wrap:wrap` to `.list-item` + `.item-top` so XL/XXL wrap instead of overflowing; all chrome unscaled. Deferred the optional live-preview row.
+- **Diagnosed** the join-activation defect diagnosis-first (`SPEC_join_activates_household.md`, 4-hypothesis truth table) rather than blind-editing — the switch (Route A) already existed. Killed H2 by code (the ref write is synchronous before `await refreshHouseholds()` resolves); an initial `null` from `just_joined_household_id` looked like H1 but was unmasked as a spent-invite reload artifact.
+- **Ruled out H1 on deployed-dev evidence** (Dan, three joins): a fresh-invite consuming load auto-switched an existing multi-household user into the joined household with the banner — so the deployed `bootstrap_new_user` DOES report the existing-user join (`joined_via_invite=true`), resolving the standing CLAUDE.md caution about a possibly-stale RPC version. No RPC touched.
+- Root cause = **one-shot fragility**: the auto-switch lives only on the single invite-consuming load (flags stripped immediately, invite single-use), surviving reload only because `switchHousehold` writes `localStorage.activeHouseholdId`; if that write is interrupted, the next context-init re-pins the prior household with no recovery.
+- **Fixed** it client-only (`1c5a916`): replaced the inline one-shot switch in `App.js` with a reactive `pendingJoinId` (React state) + a `[pendingJoinId, myHouseholds]` effect that fires `switchHousehold` once the joined household resolves in the membership list, then clears the intent. Intent now outlives the stripped flags and localStorage-write timing.
+- Preserved the invariant — the lens (`ActiveHouseholdContext`) stays the single writer; switch routes through `switchHousehold`, never `setHousehold`; dead `acceptInvite` untouched. Both changes `CI=true` build-clean; verified green on deployed dev (text-size persists across hard reload; join auto-switch + reload-persist across three fresh joins on the multi-household profile).
+**Unfinished:**
+- Both changes stopped at dev (commits `b8368f5`, `1c5a916` on `dev`, NOT merged to main). Prod promotion pending.
+- The interrupted-consuming-load window the `pendingJoinId` fix hardens is a race that could not be forced on demand — recovery is reasoned-correct only, not directly reproduced (noted in the commit message).
+- Text-size: second-browser independence + disabled-glyph-at-bounds not formally checked (low-risk; localStorage-only, no sync path).
+- Prod spot-check for the earlier 2026-07-01 full_name + heading merge still not re-confirmed on prod (carried).
+**Next session:**
+SESSION START
+Goal: Merge both dev-verified changes (list text-size + join-activation) to main and confirm on prod; then pick up the NOW headline (per-household staple model, design-first).
+State: List text-size control and join-activation fix both live and verified on dev, stopped at dev. Join auto-switch confirmed on the multi-household profile across three fresh joins, both legs (switch + reload-persist) green.
+Done when: Both changes on main/prod and smoke-verified there; staple-model design work begun (mockup/spec before code).
+**Files updated:** src/App.js (text-size control; join `pendingJoinId` reactive switch). No other source files.
+**DB changes:** None. Both client-only — no schema, no RLS, no RPC. `bootstrap_new_user` explicitly NOT touched (H1 ruled out on evidence).
+
 ### [2026-07-01] — [OurProvisions] — Fixed item-badge / member attribution showing wrong or missing names (full_name never persisted) + profile-heading email-over-email fix
 **Goal:** Diagnose why item badges and member lists showed wrong, missing, or inconsistent adder names ("Test User 30", sometimes blank, sometimes stale), ship a fix, and merge to prod.
 **Completed:**
