@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-07-01 (durable-intent-over-one-shot pattern — invite-join `pendingJoinId` reactive switch + lens-is-single-writer invariant; bootstrap_new_user confirmed to report existing-user invite joins on deployed dev; `--op-list-scale` device-local list text-size preference; client-side reconciliation effects — Effect 1b writes Clerk full_name → users.full_name, decoupled from bootstrap; profile-heading composes Clerk name parts; householdMembers.users.full_name vs users.full_name divergence; declutter cycle cross-tab view primitive; migrations 014/015 + no-migration-tracker principle; canonical RLS helpers is_member_of/get_current_user_id; catalog SwipeToRemove close-gesture + pointerEvents constraint; is_staple global-boolean data-model defect; shared `CatalogItemRow` for Browse+Search; one-shared-row design principle; domain/brand layering direction; Effect 1 deps key on identity only; household-scoped UI-state reset pattern; Supabase-first display-name resolution)*
+*Last updated: 2026-07-03 (receipts + receipt_items schema — pending migration 016; receipt import patterns: two-confidence separation, normalization-first, raw-data-sacred, AI-results-keyed-by-stable-key, shaped-failures; .modal canonical / .modal-box dead; DB truth is a prod query)*
 
 ---
 
@@ -292,15 +292,49 @@ Aggregates average `price_per_unit` per category across all list_items with real
 
 | Migration | Contents | Status |
 |---|---|---|
-| — | `price_history` | Phase 3 |
-| — | `receipts` | Phase 3 |
+| 016 | `receipts` + `receipt_items` tables (see schema below); 4 load-bearing columns pre-seeded (shopped_by, store_key, line_type, numeric quantity) | Designed 2026-07-03 — migration file written in build session |
+| — | `price_history` | Superseded by `receipt_items` as the source-of-truth price record; this table may not be needed |
 | — | `household_category_overrides` | Queued — designed, not built |
-| — | `household_audit_log` | NEW — concept wanted (who-did-what-when); use cases TBD; must stay distinct from behavioral/analytics event stream |
+| — | `household_audit_log` | Concept wanted (who-did-what-when); use cases TBD; must stay distinct from behavioral/analytics event stream |
+
+#### `receipts` (pending migration 016)
+Header/audit object. First-class entity, not a session appendage.
+- `id` uuid PK, `household_id` uuid NOT NULL — RLS via `is_member_of`
+- `session_id` uuid NULL — Phase 2 hook, unused v1
+- `source` text NOT NULL — `'photo'|'email'|'api'`
+- `store_name` text NULL (display), `store_key` text NULL — normalized slug; prevents store fragmentation in analytics
+- `purchased_at` timestamptz NULL — receipt date, not import date
+- `shopped_by` uuid NULL — importer ≠ shopper; required for per-shopper analytics and UC-7/UC-14 attribution
+- `total` / `subtotal` / `tax` numeric NULL
+- `status` text — `'parsing'|'review'|'committed'|'discarded'`
+- `raw_payload` jsonb NULL — full extraction output; never discard
+- `created_by` uuid, `created_at`, `deleted_at`
+
+#### `receipt_items` (pending migration 016)
+One row per line on the receipt.
+- `id` uuid PK, `receipt_id` uuid NOT NULL FK
+- `raw_text` text NOT NULL — verbatim printed text; the audit anchor; never normalized
+- `parsed_name` text NULL, `quantity` **numeric** NULL, `unit` text NULL, `price` numeric NULL (allows negatives for returns/discounts)
+- `catalog_item_id` uuid NULL — NULL = unmatched or new item
+- `match_confidence` numeric NULL — drives the review gate (≤0.80 surfaces to human)
+- `match_source` text — `'deterministic'|'ai'|'human'` — Tier-1 learning hook; `receipt_items` where `match_source='human'` IS the training set
+- `line_type` text — `'item'|'discount'|'tax'|'fee'|'deposit'|'return'` — first-class savings/spend data, not noise
+- `status` text — `'auto'|'needs_review'|'confirmed'|'discarded'`
+- `created_at`, `deleted_at`
+
+**RLS:** `receipts` via `is_member_of(household_id)`; `receipt_items` authorized through parent `receipt`. Identity: `auth.jwt()->>'sub'`, never `auth.uid()`. SECURITY DEFINER RPC for commit if RLS keystones it. Never hard-delete confirmed `receipt_items` — they are the future training set.
+
+**Commit behavior:** confirmed/auto lines → write `receipt_items`, refresh `catalog_items.price_hint` (rolling avg last-N=5 `receipt_items.price`), AND update `category_avg_prices` (existing table). No `list_items` write in v1.
 
 ---
 
 ## Design Principles
 
+- **Two-confidence separation (systemic AI pattern).** `price_confidence` (extraction — how clearly the number was read) must never be conflated with `match_confidence` (reconcile — how confidently the line maps to a catalog item). Conflation produces a system confidently wrong about the thing it should be humble about. *(Established 2026-07-03 — receipt import design.)*
+- **Most "matching" problems are normalization problems.** Normalize (lowercase, strip punctuation, collapse whitespace, alias) before comparing; reach for a fuzzy library only after real data proves deterministic matching is insufficient. KISS. *(Established 2026-07-03.)*
+- **Raw data is sacred.** `raw_payload` (receipt header) + `raw_text` (line) kept redundantly so a better parser can reprocess old receipts without data loss. Confirmed `receipt_items` are soft-delete only — they are the future training set. Never hard-delete confirmed receipt lines. *(Established 2026-07-03.)*
+- **AI results aligned by stable key, never array position.** When returning AI-parsed arrays (e.g. receipt lines), align results by `raw_text` (the verbatim anchor), not by array index — models reorder and drop elements. **Shaped failures** (`{ ok: true/false, ... }`) from every AI call so the UI branches predictably and never silently drops data. *(Established 2026-07-03.)*
+- **`.modal` is the canonical modal card class; `.modal-box` is dead — do not use.** Phantom-class bug found twice (wrap-up modal, Jul 3). Inline `maxWidth` correctly overrides `.modal`'s 420px default. If a third phantom class appears, run a grep-for-orphaned-classnames hygiene pass across `App.js` vs the stylesheet. *(Established 2026-07-03.)*
 - **The shared list is sacred.** No per-user view preference (Hide, filter) ever suppresses what the household has put on the shared list. Personalization lives in the view layer; the list is shared truth. *(Established June 8 — the principle behind the per-user-hide fix.)*
 - **Hide vs. Delete are different verbs for different scopes.** Hide = personal view preference (any item, per-user, reversible). Delete = household action on ownership (custom items only, household-wide, cascades). Item type (`is_global`) determines which verbs are available. See `SPEC_hide_delete.md`.
 - **Own the data from day one.** No vendor lock-in on the data layer.

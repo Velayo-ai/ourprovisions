@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-03] — [Cross] — Receipt import design + use-case validation + fleet/vision brand work; wrap-up modal fix + git reconcile + prod migration verification
+**Goal:** Design the receipt import feature end-to-end and validate against the full downstream vision; reconcile the Harbour fleet and build the investor narrative. Parallel build: ship the wrap-up modal fix and verify prod migration state before promoting.
+**Completed:**
+- Designed the receipt import pipeline as a source-agnostic core (capture → normalize → reconcile → review → commit); photo is the first swappable adapter, email/API later.
+- Settled four load-bearing receipt decisions: confidence-gated review, rolling-average `price_hint` from last-N `receipt_items` (no counter column), alias learning deferred with `match_source` as training hook, and NO `list_items` write in v1.
+- Specced vision extraction (photo→strict JSON, two-confidence separation, structured-refusal rule, defensive parsing) and Tier 1/Tier 2 reconcile (deterministic free / AI paid — gets smarter and cheaper as catalog fills).
+- Documented and validated 17 receipt use cases against live prod schema; surfaced four cheap schema additions (shopped_by, store_key, line_type, numeric quantity) to catch now vs. a painful Phase-4 backfill.
+- Reconciled Harbour fleet to 8 apps; built investor vision narrative (paper→intelligence→the Harbour) with BVI harbour photo graded to brand tokens; exported standalone photo assets to SharePoint.
+- [Parallel] Fixed invisible Cancel button on wrap-up modal — phantom `className="modal-box"` (never defined) → `.modal` (real card class, ~line 1046); inline `maxWidth: 360px` preserved. Commit `91b531a`, verified dev, promoted to prod.
+- [Parallel] Untangled two-machine git divergence (local `main`/`dev` ~30 commits behind `origin/dev`) via merge abort → hard-reset to `origin/main` → merge `dev` → push; no work lost. Confirmed migrations 014 + 015 live on prod by direct query.
+**Unfinished:**
+- Vision extraction UNPROVEN on real thermal-paper receipts — must be first build step (one API call on a real crumpled receipt before any DB work).
+- Four receipt-table columns not yet migrated: `shopped_by`, `store_key` (receipts); `line_type` (receipt_items); migration 016 written in the build session.
+- `OurKeep` and `OurGames` have no user-facing definition — named in the 8-app fleet but not specced.
+- Investor narrative fleet (8 apps) diverges from `Velayo_Harbor_Investor_Narrative.docx` (6 apps); doc needs updating.
+**Next session:**
+SESSION START
+Goal: Take the receipt vision-extraction spec to Claude Code and prove photo → JSON on a real receipt, in isolation, before any schema work.
+State: Wrap-up modal fix live on prod. Migrations 014 + 015 confirmed live on prod. Full receipt import feature designed across 5 airlock artifacts now in `docs/specs/` and `docs/mockups/`. Nothing of the receipt feature built yet — pure design.
+Done when: A real photographed receipt returns valid JSON matching the extraction contract, with honest confidence (a deliberately ambiguous line scores low, not high) and non-item lines flagged.
+**Files updated:** `docs/specs/SPEC_receipt_import.md`, `docs/specs/SPEC_receipt_vision_extraction.md`, `docs/specs/SPEC_receipt_reconcile.md`, `docs/specs/SPEC_receipt_use_cases.md`, `docs/mockups/mockup_receipt_review.html` (all new, filed from handoff). `src/App.js` (wrap-up modal fix, commit `91b531a` — already on prod).
+**DB changes:** None this session. Confirmed live on prod: 014 (auth.uid RLS fix), 015 (helper consolidation). Pending: migration 016 will add `receipts` + `receipt_items` tables.
+
+---
+
 ### [2026-07-01] — [OurProvisions] — Shipped list text-size control to dev; diagnosed + fixed join-doesn't-activate-household (both dev-only)
 **Goal:** BUILD the fully-specced device-local list text-size control, then diagnose and fix "join should activate the joined household" — client-only, no RPC.
 **Completed:**
