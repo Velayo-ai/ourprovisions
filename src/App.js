@@ -2736,7 +2736,7 @@ function ProvisionsApp() {
 
       {showWrapUpModal && (
         <div className="modal-overlay" onClick={() => !wrappingUp && setShowWrapUpModal(false)}>
-          <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: "360px" }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "360px" }}>
 
             {/* Header */}
             <div style={{ marginBottom: "16px" }}>
