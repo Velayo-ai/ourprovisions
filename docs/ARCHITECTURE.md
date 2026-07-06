@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-07-03 (receipts + receipt_items schema — pending migration 016; receipt import patterns: two-confidence separation, normalization-first, raw-data-sacred, AI-results-keyed-by-stable-key, shaped-failures; .modal canonical / .modal-box dead; DB truth is a prod query)*
+*Last updated: 2026-07-05 (beta_signups table spec + insert-only/no-SELECT RLS + mission-control vs. product tables pattern + escape-hatch column split)*
 
 ---
 
@@ -293,6 +293,7 @@ Aggregates average `price_per_unit` per category across all list_items with real
 | Migration | Contents | Status |
 |---|---|---|
 | 016 | `receipts` + `receipt_items` tables (see schema below); 4 load-bearing columns pre-seeded (shopped_by, store_key, line_type, numeric quantity) | Designed 2026-07-03 — migration file written in build session |
+| 017 | `public.beta_signups` (see schema below); RLS enabled; insert-only anon policy | Designed 2026-07-05 — see `docs/specs/SPEC_beta_signups.md`; NOT YET APPLIED |
 | — | `price_history` | Superseded by `receipt_items` as the source-of-truth price record; this table may not be needed |
 | — | `household_category_overrides` | Queued — designed, not built |
 | — | `household_audit_log` | Concept wanted (who-did-what-when); use cases TBD; must stay distinct from behavioral/analytics event stream |
@@ -326,6 +327,25 @@ One row per line on the receipt.
 
 **Commit behavior:** confirmed/auto lines → write `receipt_items`, refresh `catalog_items.price_hint` (rolling avg last-N=5 `receipt_items.price`), AND update `category_avg_prices` (existing table). No `list_items` write in v1.
 
+#### `beta_signups` (pending migration 017)
+Mission-control table #1. Operational telemetry owned by Velayo, distinct from product tables owned by households.
+- `id` uuid PK DEFAULT `gen_random_uuid()`
+- `created_at` timestamptz DEFAULT `now()`
+- `name` text NULL, `email` text NULL
+- `region` text NULL — tap-chip code (`'northeast'|'southeast'|'midwest'|'west'|'pacific'|'international'|'elsewhere'`)
+- `region_other` text NULL — free-text, populated only when `region = 'elsewhere'`; escape-hatch column split pattern
+- `keeps_list` text NULL — `'always'|'usually'|'rarely'|'never'`
+- `who_shops` text NULL — `'me'|'partner'|'split'|'whole_crew'`
+- `store_count` text NULL — `'one'|'two_three'|'four_plus'`
+- `crew` text NULL — `'solo'|'duo'|'family'|'multigenerational'`
+- `multi_household` boolean NULL
+- `list_method` text NULL — `'meals'|'staples'|'mixed'`
+- `wishes` text NULL — open free-text
+- `status` text DEFAULT `'new'` — founder-only: `'new'|'invited'|'declined'|'waitlist'`
+- `fit_note` text NULL — founder-only annotation
+
+**RLS:** RLS enabled (catches the `rls_auto_enable` event trigger). Anon role gets one INSERT policy `with check (true)` and **deliberately no SELECT/UPDATE/DELETE policy**. The absence of a SELECT policy is the security model — a visitor can write a row but can never read one back, protecting `status` and `fit_note` from visitor reads. See `docs/specs/SPEC_beta_signups.md` for the full migration SQL.
+
 ---
 
 ## Design Principles
@@ -358,6 +378,8 @@ One row per line on the receipt.
 - **Vercel CI treats ESLint warnings as errors.** All declared variables must be used before pushing to main.
 - **Stable UUID is the key for all item actions; name strings are display only.** `catalog_item_id` from `listRows` is the durable identifier for every list/catalog operation (`toggleChecked`, `removeFromList`, `hideItem`, `deleteItem`). Item names are used only for optimistic UI state keys and display. Name-keyed lookups into `catalogRef`/`catalogMap` are a fallback of last resort, not the primary path. *(Established Jun 16 — the root cause of two separate name-key bugs: multi-session sync chain + "not in catalog" on rolled-forward items.)*
 - **Filtered views render the same row component as unfiltered views.** Filtering changes the dataset, never the presentation or behavior. The catalog row is one shared component (`CatalogItemRow`); search is a filter over the dataset and must reuse it — never substitute a different row. Applies to the qty stepper (done), the price line (done), and swipe (pending — search rows are not yet wrapped in `SwipeToRemove`). *(Established 2026-06-29 — the root cause of the search-row +1-only stepper bug.)*
+- **Mission-control tables are distinct from product tables.** Product tables (`list_items`, `households`, …) are owned by households, read by members. Mission-control tables (starting `beta_signups`) are owned by Velayo, readable only by the founder. Never mix them — keep them cleanly separated from table #1. *(Established 2026-07-05.)*
+- **Escape-hatch column split: structured code + free-text escape.** When a field has a chip/enum answer set, pair a code column (`region`) with a `_other` free-text column (`region_other`, populated only when code = `'elsewhere'`). Keeps the code column GROUP-BY-able while preserving nuance ("Tortola, BVI") without polluting the GROUP BY. Generalizes to any "pick one + write-in" pattern. *(Established 2026-07-05.)*
 
 ---
 
@@ -618,6 +640,9 @@ Persisted via localStorage. Defaults to `false`. Set in profile sheet. Applies g
 
 ### User Preference: List text size — `--op-list-scale` *(2026-07-01 — `src/App.js`)*
 Device-local list text sizing driven by a single CSS variable. `--op-list-scale` is declared on `:root` with a default of `1` (in the `<style>` block, so it resolves before the effect runs — no first-paint flash), and re-applied on `documentElement` by an effect keyed on the stepper index. Five steps `[0.9, 1.0, 1.2, 1.45, 1.75]` labelled Compact/Default/Large/XL/XXL; the **index** (0–4, default 1) is persisted under `localStorage.op_list_text_size` — the index, not the scale, so the step ladder can be retuned without migrating stored values. Six row-content classes scale via `calc(<existing> * var(--op-list-scale))` — Browse `.item-name` / `.price-display` / `.item-subtotal` and My List `.li-name` / `.li-qty` / `.li-subtotal`; all chrome (category titles, progress, budget, tabs, header) stays fixed. `.list-item` and `.item-top` get `flex-wrap: wrap` so XL/XXL wrap to a second line instead of overflowing. Device-local by design — never account-synced (text size is a property of the screen and the light, not the person); the control lives in Preferences (set ~once per device), not on the list. Governs Browse and My List with one variable so the setting is one coherent choice across tabs.
+
+### Insert-only / no-SELECT RLS pattern *(established 2026-07-05 — `beta_signups`)*
+First table accepting writes from unauthenticated (anon) users. The `rls_auto_enable` event trigger locks it on creation. Grant the `anon` role one INSERT policy with `with check (true)` and **deliberately NO SELECT, UPDATE, or DELETE policy**. The absence of a SELECT policy is the security model: a visitor can write a row but can never read one back, protecting founder-only operational columns (`status`, `fit_note`) from visitor reads. This is the first Supabase surface in the system that runs without a Clerk identity — correct and deliberate for pre-auth beta applicants.
 
 ---
 

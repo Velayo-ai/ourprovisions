@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-05] — [OurProvisions] — Design "Come aboard" beta landing page + signup, grounded in sourced savings argument
+**Goal:** Turn the "Come aboard" CTA into a real front door — a beta signup questionnaire backed by Supabase — and reframe the landing page around a bold, sourced business case that pivots from money to life.
+**Completed:**
+- Reframed "Come aboard" from a plain CTA into a short questionnaire — completing it *is* coming aboard; friction qualifies applicants ("willing to give to get") and pre-validates roadmap phases with GTM research.
+- Locked questionnaire: 7 behavioral questions (keeps_list, who_shops, store_count, crew, multi_household, list_method, region) + optional free-text (wishes) + name/email. Cut income, age, "do you cook?" against the "does the answer change a 6-month decision?" test.
+- Designed sine-wave landing flow: Boardroom (rational peak) → Trough (out-of-control feeling) → Ah-ha (biggest problem, smallest fix = a list) → Vision overshoot → Front Door (questionnaire). Questionnaire at the END because problem-led opening peaks intent there.
+- Settled the fundamental ache framing: groceries are the largest *controllable* household expense and it feels out of control; the humble fix is a list; a list is the gateway to a better life. Lead with the wallet, land on the life.
+- Researched and sourced the savings claim. Killed bare "10–20%" and phantom "NYT 10%" stat (neither defensible). Anchored on Davydenko & Peetz (2020), *Journal of Consumer Behaviour* — randomized studies, list-makers spend ~$10–13 less per trip (~10% on a $108 trip).
+- Flagged gap in investor Vision Roadmap: no external savings citation — only illustrative in-app figures. Closes with the JCB source.
+- Produced `SPEC_beta_signups.md`, `mockup_come_aboard.html`, `EVIDENCE_grocery_savings.md` (all filed or surfaced per below).
+**Unfinished:**
+- Boardroom→trough→ah-ha hero copy not yet drafted to final — next drafting pass uses `EVIDENCE_grocery_savings.md`.
+- Movement II placement pattern unresolved: full questionnaire inline vs. short invitation with questions-on-tap (reveal). Leaning invitation-on-tap.
+- Questionnaire mockup not yet eye-tested by Dan for warmth (warm handshake vs. survey).
+- `beta_signups` migration NOT yet run; anon insert NOT yet wired; questionnaire NOT yet spliced into the page.
+**Next session:**
+SESSION START
+Goal: Draft boardroom→trough→ah-ha hero copy to final using `EVIDENCE_grocery_savings.md`; resolve Movement II inline-vs-reveal fork; eye-test mockup; then Claude Code BUILD: run migration → wire anon insert → splice questionnaire into page.
+State: Questionnaire question set locked. `beta_signups` schema + insert-only RLS spec written (not yet applied). Sine-wave flow + money-ache reframe settled. Savings evidence sourced. Mockup awaiting approval. Nothing applied to prod yet.
+Done when: Hero copy final and sourced; Movement II pattern chosen; mockup approved or revised; clean BUILD handoff exists.
+**Files updated:** `docs/specs/SPEC_beta_signups.md` (new), `docs/mockups/mockup_come_aboard.html` (new). `EVIDENCE_grocery_savings.md` in airlock — destination TBD (surfaced to Dan).
+**DB changes:** None applied. Pending (in SPEC_beta_signups.md): create `public.beta_signups` on prod, enable RLS, insert-only anon policy.
+
+---
+
 ### [2026-07-03] — [Cross] — Receipt import design + use-case validation + fleet/vision brand work; wrap-up modal fix + git reconcile + prod migration verification
 **Goal:** Design the receipt import feature end-to-end and validate against the full downstream vision; reconcile the Harbour fleet and build the investor narrative. Parallel build: ship the wrap-up modal fix and verify prod migration state before promoting.
 **Completed:**
