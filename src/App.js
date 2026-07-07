@@ -507,8 +507,14 @@ function ProvisionsApp() {
     return matches;
   }, [searchQuery, categories]);
 
-  // Show join banner if user joined via invite during bootstrap.
-  // Conditionally moves the active-household pointer to the joined one.
+  // Show the join banner once the lens has landed on the joined household.
+  // Banner DISPLAY ONLY — the switch itself is driven by the durable-intent effect
+  // below, decoupled from this guard. (Previously the switch was wired here, gated
+  // on `household.name !== "My Household"`. That guard is exactly false for an
+  // existing user still active in "My Household" whose lens hasn't moved yet, so on
+  // slower prod loads the join flag was never consumed and the switch never fired.
+  // See docs/SPEC_join_activates_household ADDENDUM_reopen.) We clear only the
+  // banner-NAME flag here; the `_id` flag is consumed solely on a confirmed switch.
   useEffect(() => {
     if (loading || !household) return;
     const params = new URLSearchParams(window.location.search);
@@ -518,51 +524,49 @@ function ProvisionsApp() {
       if (justJoined) {
         setJoinBanner(justJoined); // always fires — sole feedback in the silent-join case
         sessionStorage.removeItem("just_joined_household");
-        const joinedId = sessionStorage.getItem("just_joined_household_id");
-        sessionStorage.removeItem("just_joined_household_id");
-        // joinedId is set (useProvisions Effect 1) ONLY when an invite was
-        // explicitly accepted this load (joined_via_invite). That is the correct
-        // signal to auto-switch: an explicit accept moves the user into the
-        // joined household, for new AND established users. A future passive /
-        // admin-provisioned join would NOT set joinedId, so it correctly does
-        // not move the user's active view. (Harbour membership model: explicit
-        // accept switches; passive grant does not.)
-        // Switch is safe — Effect 2 reloads per-household state from the DB on
-        // activeHouseholdId change; no in-memory state to clobber, no snapshot.
-        if (joinedId) {
-          // Capture the switch INTENT in component state rather than firing the
-          // switch inline here. The sessionStorage flags are single-load (bootstrap
-          // strips ?invite= and the invite is single-use), so an inline switch that
-          // is interrupted before switchHousehold writes localStorage.activeHouseholdId
-          // — a slow refreshHouseholds, a mid-flight reload, the membership guard
-          // rejecting on a slower network — loses the intent forever: the flags are
-          // gone and the spent invite never re-flags. pendingJoinId keeps the intent
-          // alive in React state so the reactive effect below completes the switch
-          // whenever myHouseholds resolves. refreshHouseholds() nudges that list to
-          // include the joined household.
-          setPendingJoinId(joinedId);
-          refreshHouseholds();
-        } else {
-          // No joinedId (edge case): refresh so any new household appears in the
-          // switcher; leave active context unchanged.
-          refreshHouseholds();
-        }
       }
     }
   }, [loading, household]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reactive completion of the invite-join switch. Decoupled from the single-load
-  // sessionStorage flags and from localStorage timing: once myHouseholds contains
-  // the pending id (membership resolved), route the switch through the lens — the
-  // single writer of the active household — then clear the intent. If the id never
-  // appears (e.g. join failed), the intent simply stays parked and no switch fires.
+  // Durable, retriable completion of the invite-join switch (ADDENDUM_reopen).
+  // The sessionStorage flag `just_joined_household_id` — written by useProvisions
+  // Effect 1 on joined_via_invite — is the source of truth for "unfinished join
+  // intent": it survives reload, React state does not. We derive the switch from it
+  // on EVERY relevant render (not once), so a slow prod membership propagation
+  // (the joined household populating into myHouseholds a beat after load) can't
+  // strand the join. The lens (switchHousehold) remains the single writer.
+  const joinRefreshTriesRef = useRef(0);
   useEffect(() => {
-    if (!pendingJoinId) return;
-    if (myHouseholds.some((h) => h.id === pendingJoinId)) {
-      switchHousehold(pendingJoinId);
-      setPendingJoinId(null);
+    if (loading) return;
+    const joinedId = sessionStorage.getItem("just_joined_household_id");
+    if (!joinedId) return; // no unfinished join intent
+
+    // Switch confirmed — the lens now points at the joined household. Consume the
+    // durable flag and clear the intent ONLY here, after activeHouseholdId agrees.
+    // Clearing before this is what stranded the intent on prod.
+    if (activeHouseholdId === joinedId) {
+      sessionStorage.removeItem("just_joined_household_id");
+      if (pendingJoinId) setPendingJoinId(null);
+      joinRefreshTriesRef.current = 0;
+      return;
     }
-  }, [pendingJoinId, myHouseholds]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Intent alive but not yet landed — keep pendingJoinId in sync with the flag.
+    if (pendingJoinId !== joinedId) setPendingJoinId(joinedId);
+
+    // Membership resolved: route the switch through the lens (the single writer).
+    if (myHouseholds.some((h) => h.id === joinedId)) {
+      switchHousehold(joinedId);
+      return;
+    }
+
+    // Membership not yet propagated (prod latency): nudge get_my_households a bounded
+    // number of times so a slow propagation can't strand the join indefinitely.
+    if (joinRefreshTriesRef.current < 4) {
+      joinRefreshTriesRef.current += 1;
+      refreshHouseholds();
+    }
+  }, [loading, activeHouseholdId, myHouseholds, pendingJoinId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-dismiss the join banner: on a timer (success confirmations self-clear),
   // and immediately if the user switches away from the joined household (the
