@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-07-05 (beta_signups table spec + insert-only/no-SELECT RLS + mission-control vs. product tables pattern + escape-hatch column split)*
+*Last updated: 2026-07-06 (feedback + dispatches tables queued; iOS install coach-mark + cold-start gate patterns; telemetry loop principle)*
 
 ---
 
@@ -294,6 +294,8 @@ Aggregates average `price_per_unit` per category across all list_items with real
 |---|---|---|
 | 016 | `receipts` + `receipt_items` tables (see schema below); 4 load-bearing columns pre-seeded (shopped_by, store_key, line_type, numeric quantity) | Designed 2026-07-03 — migration file written in build session |
 | 017 | `public.beta_signups` (see schema below); RLS enabled; insert-only anon policy | Designed 2026-07-05 — see `docs/specs/SPEC_beta_signups.md`; NOT YET APPLIED |
+| 018 | `public.feedback` — "Message the bridge" store (per-submission auto-context: page, household_id, app_version, clerk_id, message) | Designed 2026-07-06 — see `docs/SPEC_feedback_bridge.md`; NOT YET APPLIED |
+| 019 | `public.dispatches` — in-app what's-new notices; per-user dismissal behavior TBD | Designed 2026-07-06 — see `docs/SPEC_dispatches.md`; NOT YET APPLIED |
 | — | `price_history` | Superseded by `receipt_items` as the source-of-truth price record; this table may not be needed |
 | — | `household_category_overrides` | Queued — designed, not built |
 | — | `household_audit_log` | Concept wanted (who-did-what-when); use cases TBD; must stay distinct from behavioral/analytics event stream |
@@ -378,6 +380,7 @@ Mission-control table #1. Operational telemetry owned by Velayo, distinct from p
 - **Vercel CI treats ESLint warnings as errors.** All declared variables must be used before pushing to main.
 - **Stable UUID is the key for all item actions; name strings are display only.** `catalog_item_id` from `listRows` is the durable identifier for every list/catalog operation (`toggleChecked`, `removeFromList`, `hideItem`, `deleteItem`). Item names are used only for optimistic UI state keys and display. Name-keyed lookups into `catalogRef`/`catalogMap` are a fallback of last resort, not the primary path. *(Established Jun 16 — the root cause of two separate name-key bugs: multi-session sync chain + "not in catalog" on rolled-forward items.)*
 - **Filtered views render the same row component as unfiltered views.** Filtering changes the dataset, never the presentation or behavior. The catalog row is one shared component (`CatalogItemRow`); search is a filter over the dataset and must reuse it — never substitute a different row. Applies to the qty stepper (done), the price line (done), and swipe (pending — search rows are not yet wrapped in `SwipeToRemove`). *(Established 2026-06-29 — the root cause of the search-row +1-only stepper bug.)*
+- **Telemetry loop: passive + active channels.** RUM/session-replay is the passive channel (Splunk); "Message the bridge" is the active channel. Together they are the rolling-thunder engine — a prod JS error or failed Supabase write should reach Dan within the hour (alert), not just a dashboard. Close the gap on the passive channel before beating the drum on the active one. *(Established 2026-07-06.)*
 - **Mission-control tables are distinct from product tables.** Product tables (`list_items`, `households`, …) are owned by households, read by members. Mission-control tables (starting `beta_signups`) are owned by Velayo, readable only by the founder. Never mix them — keep them cleanly separated from table #1. *(Established 2026-07-05.)*
 - **Escape-hatch column split: structured code + free-text escape.** When a field has a chip/enum answer set, pair a code column (`region`) with a `_other` free-text column (`region_other`, populated only when code = `'elsewhere'`). Keeps the code column GROUP-BY-able while preserving nuance ("Tortola, BVI") without polluting the GROUP BY. Generalizes to any "pick one + write-in" pattern. *(Established 2026-07-05.)*
 
@@ -643,6 +646,12 @@ Device-local list text sizing driven by a single CSS variable. `--op-list-scale`
 
 ### Insert-only / no-SELECT RLS pattern *(established 2026-07-05 — `beta_signups`)*
 First table accepting writes from unauthenticated (anon) users. The `rls_auto_enable` event trigger locks it on creation. Grant the `anon` role one INSERT policy with `with check (true)` and **deliberately NO SELECT, UPDATE, or DELETE policy**. The absence of a SELECT policy is the security model: a visitor can write a row but can never read one back, protecting founder-only operational columns (`status`, `fit_note`) from visitor reads. This is the first Supabase surface in the system that runs without a Clerk identity — correct and deliberate for pre-auth beta applicants.
+
+### iOS install coach-mark pattern *(established 2026-07-06 — `SPEC_pwa_install_coachmark.md`)*
+Detection gate: iOS + Safari + `navigator.standalone === false` + localStorage dismissal-count < 2. Two-step dismissal ladder: first open shows the coach-mark; next fresh open re-offers with softer "last call" copy; second dismiss → never again. "Visit" = fresh app open (distinguishes opens from background resume). Counter persisted in localStorage — per-device by design; clearing data or using a new device re-offers, which is correct for a home-screen nudge. Android untouched — Chrome's native Add-to-Home-Screen prompt handles it. Goal: remove Dan from the install loop on both platforms.
+
+### New-user cold-start gate *(established 2026-07-06 — `SPEC_new_user_coldstart.md`)*
+A timed walk must prove before the signup email flips to self-serve: (1) a zero-state Clerk identity creates a household without confusion, (2) adds a first item that persists, (3) Realtime behaves for a solo brand-new household, and (4) the first screen is a warm empty-state — not a void. Cold-start is a test-and-fix cycle, not a feature build. Full self-serve "come aboard" link is honest only once a true zero-state user is verified to onboard cleanly; until green, the email stays personal.
 
 ---
 

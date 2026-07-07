@@ -1,5 +1,5 @@
 # OurProvisions — Roadmap
-*Last updated: 2026-07-05*
+*Last updated: 2026-07-06*
 
 ---
 
@@ -12,6 +12,18 @@
 ---
 
 ## NOW — Active Sprint
+
+### Beat 0 — Launch floor + two-way channel *(this week)*
+
+| Priority | Feature | Spec |
+|---|---|---|
+| **P0** | **Join-activation fix** — A fresh invite-accept must land the user in the correct household on first render. The invite path is the launch. | `docs/SPEC_join_activates_household_ADDENDUM_reopen.md` |
+| Beat 0 | **iOS install coach-mark** — iOS Safari only; first-open show; two-step dismissal ladder (shows twice, then never again); localStorage counter per device. Android deferred to Chrome native prompt. | `docs/SPEC_pwa_install_coachmark.md` |
+| Beat 0 | **"Message the bridge" feedback** — In-app feedback channel: auto-captures page, household ID, app version, Clerk ID + user message; store + notify path with store-only fallback. | `docs/SPEC_feedback_bridge.md` |
+| Beat 0 | **Dispatches** — In-app what's-new surface: one authored beat message → Mailchimp + in-app banner + social. **Dismissal behavior TBD** (do not build dismissal until chosen). | `docs/SPEC_dispatches.md` |
+| Beat 0 | **New-user cold-start walk** — Timed walk: prove zero-state Clerk identity creates household, adds first item, Realtime behaves, first screen is warm empty-state. Gates the signup-email flip to self-serve. | `docs/SPEC_new_user_coldstart.md` |
+
+### Other NOW
 
 | # | Feature | Notes |
 |---|---|---|
@@ -33,9 +45,9 @@
 | — | **`SwipeToRemove` deferred close-gestures** | Shipped 2026-06-29 (see DONE): search-parity (search rows now wrap `SwipeToRemove`), swipe-right-to-close past the 60px threshold, and the `pointerEvents`-on-open unblock. **Remaining, deferred per "wait until users complain":** tap-away to close, single-open-at-a-time (needs lifted/shared state across instances — own session), velocity-based flick. Dan will watch whether users naturally swipe-right vs. reach to tap before building any of these. |
 | — | **Manage-household surface redesign** | Re-sort by frequency × gravity: open-door actions (invite, create) earn prominence; heavy actions (delete, leave) get a quiet home, never front-door volume. Current surface tangles household vs member actions and over-weights Delete. Direction set 2026-06-29; mockup pending. |
 | — | **Shared declutter cycle (Browse + Shop)** *(designed + spec'd — agent-build candidate)* | One fixed 48×48 icon shared by both tabs: bg light/dark = Filter Off/On, line shape tapering/equal = Grouped/Flat. 3 phases: all-shown/grouped → noise-hidden/grouped → hidden/flat A–Z. On Browse phase-1 hides filter pills; on Shop phase-1 hides checked items. Substantial build (new Shop "hide checked" + new Browse flat render + unifying both tabs on one control). The cycle changes *view* only — never clears filters/checked-state. Build phase-2 flat render on Browse by lifting Shop's `showCategories` flat pattern (App.js ~2003–2063). Per `docs/SPEC_declutter_cycle.md` (reference mockup `docs/mockups/cycle_dual_readout.html`). Graduated from the old "filter show/hide toggle" + standalone grouped/flat items, both now superseded; `SPEC_filter_show_hide` retired 2026-06-30. |
-| — | **`ourprovisions.app` single-voice landing page** | Sine-wave flow: Boardroom (savings rational) → Trough (out-of-control feeling) → Ah-ha (list = humble fix) → Vision (gateway to a better life) → Front Door (questionnaire). Hero copy to final (uses `EVIDENCE_grocery_savings.md`); Movement II placement pattern resolved (inline vs. invitation-on-tap); beta signup questionnaire wired (7 behavioral questions + name/email, Supabase anon insert, `beta_signups` table). Per `docs/mockups/mockup_come_aboard.html` + `docs/specs/SPEC_beta_signups.md`. |
+| — | **`ourprovisions.app` single-voice landing page** | Sine-wave flow: Boardroom (savings rational) → Trough → Ah-ha → Vision → Front Door. **Front door = Mailchimp capture (questionnaire dropped for beta).** Hero copy to final (uses `EVIDENCE_grocery_savings.md`); Movement II placement pattern resolved. Per `docs/mockups/mockup_come_aboard.html`. |
 | — | **Patch Vision Roadmap with JCB savings citation** | `Velayo_Harbor_Investor_Narrative.docx` carries no external savings citation — only illustrative in-app figures. Add Davydenko & Peetz (2020), *J. Consumer Behaviour* anchor: list-makers spend ~$10–13 less per trip. See `EVIDENCE_grocery_savings.md`. |
-| — | **`beta_signups` mission-control table (migration 017)** | Table #1 of the mission-control layer (Velayo-owned telemetry, distinct from product tables). Per `docs/specs/SPEC_beta_signups.md`: create table on prod, enable RLS, anon INSERT-only policy, no SELECT. Apply migration → wire anon insert in landing page → splice questionnaire. |
+| — | **`beta_signups` mission-control table (migration 017)** | Table #1 of the mission-control layer (Velayo-owned telemetry). **Questionnaire dropped for beta front door; `beta_signups` retained as the store for any future structured intake (post-Mailchimp-phase).** Per `docs/specs/SPEC_beta_signups.md`. |
 | — | **Receipt import v1 (photo)** | Feature fully designed across 4 specs in `docs/specs/` + review mockup in `docs/mockups/`. Build sequence: (1) prove photo→JSON vision extraction on a real receipt in isolation before any DB work; (2) write migration 016 (`receipts` + `receipt_items` tables + 4 pre-seeded columns); (3) build reconcile + review UI; (4) commit flow + `price_hint` rolling-average refresh. Confidence-gated review (≤0.80 surfaces to human; above auto-commits but stays auditable). NO `list_items` write in v1. Source-agnostic core — email/API adapters are Phase 2+. |
 | — | **Create household with cloned catalog** | Build `create_household_from_template` per `docs/SPEC_create_household_from_template.md`. New RPC wraps `create_household` (006); clones source household's custom catalog into the new one (snapshot, not live link); null source = passthrough ("Standard provisions"). Client: dropdown picker in manage-household sheet. Resolve item-count RPC shape + most-recently-active default during build. |
 | — | **Reconcile `migrations/` folder** | Fix the `007` numbering collision (`docs/007_dev_restore_role_grants.sql` — a 007-numbered migration filed under `docs/` — vs canonical `migrations/007_finish_authorize_sweep.sql`); recover/locate `009`–`012` (described in docs and confirmed live on prod but absent from local folder); enforce gapless ordering. **2026-06-29:** `014`/`015` now on disk, so the high-water mark is `015`; the `009`–`012` gap and the `007` collision still stand (confirmed by harness Part C — C2). Prerequisite for Supabase CLI workflow and agent test harness Part B. |
@@ -322,6 +334,14 @@ Closes the loop. Turns data into action.
 | 2026-07-05 | **Savings claim discipline: cite ~$10–13/trip (≈10%), never a bare "10–20%".** Upper range conflates bundled tactics (store-brands, sales) with the list alone. Anchor = Davydenko & Peetz (2020), J. Consumer Behaviour (randomized → causal). |
 | 2026-07-05 | **Questionnaire field test = "does the answer change a decision in the next 6 months?"** Cut income (privacy weight, wrong tone), age (no near-term decision), "do you cook?" (identity, gameable, Phase 5). |
 | 2026-07-05 | **Ask about behavior your next phase touches; let downstream reveal itself in free-text.** `list_method` (meals/staples/mixed) tests meal-planning-driven list priority as behavior, not the "do you cook?" identity. |
+| 2026-07-06 | **Adopt a 45-day high-velocity "rolling thunder" beta (~6 weekly beats) instead of one polished launch.** Audience is friends/social connections invested in Dan's journey, not feature-evaluators; the cadence itself is the engagement product ("we heard you, we shipped again"). Bar moves from "flawless" to "alive and honest." Polish backlog becomes per-beat ammunition, not debt. |
+| 2026-07-06 | **Beat order fixed for 0–2, held open for 3+.** Beat 0 = launch floor + two-way channel; Beat 1 = Shop/Filter (first visible ExD); Beat 2 = receipts (first AI). Beats 3–6 deliberately unplanned so "we heard you" is real, not slogan. |
+| 2026-07-06 | **Two front doors, one list: velayo.ai (brand/journey) + ourprovisions.app (product) both feed one Mailchimp audience.** Build one capture, two front-ends — never two parallel signup systems. |
+| 2026-07-06 | **Drop the landing-page beta questionnaire. Mailchimp email capture replaces it for beta.** The questionnaire was a marketing surface solving a problem (convince a stranger) Dan doesn't have yet. `beta_signups` table retained for future structured intake. |
+| 2026-07-06 | **Signup automation stays capture+notify with a self-serve "come aboard" link, gated on the cold-start walk passing.** Full self-serve is honest only once a true zero-state user is verified to onboard cleanly. |
+| 2026-07-06 | **Install is optional; the link is the real front door.** iOS "add to home screen" is guided by the app (coach-mark), never by Dan walking someone through the Share menu. Goal: remove Dan from the install loop on both platforms. |
+| 2026-07-06 | **Platform question settled: web (React) for the entire beta.** Native (Expo/RN) stays post-beta Phase 5 — App Store review would break the weekly deploy cadence and add install friction to the 3-minute bar. |
+| 2026-07-06 | **Beat 1 = Shop/Filter controls (existing spec); Beat 2 = receipt scanning (existing specs) — reframed as headline ExD and "first intelligence" moments respectively, not quiet phase transitions.** |
 
 ---
 

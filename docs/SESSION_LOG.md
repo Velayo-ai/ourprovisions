@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-06] — [OurProvisions] — Plan the 45-day rolling-thunder beta launch
+**Goal:** Design the structure, front door, and Beat 0 scope for a high-velocity beta that ramps engagement with a wider circle of friends and social connections.
+**Completed:**
+- Reframed the launch from "one polished release" to a 45-day high-velocity "rolling thunder" beta: ~6 weekly beats, cadence-as-product, "we're doing this together, you're aboard" narrative.
+- Structured the beats: Beat 0 = launch floor + two-way channel (this week); Beat 1 = Shop/Filter (first visible ExD); Beat 2 = receipts (first AI); Beats 3–6 deliberately held open for real feedback.
+- Settled the front-door architecture: velayo.ai (brand/journey) + ourprovisions.app (product) both feed ONE Mailchimp list; dropped the landing-page questionnaire (Mailchimp capture replaces it).
+- Designed Beat 0 two-way channel: "Message the bridge" in-app feedback (store + notify, auto-context) and "Dispatches" in-app what's-new surface (one message → Mailchimp + in-app banner + social).
+- Designed iOS install coach-mark in full: iOS Safari only, first-open show, two-step dismissal ladder, localStorage counter, "visit" = fresh app open; Android deferred to Chrome's native prompt.
+- Confirmed self-serve cold-start is viable (household creation on first run already exists); gated the signup-email flip on a timed cold-start walk verifying clean zero-state onboard.
+- Held join-activation fix as P0 launch-blocker — the invite path is the launch.
+- [Session housekeeping] Completed July 5 SESSION END carry-over: appended 7 decisions, updated ARCHITECTURE.md with `beta_signups` schema/patterns, filed `EVIDENCE_grocery_savings.md` to `docs/`, committed `8956c07`.
+**Unfinished:**
+- Dispatch dismissal behavior undecided (lean: always-show-latest + ship's-log panel).
+- Signup email flip to self-serve — gates on cold-start walk verdict; not decidable in design chat alone.
+- All four Beat 0 specs authored; none yet built or applied to prod.
+**Next session:**
+SESSION START
+Goal: Execute Beat 0 — ship the join-activation fix (P0) as the first clean win, then run the timed new-user cold-start walk.
+State: Phase 1 live (core list, household sharing, categories, budget, waste tracker); Realtime on list_items + household_members; Splunk RUM + session replay live on prod; velayo.ai form posts to Mailchimp; cold-start household creation exists but not yet walked as a true zero-state user.
+Done when: A fresh test identity accepts an invite via link and lands in the correct household on first render, verified on deployed dev then promoted to prod (DT + a Gmail plus-alias, two devices).
+**Files updated:** `docs/SPEC_pwa_install_coachmark.md` (new), `docs/SPEC_feedback_bridge.md` (new), `docs/SPEC_dispatches.md` (new), `docs/SPEC_new_user_coldstart.md` (new).
+**DB changes:** None applied. Pending (Beat 0 build): `feedback` table, `dispatches` table.
+
+---
+
 ### [2026-07-05] — [OurProvisions] — Design "Come aboard" beta landing page + signup, grounded in sourced savings argument
 **Goal:** Turn the "Come aboard" CTA into a real front door — a beta signup questionnaire backed by Supabase — and reframe the landing page around a bold, sourced business case that pivots from money to life.
 **Completed:**
