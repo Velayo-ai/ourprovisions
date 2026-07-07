@@ -1116,6 +1116,17 @@ function ProvisionsApp() {
               >
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </button>
+            ) : !isLoaded ? (
+              // Clerk not loaded yet: render the buttons immediately (no layout
+              // shift) but DISABLED, so a click can't hit a not-yet-wired modal
+              // trigger. On a cold load the SignInButton/SignUpButton modal handlers
+              // aren't live until Clerk finishes; showing them enabled produced dead
+              // buttons until a refresh. Same dimensions as the live buttons below —
+              // only cursor + opacity differ. Swaps to live once isLoaded is true.
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button disabled style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "default", opacity: 0.5 }}>Sign In</button>
+                <button disabled style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "default", opacity: 0.5 }}>Sign Up</button>
+              </div>
             ) : (
               <div style={{ display: "flex", gap: "8px" }}>
                 <SignInButton mode="modal">
