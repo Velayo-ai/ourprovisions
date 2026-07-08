@@ -457,14 +457,28 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         hiddenCatalogItemsRef.current = hiddenCatalogList;
         setHiddenCatalogItems(hiddenCatalogList);
 
-        // Global catalog
-        const { data: catalog, error: catalogErr } = await db
-          .from("catalog_items")
-          .select("id, name, category, is_global, price_hint, is_staple")
-          .eq("is_global", true)
-          .is("deleted_at", null);
+        // Global catalog — the shared seed set (~50 rows) that ALWAYS exists.
+        // On a cold start the first read can return empty (or transiently error)
+        // before the session/RLS is warm; proceeding then would strand
+        // catalogMap={} with loading already false, so Browse renders a blank
+        // void until something forces a refetch — the "empty until you tap a
+        // filter" cold-start bug (a filter can't add rows; the data was simply
+        // missing). An empty global catalog is never legitimate, so retry with a
+        // short backoff before giving up.
+        let catalog = null;
+        let catalogErr = null;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          ({ data: catalog, error: catalogErr } = await db
+            .from("catalog_items")
+            .select("id, name, category, is_global, price_hint, is_staple")
+            .eq("is_global", true)
+            .is("deleted_at", null));
+          if (cancelled) return;
+          if (!catalogErr && catalog && catalog.length > 0) break;
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+          if (cancelled) return;
+        }
         if (catalogErr) { setError(`Could not load catalog: ${catalogErr.message}`); setLoading(false); return; }
-        if (cancelled) return;
 
         // Custom catalog (household-scoped)
         const { data: customItems, error: customErr } = await db
