@@ -48,6 +48,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const justJoinedViaInviteRef = useRef(false);
   const realtimeChannelRef = useRef(null);
 
+  // Staple state is per-household row-presence in household_staples (migration
+  // 016) — the single source of truth for BOTH global and custom items. Returns
+  // the set of catalog_item_ids this household has stapled, so catalog reads can
+  // stamp is_staple per item without trusting the dormant catalog_items column.
+  async function fetchStapleSet(db, householdId) {
+    const { data } = await db
+      .from("household_staples")
+      .select("catalog_item_id")
+      .eq("household_id", householdId);
+    return new Set((data || []).map((r) => r.catalog_item_id));
+  }
+
   async function loadListItems(db, householdId) {
     if (wrappingUpRef.current) return;
     const { data: items, error: listErr } = await db
@@ -464,12 +476,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         if (customErr) { setError(`Could not load custom items: ${customErr.message}`); setLoading(false); return; }
         if (cancelled) return;
 
+        // Per-household staples (row-presence). is_staple is stamped from this
+        // set, NOT the shared catalog_items column (migration 016).
+        const stapleSet = await fetchStapleSet(db, hh.id);
+        if (cancelled) return;
+
         const cMap = {};
         (catalog || []).forEach((item) => {
-          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: null };
+          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, is_staple: stapleSet.has(item.id), created_by: null };
         });
         (customItems || []).forEach((item) => {
-          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
+          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, is_staple: stapleSet.has(item.id), created_by: item.created_by ?? "custom" };
         });
         setCatalogMap(cMap);
         catalogRef.current = cMap;
@@ -1248,14 +1265,19 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     reportSuccess();
 
+    // Per-household staples (row-presence, migration 016). Reading this here —
+    // instead of the shared catalog_items.is_staple column — is what makes a
+    // global-item staple PERSIST across the poll instead of reverting to grey.
+    const stapleSet = await fetchStapleSet(db, hh.id);
+
     const next = {};
     (catalog || []).forEach((item) => {
       if (hiddenIdsRef.current.has(item.id) || deletedIdsRef.current.has(item.id)) return; // never show hidden or just-deleted
-      next[item.name] = { ...item, created_by: null };
+      next[item.name] = { ...item, is_staple: stapleSet.has(item.id), created_by: null };
     });
     (customItems || []).forEach((item) => {
       if (hiddenIdsRef.current.has(item.id) || deletedIdsRef.current.has(item.id)) return;
-      next[item.name] = { ...item, created_by: item.created_by ?? "custom" };
+      next[item.name] = { ...item, is_staple: stapleSet.has(item.id), created_by: item.created_by ?? "custom" };
     });
 
     // Guarded merge: only commit if the catalog actually changed, so a
@@ -1339,11 +1361,23 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const item = catalogRef.current[itemName];
     if (!item) return;
     const newVal = !item.is_staple;
-    const { error: stapleErr } = await db
-      .from("catalog_items")
-      .update({ is_staple: newVal })
-      .eq("id", item.id);
-    if (stapleErr) { setError(`Could not update staple: ${stapleErr.message}`); return; }
+    // Staple is per-household row-presence in household_staples (migration 016),
+    // uniform for global AND custom items. The old catalog_items UPDATE silently
+    // no-op'd on global rows (household_id=NULL failed the RLS USING clause).
+    if (newVal) {
+      const { error: insErr } = await db
+        .from("household_staples")
+        .insert({ household_id: hh.id, catalog_item_id: item.id });
+      // 23505 = unique_violation (already stapled: double-tap / race) → success.
+      if (insErr && insErr.code !== "23505") { setError(`Could not update staple: ${insErr.message}`); return; }
+    } else {
+      const { error: delErr } = await db
+        .from("household_staples")
+        .delete()
+        .eq("household_id", hh.id)
+        .eq("catalog_item_id", item.id);
+      if (delErr) { setError(`Could not update staple: ${delErr.message}`); return; }
+    }
     const updated = { ...item, is_staple: newVal };
     catalogRef.current = { ...catalogRef.current, [itemName]: updated };
     setCatalogMap(prev => ({ ...prev, [itemName]: updated }));
