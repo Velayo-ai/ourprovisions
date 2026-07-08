@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-07-06 (feedback + dispatches tables queued; iOS install coach-mark + cold-start gate patterns; telemetry loop principle)*
+*Last updated: 2026-07-07 (household_staples join table + migration 016 live dev+prod; is_staple dormant; ON DELETE CASCADE FK carve-out; get_list_items_for_household repoint; queued migrations renumbered 017+)*
 
 ---
 
@@ -121,6 +121,7 @@ Historical files (superseded, in `migrations/archive/`):
 | `migrations/013_delete_household.sql` | Two schema additions: `provision_cycles.deleted_at` (enables soft-delete in the household cascade) and `list_item_contributors.deleted_at` (soft-delete for recoverability, D1). Plus `delete_household(p_household_id uuid) → jsonb` SECURITY DEFINER RPC — owner-only cascade stamping `deleted_at = now()` across all household-bearing tables in FK order; `user_hidden_items` hard-deleted (disposable per-user view state); returns `{deleted, member_count, household_id}`. Applied to dev 2026-06-26 by hand; applied to prod 2026-06-28, verified via `pg_proc.prosrc` (body_len 2550, cascade markers present). | Dev + Prod (2026-06-28) |
 | `migrations/014_fix_authuid_rls.sql` | Rewrites 8 RLS policies on `known_stores`, `shopping_sessions`, `velayo_crew_members`, `velayo_crews` that compared `auth.uid()` (Clerk text `sub`) against uuid columns — always false. Household-membership checks → `is_member_of(household_id)`; ownership (`sessions_insert_own`/`sessions_update_own`) → `get_current_user_id()` (owner-is-you); crew policies → `get_current_user_id()` (crew-keyed). RLS enabled/disabled state UNCHANGED. Idempotent drop-and-recreate. Verified: `auth.uid()` check = 0 rows, A5 presence ok on all 8. | Dev + Prod (2026-06-29) |
 | `migrations/015_consolidate_helpers.sql` | Drops the two `proconfig=NULL` helper variants (`get_household_id_for_current_user`, `get_user_id_from_clerk`); survivors `get_current_household_id` / `get_current_user_id` pin `search_path` and are deterministic. Zero callers verified both envs before drop. Verified: exactly 2 survivors remain. | Dev + Prod (2026-06-29) |
+| `migrations/016_household_staples.sql` | New `household_staples(household_id, catalog_item_id)` join table (per-household staple prefs, row-presence model); RLS select/insert/delete on `is_member_of`; `catalog_item_id` `ON DELETE CASCADE` (scoped carve-out); backfill of existing custom `is_staple=true` rows (verified dev 1=1, prod 5=5); repoints `get_list_items_for_household` to derive `is_staple` via EXISTS. `catalog_items.is_staple` left dormant. **Non-idempotent policies (single-apply.)** Verified via `prosrc`. | Dev + Prod (2026-07-07) |
 
 > **No Supabase migration tracker exists on this project** — `supabase_migrations.schema_migrations` does not exist on prod. Migrations are applied by hand in the SQL editor, never via CLI. Filing numbers are a folder convention, not load-bearing. Record applied state by querying the live catalog (`pg_proc`, `pg_policies`), not by trusting the folder or any doc. Write all migrations idempotent (`drop ... if exists` / drop-and-recreate). *(On disk the high-water mark is now `015`; the `009`–`012` gap and the `007` collision — `docs/007_dev_restore_role_grants.sql` vs `migrations/007_finish_authorize_sweep.sql` — still stand; see ROADMAP reconciliation item.)*
 
@@ -153,10 +154,18 @@ The item library. Items are either **global/seed** (system-owned) or **household
 - `is_global = true` → seed item. System-owned (only Velayo creates/edits/deletes, via code or future admin UI). `household_id` and `created_by` are NULL. Members can **Hide** (per-user) but never delete.
 - `is_global = false` → custom item. Household-owned. `household_id` + `created_by` set. Any member can add or **Delete** (household-wide); members can also Hide it from their own view.
 - `id`, `name`, `category`, `unit`, `is_global`, `created_by`, `household_id`
-- `external_id` (future retailer SKU), `price_hint` (fallback price), `is_staple` (⭐ toggle)
+- `external_id` (future retailer SKU), `price_hint` (fallback price), `is_staple` (**DORMANT** — see below)
 - `created_at`, `deleted_at`
-- **⚠️ KNOWN DATA-MODEL DEFECT (found 2026-06-29): `is_staple` is a single global boolean on the shared `is_global=true` row** (`household_id=NULL`), so it cannot hold a *per-household* preference. Tapping Staple on a global item paints green optimistically, but the 20s catalog poll re-reads `false` and reverts to grey — staple does not persist per-household. Fix direction: a `household_staples` join table (`household_id`, `catalog_item_id`) where staple-status is **row-presence**, RLS-gated on `is_member_of`; rewrite `toggleStaple` write + the catalog read (`refreshCatalog`) + the staple filter; decide whether custom items (real `household_id`) keep the column. Prod-leak check (`is_global=true and is_staple=true`) returned 0 rows — no cross-household leak has occurred. Tracked NOW headline.
+- **✅ RESOLVED 2026-07-07 — staple state moved to `household_staples` (migration 016, live dev+prod).** The old `is_staple` boolean was a single value on the shared `is_global=true` row (`household_id=NULL`), so it could not hold a *per-household* preference — and the `catalog_items` UPDATE policy admits only rows whose `household_id` is in the caller's memberships (`NULL in (...)` is never true → 0 rows updated, no error → silent write failure on global items, reverted by the 20s poll). Staple state is now **row-presence in `household_staples`** (see that table below), the single source of truth for global AND custom items. `catalog_items.is_staple` is now **dormant** — no read/write path uses it; kept in place for clean rollback, drop in a later cleanup migration. Prod-leak check (`is_global=true and is_staple=true`) returned 0 rows before the migration — no cross-household leak had occurred.
 - **Seed set: 50 distinct items.** (Cleaned June 8 — collapsed 3 fragmented "Bakery" categories into canonical `Bakery`, re-homed 5 misfiled items, removed 10 unreferenced duplicate seed rows. 10 both-referenced duplicate seed items remain — Flour, Sugar, Bananas, Broccoli, Carrots, Garlic, Lemons, Potatoes, Spinach, Tomatoes — pending the merge logic that ships with/after Delete.)
+
+#### `household_staples` *(migration 016, live dev+prod 2026-07-07)*
+Per-household staple preferences. **Row-presence = stapled** — the single source of truth for staple state, for BOTH global and custom catalog items (replaces the dormant `catalog_items.is_staple` boolean).
+- `id` uuid PK, `household_id` uuid NOT NULL → `households(id)` `ON DELETE CASCADE`, `catalog_item_id` uuid NOT NULL → `catalog_items(id)` `ON DELETE CASCADE`, `created_at`.
+- `UNIQUE (household_id, catalog_item_id)` — one staple row per (household, item); insert = staple, delete = unstaple; no UPDATE path.
+- **RLS:** `select` / `insert` / `delete` all gated on `is_member_of(household_id)`. No UPDATE policy (row-presence model).
+- **FK carve-out (deliberate):** `catalog_item_id` is `ON DELETE CASCADE`, a **scoped exception** to the "all FKs referencing `catalog_items` are `NO ACTION`" invariant below. Staples are disposable preference rows, not history — they *should* vanish when a custom item is deleted, and CASCADE kept migration 016 self-contained (no `CREATE OR REPLACE` surgery on the multi-step delete RPCs). **Do not "correct" this back to `NO ACTION`** — that would strand orphan staple rows or block custom-item deletion.
+- Reads: client stamps `is_staple` from a per-household staple set (`fetchStapleSet` in `useProvisions` — used by `loadForHousehold` + `refreshCatalog`); the SHOP list RPC derives it via EXISTS (see `get_list_items_for_household`). Write: `toggleStaple` inserts/deletes a row (handles `23505` unique-violation as success).
 
 #### `list_items`
 The living household list. Items are never hard deleted — they move through statuses. Realtime enabled.
@@ -218,6 +227,8 @@ Every FK referencing `catalog_items` (and the list/contributor chain) is `delete
 
 **Design implication:** Postgres will *block* deletion of any referenced row (no cascade, no set-null). This protects against silently orphaning list data — but means the **Delete feature cannot be a simple `delete`**. Deleting a custom catalog item requires a multi-step SECURITY DEFINER RPC that handles references first (or soft-deletes the row via `deleted_at`, keeping FKs valid and history intact). See `SPEC_hide_delete.md`.
 
+**Scoped exception (2026-07-07):** `household_staples.catalog_item_id` is `ON DELETE CASCADE`, NOT `NO ACTION`. Deliberate — staples are disposable *preference* rows, not history, so they should vanish with a deleted custom item rather than blocking its deletion. This is the only intentional deviation from the rule; every other `catalog_items` FK remains `NO ACTION`. Do not "normalize" it back.
+
 ---
 
 ### Canonical Functions (17)
@@ -233,7 +244,7 @@ All are `SECURITY DEFINER`. Where auth-scoped, they use `auth.jwt()->>'sub'` —
 | `get_user_id_from_clerk()` | Near-duplicate of `get_current_user_id` — **KNOWN DEBT: consolidate.** |
 | `get_household_user_ids()` | Returns array of user UUIDs in the calling user's household. |
 | `get_household_member_profiles()` | Returns member profiles for the calling user's household. |
-| `get_list_items_for_household()` | Primary list read — returns rows with name/category/is_staple inline. Bypasses stale `auth.uid()` RLS. |
+| `get_list_items_for_household()` | Primary list read — returns rows with name/category/is_staple inline. Bypasses stale `auth.uid()` RLS. **Migration 016 (2026-07-07):** `is_staple` now derived per-household via `exists (select 1 from household_staples hs where hs.household_id = p_household_id and hs.catalog_item_id = ci.id)` — replaced the read of the shared `catalog_items.is_staple` boolean. Signature unchanged (stable client contract). Verified via `prosrc` on dev + prod. |
 | `get_catalog_names_by_ids(p_ids uuid[])` | Batch catalog name lookup by ID array. |
 | `insert_custom_catalog_item(...)` | Inserts a household-owned catalog item. |
 | `insert_list_item(...)` | Inserts a `list_items` row. **Now an upsert (migration 008):** ON CONFLICT (household_id, catalog_item_id) DO UPDATE — quantity last-write-wins, status='pending', deleted_at cleared (resurrects tombstoned slots), cycle_id and price_per_unit COALESCE-preserved. Signature, language (sql), SECURITY DEFINER, search_path unchanged. |
@@ -292,15 +303,15 @@ Aggregates average `price_per_unit` per category across all list_items with real
 
 | Migration | Contents | Status |
 |---|---|---|
-| 016 | `receipts` + `receipt_items` tables (see schema below); 4 load-bearing columns pre-seeded (shopped_by, store_key, line_type, numeric quantity) | Designed 2026-07-03 — migration file written in build session |
-| 017 | `public.beta_signups` (see schema below); RLS enabled; insert-only anon policy | Designed 2026-07-05 — see `docs/specs/SPEC_beta_signups.md`; NOT YET APPLIED |
-| 018 | `public.feedback` — "Message the bridge" store (per-submission auto-context: page, household_id, app_version, clerk_id, message) | Designed 2026-07-06 — see `docs/SPEC_feedback_bridge.md`; NOT YET APPLIED |
-| 019 | `public.dispatches` — in-app what's-new notices; per-user dismissal behavior TBD | Designed 2026-07-06 — see `docs/SPEC_dispatches.md`; NOT YET APPLIED |
+| ~~016~~ → 017 | `receipts` + `receipt_items` tables (see schema below); 4 load-bearing columns pre-seeded (shopped_by, store_key, line_type, numeric quantity) | Designed 2026-07-03 — migration file written in build session. **Renumbered from 016 — that number is now `household_staples` (applied 2026-07-07).** |
+| ~~017~~ → 018 | `public.beta_signups` (see schema below); RLS enabled; insert-only anon policy | Designed 2026-07-05 — see `docs/specs/SPEC_beta_signups.md`; NOT YET APPLIED |
+| ~~018~~ → 019 | `public.feedback` — "Message the bridge" store (per-submission auto-context: page, household_id, app_version, clerk_id, message) | Designed 2026-07-06 — see `docs/SPEC_feedback_bridge.md`; NOT YET APPLIED |
+| ~~019~~ → 020 | `public.dispatches` — in-app what's-new notices; per-user dismissal behavior TBD | Designed 2026-07-06 — see `docs/SPEC_dispatches.md`; NOT YET APPLIED |
 | — | `price_history` | Superseded by `receipt_items` as the source-of-truth price record; this table may not be needed |
 | — | `household_category_overrides` | Queued — designed, not built |
 | — | `household_audit_log` | Concept wanted (who-did-what-when); use cases TBD; must stay distinct from behavioral/analytics event stream |
 
-#### `receipts` (pending migration 016)
+#### `receipts` (pending migration 017 — renumbered; 016 taken by `household_staples`)
 Header/audit object. First-class entity, not a session appendage.
 - `id` uuid PK, `household_id` uuid NOT NULL — RLS via `is_member_of`
 - `session_id` uuid NULL — Phase 2 hook, unused v1
@@ -313,7 +324,7 @@ Header/audit object. First-class entity, not a session appendage.
 - `raw_payload` jsonb NULL — full extraction output; never discard
 - `created_by` uuid, `created_at`, `deleted_at`
 
-#### `receipt_items` (pending migration 016)
+#### `receipt_items` (pending migration 017 — renumbered; 016 taken by `household_staples`)
 One row per line on the receipt.
 - `id` uuid PK, `receipt_id` uuid NOT NULL FK
 - `raw_text` text NOT NULL — verbatim printed text; the audit anchor; never normalized
@@ -329,7 +340,7 @@ One row per line on the receipt.
 
 **Commit behavior:** confirmed/auto lines → write `receipt_items`, refresh `catalog_items.price_hint` (rolling avg last-N=5 `receipt_items.price`), AND update `category_avg_prices` (existing table). No `list_items` write in v1.
 
-#### `beta_signups` (pending migration 017)
+#### `beta_signups` (pending migration 018 — renumbered; 016 taken by `household_staples`)
 Mission-control table #1. Operational telemetry owned by Velayo, distinct from product tables owned by households.
 - `id` uuid PK DEFAULT `gen_random_uuid()`
 - `created_at` timestamptz DEFAULT `now()`

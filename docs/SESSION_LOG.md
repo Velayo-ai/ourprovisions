@@ -25,6 +25,33 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-07] — [OurProvisions] — Beat 0 launch floor: ship + prod-verify the P0 fixes and run the cold-start gate
+**Goal:** Close out the Beat 0 launch-floor fixes end-to-end (dev → prod-verified) and run the new-user cold-start walk to decide whether to flip the signup email to self-serve.
+**Completed:**
+- Shipped + PROD-verified the join-activation REOPEN (ADDENDUM): the dev-green `pendingJoinId` fix failed on prod under membership-propagation latency; replaced with durable/retriable flag consumption (`c1ceab2`) — invite → auto-switch → banner → survives hard-reload, verified on prod with an existing user starting in a prior household.
+- Shipped + PROD-verified the sign-in/sign-up cold-load fix (`2249d0b`): disabled-placeholder gated on Clerk `isLoaded` (no layout shift) — no more dead-clicks on a cold load; verified disable-then-trigger on Slow 4G.
+- Diagnosis-first split the staples/filter cluster into TWO independent bugs (A: staples symptoms 1+2; B: cold-start empty Browse symptom 3); ratified the staple model (join table for ALL staples) and two-separate-commits sequencing.
+- Shipped + PROD-verified `household_staples` (Bug A, `949a8e9`): migration 016 (table + RLS on `is_member_of` + backfill + `get_list_items_for_household` repoint) applied to dev + prod; rewrote `toggleStaple`/catalog reads → global staples now persist per-household.
+- Shipped + PROD-verified the cold-start empty-Browse race (Bug B, `7d1e3c2`): bounded retry on an empty/errored first global-catalog fetch so a cold start self-recovers instead of stranding `catalogMap={}` behind `loading=false`.
+- Ran the new-user cold-start walk with real data: Bugs A + B both fixed; BUT the false "No longer a member" banner leaked once on prod during staple add/delete churn (non-reproducible) — now the blocker for the self-serve email flip.
+- Captured three field-test feedback items from a real Sacandaga/Hannaford shop (orientation drift, shop-timer idea, rotation-lock coach-mark).
+**Unfinished:**
+- False-removal-banner leak ("No longer a member of that household") fired on prod during add/delete staple churn; non-deterministic, could not reproduce. Diagnosis-only next; blocks the signup-email flip.
+- Signup email NOT flipped to self-serve — held on the personal variant (cold-start gate = PARTIAL GREEN) pending the banner-leak fix.
+- Auth-gate residual: on pathological 3G, `isLoaded` enables the button before Clerk's modal chunks finish → brief tap-no-op window. Deferred (wait-until-complain).
+- Migration-number collision: `016` is now `household_staples` (live on dev+prod); the queued `receipts` (was "016") and `beta_signups` (was "017") must renumber. Reconciled in ARCHITECTURE/ROADMAP this session.
+- `catalog_items.is_staple` left dormant (no read path); drop in a later cleanup migration. `ON DELETE CASCADE` carve-out now documented in ARCHITECTURE.
+- Local prod build broken on this machine: `@splunk/otel-web` in package.json but not installed locally; npm "Exit handler never called" glitch. Vercel builds fine — clean reinstall when convenient.
+**Next session:**
+SESSION START
+Goal: Fix the false "No longer a member" banner leak that fires on a fresh/cold-start prod session during staple churn (stale membership/removal flag in storage surfacing while the user is still a member), so the cold-start gate can go fully green and the signup email can flip to self-serve.
+State: Beat 0 launch floor otherwise clear — join-activation, auth-gate, staples (`household_staples`), and cold-start-empty-Browse all shipped and prod-verified. Migration 016 live on dev + prod. Invite path fully working on prod.
+Done when: A fresh cold-start identity (and an add/delete staple churn session) on prod never shows the false removal banner while the user is still a member; verified on deployed dev then prod. Then flip the signup email to the self-serve "come aboard" variant.
+**Files updated:** `src/App.js` (join-activation reopen `c1ceab2`; auth-gate `isLoaded` `2249d0b`), `src/hooks/useProvisions.js` (staples client `949a8e9`; cold-start retry `7d1e3c2`), `migrations/016_household_staples.sql` (new).
+**DB changes:** `migrations/016_household_staples.sql` applied to dev (`zxwtxjjmssykhqrghouf`) AND prod (`parpauldmbetptkmdwbd`) — `household_staples` table + RLS + backfill (dev 1=1, prod 5=5) + `get_list_items_for_household` repoint (verified via `prosrc`).
+
+---
+
 ### [2026-07-06] — [OurProvisions] — Plan the 45-day rolling-thunder beta launch
 **Goal:** Design the structure, front door, and Beat 0 scope for a high-velocity beta that ramps engagement with a wider circle of friends and social connections.
 **Completed:**
