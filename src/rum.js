@@ -21,11 +21,11 @@ if (rumToken) {
     realm: 'us1',
     rumAccessToken: rumToken,
     sensitivityRules: [
-      { type: 'unmask', selector: 'body' },
-      { type: 'mask', selector: 'input' },
-      { type: 'mask', selector: 'textarea' },
-      { type: 'exclude', selector: '[class*="cl-"]' },
-      { type: 'exclude', selector: '#clerk-components' },
+      { rule: 'unmask', selector: 'body' },
+      { rule: 'mask', selector: 'input' },
+      { rule: 'mask', selector: 'textarea' },
+      { rule: 'exclude', selector: '[class*="cl-"]' },
+      { rule: 'exclude', selector: '#clerk-components' },
     ],
   });
 } else {
