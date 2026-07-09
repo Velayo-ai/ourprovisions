@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-09] — [OurProvisions] — Closed the false-removal-banner P0; fixed blank-catalog + RUM masking; session replay working
+**Goal:** Diagnose and fix the false "No longer a member" banner (the Beat 0 launch-email blocker), using session replay as the instrument.
+**Completed:**
+- Closed the false-removal-banner P0 across a four-commit arc (diagnostic `c9e330f` → v1 `a43a1ba` → v2 `081c641`; diagnostic reverted by v1). Root cause: a deliberate delete/leave and the 30s `checkPresence` watchdog both react to one membership loss; the poll fires the loud notice during the reconciliation gap. v2 raises `deliberateLossRef` at the START of the handler (before the destructive RPC), cleared in `finally`, so the poll defers across the whole action. Verified on dev — heavy create/delete churn on Slow 3G, no false banner.
+- Fixed banner name-correctness (folded into `a43a1ba`): banner showed a stale sticky name instead of the actually-lost household; now threads the lost name from the pre-update `myHouseholdsRef` through an optional `lostName` param.
+- Verified the genuine-external-removal regression (DH removed DT from Test 101): the notice still fires and names the household right — the guard does not over-suppress real removals.
+- Fixed blank-catalog-on-category-delete (`4d17c58`, verified): deleting a filtered category left its `rawName` in `selectedCategories`, collapsing the filter predicate to empty. Fix = evict on delete + self-healing predicate (narrow only by categories that still exist).
+- Fixed RUM session-replay masking (`f9ae19e`): `sensitivityRules` used key `type:` where the Splunk recorder expects `rule:` → all rules silently ignored → recorder fell back to mask-everything. One-word fix ×5.
+- Got Splunk session replay rendering + unmasked; chased a blank-replay red herring to ground (capture/ingest/versions/console all healthy — blank frames were render latency, not a bug). Replay now usable as a diagnostic instrument (it surfaced the blank-catalog bug).
+- Routed 5 built specs handoff→docs and reverted the temporary DIAG instrumentation (poll back to 30000, all `// DIAG` removed).
+**Unfinished:**
+- dev→main merge of the P0 fix — pending Dan's gate (deliberate: sleeping on a launch-critical change before promoting).
+- NEW known-issue — duplicate same-named households surfaced during churn (create/invite/accept/remove/delete). Unclear: true duplicate creation (two ids) vs a display/dedup bug (one id rendered twice). Needs a clean controlled repro; not chased mid-churn to avoid debugging without attribution.
+- Regression #3 re-confirm on v2 — passed on v1; v2 only widened the deliberate-action window so the path is logically sound, but a fresh two-device recheck before main is cheap insurance.
+- Dead-scaffolding cleanup — `selfDepartureRef`/`markSelfDeparture` now doubly superseded by `deliberateLossRef`; defined + exported but never consumed. Queued (touches exported context API — kept out of the launch commit).
+**Next session:**
+SESSION START
+Goal: Verify the P0 fix holds, promote dev→main, then get a clean controlled repro of the duplicate-same-named-household bug (determine two ids vs one id rendered twice).
+State: False-removal-banner P0 fixed + verified on dev (`081c641`), not yet on main. Blank-catalog and RUM-unmask fixes on dev. Session replay working + unmasked. Beat 0 launch email still on the personal variant, still gated on the P0 reaching prod.
+Done when: P0 fix verified on prod after merge; duplicate-household bug has a reliable repro and a root-cause direction (creation-race vs render-dedup).
+**Files updated:** `src/rum.js` (RUM masking key `f9ae19e`); `src/App.js` (blank-catalog filter predicate + `deleteCategory` `4d17c58`; deliberate-loss guard in delete/leave handlers `081c641`); `src/contexts/ActiveHouseholdContext.js` (banner race fix + name fix + DIAG add/revert across `c9e330f`/`a43a1ba`/`081c641`).
+**DB changes:** None.
+
+---
+
 ### [2026-07-07] — [OurProvisions] — Beat 0 launch floor: ship + prod-verify the P0 fixes and run the cold-start gate
 **Goal:** Close out the Beat 0 launch-floor fixes end-to-end (dev → prod-verified) and run the new-user cold-start walk to decide whether to flip the signup email to self-serve.
 **Completed:**
