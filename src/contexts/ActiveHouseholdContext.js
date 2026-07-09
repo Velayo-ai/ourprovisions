@@ -161,6 +161,17 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
       try {
         const db = getDb();
         const { data, error } = await db.rpc("get_my_households");
+        // DIAG — log every poll's raw result before any decision
+        console.warn("[DIAG checkPresence]", {
+          ts: new Date().toISOString(),
+          error: error ? (error.message || String(error)) : null,
+          dataLen: Array.isArray(data) ? data.length : `not-array(${typeof data})`,
+          activeId: activeHouseholdIdRef.current,
+          activeIdPresent: Array.isArray(data)
+            ? data.some((r) => r.household_id === activeHouseholdIdRef.current)
+            : "n/a",
+          selfDeparture: selfDepartureRef.current,
+        });
         // Transient guard: only a failed fetch (error) or null data holds position.
         // A successful empty result (error=null, data=[]) is a legitimate removal signal —
         // the user was removed from their last household. Let it through.
@@ -175,13 +186,20 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
         // Active household vanished from a healthy list — user was removed (or left).
         // TODO step 5: check selfDepartureRef.current here to suppress the notice for voluntary leaves.
+        // DIAG — log the exact moment it decides to fire the banner
+        console.error("[DIAG checkPresence FIRING removal notice]", {
+          ts: new Date().toISOString(),
+          dataLen: data.length,
+          activeId: activeHouseholdIdRef.current,
+          selfDeparture: selfDepartureRef.current,
+        });
         await resolveAfterHouseholdLoss(activeHouseholdIdRef.current, true);
       } catch (err) {
         // transient — hold position
       }
     };
 
-    const intervalId = setInterval(checkPresence, 30000);
+    const intervalId = setInterval(checkPresence, 3000); // DIAG — was 30000
     return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clerkId]);
