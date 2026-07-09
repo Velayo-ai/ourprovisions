@@ -22,7 +22,11 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
 
   // In-flight guard — true while auto-provision is running (step 3).
   const provisioningRef = useRef(false);
+  // True while resolveAfterHouseholdLoss is mid-flight — checkPresence defers to it
+  // so the watchdog poll can't double-fire a removal the deliberate path is already handling.
+  const resolvingRef = useRef(false);
   // Voluntary-leave marker — set before leave RPC so presence check ignores the removal (step 5).
+  // NOTE: dead scaffolding — superseded by resolvingRef; markSelfDeparture is unwired. Separate cleanup.
   const selfDepartureRef = useRef(false);
 
   // Kept current so checkPresence can fire the removal notice without a stale closure.
@@ -127,28 +131,36 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
   // survivor or auto-provisions a fresh household, with provisioningRef guarding against races.
   // notifyRemoval=false when the caller is the actor who voluntarily deleted (owner path);
   // true when the caller is checkPresence reacting to an external removal.
-  const resolveAfterHouseholdLoss = useCallback(async (lostId, notifyRemoval) => {
+  const resolveAfterHouseholdLoss = useCallback(async (lostId, notifyRemoval, lostName) => {
     if (provisioningRef.current) return;
-    await refreshHouseholds(); // populates myHouseholdsRef.current with the authoritative list
-    const remaining = myHouseholdsRef.current.filter((h) => h.id !== lostId);
-    if (remaining.length >= 1) {
-      if (notifyRemoval) onRemovalRef.current?.(activeHouseholdNameRef.current, false);
-      switchHousehold(remaining[0].id);
-    } else {
-      if (notifyRemoval) onRemovalRef.current?.(activeHouseholdNameRef.current, true);
-      provisioningRef.current = true;
-      try {
-        const db = getDb();
-        const { data: created, error: createErr } = await db.rpc("create_household", {
-          p_name: "My Household",
-          p_clerk_id: clerkId,
-        });
-        if (createErr) throw createErr;
-        await refreshHouseholds();
-        if (created?.household_id) switchHousehold(created.household_id);
-      } finally {
-        provisioningRef.current = false;
+    if (resolvingRef.current) return;      // re-entrancy guard
+    resolvingRef.current = true;           // set synchronously, before any await
+    try {
+      await refreshHouseholds(); // populates myHouseholdsRef.current with the authoritative list
+      const remaining = myHouseholdsRef.current.filter((h) => h.id !== lostId);
+      // Name the household actually lost; fall back to the sticky ref if the caller didn't supply one.
+      const lostLabel = lostName ?? activeHouseholdNameRef.current;
+      if (remaining.length >= 1) {
+        if (notifyRemoval) onRemovalRef.current?.(lostLabel, false);
+        switchHousehold(remaining[0].id);
+      } else {
+        if (notifyRemoval) onRemovalRef.current?.(lostLabel, true);
+        provisioningRef.current = true;
+        try {
+          const db = getDb();
+          const { data: created, error: createErr } = await db.rpc("create_household", {
+            p_name: "My Household",
+            p_clerk_id: clerkId,
+          });
+          if (createErr) throw createErr;
+          await refreshHouseholds();
+          if (created?.household_id) switchHousehold(created.household_id);
+        } finally {
+          provisioningRef.current = false;
+        }
       }
+    } finally {
+      resolvingRef.current = false;        // self-clearing — no lingering flag
     }
   }, [clerkId, refreshHouseholds, switchHousehold]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -157,25 +169,21 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
 
     const checkPresence = async () => {
       if (provisioningRef.current) return;
+      if (resolvingRef.current) return;   // a deliberate loss-resolution owns this — don't double-fire
       if (!getTokenRef.current) return;
       try {
         const db = getDb();
         const { data, error } = await db.rpc("get_my_households");
-        // DIAG — log every poll's raw result before any decision
-        console.warn("[DIAG checkPresence]", {
-          ts: new Date().toISOString(),
-          error: error ? (error.message || String(error)) : null,
-          dataLen: Array.isArray(data) ? data.length : `not-array(${typeof data})`,
-          activeId: activeHouseholdIdRef.current,
-          activeIdPresent: Array.isArray(data)
-            ? data.some((r) => r.household_id === activeHouseholdIdRef.current)
-            : "n/a",
-          selfDeparture: selfDepartureRef.current,
-        });
         // Transient guard: only a failed fetch (error) or null data holds position.
         // A successful empty result (error=null, data=[]) is a legitimate removal signal —
         // the user was removed from their last household. Let it through.
         if (error || !data) return;
+        // Capture the departing household's name from the list we last saw it in,
+        // BEFORE overwriting myHouseholdsRef below — so the banner names the household
+        // actually lost, not a stale sticky ref.
+        const lostName = myHouseholdsRef.current.find(
+          (h) => h.id === activeHouseholdIdRef.current
+        )?.name;
         const households = data.map((row) => ({
           id: row.household_id,
           name: row.name,
@@ -185,21 +193,13 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         setMyHouseholds(households);
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
         // Active household vanished from a healthy list — user was removed (or left).
-        // TODO step 5: check selfDepartureRef.current here to suppress the notice for voluntary leaves.
-        // DIAG — log the exact moment it decides to fire the banner
-        console.error("[DIAG checkPresence FIRING removal notice]", {
-          ts: new Date().toISOString(),
-          dataLen: data.length,
-          activeId: activeHouseholdIdRef.current,
-          selfDeparture: selfDepartureRef.current,
-        });
-        await resolveAfterHouseholdLoss(activeHouseholdIdRef.current, true);
+        await resolveAfterHouseholdLoss(activeHouseholdIdRef.current, true, lostName);
       } catch (err) {
         // transient — hold position
       }
     };
 
-    const intervalId = setInterval(checkPresence, 3000); // DIAG — was 30000
+    const intervalId = setInterval(checkPresence, 30000);
     return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clerkId]);
