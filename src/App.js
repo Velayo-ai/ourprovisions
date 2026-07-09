@@ -485,9 +485,13 @@ function ProvisionsApp() {
           .filter(cat => cat.items.length > 0)
       : categories;
 
-    // Layer 2 — Category chips narrow within whatever Layer 1 produced
-    if (selectedCategories.size > 0) {
-      result = result.filter(cat => selectedCategories.has(cat.rawName));
+    // Layer 2 — Category chips narrow within whatever Layer 1 produced.
+    // Only narrow by categories that still exist, so a stale filter id
+    // (e.g. a category deleted here or on another device) can never blank the view.
+    const liveNames = new Set(result.map(cat => cat.rawName));
+    const activeSelected = [...selectedCategories].filter(n => liveNames.has(n));
+    if (activeSelected.length > 0) {
+      result = result.filter(cat => activeSelected.includes(cat.rawName));
     }
 
     return result;
@@ -773,6 +777,7 @@ function ProvisionsApp() {
       }
     }
     setHouseholdCategories(prev => { const s = new Set(prev); s.delete(rawName); return s; });
+    setSelectedCategories(prev => { const s = new Set(prev); s.delete(rawName); return s; });
     setDeletingCategory(null);
     setDeleteMoveTarget("");
   };
