@@ -265,7 +265,7 @@ function CatalogItemRow({
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
   const { getToken } = useAuth();
-  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss } = useActiveHousehold();
+  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss } = useActiveHousehold();
 
   const {
     quantities,
@@ -829,6 +829,7 @@ function ProvisionsApp() {
 
   const handleLeaveHousehold = async () => {
     if (!window.confirm("Leave this household? Anything you added stays behind for the others.")) return;
+    beginDeliberateLoss();                     // BEFORE the RPC — closes the watchdog gap
     try {
       const leftId = household.id;
       const { error } = await supabase.rpc("leave_household", {
@@ -842,11 +843,14 @@ function ProvisionsApp() {
       showToast("You left the household");
     } catch (err) {
       showToast(err.message || "Could not leave household");
+    } finally {
+      endDeliberateLoss();                     // always clears, even on error
     }
   };
 
   const handleDeleteHousehold = async () => {
     const deletedId = activeHouseholdId;
+    beginDeliberateLoss();                     // BEFORE the RPC — closes the watchdog gap
     try {
       const { error } = await supabase.rpc('delete_household', { p_household_id: deletedId });
       if (error) throw error;
@@ -856,6 +860,8 @@ function ProvisionsApp() {
       await resolveAfterHouseholdLoss(deletedId, false);
     } catch (err) {
       showToast(err.message || "Could not delete household");
+    } finally {
+      endDeliberateLoss();                     // always clears, even on error
     }
   };
 

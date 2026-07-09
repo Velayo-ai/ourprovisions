@@ -25,6 +25,12 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
   // True while resolveAfterHouseholdLoss is mid-flight — checkPresence defers to it
   // so the watchdog poll can't double-fire a removal the deliberate path is already handling.
   const resolvingRef = useRef(false);
+  // Raised by the deliberate delete/leave handlers BEFORE their RPC, so the
+  // watchdog poll defers across the whole action — RPC + resolution — not just
+  // the resolver's lifetime. Cleared by the handler in finally.
+  const deliberateLossRef = useRef(false);
+  const beginDeliberateLoss = useCallback(() => { deliberateLossRef.current = true; }, []);
+  const endDeliberateLoss = useCallback(() => { deliberateLossRef.current = false; }, []);
   // Voluntary-leave marker — set before leave RPC so presence check ignores the removal (step 5).
   // NOTE: dead scaffolding — superseded by resolvingRef; markSelfDeparture is unwired. Separate cleanup.
   const selfDepartureRef = useRef(false);
@@ -170,6 +176,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
     const checkPresence = async () => {
       if (provisioningRef.current) return;
       if (resolvingRef.current) return;   // a deliberate loss-resolution owns this — don't double-fire
+      if (deliberateLossRef.current) return;   // a deliberate delete/leave owns this window
       if (!getTokenRef.current) return;
       try {
         const db = getDb();
@@ -212,6 +219,8 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         switchHousehold,
         refreshHouseholds,
         resolveAfterHouseholdLoss,
+        beginDeliberateLoss,
+        endDeliberateLoss,
         markSelfDeparture,
         loadingHouseholds,
         hasMultiple: myHouseholds.length > 1,
