@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-10] — [OurProvisions] — Beat 0 gates closed to prod + Beta 1 invite pivot: Web Share, duplicate-create fix, dead-code cleanup
+**Goal:** Sync + merge the stacked dev commits to prod-verified main, then clear the tech debt gating the Beta 1 invite/CI pivot — the duplicate-household bug, dead scaffolding, and the invite flow itself.
+**Completed:**
+- Merged the stacked Beat-0 batch dev→main (`68d38c5`, `--no-ff`) and **prod-verified the false-removal-banner P0** (the deliberate-loss guard) — no observed defects. This was the last gate on the signup-email flip + the Beta 1 invite pivot; both now unblocked. ESLint `react-app` clean on all changed files (the CI=true warnings-as-errors gate).
+- Shipped the streamlined invite flow (`8c62315`, **real-phone verified**): Send via `navigator.share` (feature-detected, Copy fallback) + single-source brand-voice `INVITE_MESSAGE` (preview === what's sent). Lazy-generate (Option B) — `prepareInvite()` on a ~500ms idle-after-open timer OR explicit tap, so a fast open/close writes no `household_invites` row; idempotent, in-flight-guarded. Trigger renamed "Invite someone aboard" + teal. Eye-tested against a mockup before code.
+- Fixed duplicate-household creation (`565b133`, verified): root-caused via prod queries to a creation-race — Create's async onClick was never disabled during the ~2s await, so a 259ms double-tap fired two `create_household` RPCs → two distinct ids, each with its own owner membership. Fix = `creatingInFlight` guard (disable + dim + "Creating…", early-return, clears in `finally`). Diagnosis decidable from the read path (`get_my_households` returns one row per membership → a UI dupe is a data dupe). Server idempotency kept as a WATCH ITEM.
+- **Ran the one-time prod cleanup (Part 2):** soft-deleted the later id of the existing "Test House 200" dup pair (2a preview → 2b soft-delete → 2c verify) — one live household per name, reversible (`deleted_at`, not hard delete).
+- Removed dead `selfDepartureRef`/`markSelfDeparture` (`5da1c37`, verified): superseded by `deliberateLossRef`, grep-confirmed consumed nowhere in `src`. Dropped the ref, the callback, and its context-value entry; synced ARCHITECTURE's 3 stale mentions.
+- Confirmed the Web Share email-subject gap is at the platform ceiling (`title` passed correctly; iOS Mail drops it; the full invite + link ride in `text` across every target) — documented as a known limitation, not code-fixable.
+- Routed 3 specs handoff→docs + tracked the invite mockup.
+**Unfinished:**
+- **Splunk-on-local-dev** — unsolved. A dynamic-`import()` attempt was tried + reverted (webpack didn't dead-code-eliminate the branch on an unset token, so it didn't exclude Splunk). The reliable fix is a prod-telemetry change with tradeoffs that need a decision. ESLint remains a sound CI proxy; deployed builds unaffected.
+- Local `npm run build` on the primary machine still can't run (broken partial `@splunk/otel-web-session-recorder` install + npm TLS `UNABLE_TO_VERIFY_LEAF_SIGNATURE`) — local-env only, unrelated to code.
+- **WATCH ITEM — server-side idempotent `create_household`**: build only if prod shows a non-human duplicate `created_at` signature (sub-10ms or retry-spaced). The 259ms trigger was a human double-tap; button-disable covers it.
+- Beta 1 launch assets still unwritten (the invite-button rename is only the in-app half of the "bring your first mate" match).
+**Next session:**
+SESSION START
+Goal: Write the Beta 1 launch destination — the sign-up page + the reframed seven-question "come aboard" questionnaire copy — now that the invite/CI-pivot tech-debt pass is done and prod-verified.
+State: All Beat-0 P0s prod-verified. Duplicate-household bug fixed + prod data cleaned. Dead scaffolding removed. Invite share-flow live + real-phone verified. Signup-email flip and invite pivot both unblocked. dev == main (all merged + prod-green).
+Done when: sign-up page + questionnaire copy exist and eye-test passes; the inside-out build order for the remaining launch assets (welcome email → Mailchimp segments → blog → user email + social) is ready to execute.
+**Files updated:** `src/App.js` (create-in-flight guard `565b133`; invite share flow `8c62315`), `src/contexts/ActiveHouseholdContext.js` (scaffolding removal `5da1c37`), `docs/ARCHITECTURE.md`.
+**DB changes:** Prod one-time cleanup — soft-deleted the later id of the "Test House 200" dup pair (`deleted_at` set). No schema change.
+
 ### [2026-07-09] — [Cross] — Designed the Beta 1 "Come Aboard" launch funnel + defined the two-number success metric
 **Goal:** Design the end-to-end customer experience for the first public beta — the call-to-action, the funnel from blog to app, the marketing asset set, and what "a successful beta" means as a number.
 **Completed:**
