@@ -355,6 +355,8 @@ function ProvisionsApp() {
   const [showInvitePanel, setShowInvitePanel] = useState(false);
   const [inviteUrl, setInviteUrl] = useState(null);
   const [inviteCopied, setInviteCopied] = useState(false);
+  const [invitePreparing, setInvitePreparing] = useState(false); // generate-on-open/tap in flight
+  const [inviteError, setInviteError] = useState(false);         // generate failed → show retry
   const [joinBanner, setJoinBanner] = useState(null); // household name after accepting
   const [pendingJoinId, setPendingJoinId] = useState(null); // joined household id awaiting the lens switch (reactive; see join effect)
   const [showVelayoMenu, setShowVelayoMenu] = useState(false);
@@ -606,7 +608,44 @@ function ProvisionsApp() {
   useEffect(() => {
     setInviteUrl(null);
     setInviteCopied(false);
+    setInvitePreparing(false);
+    setInviteError(false);
   }, [household?.id]);
+
+  // Brand-voice invite message. Echoes the welcome email's "bring your first mate"
+  // language so the CTA vocabulary is consistent email → in-app → recipient. ONE
+  // definition, used by both the preview and navigator.share so preview === sent.
+  const INVITE_MESSAGE = (householdName, url) =>
+    `Come aboard my OurProvisions list${householdName ? ` (${householdName})` : ""} — `
+    + `we'll share it and it gets smarter as we go. ${url}`;
+
+  // Idempotent: prepares the invite link once. Safe to call from the idle timer AND
+  // from Send/Copy — the guards make a second call a no-op while one is in flight or
+  // a url already exists. Returns the url (existing or freshly made), or null on fail.
+  const prepareInvite = useCallback(async () => {
+    if (inviteUrl) return inviteUrl;          // already have one
+    if (invitePreparing) return null;         // in flight — caller should await state
+    setInvitePreparing(true);
+    setInviteError(false);
+    try {
+      const url = await createInvite();
+      if (url) { setInviteUrl(url); return url; }
+      setInviteError(true); return null;
+    } finally {
+      setInvitePreparing(false);
+    }
+  }, [inviteUrl, invitePreparing, createInvite]);
+
+  // Idle-after-open (lazy-generate, Option B): if the panel stays open ~500ms the
+  // user is looking at it (not bouncing through the manage sheet) → prepare the link.
+  // A fast open/close leaves no household_invites row — the timer is cleared on
+  // unmount before it fires. Send/Copy also prepare-on-tap if the timer hasn't yet.
+  useEffect(() => {
+    if (!showInvitePanel) return;
+    if (inviteUrl || invitePreparing) return;
+    const t = setTimeout(() => { prepareInvite(); }, 500);
+    return () => clearTimeout(t);
+  }, [showInvitePanel, inviteUrl, invitePreparing, prepareInvite]);
 
 
   // eslint-disable-next-line no-unused-vars
@@ -1490,10 +1529,10 @@ function ProvisionsApp() {
                 style={{
                   width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
                   letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
-                  background: "#A0724A", color: "#FAF4EC", border: "none",
+                  background: "#2f7d7a", color: "#FAF4EC", border: "none",
                   borderRadius: "8px", cursor: "pointer", marginTop: "16px",
                 }}
-              >+ Invite Someone</button>
+              >+ Invite someone aboard</button>
               {householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner') ? (
                 <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid #f0e6d8" }}>
                   {!showDeleteHouseholdConfirm ? (
@@ -1587,57 +1626,110 @@ function ProvisionsApp() {
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.1rem", fontWeight: 700, color: "#2C1A0E" }}>
                 Share Your Household
               </div>
-              <button onClick={() => { setShowInvitePanel(false); setInviteUrl(null); setInviteCopied(false); }} style={{
+              <button onClick={() => {
+                setShowInvitePanel(false); setInviteUrl(null); setInviteCopied(false);
+                setInvitePreparing(false); setInviteError(false);
+              }} style={{
                 background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", color: "#8a7a60",
               }}>×</button>
             </div>
             <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", marginBottom: "16px" }}>
-              Send this link to anyone you want to share your list with. The link expires in 7 days.
+              They'll join {household?.name || "your household"} and your list syncs live — you'll see each other's edits in real time. The link expires in 7 days.
             </p>
-            {!inviteUrl ? (
+            {inviteError ? (
+              // In-voice failure, not an apology: explain + offer the fix.
               <button
-                onClick={async () => {
-                  const url = await createInvite();
-                  if (url) setInviteUrl(url);
-                }}
+                onClick={() => { setInviteError(false); prepareInvite(); }}
                 style={{
-                  fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", letterSpacing: "1px",
-                  textTransform: "uppercase", padding: "10px 20px",
-                  background: "#A0724A", color: "#FAF4EC", border: "none",
-                  borderRadius: "5px", cursor: "pointer",
+                  width: "100%", textAlign: "left", fontFamily: "'Lato', sans-serif",
+                  fontSize: "0.82rem", padding: "12px 14px", background: "#FBEEE6",
+                  border: "1.5px solid #E8D5B7", borderRadius: "8px", cursor: "pointer",
+                  color: "#8a5a3a", marginBottom: "4px",
                 }}
               >
-                Generate Invite Link
+                Couldn't prepare an invite link. Tap to try again.
               </button>
             ) : (
-              <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                <input
-                  readOnly
-                  value={inviteUrl}
-                  style={{
-                    flex: 1, minWidth: "200px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem",
-                    border: "1.5px solid #E8D5B7", borderRadius: "6px", padding: "9px 12px",
-                    background: "#F5EDE0", color: "#2C1A0E",
-                  }}
-                  onFocus={(e) => e.target.select()}
-                />
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(inviteUrl);
-                    setInviteCopied(true);
-                    setTimeout(() => setInviteCopied(false), 2500);
-                  }}
-                  style={{
-                    fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", letterSpacing: "1px",
-                    textTransform: "uppercase", padding: "10px 18px",
-                    background: inviteCopied ? "#4a9e4a" : "#c8973a",
-                    color: "white", border: "none", borderRadius: "5px", cursor: "pointer",
-                    transition: "background 0.2s", whiteSpace: "nowrap",
-                  }}
-                >
-                  {inviteCopied ? "✓ Copied!" : "Copy Link"}
-                </button>
-              </div>
+              <>
+                {inviteUrl ? (
+                  <div style={{
+                    background: "#F5EDE0", border: "1.5px solid #E8D5B7", borderRadius: "8px",
+                    padding: "12px 14px", marginBottom: "14px",
+                  }}>
+                    <span style={{
+                      display: "block", fontFamily: "'Lato', sans-serif", fontSize: "0.6rem",
+                      letterSpacing: "1.5px", textTransform: "uppercase", color: "#8a7a60", marginBottom: "6px",
+                    }}>They'll receive</span>
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#2C1A0E", lineHeight: 1.45 }}>
+                      {INVITE_MESSAGE(household?.name, inviteUrl)}
+                    </span>
+                  </div>
+                ) : invitePreparing ? (
+                  <div style={{
+                    background: "#F5EDE0", border: "1.5px solid #E8D5B7", borderRadius: "8px",
+                    padding: "12px 14px", marginBottom: "14px", opacity: 0.6,
+                  }}>
+                    <span style={{
+                      display: "block", fontFamily: "'Lato', sans-serif", fontSize: "0.6rem",
+                      letterSpacing: "1.5px", textTransform: "uppercase", color: "#8a7a60", marginBottom: "6px",
+                    }}>They'll receive</span>
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#2C1A0E" }}>
+                      Preparing your invite link…
+                    </span>
+                  </div>
+                ) : null}
+
+                <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                  {typeof navigator !== "undefined" && navigator.share ? (
+                    // Primary: Web Share when available — lands the invite in a real conversation.
+                    <button
+                      disabled={invitePreparing}
+                      onClick={async () => {
+                        const url = inviteUrl || await prepareInvite();
+                        if (!url) return;                       // generate failed → error state already set
+                        try {
+                          await navigator.share({
+                            title: "Come aboard my OurProvisions list",
+                            text: INVITE_MESSAGE(household?.name, url),
+                          });
+                        } catch (e) {
+                          if (e && e.name !== "AbortError") console.error("share failed:", e);
+                        }
+                      }}
+                      style={{
+                        flex: 1, minWidth: "160px", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
+                        letterSpacing: "1px", textTransform: "uppercase", padding: "12px 18px",
+                        background: invitePreparing ? "#6ba3a0" : "#2f7d7a",
+                        color: "#FAF4EC", border: "none", borderRadius: "8px",
+                        cursor: invitePreparing ? "default" : "pointer", whiteSpace: "nowrap",
+                      }}
+                    >
+                      {invitePreparing ? "Preparing…" : "Send invite"}
+                    </button>
+                  ) : null}
+                  {/* Fallback (always shown; sole action on desktop/no-share): Copy. */}
+                  <button
+                    disabled={invitePreparing}
+                    onClick={async () => {
+                      const url = inviteUrl || await prepareInvite();
+                      if (!url) return;
+                      navigator.clipboard.writeText(url);
+                      setInviteCopied(true);
+                      setTimeout(() => setInviteCopied(false), 2500);
+                    }}
+                    style={{
+                      fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", letterSpacing: "1px",
+                      textTransform: "uppercase", padding: "12px 18px", borderRadius: "8px",
+                      border: "none", whiteSpace: "nowrap", transition: "background 0.2s",
+                      cursor: invitePreparing ? "default" : "pointer",
+                      background: inviteCopied ? "#4a9e4a" : (navigator.share ? "#E8D5B7" : "#c8973a"),
+                      color: inviteCopied ? "white" : (navigator.share ? "#2C1A0E" : "white"),
+                    }}
+                  >
+                    {inviteCopied ? "✓ Copied!" : (invitePreparing ? "Preparing…" : (navigator.share ? "Copy link instead" : "Copy link"))}
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>
