@@ -1054,10 +1054,10 @@ function ProvisionsApp() {
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
         .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-list-scale)); color: #2C1A0E; flex: 1; }
-        .qty-controls { display: inline-flex; align-items: center; background: #fff; border: 1px solid #e8ddd0; border-radius: 999px; overflow: hidden; box-shadow: 0 1px 2px rgba(44,26,14,0.04); flex-shrink: 0; }
+        .qty-controls { display: inline-flex; align-items: center; background: transparent; border: 1px solid #C9A97A; border-radius: 999px; overflow: hidden; flex-shrink: 0; }
         .qty-btn { width: 38px; height: 34px; border: 0; background: transparent; color: #A0724A; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; line-height: 1; transition: background 0.12s; }
         .qty-btn:active { background: #F5EDE0; }
-        .qty-display { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; min-width: 30px; text-align: center; color: #2C1A0E; border-left: 1px solid #e8ddd0; border-right: 1px solid #e8ddd0; padding: 8px 0; }
+        .qty-display { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; min-width: 30px; text-align: center; color: #2C1A0E; border-left: 1px solid #C9A97A; border-right: 1px solid #C9A97A; padding: 8px 0; }
         .qty-display.zero { color: #c8b89a; font-weight: 400; }
         .add-btn { border: 1px solid #C9A97A; background: transparent; color: #A0724A; font-family: 'Lato', sans-serif; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.02em; padding: 9px 22px; border-radius: 999px; cursor: pointer; transition: all 0.14s; }
         .add-btn:active { background: #A0724A; border-color: #A0724A; color: #fff; }
