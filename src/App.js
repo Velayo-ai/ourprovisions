@@ -361,6 +361,7 @@ function ProvisionsApp() {
   const [showHouseholdModal, setShowHouseholdModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newHouseholdName, setNewHouseholdName] = useState("");
+  const [creatingInFlight, setCreatingInFlight] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameHouseholdValue, setRenameHouseholdValue] = useState("");
   const [toastMessage, setToastMessage] = useState(null);
@@ -1336,24 +1337,33 @@ function ProvisionsApp() {
                       }}
                     >Cancel</button>
                     <button
+                      disabled={creatingInFlight}
                       onClick={async () => {
+                        if (creatingInFlight) return;            // guard: ignore taps while in flight
                         const n = newHouseholdName.trim();
                         if (!n) return;
-                        const newId = await createHousehold(n);
-                        if (newId) {
-                          await refreshHouseholds();
-                          switchHousehold(newId);
-                          setShowHouseholdModal(false);
-                          setCreating(false); setNewHouseholdName("");
-                          showToast(`"${n}" created`);
+                        setCreatingInFlight(true);               // raise BEFORE the await
+                        try {
+                          const newId = await createHousehold(n);
+                          if (newId) {
+                            await refreshHouseholds();
+                            switchHousehold(newId);
+                            setShowHouseholdModal(false);
+                            setCreating(false); setNewHouseholdName("");
+                            showToast(`"${n}" created`);
+                          }
+                        } finally {
+                          setCreatingInFlight(false);            // clear on every exit path
                         }
                       }}
                       style={{
-                        flex: 2, padding: "10px", background: "#A0724A", border: "none",
-                        borderRadius: "8px", fontFamily: "'Lato', sans-serif",
-                        fontSize: "0.8rem", fontWeight: 700, cursor: "pointer", color: "#FAF4EC",
+                        flex: 2, padding: "10px",
+                        background: creatingInFlight ? "#C9A87E" : "#A0724A",
+                        border: "none", borderRadius: "8px", fontFamily: "'Lato', sans-serif",
+                        fontSize: "0.8rem", fontWeight: 700,
+                        cursor: creatingInFlight ? "default" : "pointer", color: "#FAF4EC",
                       }}
-                    >Create</button>
+                    >{creatingInFlight ? "Creating…" : "Create"}</button>
                   </div>
                 </div>
               )}
