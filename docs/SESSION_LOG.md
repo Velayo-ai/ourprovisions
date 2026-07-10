@@ -25,6 +25,32 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-09] — [Cross] — Designed the Beta 1 "Come Aboard" launch funnel + defined the two-number success metric
+**Goal:** Design the end-to-end customer experience for the first public beta — the call-to-action, the funnel from blog to app, the marketing asset set, and what "a successful beta" means as a number.
+**Completed:**
+- Settled the funnel shape: velayo.ai blog post is the primary ad vehicle; **ranked, not forked** CTAs — primary "Come Aboard" (→ ourprovisions.app questionnaire), secondary catch-net "Follow the journey" (→ Mailchimp) for the not-ready-today reader.
+- Reframed the seven-question `beta_signups` questionnaire from an *application* to *onboarding intelligence* ("set your galley up right") — beta is open, so the questions collect setup signal, not admission judgment. Founder-only `status`/`fit_note` columns still populated by watching, not gatekeeping.
+- Resolved the post-signup seam to "fewest clicks": questionnaire submit → straight into the app; Clerk account creation is the only step. Welcome email is a *parallel keepsake* (context + link back), never a gate.
+- Verified (web) that Clerk supports pre-filling sign-up email via `initialValues` prop OR query string — carrying the questionnaire email into Clerk sign-up is real and cheap. CAVEAT: pre-fill ≠ verified; Clerk still runs its own OTP, so copy must expect a "confirm it's you" beat.
+- Defined the **activation ladder** with the second-person **invite as the pivot**: R1 in-the-door (solo-safe: create/join → first item → browse); R2 the pivot (invite a second person); R3 the aha (see a shared edit sync live — only via R2); R4 it's-mine (qty/price, budget, waste); R5 come-back (PWA install + Message the bridge).
+- Locked the **two-number beta success metric**: breadth = 10 users touch the key features; depth = ≥50% (5 of 10) invite a second person to exercise the CI thesis. Growth ladder in 10s: 10 → 100 → 1,000 → 10,000.
+- Surfaced hidden gaps in the six-item deliverables list (see Unfinished) and set the inside-out build order.
+**Unfinished:**
+- All launch assets DESIGNED but UNWRITTEN. Set: (1) July "Come Aboard" blog post, (2) existing-user email → blog, (3) social announcement → blog, (4) sign-up page, (5) post-signup welcome email, (6) Mailchimp nurture series. Gaps added: (7) seven-question questionnaire copy (highest-leverage, own task), (8) velayo.ai "Follow the journey" catch-net form, (9) Mailchimp SEGMENTATION — beta users (in-app) vs journey-followers must be separate segments or feature-nudge emails misfire.
+- Nurture series split nurture-now (live today) vs nurture-later (Beat 1/2 features become "we heard you" emails on ship). Receipt scanning drops off the beta-10 list entirely (Phase 3, no beta user touches it).
+- Welcome email (#5) reshaped generic "welcome aboard" → pointed "bring your first mate" — now the single most important asset (invite-email success IS the 50% depth metric). Not yet written.
+- Clerk pre-fill query-string PARAM NAME unconfirmed against the installed Clerk version — verify at build (don't assert from the 2023 changelog).
+- The "data is yours" editable-profile surface — BANKED as a future beat (see ARCHITECTURE), not built.
+**Next session:**
+SESSION START
+Goal: Produce the launch destination first — the sign-up page + the reframed seven-question questionnaire copy — since the activation ladder makes it the surface everything upstream links to. (Blocked-behind: the tech-debt pass to make the invite/CI pivot solid.)
+State: Full beta launch STRATEGY locked (funnel shape, questionnaire reframe, Clerk pre-fill seam verified, activation ladder, invite-as-pivot, two-number success metric). Zero assets written yet. Beat 0 P0 fixes on dev; dev→main merge still gated. `beta_signups` table exists (insert-only, no-select RLS, founder-only status/fit_note).
+Done when: sign-up page + questionnaire copy exist and eye-test passes; build order for the remaining assets (welcome email → Mailchimp segments → blog → user email + social) is ready to execute inside-out.
+**Files updated:** None (design/decision session — read-only orientation + strategy).
+**DB changes:** None.
+
+---
+
 ### [2026-07-09] — [OurProvisions] — Closed the false-removal-banner P0; fixed blank-catalog + RUM masking; session replay working
 **Goal:** Diagnose and fix the false "No longer a member" banner (the Beat 0 launch-email blocker), using session replay as the instrument.
 **Completed:**
