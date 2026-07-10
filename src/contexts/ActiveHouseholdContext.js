@@ -31,9 +31,6 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
   const deliberateLossRef = useRef(false);
   const beginDeliberateLoss = useCallback(() => { deliberateLossRef.current = true; }, []);
   const endDeliberateLoss = useCallback(() => { deliberateLossRef.current = false; }, []);
-  // Voluntary-leave marker — set before leave RPC so presence check ignores the removal (step 5).
-  // NOTE: dead scaffolding — superseded by resolvingRef; markSelfDeparture is unwired. Separate cleanup.
-  const selfDepartureRef = useRef(false);
 
   // Kept current so checkPresence can fire the removal notice without a stale closure.
   const onRemovalRef = useRef(onRemoval);
@@ -128,10 +125,6 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
     }
   }, [clerkId]);
 
-  const markSelfDeparture = useCallback(() => {
-    selfDepartureRef.current = true;
-  }, []);
-
   // Single switch-or-provision path — shared by checkPresence and resolveAfterHouseholdLoss.
   // Fetches the authoritative current list (avoids stale-closure reads), then switches to a
   // survivor or auto-provisions a fresh household, with provisioningRef guarding against races.
@@ -221,7 +214,6 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         resolveAfterHouseholdLoss,
         beginDeliberateLoss,
         endDeliberateLoss,
-        markSelfDeparture,
         loadingHouseholds,
         hasMultiple: myHouseholds.length > 1,
       }}
