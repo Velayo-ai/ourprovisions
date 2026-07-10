@@ -233,11 +233,15 @@ function CatalogItemRow({
     <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
       <div className="item-top">
         <span className="item-name">{item.name}</span>
-        <div className="qty-controls">
-          <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty - 1, rawCategory)}>−</button>
-          <span className={`qty-display ${qty === 0 ? "zero" : ""}`}>{qty === 0 ? "0" : qty}</span>
-          <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty + 1, rawCategory)}>+</button>
-        </div>
+        {qty === 0 ? (
+          <button className="add-btn" onClick={() => onUpdateQty(item.name, 1, rawCategory)}>Add</button>
+        ) : (
+          <div className="qty-controls">
+            <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty - 1, rawCategory)}>−</button>
+            <span className="qty-display">{qty}</span>
+            <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty + 1, rawCategory)}>+</button>
+          </div>
+        )}
       </div>
       {showPrices && (
         <div className="price-row">
@@ -1055,6 +1059,8 @@ function ProvisionsApp() {
         .qty-btn:active { background: #F5EDE0; }
         .qty-display { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; min-width: 30px; text-align: center; color: #2C1A0E; border-left: 1px solid #e8ddd0; border-right: 1px solid #e8ddd0; padding: 8px 0; }
         .qty-display.zero { color: #c8b89a; font-weight: 400; }
+        .add-btn { border: 1px solid #C9A97A; background: transparent; color: #A0724A; font-family: 'Lato', sans-serif; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.02em; padding: 9px 22px; border-radius: 999px; cursor: pointer; transition: all 0.14s; }
+        .add-btn:hover, .add-btn:active { background: #A0724A; border-color: #A0724A; color: #fff; }
         .price-row { display: flex; align-items: center; gap: 8px; }
         .price-display { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-list-scale)); color: #8a7a60; }
         .price-edit-wrap { display: flex; align-items: center; gap: 4px; width: 100%; }
