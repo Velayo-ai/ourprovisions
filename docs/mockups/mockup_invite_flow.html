@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invite flow — eye test</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --espresso:#2C1A0E; --cream:#FAF4EC; --sand:#E8D5B7; --sand-deep:#A0724A;
+    --teal:#2f7d7a; --teal-deep:#256462; --clay:#c8973a; --muted:#8a7a60;
+    --success:#4a9e4a; --field:#F5EDE0;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:#d8cdbb; font-family:'Lato',sans-serif; color:var(--espresso);
+    padding:40px 16px; display:flex; flex-direction:column; align-items:center; gap:44px;
+  }
+  .lane{width:100%; max-width:920px;}
+  .lane-head{
+    font-family:'Lato',sans-serif; font-size:0.7rem; letter-spacing:2px;
+    text-transform:uppercase; color:#6b5d48; margin:0 0 4px 4px;
+  }
+  .lane-sub{font-size:0.82rem; color:#6b5d48; margin:0 0 18px 4px; max-width:640px; line-height:1.5;}
+  .steps{display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start;}
+  .phone{
+    width:290px; background:var(--espresso); border-radius:26px; padding:10px;
+    box-shadow:0 12px 34px rgba(0,0,0,0.28); flex:0 0 auto;
+  }
+  .screen{
+    background:var(--cream); border-radius:18px; overflow:hidden; min-height:200px;
+    display:flex; flex-direction:column;
+  }
+  .topbar{
+    background:var(--espresso); color:var(--cream); text-align:center;
+    font-family:'Playfair Display',serif; font-size:0.82rem; letter-spacing:2px;
+    padding:12px; display:flex; align-items:center; justify-content:center; gap:8px;
+  }
+  .anchor{opacity:0.55; font-size:0.72rem;}
+  .body{padding:16px 16px 20px;}
+  .step-num{
+    display:inline-block; font-family:'Lato',sans-serif; font-weight:700; font-size:0.66rem;
+    letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-bottom:9px;
+  }
+  .sheet-title{
+    font-family:'Lato',sans-serif; font-size:0.68rem; letter-spacing:1.5px;
+    text-transform:uppercase; color:var(--muted); margin:0 0 10px;
+  }
+  .hh{
+    background:var(--sand); border-radius:8px; padding:11px 13px; margin-bottom:7px;
+    font-size:0.86rem; display:flex; justify-content:space-between; align-items:center;
+  }
+  .hh.active{background:var(--espresso); color:var(--cream);}
+  .hh .badge{font-size:0.6rem; letter-spacing:1px; opacity:0.7;}
+  .btn{
+    width:100%; border:none; border-radius:8px; padding:12px; cursor:pointer;
+    font-family:'Lato',sans-serif; font-size:0.76rem; letter-spacing:1px;
+    text-transform:uppercase; font-weight:700;
+  }
+  .btn-primary{background:var(--sand-deep); color:var(--cream);}
+  .btn-teal{background:var(--teal); color:#fff;}
+  .btn-ghost{background:transparent; color:var(--sand-deep); border:1.5px dashed var(--sand-deep); font-weight:400;}
+  .btn-clay{background:var(--clay); color:#fff;}
+  .btn-copy{background:transparent; color:var(--muted); border:1.5px solid var(--sand); font-weight:400; margin-top:8px;}
+  .panel-title{font-family:'Playfair Display',serif; font-size:1.05rem; font-weight:700; margin:0 0 6px;}
+  .panel-note{font-size:0.78rem; color:var(--muted); margin:0 0 16px; line-height:1.5;}
+  .linkfield{
+    width:100%; border:1.5px solid var(--sand); border-radius:6px; padding:10px 12px;
+    background:var(--field); font-size:0.78rem; color:var(--espresso); margin-bottom:10px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .arrow{align-self:center; font-size:1.6rem; color:#6b5d48; flex:0 0 auto; padding-top:80px;}
+  .tap-count{
+    font-family:'Lato',sans-serif; font-weight:700; font-size:0.72rem; letter-spacing:1px;
+    text-transform:uppercase; padding:5px 12px; border-radius:999px; display:inline-block; margin-top:14px;
+  }
+  .tap-bad{background:#e4c4b8; color:#8a3a2a;}
+  .tap-good{background:#c3e0cf; color:#1f6b3f;}
+  .exit-note{font-size:0.72rem; color:#8a3a2a; margin-top:8px; font-style:italic;}
+  .win-note{font-size:0.72rem; color:#1f6b3f; margin-top:8px; font-style:italic;}
+  /* OS share sheet fake */
+  .os-share{background:#e9e4da; border-radius:14px 14px 0 0; padding:14px; margin-top:auto;}
+  .os-share-title{font-size:0.7rem; color:#555; margin-bottom:10px; text-align:center;}
+  .os-apps{display:flex; gap:14px; justify-content:center;}
+  .os-app{display:flex; flex-direction:column; align-items:center; gap:5px; font-size:0.6rem; color:#444;}
+  .os-icon{width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.2rem;}
+  .divider-lane{width:100%; max-width:920px; border:none; border-top:1px dashed #a99c86; margin:0;}
+  .msg-preview{
+    background:var(--field); border:1.5px solid var(--sand); border-radius:8px;
+    padding:10px 12px; font-size:0.76rem; color:var(--espresso); line-height:1.5; margin-bottom:12px;
+  }
+  .msg-preview .lbl{font-size:0.6rem; letter-spacing:1px; text-transform:uppercase; color:var(--muted); display:block; margin-bottom:4px;}
+</style>
+</head>
+<body>
+
+  <div class="lane">
+    <p class="lane-head">Current flow — 6 taps + leave the app</p>
+    <p class="lane-sub">Tapping "Invite Someone" closes the manage sheet and hops to a separate panel. You must generate, then copy, then leave OurProvisions entirely to actually send it. The invite is only <em>copied</em> — sending is on you.</p>
+    <div class="steps">
+
+      <div class="phone"><div class="screen">
+        <div class="topbar"><span class="anchor">⚓</span> MADBURY <span class="anchor">⚓</span></div>
+        <div class="body">
+          <div class="step-num">Tap 1–2 · find it</div>
+          <p class="sheet-title">Your households</p>
+          <div class="hh active">Madbury <span class="badge">ACTIVE</span></div>
+          <div class="hh">NewLeaf</div>
+          <button class="btn btn-primary" style="margin-top:12px;">+ Invite someone</button>
+        </div>
+      </div></div>
+
+      <div class="arrow">→</div>
+
+      <div class="phone"><div class="screen">
+        <div class="topbar"><span class="anchor">⚓</span> MADBURY <span class="anchor">⚓</span></div>
+        <div class="body">
+          <div class="step-num">Tap 3–4 · generate</div>
+          <p class="panel-title">Share Your Household</p>
+          <p class="panel-note">Send this link to anyone you want to share your list with. Expires in 7 days.</p>
+          <button class="btn btn-primary">Generate invite link</button>
+        </div>
+      </div></div>
+
+      <div class="arrow">→</div>
+
+      <div class="phone"><div class="screen">
+        <div class="topbar"><span class="anchor">⚓</span> MADBURY <span class="anchor">⚓</span></div>
+        <div class="body">
+          <div class="step-num">Tap 5 · copy</div>
+          <p class="panel-title">Share Your Household</p>
+          <div class="linkfield">ourprovisions.app/?invite=K2F60T</div>
+          <button class="btn btn-clay">Copy link</button>
+          <p class="exit-note">…now leave the app, open Messages, paste, send. The invite dies here if they don't.</p>
+        </div>
+      </div></div>
+
+    </div>
+    <span class="tap-count tap-bad">6 taps · exits the app · sends nothing</span>
+  </div>
+
+  <hr class="divider-lane">
+
+  <div class="lane">
+    <p class="lane-head">Proposed flow — 3 taps, sent not just copied</p>
+    <p class="lane-sub">The invite lives in the sheet you're already in. The link is ready the moment you open it — no "generate" step. One "Send invite" tap opens your phone's own share sheet with a brand-voice message pre-written, so the link is <em>sent</em>, not stranded on the clipboard.</p>
+    <div class="steps">
+
+      <div class="phone"><div class="screen">
+        <div class="topbar"><span class="anchor">⚓</span> MADBURY <span class="anchor">⚓</span></div>
+        <div class="body">
+          <div class="step-num">Tap 1 · open sheet, tap invite</div>
+          <p class="sheet-title">Your households</p>
+          <div class="hh active">Madbury <span class="badge">ACTIVE</span></div>
+          <div class="hh">NewLeaf</div>
+          <button class="btn btn-teal" style="margin-top:12px;">+ Invite someone aboard</button>
+        </div>
+      </div></div>
+
+      <div class="arrow">→</div>
+
+      <div class="phone"><div class="screen">
+        <div class="topbar"><span class="anchor">⚓</span> MADBURY <span class="anchor">⚓</span></div>
+        <div class="body">
+          <div class="step-num">Tap 2 · link already waiting</div>
+          <p class="panel-title">Bring someone aboard</p>
+          <p class="panel-note">They'll join Madbury and your list syncs live — you'll see each other's edits in real time.</p>
+          <div class="msg-preview">
+            <span class="lbl">They'll receive</span>
+            Come aboard my OurProvisions list — we'll share it and it gets smarter as we go. ourprovisions.app/?invite=K2F60T
+          </div>
+          <button class="btn btn-teal">Send invite</button>
+          <button class="btn btn-copy">Copy link instead</button>
+        </div>
+      </div></div>
+
+      <div class="arrow">→</div>
+
+      <div class="phone"><div class="screen">
+        <div class="topbar"><span class="anchor">⚓</span> MADBURY <span class="anchor">⚓</span></div>
+        <div class="body" style="padding-bottom:0; flex:1; display:flex; flex-direction:column;">
+          <div class="step-num">Tap 3 · your phone's share sheet</div>
+          <p class="panel-title">Bring someone aboard</p>
+          <p class="panel-note" style="margin-bottom:0;">Pick a person — the message is ready. It's sent, not just copied.</p>
+          <div class="os-share">
+            <div class="os-share-title">Share via…</div>
+            <div class="os-apps">
+              <div class="os-app"><div class="os-icon" style="background:#25d366; color:#fff;">✆</div>WhatsApp</div>
+              <div class="os-app"><div class="os-icon" style="background:#0b93f6; color:#fff;">✉</div>Messages</div>
+              <div class="os-app"><div class="os-icon" style="background:#ea4335; color:#fff;">✦</div>Mail</div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+    </div>
+    <span class="tap-count tap-good">3 taps · stays in flow · actually sends</span>
+    <p class="win-note">The copy→send gap is where invites leak. Web Share closes it — and your depth metric (≥50% invite someone) rides on sends, not copies. Desktop / unsupported browsers fall back to "Copy link."</p>
+  </div>
+
+</body>
+</html>

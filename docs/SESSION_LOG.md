@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-10] — [OurProvisions] — Invite Web Share flow + duplicate-create guard + dead-code cleanup; shipped to prod
+**Goal:** Build the Beta 1 invite activation pivot (Web Share), fix the duplicate-household creation bug, and clear dead scaffolding — dev→main to prod.
+**Completed:**
+- Shipped the streamlined invite flow (`8c62315`): Send via `navigator.share` (feature-detected, Copy fallback) with a single-source brand-voice `INVITE_MESSAGE` (preview === what's sent). Lazy-generate (Option B) — `prepareInvite()` fires on a ~500ms idle-after-open timer OR an explicit Send/Copy tap, so a fast open/close writes no `household_invites` row; idempotent, in-flight-guarded. Trigger renamed "Invite someone aboard" + teal to match the welcome-email "bring your first mate" vocabulary.
+- Fixed duplicate-household creation (`565b133`): root-caused via prod queries to a creation-race — the Create button's async onClick was never disabled during the ~2s await, so a 259ms double-tap fired two `create_household` RPCs → two distinct ids. Fix = `creatingInFlight` guard (disable + dim + "Creating…", early-return, clears in `finally`).
+- Removed dead `selfDepartureRef`/`markSelfDeparture` (`5da1c37`): superseded by `deliberateLossRef`, consumed nowhere in `src`. Dropped the ref, the callback, and its context-value entry; synced ARCHITECTURE (3 stale mentions).
+- Merged dev→main (`68d38c5`, `--no-ff`) and pushed to prod; ESLint `react-app` config clean on all changed files (the CI=true warnings-as-errors gate).
+- Filed the duplicate-household diagnosis: `_repro` spec landed the truth-table row (true duplicate creation / creation-race), `_fix` spec built from it.
+- Routed 3 specs handoff→docs + tracked the invite mockup.
+**Unfinished:**
+- **Part 2 prod cleanup NOT run** — the existing duplicate "Test House 200" pairs on prod still need the one-time soft-delete (SQL in `docs/SPEC_duplicate_household_fix.md` §2: preview 2a → mutate 2b → verify 2c). Manual Supabase step, Dan-only.
+- **WATCH ITEM — server-side idempotent `create_household`**: build only if prod ever shows a non-human duplicate `created_at` signature (sub-10ms or retry-spaced). The 259ms trigger was a human double-tap; button-disable covers it.
+- Beta 1 launch assets still unwritten (the invite-button rename is only the in-app half of the "bring your first mate" match).
+- Local prod build still can't run on this machine (broken partial `@splunk/*` install + npm TLS `UNABLE_TO_VERIFY_LEAF_SIGNATURE`); Dan opted NOT to use Splunk on local dev. ESLint is the local CI proxy until resolved.
+**Next session:**
+SESSION START
+Goal: Verify the invite Web Share flow + duplicate-create guard on prod (real phone for Web Share), run the Part 2 duplicate-cleanup SQL, then start Beta 1 launch-asset production (sign-up page + questionnaire copy).
+State: Invite flow, duplicate-create guard, and dead-code cleanup all on prod (`68d38c5`). Duplicate-create root cause confirmed + fixed; existing prod dup rows not yet cleaned. Beta 1 strategy locked, assets unwritten.
+Done when: Web Share invite verified on a real mobile prod session; a double-tap create yields one household on prod; Part 2 cleanup run (switcher shows each name once); launch-destination assets underway.
+**Files updated:** `src/App.js` (create-in-flight guard `565b133`; invite Web Share flow `8c62315`), `src/contexts/ActiveHouseholdContext.js` (dead-code removal `5da1c37`), `docs/ARCHITECTURE.md`.
+**DB changes:** None (Part 2 prod soft-delete is a pending manual step, not run this session).
+
 ### [2026-07-09] — [Cross] — Designed the Beta 1 "Come Aboard" launch funnel + defined the two-number success metric
 **Goal:** Design the end-to-end customer experience for the first public beta — the call-to-action, the funnel from blog to app, the marketing asset set, and what "a successful beta" means as a number.
 **Completed:**
