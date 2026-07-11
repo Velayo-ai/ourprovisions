@@ -389,9 +389,11 @@ function ProvisionsApp() {
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
   const [wrappingUp, setWrappingUp] = useState(false);
-  const [showCategories, setShowCategories] = useState(
-    () => localStorage.getItem('op_showCategories') !== 'false'
-  );
+  // Shop declutter cycle: 0 default (grouped, all shown) · 1 tidied (grouped, checked hidden) · 2 flat (A–Z, checked hidden).
+  // Ephemeral UI state — resets to 0 on tab/household switch (see effect below). Supersedes the old op_showCategories toggle.
+  const [shopPhase, setShopPhase] = useState(0);
+  // Declutter phase is per-view/per-household ephemeral state: reset to default on tab or household switch.
+  useEffect(() => { setShopPhase(0); }, [view, activeHouseholdId]);
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -965,6 +967,14 @@ function ProvisionsApp() {
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.name] ? i.subtotal : 0), 0), 0);
 
+  // Shop declutter phase 2 — flat A–Z of unchecked items (checked are always hidden once decluttered).
+  const shopFlatItems = useMemo(() =>
+    shoppingList
+      .flatMap(c => c.items)
+      .filter(i => !checked[i.name])
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [shoppingList, checked]);
+
  
   const budgetRemaining = budgetNum !== null ? budgetNum - totalCost : null;
   const budgetPct = budgetNum !== null ? Math.min((totalCost / budgetNum) * 100, 100) : null;
@@ -1075,6 +1085,13 @@ function ProvisionsApp() {
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
+        .cyc-ico { flex: none; width: 46px; height: 46px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; color: #A0724A; cursor: pointer; padding: 0; transition: background 0.18s, border-color 0.18s, color 0.18s; }
+        .cyc-ico.on { background: #A0724A; border-color: #A0724A; color: #fff; }
+        .cyc-ico svg { width: 22px; height: 22px; display: block; }
+        .wrapup { flex: none; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; border-radius: 11px; height: 48px; padding: 0 18px; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; letter-spacing: 0.2px; color: #2C1A0E; cursor: pointer; white-space: nowrap; transition: border-color 0.2s; }
+        .wrapup:hover { border-color: #A0724A; }
+        .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
+        .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
         .list-cat-title { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #c8973a; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
@@ -2177,27 +2194,32 @@ function ProvisionsApp() {
             ) : (
               <>
                 <div className="list-header">
-                  <span className="list-progress">{checkedCount} of {totalItems} checked</span>
+                  <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} checked</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
                   <button
-                    className="cat-toggle"
-                    onClick={() => {
-                      const next = !showCategories;
-                      setShowCategories(next);
-                      localStorage.setItem('op_showCategories', String(next));
-                    }}
-                    title={showCategories ? "Hide categories" : "Show categories"}
-                    style={{ color: showCategories ? "#A0724A" : "#c8b89a" }}
+                    className={`cyc-ico ${shopPhase !== 0 ? "on" : ""}`}
+                    onClick={() => setShopPhase((shopPhase + 1) % 3)}
+                    aria-label="Declutter view"
+                    title="Declutter view"
                   >
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <line x1="0" y1="2" x2="14" y2="2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                      <line x1="0" y1="7" x2="14" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                      <line x1="0" y1="12" x2="14" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+                      {shopPhase === 2 ? (
+                        <>
+                          <line x1="4" y1="6" x2="20" y2="6"/>
+                          <line x1="4" y1="12" x2="20" y2="12"/>
+                          <line x1="4" y1="18" x2="20" y2="18"/>
+                        </>
+                      ) : (
+                        <>
+                          <line x1="4" y1="6" x2="20" y2="6"/>
+                          <line x1="7" y1="12" x2="17" y2="12"/>
+                          <line x1="10" y1="18" x2="14" y2="18"/>
+                        </>
+                      )}
                     </svg>
-                    {showCategories ? "Grouped" : "Flat"}
                   </button>
                   <button
-                    className="clear-btn"
+                    className="wrapup"
                     onClick={() => {
                       // Pre-select all pending items for roll-forward
                       const pending = new Set(
@@ -2209,9 +2231,16 @@ function ProvisionsApp() {
                       setShowWrapUpModal(true);
                     }}
                   >
-                    Wrap Up
+                    Wrap up
                   </button>
                 </div>
+                {shopPhase !== 0 && (
+                  <div className="declutter-desc">
+                    {checkedCount > 0
+                      ? `${checkedCount} checked ${checkedCount === 1 ? "item" : "items"} hidden`
+                      : "no checked items yet"}
+                  </div>
+                )}
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
                 </div>
@@ -2241,11 +2270,15 @@ function ProvisionsApp() {
                     </button>
                   </div>
                 )}
-                {showCategories ? (
-                  shoppingList.map((cat) => (
+                {shopPhase !== 2 ? (
+                  shoppingList.map((cat) => {
+                    // Phase 1 hides checked items; skip a category that empties out.
+                    const catItems = shopPhase === 1 ? cat.items.filter(i => !checked[i.name]) : cat.items;
+                    if (catItems.length === 0) return null;
+                    return (
                     <div key={cat.category}>
                       <div className="list-cat-title">{cat.category}</div>
-                      {cat.items.map((item) => {
+                      {catItems.map((item) => {
                         const isDone = checked[item.name];
                         return (
                           <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} style={{ borderRadius: 0, background: "transparent" }}>
@@ -2300,12 +2333,12 @@ function ProvisionsApp() {
                         );
                       })}
                     </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div>
-                    {shoppingList
-                      .flatMap(cat => cat.items)
-                      .sort((a, b) => a.name.localeCompare(b.name))
+                    <div className="flat-header">A–Z · {shopFlatItems.length} {shopFlatItems.length === 1 ? "item" : "items"}</div>
+                    {shopFlatItems
                       .map((item) => {
                         const isDone = checked[item.name];
                         return (
