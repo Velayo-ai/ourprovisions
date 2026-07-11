@@ -266,6 +266,42 @@ function CatalogItemRow({
   );
 }
 
+// ── Shared declutter cycle control ──
+// One 46×46 icon used identically on Browse and Shop. Encodes both axes:
+// background light→dark = filter off→on (phase 0 vs 1/2); line shape tapering
+// (funnel ∨) → equal = grouped → flat (phase 2). Each tap advances 0→1→2→0.
+function CycleIcon({ phase, onAdvance }) {
+  return (
+    <button
+      className={`cyc-ico ${phase !== 0 ? "on" : ""}`}
+      onClick={onAdvance}
+      aria-label="Declutter view"
+      title="Declutter view"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+        {phase === 2 ? (
+          <>
+            <line x1="4" y1="6" x2="20" y2="6"/>
+            <line x1="4" y1="12" x2="20" y2="12"/>
+            <line x1="4" y1="18" x2="20" y2="18"/>
+          </>
+        ) : (
+          <>
+            <line x1="4" y1="6" x2="20" y2="6"/>
+            <line x1="7" y1="12" x2="17" y2="12"/>
+            <line x1="10" y1="18" x2="14" y2="18"/>
+          </>
+        )}
+      </svg>
+    </button>
+  );
+}
+
+// Flat-view header shared by both tabs' phase-2 render.
+function FlatHeader({ count }) {
+  return <div className="flat-header">A–Z · {count} {count === 1 ? "item" : "items"}</div>;
+}
+
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
   const { getToken } = useAuth();
@@ -1913,28 +1949,7 @@ function ProvisionsApp() {
                     >✕</span>
                   )}
                 </div>
-                <button
-                  className={`cyc-ico ${browsePhase !== 0 ? "on" : ""}`}
-                  onClick={() => setBrowsePhase((browsePhase + 1) % 3)}
-                  aria-label="Declutter view"
-                  title="Declutter view"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
-                    {browsePhase === 2 ? (
-                      <>
-                        <line x1="4" y1="6" x2="20" y2="6"/>
-                        <line x1="4" y1="12" x2="20" y2="12"/>
-                        <line x1="4" y1="18" x2="20" y2="18"/>
-                      </>
-                    ) : (
-                      <>
-                        <line x1="4" y1="6" x2="20" y2="6"/>
-                        <line x1="7" y1="12" x2="17" y2="12"/>
-                        <line x1="10" y1="18" x2="14" y2="18"/>
-                      </>
-                    )}
-                  </svg>
-                </button>
+                <CycleIcon phase={browsePhase} onAdvance={() => setBrowsePhase((browsePhase + 1) % 3)} />
               </div>
             </div>
 
@@ -2169,7 +2184,7 @@ function ProvisionsApp() {
                 {browsePhase === 2 ? (
                   /* ── FLAT A–Z (declutter phase 2) ── */
                   <>
-                    <div className="flat-header">A–Z · {browseFlatItems.length} {browseFlatItems.length === 1 ? "item" : "items"}</div>
+                    <FlatHeader count={browseFlatItems.length} />
                     <div className="items-grid">
                       {browseFlatItems.map((item) => {
                         const qty = quantities[item.name] || 0;
@@ -2278,28 +2293,7 @@ function ProvisionsApp() {
                 <div className="list-header">
                   <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} checked</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
-                  <button
-                    className={`cyc-ico ${shopPhase !== 0 ? "on" : ""}`}
-                    onClick={() => setShopPhase((shopPhase + 1) % 3)}
-                    aria-label="Declutter view"
-                    title="Declutter view"
-                  >
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
-                      {shopPhase === 2 ? (
-                        <>
-                          <line x1="4" y1="6" x2="20" y2="6"/>
-                          <line x1="4" y1="12" x2="20" y2="12"/>
-                          <line x1="4" y1="18" x2="20" y2="18"/>
-                        </>
-                      ) : (
-                        <>
-                          <line x1="4" y1="6" x2="20" y2="6"/>
-                          <line x1="7" y1="12" x2="17" y2="12"/>
-                          <line x1="10" y1="18" x2="14" y2="18"/>
-                        </>
-                      )}
-                    </svg>
-                  </button>
+                  <CycleIcon phase={shopPhase} onAdvance={() => setShopPhase((shopPhase + 1) % 3)} />
                   <button
                     className="wrapup"
                     onClick={() => {
@@ -2419,7 +2413,7 @@ function ProvisionsApp() {
                   })
                 ) : (
                   <div>
-                    <div className="flat-header">A–Z · {shopFlatItems.length} {shopFlatItems.length === 1 ? "item" : "items"}</div>
+                    <FlatHeader count={shopFlatItems.length} />
                     {shopFlatItems
                       .map((item) => {
                         const isDone = checked[item.name];
