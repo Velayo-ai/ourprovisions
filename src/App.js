@@ -266,6 +266,42 @@ function CatalogItemRow({
   );
 }
 
+// ── Shared declutter cycle control ──
+// One 46×46 icon used identically on Browse and Shop. Encodes both axes:
+// background light→dark = filter off→on (phase 0 vs 1/2); line shape tapering
+// (funnel ∨) → equal = grouped → flat (phase 2). Each tap advances 0→1→2→0.
+function CycleIcon({ phase, onAdvance }) {
+  return (
+    <button
+      className={`cyc-ico ${phase !== 0 ? "on" : ""}`}
+      onClick={onAdvance}
+      aria-label="Declutter view"
+      title="Declutter view"
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+        {phase === 2 ? (
+          <>
+            <line x1="4" y1="6" x2="20" y2="6"/>
+            <line x1="4" y1="12" x2="20" y2="12"/>
+            <line x1="4" y1="18" x2="20" y2="18"/>
+          </>
+        ) : (
+          <>
+            <line x1="4" y1="6" x2="20" y2="6"/>
+            <line x1="7" y1="12" x2="17" y2="12"/>
+            <line x1="10" y1="18" x2="14" y2="18"/>
+          </>
+        )}
+      </svg>
+    </button>
+  );
+}
+
+// Flat-view header shared by both tabs' phase-2 render.
+function FlatHeader({ count }) {
+  return <div className="flat-header">A–Z · {count} {count === 1 ? "item" : "items"}</div>;
+}
+
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
   const { getToken } = useAuth();
@@ -389,9 +425,13 @@ function ProvisionsApp() {
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
   const [wrappingUp, setWrappingUp] = useState(false);
-  const [showCategories, setShowCategories] = useState(
-    () => localStorage.getItem('op_showCategories') !== 'false'
-  );
+  // Shop declutter cycle: 0 default (grouped, all shown) · 1 tidied (grouped, checked hidden) · 2 flat (A–Z, checked hidden).
+  // Ephemeral UI state — resets to 0 on tab/household switch (see effect below). Supersedes the old op_showCategories toggle.
+  const [shopPhase, setShopPhase] = useState(0);
+  // Browse declutter cycle: 0 default (pills shown, grouped) · 1 tidied (pills hidden, grouped) · 2 flat (A–Z).
+  const [browsePhase, setBrowsePhase] = useState(0);
+  // Declutter phase is per-view/per-household ephemeral state: reset to default on tab or household switch.
+  useEffect(() => { setShopPhase(0); setBrowsePhase(0); }, [view, activeHouseholdId]);
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -503,6 +543,15 @@ function ProvisionsApp() {
 
     return result;
   }, [categories, stapleFilter, selectedCategories, catalogMap]);
+
+  // Browse declutter phase 2 — flat A–Z across the filtered catalog (rawCategory attached for price fallback).
+  const browseFlatItems = useMemo(() =>
+    displayCategories
+      .flatMap(cat => cat.items.map(item => ({ ...item, rawCategory: cat.rawName })))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [displayCategories]);
+  // Count of active filters for the declutter descriptor line.
+  const browseFilterCount = (stapleFilter ? 1 : 0) + selectedCategories.size;
 
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return null;
@@ -965,6 +1014,14 @@ function ProvisionsApp() {
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.name] ? i.subtotal : 0), 0), 0);
 
+  // Shop declutter phase 2 — flat A–Z of unchecked items (checked are always hidden once decluttered).
+  const shopFlatItems = useMemo(() =>
+    shoppingList
+      .flatMap(c => c.items)
+      .filter(i => !checked[i.name])
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [shoppingList, checked]);
+
  
   const budgetRemaining = budgetNum !== null ? budgetNum - totalCost : null;
   const budgetPct = budgetNum !== null ? Math.min((totalCost / budgetNum) * 100, 100) : null;
@@ -1075,6 +1132,13 @@ function ProvisionsApp() {
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
+        .cyc-ico { flex: none; width: 46px; height: 46px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; color: #A0724A; cursor: pointer; padding: 0; transition: background 0.18s, border-color 0.18s, color 0.18s; }
+        .cyc-ico.on { background: #A0724A; border-color: #A0724A; color: #fff; }
+        .cyc-ico svg { width: 22px; height: 22px; display: block; }
+        .wrapup { flex: none; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; border-radius: 11px; height: 48px; padding: 0 18px; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; letter-spacing: 0.2px; color: #2C1A0E; cursor: pointer; white-space: nowrap; transition: border-color 0.2s; }
+        .wrapup:hover { border-color: #A0724A; }
+        .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
+        .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
         .list-cat-title { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #c8973a; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
@@ -1855,37 +1919,42 @@ function ProvisionsApp() {
               borderBottom: "1px solid #E8D5B7",
               marginBottom: "12px",
             }}>
-              <div style={{
-                display: "flex", alignItems: "center",
-                background: "#F5EDE0",
-                border: `1.5px solid ${searchQuery ? "#A0724A" : "#E8D5B7"}`,
-                borderRadius: "12px",
-                padding: "0 12px", gap: "8px", height: "42px",
-                boxShadow: searchQuery ? "0 0 0 3px rgba(160,114,74,0.12)" : "none",
-                transition: "border-color 0.2s, box-shadow 0.2s",
-              }}>
-                <span style={{ color: "#C9A97A", fontSize: "15px", flexShrink: 0 }}>🔍</span>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => { setSearchQuery(e.target.value); setSearchPickerOpen(false); }}
-                  placeholder="Search your catalog…"
-                  style={{
-                    flex: 1, border: "none", background: "none",
-                    fontFamily: "'Lato', sans-serif", fontSize: "15px",
-                    color: "#2C1A0E", outline: "none",
-                  }}
-                />
-                {searchQuery && (
-                  <span
-                    onClick={() => { setSearchQuery(""); setSearchPickerOpen(false); }}
-                    style={{ color: "#C9A97A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
-                  >✕</span>
-                )}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{
+                  flex: 1, minWidth: 0,
+                  display: "flex", alignItems: "center",
+                  background: "#F5EDE0",
+                  border: `1.5px solid ${searchQuery ? "#A0724A" : "#E8D5B7"}`,
+                  borderRadius: "12px",
+                  padding: "0 12px", gap: "8px", height: "46px",
+                  boxShadow: searchQuery ? "0 0 0 3px rgba(160,114,74,0.12)" : "none",
+                  transition: "border-color 0.2s, box-shadow 0.2s",
+                }}>
+                  <span style={{ color: "#C9A97A", fontSize: "15px", flexShrink: 0 }}>🔍</span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => { setSearchQuery(e.target.value); setSearchPickerOpen(false); }}
+                    placeholder="Search your catalog…"
+                    style={{
+                      flex: 1, minWidth: 0, border: "none", background: "none",
+                      fontFamily: "'Lato', sans-serif", fontSize: "15px",
+                      color: "#2C1A0E", outline: "none",
+                    }}
+                  />
+                  {searchQuery && (
+                    <span
+                      onClick={() => { setSearchQuery(""); setSearchPickerOpen(false); }}
+                      style={{ color: "#C9A97A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
+                    >✕</span>
+                  )}
+                </div>
+                <CycleIcon phase={browsePhase} onAdvance={() => setBrowsePhase((browsePhase + 1) % 3)} />
               </div>
             </div>
 
-            {/* ── Filter chips — wrapping, no scrollbar ── */}
+            {/* ── Filter chips — wrapping; hidden when decluttered (phase 1/2) ── */}
+            {browsePhase === 0 && (
             <div style={{
               display: "flex", flexWrap: "wrap", gap: "7px",
               paddingBottom: "14px",
@@ -1934,6 +2003,14 @@ function ProvisionsApp() {
                 );
               })}
             </div>
+            )}
+            {browsePhase !== 0 && (
+              <div className="declutter-desc" style={{ margin: "0 0 14px" }}>
+                {browseFilterCount > 0
+                  ? `${browseFilterCount} filter${browseFilterCount === 1 ? "" : "s"} active · filters hidden`
+                  : "filters hidden"}
+              </div>
+            )}
 
             {/* ── Catalog body ── */}
             {catalogLoading ? (
@@ -2104,7 +2181,43 @@ function ProvisionsApp() {
             ) : (
               /* ── NORMAL BROWSE MODE ── */
               <>
-                {displayCategories.map((cat) => (
+                {browsePhase === 2 ? (
+                  /* ── FLAT A–Z (declutter phase 2) ── */
+                  <>
+                    <FlatHeader count={browseFlatItems.length} />
+                    <div className="items-grid">
+                      {browseFlatItems.map((item) => {
+                        const qty = quantities[item.name] || 0;
+                        const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
+                        const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
+                        const isEditing = editingPrice === item.name;
+                        const isStaple = catalogMap[item.name]?.is_staple;
+                        const isCustom = catalogMap[item.name]?.is_global === false;
+                        // Catalog items only expose price editing — nothing to edit when pricing is off.
+                        const canEdit = isCustom || showPrices;
+                        return (
+                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple} canEdit={canEdit}>
+                            <CatalogItemRow
+                              item={item}
+                              qty={qty}
+                              rawCategory={item.rawCategory}
+                              showPrices={showPrices}
+                              price={price}
+                              isEditing={isEditing}
+                              priceInput={priceInput}
+                              centsToDisplay={centsToDisplay}
+                              onUpdateQty={updateQty}
+                              onPriceInput={handlePriceInput}
+                              onCommitPrice={commitPrice}
+                              onCancelEditPrice={() => setEditingPrice(null)}
+                            />
+                          </SwipeToRemove>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  displayCategories.map((cat) => (
                   <div className="category-block" key={cat.name}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
                       <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>{cat.name}</div>
@@ -2151,7 +2264,8 @@ function ProvisionsApp() {
                       })}
                     </div>
                   </div>
-                ))}
+                  ))
+                )}
                 <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
                   <button
                     onClick={() => setShowManageCategoriesModal(true)}
@@ -2177,27 +2291,11 @@ function ProvisionsApp() {
             ) : (
               <>
                 <div className="list-header">
-                  <span className="list-progress">{checkedCount} of {totalItems} checked</span>
+                  <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} checked</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
+                  <CycleIcon phase={shopPhase} onAdvance={() => setShopPhase((shopPhase + 1) % 3)} />
                   <button
-                    className="cat-toggle"
-                    onClick={() => {
-                      const next = !showCategories;
-                      setShowCategories(next);
-                      localStorage.setItem('op_showCategories', String(next));
-                    }}
-                    title={showCategories ? "Hide categories" : "Show categories"}
-                    style={{ color: showCategories ? "#A0724A" : "#c8b89a" }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <line x1="0" y1="2" x2="14" y2="2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                      <line x1="0" y1="7" x2="14" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                      <line x1="0" y1="12" x2="14" y2="12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    </svg>
-                    {showCategories ? "Grouped" : "Flat"}
-                  </button>
-                  <button
-                    className="clear-btn"
+                    className="wrapup"
                     onClick={() => {
                       // Pre-select all pending items for roll-forward
                       const pending = new Set(
@@ -2209,9 +2307,16 @@ function ProvisionsApp() {
                       setShowWrapUpModal(true);
                     }}
                   >
-                    Wrap Up
+                    Wrap up
                   </button>
                 </div>
+                {shopPhase !== 0 && (
+                  <div className="declutter-desc">
+                    {checkedCount > 0
+                      ? `${checkedCount} checked ${checkedCount === 1 ? "item" : "items"} hidden`
+                      : "no checked items yet"}
+                  </div>
+                )}
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
                 </div>
@@ -2241,11 +2346,15 @@ function ProvisionsApp() {
                     </button>
                   </div>
                 )}
-                {showCategories ? (
-                  shoppingList.map((cat) => (
+                {shopPhase !== 2 ? (
+                  shoppingList.map((cat) => {
+                    // Phase 1 hides checked items; skip a category that empties out.
+                    const catItems = shopPhase === 1 ? cat.items.filter(i => !checked[i.name]) : cat.items;
+                    if (catItems.length === 0) return null;
+                    return (
                     <div key={cat.category}>
                       <div className="list-cat-title">{cat.category}</div>
-                      {cat.items.map((item) => {
+                      {catItems.map((item) => {
                         const isDone = checked[item.name];
                         return (
                           <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} style={{ borderRadius: 0, background: "transparent" }}>
@@ -2300,12 +2409,12 @@ function ProvisionsApp() {
                         );
                       })}
                     </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div>
-                    {shoppingList
-                      .flatMap(cat => cat.items)
-                      .sort((a, b) => a.name.localeCompare(b.name))
+                    <FlatHeader count={shopFlatItems.length} />
+                    {shopFlatItems
                       .map((item) => {
                         const isDone = checked[item.name];
                         return (

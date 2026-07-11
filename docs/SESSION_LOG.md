@@ -25,6 +25,27 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-10] — [Cross] — Browse stepper ExD polish (Add⇄stepper) + iOS sticky-hover fix + spec-folder reorg design
+**Goal:** Raise the Browse quantity controls to the ExD bar before beta — unify the +/− stepper into one pill and replace the ambiguous zero-state with an explicit "Add" affordance — and design Velayo OS spec-folder hygiene.
+**Completed:**
+- Unified the +/− quantity control from three floating circles into one pill (`ae7708c`); mockup-before-code, 3 variants eye-tested against the real palette.
+- Shipped **Add → Stepper** (`a13530a`, built from `SPEC_add_to_stepper.md`): un-added Browse rows render a single "Add" ghost pill; tapping adds (qty 1) and reveals the −/N/+ stepper; − at qty 1 snaps the row back to "Add". Zero is never rendered — the ambiguous zero-state is gone.
+- Fixed an intermittent iOS/WebKit sticky-hover on the Add button (`dea88a1`): guarded the `:hover` fill behind `@media (hover: hover)` + `.blur()` on tap so a re-render under the touch point can't latch the clay fill. Promoted with the stepper work dev→main (`27d881b`); prod-verified clean on `ourprovisions.velayo.ai`.
+- Matched the stepper to the Add ghost treatment (`1cd0c6e`, own atomic commit): transparent-on-cream fill, clay-lo `#C9A97A` outline + dividers, no white fill, no shadow — the un-added "Add" pill and the added "− N +" stepper now read as one control family. Promoted dev→main (`85de8e0`); dev-preview confirmed before promote.
+- Confirmed production domain = `ourprovisions.velayo.ai` (an earlier `ourprovisions.app` reference was a misstatement; CLAUDE.md already correct — no doc change).
+- Designed a 3-folder spec reorg (`docs/specs/{active,built,retired}/`) with a proposed categorization of all 36 specs — DESIGN ONLY, not executed (Velayo OS hygiene).
+**Unfinished:**
+- **Declutter cycle build** — `SPEC_declutter_cycle.md` build-ready (3 staged commits: hide-checked on Shop, flat render on Browse, unify). Not started.
+- **Spec-folder reorg** — categorization proposed but NOT executed; Claude Code must confirm each spec's bucket against `git log` before moving (design-chat inference is a proposal, not authority). Own commit; requires CLAUDE.md + DESIGN_CHAT_handoff_prompt.md edits (airlock specs would land in `docs/specs/active/`). Velayo OS scope — likely belongs in the velayo-os log once that repo's docs exist.
+- Old stepper color-softening one-liner (`#fff → #FBF7F0`) — SUPERSEDED by the match-to-Add decision; do not apply.
+**Next session:**
+SESSION START
+Goal: Build the shared declutter cycle (`SPEC_declutter_cycle.md`) in 3 staged, individually dev-verified commits.
+State: Prod clean — Add→Stepper + hover fix + stepper-match all live on `ourprovisions.velayo.ai`. dev == main (all merged, prod-green), so declutter starts from an even base.
+Done when: Browse + Shop share one 48×48 declutter icon; 3-phase cycle (default → tidied → flat A–Z) works on both tabs; Wrap-up + checked-state unaffected on Shop; Browse filters confirmed to reset on household switch; phase resets to 0 on tab/household switch. Each of the 3 commits verified on dev preview before the next.
+**Files updated:** `src/App.js` (stepper pill `ae7708c`, Add⇄stepper `a13530a`, iOS hover fix `dea88a1`, stepper-match `1cd0c6e`); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; routed `SPEC_add_to_stepper.md` handoff→`docs/`.
+**DB changes:** None.
+
 ### [2026-07-10] — [OurProvisions] — Beat 0 gates closed to prod + Beta 1 invite pivot: Web Share, duplicate-create fix, dead-code cleanup
 **Goal:** Sync + merge the stacked dev commits to prod-verified main, then clear the tech debt gating the Beta 1 invite/CI pivot — the duplicate-household bug, dead scaffolding, and the invite flow itself.
 **Completed:**
