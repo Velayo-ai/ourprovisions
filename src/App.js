@@ -430,8 +430,15 @@ function ProvisionsApp() {
   const [shopPhase, setShopPhase] = useState(0);
   // Browse declutter cycle: 0 default (pills shown, grouped) · 1 tidied (pills hidden, grouped) · 2 flat (A–Z).
   const [browsePhase, setBrowsePhase] = useState(0);
-  // Declutter phase is per-view/per-household ephemeral state: reset to default on tab or household switch.
-  useEffect(() => { setShopPhase(0); setBrowsePhase(0); }, [view, activeHouseholdId]);
+  // Declutter phase + Browse filters are per-view/per-household ephemeral state:
+  // reset on tab or household switch so a stale filter can't shrink the new
+  // household's list (phase 1 hides the pills that would otherwise explain it).
+  useEffect(() => {
+    setShopPhase(0);
+    setBrowsePhase(0);
+    setSelectedCategories(new Set());
+    setStapleFilter(false);
+  }, [view, activeHouseholdId]);
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
