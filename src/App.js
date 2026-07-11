@@ -392,8 +392,10 @@ function ProvisionsApp() {
   // Shop declutter cycle: 0 default (grouped, all shown) · 1 tidied (grouped, checked hidden) · 2 flat (A–Z, checked hidden).
   // Ephemeral UI state — resets to 0 on tab/household switch (see effect below). Supersedes the old op_showCategories toggle.
   const [shopPhase, setShopPhase] = useState(0);
+  // Browse declutter cycle: 0 default (pills shown, grouped) · 1 tidied (pills hidden, grouped) · 2 flat (A–Z).
+  const [browsePhase, setBrowsePhase] = useState(0);
   // Declutter phase is per-view/per-household ephemeral state: reset to default on tab or household switch.
-  useEffect(() => { setShopPhase(0); }, [view, activeHouseholdId]);
+  useEffect(() => { setShopPhase(0); setBrowsePhase(0); }, [view, activeHouseholdId]);
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -505,6 +507,15 @@ function ProvisionsApp() {
 
     return result;
   }, [categories, stapleFilter, selectedCategories, catalogMap]);
+
+  // Browse declutter phase 2 — flat A–Z across the filtered catalog (rawCategory attached for price fallback).
+  const browseFlatItems = useMemo(() =>
+    displayCategories
+      .flatMap(cat => cat.items.map(item => ({ ...item, rawCategory: cat.rawName })))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [displayCategories]);
+  // Count of active filters for the declutter descriptor line.
+  const browseFilterCount = (stapleFilter ? 1 : 0) + selectedCategories.size;
 
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return null;
@@ -1872,37 +1883,63 @@ function ProvisionsApp() {
               borderBottom: "1px solid #E8D5B7",
               marginBottom: "12px",
             }}>
-              <div style={{
-                display: "flex", alignItems: "center",
-                background: "#F5EDE0",
-                border: `1.5px solid ${searchQuery ? "#A0724A" : "#E8D5B7"}`,
-                borderRadius: "12px",
-                padding: "0 12px", gap: "8px", height: "42px",
-                boxShadow: searchQuery ? "0 0 0 3px rgba(160,114,74,0.12)" : "none",
-                transition: "border-color 0.2s, box-shadow 0.2s",
-              }}>
-                <span style={{ color: "#C9A97A", fontSize: "15px", flexShrink: 0 }}>🔍</span>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => { setSearchQuery(e.target.value); setSearchPickerOpen(false); }}
-                  placeholder="Search your catalog…"
-                  style={{
-                    flex: 1, border: "none", background: "none",
-                    fontFamily: "'Lato', sans-serif", fontSize: "15px",
-                    color: "#2C1A0E", outline: "none",
-                  }}
-                />
-                {searchQuery && (
-                  <span
-                    onClick={() => { setSearchQuery(""); setSearchPickerOpen(false); }}
-                    style={{ color: "#C9A97A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
-                  >✕</span>
-                )}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{
+                  flex: 1, minWidth: 0,
+                  display: "flex", alignItems: "center",
+                  background: "#F5EDE0",
+                  border: `1.5px solid ${searchQuery ? "#A0724A" : "#E8D5B7"}`,
+                  borderRadius: "12px",
+                  padding: "0 12px", gap: "8px", height: "46px",
+                  boxShadow: searchQuery ? "0 0 0 3px rgba(160,114,74,0.12)" : "none",
+                  transition: "border-color 0.2s, box-shadow 0.2s",
+                }}>
+                  <span style={{ color: "#C9A97A", fontSize: "15px", flexShrink: 0 }}>🔍</span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => { setSearchQuery(e.target.value); setSearchPickerOpen(false); }}
+                    placeholder="Search your catalog…"
+                    style={{
+                      flex: 1, minWidth: 0, border: "none", background: "none",
+                      fontFamily: "'Lato', sans-serif", fontSize: "15px",
+                      color: "#2C1A0E", outline: "none",
+                    }}
+                  />
+                  {searchQuery && (
+                    <span
+                      onClick={() => { setSearchQuery(""); setSearchPickerOpen(false); }}
+                      style={{ color: "#C9A97A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
+                    >✕</span>
+                  )}
+                </div>
+                <button
+                  className={`cyc-ico ${browsePhase !== 0 ? "on" : ""}`}
+                  onClick={() => setBrowsePhase((browsePhase + 1) % 3)}
+                  aria-label="Declutter view"
+                  title="Declutter view"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+                    {browsePhase === 2 ? (
+                      <>
+                        <line x1="4" y1="6" x2="20" y2="6"/>
+                        <line x1="4" y1="12" x2="20" y2="12"/>
+                        <line x1="4" y1="18" x2="20" y2="18"/>
+                      </>
+                    ) : (
+                      <>
+                        <line x1="4" y1="6" x2="20" y2="6"/>
+                        <line x1="7" y1="12" x2="17" y2="12"/>
+                        <line x1="10" y1="18" x2="14" y2="18"/>
+                      </>
+                    )}
+                  </svg>
+                </button>
               </div>
             </div>
 
-            {/* ── Filter chips — wrapping, no scrollbar ── */}
+            {/* ── Filter chips — wrapping; hidden when decluttered (phase 1/2) ── */}
+            {browsePhase === 0 && (
             <div style={{
               display: "flex", flexWrap: "wrap", gap: "7px",
               paddingBottom: "14px",
@@ -1951,6 +1988,14 @@ function ProvisionsApp() {
                 );
               })}
             </div>
+            )}
+            {browsePhase !== 0 && (
+              <div className="declutter-desc" style={{ margin: "0 0 14px" }}>
+                {browseFilterCount > 0
+                  ? `${browseFilterCount} filter${browseFilterCount === 1 ? "" : "s"} active · filters hidden`
+                  : "filters hidden"}
+              </div>
+            )}
 
             {/* ── Catalog body ── */}
             {catalogLoading ? (
@@ -2121,7 +2166,43 @@ function ProvisionsApp() {
             ) : (
               /* ── NORMAL BROWSE MODE ── */
               <>
-                {displayCategories.map((cat) => (
+                {browsePhase === 2 ? (
+                  /* ── FLAT A–Z (declutter phase 2) ── */
+                  <>
+                    <div className="flat-header">A–Z · {browseFlatItems.length} {browseFlatItems.length === 1 ? "item" : "items"}</div>
+                    <div className="items-grid">
+                      {browseFlatItems.map((item) => {
+                        const qty = quantities[item.name] || 0;
+                        const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
+                        const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
+                        const isEditing = editingPrice === item.name;
+                        const isStaple = catalogMap[item.name]?.is_staple;
+                        const isCustom = catalogMap[item.name]?.is_global === false;
+                        // Catalog items only expose price editing — nothing to edit when pricing is off.
+                        const canEdit = isCustom || showPrices;
+                        return (
+                          <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple} canEdit={canEdit}>
+                            <CatalogItemRow
+                              item={item}
+                              qty={qty}
+                              rawCategory={item.rawCategory}
+                              showPrices={showPrices}
+                              price={price}
+                              isEditing={isEditing}
+                              priceInput={priceInput}
+                              centsToDisplay={centsToDisplay}
+                              onUpdateQty={updateQty}
+                              onPriceInput={handlePriceInput}
+                              onCommitPrice={commitPrice}
+                              onCancelEditPrice={() => setEditingPrice(null)}
+                            />
+                          </SwipeToRemove>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  displayCategories.map((cat) => (
                   <div className="category-block" key={cat.name}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
                       <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>{cat.name}</div>
@@ -2168,7 +2249,8 @@ function ProvisionsApp() {
                       })}
                     </div>
                   </div>
-                ))}
+                  ))
+                )}
                 <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
                   <button
                     onClick={() => setShowManageCategoriesModal(true)}
