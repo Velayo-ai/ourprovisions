@@ -25,6 +25,27 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-11] — [Cross] — Shared declutter cycle built + promoted to prod (Browse + Shop), incl. two-account realtime verification
+**Goal:** Build the shared declutter cycle (`SPEC_declutter_cycle.md`) in staged, individually dev-verified commits, then promote dev→main — a beta-worthy view-declutter primitive across both tabs.
+**Completed:**
+- Shipped the cycle in **3 staged, individually dev-verified commits**, then promoted dev→main (`3d256aa`): Shop hide-checked + flat A–Z (`80f1a03`); Browse hide-pills + flat A–Z (`419a5b9`); unify onto one shared `CycleIcon` + `FlatHeader` (`7b18db4`). Local guards clean each commit (Babel parse + ESLint `react-app`/`CI=true`, no unused-var fallout).
+- Built one 46×46 icon cycling 0→1→2→0 (default grouped → tidied/noise-hidden grouped → flat A–Z). Encodes both axes in one control: bg light→dark = filters/checked shown→hidden (via an `.on` class, single CSS rule); lines tapering→equal = grouped→flat (two shapes, drawn once with `stroke="currentColor"`). Shop top row `[N of M checked] · [icon] · [Wrap up]` (Wrap up restyled distinct — espresso, normal case); Browse icon on the search line right of the field (heights matched at 46px), no item count. Quiet italic descriptor states the consequence when decluttered ("N checked items hidden" / "N filters active · filters hidden"), blank in phase 0.
+- Confirmed the icon = approved mockup (`cycle_dual_readout.html`, variant A: 3 tapering "funnel" bars → 3 equal bars; the narrowing taper IS the implied Velayo V — chosen over a literal chevron, which risks reading as an accordion caret). Built to the mockup's CSS-bg + `currentColor` approach (46px), not the spec-prose's rect-in-SVG 48px sketch.
+- Resolved an internal spec contradiction (state table said both "grouped/flat pref persists" and "phase resets to 0" — impossible, flat exists only at phase 2): followed the stateless approved mockup and **removed the persistent flat pref (`op_showCategories`)**. Reset-to-grouped is the better default anyway (grouping is the everyday shop-by-aisle view; flat A–Z is the hunt-for-one-item escape hatch).
+- Verified on dev each step: core cycle both tabs, filter×flat interaction (flat renders the FILTERED set, header count matches), selections survive the cycle, phase resets to 0 on tab/household switch.
+- **Two-account realtime verification passed** (DH/DT, same household, Shop; from the design-chat handoff): an incoming check under phase 1 → item hides, descriptor count updates, phase holds; Wrap up under a decluttered view rolls only unbought items, no phase-confused mis-write of the shared list. Closed the one surface a single-driver dev test can't exercise.
+**Unfinished:**
+- **Browse filter reset on household switch — NOT implemented (real gap, now on prod).** The handoff + `SPEC_declutter_cycle.md` (state-scoping line: "confirm Browse filters reset on switch during build") called for resetting `selectedCategories`/`stapleFilter` on `activeHouseholdId` change as a correctness precondition ("commit 0"). Only 3 commits shipped; this was missed. Verified absent in code — the switch effect resets **phase** only, not the filters. Mitigation: because phase resets to 0 on switch, pills are always re-shown, so the *severe* invisible-stale-filter form the handoff feared cannot occur; but `stapleFilter` and same-named category selections still carry over **visibly** across households (the `displayCategories` liveNames guard drops stale non-existent categories). Fix is the ~4-line effect from the handoff — promoted to NOW.
+- **Prod-verify pending** — promotion done (`3d256aa`); still need hard-refresh + smoke test of the cycle on both tabs + a quick two-account check on real prod data.
+- Icon legibility at 46px accepted on dev; if it ever reads mushy on a device, fallback is chunkier bars (heavier stroke / wider taper), NOT more bars.
+**Next session:**
+SESSION START
+Goal: Close the Browse-filter-reset gap (household-scoped-state leak), then prod-verify the full declutter cycle on `ourprovisions.velayo.ai`.
+State: Declutter cycle live on main (`3d256aa`); Browse + Shop share one 46×46 cycle icon via `CycleIcon`. dev == main code-wise. Missing: Browse filters do not reset on household switch (visible stale-filter carryover; severe form defused by phase-reset).
+Done when: Browse `selectedCategories`/`stapleFilter` reset on `activeHouseholdId` change (dev-verified in a 2-household account, then dev→main), AND the cycle is prod-verified on both tabs incl. a two-account check on real data.
+**Files updated:** `src/App.js` (Shop cycle `80f1a03`; Browse cycle `419a5b9`; unify `7b18db4`); removed `op_showCategories` persistence; docs (SESSION_LOG/ROADMAP/ARCHITECTURE); routed `DECLUTTER_BUILD_HANDOFF.md` handoff→`docs/`.
+**DB changes:** None.
+
 ### [2026-07-10] — [Cross] — Browse stepper ExD polish (Add⇄stepper) + iOS sticky-hover fix + spec-folder reorg design
 **Goal:** Raise the Browse quantity controls to the ExD bar before beta — unify the +/− stepper into one pill and replace the ambiguous zero-state with an explicit "Add" affordance — and design Velayo OS spec-folder hygiene.
 **Completed:**
