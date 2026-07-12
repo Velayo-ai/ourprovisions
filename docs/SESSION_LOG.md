@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-11] — [OurProvisions] — Beta field-testing capture (Helen + Aidan) — 11 findings, photo-header design, invisible-affordances pattern
+**Goal:** Capture usability + bug findings from watching two real first-time users on production, prioritize them by threat-to-beta-success, and schedule the household photo-header feature. *(Design/capture session — no code touched; merged from `design_handoff.md`.)*
+**Completed:**
+- Ran a live field-test debrief from watching Helen and Aidan use production; captured 11 findings + 1 validated win + 1 cross-cutting insight.
+- Diagnosed three shared-list bugs — (1) duplicate catalog item on re-add; (2) check-one-checks-both; (3) toggle bounce — and framed 2+3 as a likely single root cause (toggle not bound to a unique `list_item` id). Flagged diagnosis-pending (need prod DB query + code read); no fix written.
+- Designed + mocked the **household photo header** (Beat 1): eye-tested scrim treatments over the real Sacandaga photo, corrected an EXIF-orientation issue, landed on top-and-bottom gradient scrim + Slice B framing (cottage/flag/water). A direct expression of the ExD-as-art pillar.
+- Named the ★ **"invisible affordances"** cross-cutting pattern: four usability reports share one root (hidden gestures / camouflaged chrome that only work once a human reveals them). Shaped a two-part solution philosophy: (a) visible affordances as durable floor, (b) a reusable milestone-keyed coachmark primitive as the welcoming layer.
+- Logged the **invite flow validated in the field**: Aidan invited a second person first-try, unprompted — the CI/activation (depth) thesis firing live.
+- Prioritized the board by **threat-to-beta-success** (breadth + depth), not by bug-vs-UX type.
+**Unfinished:**
+- Bugs 1/2/3 not fixed — diagnosis-pending. Need: (a) prod DB query on the English Muffins rows (2 catalog rows vs. 1 catalog + 2 list rows?); (b) read of the check/uncheck toggle handler + realtime subscription in `useProvisions.js` (keying vs. echo-collision). This is the next build session.
+- ★ invisible-affordances philosophy is a **candidate** ARCHITECTURE principle, not yet ratified — needs a design session to adopt the two tenets + the coachmark-primitive approach.
+- Households-in-Preferences (#7): unresolved whether Aidan meant "manage my households" vs. "switch active household." Clarify with Aidan before speccing.
+- Nav cluster (tabs visibility / browse→list / bottom-reach / swipe-discoverability): bottom tab bar vs. sticky-top is an open design question; may resolve 3 of 4 in one structural move.
+**Next session:**
+SESSION START
+Goal: Fix the shared-list data-integrity bugs (1 duplicate catalog item, 2 check-one-checks-both, 3 toggle bounce) — diagnosis first, then fix. Build session (Claude Code).
+State: Production live with real users (Helen, Elly, Aidan). Invite flow validated in the field. Household photo header scheduled for Beat 1. Three shared-list bugs open, diagnosis-pending.
+Done when: Root cause confirmed via DB query + code read; check-one-checks-one verified with a two-account realtime test; duplicate-on-readd prevented; toggle sticks first try. Combined spec if 2+3 prove one root cause.
+**Files updated:** None (design/capture session).
+**DB changes:** None (a read-only diagnostic query is proposed for next session, not yet run).
+
 ### [2026-07-11] — [Cross] — Shared declutter cycle built + promoted to prod (Browse + Shop), incl. two-account realtime verification
 **Goal:** Build the shared declutter cycle (`SPEC_declutter_cycle.md`) in staged, individually dev-verified commits, then promote dev→main — a beta-worthy view-declutter primitive across both tabs.
 **Completed:**
@@ -34,16 +56,17 @@ Done when: [clear success condition]
 - Resolved an internal spec contradiction (state table said both "grouped/flat pref persists" and "phase resets to 0" — impossible, flat exists only at phase 2): followed the stateless approved mockup and **removed the persistent flat pref (`op_showCategories`)**. Reset-to-grouped is the better default anyway (grouping is the everyday shop-by-aisle view; flat A–Z is the hunt-for-one-item escape hatch).
 - Verified on dev each step: core cycle both tabs, filter×flat interaction (flat renders the FILTERED set, header count matches), selections survive the cycle, phase resets to 0 on tab/household switch.
 - **Two-account realtime verification passed** (DH/DT, same household, Shop; from the design-chat handoff): an incoming check under phase 1 → item hides, descriptor count updates, phase holds; Wrap up under a decluttered view rolls only unbought items, no phase-confused mis-write of the shared list. Closed the one surface a single-driver dev test can't exercise.
+- **Closed the Browse filter-reset gap** (`dbb57f2`, on dev): the intended "commit 0" was dropped from the batch — `selectedCategories`/`stapleFilter` did not reset on household switch, a live household-scoped-state leak once phase 1 hides the pills (stale filter silently shrinks the new household's list). Added both resets to the existing `[view, activeHouseholdId]` effect (also clears on tab switch — intended; Browse filters are session state, not sticky). Babel + ESLint `react-app`/`CI=true` clean, no new deps. Pending dev-verify (2-household account) then dev→main.
 **Unfinished:**
-- **Browse filter reset on household switch — NOT implemented (real gap, now on prod).** The handoff + `SPEC_declutter_cycle.md` (state-scoping line: "confirm Browse filters reset on switch during build") called for resetting `selectedCategories`/`stapleFilter` on `activeHouseholdId` change as a correctness precondition ("commit 0"). Only 3 commits shipped; this was missed. Verified absent in code — the switch effect resets **phase** only, not the filters. Mitigation: because phase resets to 0 on switch, pills are always re-shown, so the *severe* invisible-stale-filter form the handoff feared cannot occur; but `stapleFilter` and same-named category selections still carry over **visibly** across households (the `displayCategories` liveNames guard drops stale non-existent categories). Fix is the ~4-line effect from the handoff — promoted to NOW.
-- **Prod-verify pending** — promotion done (`3d256aa`); still need hard-refresh + smoke test of the cycle on both tabs + a quick two-account check on real prod data.
+- **Dev-verify + promote the filter-reset fix** — `dbb57f2` is on dev, not yet verified or promoted. Test: switch households while in phase 1 (pills hidden) → land in phase 0, pills visible, no filters, full new-household catalog; and phase-0 filters clear on switch. Then dev→main.
+- **Prod-verify pending** — cycle promotion done (`3d256aa`); still need hard-refresh + smoke test on both tabs + a quick two-account check on real prod data (fold in the filter-reset check once promoted).
 - Icon legibility at 46px accepted on dev; if it ever reads mushy on a device, fallback is chunkier bars (heavier stroke / wider taper), NOT more bars.
 **Next session:**
 SESSION START
-Goal: Close the Browse-filter-reset gap (household-scoped-state leak), then prod-verify the full declutter cycle on `ourprovisions.velayo.ai`.
-State: Declutter cycle live on main (`3d256aa`); Browse + Shop share one 46×46 cycle icon via `CycleIcon`. dev == main code-wise. Missing: Browse filters do not reset on household switch (visible stale-filter carryover; severe form defused by phase-reset).
-Done when: Browse `selectedCategories`/`stapleFilter` reset on `activeHouseholdId` change (dev-verified in a 2-household account, then dev→main), AND the cycle is prod-verified on both tabs incl. a two-account check on real data.
-**Files updated:** `src/App.js` (Shop cycle `80f1a03`; Browse cycle `419a5b9`; unify `7b18db4`); removed `op_showCategories` persistence; docs (SESSION_LOG/ROADMAP/ARCHITECTURE); routed `DECLUTTER_BUILD_HANDOFF.md` handoff→`docs/`.
+Goal: Dev-verify + promote the filter-reset fix (`dbb57f2`), then prod-verify the full declutter cycle on `ourprovisions.velayo.ai`.
+State: Declutter cycle live on main (`3d256aa`); filter-reset fix on dev only (`dbb57f2`), unverified. Browse + Shop share one 46×46 cycle icon via `CycleIcon`.
+Done when: Filter-reset dev-verified in a 2-household account (phase-1 switch lands in phase 0 with pills visible + no filters + full catalog; phase-0 filters clear on switch) → dev→main; AND the cycle is prod-verified on both tabs incl. a two-account check on real data.
+**Files updated:** `src/App.js` (Shop cycle `80f1a03`; Browse cycle `419a5b9`; unify `7b18db4`; filter-reset `dbb57f2`); removed `op_showCategories` persistence; docs (SESSION_LOG/ROADMAP/ARCHITECTURE); routed `DECLUTTER_BUILD_HANDOFF.md` handoff→`docs/`.
 **DB changes:** None.
 
 ### [2026-07-10] — [Cross] — Browse stepper ExD polish (Add⇄stepper) + iOS sticky-hover fix + spec-folder reorg design
