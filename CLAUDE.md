@@ -137,6 +137,10 @@ home and cleared out.
   is `docs/specs/active/` — a fresh spec hasn't shipped yet, so it is always
   `active/` (it graduates to `built/` on ship; see Step 4).
   Moving = `git mv handoff/<file> docs/specs/active/<file>` so history is preserved.
+- Before `git mv`, ensure the destination folder exists — if the manifest names a
+  destination path that isn't present yet, `mkdir -p` it first, then move. A
+  `git mv` into a missing directory fails; don't let a new bucket (or a typo'd
+  path) silently break routing.
 - After routing, `handoff/` must contain ONLY the two baseline files. That clean
   state is the signal that nothing is pending.
 
@@ -188,6 +192,10 @@ Before committing, verify the handoff was consumed:
 - Confirm the AIRLOCK is clear: `handoff/` now contains ONLY the two baseline
   files (`.gitignore`, `DESIGN_CHAT_handoff_prompt.md`). If any payload file
   remains, Step 0.5 is incomplete — finish routing it (or ask me) before committing.
+- Confirm no spec drift: if this session moved any feature to DONE in ROADMAP,
+  verify its spec was `git mv`'d from `docs/specs/active/` to `docs/specs/built/`
+  (per Step 4). A shipped feature with its spec still in `active/` means the
+  lifecycle move was missed — fix before committing.
 
 Then:
 `git add docs/ handoff/` (stage doc changes, the handoff deletion, and any
