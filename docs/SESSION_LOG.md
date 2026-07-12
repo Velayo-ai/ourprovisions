@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-11] — [Velayo OS] — Executed docs/ reorg: spec lifecycle folders (active/built/retired) + sorted the flat docs/ root
+**Goal:** Turn the flat 40+-item `ourprovisions/docs/` into a scope→lifecycle structure and physically create the spec lifecycle folders — design handed off from a chat session; Claude Code confirmed each bucket against `git log` and executed the moves. *(Velayo OS repo-hygiene work; logged here per the single-company-log rule until app #2 forces the split.)*
+**Completed:**
+- Executed the reorg manifest (`SPEC_docs_reorg.md`) as ONE OS-scoped commit (`0303397`): created `docs/specs/{active,built,retired}/` and moved ~43 files by scope→lifecycle.
+- Sorted specs: 31 → `built/` (shipped, forensic), 10 → `active/` (open/in-flight), 1 → `retired/` (spent `DECLUTTER_BUILD_HANDOFF`). `docs/` root now holds only the 3 canonicals + `DEV_SETUP` + `EVIDENCE` + `mockups/` + `specs/`.
+- Resolved 3 specs the manifest never bucketed, via `git log`: `fix_authuid_rls` (migration 014 live) + `full_name_sync` (shipped 07-01) → `built/`; `beta_signups` (design-only, no ship commit) → `active/` (Dan's call).
+- Moved the misfiled `007_dev_restore_role_grants.sql` from `docs/` → `migrations/`; flagged it now duplicates migration number 007 (`007_finish_authorize_sweep.sql`) — renumber TBD.
+- Confirmed no-ops against ground truth: `qa/` moves already done (harness + `prod_test_plan` already there, no stale docs copies); `docs/mockups/` already populated (no loose mockups at root).
+- Filed the manifest itself (`SPEC_docs_reorg.md`) to `built/`; consumed + deleted `design_handoff.md`.
+**Unfinished:**
+- **velayo-os leg not performed:** `velayo_os_flight_checklist.html` not present anywhere in the repo; `DESIGN_CHAT_handoff_prompt.md` is a protected airlock baseline (CLAUDE.md forbids moving it) — conflict flagged, not acted on.
+- **Airlock wiring deferred** (Dan's choice: "move existing specs, wire airlock later") — CLAUDE.md + `DESIGN_CHAT_handoff_prompt.md` still land new specs at `docs/` root, not `docs/specs/active/`.
+- **Stale spec-path references** across ROADMAP/ARCHITECTURE still point at old `docs/SPEC_*.md` paths; queued as a targeted NEXT sweep (not blanket-rewritten — many are woven into prose that discusses the paths).
+- **Duplicate migration 007** number stands — renumber `007_dev_restore_role_grants.sql`.
+**Next session:**
+SESSION START
+Goal: Return to the Tier-1 shared-list data-integrity bugs (duplicate catalog item on re-add; check-one-checks-both; toggle bounce) — diagnosis first.
+State: Production live (Helen, Elly, Aidan). Declutter cycle prod-verified. docs/ reorg executed (`0303397`); lifecycle folders live. Three shared-list bugs still open, diagnosis-pending.
+Done when: Root cause confirmed via prod DB query + `useProvisions.js` read; check-one-checks-one verified two-account; duplicate-on-readd prevented.
+**Files updated:** Reorg (`0303397`): ~43 specs moved into `docs/specs/{active,built,retired}/` + `migrations/007_dev_restore_role_grants.sql`. Docs: SESSION_LOG, ROADMAP, ARCHITECTURE.
+**DB changes:** None.
+
 ### [2026-07-11] — [OurProvisions] — Beta field-testing capture (Helen + Aidan) — 11 findings, photo-header design, invisible-affordances pattern
 **Goal:** Capture usability + bug findings from watching two real first-time users on production, prioritize them by threat-to-beta-success, and schedule the household photo-header feature. *(Design/capture session — no code touched; merged from `design_handoff.md`.)*
 **Completed:**

@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-07-11 (Declutter cycle — cross-tab view primitive shipped: shared `CycleIcon`/`FlatHeader`, two-axis encoding via `.on` class, view-only + phase resets on tab/household switch, removed `op_showCategories`; filter-reset "commit 0" now fixed on dev. Field-test additions: candidate ★ invisible-affordances principle + coachmark primitive; Household photo-header storage shape. Prior 07-10: CatalogItemRow Add⇄stepper render invariant — never a stepper at qty 0; touch-state pattern — @media(hover:hover) + blur-on-tap for controls that re-render under the touch point. Prior 07-10: invite Web Share + lazy-generate-on-intent pattern; in-flight guard on async action buttons — duplicate-create fix; removed dead selfDepartureRef/markSelfDeparture. Prior 07-09: deliberate-loss guard, removal-notice name from pre-update list, Splunk RUM unmask + gotchas, "Your data is yours" principle, Clerk email pre-fill constraint)*
+*Last updated: 2026-07-11 (docs/ layout — spec lifecycle folders `docs/specs/{active,built,retired}/` now physical, commit `0303397`; sorting rule scope→lifecycle, built = archived-never-deleted forensic record. Same day: Declutter cycle — cross-tab view primitive shipped: shared `CycleIcon`/`FlatHeader`, two-axis encoding via `.on` class, view-only + phase resets on tab/household switch, removed `op_showCategories`; filter-reset "commit 0" now fixed on dev. Field-test additions: candidate ★ invisible-affordances principle + coachmark primitive; Household photo-header storage shape. Prior 07-10: CatalogItemRow Add⇄stepper render invariant — never a stepper at qty 0; touch-state pattern — @media(hover:hover) + blur-on-tap for controls that re-render under the touch point. Prior 07-10: invite Web Share + lazy-generate-on-intent pattern; in-flight guard on async action buttons — duplicate-create fix; removed dead selfDepartureRef/markSelfDeparture. Prior 07-09: deliberate-loss guard, removal-notice name from pre-update list, Splunk RUM unmask + gotchas, "Your data is yours" principle, Clerk email pre-fill constraint)*
 
 ---
 
@@ -33,6 +33,13 @@ OurProvisions is a collaborative household grocery and provisioning app. It is A
 - **Dev branch:** `dev` — all active work committed here first
 - **Production branch:** `main` — merge dev → main; Vercel auto-deploys
 - **Local path:** `C:\Users\mr_dh\ourprovisions`
+
+### docs/ layout — spec lifecycle folders *(physical since 2026-07-11, `0303397`)*
+
+- Product specs live under `docs/specs/{active,built,retired}/` — no longer flat at `docs/` root. `docs/` root holds only the 3 canonicals (`SESSION_LOG`, `ROADMAP`, `ARCHITECTURE`), `DEV_SETUP`, `EVIDENCE_*`, `mockups/`, and `specs/`.
+- **Sorting rule of record: scope → lifecycle.** Scope first (OurProvisions product spec vs Velayo OS process doc — OS docs route to `velayo-os/docs/`); lifecycle second: `active/` (open/in-flight), `built/` (shipped + verified — **archived, never deleted**, a forensic record), `retired/` (design *superseded*). A spec's bucket is decided by whether its feature shipped (`git log`), NOT by filename. Diagnosis→fix pairs for one shipped bug both go to `built/` (a two-doc trail of one fix is record, not supersession).
+- **`CLAUDE.md` stays at repo root**, not `docs/`. `mockups/` stays flat (no lifecycle folders — the approved mockup is design-truth by content, not folder position).
+- *Airlock wiring (new specs auto-landing in `active/`) is not yet done — see ROADMAP NEXT.*
 
 ---
 
