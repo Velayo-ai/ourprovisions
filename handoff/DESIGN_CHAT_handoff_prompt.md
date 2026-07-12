@@ -32,8 +32,8 @@ principles. Omit if nothing architectural changed.]
 `design_handoff.md` itself or the two baseline files (`.gitignore`,
 `DESIGN_CHAT_handoff_prompt.md`). One row per file:
 | filename | destination | what it is |
-e.g. | SPEC_create_household_from_template.md | docs/ | build spec for the
-clone-catalog-on-create feature |.
+e.g. | SPEC_create_household_from_template.md | docs/specs/active/ | build spec
+for the clone-catalog-on-create feature |.
 Omit this section ONLY if no payload files were dropped. If present, Claude Code
 files each listed file to its destination during SESSION END, then clears it
 from `handoff/`.]

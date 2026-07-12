@@ -15,8 +15,10 @@ Vercel hosting, Anthropic Claude API.
 **Branches:** `dev` -> preview (dev.ourprovisions.velayo.ai); `main` -> production
 (ourprovisions.velayo.ai).
 **Key files:** `src/App.js`, `src/hooks/useProvisions.js`, `src/supabaseClient.js`.
-**Docs (all in `docs/`):** `SESSION_LOG.md`, `ROADMAP.md`, `ARCHITECTURE.md`,
-and feature specs (`SPEC_*.md`).
+**Docs (`docs/`):** Canonicals `SESSION_LOG.md`, `ROADMAP.md`, `ARCHITECTURE.md`
+(plus `DEV_SETUP.md`) stay at `docs/` root. Feature specs (`SPEC_*.md`) live in
+`docs/specs/{active,built,retired}/` — NOT `docs/` root (lifecycle folders since
+2026-07-11, commit `0303397`).
 
 ---
 
@@ -79,7 +81,7 @@ Do NOT merge dev->main as part of BUILD. The dev->main gate is a separate,
 explicit step I trigger once I've verified the deployed preview.
 
 ### What BUILD does NOT do
-- Does NOT route the spec to `docs/` — it stays in `handoff/` for SESSION END.
+- Does NOT route the spec to `docs/specs/` — it stays in `handoff/` for SESSION END.
 - Does NOT write SESSION_LOG / ROADMAP / ARCHITECTURE — that's SESSION END.
 - Does NOT clear the airlock.
 BUILD is implement-and-stop. Bookkeeping is SESSION END's job.
@@ -127,11 +129,14 @@ home and cleared out.
 - List the contents of `handoff/`. For every file that is NOT one of the two
   baseline files and NOT `design_handoff.md`, treat it as payload.
 - The handoff's `## DROPPED_FILES` manifest (if present) tells you each payload
-  file's destination and what it is. Follow it: e.g. move `SPEC_*.md` to `docs/`.
+  file's destination and what it is. Follow it: e.g. move `SPEC_*.md` to
+  `docs/specs/active/`.
 - If a payload file is present but the manifest does not list it, do NOT guess
   and do NOT delete it — surface it to me and ask where it goes.
-- Default destination for `SPEC_*.md` is `docs/` (per the Key files convention).
-  Moving = `git mv handoff/<file> docs/<file>` so history is preserved.
+- Default destination for a new `SPEC_*.md` with no explicit manifest destination
+  is `docs/specs/active/` — a fresh spec hasn't shipped yet, so it is always
+  `active/` (it graduates to `built/` on ship; see Step 4).
+  Moving = `git mv handoff/<file> docs/specs/active/<file>` so history is preserved.
 - After routing, `handoff/` must contain ONLY the two baseline files. That clean
   state is the signal that nothing is pending.
 
@@ -160,9 +165,19 @@ pattern, or a new design principle. If nothing architectural changed, LEAVE IT
 UNTOUCHED. When you do update it, bump its "Last updated" date. If unsure whether
 a change is "architectural enough," ASK me rather than guessing.
 
-### Step 4 — Do NOT modify `docs/SPEC_*.md`
-Unless I am explicitly building from a spec this session and ask you to update it.
-Specs are episodic, not per-session.
+### Step 4 — Do NOT modify spec CONTENT; DO move specs on lifecycle change
+Do not edit the content of a `docs/specs/**/SPEC_*.md` unless I am explicitly
+building from a spec this session and ask you to update it. Specs are episodic,
+not per-session.
+
+But their FOLDER tracks lifecycle, so relocate on state change — in the SAME
+commit as the state change:
+- When this session marks a feature **DONE** in ROADMAP, `git mv` its spec
+  `docs/specs/active/ → docs/specs/built/`.
+- When a spec is **superseded** (design changed), `git mv` it to
+  `docs/specs/retired/`.
+Moving a spec is a lifecycle bookkeeping move, not a content edit — it does not
+violate the "do not modify" rule above.
 
 ### Step 5 — Verify, then commit the changed docs
 
@@ -176,7 +191,7 @@ Before committing, verify the handoff was consumed:
 
 Then:
 `git add docs/ handoff/` (stage doc changes, the handoff deletion, and any
-payload files moved into `docs/`)
+payload files moved into `docs/specs/` — `docs/` covers its subfolders)
 `git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
 Do NOT push automatically — leave the commit local for my review. I'll push.
 
