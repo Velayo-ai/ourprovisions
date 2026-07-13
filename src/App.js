@@ -984,7 +984,7 @@ function ProvisionsApp() {
       const isOwnItem = !addedByUserId || addedByMember?.users?.clerk_id === user?.id;
       if (!groups[rawCat]) groups[rawCat] = [];
       groups[rawCat].push({
-        name: row.name, catalogItemId: row.catalogItemId, qty: row.quantity,
+        name: row.name, catalogItemId: row.catalogItemId, listItemId: row.id, qty: row.quantity,
         price: realPrice,
         subtotal: (row.quantity || 0) * realPrice,
         category: CATEGORY_DISPLAY[rawCat] || rawCat,
@@ -2366,10 +2366,10 @@ function ProvisionsApp() {
                         return (
                           <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} style={{ borderRadius: 0, background: "transparent" }}>
                             <div className={`list-item ${isDone ? "done" : ""}`}>
-                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.catalogItemId)}>
+                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.listItemId)}>
                                 {isDone && <span className="checkmark">✓</span>}
                               </div>
-                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name, item.catalogItemId)}>
+                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name, item.listItemId)}>
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
@@ -2427,10 +2427,10 @@ function ProvisionsApp() {
                         return (
                           <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} style={{ borderRadius: 0, background: "transparent" }}>
                             <div className={`list-item ${isDone ? "done" : ""}`}>
-                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.catalogItemId)}>
+                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.listItemId)}>
                                 {isDone && <span className="checkmark">✓</span>}
                               </div>
-                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name, item.catalogItemId)}>
+                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name, item.listItemId)}>
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
