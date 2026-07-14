@@ -25,6 +25,72 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-11] — [Velayo OS] — Executed docs/ reorg: spec lifecycle folders (active/built/retired) + sorted the flat docs/ root
+**Goal:** Turn the flat 40+-item `ourprovisions/docs/` into a scope→lifecycle structure and physically create the spec lifecycle folders — design handed off from a chat session; Claude Code confirmed each bucket against `git log` and executed the moves. *(Velayo OS repo-hygiene work; logged here per the single-company-log rule until app #2 forces the split.)*
+**Completed:**
+- Executed the reorg manifest (`SPEC_docs_reorg.md`) as ONE OS-scoped commit (`0303397`): created `docs/specs/{active,built,retired}/` and moved ~43 files by scope→lifecycle.
+- Sorted specs: 31 → `built/` (shipped, forensic), 10 → `active/` (open/in-flight), 1 → `retired/` (spent `DECLUTTER_BUILD_HANDOFF`). `docs/` root now holds only the 3 canonicals + `DEV_SETUP` + `EVIDENCE` + `mockups/` + `specs/`.
+- Resolved 3 specs the manifest never bucketed, via `git log`: `fix_authuid_rls` (migration 014 live) + `full_name_sync` (shipped 07-01) → `built/`; `beta_signups` (design-only, no ship commit) → `active/` (Dan's call).
+- Moved the misfiled `007_dev_restore_role_grants.sql` from `docs/` → `migrations/`; flagged it now duplicates migration number 007 (`007_finish_authorize_sweep.sql`) — renumber TBD.
+- Confirmed no-ops against ground truth: `qa/` moves already done (harness + `prod_test_plan` already there, no stale docs copies); `docs/mockups/` already populated (no loose mockups at root).
+- Filed the manifest itself (`SPEC_docs_reorg.md`) to `built/`; consumed + deleted `design_handoff.md`.
+**Unfinished:**
+- **velayo-os leg not performed:** `velayo_os_flight_checklist.html` not present anywhere in the repo; `DESIGN_CHAT_handoff_prompt.md` is a protected airlock baseline (CLAUDE.md forbids moving it) — conflict flagged, not acted on.
+- **Airlock wiring deferred** (Dan's choice: "move existing specs, wire airlock later") — CLAUDE.md + `DESIGN_CHAT_handoff_prompt.md` still land new specs at `docs/` root, not `docs/specs/active/`.
+- **Stale spec-path references** across ROADMAP/ARCHITECTURE still point at old `docs/SPEC_*.md` paths; queued as a targeted NEXT sweep (not blanket-rewritten — many are woven into prose that discusses the paths).
+- **Duplicate migration 007** number stands — renumber `007_dev_restore_role_grants.sql`.
+**Next session:**
+SESSION START
+Goal: Return to the Tier-1 shared-list data-integrity bugs (duplicate catalog item on re-add; check-one-checks-both; toggle bounce) — diagnosis first.
+State: Production live (Helen, Elly, Aidan). Declutter cycle prod-verified. docs/ reorg executed (`0303397`); lifecycle folders live. Three shared-list bugs still open, diagnosis-pending.
+Done when: Root cause confirmed via prod DB query + `useProvisions.js` read; check-one-checks-one verified two-account; duplicate-on-readd prevented.
+**Files updated:** Reorg (`0303397`): ~43 specs moved into `docs/specs/{active,built,retired}/` + `migrations/007_dev_restore_role_grants.sql`. Docs: SESSION_LOG, ROADMAP, ARCHITECTURE.
+**DB changes:** None.
+
+### [2026-07-11] — [OurProvisions] — Beta field-testing capture (Helen + Aidan) — 11 findings, photo-header design, invisible-affordances pattern
+**Goal:** Capture usability + bug findings from watching two real first-time users on production, prioritize them by threat-to-beta-success, and schedule the household photo-header feature. *(Design/capture session — no code touched; merged from `design_handoff.md`.)*
+**Completed:**
+- Ran a live field-test debrief from watching Helen and Aidan use production; captured 11 findings + 1 validated win + 1 cross-cutting insight.
+- Diagnosed three shared-list bugs — (1) duplicate catalog item on re-add; (2) check-one-checks-both; (3) toggle bounce — and framed 2+3 as a likely single root cause (toggle not bound to a unique `list_item` id). Flagged diagnosis-pending (need prod DB query + code read); no fix written.
+- Designed + mocked the **household photo header** (Beat 1): eye-tested scrim treatments over the real Sacandaga photo, corrected an EXIF-orientation issue, landed on top-and-bottom gradient scrim + Slice B framing (cottage/flag/water). A direct expression of the ExD-as-art pillar.
+- Named the ★ **"invisible affordances"** cross-cutting pattern: four usability reports share one root (hidden gestures / camouflaged chrome that only work once a human reveals them). Shaped a two-part solution philosophy: (a) visible affordances as durable floor, (b) a reusable milestone-keyed coachmark primitive as the welcoming layer.
+- Logged the **invite flow validated in the field**: Aidan invited a second person first-try, unprompted — the CI/activation (depth) thesis firing live.
+- Prioritized the board by **threat-to-beta-success** (breadth + depth), not by bug-vs-UX type.
+**Unfinished:**
+- Bugs 1/2/3 not fixed — diagnosis-pending. Need: (a) prod DB query on the English Muffins rows (2 catalog rows vs. 1 catalog + 2 list rows?); (b) read of the check/uncheck toggle handler + realtime subscription in `useProvisions.js` (keying vs. echo-collision). This is the next build session.
+- ★ invisible-affordances philosophy is a **candidate** ARCHITECTURE principle, not yet ratified — needs a design session to adopt the two tenets + the coachmark-primitive approach.
+- Households-in-Preferences (#7): unresolved whether Aidan meant "manage my households" vs. "switch active household." Clarify with Aidan before speccing.
+- Nav cluster (tabs visibility / browse→list / bottom-reach / swipe-discoverability): bottom tab bar vs. sticky-top is an open design question; may resolve 3 of 4 in one structural move.
+**Next session:**
+SESSION START
+Goal: Fix the shared-list data-integrity bugs (1 duplicate catalog item, 2 check-one-checks-both, 3 toggle bounce) — diagnosis first, then fix. Build session (Claude Code).
+State: Production live with real users (Helen, Elly, Aidan). Invite flow validated in the field. Household photo header scheduled for Beat 1. Three shared-list bugs open, diagnosis-pending.
+Done when: Root cause confirmed via DB query + code read; check-one-checks-one verified with a two-account realtime test; duplicate-on-readd prevented; toggle sticks first try. Combined spec if 2+3 prove one root cause.
+**Files updated:** None (design/capture session).
+**DB changes:** None (a read-only diagnostic query is proposed for next session, not yet run).
+
+### [2026-07-11] — [Cross] — Shared declutter cycle built + promoted to prod (Browse + Shop), incl. two-account realtime verification
+**Goal:** Build the shared declutter cycle (`SPEC_declutter_cycle.md`) in staged, individually dev-verified commits, then promote dev→main — a beta-worthy view-declutter primitive across both tabs.
+**Completed:**
+- Shipped the cycle in **3 staged, individually dev-verified commits**, then promoted dev→main (`3d256aa`): Shop hide-checked + flat A–Z (`80f1a03`); Browse hide-pills + flat A–Z (`419a5b9`); unify onto one shared `CycleIcon` + `FlatHeader` (`7b18db4`). Local guards clean each commit (Babel parse + ESLint `react-app`/`CI=true`, no unused-var fallout).
+- Built one 46×46 icon cycling 0→1→2→0 (default grouped → tidied/noise-hidden grouped → flat A–Z). Encodes both axes in one control: bg light→dark = filters/checked shown→hidden (via an `.on` class, single CSS rule); lines tapering→equal = grouped→flat (two shapes, drawn once with `stroke="currentColor"`). Shop top row `[N of M checked] · [icon] · [Wrap up]` (Wrap up restyled distinct — espresso, normal case); Browse icon on the search line right of the field (heights matched at 46px), no item count. Quiet italic descriptor states the consequence when decluttered ("N checked items hidden" / "N filters active · filters hidden"), blank in phase 0.
+- Confirmed the icon = approved mockup (`cycle_dual_readout.html`, variant A: 3 tapering "funnel" bars → 3 equal bars; the narrowing taper IS the implied Velayo V — chosen over a literal chevron, which risks reading as an accordion caret). Built to the mockup's CSS-bg + `currentColor` approach (46px), not the spec-prose's rect-in-SVG 48px sketch.
+- Resolved an internal spec contradiction (state table said both "grouped/flat pref persists" and "phase resets to 0" — impossible, flat exists only at phase 2): followed the stateless approved mockup and **removed the persistent flat pref (`op_showCategories`)**. Reset-to-grouped is the better default anyway (grouping is the everyday shop-by-aisle view; flat A–Z is the hunt-for-one-item escape hatch).
+- Verified on dev each step: core cycle both tabs, filter×flat interaction (flat renders the FILTERED set, header count matches), selections survive the cycle, phase resets to 0 on tab/household switch.
+- **Two-account realtime verification passed** (DH/DT, same household, Shop; from the design-chat handoff): an incoming check under phase 1 → item hides, descriptor count updates, phase holds; Wrap up under a decluttered view rolls only unbought items, no phase-confused mis-write of the shared list. Closed the one surface a single-driver dev test can't exercise.
+- **Closed the Browse filter-reset gap** (`dbb57f2`, on dev): the intended "commit 0" was dropped from the batch — `selectedCategories`/`stapleFilter` did not reset on household switch, a live household-scoped-state leak once phase 1 hides the pills (stale filter silently shrinks the new household's list). Added both resets to the existing `[view, activeHouseholdId]` effect (also clears on tab switch — intended; Browse filters are session state, not sticky). Babel + ESLint `react-app`/`CI=true` clean, no new deps. Pending dev-verify (2-household account) then dev→main.
+**Unfinished:**
+- **Dev-verify + promote the filter-reset fix** — `dbb57f2` is on dev, not yet verified or promoted. Test: switch households while in phase 1 (pills hidden) → land in phase 0, pills visible, no filters, full new-household catalog; and phase-0 filters clear on switch. Then dev→main.
+- **Prod-verify pending** — cycle promotion done (`3d256aa`); still need hard-refresh + smoke test on both tabs + a quick two-account check on real prod data (fold in the filter-reset check once promoted).
+- Icon legibility at 46px accepted on dev; if it ever reads mushy on a device, fallback is chunkier bars (heavier stroke / wider taper), NOT more bars.
+**Next session:**
+SESSION START
+Goal: Dev-verify + promote the filter-reset fix (`dbb57f2`), then prod-verify the full declutter cycle on `ourprovisions.velayo.ai`.
+State: Declutter cycle live on main (`3d256aa`); filter-reset fix on dev only (`dbb57f2`), unverified. Browse + Shop share one 46×46 cycle icon via `CycleIcon`.
+Done when: Filter-reset dev-verified in a 2-household account (phase-1 switch lands in phase 0 with pills visible + no filters + full catalog; phase-0 filters clear on switch) → dev→main; AND the cycle is prod-verified on both tabs incl. a two-account check on real data.
+**Files updated:** `src/App.js` (Shop cycle `80f1a03`; Browse cycle `419a5b9`; unify `7b18db4`; filter-reset `dbb57f2`); removed `op_showCategories` persistence; docs (SESSION_LOG/ROADMAP/ARCHITECTURE); routed `DECLUTTER_BUILD_HANDOFF.md` handoff→`docs/`.
+**DB changes:** None.
+
 ### [2026-07-10] — [Cross] — Browse stepper ExD polish (Add⇄stepper) + iOS sticky-hover fix + spec-folder reorg design
 **Goal:** Raise the Browse quantity controls to the ExD bar before beta — unify the +/− stepper into one pill and replace the ambiguous zero-state with an explicit "Add" affordance — and design Velayo OS spec-folder hygiene.
 **Completed:**

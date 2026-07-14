@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-07-10 (CatalogItemRow Add⇄stepper render invariant — never a stepper at qty 0; touch-state pattern — @media(hover:hover) + blur-on-tap for controls that re-render under the touch point. Prior 07-10: invite Web Share + lazy-generate-on-intent pattern; in-flight guard on async action buttons — duplicate-create fix; removed dead selfDepartureRef/markSelfDeparture. Prior 07-09: deliberate-loss guard, removal-notice name from pre-update list, Splunk RUM unmask + gotchas, "Your data is yours" principle, Clerk email pre-fill constraint)*
+*Last updated: 2026-07-11 (docs/ layout — spec lifecycle folders `docs/specs/{active,built,retired}/` now physical, commit `0303397`; sorting rule scope→lifecycle, built = archived-never-deleted forensic record. Same day: Declutter cycle — cross-tab view primitive shipped: shared `CycleIcon`/`FlatHeader`, two-axis encoding via `.on` class, view-only + phase resets on tab/household switch, removed `op_showCategories`; filter-reset "commit 0" now fixed on dev. Field-test additions: candidate ★ invisible-affordances principle + coachmark primitive; Household photo-header storage shape. Prior 07-10: CatalogItemRow Add⇄stepper render invariant — never a stepper at qty 0; touch-state pattern — @media(hover:hover) + blur-on-tap for controls that re-render under the touch point. Prior 07-10: invite Web Share + lazy-generate-on-intent pattern; in-flight guard on async action buttons — duplicate-create fix; removed dead selfDepartureRef/markSelfDeparture. Prior 07-09: deliberate-loss guard, removal-notice name from pre-update list, Splunk RUM unmask + gotchas, "Your data is yours" principle, Clerk email pre-fill constraint)*
 
 ---
 
@@ -33,6 +33,13 @@ OurProvisions is a collaborative household grocery and provisioning app. It is A
 - **Dev branch:** `dev` — all active work committed here first
 - **Production branch:** `main` — merge dev → main; Vercel auto-deploys
 - **Local path:** `C:\Users\mr_dh\ourprovisions`
+
+### docs/ layout — spec lifecycle folders *(physical since 2026-07-11, `0303397`)*
+
+- Product specs live under `docs/specs/{active,built,retired}/` — no longer flat at `docs/` root. `docs/` root holds only the 3 canonicals (`SESSION_LOG`, `ROADMAP`, `ARCHITECTURE`), `DEV_SETUP`, `EVIDENCE_*`, `mockups/`, and `specs/`.
+- **Sorting rule of record: scope → lifecycle.** Scope first (OurProvisions product spec vs Velayo OS process doc — OS docs route to `velayo-os/docs/`); lifecycle second: `active/` (open/in-flight), `built/` (shipped + verified — **archived, never deleted**, a forensic record), `retired/` (design *superseded*). A spec's bucket is decided by whether its feature shipped (`git log`), NOT by filename. Diagnosis→fix pairs for one shipped bug both go to `built/` (a two-doc trail of one fix is record, not supersession).
+- **`CLAUDE.md` stays at repo root**, not `docs/`. `mockups/` stays flat (no lifecycle folders — the approved mockup is design-truth by content, not folder position).
+- *Airlock wiring (new specs auto-landing in `active/`) is not yet done — see ROADMAP NEXT.*
 
 ---
 
@@ -479,9 +486,22 @@ Two helpers are the canonical authorization primitives — do not reintroduce th
 - **`get_current_user_id()`** — caller-identity / ownership checks (owner-is-you) and crew-keyed policies (no `household_id`).
 Both are SECURITY DEFINER with a pinned `search_path`. The `auth.uid()`-vs-uuid comparison is a permanent anti-pattern here (Clerk returns a text `sub`, never a uuid); harness check A5 guards the four 014 tables against any revert.
 
-### Declutter cycle — cross-tab view primitive *(designed 2026-06-30; not yet built — `docs/SPEC_declutter_cycle.md`)*
+### Declutter cycle — cross-tab view primitive *(built + shipped 2026-07-11 — `src/App.js`)*
 
-The declutter control is a **cross-tab UI primitive, not a per-screen widget.** Browse and Shop share the same shape: a filter/declutter axis + a grouped/flat axis, expressed as one fixed 48×48 icon (bg light/dark = Filter Off/On; line shape tapering/equal = Grouped/Flat) cycling through 3 phases (all-shown/grouped → noise-hidden/grouped → hidden/flat A–Z). **Two axes, kept separate:** the *cycle* handles the **view** axis (how you see the list — grouped/flat + hide-noise); filter *pills* handle the **content** axis (what's shown). This split must hold as Shop's filters grow (who-added, per-store). **Design rule: the cycle changes view only and never clears filters or checked-state.** Build the Browse phase-2 flat render by lifting Shop's existing `showCategories` flat pattern (`src/App.js` ~2003–2063). Reference mockup: `docs/mockups/cycle_dual_readout.html`.
+The declutter control is a **cross-tab UI primitive, not a per-screen widget.** Browse and Shop share one 46×46 `CycleIcon` component (module-scope in `App.js`; `FlatHeader` shares the phase-2 "A–Z · N items" header). It cycles 3 phases (all-shown/grouped → noise-hidden/grouped → hidden/flat A–Z) and encodes **two axes in one control:** background light→dark = filters/checked shown→hidden (toggled via an `.on` class on the icon button — a single CSS rule); line shape tapering→equal = grouped→flat (two shapes only, drawn once with `stroke="currentColor"`). **Two axes, kept separate:** the *cycle* handles the **view** axis (how you see the list — grouped/flat + hide-noise); filter *pills* handle the **content** axis (what's shown). This split must hold as Shop's filters grow (who-added, per-store).
+- **Design rule (enforced): the cycle changes view only — never clears filters or checked-state.** A realtime mutation from another member changes the shared data; the local phase holds and re-renders the new data under it (two-account verified). Phase is **per-tab ephemeral UI state, `useState(0)`, resets to 0 on tab AND household switch** (`useEffect(... , [view, activeHouseholdId])`).
+- **Removed the persistent grouped/flat pref (`op_showCategories`).** Shop's view mode is now *derived from cycle phase*, not a persisted localStorage flag. Any doc referencing the old persistent pref is stale. (The spec's state table contradiction — "persists" vs "resets to 0" — resolved in favor of the stateless approved mockup.)
+- **Filter-reset (the dropped "commit 0") — FIXED on dev `dbb57f2`.** Browse `selectedCategories`/`stapleFilter` now reset alongside phase in the `[view, activeHouseholdId]` effect, so a stale filter can't carry across a household switch (a household-scoped-state leak, same class as the join-banner / invite-link leaks — one more instance of that audit class closed). On dev only; pending dev-verify + promote. Reference mockup: `docs/mockups/cycle_dual_readout.html`; build trail: `docs/DECLUTTER_BUILD_HANDOFF.md`.
+
+### Candidate design principle — Visible affordances for critical actions (★ invisible-affordances pattern) *(field-surfaced 2026-07-11; NOT yet ratified)*
+
+Four field reports (watching Helen + Aidan on prod) share one root: critical actions are reachable only through hidden gestures or chrome that doesn't read as interactive — tabs camouflaged into the espresso header, nav unreachable from a long scroll, the browse→list connection invisible, swipe-to-delete undiscoverable (user pressed-and-held instead). Each works only once a human reveals it. Two-part tenet, to **ratify in a design session before adopting**:
+- (a) **Critical actions need a visible affordance, not only a gesture** — a durable floor that works on item #1 and item #500, for users who never saw a hint.
+- (b) **One reusable coachmark primitive** — one-time, milestone-keyed, dismissible hints — as the welcoming layer for richer/optional actions. Build as a single primitive ("show a one-time coachmark keyed to a milestone flag") with a persisted per-user "seen" flag per coachmark, NOT per-feature one-offs. Absorbs: first-item coachmark, PWA-install coach-mark, new-user cold-start, first-invite.
+
+### Household photo header — storage shape *(forward note for the Beat 1 spec — 2026-07-11)*
+
+The per-household header photo is **household-scoped state** and must swap the instant `activeHouseholdId` changes — same class as the filter-reset rule above. Feature is schema + storage + UI, not a style tweak: per-household photo in **Supabase Storage** (bucket, per-household), a header component consuming it, a **reposition/crop control at import** (vertical photos need a user-chosen horizontal slice — the app can't guess lake-vs-faces), and a default fallback (current flat espresso) for households with no photo. Earns a full SPEC when the beat is built. Any swipe-discoverability change from the nav/affordances work must reconcile with the existing swipe cluster (`SPEC_swipe_close_gesture`, `_search_parity`, `_close_pointerevents_fix`, `SPEC_shop_swipe_remove`) — don't add a fifth swipe spec that fights the other four.
 
 ### id-based toggleChecked *(Jun 16)*
 

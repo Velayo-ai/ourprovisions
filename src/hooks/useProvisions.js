@@ -36,6 +36,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // overwrite these from the DB until the write confirms, or it'll briefly
   // snap the optimistic value back to the stale server value (5→4→5 flicker).
   const pendingQtyRef = useRef(new Set());
+  // Same guard for optimistic check state: while a toggle write is in flight,
+  // the 2s poll must not overwrite the optimistic value with the stale server
+  // status (Bug 3: toggle bounces / takes ~3 taps to stick). Keyed by name,
+  // matching `checked`.
+  const pendingCheckRef = useRef(new Set());
   const [activeCycle, setActiveCycle] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
   const activeCycleRef = useRef(null);
@@ -183,7 +188,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       });
       return merged;
     });
-    setChecked(newChecked);
+    setChecked((prev) => {
+      if (pendingCheckRef.current.size === 0) return newChecked;
+      const merged = { ...newChecked };
+      pendingCheckRef.current.forEach((name) => {
+        if (name in prev) merged[name] = prev[name];
+      });
+      return merged;
+    });
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
     setContributorsMap(newContributors);
@@ -685,29 +697,36 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
 
-  const toggleChecked = useCallback(async (itemName, catalogItemId) => {
+  const toggleChecked = useCallback(async (itemName, listItemId) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return;
 
-    // Resolve the catalog id from the id passed by the caller (stable, from
-    // listRows). Fall back to the name-keyed catalog map only if no id arrived.
-    const resolvedId = catalogItemId ?? catalogRef.current[itemName]?.id;
-    if (!resolvedId) { setError(`"${itemName}" not in catalog`); return; }
+    // F2: write to the specific list_items row by its id (threaded from
+    // listRows). Scoping by catalog_item_id flipped EVERY live row sharing
+    // that catalog id (Bug 2: "check one, both check"). The id is unique, so
+    // this can only ever touch the tapped row.
+    if (!listItemId) { setError(`"${itemName}" is not on the list`); return; }
 
     const newStatus = checked[itemName] ? "pending" : "bought";
+    // F3: mark this item as having an in-flight write so the 2s poll won't
+    // snap the optimistic value back to the stale server status before the
+    // update commits (Bug 3: toggle bounces / needs ~3 taps to stick).
+    pendingCheckRef.current.add(itemName);
     setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
 
     try {
       const { error: updateErr } = await db
         .from("list_items")
         .update({ status: newStatus })
+        .eq("id", listItemId)
         .eq("household_id", hh.id)
-        .eq("catalog_item_id", resolvedId)
         .is("deleted_at", null);
       if (updateErr) throw updateErr;
+      pendingCheckRef.current.delete(itemName);
       reportSuccess();
     } catch (err) {
+      pendingCheckRef.current.delete(itemName);
       console.error("toggleChecked error:", err.message);
       setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
       if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
