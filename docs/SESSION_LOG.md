@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-13] — [OurProvisions] — Shared-list data-integrity: fixed Bugs 1, 2, 3 (catalog fork + check path) — shipped to prod
+**Goal:** Root-cause and fix the three shared-list bugs (duplicate catalog item on re-add; check-one-checks-both; toggle bounce) and ship to prod.
+**Completed:**
+- Diagnosed all three from code + a prod query (not guessed): Bug 2 = un-scoped toggle write; Bug 3 = poll clobbering optimistic check (no guard, unlike quantities); Bug 1 = catalog-**layer** fork — a prod query overturned the initial list-layer hypothesis (3 list rows → 3 distinct `catalog_item_id`s).
+- Shipped migration 018 (idempotent `insert_custom_catalog_item`: sql→plpgsql, normalized-name reuse, prefer global then oldest custom, store original casing) to dev + prod; committed the `.sql` record (`dcdf2bc`).
+- Ran reversible prod cleanup (soft-delete/merge) resolving all **12 fork sets** the census found — 10 global double-seed dups (Mar-20 + Mar-30, prod-only; dev never affected) + 2 custom (English Muffins, Sandwich Bread); verified 0 remaining.
+- Shipped migration 019 (F1c: partial unique indexes `uq_global_catalog_norm` + `uq_custom_catalog_norm`) to dev + prod; committed the `.sql` record (`7173f6a`). Clean CREATE is itself proof the dedup was complete.
+- Built + shipped F2 (row-scoped toggle `.eq("id", listItemId)`, `listItemId` threaded end-to-end) + F3 (`pendingCheckRef` optimistic guard mirroring `pendingQtyRef`) — commit `b85dcbf`; promoted dev→main (`851b5ae`); prod-verified via tap tests incl. Slow-3G stress.
+- Produced July beta content in the design chat (blog_july_beta.md + email_july_beta_update.md — authored there, not in this repo).
+**Unfinished:**
+- F0 (`uq_live_list_item` partial-unique on `list_items`) — the list-layer structural twin of 019; not yet built.
+- F1b (client resolver eviction fix — `hiddenIdsRef` blinding `updateQty`'s lookup so re-add un-hides/reuses instead of forking) — not yet built.
+- Double-seed root confirmation (evidence says manual/prod-only; ~5-min March-notes check to close).
+- Spec kept in `docs/specs/active/` (NOT `built/`) — F0/F1b still to build from it; it graduates to `built/` on their ship.
+- Stale migration numbering: 018/019 are now consumed (applied to prod), so ROADMAP's *planned* 017 (receipts) / 018 (beta_signups) need fresh numbers ≥ 020 — tracked in NEXT.
+**Next session:**
+SESSION START
+Goal: Build F0 (`uq_live_list_item` partial-unique on `list_items`) to close Bug 2's root at the list layer, then F1b (resolver eviction).
+State: All three shared-list bugs fixed + verified on dev AND prod. 018+019 live both envs, catalog fork-free both envs, F2+F3 in prod. Check path solid.
+Done when: query (b) reads zero live-row dups on prod; `uq_live_list_item` created dev then prod (clean CREATE proves no violations); F1b re-add-un-hides behavior verified on the dev preview.
+**Files updated:** migrations/018_dedupe_custom_catalog.sql + migrations/019_catalog_norm_unique_indexes.sql (committed this session), src/hooks/useProvisions.js (F2+F3, `b85dcbf`), src/App.js (`listItemId` threaded to `toggleChecked`), handoff→`docs/specs/active/` spec move. (Design-chat only: blog_july_beta.md, email_july_beta_update.md.)
+**DB changes:** 018 (RPC) + 019 (2 indexes) applied dev+prod; 12 prod fork sets cleaned (reversible via `deleted_at`).
+
 ### [2026-07-11] — [Velayo OS] — Executed docs/ reorg: spec lifecycle folders (active/built/retired) + sorted the flat docs/ root
 **Goal:** Turn the flat 40+-item `ourprovisions/docs/` into a scope→lifecycle structure and physically create the spec lifecycle folders — design handed off from a chat session; Claude Code confirmed each bucket against `git log` and executed the moves. *(Velayo OS repo-hygiene work; logged here per the single-company-log rule until app #2 forces the split.)*
 **Completed:**
