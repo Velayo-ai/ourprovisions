@@ -330,6 +330,7 @@ function ProvisionsApp() {
     removeFromList,
     hiddenCatalogItems,
     restoreHiddenByCategory,
+    unhideItem,
     createInvite,
     toggleStaple,
     renameItem,
@@ -573,6 +574,52 @@ function ProvisionsApp() {
     });
     return matches;
   }, [searchQuery, categories]);
+
+  // Exact-normalized name key (F1b): lowercase + trim + collapse internal whitespace.
+  // NEVER fuzzy — this gates a household-wide un-hide, so it must match exactly.
+  const normalizeName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+
+  // A hidden-but-live item whose name exactly matches the current query. `searchResults`
+  // is built from the catalog map, which EXCLUDES hidden items — so such an item shows
+  // as "No results" even though it is on the shared list. Surface it as a reveal card
+  // instead of the false "add as new" (F1b Layer 1, the honest UX on top of the floor).
+  const hiddenLiveMatch = useMemo(() => {
+    const typed = searchQuery.trim();
+    if (!typed) return null;
+    const norm = normalizeName(typed);
+    const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
+    if (!hidden) return null;
+    const liveRow = listRows.find(r => r.catalogItemId === hidden.id && (r.quantity || 0) > 0);
+    return liveRow ? { item: hidden, qty: liveRow.quantity } : null;
+  }, [searchQuery, hiddenCatalogItems, listRows]);
+
+  // Search "add to your list" handler (F1b Layer 1 — the floor). Re-adding a HIDDEN
+  // item must never write quantity across the person boundary: hide is a lens, not an
+  // edit. Resolve the typed name against the hidden set first.
+  const addSearchedItem = (rawCategory) => {
+    const typed = searchQuery.trim();
+    if (typed) {
+      const norm = normalizeName(typed);
+      const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
+      if (hidden) {
+        const liveRow = listRows.find(r => r.catalogItemId === hidden.id && (r.quantity || 0) > 0);
+        if (liveRow) {
+          // Live shared row exists → un-hide ONLY. No quantity write; reveal it as-is.
+          unhideItem(hidden.id);
+        } else {
+          // Hidden while at qty 0 (not on the list) → un-hide, then add at typed qty.
+          unhideItem(hidden.id);
+          updateQty(typed, 1, rawCategory);
+        }
+      } else {
+        // No hidden match → today's behavior: add as a (possibly new) item.
+        updateQty(typed, 1, rawCategory);
+      }
+    }
+    setSearchQuery("");
+    setSearchPickerOpen(false);
+    setNewCategoryInput("");
+  };
 
   // Show the join banner once the lens has landed on the joined household.
   // Banner DISPLAY ONLY — the switch itself is driven by the durable-intent effect
@@ -2063,6 +2110,32 @@ function ProvisionsApp() {
                       })}
                     </div>
                   </>
+                ) : hiddenLiveMatch ? (
+                  /* ── HIDDEN-BUT-LIVE: reveal only, never touch the shared quantity ── */
+                  <>
+                    <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
+                      On your list — hidden from your view
+                    </div>
+                    <div
+                      onClick={() => { unhideItem(hiddenLiveMatch.item.id); setSearchQuery(""); }}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        borderRadius: "10px", border: "1.5px solid #C9A97A",
+                        background: "rgba(201,169,122,0.06)", padding: "12px 14px",
+                        marginBottom: "6px", cursor: "pointer",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                          <strong>{hiddenLiveMatch.item.name}</strong> ×{hiddenLiveMatch.qty}
+                        </div>
+                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+                          Hidden from your view — tap to reveal
+                        </div>
+                      </div>
+                      <span style={{ color: "#A0724A", fontSize: "18px" }}>↺</span>
+                    </div>
+                  </>
                 ) : (
                   /* ── NO MATCH: inline add with category picker ── */
                   <>
@@ -2089,12 +2162,7 @@ function ProvisionsApp() {
                               Tap to choose a category
                             </div>
                           </div>
-                          <div style={{
-                            width: "30px", height: "30px", borderRadius: "50%",
-                            background: "#A0724A", color: "white",
-                            fontSize: "20px", display: "flex", alignItems: "center", justifyContent: "center",
-                            flexShrink: 0,
-                          }}>+</div>
+                          <button className="add-btn" style={{ flexShrink: 0 }}>Add</button>
                         </div>
                       ) : (
                         <div>
@@ -2114,12 +2182,7 @@ function ProvisionsApp() {
                             {categories.filter(cat => cat.rawName !== "⭐ My Custom Items").map(cat => (
                               <button
                                 key={cat.rawName}
-                                onClick={() => {
-                                  updateQty(searchQuery.trim(), 1, cat.rawName);
-                                  setSearchQuery("");
-                                  setSearchPickerOpen(false);
-                                  setNewCategoryInput("");
-                                }}
+                                onClick={() => addSearchedItem(cat.rawName)}
                                 style={{
                                   padding: "6px 14px", borderRadius: "20px",
                                   fontFamily: "'Lato', sans-serif", fontSize: "12px",
@@ -2145,10 +2208,7 @@ function ProvisionsApp() {
                                   if (e.key === "Enter" && newCategoryInput.trim()) {
                                     const newCat = newCategoryInput.trim();
                                     setHouseholdCategories(prev => new Set([...prev, newCat]));
-                                    updateQty(searchQuery.trim(), 1, newCat);
-                                    setSearchQuery("");
-                                    setSearchPickerOpen(false);
-                                    setNewCategoryInput("");
+                                    addSearchedItem(newCat);
                                   }
                                 }}
                                 placeholder="e.g. Pet Supplies"
@@ -2163,10 +2223,7 @@ function ProvisionsApp() {
                                   if (!newCategoryInput.trim()) return;
                                   const newCat = newCategoryInput.trim();
                                   setHouseholdCategories(prev => new Set([...prev, newCat]));
-                                  updateQty(searchQuery.trim(), 1, newCat);
-                                  setSearchQuery("");
-                                  setSearchPickerOpen(false);
-                                  setNewCategoryInput("");
+                                  addSearchedItem(newCat);
                                 }}
                                 style={{
                                   width: "30px", height: "30px", borderRadius: "50%",
