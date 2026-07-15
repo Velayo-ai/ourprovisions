@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(git add docs/ handoff/)"
+      "PowerShell(git add docs/ handoff/)",
+      "PowerShell($env:CI=\"true\"; npm run build 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx eslint src/App.js src/hooks/useProvisions.js 2>&1)",
+      "PowerShell(npx eslint src/App.js 2>&1)"
     ]
   }
 }
