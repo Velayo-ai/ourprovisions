@@ -1023,20 +1023,20 @@ function ProvisionsApp() {
       const realPrice = prices[row.name] && supabasePrices[row.name]
         ? prices[row.name]
         : (localPrices[row.name] || 0);
-      const addedByUserId = row.addedBy;
-      const addedByMember = householdMembers?.find(m => m.user_id === addedByUserId);
-      const addedByName = addedByMember?.users?.full_name
-        || addedByMember?.users?.email?.split("@")[0]
-        || null;
-      const isOwnItem = !addedByUserId || addedByMember?.users?.clerk_id === user?.id;
+      // added_by is a stale scalar — set once at row creation and never updated, so a
+      // remove→re-add can leave it naming a user who is no longer the contributor.
+      // Derive the name-line from the contributor ledger instead (the source of truth).
+      const contributors = contributorsMap?.[row.name] || [];
+      const soleContributor = contributors.length === 1 ? contributors[0] : null;
+      const isOwnItem = !soleContributor || soleContributor.clerkId === user?.id;
       if (!groups[rawCat]) groups[rawCat] = [];
       groups[rawCat].push({
         name: row.name, catalogItemId: row.catalogItemId, listItemId: row.id, qty: row.quantity,
         price: realPrice,
         subtotal: (row.quantity || 0) * realPrice,
         category: CATEGORY_DISPLAY[rawCat] || rawCat,
-        addedBy: isOwnItem ? null : addedByName,
-        contributors: contributorsMap?.[row.name] || [],
+        isOwnItem,
+        contributors,
       });
     }
 
@@ -1049,7 +1049,7 @@ function ProvisionsApp() {
       category: CATEGORY_DISPLAY[rawCat] || rawCat,
       items: groups[rawCat].sort((a, b) => a.name.localeCompare(b.name)),
     }));
-  }, [listRows, prices, supabasePrices, localPrices, contributorsMap, householdMembers, user?.id]);
+  }, [listRows, prices, supabasePrices, localPrices, contributorsMap, user?.id]);
 
   const pendingItems = shoppingList.flatMap(cat =>
     cat.items.filter(item => !checked[item.name])
@@ -2453,9 +2453,9 @@ function ProvisionsApp() {
                                     })}
                                   </div>
                                 )}
-                                {item.contributors?.length <= 1 && item.addedBy && (
+                                {item.contributors?.length === 1 && !item.isOwnItem && item.contributors[0].fullName && (
                                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
-                                    {item.addedBy}
+                                    {item.contributors[0].fullName}
                                   </div>
                                 )}
                               </div>
@@ -2514,9 +2514,9 @@ function ProvisionsApp() {
                                     })}
                                   </div>
                                 )}
-                                {item.contributors?.length <= 1 && item.addedBy && (
+                                {item.contributors?.length === 1 && !item.isOwnItem && item.contributors[0].fullName && (
                                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
-                                    {item.addedBy}
+                                    {item.contributors[0].fullName}
                                   </div>
                                 )}
                               </div>
