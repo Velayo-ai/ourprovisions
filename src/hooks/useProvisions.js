@@ -587,19 +587,31 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
       // If not found, this is a brand-new custom item — insert it into catalog_items
       if (!catalogItem) {
-        const category = categoryName || "Household";
-        const { data: insertedId, error: insertErr } = await db
-          .rpc("insert_custom_catalog_item", {
-            p_name: itemName,
-            p_category: category,
-            p_household_id: hh.id,
-            p_created_by: internalUserIdRef.current,
-          });
-        if (insertErr) throw insertErr;
-        catalogItem = { id: insertedId, name: itemName, category: category, is_global: false, household_id: hh.id };
-        // Keep catalogRef and catalogMap in sync
-        catalogRef.current = { ...catalogRef.current, [itemName]: catalogItem };
-        setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
+        // Resolver hardening (F1b Layer 2): a HIDDEN item is evicted from catalogRef,
+        // so it looks "new" here. Before inserting a fork, resolve an exact-normalized
+        // name match against the hidden set to the EXISTING catalog row. (F0's DB index
+        // uq_live_list_item would reject a duplicate live row anyway; this keeps the
+        // path a clean reuse rather than surfacing as an error.)
+        const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+        const hiddenMatch = hiddenCatalogItemsRef.current.find(it => norm(it.name) === norm(itemName));
+        if (hiddenMatch) {
+          catalogItem = hiddenMatch;
+          catalogRef.current = { ...catalogRef.current, [itemName]: hiddenMatch };
+        } else {
+          const category = categoryName || "Household";
+          const { data: insertedId, error: insertErr } = await db
+            .rpc("insert_custom_catalog_item", {
+              p_name: itemName,
+              p_category: category,
+              p_household_id: hh.id,
+              p_created_by: internalUserIdRef.current,
+            });
+          if (insertErr) throw insertErr;
+          catalogItem = { id: insertedId, name: itemName, category: category, is_global: false, household_id: hh.id };
+          // Keep catalogRef and catalogMap in sync
+          catalogRef.current = { ...catalogRef.current, [itemName]: catalogItem };
+          setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
+        }
       }
 
       if (qty <= 0) {
@@ -1270,6 +1282,35 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setHiddenCatalogItems(prev => prev.filter(item => !ids.includes(item.id)));
   }, []);
 
+  // Un-hide a SINGLE catalog item (F1b). The un-hide-only primitive: it deletes the
+  // user_hidden_items row, clears hiddenIdsRef, and restores the item to catalogRef.
+  // It NEVER touches list_items — revealing a shared row leaves its quantity exactly
+  // as the household set it. Single-item twin of restoreHiddenByCategory.
+  const unhideItem = useCallback(async (catalogItemId) => {
+    const db = supabaseRef.current;
+    if (!db) return;
+
+    const item = hiddenCatalogItemsRef.current.find(it => it.id === catalogItemId);
+    if (!item) return;
+
+    const { error: restoreErr } = await db
+      .from("user_hidden_items")
+      .delete()
+      .eq("clerk_id", clerkIdRef.current)
+      .eq("catalog_item_id", catalogItemId);
+    if (restoreErr) { setError(`Could not reveal item: ${restoreErr.message}`); return; }
+
+    const newHiddenIds = new Set(hiddenIdsRef.current);
+    newHiddenIds.delete(catalogItemId);
+    hiddenIdsRef.current = newHiddenIds;
+
+    catalogRef.current = { ...catalogRef.current, [item.name]: item };
+    setCatalogMap(prev => ({ ...prev, [item.name]: item }));
+
+    hiddenCatalogItemsRef.current = hiddenCatalogItemsRef.current.filter(it => it.id !== catalogItemId);
+    setHiddenCatalogItems(prev => prev.filter(it => it.id !== catalogItemId));
+  }, []);
+
   const refreshCatalog = useCallback(async () => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -1476,7 +1517,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
+    hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
