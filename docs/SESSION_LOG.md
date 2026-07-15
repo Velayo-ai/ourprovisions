@@ -49,6 +49,29 @@ Done when: A-fix verified on dev (name renders from ledger; own items show no na
 **Files updated:** `src/App.js` (F1b Layer 1 + reveal card + Add pill + contributor display fix), `src/hooks/useProvisions.js` (`unhideItem`, `updateQty` resolver hardening), `migrations/020_uq_live_list_item.sql` (record of applied migration); spec moves (F0 / F1b / shared_list_integrity → `built/`, contributor → `active/`).
 **DB changes:** `uq_live_list_item` partial unique index on `list_items (household_id, catalog_item_id) where deleted_at is null` — applied by hand to dev (`zxwtxjjmssykhqrghouf`) + prod (`parpauldmbetptkmdwbd`), clean CREATE both. Reversible: `drop index uq_live_list_item;`
 
+### [2026-07-14] — [OurProvisions] — Beta feedback capture: Chris & Heddi live testing session
+*(Retroactive capture — session occurred 2026-07-14, handed off 2026-07-15 after two later build sessions were already logged; slotted by date per the handoff's merge note.)*
+**Goal:** Capture and structure beta feedback from watching Chris and Heddi use OurProvisions live — without acting on it.
+**Completed:**
+- Diagnosed Heddi's Android launch failure as an RCS rich-card intent-resolution problem, not a PWA-install problem — the card intercepts the tap and fires an unresolvable intent; typing the URL bypasses it. Fix lives in invite *delivery* (plain link + expectation copy), not the app.
+- Established invite-arrival friction as **systemic**: 3/3 external testers failed at the link→app seam (Aidan expected a native download; Heddi hit the card intent; Chris's first accept didn't activate the household) — gating the CI activation metric.
+- Separated **referral** (advocacy — no token, no grant) from **household-invite** (authorization — token + membership + write access) as two distinct primitives; capture referrer attribution at the link layer now, defer rewards to Phase 4.
+- Reframed Chris's "I want my own list" as a personal *lens* on the shared list, not a fork — consistent with the `activeHouseholdId` lens pattern; shared list stays sacred.
+- Identified **priority/intent signaling** as the missing dimension behind Chris's and Heddi's asks (must-have vs skippable; who owns the miss) — a field on `list_items`, three-state max, mechanism deferred.
+- Confirmed swipe-discoverability failure with a third data point (Chris, Aidan, Helen all reached for long-press); prioritized **hidden-items findability** as the one correctness defect of the night (generates bad state, not merely suboptimal).
+**Unfinished:**
+- Prod DB verification of Chris's first failed join (stale client view vs missing `household_members` row) — never queried; unknown whether distinct from the banner-timing race.
+- Splunk RUM replays for Heddi + Chris not pulled (would settle the false-red-banner / missing-green-banner timing question).
+- Search/filter label decision + per-item action surface (long-press vs visible affordance) + event-vs-household modeling fork — all deferred to their own sessions.
+**Next session:** *(SUPERSEDED — see drift note below)*
+SESSION START
+Goal: Build the hidden-items findability fix — search surfaces hidden matches with per-item inline unhide.
+State: Beta live with real users (Helen, Elly, Aidan, Chris, Heddi). Core loop works once past invite-arrival friction.
+Done when: Searching a hidden item surfaces it with inline per-item unhide; re-searching a hidden item no longer walks the user into creating a duplicate.
+**⚠ DRIFT / SUPERSESSION (resolved at merge 2026-07-15):** This 2026-07-14 Next-session goal — hidden-items findability — was substantially DELIVERED by **F1b on 2026-07-15** (reveal card for a hidden-but-live exact match + `unhideItem` un-hide-only + `updateQty` resolver hardening so re-adding no longer forks/stomps). The current live direction is the 2026-07-15 entry's Next block (verify contributor A-fix → merge; prod backups). Residual from this handoff's fuller vision: hidden matches shown as a *distinct group* in search results (F1b surfaces a single exact match, not a grouped list) — tracked in NEXT. Dan to confirm.
+**Files updated:** None
+**DB changes:** None
+
 ### [2026-07-13] — [OurProvisions] — Shared-list data-integrity: fixed Bugs 1, 2, 3 (catalog fork + check path) — shipped to prod
 **Goal:** Root-cause and fix the three shared-list bugs (duplicate catalog item on re-add; check-one-checks-both; toggle bounce) and ship to prod.
 **Completed:**
