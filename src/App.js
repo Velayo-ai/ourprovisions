@@ -2162,12 +2162,7 @@ function ProvisionsApp() {
                               Tap to choose a category
                             </div>
                           </div>
-                          <div style={{
-                            width: "30px", height: "30px", borderRadius: "50%",
-                            background: "#A0724A", color: "white",
-                            fontSize: "20px", display: "flex", alignItems: "center", justifyContent: "center",
-                            flexShrink: 0,
-                          }}>+</div>
+                          <button className="add-btn" style={{ flexShrink: 0 }}>Add</button>
                         </div>
                       ) : (
                         <div>
