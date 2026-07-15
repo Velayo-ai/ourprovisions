@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-15] — [OurProvisions] — Closed the shared-list integrity arc (F0 + F1b); shipped contributor-attribution display fix
+**Goal:** Ship F0 (`uq_live_list_item`) and F1b (hide→re-add no-stomp) to close the shared-list data-integrity arc; fix the contributor attribution surfaced during prod verification.
+**Completed:**
+- Applied migration 020 (`uq_live_list_item` partial-unique on `list_items`) by hand to dev + prod after a zero-row dup census cleared the pre-req gate; committed the `.sql` record (`0554587`). Clean CREATE both envs is itself the proof.
+- Built F1b (client): `unhideItem` un-hide-only primitive, `updateQty` resolver hardening (hidden ≠ new), and a search reveal card — a hidden-but-live item now un-hides instead of stomping the shared quantity 10→1 (`85f4a69`).
+- Verified F1b two-account on dev AND prod; merged dev→main (`28539af`) — F0 + F1b + Add-pill all live.
+- Cleared Add-pill affordance drift at point of discovery: search no-results row now uses the `.add-btn` pill, not the old `+` circle (`c180b73`).
+- Diagnosed the contributor bug (DH saw "Dan Test User" on his own item) across four DB censuses: `list_items.added_by` (immutable, INSERT-only) and `list_item_contributors` are two independent records of one fact — `remove_list_item` (009) clears the ledger on remove while the revive path restores the row without it; the `≤1 contributor` UI branch fell back to stale `added_by`.
+- Shipped the display-half fix — Shop name-line derives from the contributor ledger, `isOwnItem` keys off the sole contributor's `clerkId` (`3182afc`).
+- Designed the contributor badge model from first principles ("a badge is the last thing you said"); rewrote `SPEC_contributor_ledger_desync.md` (build-gated → `active/`).
+**Unfinished:**
+- Contributor A-fix (`3182afc`) is on dev, **unverified** — prod Supabase went Unhealthy (Supabase platform incident, not our code) before test/merge. Verify on dev, then dev→main.
+- `SPEC_contributor_ledger_desync.md` build-gated on one open question: rule (a) needs a per-actor quantity *delta*, but the stepper reports end states — unproven the client can attribute a change to an actor under polling/optimistic updates.
+- The spec's claim that migration 009 "solved the wrong problem" is asserted from a code comment — verify before acting.
+- Remove-confirm dialog + `addedByMap` still read `added_by` — repoint, then demote `added_by` to audit-only.
+- **Prod has no backups** (Free tier, nano, real beta users' data). Pro-plan decision deliberately deferred to a green dashboard (both projects share the Velayo org, so Pro pulls dev onto paid too, ~$45/mo).
+**Next session:**
+SESSION START
+Goal: Verify the contributor A-fix on dev and merge to main; then take a prod `pg_dump` as a zero-cost backup floor.
+State: F0 (020) live dev + prod. F1b built, verified both envs, merged. Add-pill merged. Contributor display-fix on dev, unverified. Prod Supabase was Unhealthy at session end — confirm recovery FIRST.
+Done when: A-fix verified on dev (name renders from ledger; own items show no name line), merged to main, a two-user item reads the real contributor on prod, and a prod dump exists off-instance.
+**Files updated:** `src/App.js` (F1b Layer 1 + reveal card + Add pill + contributor display fix), `src/hooks/useProvisions.js` (`unhideItem`, `updateQty` resolver hardening), `migrations/020_uq_live_list_item.sql` (record of applied migration); spec moves (F0 / F1b / shared_list_integrity → `built/`, contributor → `active/`).
+**DB changes:** `uq_live_list_item` partial unique index on `list_items (household_id, catalog_item_id) where deleted_at is null` — applied by hand to dev (`zxwtxjjmssykhqrghouf`) + prod (`parpauldmbetptkmdwbd`), clean CREATE both. Reversible: `drop index uq_live_list_item;`
+
 ### [2026-07-13] — [OurProvisions] — Shared-list data-integrity: fixed Bugs 1, 2, 3 (catalog fork + check path) — shipped to prod
 **Goal:** Root-cause and fix the three shared-list bugs (duplicate catalog item on re-add; check-one-checks-both; toggle bounce) and ship to prod.
 **Completed:**
