@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-15] — [Cross] — Diagnosed prod Supabase outage; stood up user-visible alerting (RUM + Synthetics)
+**Goal:** Restore prod (hung on "Loading your provisions…") and close the gap that let an outage run undetected.
+**Completed:**
+- Diagnosed the outage to a wedged PostgREST at the **Supabase platform layer** — not app code, data, or load — via a hypothesis-killing sequence: `pg_stat_activity` showed 6 idle infra connections + zero app queries (DB *unreached*, not overwhelmed); the error was a Cloudflare→origin **522**, uniform across every Data API endpoint; the IOPS chart read **3 of 3,000**.
+- Killed the Disk IO hypothesis with evidence — 3 IOPS vs 3,000 max, 78 KB/s vs 125 MB/s, ~30% peak burst-budget; Supabase's warning email + "53% Disk IO" tile were burst-budget *accounting*, not load. Dev healthy on identical code eliminated every repo-level cause.
+- Restored prod by **restarting the project**; confirmed settled.
+- Built a Splunk **RUM detector** (`rum.client_error.count` · Sum · `sf_environment:production` · above 1 · immediately · Major) — Splunk's estimator backtested it to exactly **1 alert in the prior week** (the real outage). A first config (threshold 3 / 80%-of-5m) estimated 0 — it would have missed the event.
+- Built a Splunk **Synthetics API test** (`GET /rest/v1/catalog_items?select=id&limit=1` w/ anon key · AWS N. Virginia · 5 min · assert 200) + uptime detector (<90%, 2 consecutive, Critical) — verified live at HTTP/2 200 in 122ms before activation. It exercises **PostgREST**, not the Vercel HTML shell (which stayed green through the whole outage).
+- Added a detector to the pre-existing `Velayo Inc.` Splunk browser test, which had been running with zero alerting.
+- Reversed the earlier "upgrade Supabase compute" recommendation — prod runs at ~0.1% of disk IO capacity; Free/nano is adequate at current scale.
+**Unfinished:**
+- RUM detector threshold (1) untuned against real noise — raise to 2 if a tester's flaky connection pages overnight.
+- 11 Jul Disk IO burst step-up (0% → ~30%, ~coincident with migrations 018/019/020 shipping) unexplained — parked deliberately (harmless at 30% of a budget never approached; 15 Jul returned to ~0%).
+- Splunk OTel Collector on AWS Lightsail — designed, not built; deferred to Phase 3–4 ("a fun afternoon, not a fire drill").
+- Contributor A-fix (`3182afc`) still on dev, unverified — this same outage is what blocked its verify/merge; verify → dev→main now that prod is recovered.
+- Prod still Free tier / nano / **no backups** — take a `pg_dump` off-instance floor.
+**Next session:**
+SESSION START
+Goal: Verify the contributor A-fix on dev and merge to main; take a prod `pg_dump` backup floor.
+State: Prod restored and healthy. User-visible alerting now live — RUM JS-error detector + Synthetics Data-API uptime detector + browser-test detector — covering both "users hitting errors" and "prod down with nobody watching." F0/F1b shipped + prod-verified; migrations 018/019/020 live. Contributor display-fix on dev, unverified.
+Done when: A-fix verified on dev (name renders from ledger; own items show no name line) and merged to main; a prod `pg_dump` exists off-instance; RUM threshold confirmed against a week of real traffic.
+**Files updated:** None (all work in Splunk Observability Cloud + Supabase dashboards).
+**DB changes:** None.
+
 ### [2026-07-15] — [OurProvisions] — Closed the shared-list integrity arc (F0 + F1b); shipped contributor-attribution display fix
 **Goal:** Ship F0 (`uq_live_list_item`) and F1b (hide→re-add no-stomp) to close the shared-list data-integrity arc; fix the contributor attribution surfaced during prod verification.
 **Completed:**
