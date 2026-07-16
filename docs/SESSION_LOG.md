@@ -25,6 +25,77 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-15] — [Cross] — Diagnosed prod Supabase outage; stood up user-visible alerting (RUM + Synthetics)
+**Goal:** Restore prod (hung on "Loading your provisions…") and close the gap that let an outage run undetected.
+**Completed:**
+- Diagnosed the outage to a wedged PostgREST at the **Supabase platform layer** — not app code, data, or load — via a hypothesis-killing sequence: `pg_stat_activity` showed 6 idle infra connections + zero app queries (DB *unreached*, not overwhelmed); the error was a Cloudflare→origin **522**, uniform across every Data API endpoint; the IOPS chart read **3 of 3,000**.
+- Killed the Disk IO hypothesis with evidence — 3 IOPS vs 3,000 max, 78 KB/s vs 125 MB/s, ~30% peak burst-budget; Supabase's warning email + "53% Disk IO" tile were burst-budget *accounting*, not load. Dev healthy on identical code eliminated every repo-level cause.
+- Restored prod by **restarting the project**; confirmed settled.
+- Built a Splunk **RUM detector** (`rum.client_error.count` · Sum · `sf_environment:production` · above 1 · immediately · Major) — Splunk's estimator backtested it to exactly **1 alert in the prior week** (the real outage). A first config (threshold 3 / 80%-of-5m) estimated 0 — it would have missed the event.
+- Built a Splunk **Synthetics API test** (`GET /rest/v1/catalog_items?select=id&limit=1` w/ anon key · AWS N. Virginia · 5 min · assert 200) + uptime detector (<90%, 2 consecutive, Critical) — verified live at HTTP/2 200 in 122ms before activation. It exercises **PostgREST**, not the Vercel HTML shell (which stayed green through the whole outage).
+- Added a detector to the pre-existing `Velayo Inc.` Splunk browser test, which had been running with zero alerting.
+- Reversed the earlier "upgrade Supabase compute" recommendation — prod runs at ~0.1% of disk IO capacity; Free/nano is adequate at current scale.
+**Unfinished:**
+- RUM detector threshold (1) untuned against real noise — raise to 2 if a tester's flaky connection pages overnight.
+- 11 Jul Disk IO burst step-up (0% → ~30%, ~coincident with migrations 018/019/020 shipping) unexplained — parked deliberately (harmless at 30% of a budget never approached; 15 Jul returned to ~0%).
+- Splunk OTel Collector on AWS Lightsail — designed, not built; deferred to Phase 3–4 ("a fun afternoon, not a fire drill").
+- Contributor A-fix (`3182afc`) still on dev, unverified — this same outage is what blocked its verify/merge; verify → dev→main now that prod is recovered.
+- Prod still Free tier / nano / **no backups** — take a `pg_dump` off-instance floor.
+**Next session:**
+SESSION START
+Goal: Verify the contributor A-fix on dev and merge to main; take a prod `pg_dump` backup floor.
+State: Prod restored and healthy. User-visible alerting now live — RUM JS-error detector + Synthetics Data-API uptime detector + browser-test detector — covering both "users hitting errors" and "prod down with nobody watching." F0/F1b shipped + prod-verified; migrations 018/019/020 live. Contributor display-fix on dev, unverified.
+Done when: A-fix verified on dev (name renders from ledger; own items show no name line) and merged to main; a prod `pg_dump` exists off-instance; RUM threshold confirmed against a week of real traffic.
+**Files updated:** None (all work in Splunk Observability Cloud + Supabase dashboards).
+**DB changes:** None.
+
+### [2026-07-15] — [OurProvisions] — Closed the shared-list integrity arc (F0 + F1b); shipped contributor-attribution display fix
+**Goal:** Ship F0 (`uq_live_list_item`) and F1b (hide→re-add no-stomp) to close the shared-list data-integrity arc; fix the contributor attribution surfaced during prod verification.
+**Completed:**
+- Applied migration 020 (`uq_live_list_item` partial-unique on `list_items`) by hand to dev + prod after a zero-row dup census cleared the pre-req gate; committed the `.sql` record (`0554587`). Clean CREATE both envs is itself the proof.
+- Built F1b (client): `unhideItem` un-hide-only primitive, `updateQty` resolver hardening (hidden ≠ new), and a search reveal card — a hidden-but-live item now un-hides instead of stomping the shared quantity 10→1 (`85f4a69`).
+- Verified F1b two-account on dev AND prod; merged dev→main (`28539af`) — F0 + F1b + Add-pill all live.
+- Cleared Add-pill affordance drift at point of discovery: search no-results row now uses the `.add-btn` pill, not the old `+` circle (`c180b73`).
+- Diagnosed the contributor bug (DH saw "Dan Test User" on his own item) across four DB censuses: `list_items.added_by` (immutable, INSERT-only) and `list_item_contributors` are two independent records of one fact — `remove_list_item` (009) clears the ledger on remove while the revive path restores the row without it; the `≤1 contributor` UI branch fell back to stale `added_by`.
+- Shipped the display-half fix — Shop name-line derives from the contributor ledger, `isOwnItem` keys off the sole contributor's `clerkId` (`3182afc`).
+- Designed the contributor badge model from first principles ("a badge is the last thing you said"); rewrote `SPEC_contributor_ledger_desync.md` (build-gated → `active/`).
+**Unfinished:**
+- Contributor A-fix (`3182afc`) is on dev, **unverified** — prod Supabase went Unhealthy (Supabase platform incident, not our code) before test/merge. Verify on dev, then dev→main.
+- `SPEC_contributor_ledger_desync.md` build-gated on one open question: rule (a) needs a per-actor quantity *delta*, but the stepper reports end states — unproven the client can attribute a change to an actor under polling/optimistic updates.
+- The spec's claim that migration 009 "solved the wrong problem" is asserted from a code comment — verify before acting.
+- Remove-confirm dialog + `addedByMap` still read `added_by` — repoint, then demote `added_by` to audit-only.
+- **Prod has no backups** (Free tier, nano, real beta users' data). Pro-plan decision deliberately deferred to a green dashboard (both projects share the Velayo org, so Pro pulls dev onto paid too, ~$45/mo).
+**Next session:**
+SESSION START
+Goal: Verify the contributor A-fix on dev and merge to main; then take a prod `pg_dump` as a zero-cost backup floor.
+State: F0 (020) live dev + prod. F1b built, verified both envs, merged. Add-pill merged. Contributor display-fix on dev, unverified. Prod Supabase was Unhealthy at session end — confirm recovery FIRST.
+Done when: A-fix verified on dev (name renders from ledger; own items show no name line), merged to main, a two-user item reads the real contributor on prod, and a prod dump exists off-instance.
+**Files updated:** `src/App.js` (F1b Layer 1 + reveal card + Add pill + contributor display fix), `src/hooks/useProvisions.js` (`unhideItem`, `updateQty` resolver hardening), `migrations/020_uq_live_list_item.sql` (record of applied migration); spec moves (F0 / F1b / shared_list_integrity → `built/`, contributor → `active/`).
+**DB changes:** `uq_live_list_item` partial unique index on `list_items (household_id, catalog_item_id) where deleted_at is null` — applied by hand to dev (`zxwtxjjmssykhqrghouf`) + prod (`parpauldmbetptkmdwbd`), clean CREATE both. Reversible: `drop index uq_live_list_item;`
+
+### [2026-07-14] — [OurProvisions] — Beta feedback capture: Chris & Heddi live testing session
+*(Retroactive capture — session occurred 2026-07-14, handed off 2026-07-15 after two later build sessions were already logged; slotted by date per the handoff's merge note.)*
+**Goal:** Capture and structure beta feedback from watching Chris and Heddi use OurProvisions live — without acting on it.
+**Completed:**
+- Diagnosed Heddi's Android launch failure as an RCS rich-card intent-resolution problem, not a PWA-install problem — the card intercepts the tap and fires an unresolvable intent; typing the URL bypasses it. Fix lives in invite *delivery* (plain link + expectation copy), not the app.
+- Established invite-arrival friction as **systemic**: 3/3 external testers failed at the link→app seam (Aidan expected a native download; Heddi hit the card intent; Chris's first accept didn't activate the household) — gating the CI activation metric.
+- Separated **referral** (advocacy — no token, no grant) from **household-invite** (authorization — token + membership + write access) as two distinct primitives; capture referrer attribution at the link layer now, defer rewards to Phase 4.
+- Reframed Chris's "I want my own list" as a personal *lens* on the shared list, not a fork — consistent with the `activeHouseholdId` lens pattern; shared list stays sacred.
+- Identified **priority/intent signaling** as the missing dimension behind Chris's and Heddi's asks (must-have vs skippable; who owns the miss) — a field on `list_items`, three-state max, mechanism deferred.
+- Confirmed swipe-discoverability failure with a third data point (Chris, Aidan, Helen all reached for long-press); prioritized **hidden-items findability** as the one correctness defect of the night (generates bad state, not merely suboptimal).
+**Unfinished:**
+- Prod DB verification of Chris's first failed join (stale client view vs missing `household_members` row) — never queried; unknown whether distinct from the banner-timing race.
+- Splunk RUM replays for Heddi + Chris not pulled (would settle the false-red-banner / missing-green-banner timing question).
+- Search/filter label decision + per-item action surface (long-press vs visible affordance) + event-vs-household modeling fork — all deferred to their own sessions.
+**Next session:** *(SUPERSEDED — see drift note below)*
+SESSION START
+Goal: Build the hidden-items findability fix — search surfaces hidden matches with per-item inline unhide.
+State: Beta live with real users (Helen, Elly, Aidan, Chris, Heddi). Core loop works once past invite-arrival friction.
+Done when: Searching a hidden item surfaces it with inline per-item unhide; re-searching a hidden item no longer walks the user into creating a duplicate.
+**⚠ DRIFT / SUPERSESSION (resolved at merge 2026-07-15):** This 2026-07-14 Next-session goal — hidden-items findability — was substantially DELIVERED by **F1b on 2026-07-15** (reveal card for a hidden-but-live exact match + `unhideItem` un-hide-only + `updateQty` resolver hardening so re-adding no longer forks/stomps). The current live direction is the 2026-07-15 entry's Next block (verify contributor A-fix → merge; prod backups). Residual from this handoff's fuller vision: hidden matches shown as a *distinct group* in search results (F1b surfaces a single exact match, not a grouped list) — tracked in NEXT. Dan to confirm.
+**Files updated:** None
+**DB changes:** None
+
 ### [2026-07-13] — [OurProvisions] — Shared-list data-integrity: fixed Bugs 1, 2, 3 (catalog fork + check path) — shipped to prod
 **Goal:** Root-cause and fix the three shared-list bugs (duplicate catalog item on re-add; check-one-checks-both; toggle bounce) and ship to prod.
 **Completed:**
