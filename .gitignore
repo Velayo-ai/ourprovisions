@@ -29,3 +29,5 @@ yarn-error.log*
 
 # QA fixture — real IDs live outside the repo (secrets hygiene)
 qa/test_fixture.dev.json
+
+*.dump
