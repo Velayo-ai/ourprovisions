@@ -25,6 +25,54 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-16] — [Cross] — Designed the `ourprovisions.app` landing page; set the beta access model
+**Goal:** Design the public landing page for the OurProvisions beta and decide how strangers get in.
+**Completed:**
+- **Chose the TOLL model over the gate** — answer the questions and you're in. Kills "Dan will set you up" (a promise his time can't keep at thirty testers), kills "invite only" (a fiction if answering grants access), kills "almost" on the confirmation. Human help becomes a backstop, not the bottleneck. Rejected real gating (RPC + Clerk hook) — its failure mode (user signs up with a different email, locked out of their own beta) is worse than the problem.
+- **Set the two-surface architecture**: `ourprovisions.app` (static, public, indexed) as the front door; `ourprovisions.velayo.ai` (Clerk, React PWA) unchanged. Separate Vercel project, not a route — marketing at the app's root fights Clerk's redirect logic forever and lets a marketing typo fail an app build.
+- **Cut the questionnaire from nine to a "lucky seven"** on one principle: *a question earns its place only if it changes a decision we're actually going to make.* Added `shop_mode` (in-store / delivered / mixed) — the session's biggest find: a service-shopper is a household Phase 2's aisle-based ordering doesn't serve. Dropped `store_count` (ambiguous) and `list_method` (Phase 5). `region` kept in schema, unasked.
+- **Designed the arrival mechanic** for the seam that has failed 3-for-3: Clerk pre-fill via query string (first/last asked separately so nothing is ever parsed), insert is fire-and-forget so a telemetry hiccup can never trap someone at the door, and the door carries the five words of copy the July blog said would have saved Aidan the wait — *there's no App Store download*.
+- **Rewrote the thesis section** off Dan's frame: the shop is the pain, the list is the instrument. Cut "did it save?" (an engineer's anxiety no shopper has ever had) and "the shared list is sacred" (an engineering vow). Landed Dan's line — *you don't need a budget to control what you spend on food; you need a list* — which buys the spending stakes without becoming a budgeting app.
+- **Caught and cut a pricing commitment**: "OurProvisions is in beta and **free**." Pre-commits monetization in a subordinate clause. Page is now silent on money.
+- **Approved the mockup** (`docs/mockups/mockup_landing.html`) with the real Sacandaga photo header, three real app screenshots, and the questionnaire.
+**Unfinished:**
+- Nothing built. Migration 021 not run; `beta_signups` confirmed **absent on prod**. No Vercel project, no DNS, no CORS verification.
+- Blog home still undecided — `docs/content/blog_july_beta.md` is written but has nowhere to live. A `/blog` route on `ourprovisions.app` is the obvious answer; it's a build, not a paste.
+- Mailchimp untouched. Reframed as **outbound** (welcome email), not capture.
+- Hero video ("boat movie") deferred — ship the photo first.
+**Next session:**
+SESSION START
+Goal: Build and ship the landing page — migration 021, Vercel project, DNS, and the anon insert.
+State: Mockup approved. `beta_signups` does not exist on prod (queried). Prod recovered from the 15 Jul outage; F0/F1b live; contributor A-fix now prod-verified. Referral primitive (also migration 021 in its own spec) specced-not-built — the two 021s must be reconciled at build.
+Done when: `ourprovisions.app` resolves over TLS, a stranger's submission lands a row in prod `beta_signups`, an anon-key `select *` returns **zero rows**, and the door hands them a pre-filled Clerk signup.
+**Files updated:** None (design chat — mockup + spec routed to `docs/specs/active/` + `docs/mockups/` + `docs/content/`).
+**DB changes:** None yet — migration 021 (`beta_signups`) authored, not applied.
+
+### [2026-07-16] — [Cross] — Took the prod backup floor; closed the contributor A-fix; specced the referral primitive
+**Goal:** Verify the contributor A-fix on dev and merge to main; take a prod `pg_dump` backup floor.
+**Completed:**
+- Took the **first prod backup since March** — `pg_dump 17.10` → custom-format dump (396 KB, `--no-owner --no-privileges`), TOC-verified (`pg_restore --list` shows TABLE DATA for all three core tables, all RLS policies, FK constraints incl. F0's `list_items_household_catalog_unique`, realtime publications, and `get_list_items_for_household`), then copied off-instance to Drive. `*.dump` added to `.gitignore`.
+- **Closed the contributor A-fix** (`3182afc`): dev-verified two-account against all three assertions, merged dev→main (`d972c88` → `abc5f15`), prod-verified. Shop name-line derives from the contributor ledger; own items show no name line; a remove→revive attributes to the real contributor. **Done-when met.**
+- Corrected the A-fix test script mid-session: `remove_list_item` is not a button — it fires from `updateQty` when quantity hits **0**, and only the *other* user's window can read the result (`isOwnItem` suppresses the name line on your own).
+- **Confirmed the contributor ledger write-half is genuinely unbuilt** by hitting the gate head-on: Dan's badge-arithmetic scenario needs a per-actor quantity *delta*, but `updateQty` sends end states, not deltas — the DB cannot distinguish "I withdraw my 5" from "I think we need 5 total." **That ambiguity IS the build-gate**; tonight's fix is display-only.
+- **Overturned the Heddi RCS rich-card diagnosis** (2026-07-14): Chris received a carded link on Android and it worked, so card+tap is not the cause. Leading unproven hypothesis: Dan's link was **schemeless** (`ourprovisions.velayo.ai`) where the in-app invite carries `https://`. n=1, unreproduced.
+- **Re-framed "invite-arrival friction is systemic" as three distinct failures in three layers**: Aidan = expectation (expected a download); Heddi = delivery (schemeless/intent); Chris = app (join never activated — **still unqueried against prod**). One fix cannot close all three. Named the real gap: **there is no front door** — `beta_signups` is a table with no sign-up page, questionnaire, or welcome email in front of it (the skipped 2026-07-10 goal). The only working front door is the household invite, which grants membership.
+- **Designed the referral primitive** end-to-end (copy, placement, schema, metric) → `SPEC_referral_primitive.md` (routed to `docs/specs/active/`).
+**Unfinished:**
+- **Chris's failed join — still unverified against prod** (carried since 2026-07-14). Stale client view vs. missing `household_members` row vs. already-fixed banner race. The only arrival failure where the app might actually be broken. Starts with a query, not a design.
+- **Heddi's failure unexplained/unreproduced.** Cheap open test (5 min): text an Android phone `ourprovisions.velayo.ai` vs `https://ourprovisions.velayo.ai`, tap both.
+- **Referral button label unsettled** — "Share OurProvisions" is a placeholder; resolve at build or in the nav/affordances session.
+- **Migration record has honest gaps** — 009–012 and 017 absent from disk (`archive/` holds a *pre-baseline* 002–006, not the missing files); duplicate `007`. Deliberately NOT reconstructed.
+- **Prod has a floor, not a strategy** — tonight's dump ages from this moment; decide cadence deliberately (cron / plan upgrade / accepted risk), not by drift.
+- RUM detector threshold (1) still untuned; prod Postgres patch (17.6.1.084 → .141) deliberately not taken before the backup existed.
+**Next session:**
+SESSION START
+Goal: Write the front door — the sign-up page + the seven-question "come aboard" questionnaire copy.
+State: Prod healthy, backed up off-instance. Contributor A-fix live and prod-verified. F0/F1b/F2/F3 shipped; migrations 018/019/020 live dev+prod. Referral primitive specced, not built. `beta_signups` table exists with no form in front of it and no email behind it. Three beta-arrival failures diagnosed to three layers; Chris's is the only possible app defect and is unqueried.
+Done when: The sign-up page + questionnaire copy exist and eye-test passes; a referral link has somewhere to land that explains what OurProvisions is and that it is a web app, not a download.
+**Files updated:** None from the design/ops chat. Repo changes made directly: `.gitignore` (`*.dump`), dev→main merge `d972c88` → `abc5f15`.
+**DB changes:** None. Prod `pg_dump` taken (read-only) — `ourprovisions_prod_20260715.dump`, verified, off-instance in Drive.
+
 ### [2026-07-15] — [Cross] — Diagnosed prod Supabase outage; stood up user-visible alerting (RUM + Synthetics)
 **Goal:** Restore prod (hung on "Loading your provisions…") and close the gap that let an outage run undetected.
 **Completed:**
