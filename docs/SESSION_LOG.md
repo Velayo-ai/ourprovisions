@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-18] — [OurProvisions] — Designed the household-management redesign; merged it with OurBanner into one Phase I build; scoped Events for Phase II
+**Goal:** Redesign the household management sheet into an entity/membership model, fold it together with OurBanner into a single Phase I build, and lock the spec.
+**Completed:**
+- **Established the load-bearing model — collection → selected → scoped detail.** Households (CRUD) live above the line, this-household membership (roster + Invite) below; one selection drives both zones and the membership zone recomputes on switch (same class as the filter-reset rule). Deliberately the exact structure Phase II Events will reuse.
+- **Landed the active-row affordance as a bare pencil (FINAL3)** after building and rejecting the pill variant (FINAL2); removed the redundant "ACTIVE" word. Bare wins because the "Edit" label already carries the action — keeps row-actions uniform (trash + Edit both containerless, right edge).
+- **Relocated Delete into the Edit-household sheet** (own danger zone, creator-only), refining OurBanner's D2 — under the entity model, Delete is an operation on the household and belongs with its other edit-actions. "Created by you" resolves to the *creator-only visibility of Delete* (D4), not a header label.
+- **Replaced the in-app invite banner with `navigator.share()` hand-off** — deletes the persistent-banner defect by construction (no in-app surface to linger); removed "Copy link instead" (the share sheet already offers Copy).
+- **Unified both zones on one clay eyebrow rhythm** (`YOUR HOUSEHOLDS` / `{HOUSEHOLD} · MEMBERS`); household rows are name-only (dropped the monogram/anchor placeholder).
+- **Locked `SPEC_household_management_phase1.md`** (D1–D8, build sequence, verification) with `mockup_household_manage_FINAL3.html` as the tiebreaker mockup of record; scoped Events out of Phase I as design-first (photo-as-context-identity noted to generalize OurBanner).
+- **(Claude Code) Merged the handoff + routed payload:** filed the spec → `docs/specs/active/`, the mockup → `docs/mockups/`, and **folded a one-char correctness fix into the authored-not-applied `migrations/024_household_photo.sql`** — its verify block was `and X like … or Y like …` (missing parens → `AND` binds tighter than `OR`); now `and (…)`. No manifest accompanied the payload; DRAFT_privacy left parked per ROADMAP.
+**Unfinished:**
+- **Phase I NOT built** — this was design only. Next session builds the two-zone sheet + OurBanner (migration 024 apply → Edit sheet → management sheet → `navigator.share()`), one tested commit per step, dev→main held until Phase I fully validated.
+- **Migration 024 still authored, NOT applied** — assign the number at point-of-build against the `migrations/` high-water mark (023 remains the intentional referral gap).
+- Carried from prior session: anon-surface audit (`category_avg_prices`), disclosure decision (Dan's call), client-side `is_global` filter on the anon catalog fetch (defense-in-depth; 022 is the real fix).
+**Next session:**
+SESSION START
+Goal: Build Phase I — household-management redesign + OurBanner — dev-verify, then prod.
+State: Phase I design fully approved + spec'd (`docs/specs/active/SPEC_household_management_phase1.md`, FINAL3 bare-pencil, entity/membership model); OurBanner spec (`SPEC_household_photo_header.md`, D1–D8) stands, refined by the management spec's D2/D4. Migration 024 authored + paren-fixed, not applied. Landing page live; anon catalog leak closed (022, prod-verified).
+Done when: two-zone sheet + OurBanner pass all Phase I verification items on dev, then prod — bare pencil on the active row only, Delete creator-only inside Edit, Invite fires the OS share sheet with nothing rendered/lingering in-app, membership zone recomputes on switch, and all OurBanner items (EXIF, framing, wordmark states, RLS) pass.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; routed `docs/specs/active/SPEC_household_management_phase1.md`, `docs/mockups/mockup_household_manage_FINAL3.html`; corrected `migrations/024_household_photo.sql` (verify-block parens).
+**DB changes:** None applied. Migration 024 authored + corrected (verify-block parenthesization), still not applied.
+
 ### [2026-07-18] — [OurProvisions] — Closed a live prod data exposure; designed Beat 1 (household photo header / "OurBanner")
 **Goal:** Fix the anon catalog leak found before session start, then design the household photo header.
 **Completed:**

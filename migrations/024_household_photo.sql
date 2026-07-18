@@ -127,7 +127,7 @@ order by column_name;
 select conname, pg_get_constraintdef(oid) as def
 from pg_constraint
 where conrelid = 'public.households'::regclass
-  and conname like 'households_photo%' or conname like 'households_banner%';
+  and (conname like 'households_photo%' or conname like 'households_banner%');
 
 -- ============================================================
 -- VERIFY — storage policies
