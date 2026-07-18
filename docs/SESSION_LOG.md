@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-18] — [OurProvisions] — Closed a live prod data exposure; designed Beat 1 (household photo header / "OurBanner")
+**Goal:** Fix the anon catalog leak found before session start, then design the household photo header.
+**Completed:**
+- **Diagnosed + closed a LIVE PROD data exposure.** The `{anon}` SELECT policy on `catalog_items` — named `"Anyone can read global catalog items"` — had predicate `(deleted_at IS NULL)` with **no `is_global` check**. All 183 rows, incl. 133 household-custom rows of free-text PII (a beta user's parent's medication schedule + dated caregiving notes), were readable by any anonymous visitor with the publishable key. **Migration 022 applied dev + prod, browser-verified 183 → 50** (0 custom).
+- **Established "a query asks for what it wants; RLS is the backstop, not the filter."** The client's anon fetch also lacked an `is_global` filter — two layers failed, each alone masking the other. Relying on RLS as the *primary* filter makes every policy load-bearing for correctness, and when both fail the blast radius is the whole table.
+- **Designed OurBanner** — per-household photo header with household-owned framing (drag + zoom) and a three-state wordmark control (`large`/`small`/`hidden`). Mockup approved (`docs/mockups/mockup_ourbanner.html`).
+- **Decided "the group sets the look"** — photo, framing, banner state, and name are household state, any member; reversed an in-session lean toward a per-user preference (a private reskin of shared chrome is the one place the app would quietly stop being *ours*).
+- **Proved zoom is mandatory, not polish** — a 2.6:1 band can't be filled by an arbitrary photo with `background-position` alone (`IMG_7897` frames only ~165%); Beat 1's three fixed slices couldn't express it. Framing = position **and** scale, both persisted.
+- **Superseded the scrim primitive → one principle, two treatments** — radial for the landing hero (we control the photo), **band** for the app header (arbitrary photos, off-centre subjects; darken only the two strips that are always type). Black, not espresso; text-shadows now load-bearing.
+- **Confirmed EXIF normalization is a hard requirement** — 2 of 2 supplied photos carried non-identity orientation (6, then 3); normalize on the **stored** artifact (`<canvas> drawImage` ignores the tag).
+**Unfinished:**
+- **Migration 024 authored, NOT applied** — Beat 1 build (storage bucket + Edit-household sheet + client) is next session.
+- Client-side `is_global=eq.true` filter on the anon catalog fetch (`useProvisions.js` ~216) — instruction given, not built. Defense-in-depth only; **022 is the real fix.**
+- **Disclosure decision OPEN** — custom item text was publicly readable for an unknown window; small F&F group (Helen, Elly, Aidan), no evidence of access. **Dan's call.**
+- **Anon-surface audit** — `category_avg_prices` rides the same signed-out fetch path; confirm it's an aggregate with no per-household rows and no same-shaped policy.
+- Safe-area / Dynamic Island check on the band scrim (needs hardware); optical-centre value (5%) provisional until tab icons render.
+- The competing parallel-session trio (bare `SPEC_household_photo_header.md` + `023_household_photo.sql` + `mockup_household_photo_modal.html`) the handoff flagged for deletion was already absent — nothing to remove.
+**Next session:**
+SESSION START
+Goal: Build Beat 1 — OurBanner (migration 024, `household-photos` bucket, Edit-household sheet).
+State: Anon catalog exposure closed, dev + prod verified. OurBanner designed + mocked (`docs/mockups/mockup_ourbanner.html` approved). Spec `docs/specs/active/SPEC_household_photo_header.md`; migration 024 authored, not applied. Landing page live.
+Done when: a household can add a photo, frame it by drag + zoom, and set the banner to large/small/hidden; a second member sees the same photo, framing, and banner state; a photo-less household renders today's espresso header unchanged with no banner control; a deliberately-rotated photo uploads upright.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; routed `docs/specs/built/SPEC_anon_catalog_exposure.md`, `docs/specs/active/SPEC_household_photo_header.md`, `docs/mockups/mockup_ourbanner.html`; `migrations/022_anon_catalog_global_only.sql` (applied), `migrations/024_household_photo.sql` (authored).
+**DB changes:** Migration 022 **APPLIED dev + prod 2026-07-18** — `alter policy "Anyone can read global catalog items"` → `using (is_global = true and deleted_at is null)`. Anon visibility prod **183 → 50** (0 custom), dev 38 → 38 (0 custom). Migration 024 authored, **not applied**.
+
 ### [2026-07-17] — [Cross] — Built + shipped the `ourprovisions.app` landing page; applied migration 021
 **Goal:** Build the landing page from the approved mockup, apply migration 021, and get the front door standing.
 **Completed:**
