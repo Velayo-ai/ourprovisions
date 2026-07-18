@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-17] — [Cross] — Built + shipped the `ourprovisions.app` landing page; applied migration 021
+**Goal:** Build the landing page from the approved mockup, apply migration 021, and get the front door standing.
+**Completed:**
+- **Applied migration 021 (`beta_signups`) to dev + prod** — verified 14 columns, `relrowsecurity=true`, exactly one policy (`public can apply` / INSERT / `{anon}`). Committed the `.sql` record (`migrations/021_beta_signups.sql`), with the "absence of a SELECT policy IS the security" reasoning inline. Closes the prior entry's "migration 021 not run."
+- **Built `ourprovisions-landing` as a standalone static repo** (no React / Supabase-client / Clerk — a single fire-and-forget POST is the whole backend). Chrome/content split (`chrome.css` reusable vs `page.css`+`index.html` story); de-base64'd the four inline images (~634KB inline → cacheable files); hero `100% auto`/`center 42%` preserved. **Arrival mechanic verified in a real browser:** nothing parsed (first/last kept separate), `name` joined for the row, `multi_household` coerced to boolean, insert fires with `apikey`+`Bearer`+`Prefer`, and the door opens **even when the insert fails**. Committed + pushed to GitHub `Velayo-ai/ourprovisions-landing`.
+- **Rewrote the three screenshot captions** (design chat) so heading and body do different jobs: Shop → *"Get in, get out, get it right"* (finally sells *speed*, the most obvious thing a shopper wants); Browse → *"The stuff you buy every week"* (plain heading; "staples" earns its place in the body). Synced verbatim to `index.html`.
+- **Restructured the footer** into three grid columns (`1fr auto 1fr`) — wordmark left, tagline + `Velayo · Privacy · Terms` centred, copyright right; absolute `velayo.ai` legal URLs (one canonical copy for the fleet). Synced + browser-verified desktop and mobile (collapses to a centred stack at 720px). Closes the "collects emails with no privacy link" gap.
+- **Drafted revised privacy-policy sections** against the live policy (§02/§03/§04/§06), schema-accurate to what `beta_signups` actually holds; **§07 (`fit_note` + access rights) left blank for counsel.** For legal review, not publication — scoped to `velayo-web`, not this repo.
+- **Overwrote `docs/mockups/mockup_landing.html`** as the current tiebreaker (captions + footer + `color-scheme`); added `color-scheme:light` (meta + `:root`) to the page.
+**Unfinished:**
+- **Not live yet:** Vercel project env + deploy, live **anon-cannot-read** + **CORS** verification on the deployed URL, and Cloudflare **grey-cloud DNS** for `ourprovisions.app`. No `vercel`/`gh` CLI in this environment — Dan owns the deploy + DNS.
+- Privacy policy still stale on `velayo.ai`; draft written, §07 deliberately blank — a lawyer's call.
+- `handoff/DRAFT_privacy_beta_signups.md` is **stuck in the airlock** — its home is `velayo-web`, which is not present locally; cannot route it here.
+- **Struck (false alarm):** the earlier "dark mode was never tested" finding — it was Claude's in-app browser theming a downloaded mockup file; `ourprovisions.app` in Safari renders correctly and always did.
+**Next session:**
+SESSION START
+Goal: Take the front door live — Vercel deploy + env vars, verify anon-cannot-read/CORS on the deployed URL, then Cloudflare grey-cloud DNS for `ourprovisions.app`.
+State: Landing repo built/verified/pushed (`Velayo-ai/ourprovisions-landing`); migration 021 live dev+prod (14 cols, RLS armed); captions + footer synced. Not deployed, not DNS'd. ⚠️ The design handoff named a "catalog leak" as the P0 for next session — **not reflected anywhere in this ROADMAP; reconcile with Dan** (the grounded open loop is the deploy/verify/DNS above).
+Done when: `ourprovisions.app` resolves over TLS, a stranger's submission lands a prod `beta_signups` row, an anon-key `select *` returns **zero rows**, and the door hands a pre-filled Clerk signup.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/mockups/mockup_landing.html`; `migrations/021_beta_signups.sql` (new). Separate repo: `Velayo-ai/ourprovisions-landing` (built + pushed).
+**DB changes:** Migration 021 `beta_signups` **applied dev + prod 2026-07-17** — 14 cols, RLS on, one anon INSERT-only policy.
+
 ### [2026-07-16] — [Cross] — Designed the `ourprovisions.app` landing page; set the beta access model
 **Goal:** Design the public landing page for the OurProvisions beta and decide how strangers get in.
 **Completed:**
