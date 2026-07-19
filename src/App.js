@@ -1268,7 +1268,7 @@ function ProvisionsApp() {
         .tab-bar { display: flex; background: #2C1A0E; border-bottom: 3px solid #c8973a; }
         .tab { flex: 1; padding: 8px 4px 10px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; background: none; border: none; color: #C9A97A; opacity: 0.5; border-bottom: 2px solid transparent; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: opacity 0.2s; }
         .tab.active { opacity: 1; border-bottom: 2px solid #C9A97A; }
-        .badge { display: inline-block; background: #c8973a; color: white; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
+        .badge { display: inline-block; background: #E8A838; color: white; font-weight: 700; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
         /* Budget banner */
@@ -2095,7 +2095,7 @@ function ProvisionsApp() {
             <line x1="2.5" y1="10.5" x2="15.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/>
           </svg>
           Shop
-          {totalItems > 0 && <span className="badge">{totalItems}</span>}
+          {totalItems > 0 && <span className="badge" style={{ opacity: 1 }}>{totalItems}</span>}
         </button>
 
       </div>
