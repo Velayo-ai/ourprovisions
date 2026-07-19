@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-19] — [OurProvisions] — Built Phase I to dev: household-management redesign + OurBanner; migration 024 applied to dev
+**Goal:** Build the full Phase I feature set (household-management redesign + OurBanner photo header) in Claude Code, clear the DB gate on dev, and land it on the dev preview.
+**Completed:**
+- **(Design chat) Prepared the paste-ready build kickoff + walked the DB gate on dev.** Settled migration 024 (023 gapped for referral), the 5-step build sequence, and the watch-outs (SQL editor bypasses RLS; `is_member_of` arg signature must match the storage policies); confirmed wordmark default = **Large**, photo-gated. Confirmed dev by URL (`zxwtxjjmssykhqrghouf`), created the `household-photos` **private** bucket, confirmed `is_member_of(uuid)`, **applied migration 024** — verify passed: 5 columns, 4 CHECK constraints, 4 storage policies, 13 households on the espresso default.
+- **(Claude Code) Built the full Phase I client (commit `3af39a2`).** EXIF-normalizing upload pipeline (`src/lib/image.js` — bakes orientation into pixels via `createImageBitmap`, downscales 1600px, re-encodes q80); OurBanner header (photo bg + band scrim + large/small/hidden wordmark, photo-gated, swaps on switch); Edit-household sheet (preview drag-to-reposition + zoom + replace/remove + wordmark segment + name + **creator-only Delete danger zone**, both states); two-zone management sheet (name-only rows, bare pencil on the active row, `{household} · MEMBERS` roster + Invite); Invite via `navigator.share()`.
+- **Data layer:** banner columns read **best-effort** (degrades to the espresso header if 024 isn't applied → a deploy-before-migrate can't hard-error); `updateHouseholdBanner` / `uploadHouseholdPhoto` / `removeHouseholdPhoto`; private-bucket signed-URL resolution, re-resolved on switch + save.
+- **Fixed the FINAL3 active-row affordance (`b9ccc50`):** bare pencil **+ "Edit" label** ("bare" = no plate, not glyph-only, per the tiebreaker mockup).
+- **Root-caused + fixed a silent photo-upload no-op (`3738b6a`).** The hidden file `<input>` sat under the sheet backdrop's `onClick`, so its programmatic `.click()` bubbled and closed/unmounted the sheet mid-pick — no upload, no network request, no throw, no log. Moved it inside the `stopPropagation` container; hardened the upload path into labeled stages (normalize-EXIF vs storage) that log the full error.
+- **Landed the nav-seam gradient dissolve (`419cc91`).** Header + nav now share ONE continuous photo+gradient (approved stops); dropped the nav's own solid espresso; tabs get load-bearing text-shadows — no hard line, and photo-less households are byte-for-byte unchanged.
+**Unfinished:**
+- On-device verification checklist not yet walked on dev (EXIF-upright on a deliberately rotated photo, framing persistence, photo swap on switch, dormancy re-add, non-creator sees no Delete, RLS as anon + authenticated non-member, legibility at zoom extremes).
+- Migration 024 + feature are **dev-only** — prod not touched; dev→main held.
+- **Signed-URL TTL is 1h** — a session left open past an hour 404s the header until reload (watch; add refresh-on-visibility if it bites).
+- `DRAFT_privacy_beta_signups.md` still parked in the airlock (per the privacy-policy NEXT item, awaiting a `velayo-web` home) — not routed, not deleted.
+**Next session:**
+SESSION START
+Goal: Walk the OurBanner on-device verification on dev, then stage migration 024 + the feature to prod and merge dev→main.
+State: Phase I built + on dev (`3af39a2` → `419cc91`); migration 024 applied + verified on dev (5 cols, 4 constraints, private `household-photos` bucket, 4 member-gated policies); espresso fallback for photo-less households; nav dissolves into the photo with no seam.
+Done when: dev verification passes (EXIF upright, framing persists, wordmark states, non-creator no-Delete, RLS anon + non-member denied); migration 024 + feature applied and confirmed on **prod** by URL; dev→main merged.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js`, `src/lib/image.js` (commits `3af39a2`, `b9ccc50`, `3738b6a`, `419cc91`); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** Migration **024 applied to DEV** (5 columns + 4 CHECK constraints on `households`; private `household-photos` bucket + 4 member-gated storage policies keyed on `is_member_of(uuid)`). **Prod pending.**
+
 ### [2026-07-18] — [OurProvisions] — Designed the household-management redesign; merged it with OurBanner into one Phase I build; scoped Events for Phase II
 **Goal:** Redesign the household management sheet into an entity/membership model, fold it together with OurBanner into a single Phase I build, and lock the spec.
 **Completed:**
