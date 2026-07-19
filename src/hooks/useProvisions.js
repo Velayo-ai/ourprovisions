@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError } from "../lib/classifyFetchError";
 import { useConnectivity } from "../contexts/ConnectivityContext";
+import { normalizeHouseholdPhoto } from "../lib/image";
 
 export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
   const [quantities, setQuantities] = useState({});
@@ -422,18 +423,49 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       activeCycleRef.current = null;
 
       try {
-        // Fetch the household record
-        const { data: hhData, error: hhErr } = await db
-          .from("households")
-          .select("id, name, budget_goal")
-          .eq("id", householdId)
-          .single();
+        // Fetch the household record. Banner columns (migration 024) are read
+        // best-effort: if 024 hasn't been applied to this environment yet, the
+        // extended select errors on the missing column, and we fall back to the
+        // base columns so the app degrades to today's espresso header instead of
+        // hard-erroring. Once 024 is applied, the extended select succeeds.
+        const BANNER_COLS = "photo_path, photo_position_x, photo_position_y, photo_zoom, banner_wordmark, created_by";
+        let hhData = null, hhErr = null;
+        {
+          const ext = await db
+            .from("households")
+            .select(`id, name, budget_goal, ${BANNER_COLS}`)
+            .eq("id", householdId)
+            .single();
+          if (ext.error) {
+            // Retry with base columns — distinguishes "migration not applied" (retry
+            // succeeds) from a genuine fetch failure (retry also errors).
+            const base = await db
+              .from("households")
+              .select("id, name, budget_goal")
+              .eq("id", householdId)
+              .single();
+            hhData = base.data; hhErr = base.error;
+          } else {
+            hhData = ext.data; hhErr = ext.error;
+          }
+        }
         if (hhErr) {
           if (classifyFetchError(hhErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not fetch household: ${hhErr.message}`); }
           setLoading(false); return;
         }
         if (cancelled) return;
         const hh = hhData;
+        // Private bucket → resolve photo_path to a signed URL for the header.
+        // Best-effort: a resolve failure just leaves the espresso header.
+        if (hh.photo_path) {
+          try {
+            const { data: signed } = await db.storage
+              .from("household-photos")
+              .createSignedUrl(hh.photo_path, 60 * 60);
+            if (cancelled) return;
+            hh.photoUrl = signed?.signedUrl || null;
+          } catch (_e) { hh.photoUrl = null; }
+        }
         setHousehold(hh);
         householdRef.current = hh;
 
@@ -1492,6 +1524,117 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, []);
 
+  // ─────────────────────────────────────────────────────────────
+  // OurBanner — photo upload + framing/name commit (migration 024)
+  //
+  // uploadHouseholdPhoto: EXIF-normalize + downscale, upload to
+  //   {household_id}/header.jpg (upsert = replace overwrites), then
+  //   return the stored object path. Does NOT persist the row — the
+  //   caller commits path + framing + name together via
+  //   updateHouseholdBanner (one Save, per spec D8).
+  // ─────────────────────────────────────────────────────────────
+  const uploadHouseholdPhoto = useCallback(async (file) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !file) {
+      console.error("[photo upload] aborted before start:", { hasDb: !!db, hasHousehold: !!hh, hasFile: !!file });
+      return null;
+    }
+    // Stage 1 — EXIF-normalize + downscale (client-side canvas work). This is the
+    // step most likely to throw on browser-support gaps, so it's isolated with its
+    // own label; a throw here means the .upload() below is never reached (no
+    // network request), which is exactly the silent-no-op signature.
+    let blob;
+    try {
+      blob = await normalizeHouseholdPhoto(file);
+    } catch (err) {
+      console.error("[photo upload] normalize/EXIF step threw:", err);
+      setError(`Could not process photo: ${err?.message || err}`);
+      return null;
+    }
+    // Stage 2 — storage upload (the network request to household-photos).
+    try {
+      const path = `${hh.id}/header.jpg`;
+      const { error: upErr } = await db.storage
+        .from("household-photos")
+        .upload(path, blob, { contentType: "image/jpeg", upsert: true });
+      if (upErr) throw upErr;
+      return path;
+    } catch (err) {
+      console.error("[photo upload] storage .upload() step threw:", err);
+      setError(`Could not upload photo: ${err?.message || err}`);
+      return null;
+    }
+  }, []);
+
+  // updateHouseholdBanner: commit name + framing + wordmark (+ optional
+  // photo_path change) in one update. Pass only the fields to change;
+  // `photo_path: null` removes the photo. Re-resolves the signed URL and
+  // updates household state so the header swaps without a reload.
+  const updateHouseholdBanner = useCallback(async (patch) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return false;
+    // Only send known banner/name columns.
+    const allowed = ["name", "photo_path", "photo_position_x", "photo_position_y", "photo_zoom", "banner_wordmark"];
+    const update = {};
+    for (const k of allowed) if (k in patch) update[k] = patch[k];
+    if (Object.keys(update).length === 0) return true;
+    if (typeof update.name === "string") {
+      const trimmed = update.name.trim();
+      if (!trimmed) { delete update.name; } else { update.name = trimmed; }
+    }
+    try {
+      const { error: updErr } = await db
+        .from("households").update(update).eq("id", hh.id);
+      if (updErr) throw updErr;
+      const updated = { ...hh, ...update };
+      // Re-resolve the signed URL when the photo path changed.
+      if ("photo_path" in update) {
+        if (update.photo_path) {
+          try {
+            const { data: signed } = await db.storage
+              .from("household-photos")
+              .createSignedUrl(update.photo_path, 60 * 60);
+            updated.photoUrl = signed?.signedUrl || null;
+          } catch (_e) { updated.photoUrl = null; }
+        } else {
+          updated.photoUrl = null;
+        }
+      }
+      setHousehold(updated);
+      householdRef.current = updated;
+      return true;
+    } catch (err) {
+      console.error("updateHouseholdBanner error:", err.message);
+      setError(`Could not save changes: ${err.message}`);
+      return false;
+    }
+  }, []);
+
+  // removeHouseholdPhoto: delete the stored object AND null out the row's
+  // photo_path/framing. banner_wordmark is intentionally NOT reset — per spec
+  // "Dormancy": the household's wordmark choice stays dormant and reapplies if
+  // a photo is added again. Resetting it would silently discard their choice.
+  const removeHouseholdPhoto = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return false;
+    try {
+      if (hh.photo_path) {
+        // Best-effort object delete; the row update below is the source of truth.
+        await db.storage.from("household-photos").remove([hh.photo_path]);
+      }
+      return await updateHouseholdBanner({
+        photo_path: null, photo_position_x: 50, photo_position_y: 50, photo_zoom: 100,
+      });
+    } catch (err) {
+      console.error("removeHouseholdPhoto error:", err.message);
+      setError(`Could not remove photo: ${err.message}`);
+      return false;
+    }
+  }, [updateHouseholdBanner]);
+
   const renameHousehold = useCallback(async (newName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -1519,6 +1662,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
+    uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,
