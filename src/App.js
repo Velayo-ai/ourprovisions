@@ -27,7 +27,7 @@ const SWIPE_THRESHOLD = 60;
 const TEXT_STEPS = [0.9, 1.0, 1.2, 1.45, 1.75];
 const TEXT_LABELS = ["Compact", "Default", "Large", "XL", "XXL"];
 
-function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, style: outerStyle, children }) {
+function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, removeLabel = "Hide", style: outerStyle, children }) {
   const REVEAL_WIDTH = 240;
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
@@ -142,7 +142,7 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, s
           display: "flex", alignItems: "center", justifyContent: "flex-end",
           paddingRight: "18px", opacity: isRevealing ? 1 : 0, transition: "opacity 0.15s"
         }}>
-          <span style={{ color: "white", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase" }}>Hide</span>
+          <span style={{ color: "white", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700, letterSpacing: "1px", textTransform: "uppercase" }}>{removeLabel}</span>
         </div>
       )}
       <div
@@ -2629,7 +2629,7 @@ function ProvisionsApp() {
                       {catItems.map((item) => {
                         const isDone = checked[item.name];
                         return (
-                          <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} style={{ borderRadius: 0, background: "transparent" }}>
+                          <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
                             <div className={`list-item ${isDone ? "done" : ""}`}>
                               <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.listItemId)}>
                                 {isDone && <span className="checkmark">✓</span>}
@@ -2690,7 +2690,7 @@ function ProvisionsApp() {
                       .map((item) => {
                         const isDone = checked[item.name];
                         return (
-                          <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} style={{ borderRadius: 0, background: "transparent" }}>
+                          <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
                             <div className={`list-item ${isDone ? "done" : ""}`}>
                               <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.listItemId)}>
                                 {isDone && <span className="checkmark">✓</span>}
