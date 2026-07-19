@@ -1298,8 +1298,8 @@ function ProvisionsApp() {
         .cat-title { font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: #A0724A; border-bottom: 2px solid #E8D5B7; padding-bottom: 8px; margin-bottom: 12px; }
         .items-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         @media(max-width: 520px) { .items-grid { grid-template-columns: 1fr; } }
-        .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; }
-        .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); }
+        .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; -webkit-tap-highlight-color: transparent; }
+        @media (hover: hover) { .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); } }
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
         .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-list-scale)); color: #2C1A0E; flex: 1; }
@@ -1334,7 +1334,7 @@ function ProvisionsApp() {
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
         .list-cat-title { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #c8973a; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
-        .list-item { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; }
+        .list-item { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; -webkit-tap-highlight-color: transparent; }
         .list-item.done { opacity: 0.45; }
         .list-item.done .li-name { text-decoration: line-through; color: #a89878; }
         .checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
