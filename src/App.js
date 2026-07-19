@@ -1266,8 +1266,10 @@ function ProvisionsApp() {
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
         .header h1 { font-size: 42px; letter-spacing: 0.02em; }
         .tab-bar { display: flex; background: #2C1A0E; border-bottom: 3px solid #c8973a; }
-        .tab { flex: 1; padding: 8px 4px 10px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; background: none; border: none; color: #C9A97A; opacity: 0.5; border-bottom: 2px solid transparent; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: opacity 0.2s; }
-        .tab.active { opacity: 1; border-bottom: 2px solid #C9A97A; }
+        .tab { flex: 1; padding: 8px 4px 10px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; background: none; border: none; color: #C9A97A; border-bottom: 2px solid transparent; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: opacity 0.2s; }
+        .tab.active { border-bottom: 2px solid #C9A97A; }
+        .tab-content { display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: 0.5; transition: opacity 0.2s; }
+        .tab.active .tab-content { opacity: 1; }
         .badge { display: inline-block; background: #E8A838; color: white; font-weight: 700; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
@@ -2062,7 +2064,8 @@ function ProvisionsApp() {
       <div className="tab-bar" style={bannerHasPhoto ? { position: "relative", zIndex: 1, background: "transparent" } : undefined}>
 
         {/* Plan tab — horizon icon */}
-        <button className={`tab ${view === "plan" ? "active" : ""}`} onClick={() => setView("plan")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "plan" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "plan" ? 700 : undefined, opacity: view === "plan" ? 1 : 0.85 } : {}) }}>
+        <button className={`tab ${view === "plan" ? "active" : ""}`} onClick={() => setView("plan")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "plan" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "plan" ? 700 : undefined } : {}) }}>
+          <span className="tab-content" style={bannerHasPhoto ? { opacity: view === "plan" ? 1 : 0.85 } : undefined}>
           <svg width="18" height="14" viewBox="0 0 18 14" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="9" cy="5" r="2" fill="currentColor"/>
             <line x1="9" y1="1" x2="9" y2="0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -2074,10 +2077,12 @@ function ProvisionsApp() {
             <line x1="0" y1="11" x2="18" y2="11" stroke="currentColor" strokeWidth="0.75" strokeLinecap="round" opacity="0.5"/>
           </svg>
           Plan
+          </span>
         </button>
 
         {/* Browse tab — grid icon */}
-        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "input" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "input" ? 700 : undefined, opacity: view === "input" ? 1 : 0.85 } : {}) }}>
+        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "input" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "input" ? 700 : undefined } : {}) }}>
+          <span className="tab-content" style={bannerHasPhoto ? { opacity: view === "input" ? 1 : 0.85 } : undefined}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
             <rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
@@ -2085,17 +2090,20 @@ function ProvisionsApp() {
             <rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
           </svg>
           Browse
+          </span>
         </button>
 
         {/* Shop tab — basket icon */}
-        <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "list" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "list" ? 700 : undefined, opacity: view === "list" ? 1 : 0.85 } : {}) }}>
+        <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "list" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "list" ? 700 : undefined } : {}) }}>
+          <span className="tab-content" style={bannerHasPhoto ? { opacity: view === "list" ? 1 : 0.85 } : undefined}>
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M6 7 Q6 3 9 3 Q12 3 12 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
             <path d="M2 7 L3.5 15 Q5 16.5 9 16.5 Q13 16.5 14.5 15 L16 7 Z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
             <line x1="2.5" y1="10.5" x2="15.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/>
           </svg>
           Shop
-          {totalItems > 0 && <span className="badge" style={{ opacity: 1 }}>{totalItems}</span>}
+          </span>
+          {totalItems > 0 && <span className="badge">{totalItems}</span>}
         </button>
 
       </div>
