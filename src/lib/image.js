@@ -35,8 +35,10 @@ async function decodeUpright(file) {
       // oriented — the <img> fallback below covers those engines.
       const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
       return { src: bmp, width: bmp.width, height: bmp.height, close: () => bmp.close && bmp.close() };
-    } catch (_e) {
-      // fall through to <img>
+    } catch (e) {
+      // Not fatal — the <img> fallback below also auto-orients. Logged so a
+      // decode failure here is diagnosable rather than invisible.
+      console.warn('[photo normalize] createImageBitmap path failed, using <img> fallback:', e);
     }
   }
   // Fallback: HTMLImageElement decode. Browsers auto-orient <img> from EXIF,

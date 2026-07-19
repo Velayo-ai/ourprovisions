@@ -1036,6 +1036,9 @@ function ProvisionsApp() {
   const onEdPickFile = (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = ""; // allow re-picking the same file
+    // Confirms the change handler actually fired (rules out a detached input /
+    // unwired onChange). The upload itself happens on Save, not here.
+    console.log("[photo pick] onChange fired; file:", file ? `${file.name} (${file.type}, ${file.size}b)` : "none");
     if (!file) return;
     if (edLocalUrl) URL.revokeObjectURL(edLocalUrl);
     setEdFile(file);
@@ -1091,7 +1094,11 @@ function ProvisionsApp() {
       if (edFile) {
         // New/replacement photo: normalize + upload, then commit path + framing.
         const path = await uploadHouseholdPhoto(edFile);
-        if (!path) { setEdSaving(false); return; } // error surfaced by the hook
+        if (!path) {
+          // The hook already logged the exact failing stage; make it visible.
+          showToast("Couldn't save the photo. Please try again.");
+          setEdSaving(false); return;
+        }
         patch.photo_path = path;
         patch.photo_position_x = edX; patch.photo_position_y = edY; patch.photo_zoom = edZoom;
       } else if (!edPhotoPath && household?.photo_path) {
@@ -1820,13 +1827,6 @@ function ProvisionsApp() {
             zIndex: 1100, animation: "fadeIn 0.2s ease",
           }}
         >
-          <input
-            ref={edFileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={onEdPickFile}
-            style={{ display: "none" }}
-          />
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
@@ -1836,6 +1836,20 @@ function ProvisionsApp() {
               display: "flex", flexDirection: "column",
             }}
           >
+            {/* Hidden file input MUST live inside this stopPropagation container.
+                edFileInputRef.current.click() dispatches a synthetic click on the
+                input that bubbles to the ancestor with onClick; if the input sat
+                directly under the backdrop, that bubbled click would fire
+                closeEditHousehold and unmount the sheet mid-pick — the upload path
+                (and its errors) would never run. */}
+            <input
+              ref={edFileInputRef}
+              type="file"
+              accept="image/*"
+              onClick={(e) => e.stopPropagation()}
+              onChange={onEdPickFile}
+              style={{ display: "none" }}
+            />
             {/* Header: Cancel · title · Save */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px" }}>
               <button onClick={closeEditHousehold} style={{ background: "none", border: "none", color: "#A0724A", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 700, cursor: "pointer" }}>Cancel</button>

@@ -1536,9 +1536,24 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const uploadHouseholdPhoto = useCallback(async (file) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
-    if (!db || !hh || !file) return null;
+    if (!db || !hh || !file) {
+      console.error("[photo upload] aborted before start:", { hasDb: !!db, hasHousehold: !!hh, hasFile: !!file });
+      return null;
+    }
+    // Stage 1 — EXIF-normalize + downscale (client-side canvas work). This is the
+    // step most likely to throw on browser-support gaps, so it's isolated with its
+    // own label; a throw here means the .upload() below is never reached (no
+    // network request), which is exactly the silent-no-op signature.
+    let blob;
     try {
-      const blob = await normalizeHouseholdPhoto(file);
+      blob = await normalizeHouseholdPhoto(file);
+    } catch (err) {
+      console.error("[photo upload] normalize/EXIF step threw:", err);
+      setError(`Could not process photo: ${err?.message || err}`);
+      return null;
+    }
+    // Stage 2 — storage upload (the network request to household-photos).
+    try {
       const path = `${hh.id}/header.jpg`;
       const { error: upErr } = await db.storage
         .from("household-photos")
@@ -1546,8 +1561,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       if (upErr) throw upErr;
       return path;
     } catch (err) {
-      console.error("uploadHouseholdPhoto error:", err.message);
-      setError(`Could not upload photo: ${err.message}`);
+      console.error("[photo upload] storage .upload() step threw:", err);
+      setError(`Could not upload photo: ${err?.message || err}`);
       return null;
     }
   }, []);
