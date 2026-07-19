@@ -1209,6 +1209,13 @@ function ProvisionsApp() {
   const BAND_SCRIM = "linear-gradient(to bottom," +
     "rgba(0,0,0,0.86) 0%,rgba(0,0,0,0.52) 16%,rgba(0,0,0,0.04) 34%," +
     "rgba(0,0,0,0.04) 62%,rgba(0,0,0,0.58) 84%,rgba(0,0,0,0.88) 100%)";
+  // Full-region gradient for the live header: spans the header AND the nav strip
+  // as one continuous background so the photo dissolves into the tabs with no
+  // hard seam. Top is the abyss band for the wordmark; the bottom ramps into
+  // solid espresso (#2C1A0E) so the tabs keep full contrast where it's opaque.
+  const BANNER_DISSOLVE = "linear-gradient(to bottom," +
+    "rgba(2,15,26,0.55) 0%,rgba(2,15,26,0) 22%,rgba(2,15,26,0) 46%," +
+    "rgba(44,26,14,0.72) 74%,#2C1A0E 100%)";
   const CHROME_SHADOW = bannerHasPhoto ? "0 1px 6px rgba(0,0,0,0.9)" : "none";
   const WORDMARK_SHADOW = bannerHasPhoto ? "0 2px 14px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.7)" : "none";
 
@@ -1375,10 +1382,13 @@ function ProvisionsApp() {
         .modal-remove:hover { background: #fff0f0; border-color: #e05c5c; }
       `}</style>
 
-      <div className="header" style={{ position: "relative" }}>
-        {/* OurBanner photo layer — only when the active household has a photo.
-            Photo-gated by construction: no photoUrl → this renders nothing and
-            the espresso rows below show today's header unchanged (spec D3). */}
+      {/* OurBanner region — when a photo exists, the header AND the nav strip share
+          ONE continuous photo+gradient background (this wrapper), so the image
+          dissolves into the tabs with no hard seam. Photo-less: this wrapper is an
+          inert relative box and the header + nav keep their solid espresso, exactly
+          as before. The layer spans the wrapper's flow height = header + nav (the
+          modals in between are position:fixed and contribute no height). */}
+      <div style={{ position: "relative" }}>
         {bannerHasPhoto && (
           <>
             <div aria-hidden="true" style={{
@@ -1389,10 +1399,10 @@ function ProvisionsApp() {
               backgroundPosition: `${bannerX}% ${bannerY}%`,
               backgroundRepeat: "no-repeat",
             }} />
-            {/* Band scrim: text-strip protection top + bottom, photo breathes in the middle */}
-            <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 0, background: BAND_SCRIM }} />
+            <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 0, background: BANNER_DISSOLVE }} />
           </>
         )}
+      <div className="header" style={{ position: "relative", zIndex: bannerHasPhoto ? 1 : undefined, background: bannerHasPhoto ? "transparent" : undefined }}>
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
         <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
           {isSignedIn && household?.name && (
@@ -2029,6 +2039,7 @@ function ProvisionsApp() {
       {/* Join success banner */}
       {joinBanner && (
         <div style={{
+          position: "relative", zIndex: 1,
           background: "#4a9e4a", color: "white", padding: "12px 20px",
           display: "flex", justifyContent: "space-between", alignItems: "center",
           fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
@@ -2043,10 +2054,14 @@ function ProvisionsApp() {
       {/* Invite is a system-share hand-off (handleInviteShare) — no in-app share
           UI. The old self-rendered panel + "Copy link instead" are removed. */}
 
-      <div className="tab-bar">
+      {/* Nav strip. Over a photo its solid #2C1A0E is dropped so the wrapper's
+          gradient (which ends at solid espresso here) carries the background — no
+          separate opaque block, no seam. Tab colors are unchanged; text-shadows
+          become load-bearing where the strip is still translucent. */}
+      <div className="tab-bar" style={bannerHasPhoto ? { position: "relative", zIndex: 1, background: "transparent" } : undefined}>
 
         {/* Plan tab — horizon icon */}
-        <button className={`tab ${view === "plan" ? "active" : ""}`} onClick={() => setView("plan")}>
+        <button className={`tab ${view === "plan" ? "active" : ""}`} onClick={() => setView("plan")} style={{ textShadow: CHROME_SHADOW }}>
           <svg width="18" height="14" viewBox="0 0 18 14" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="9" cy="5" r="2" fill="currentColor"/>
             <line x1="9" y1="1" x2="9" y2="0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -2061,7 +2076,7 @@ function ProvisionsApp() {
         </button>
 
         {/* Browse tab — grid icon */}
-        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")}>
+        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")} style={{ textShadow: CHROME_SHADOW }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
             <rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
@@ -2072,7 +2087,7 @@ function ProvisionsApp() {
         </button>
 
         {/* Shop tab — basket icon */}
-        <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")}>
+        <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")} style={{ textShadow: CHROME_SHADOW }}>
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M6 7 Q6 3 9 3 Q12 3 12 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
             <path d="M2 7 L3.5 15 Q5 16.5 9 16.5 Q13 16.5 14.5 15 L16 7 Z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
@@ -2083,6 +2098,7 @@ function ProvisionsApp() {
         </button>
 
       </div>
+      </div>{/* /OurBanner region wrapper */}
 
       {showPrices && totalItems > 0 && (
         <div className={`budget-banner ${overBudget ? "over" : ""}`}>
