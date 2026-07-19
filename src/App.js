@@ -1616,11 +1616,18 @@ function ProvisionsApp() {
                         fontFamily: "'Lato', sans-serif", fontSize: "0.95rem",
                         color: "#FAF4EC", fontWeight: 700,
                       }}>{hh.name}</span>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
-                        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-                        aria-hidden="true" style={{ opacity: 0.85, flexShrink: 0 }}>
-                        <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-                      </svg>
+                      {/* Bare pencil + "Edit" label (no container/plate), per FINAL3 */}
+                      <span style={{
+                        display: "flex", alignItems: "center", gap: "6px", flexShrink: 0,
+                        fontFamily: "'Lato', sans-serif", fontSize: "13.5px", fontWeight: 700,
+                        color: "#FAF4EC", opacity: 0.82,
+                      }}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
+                          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                        </svg>
+                        Edit
+                      </span>
                     </button>
                   );
                 }
