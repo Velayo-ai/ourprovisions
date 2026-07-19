@@ -339,8 +339,9 @@ function ProvisionsApp() {
     activeCycle,
     wrapUpTrip,
     createHousehold,
-    renameHousehold,
     refreshMembers,
+    uploadHouseholdPhoto,
+    updateHouseholdBanner,
     supabase,
     _supabase,
     _household,
@@ -393,20 +394,28 @@ function ProvisionsApp() {
   const [newItemCategory, setNewItemCategory] = useState(CATEGORY_ORDER[0]);
   const [addError, setAddError] = useState("");
   const [addModalResetDone, setAddModalResetDone] = useState(false);
-  const [showInvitePanel, setShowInvitePanel] = useState(false);
-  const [inviteUrl, setInviteUrl] = useState(null);
-  const [inviteCopied, setInviteCopied] = useState(false);
-  const [invitePreparing, setInvitePreparing] = useState(false); // generate-on-open/tap in flight
-  const [inviteError, setInviteError] = useState(false);         // generate failed → show retry
+  const [invitePreparing, setInvitePreparing] = useState(false); // share hand-off link generation in flight
   const [joinBanner, setJoinBanner] = useState(null); // household name after accepting
   const [pendingJoinId, setPendingJoinId] = useState(null); // joined household id awaiting the lens switch (reactive; see join effect)
   const [showVelayoMenu, setShowVelayoMenu] = useState(false);
   const [showHouseholdModal, setShowHouseholdModal] = useState(false);
+  // ── Edit household sheet (OurBanner) — draft state, committed on Save ──
+  const [showEditHousehold, setShowEditHousehold] = useState(false);
+  const [edName, setEdName] = useState("");
+  const [edPhotoPath, setEdPhotoPath] = useState(null); // existing stored path; null = none/removed
+  const [edFile, setEdFile] = useState(null);           // newly chosen File, not yet uploaded
+  const [edLocalUrl, setEdLocalUrl] = useState(null);   // object URL preview for edFile
+  const [edX, setEdX] = useState(50);
+  const [edY, setEdY] = useState(50);
+  const [edZoom, setEdZoom] = useState(100);
+  const [edWordmark, setEdWordmark] = useState("large");
+  const [edSaving, setEdSaving] = useState(false);
+  const [edDeleteConfirm, setEdDeleteConfirm] = useState(false);
+  const edFileInputRef = useRef(null);
+  const edDragRef = useRef(null); // { startX, startY, baseX, baseY }
   const [creating, setCreating] = useState(false);
   const [newHouseholdName, setNewHouseholdName] = useState("");
   const [creatingInFlight, setCreatingInFlight] = useState(false);
-  const [renaming, setRenaming] = useState(false);
-  const [renameHouseholdValue, setRenameHouseholdValue] = useState("");
   const [toastMessage, setToastMessage] = useState(null);
   const toastTimerRef = useRef(null);
   const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
@@ -422,7 +431,6 @@ function ProvisionsApp() {
   const [searchPickerOpen, setSearchPickerOpen] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [showDeleteHouseholdConfirm, setShowDeleteHouseholdConfirm] = useState(false);
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
   const [wrappingUp, setWrappingUp] = useState(false);
@@ -707,52 +715,33 @@ function ProvisionsApp() {
     return () => clearTimeout(t);
   }, [joinBanner, household?.name]);
 
-  // Reset the stale invite link when the active household changes (switch OR
-  // create-new, which auto-switches). The displayed inviteUrl is scoped to the
-  // household it was generated for; surviving a household change would let the
-  // user share the WRONG household's link. Clearing falls back to the "Generate
-  // Invite Link" button so the next link is fresh for the current household.
-  useEffect(() => {
-    setInviteUrl(null);
-    setInviteCopied(false);
-    setInvitePreparing(false);
-    setInviteError(false);
-  }, [household?.id]);
-
-  // Brand-voice invite message. Echoes the welcome email's "bring your first mate"
-  // language so the CTA vocabulary is consistent email → in-app → recipient. ONE
-  // definition, used by both the preview and navigator.share so preview === sent.
-  const INVITE_MESSAGE = (householdName, url) =>
-    `Come aboard my OurProvisions list${householdName ? ` (${householdName})` : ""} — `
-    + `we'll share it and it gets smarter as we go. ${url}`;
-
-  // Idempotent: prepares the invite link once. Safe to call from the idle timer AND
-  // from Send/Copy — the guards make a second call a no-op while one is in flight or
-  // a url already exists. Returns the url (existing or freshly made), or null on fail.
-  const prepareInvite = useCallback(async () => {
-    if (inviteUrl) return inviteUrl;          // already have one
-    if (invitePreparing) return null;         // in flight — caller should await state
+  // Invite → OS share sheet hand-off (spec D5). Generate a fresh link for the
+  // active household, then hand the pre-filled "come aboard" message to
+  // navigator.share(). No in-app share UI is rendered, so nothing can linger
+  // after sending (the old banner bug is deleted by construction). On a platform
+  // with no share sheet (desktop) we copy the message so the invite still lands.
+  const handleInviteShare = async () => {
+    if (invitePreparing) return;
     setInvitePreparing(true);
-    setInviteError(false);
     try {
       const url = await createInvite();
-      if (url) { setInviteUrl(url); return url; }
-      setInviteError(true); return null;
+      if (!url) { showToast("Couldn't prepare an invite link. Try again."); return; }
+      const name = household?.name || "my household";
+      const text = `Come aboard my OurProvisions list — join ${name} and it gets smarter as we go. ${url}`;
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({ title: "Come aboard my OurProvisions list", text });
+        } catch (e) {
+          if (e && e.name !== "AbortError") console.error("share failed:", e);
+        }
+      } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+        showToast("Invite copied");
+      }
     } finally {
       setInvitePreparing(false);
     }
-  }, [inviteUrl, invitePreparing, createInvite]);
-
-  // Idle-after-open (lazy-generate, Option B): if the panel stays open ~500ms the
-  // user is looking at it (not bouncing through the manage sheet) → prepare the link.
-  // A fast open/close leaves no household_invites row — the timer is cleared on
-  // unmount before it fires. Send/Copy also prepare-on-tap if the timer hasn't yet.
-  useEffect(() => {
-    if (!showInvitePanel) return;
-    if (inviteUrl || invitePreparing) return;
-    const t = setTimeout(() => { prepareInvite(); }, 500);
-    return () => clearTimeout(t);
-  }, [showInvitePanel, inviteUrl, invitePreparing, prepareInvite]);
+  };
 
 
   // eslint-disable-next-line no-unused-vars
@@ -1001,14 +990,129 @@ function ProvisionsApp() {
     try {
       const { error } = await supabase.rpc('delete_household', { p_household_id: deletedId });
       if (error) throw error;
+      setShowEditHousehold(false);
+      setEdDeleteConfirm(false);
       setShowHouseholdModal(false);
-      setShowDeleteHouseholdConfirm(false);
       showToast("Household deleted");
       await resolveAfterHouseholdLoss(deletedId, false);
     } catch (err) {
       showToast(err.message || "Could not delete household");
     } finally {
       endDeliberateLoss();                     // always clears, even on error
+    }
+  };
+
+  // ── Edit household sheet (OurBanner) ──
+  // Am I the creator? Creator-only Delete gate (spec D4). The switcher already
+  // proved the owner-role identity works; reuse it.
+  const isHouseholdCreator = householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner');
+
+  // Draft has a photo when a new file is staged OR an existing stored path survives.
+  const edHasPhoto = !!edFile || !!edPhotoPath;
+  // Preview source: staged file wins; else the existing signed URL.
+  const edPreviewUrl = edLocalUrl || (edPhotoPath ? household?.photoUrl : null);
+
+  const openEditHousehold = () => {
+    // Seed drafts from the active household. banner_wordmark is read raw (not the
+    // photo-gated header value) so the segment reflects the persisted choice.
+    setEdName(household?.name || "");
+    setEdPhotoPath(household?.photo_path || null);
+    setEdFile(null); setEdLocalUrl(null);
+    setEdX(household?.photo_position_x ?? 50);
+    setEdY(household?.photo_position_y ?? 50);
+    setEdZoom(household?.photo_zoom ?? 100);
+    setEdWordmark(household?.banner_wordmark || "large");
+    setEdDeleteConfirm(false);
+    setShowEditHousehold(true);
+  };
+
+  const closeEditHousehold = () => {
+    if (edLocalUrl) URL.revokeObjectURL(edLocalUrl);
+    setEdFile(null); setEdLocalUrl(null);
+    setEdDeleteConfirm(false);
+    setShowEditHousehold(false);
+  };
+
+  const onEdPickFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    if (edLocalUrl) URL.revokeObjectURL(edLocalUrl);
+    setEdFile(file);
+    setEdLocalUrl(URL.createObjectURL(file));
+    setEdPhotoPath(null);           // a new file supersedes any stored path
+    // A fresh photo starts at a sensible frame; the user tunes from here.
+    setEdX(50); setEdY(46); setEdZoom(165);
+  };
+
+  const onEdRemovePhoto = () => {
+    if (edLocalUrl) URL.revokeObjectURL(edLocalUrl);
+    setEdFile(null); setEdLocalUrl(null);
+    setEdPhotoPath(null);
+    setEdX(50); setEdY(50); setEdZoom(100);
+  };
+
+  // Drag-to-reposition on the preview. Panning the finger right pans the image
+  // right (shows more of its left) → background-position % decreases. Zoom scales
+  // sensitivity so a big zoom doesn't feel sluggish.
+  const onEdDragStart = (e) => {
+    if (!edHasPhoto) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    edDragRef.current = {
+      w: rect.width, h: rect.height,
+      startX: e.clientX, startY: e.clientY, baseX: edX, baseY: edY,
+    };
+    if (e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onEdDragMove = (e) => {
+    const d = edDragRef.current;
+    if (!d) return;
+    const k = edZoom / 100; // more zoom → same finger move covers less of the image
+    const dxPct = ((e.clientX - d.startX) / d.w) * 100 / k;
+    const dyPct = ((e.clientY - d.startY) / d.h) * 100 / k;
+    const clamp = (v) => Math.max(0, Math.min(100, v));
+    setEdX(Math.round(clamp(d.baseX - dxPct)));
+    setEdY(Math.round(clamp(d.baseY - dyPct)));
+  };
+  const onEdDragEnd = (e) => {
+    edDragRef.current = null;
+    if (e.currentTarget.releasePointerCapture) {
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_e) {}
+    }
+  };
+
+  const saveEditHousehold = async () => {
+    if (edSaving) return;
+    if (!edName.trim()) { showToast("Household needs a name"); return; }
+    setEdSaving(true);
+    try {
+      const patch = { name: edName, banner_wordmark: edWordmark };
+      let removedPath = null;
+      if (edFile) {
+        // New/replacement photo: normalize + upload, then commit path + framing.
+        const path = await uploadHouseholdPhoto(edFile);
+        if (!path) { setEdSaving(false); return; } // error surfaced by the hook
+        patch.photo_path = path;
+        patch.photo_position_x = edX; patch.photo_position_y = edY; patch.photo_zoom = edZoom;
+      } else if (!edPhotoPath && household?.photo_path) {
+        // Photo removed in this session: null the row + reset framing, delete object.
+        patch.photo_path = null;
+        patch.photo_position_x = 50; patch.photo_position_y = 50; patch.photo_zoom = 100;
+        removedPath = household.photo_path;
+      } else if (edPhotoPath) {
+        // Existing photo kept: persist any reframing.
+        patch.photo_position_x = edX; patch.photo_position_y = edY; patch.photo_zoom = edZoom;
+      }
+      const ok = await updateHouseholdBanner(patch);
+      if (!ok) { setEdSaving(false); return; }
+      if (removedPath) {
+        try { await supabase.storage.from("household-photos").remove([removedPath]); } catch (_e) {}
+      }
+      await refreshHouseholds();   // name change propagates to the switcher list
+      showToast("Saved");
+      closeEditHousehold();
+    } finally {
+      setEdSaving(false);
     }
   };
 
@@ -1081,7 +1185,25 @@ function ProvisionsApp() {
   const budgetPct = budgetNum !== null ? Math.min((totalCost / budgetNum) * 100, 100) : null;
   const overBudget = budgetNum !== null && totalCost > budgetNum;
 
-  
+  // ── OurBanner header state (migration 024) ──
+  // Photo-gated by construction: no photoUrl → today's espresso header and no
+  // banner control (spec D3). photoUrl is a signed URL resolved on switch, so it
+  // swaps the instant activeHouseholdId changes — no stale frame (spec: swap).
+  const bannerPhotoUrl = isSignedIn ? (household?.photoUrl || null) : null;
+  const bannerHasPhoto = !!bannerPhotoUrl;
+  // Dormancy (spec): wordmark choice persists even with no photo, but only takes
+  // effect when a photo exists; with no photo the wordmark always renders large.
+  const bannerWordmark = bannerHasPhoto ? (household?.banner_wordmark || "large") : "large";
+  const bannerX = household?.photo_position_x ?? 50;
+  const bannerY = household?.photo_position_y ?? 50;
+  const bannerZoom = household?.photo_zoom ?? 100;
+  // Band scrim: darkens the two horizontal strips that are always type (top bar,
+  // wordmark base) and leaves the middle clear — assumes nothing about the photo.
+  const BAND_SCRIM = "linear-gradient(to bottom," +
+    "rgba(0,0,0,0.86) 0%,rgba(0,0,0,0.52) 16%,rgba(0,0,0,0.04) 34%," +
+    "rgba(0,0,0,0.04) 62%,rgba(0,0,0,0.58) 84%,rgba(0,0,0,0.88) 100%)";
+  const CHROME_SHADOW = bannerHasPhoto ? "0 1px 6px rgba(0,0,0,0.9)" : "none";
+  const WORDMARK_SHADOW = bannerHasPhoto ? "0 2px 14px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.7)" : "none";
 
   return (
       <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
@@ -1246,9 +1368,26 @@ function ProvisionsApp() {
         .modal-remove:hover { background: #fff0f0; border-color: #e05c5c; }
       `}</style>
 
-      <div className="header">
+      <div className="header" style={{ position: "relative" }}>
+        {/* OurBanner photo layer — only when the active household has a photo.
+            Photo-gated by construction: no photoUrl → this renders nothing and
+            the espresso rows below show today's header unchanged (spec D3). */}
+        {bannerHasPhoto && (
+          <>
+            <div aria-hidden="true" style={{
+              position: "absolute", inset: 0, zIndex: 0,
+              backgroundColor: "#2C1A0E",
+              backgroundImage: `url("${bannerPhotoUrl}")`,
+              backgroundSize: `${bannerZoom}% auto`,
+              backgroundPosition: `${bannerX}% ${bannerY}%`,
+              backgroundRepeat: "no-repeat",
+            }} />
+            {/* Band scrim: text-strip protection top + bottom, photo breathes in the middle */}
+            <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 0, background: BAND_SCRIM }} />
+          </>
+        )}
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
-        <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: "#1a0e06" }}>
+        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
           {isSignedIn && household?.name && (
             <button
               onClick={() => setShowHouseholdModal(true)}
@@ -1258,7 +1397,8 @@ function ProvisionsApp() {
                 background: "none", border: "none", padding: "4px 8px", cursor: "pointer",
                 display: "inline-flex", alignItems: "center", gap: "6px", maxWidth: "55%",
                 fontFamily: "'Lato', sans-serif", fontSize: "13px", textTransform: "uppercase",
-                letterSpacing: "0.6px", color: "#C9A97A", whiteSpace: "nowrap", overflow: "hidden"
+                letterSpacing: "0.6px", color: "#C9A97A", whiteSpace: "nowrap", overflow: "hidden",
+                textShadow: CHROME_SHADOW,
               }}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, opacity: 0.5, marginInline: "3px" }}>
@@ -1327,25 +1467,44 @@ function ProvisionsApp() {
           </button>
         </div>
 
-        {/* Row 2: OurProvisions title bar — centered */}
-        <div style={{ padding: "20px 16px", textAlign: "center", background: "#2C1A0E" }}>
-          <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: "42px", letterSpacing: "0.02em", color: "#FAF4EC", fontWeight: 400, margin: 0 }}>
-            {householdMembers.length > 1 ? (
-              <button
-                onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
-                style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
-              >
-                <span style={{ fontWeight: 400, fontStyle: "italic", marginRight: "0.25em" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
-                style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit" }}
-              >
-                <span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
-              </button>
-            )}
-          </h1>
+        {/* Row 2: OurProvisions wordmark band. Over a photo it obeys the
+            household's banner_wordmark: large (default), small (~⅔, ~80%), or
+            hidden (not rendered — the middle band is photo only, spec D4). The
+            band keeps its height when hidden so the photo has room to breathe. */}
+        <div style={{
+          position: "relative", zIndex: 1,
+          padding: bannerWordmark === "small" ? "16px 16px" : "20px 16px",
+          textAlign: "center",
+          background: bannerHasPhoto ? "transparent" : "#2C1A0E",
+          minHeight: bannerHasPhoto ? "64px" : undefined,
+          boxSizing: "border-box",
+        }}>
+          {bannerWordmark === "hidden" ? null : (
+            <h1 style={{
+              fontFamily: "'Playfair Display', serif",
+              fontSize: bannerWordmark === "small" ? "28px" : "42px",
+              letterSpacing: "0.02em", color: "#FAF4EC", fontWeight: 400, margin: 0,
+              opacity: bannerWordmark === "small" ? 0.8 : 1,
+              textShadow: WORDMARK_SHADOW,
+              transform: bannerHasPhoto ? "translateY(-5%)" : "none",
+            }}>
+              {householdMembers.length > 1 ? (
+                <button
+                  onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
+                  style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
+                >
+                  <span style={{ fontWeight: 400, fontStyle: "italic", marginRight: "0.25em" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
+                  style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit" }}
+                >
+                  <span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
+                </button>
+              )}
+            </h1>
+          )}
         </div>
       </div>
 
@@ -1405,14 +1564,14 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {/* Manage household sheet — switch, create, rename, members, invite */}
+      {/* Manage household sheet — two zones: Your Households (entity CRUD) above,
+          {household} · Members (membership detail) below. One selection drives both;
+          the membership zone recomputes on active-household switch. */}
       {showHouseholdModal && (
         <div
           onClick={() => {
             setShowHouseholdModal(false);
             setCreating(false); setNewHouseholdName("");
-            setRenaming(false); setRenameHouseholdValue("");
-            setShowDeleteHouseholdConfirm(false);
           }}
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
@@ -1426,60 +1585,77 @@ function ProvisionsApp() {
               background: "#FAF4EC", borderRadius: "16px", padding: "28px 24px 24px",
               width: "min(360px, 92vw)", maxHeight: "85vh", overflowY: "auto",
               boxShadow: "0 8px 40px rgba(0,0,0,0.3)",
-              display: "flex", flexDirection: "column", gap: "24px",
+              display: "flex", flexDirection: "column", gap: "22px",
             }}
           >
 
-            {/* Section 1: Household switcher */}
+            {/* ── Zone 1: Your Households (name-only rows; bare pencil on the active row) ── */}
             <div>
               <div style={{
                 fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
-                textTransform: "uppercase", color: "#8a7a60", marginBottom: "10px",
+                textTransform: "uppercase", color: "#A0724A", marginBottom: "10px",
               }}>Your Households</div>
               {(myHouseholds || []).map((hh) => {
                 const isActive = hh.id === activeHouseholdId;
+                if (isActive) {
+                  // Active row: espresso fill + clay ring carry selection; a bare pencil
+                  // at the right edge opens Edit. Tapping the row also opens Edit.
+                  return (
+                    <button
+                      key={hh.id}
+                      onClick={openEditHousehold}
+                      aria-label={`Edit ${hh.name}`}
+                      style={{
+                        width: "100%", background: "#2C1A0E", border: "2px solid #c8973a",
+                        borderRadius: "8px", padding: "11px 14px",
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
+                      }}
+                    >
+                      <span style={{
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.95rem",
+                        color: "#FAF4EC", fontWeight: 700,
+                      }}>{hh.name}</span>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
+                        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+                        aria-hidden="true" style={{ opacity: 0.85, flexShrink: 0 }}>
+                        <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+                      </svg>
+                    </button>
+                  );
+                }
                 return (
                   <button
                     key={hh.id}
-                    onClick={() => { if (!isActive) { switchHousehold(hh.id); setShowHouseholdModal(false); setRenaming(false); } }}
+                    onClick={() => { switchHousehold(hh.id); setShowHouseholdModal(false); }}
                     style={{
-                      width: "100%", background: isActive ? "#2C1A0E" : "#E8D5B7",
-                      border: isActive ? "2px solid #c8973a" : "2px solid transparent",
-                      borderRadius: "8px", padding: "10px 14px",
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                      cursor: isActive ? "default" : "pointer", marginBottom: "6px",
-                      boxSizing: "border-box",
+                      width: "100%", background: "#E8D5B7", border: "2px solid transparent",
+                      borderRadius: "8px", padding: "11px 14px",
+                      display: "flex", alignItems: "center",
+                      cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
                     }}
                   >
                     <span style={{
-                      fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
-                      color: isActive ? "#FAF4EC" : "#2C1A0E", fontWeight: isActive ? 700 : 400,
+                      fontFamily: "'Lato', sans-serif", fontSize: "0.95rem",
+                      color: "#2C1A0E", fontWeight: 400,
                     }}>{hh.name}</span>
-                    {isActive && (
-                      <span style={{
-                        fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1px",
-                        textTransform: "uppercase", color: "#c8973a",
-                      }}>Active</span>
-                    )}
                   </button>
                 );
               })}
-            </div>
 
-            {/* Section 2: Create new household */}
-            <div>
+              {/* Create new household — below the list */}
               {!creating ? (
                 <button
                   onClick={() => setCreating(true)}
                   style={{
                     width: "100%", background: "none", border: "1.5px dashed #A0724A",
-                    borderRadius: "8px", padding: "10px 14px",
+                    borderRadius: "8px", padding: "11px 14px", marginTop: "2px",
                     fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#A0724A",
-                    cursor: "pointer", textAlign: "left", boxSizing: "border-box",
+                    cursor: "pointer", textAlign: "center", boxSizing: "border-box",
                   }}
                 >+ Create new household</button>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "2px" }}>
                   <input
                     autoFocus
                     value={newHouseholdName}
@@ -1533,69 +1709,14 @@ function ProvisionsApp() {
               )}
             </div>
 
-            {/* Section 3: Active household members + rename + invite */}
+            <hr style={{ border: "none", borderTop: "1px solid #f0e6d8", margin: 0 }} />
+
+            {/* ── Zone 2: {household} · Members (roster + Invite; no count, no monogram) ── */}
             <div>
-              {/* Header row: household name + rename toggle */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-                {!renaming ? (
-                  <>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                      <div style={{
-                        fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
-                        textTransform: "uppercase", color: "#8a7a60",
-                      }}>{household?.name || "This Household"}</div>
-                      {(() => {
-                        const owner = householdMembers.find(m => m.role === 'owner');
-                        if (!owner) return null;
-                        const ownerIsMe = owner.users?.clerk_id === user?.id;
-                        const creatorName = ownerIsMe ? "you" : (owner.users?.full_name || (owner.users?.email ? owner.users.email.split("@")[0] : "Member"));
-                        return <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.62rem", letterSpacing: "0.5px", color: "#b0a48c" }}>Created by {creatorName}</div>;
-                      })()}
-                    </div>
-                    <button
-                      onClick={() => { setRenaming(true); setRenameHouseholdValue(household?.name || ""); }}
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: "4px", color: "#8a7a60" }}
-                      title="Rename household"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
-                      </svg>
-                    </button>
-                  </>
-                ) : (
-                  <div style={{ display: "flex", gap: "6px", width: "100%" }}>
-                    <input
-                      autoFocus
-                      value={renameHouseholdValue}
-                      onChange={(e) => setRenameHouseholdValue(e.target.value)}
-                      style={{
-                        flex: 1, padding: "6px 10px", borderRadius: "6px",
-                        border: "1.5px solid #A0724A", fontFamily: "'Lato', sans-serif",
-                        fontSize: "0.85rem", background: "#FAF4EC",
-                      }}
-                    />
-                    <button
-                      onClick={async () => {
-                        const ok = await renameHousehold(renameHouseholdValue);
-                        if (ok) { await refreshHouseholds(); setRenaming(false); showToast("Household renamed"); }
-                      }}
-                      style={{
-                        padding: "6px 12px", background: "#A0724A", border: "none",
-                        borderRadius: "6px", color: "#FAF4EC", fontFamily: "'Lato', sans-serif",
-                        fontSize: "0.8rem", fontWeight: 700, cursor: "pointer",
-                      }}
-                    >Save</button>
-                    <button
-                      onClick={() => setRenaming(false)}
-                      style={{
-                        padding: "6px 10px", background: "#E8D5B7", border: "none",
-                        borderRadius: "6px", color: "#2C1A0E", fontFamily: "'Lato', sans-serif",
-                        fontSize: "0.8rem", cursor: "pointer",
-                      }}
-                    >✕</button>
-                  </div>
-                )}
-              </div>
+              <div style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
+                textTransform: "uppercase", color: "#A0724A", marginBottom: "14px",
+              }}>{(household?.name || "This household")} · Members</div>
 
               {/* Member list */}
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -1649,61 +1770,222 @@ function ProvisionsApp() {
                 })}
               </div>
 
+              {/* Invite → OS share sheet (spec D5). No in-app share UI. */}
               <button
-                onClick={() => { setShowHouseholdModal(false); setShowInvitePanel(true); }}
+                onClick={handleInviteShare}
+                disabled={invitePreparing}
                 style={{
                   width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
                   letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
-                  background: "#2f7d7a", color: "#FAF4EC", border: "none",
-                  borderRadius: "8px", cursor: "pointer", marginTop: "16px",
+                  background: invitePreparing ? "#6ba3a0" : "#2f7d7a", color: "#FAF4EC", border: "none",
+                  borderRadius: "8px", cursor: invitePreparing ? "default" : "pointer", marginTop: "16px",
                 }}
-              >+ Invite someone aboard</button>
-              {householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner') ? (
-                <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid #f0e6d8" }}>
-                  {!showDeleteHouseholdConfirm ? (
-                    <button
-                      onClick={() => setShowDeleteHouseholdConfirm(true)}
-                      style={{
-                        width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
-                        letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
-                        background: "transparent", color: "#c0392b",
-                        border: "1.5px solid #c0392b",
-                        borderRadius: "8px", cursor: "pointer",
-                      }}
-                    >Delete Household</button>
-                  ) : (
-                    <div>
-                      <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.78rem", color: "#2C1A0E", marginBottom: "10px", lineHeight: "1.45" }}>
-                        Deleting &ldquo;{household?.name}&rdquo; removes it for all {householdMembers.length} member{householdMembers.length === 1 ? "" : "s"}, including their lists. This can&rsquo;t be undone.
-                        {Object.values(catalogMap).filter(item => !item.is_global).length > 0 && (
-                          <> This household has {Object.values(catalogMap).filter(item => !item.is_global).length} custom catalog items — they will be permanently removed.</>
-                        )}
-                        {/* D7: clone-first escape hatch goes here when clone-forward ships */}
-                      </p>
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <button onClick={() => setShowDeleteHouseholdConfirm(false)} className="modal-cancel" style={{ fontSize: "0.78rem" }}>Cancel</button>
-                        <button
-                          onClick={handleDeleteHousehold}
-                          style={{ background: "#c0392b", color: "white", border: "none", borderRadius: "4px", padding: "6px 12px", fontFamily: "'Lato', sans-serif", fontSize: "0.78rem", cursor: "pointer" }}
-                        >Yes, delete household</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
+              >{invitePreparing ? "Preparing…" : "+ Invite someone aboard"}</button>
+
+              {/* Leaving is a membership action (you removing yourself) → it lives in
+                  the membership zone, for non-creators. Delete (the entity action) is
+                  creator-only and lives inside Edit household (spec D3/D4). */}
+              {!isHouseholdCreator && (
                 <button
                   onClick={() => handleLeaveHousehold()}
                   style={{
-                    width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
-                    letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
-                    background: "transparent", color: "#c0392b",
-                    border: "1.5px solid #c0392b",
-                    borderRadius: "8px", cursor: "pointer", marginTop: "8px",
+                    width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.78rem",
+                    letterSpacing: "0.5px", padding: "10px",
+                    background: "none", color: "#b08968", border: "none",
+                    cursor: "pointer", marginTop: "10px",
                   }}
-                >Leave Household</button>
+                >Leave household</button>
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Edit household sheet (OurBanner) — photo framing + wordmark + name, then
+          the creator-only Delete danger zone. One Save commits everything. */}
+      {showEditHousehold && (
+        <div
+          onClick={closeEditHousehold}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            zIndex: 1100, animation: "fadeIn 0.2s ease",
+          }}
+        >
+          <input
+            ref={edFileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={onEdPickFile}
+            style={{ display: "none" }}
+          />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#FAF4EC", borderRadius: "18px 18px 0 0", padding: 0,
+              width: "min(440px, 100vw)", maxHeight: "94vh", overflowY: "auto",
+              boxShadow: "0 -12px 40px rgba(0,0,0,0.4)",
+              display: "flex", flexDirection: "column",
+            }}
+          >
+            {/* Header: Cancel · title · Save */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px" }}>
+              <button onClick={closeEditHousehold} style={{ background: "none", border: "none", color: "#A0724A", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.05rem", color: "#2C1A0E" }}>Edit household</div>
+              <button
+                onClick={saveEditHousehold}
+                disabled={edSaving}
+                style={{ background: edSaving ? "#6ba3a0" : "#2f7d7a", border: "none", color: "#FAF4EC", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 900, borderRadius: "10px", padding: "8px 16px", cursor: edSaving ? "default" : "pointer" }}
+              >{edSaving ? "Saving…" : "Save"}</button>
+            </div>
+
+            <div style={{ padding: "4px 18px 20px" }}>
+              {/* Live preview — the control (spec D7). Drag to reposition when a
+                  photo exists; empty state shows the real espresso header. */}
+              <div
+                onPointerDown={onEdDragStart}
+                onPointerMove={onEdDragMove}
+                onPointerUp={onEdDragEnd}
+                onPointerCancel={onEdDragEnd}
+                style={{
+                  position: "relative", height: "130px", borderRadius: "14px", overflow: "hidden",
+                  background: "#2C1A0E",
+                  backgroundImage: edHasPhoto && edPreviewUrl ? `url("${edPreviewUrl}")` : "none",
+                  backgroundSize: `${edZoom}% auto`,
+                  backgroundPosition: `${edX}% ${edY}%`,
+                  backgroundRepeat: "no-repeat",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: edHasPhoto ? "grab" : "default",
+                  touchAction: "none", userSelect: "none",
+                }}
+              >
+                {edHasPhoto && (
+                  <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: BAND_SCRIM }} />
+                )}
+                {/* Empty state renders the real espresso header → wordmark large,
+                    ignoring the dormant choice (spec D3/D8). With a photo it obeys
+                    the draft banner_wordmark. */}
+                {(() => {
+                  const pw = edHasPhoto ? edWordmark : "large";
+                  if (pw === "hidden") return null;
+                  return (
+                    <div style={{
+                      position: "relative",
+                      fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontWeight: 700,
+                      color: "#FAF4EC",
+                      fontSize: pw === "small" ? "18px" : "26px",
+                      opacity: pw === "small" ? 0.8 : 1,
+                      textShadow: edHasPhoto ? "0 2px 14px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.7)" : "none",
+                      transform: edHasPhoto ? "translateY(-5%)" : "none",
+                      pointerEvents: "none",
+                    }}>OurProvisions</div>
+                  );
+                })()}
+              </div>
+
+              {edHasPhoto ? (
+                <div style={{ fontSize: "0.7rem", color: "#9a8a78", textAlign: "center", margin: "8px 0 0" }}>
+                  Drag to reposition
+                </div>
+              ) : (
+                <button
+                  onClick={() => edFileInputRef.current && edFileInputRef.current.click()}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "9px", width: "100%",
+                    background: "#2C1A0E", color: "#FAF4EC", border: "none", borderRadius: "14px", padding: "14px",
+                    fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 900, cursor: "pointer", marginTop: "14px",
+                  }}
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#FAF4EC" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7h4l2-2h6l2 2h4v12H3z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                  Choose a photo
+                </button>
+              )}
+
+              {/* Photo controls — only when a photo exists (spec D3) */}
+              {edHasPhoto && (
+                <>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Zoom</div>
+                  <input
+                    type="range" min="100" max="320" value={edZoom}
+                    onChange={(e) => setEdZoom(Number(e.target.value))}
+                    style={{ width: "100%" }}
+                  />
+
+                  <div style={{ display: "flex", gap: "10px", marginTop: "14px" }}>
+                    <button
+                      onClick={() => edFileInputRef.current && edFileInputRef.current.click()}
+                      style={{ flex: 1, background: "#FBF7F0", border: "1px solid rgba(44,26,14,0.10)", borderRadius: "12px", padding: "12px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#2C1A0E", cursor: "pointer" }}
+                    >Replace photo</button>
+                    <button
+                      onClick={onEdRemovePhoto}
+                      style={{ flex: 1, background: "#FBF7F0", border: "1px solid rgba(44,26,14,0.10)", borderRadius: "12px", padding: "12px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#2C1A0E", cursor: "pointer" }}
+                    >Remove photo</button>
+                  </div>
+
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Wordmark</div>
+                  <div style={{ display: "flex", background: "#FBF7F0", border: "1px solid rgba(44,26,14,0.10)", borderRadius: "12px", overflow: "hidden" }}>
+                    {["large", "small", "hidden"].map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => setEdWordmark(opt)}
+                        style={{
+                          flex: 1, background: edWordmark === opt ? "#2C1A0E" : "none", border: "none",
+                          padding: "11px", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", fontWeight: 700,
+                          color: edWordmark === opt ? "#FAF4EC" : "#8a7660", cursor: "pointer",
+                          textTransform: "capitalize",
+                        }}
+                      >{opt}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Household name */}
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Household name</div>
+              <input
+                value={edName}
+                onChange={(e) => setEdName(e.target.value)}
+                style={{ width: "100%", background: "#FBF7F0", border: "1px solid rgba(44,26,14,0.10)", borderRadius: "12px", padding: "13px 14px", fontFamily: "'Lato', sans-serif", fontSize: "0.95rem", color: "#2C1A0E", boxSizing: "border-box" }}
+              />
+
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", color: "#9a8a78", lineHeight: 1.5, margin: "12px 2px 0" }}>
+                Anyone in the household can change the photo, the name, and the wordmark.
+              </div>
+
+              {/* Creator-only Delete danger zone (spec D3/D4) */}
+              {isHouseholdCreator && (
+                <div style={{ marginTop: "22px", paddingTop: "16px", borderTop: "1px solid rgba(44,26,14,0.10)" }}>
+                  {!edDeleteConfirm ? (
+                    <button
+                      onClick={() => setEdDeleteConfirm(true)}
+                      style={{
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: "9px", width: "100%",
+                        background: "none", border: "1.5px solid rgba(179,38,30,0.4)", borderRadius: "14px", padding: "14px",
+                        color: "#c0392b", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer",
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+                      Delete household
+                    </button>
+                  ) : (
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button
+                        onClick={() => setEdDeleteConfirm(false)}
+                        style={{ flex: 1, background: "#E8D5B7", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#2C1A0E", cursor: "pointer" }}
+                      >Cancel</button>
+                      <button
+                        onClick={handleDeleteHousehold}
+                        style={{ flex: 2, background: "#c0392b", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#fff", cursor: "pointer" }}
+                      >Yes, delete household</button>
+                    </div>
+                  )}
+                  <div style={{ fontSize: "0.7rem", color: "#9a8a78", textAlign: "center", marginTop: "8px", lineHeight: 1.4 }}>
+                    Deletes {household?.name || "this household"} for everyone aboard. This can't be undone.
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1737,128 +2019,8 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {/* Invite panel */}
-      {showInvitePanel && (
-        <div style={{
-          background: "#FAF4EC", borderBottom: "2px solid #E8D5B7",
-          padding: "20px 24px",
-        }}>
-          <div style={{ maxWidth: "680px", margin: "0 auto" }}>
-            <div style={{
-              display: "flex", justifyContent: "space-between", alignItems: "center",
-              marginBottom: "12px",
-            }}>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.1rem", fontWeight: 700, color: "#2C1A0E" }}>
-                Share Your Household
-              </div>
-              <button onClick={() => {
-                setShowInvitePanel(false); setInviteUrl(null); setInviteCopied(false);
-                setInvitePreparing(false); setInviteError(false);
-              }} style={{
-                background: "none", border: "none", fontSize: "1.3rem", cursor: "pointer", color: "#8a7a60",
-              }}>×</button>
-            </div>
-            <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", marginBottom: "16px" }}>
-              They'll join {household?.name || "your household"} and your list syncs live — you'll see each other's edits in real time. The link expires in 7 days.
-            </p>
-            {inviteError ? (
-              // In-voice failure, not an apology: explain + offer the fix.
-              <button
-                onClick={() => { setInviteError(false); prepareInvite(); }}
-                style={{
-                  width: "100%", textAlign: "left", fontFamily: "'Lato', sans-serif",
-                  fontSize: "0.82rem", padding: "12px 14px", background: "#FBEEE6",
-                  border: "1.5px solid #E8D5B7", borderRadius: "8px", cursor: "pointer",
-                  color: "#8a5a3a", marginBottom: "4px",
-                }}
-              >
-                Couldn't prepare an invite link. Tap to try again.
-              </button>
-            ) : (
-              <>
-                {inviteUrl ? (
-                  <div style={{
-                    background: "#F5EDE0", border: "1.5px solid #E8D5B7", borderRadius: "8px",
-                    padding: "12px 14px", marginBottom: "14px",
-                  }}>
-                    <span style={{
-                      display: "block", fontFamily: "'Lato', sans-serif", fontSize: "0.6rem",
-                      letterSpacing: "1.5px", textTransform: "uppercase", color: "#8a7a60", marginBottom: "6px",
-                    }}>They'll receive</span>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#2C1A0E", lineHeight: 1.45 }}>
-                      {INVITE_MESSAGE(household?.name, inviteUrl)}
-                    </span>
-                  </div>
-                ) : invitePreparing ? (
-                  <div style={{
-                    background: "#F5EDE0", border: "1.5px solid #E8D5B7", borderRadius: "8px",
-                    padding: "12px 14px", marginBottom: "14px", opacity: 0.6,
-                  }}>
-                    <span style={{
-                      display: "block", fontFamily: "'Lato', sans-serif", fontSize: "0.6rem",
-                      letterSpacing: "1.5px", textTransform: "uppercase", color: "#8a7a60", marginBottom: "6px",
-                    }}>They'll receive</span>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#2C1A0E" }}>
-                      Preparing your invite link…
-                    </span>
-                  </div>
-                ) : null}
-
-                <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                  {typeof navigator !== "undefined" && navigator.share ? (
-                    // Primary: Web Share when available — lands the invite in a real conversation.
-                    <button
-                      disabled={invitePreparing}
-                      onClick={async () => {
-                        const url = inviteUrl || await prepareInvite();
-                        if (!url) return;                       // generate failed → error state already set
-                        try {
-                          await navigator.share({
-                            title: "Come aboard my OurProvisions list",
-                            text: INVITE_MESSAGE(household?.name, url),
-                          });
-                        } catch (e) {
-                          if (e && e.name !== "AbortError") console.error("share failed:", e);
-                        }
-                      }}
-                      style={{
-                        flex: 1, minWidth: "160px", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
-                        letterSpacing: "1px", textTransform: "uppercase", padding: "12px 18px",
-                        background: invitePreparing ? "#6ba3a0" : "#2f7d7a",
-                        color: "#FAF4EC", border: "none", borderRadius: "8px",
-                        cursor: invitePreparing ? "default" : "pointer", whiteSpace: "nowrap",
-                      }}
-                    >
-                      {invitePreparing ? "Preparing…" : "Send invite"}
-                    </button>
-                  ) : null}
-                  {/* Fallback (always shown; sole action on desktop/no-share): Copy. */}
-                  <button
-                    disabled={invitePreparing}
-                    onClick={async () => {
-                      const url = inviteUrl || await prepareInvite();
-                      if (!url) return;
-                      navigator.clipboard.writeText(url);
-                      setInviteCopied(true);
-                      setTimeout(() => setInviteCopied(false), 2500);
-                    }}
-                    style={{
-                      fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", letterSpacing: "1px",
-                      textTransform: "uppercase", padding: "12px 18px", borderRadius: "8px",
-                      border: "none", whiteSpace: "nowrap", transition: "background 0.2s",
-                      cursor: invitePreparing ? "default" : "pointer",
-                      background: inviteCopied ? "#4a9e4a" : (navigator.share ? "#E8D5B7" : "#c8973a"),
-                      color: inviteCopied ? "white" : (navigator.share ? "#2C1A0E" : "white"),
-                    }}
-                  >
-                    {inviteCopied ? "✓ Copied!" : (invitePreparing ? "Preparing…" : (navigator.share ? "Copy link instead" : "Copy link"))}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Invite is a system-share hand-off (handleInviteShare) — no in-app share
+          UI. The old self-rendered panel + "Copy link instead" are removed. */}
 
       <div className="tab-bar">
 
