@@ -1414,18 +1414,19 @@ function ProvisionsApp() {
                 background: "none", border: "none", padding: "4px 8px", cursor: "pointer",
                 display: "inline-flex", alignItems: "center", gap: "6px", maxWidth: "55%",
                 fontFamily: "'Lato', sans-serif", fontSize: "13px", textTransform: "uppercase",
-                letterSpacing: "0.6px", color: "#C9A97A", whiteSpace: "nowrap", overflow: "hidden",
+                letterSpacing: "0.6px", color: bannerHasPhoto ? "#FAF4EC" : "#C9A97A", whiteSpace: "nowrap", overflow: "hidden",
+                fontWeight: bannerHasPhoto ? 700 : undefined,
                 textShadow: CHROME_SHADOW,
               }}
             >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, opacity: 0.5, marginInline: "3px" }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, opacity: bannerHasPhoto ? 0.8 : 0.5, marginInline: "3px" }}>
                 <circle cx="12" cy="5" r="2.4" stroke="#C9A97A" strokeWidth="1.6"/>
                 <path d="M12 7.4V21" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
                 <path d="M6 11h12" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
                 <path d="M3 13c0 5 4 7 9 7s9-2 9-7" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
               </svg>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{household.name}</span>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, opacity: 0.5, marginInline: "3px", transform: "scaleX(-1)" }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0, opacity: bannerHasPhoto ? 0.8 : 0.5, marginInline: "3px", transform: "scaleX(-1)" }}>
                 <circle cx="12" cy="5" r="2.4" stroke="#C9A97A" strokeWidth="1.6"/>
                 <path d="M12 7.4V21" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
                 <path d="M6 11h12" stroke="#C9A97A" strokeWidth="1.6" strokeLinecap="round"/>
@@ -2061,7 +2062,7 @@ function ProvisionsApp() {
       <div className="tab-bar" style={bannerHasPhoto ? { position: "relative", zIndex: 1, background: "transparent" } : undefined}>
 
         {/* Plan tab — horizon icon */}
-        <button className={`tab ${view === "plan" ? "active" : ""}`} onClick={() => setView("plan")} style={{ textShadow: CHROME_SHADOW }}>
+        <button className={`tab ${view === "plan" ? "active" : ""}`} onClick={() => setView("plan")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "plan" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "plan" ? 700 : undefined, opacity: view === "plan" ? 1 : 0.85 } : {}) }}>
           <svg width="18" height="14" viewBox="0 0 18 14" fill="none" xmlns="http://www.w3.org/2000/svg">
             <circle cx="9" cy="5" r="2" fill="currentColor"/>
             <line x1="9" y1="1" x2="9" y2="0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -2076,7 +2077,7 @@ function ProvisionsApp() {
         </button>
 
         {/* Browse tab — grid icon */}
-        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")} style={{ textShadow: CHROME_SHADOW }}>
+        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "input" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "input" ? 700 : undefined, opacity: view === "input" ? 1 : 0.85 } : {}) }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
             <rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
@@ -2087,7 +2088,7 @@ function ProvisionsApp() {
         </button>
 
         {/* Shop tab — basket icon */}
-        <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")} style={{ textShadow: CHROME_SHADOW }}>
+        <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "list" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "list" ? 700 : undefined, opacity: view === "list" ? 1 : 0.85 } : {}) }}>
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M6 7 Q6 3 9 3 Q12 3 12 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
             <path d="M2 7 L3.5 15 Q5 16.5 9 16.5 Q13 16.5 14.5 15 L16 7 Z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
