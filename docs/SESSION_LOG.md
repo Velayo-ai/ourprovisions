@@ -25,6 +25,502 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-19] — [OurProvisions] — Built Phase I to dev: household-management redesign + OurBanner; migration 024 applied to dev
+**Goal:** Build the full Phase I feature set (household-management redesign + OurBanner photo header) in Claude Code, clear the DB gate on dev, and land it on the dev preview.
+**Completed:**
+- **(Design chat) Prepared the paste-ready build kickoff + walked the DB gate on dev.** Settled migration 024 (023 gapped for referral), the 5-step build sequence, and the watch-outs (SQL editor bypasses RLS; `is_member_of` arg signature must match the storage policies); confirmed wordmark default = **Large**, photo-gated. Confirmed dev by URL (`zxwtxjjmssykhqrghouf`), created the `household-photos` **private** bucket, confirmed `is_member_of(uuid)`, **applied migration 024** — verify passed: 5 columns, 4 CHECK constraints, 4 storage policies, 13 households on the espresso default.
+- **(Claude Code) Built the full Phase I client (commit `3af39a2`).** EXIF-normalizing upload pipeline (`src/lib/image.js` — bakes orientation into pixels via `createImageBitmap`, downscales 1600px, re-encodes q80); OurBanner header (photo bg + band scrim + large/small/hidden wordmark, photo-gated, swaps on switch); Edit-household sheet (preview drag-to-reposition + zoom + replace/remove + wordmark segment + name + **creator-only Delete danger zone**, both states); two-zone management sheet (name-only rows, bare pencil on the active row, `{household} · MEMBERS` roster + Invite); Invite via `navigator.share()`.
+- **Data layer:** banner columns read **best-effort** (degrades to the espresso header if 024 isn't applied → a deploy-before-migrate can't hard-error); `updateHouseholdBanner` / `uploadHouseholdPhoto` / `removeHouseholdPhoto`; private-bucket signed-URL resolution, re-resolved on switch + save.
+- **Fixed the FINAL3 active-row affordance (`b9ccc50`):** bare pencil **+ "Edit" label** ("bare" = no plate, not glyph-only, per the tiebreaker mockup).
+- **Root-caused + fixed a silent photo-upload no-op (`3738b6a`).** The hidden file `<input>` sat under the sheet backdrop's `onClick`, so its programmatic `.click()` bubbled and closed/unmounted the sheet mid-pick — no upload, no network request, no throw, no log. Moved it inside the `stopPropagation` container; hardened the upload path into labeled stages (normalize-EXIF vs storage) that log the full error.
+- **Landed the nav-seam gradient dissolve (`419cc91`).** Header + nav now share ONE continuous photo+gradient (approved stops); dropped the nav's own solid espresso; tabs get load-bearing text-shadows — no hard line, and photo-less households are byte-for-byte unchanged.
+**Unfinished:**
+- On-device verification checklist not yet walked on dev (EXIF-upright on a deliberately rotated photo, framing persistence, photo swap on switch, dormancy re-add, non-creator sees no Delete, RLS as anon + authenticated non-member, legibility at zoom extremes).
+- Migration 024 + feature are **dev-only** — prod not touched; dev→main held.
+- **Signed-URL TTL is 1h** — a session left open past an hour 404s the header until reload (watch; add refresh-on-visibility if it bites).
+- `DRAFT_privacy_beta_signups.md` still parked in the airlock (per the privacy-policy NEXT item, awaiting a `velayo-web` home) — not routed, not deleted.
+**Next session:**
+SESSION START
+Goal: Walk the OurBanner on-device verification on dev, then stage migration 024 + the feature to prod and merge dev→main.
+State: Phase I built + on dev (`3af39a2` → `419cc91`); migration 024 applied + verified on dev (5 cols, 4 constraints, private `household-photos` bucket, 4 member-gated policies); espresso fallback for photo-less households; nav dissolves into the photo with no seam.
+Done when: dev verification passes (EXIF upright, framing persists, wordmark states, non-creator no-Delete, RLS anon + non-member denied); migration 024 + feature applied and confirmed on **prod** by URL; dev→main merged.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js`, `src/lib/image.js` (commits `3af39a2`, `b9ccc50`, `3738b6a`, `419cc91`); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** Migration **024 applied to DEV** (5 columns + 4 CHECK constraints on `households`; private `household-photos` bucket + 4 member-gated storage policies keyed on `is_member_of(uuid)`). **Prod pending.**
+
+### [2026-07-18] — [OurProvisions] — Designed the household-management redesign; merged it with OurBanner into one Phase I build; scoped Events for Phase II
+**Goal:** Redesign the household management sheet into an entity/membership model, fold it together with OurBanner into a single Phase I build, and lock the spec.
+**Completed:**
+- **Established the load-bearing model — collection → selected → scoped detail.** Households (CRUD) live above the line, this-household membership (roster + Invite) below; one selection drives both zones and the membership zone recomputes on switch (same class as the filter-reset rule). Deliberately the exact structure Phase II Events will reuse.
+- **Landed the active-row affordance as a bare pencil (FINAL3)** after building and rejecting the pill variant (FINAL2); removed the redundant "ACTIVE" word. Bare wins because the "Edit" label already carries the action — keeps row-actions uniform (trash + Edit both containerless, right edge).
+- **Relocated Delete into the Edit-household sheet** (own danger zone, creator-only), refining OurBanner's D2 — under the entity model, Delete is an operation on the household and belongs with its other edit-actions. "Created by you" resolves to the *creator-only visibility of Delete* (D4), not a header label.
+- **Replaced the in-app invite banner with `navigator.share()` hand-off** — deletes the persistent-banner defect by construction (no in-app surface to linger); removed "Copy link instead" (the share sheet already offers Copy).
+- **Unified both zones on one clay eyebrow rhythm** (`YOUR HOUSEHOLDS` / `{HOUSEHOLD} · MEMBERS`); household rows are name-only (dropped the monogram/anchor placeholder).
+- **Locked `SPEC_household_management_phase1.md`** (D1–D8, build sequence, verification) with `mockup_household_manage_FINAL3.html` as the tiebreaker mockup of record; scoped Events out of Phase I as design-first (photo-as-context-identity noted to generalize OurBanner).
+- **(Claude Code) Merged the handoff + routed payload:** filed the spec → `docs/specs/active/`, the mockup → `docs/mockups/`, and **folded a one-char correctness fix into the authored-not-applied `migrations/024_household_photo.sql`** — its verify block was `and X like … or Y like …` (missing parens → `AND` binds tighter than `OR`); now `and (…)`. No manifest accompanied the payload; DRAFT_privacy left parked per ROADMAP.
+**Unfinished:**
+- **Phase I NOT built** — this was design only. Next session builds the two-zone sheet + OurBanner (migration 024 apply → Edit sheet → management sheet → `navigator.share()`), one tested commit per step, dev→main held until Phase I fully validated.
+- **Migration 024 still authored, NOT applied** — assign the number at point-of-build against the `migrations/` high-water mark (023 remains the intentional referral gap).
+- Carried from prior session: anon-surface audit (`category_avg_prices`), disclosure decision (Dan's call), client-side `is_global` filter on the anon catalog fetch (defense-in-depth; 022 is the real fix).
+**Next session:**
+SESSION START
+Goal: Build Phase I — household-management redesign + OurBanner — dev-verify, then prod.
+State: Phase I design fully approved + spec'd (`docs/specs/active/SPEC_household_management_phase1.md`, FINAL3 bare-pencil, entity/membership model); OurBanner spec (`SPEC_household_photo_header.md`, D1–D8) stands, refined by the management spec's D2/D4. Migration 024 authored + paren-fixed, not applied. Landing page live; anon catalog leak closed (022, prod-verified).
+Done when: two-zone sheet + OurBanner pass all Phase I verification items on dev, then prod — bare pencil on the active row only, Delete creator-only inside Edit, Invite fires the OS share sheet with nothing rendered/lingering in-app, membership zone recomputes on switch, and all OurBanner items (EXIF, framing, wordmark states, RLS) pass.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; routed `docs/specs/active/SPEC_household_management_phase1.md`, `docs/mockups/mockup_household_manage_FINAL3.html`; corrected `migrations/024_household_photo.sql` (verify-block parens).
+**DB changes:** None applied. Migration 024 authored + corrected (verify-block parenthesization), still not applied.
+
+### [2026-07-18] — [OurProvisions] — Closed a live prod data exposure; designed Beat 1 (household photo header / "OurBanner")
+**Goal:** Fix the anon catalog leak found before session start, then design the household photo header.
+**Completed:**
+- **Diagnosed + closed a LIVE PROD data exposure.** The `{anon}` SELECT policy on `catalog_items` — named `"Anyone can read global catalog items"` — had predicate `(deleted_at IS NULL)` with **no `is_global` check**. All 183 rows, incl. 133 household-custom rows of free-text PII (a beta user's parent's medication schedule + dated caregiving notes), were readable by any anonymous visitor with the publishable key. **Migration 022 applied dev + prod, browser-verified 183 → 50** (0 custom).
+- **Established "a query asks for what it wants; RLS is the backstop, not the filter."** The client's anon fetch also lacked an `is_global` filter — two layers failed, each alone masking the other. Relying on RLS as the *primary* filter makes every policy load-bearing for correctness, and when both fail the blast radius is the whole table.
+- **Designed OurBanner** — per-household photo header with household-owned framing (drag + zoom) and a three-state wordmark control (`large`/`small`/`hidden`). Mockup approved (`docs/mockups/mockup_ourbanner.html`).
+- **Decided "the group sets the look"** — photo, framing, banner state, and name are household state, any member; reversed an in-session lean toward a per-user preference (a private reskin of shared chrome is the one place the app would quietly stop being *ours*).
+- **Proved zoom is mandatory, not polish** — a 2.6:1 band can't be filled by an arbitrary photo with `background-position` alone (`IMG_7897` frames only ~165%); Beat 1's three fixed slices couldn't express it. Framing = position **and** scale, both persisted.
+- **Superseded the scrim primitive → one principle, two treatments** — radial for the landing hero (we control the photo), **band** for the app header (arbitrary photos, off-centre subjects; darken only the two strips that are always type). Black, not espresso; text-shadows now load-bearing.
+- **Confirmed EXIF normalization is a hard requirement** — 2 of 2 supplied photos carried non-identity orientation (6, then 3); normalize on the **stored** artifact (`<canvas> drawImage` ignores the tag).
+**Unfinished:**
+- **Migration 024 authored, NOT applied** — Beat 1 build (storage bucket + Edit-household sheet + client) is next session.
+- Client-side `is_global=eq.true` filter on the anon catalog fetch (`useProvisions.js` ~216) — instruction given, not built. Defense-in-depth only; **022 is the real fix.**
+- **Disclosure decision OPEN** — custom item text was publicly readable for an unknown window; small F&F group (Helen, Elly, Aidan), no evidence of access. **Dan's call.**
+- **Anon-surface audit** — `category_avg_prices` rides the same signed-out fetch path; confirm it's an aggregate with no per-household rows and no same-shaped policy.
+- Safe-area / Dynamic Island check on the band scrim (needs hardware); optical-centre value (5%) provisional until tab icons render.
+- The competing parallel-session trio (bare `SPEC_household_photo_header.md` + `023_household_photo.sql` + `mockup_household_photo_modal.html`) the handoff flagged for deletion was already absent — nothing to remove.
+**Next session:**
+SESSION START
+Goal: Build Beat 1 — OurBanner (migration 024, `household-photos` bucket, Edit-household sheet).
+State: Anon catalog exposure closed, dev + prod verified. OurBanner designed + mocked (`docs/mockups/mockup_ourbanner.html` approved). Spec `docs/specs/active/SPEC_household_photo_header.md`; migration 024 authored, not applied. Landing page live.
+Done when: a household can add a photo, frame it by drag + zoom, and set the banner to large/small/hidden; a second member sees the same photo, framing, and banner state; a photo-less household renders today's espresso header unchanged with no banner control; a deliberately-rotated photo uploads upright.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; routed `docs/specs/built/SPEC_anon_catalog_exposure.md`, `docs/specs/active/SPEC_household_photo_header.md`, `docs/mockups/mockup_ourbanner.html`; `migrations/022_anon_catalog_global_only.sql` (applied), `migrations/024_household_photo.sql` (authored).
+**DB changes:** Migration 022 **APPLIED dev + prod 2026-07-18** — `alter policy "Anyone can read global catalog items"` → `using (is_global = true and deleted_at is null)`. Anon visibility prod **183 → 50** (0 custom), dev 38 → 38 (0 custom). Migration 024 authored, **not applied**.
+
+### [2026-07-17] — [Cross] — Built + shipped the `ourprovisions.app` landing page; applied migration 021
+**Goal:** Build the landing page from the approved mockup, apply migration 021, and get the front door standing.
+**Completed:**
+- **Applied migration 021 (`beta_signups`) to dev + prod** — verified 14 columns, `relrowsecurity=true`, exactly one policy (`public can apply` / INSERT / `{anon}`). Committed the `.sql` record (`migrations/021_beta_signups.sql`), with the "absence of a SELECT policy IS the security" reasoning inline. Closes the prior entry's "migration 021 not run."
+- **Built `ourprovisions-landing` as a standalone static repo** (no React / Supabase-client / Clerk — a single fire-and-forget POST is the whole backend). Chrome/content split (`chrome.css` reusable vs `page.css`+`index.html` story); de-base64'd the four inline images (~634KB inline → cacheable files); hero `100% auto`/`center 42%` preserved. **Arrival mechanic verified in a real browser:** nothing parsed (first/last kept separate), `name` joined for the row, `multi_household` coerced to boolean, insert fires with `apikey`+`Bearer`+`Prefer`, and the door opens **even when the insert fails**. Committed + pushed to GitHub `Velayo-ai/ourprovisions-landing`.
+- **Rewrote the three screenshot captions** (design chat) so heading and body do different jobs: Shop → *"Get in, get out, get it right"* (finally sells *speed*, the most obvious thing a shopper wants); Browse → *"The stuff you buy every week"* (plain heading; "staples" earns its place in the body). Synced verbatim to `index.html`.
+- **Restructured the footer** into three grid columns (`1fr auto 1fr`) — wordmark left, tagline + `Velayo · Privacy · Terms` centred, copyright right; absolute `velayo.ai` legal URLs (one canonical copy for the fleet). Synced + browser-verified desktop and mobile (collapses to a centred stack at 720px). Closes the "collects emails with no privacy link" gap.
+- **Drafted revised privacy-policy sections** against the live policy (§02/§03/§04/§06), schema-accurate to what `beta_signups` actually holds; **§07 (`fit_note` + access rights) left blank for counsel.** For legal review, not publication — scoped to `velayo-web`, not this repo.
+- **Overwrote `docs/mockups/mockup_landing.html`** as the current tiebreaker (captions + footer + `color-scheme`); added `color-scheme:light` (meta + `:root`) to the page.
+**Unfinished:**
+- **Not live yet:** Vercel project env + deploy, live **anon-cannot-read** + **CORS** verification on the deployed URL, and Cloudflare **grey-cloud DNS** for `ourprovisions.app`. No `vercel`/`gh` CLI in this environment — Dan owns the deploy + DNS.
+- Privacy policy still stale on `velayo.ai`; draft written, §07 deliberately blank — a lawyer's call.
+- `handoff/DRAFT_privacy_beta_signups.md` is **stuck in the airlock** — its home is `velayo-web`, which is not present locally; cannot route it here.
+- **Struck (false alarm):** the earlier "dark mode was never tested" finding — it was Claude's in-app browser theming a downloaded mockup file; `ourprovisions.app` in Safari renders correctly and always did.
+**Next session:**
+SESSION START
+Goal: Take the front door live — Vercel deploy + env vars, verify anon-cannot-read/CORS on the deployed URL, then Cloudflare grey-cloud DNS for `ourprovisions.app`.
+State: Landing repo built/verified/pushed (`Velayo-ai/ourprovisions-landing`); migration 021 live dev+prod (14 cols, RLS armed); captions + footer synced. Not deployed, not DNS'd. ⚠️ The design handoff named a "catalog leak" as the P0 for next session — **not reflected anywhere in this ROADMAP; reconcile with Dan** (the grounded open loop is the deploy/verify/DNS above).
+Done when: `ourprovisions.app` resolves over TLS, a stranger's submission lands a prod `beta_signups` row, an anon-key `select *` returns **zero rows**, and the door hands a pre-filled Clerk signup.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/mockups/mockup_landing.html`; `migrations/021_beta_signups.sql` (new). Separate repo: `Velayo-ai/ourprovisions-landing` (built + pushed).
+**DB changes:** Migration 021 `beta_signups` **applied dev + prod 2026-07-17** — 14 cols, RLS on, one anon INSERT-only policy.
+
+### [2026-07-16] — [Cross] — Designed the `ourprovisions.app` landing page; set the beta access model
+**Goal:** Design the public landing page for the OurProvisions beta and decide how strangers get in.
+**Completed:**
+- **Chose the TOLL model over the gate** — answer the questions and you're in. Kills "Dan will set you up" (a promise his time can't keep at thirty testers), kills "invite only" (a fiction if answering grants access), kills "almost" on the confirmation. Human help becomes a backstop, not the bottleneck. Rejected real gating (RPC + Clerk hook) — its failure mode (user signs up with a different email, locked out of their own beta) is worse than the problem.
+- **Set the two-surface architecture**: `ourprovisions.app` (static, public, indexed) as the front door; `ourprovisions.velayo.ai` (Clerk, React PWA) unchanged. Separate Vercel project, not a route — marketing at the app's root fights Clerk's redirect logic forever and lets a marketing typo fail an app build.
+- **Cut the questionnaire from nine to a "lucky seven"** on one principle: *a question earns its place only if it changes a decision we're actually going to make.* Added `shop_mode` (in-store / delivered / mixed) — the session's biggest find: a service-shopper is a household Phase 2's aisle-based ordering doesn't serve. Dropped `store_count` (ambiguous) and `list_method` (Phase 5). `region` kept in schema, unasked.
+- **Designed the arrival mechanic** for the seam that has failed 3-for-3: Clerk pre-fill via query string (first/last asked separately so nothing is ever parsed), insert is fire-and-forget so a telemetry hiccup can never trap someone at the door, and the door carries the five words of copy the July blog said would have saved Aidan the wait — *there's no App Store download*.
+- **Rewrote the thesis section** off Dan's frame: the shop is the pain, the list is the instrument. Cut "did it save?" (an engineer's anxiety no shopper has ever had) and "the shared list is sacred" (an engineering vow). Landed Dan's line — *you don't need a budget to control what you spend on food; you need a list* — which buys the spending stakes without becoming a budgeting app.
+- **Caught and cut a pricing commitment**: "OurProvisions is in beta and **free**." Pre-commits monetization in a subordinate clause. Page is now silent on money.
+- **Approved the mockup** (`docs/mockups/mockup_landing.html`) with the real Sacandaga photo header, three real app screenshots, and the questionnaire.
+**Unfinished:**
+- Nothing built. Migration 021 not run; `beta_signups` confirmed **absent on prod**. No Vercel project, no DNS, no CORS verification.
+- Blog home still undecided — `docs/content/blog_july_beta.md` is written but has nowhere to live. A `/blog` route on `ourprovisions.app` is the obvious answer; it's a build, not a paste.
+- Mailchimp untouched. Reframed as **outbound** (welcome email), not capture.
+- Hero video ("boat movie") deferred — ship the photo first.
+**Next session:**
+SESSION START
+Goal: Build and ship the landing page — migration 021, Vercel project, DNS, and the anon insert.
+State: Mockup approved. `beta_signups` does not exist on prod (queried). Prod recovered from the 15 Jul outage; F0/F1b live; contributor A-fix now prod-verified. Referral primitive (also migration 021 in its own spec) specced-not-built — the two 021s must be reconciled at build.
+Done when: `ourprovisions.app` resolves over TLS, a stranger's submission lands a row in prod `beta_signups`, an anon-key `select *` returns **zero rows**, and the door hands them a pre-filled Clerk signup.
+**Files updated:** None (design chat — mockup + spec routed to `docs/specs/active/` + `docs/mockups/` + `docs/content/`).
+**DB changes:** None yet — migration 021 (`beta_signups`) authored, not applied.
+
+### [2026-07-16] — [Cross] — Took the prod backup floor; closed the contributor A-fix; specced the referral primitive
+**Goal:** Verify the contributor A-fix on dev and merge to main; take a prod `pg_dump` backup floor.
+**Completed:**
+- Took the **first prod backup since March** — `pg_dump 17.10` → custom-format dump (396 KB, `--no-owner --no-privileges`), TOC-verified (`pg_restore --list` shows TABLE DATA for all three core tables, all RLS policies, FK constraints incl. F0's `list_items_household_catalog_unique`, realtime publications, and `get_list_items_for_household`), then copied off-instance to Drive. `*.dump` added to `.gitignore`.
+- **Closed the contributor A-fix** (`3182afc`): dev-verified two-account against all three assertions, merged dev→main (`d972c88` → `abc5f15`), prod-verified. Shop name-line derives from the contributor ledger; own items show no name line; a remove→revive attributes to the real contributor. **Done-when met.**
+- Corrected the A-fix test script mid-session: `remove_list_item` is not a button — it fires from `updateQty` when quantity hits **0**, and only the *other* user's window can read the result (`isOwnItem` suppresses the name line on your own).
+- **Confirmed the contributor ledger write-half is genuinely unbuilt** by hitting the gate head-on: Dan's badge-arithmetic scenario needs a per-actor quantity *delta*, but `updateQty` sends end states, not deltas — the DB cannot distinguish "I withdraw my 5" from "I think we need 5 total." **That ambiguity IS the build-gate**; tonight's fix is display-only.
+- **Overturned the Heddi RCS rich-card diagnosis** (2026-07-14): Chris received a carded link on Android and it worked, so card+tap is not the cause. Leading unproven hypothesis: Dan's link was **schemeless** (`ourprovisions.velayo.ai`) where the in-app invite carries `https://`. n=1, unreproduced.
+- **Re-framed "invite-arrival friction is systemic" as three distinct failures in three layers**: Aidan = expectation (expected a download); Heddi = delivery (schemeless/intent); Chris = app (join never activated — **still unqueried against prod**). One fix cannot close all three. Named the real gap: **there is no front door** — `beta_signups` is a table with no sign-up page, questionnaire, or welcome email in front of it (the skipped 2026-07-10 goal). The only working front door is the household invite, which grants membership.
+- **Designed the referral primitive** end-to-end (copy, placement, schema, metric) → `SPEC_referral_primitive.md` (routed to `docs/specs/active/`).
+**Unfinished:**
+- **Chris's failed join — still unverified against prod** (carried since 2026-07-14). Stale client view vs. missing `household_members` row vs. already-fixed banner race. The only arrival failure where the app might actually be broken. Starts with a query, not a design.
+- **Heddi's failure unexplained/unreproduced.** Cheap open test (5 min): text an Android phone `ourprovisions.velayo.ai` vs `https://ourprovisions.velayo.ai`, tap both.
+- **Referral button label unsettled** — "Share OurProvisions" is a placeholder; resolve at build or in the nav/affordances session.
+- **Migration record has honest gaps** — 009–012 and 017 absent from disk (`archive/` holds a *pre-baseline* 002–006, not the missing files); duplicate `007`. Deliberately NOT reconstructed.
+- **Prod has a floor, not a strategy** — tonight's dump ages from this moment; decide cadence deliberately (cron / plan upgrade / accepted risk), not by drift.
+- RUM detector threshold (1) still untuned; prod Postgres patch (17.6.1.084 → .141) deliberately not taken before the backup existed.
+**Next session:**
+SESSION START
+Goal: Write the front door — the sign-up page + the seven-question "come aboard" questionnaire copy.
+State: Prod healthy, backed up off-instance. Contributor A-fix live and prod-verified. F0/F1b/F2/F3 shipped; migrations 018/019/020 live dev+prod. Referral primitive specced, not built. `beta_signups` table exists with no form in front of it and no email behind it. Three beta-arrival failures diagnosed to three layers; Chris's is the only possible app defect and is unqueried.
+Done when: The sign-up page + questionnaire copy exist and eye-test passes; a referral link has somewhere to land that explains what OurProvisions is and that it is a web app, not a download.
+**Files updated:** None from the design/ops chat. Repo changes made directly: `.gitignore` (`*.dump`), dev→main merge `d972c88` → `abc5f15`.
+**DB changes:** None. Prod `pg_dump` taken (read-only) — `ourprovisions_prod_20260715.dump`, verified, off-instance in Drive.
+
+### [2026-07-15] — [Cross] — Diagnosed prod Supabase outage; stood up user-visible alerting (RUM + Synthetics)
+**Goal:** Restore prod (hung on "Loading your provisions…") and close the gap that let an outage run undetected.
+**Completed:**
+- Diagnosed the outage to a wedged PostgREST at the **Supabase platform layer** — not app code, data, or load — via a hypothesis-killing sequence: `pg_stat_activity` showed 6 idle infra connections + zero app queries (DB *unreached*, not overwhelmed); the error was a Cloudflare→origin **522**, uniform across every Data API endpoint; the IOPS chart read **3 of 3,000**.
+- Killed the Disk IO hypothesis with evidence — 3 IOPS vs 3,000 max, 78 KB/s vs 125 MB/s, ~30% peak burst-budget; Supabase's warning email + "53% Disk IO" tile were burst-budget *accounting*, not load. Dev healthy on identical code eliminated every repo-level cause.
+- Restored prod by **restarting the project**; confirmed settled.
+- Built a Splunk **RUM detector** (`rum.client_error.count` · Sum · `sf_environment:production` · above 1 · immediately · Major) — Splunk's estimator backtested it to exactly **1 alert in the prior week** (the real outage). A first config (threshold 3 / 80%-of-5m) estimated 0 — it would have missed the event.
+- Built a Splunk **Synthetics API test** (`GET /rest/v1/catalog_items?select=id&limit=1` w/ anon key · AWS N. Virginia · 5 min · assert 200) + uptime detector (<90%, 2 consecutive, Critical) — verified live at HTTP/2 200 in 122ms before activation. It exercises **PostgREST**, not the Vercel HTML shell (which stayed green through the whole outage).
+- Added a detector to the pre-existing `Velayo Inc.` Splunk browser test, which had been running with zero alerting.
+- Reversed the earlier "upgrade Supabase compute" recommendation — prod runs at ~0.1% of disk IO capacity; Free/nano is adequate at current scale.
+**Unfinished:**
+- RUM detector threshold (1) untuned against real noise — raise to 2 if a tester's flaky connection pages overnight.
+- 11 Jul Disk IO burst step-up (0% → ~30%, ~coincident with migrations 018/019/020 shipping) unexplained — parked deliberately (harmless at 30% of a budget never approached; 15 Jul returned to ~0%).
+- Splunk OTel Collector on AWS Lightsail — designed, not built; deferred to Phase 3–4 ("a fun afternoon, not a fire drill").
+- Contributor A-fix (`3182afc`) still on dev, unverified — this same outage is what blocked its verify/merge; verify → dev→main now that prod is recovered.
+- Prod still Free tier / nano / **no backups** — take a `pg_dump` off-instance floor.
+**Next session:**
+SESSION START
+Goal: Verify the contributor A-fix on dev and merge to main; take a prod `pg_dump` backup floor.
+State: Prod restored and healthy. User-visible alerting now live — RUM JS-error detector + Synthetics Data-API uptime detector + browser-test detector — covering both "users hitting errors" and "prod down with nobody watching." F0/F1b shipped + prod-verified; migrations 018/019/020 live. Contributor display-fix on dev, unverified.
+Done when: A-fix verified on dev (name renders from ledger; own items show no name line) and merged to main; a prod `pg_dump` exists off-instance; RUM threshold confirmed against a week of real traffic.
+**Files updated:** None (all work in Splunk Observability Cloud + Supabase dashboards).
+**DB changes:** None.
+
+### [2026-07-15] — [OurProvisions] — Closed the shared-list integrity arc (F0 + F1b); shipped contributor-attribution display fix
+**Goal:** Ship F0 (`uq_live_list_item`) and F1b (hide→re-add no-stomp) to close the shared-list data-integrity arc; fix the contributor attribution surfaced during prod verification.
+**Completed:**
+- Applied migration 020 (`uq_live_list_item` partial-unique on `list_items`) by hand to dev + prod after a zero-row dup census cleared the pre-req gate; committed the `.sql` record (`0554587`). Clean CREATE both envs is itself the proof.
+- Built F1b (client): `unhideItem` un-hide-only primitive, `updateQty` resolver hardening (hidden ≠ new), and a search reveal card — a hidden-but-live item now un-hides instead of stomping the shared quantity 10→1 (`85f4a69`).
+- Verified F1b two-account on dev AND prod; merged dev→main (`28539af`) — F0 + F1b + Add-pill all live.
+- Cleared Add-pill affordance drift at point of discovery: search no-results row now uses the `.add-btn` pill, not the old `+` circle (`c180b73`).
+- Diagnosed the contributor bug (DH saw "Dan Test User" on his own item) across four DB censuses: `list_items.added_by` (immutable, INSERT-only) and `list_item_contributors` are two independent records of one fact — `remove_list_item` (009) clears the ledger on remove while the revive path restores the row without it; the `≤1 contributor` UI branch fell back to stale `added_by`.
+- Shipped the display-half fix — Shop name-line derives from the contributor ledger, `isOwnItem` keys off the sole contributor's `clerkId` (`3182afc`).
+- Designed the contributor badge model from first principles ("a badge is the last thing you said"); rewrote `SPEC_contributor_ledger_desync.md` (build-gated → `active/`).
+**Unfinished:**
+- Contributor A-fix (`3182afc`) is on dev, **unverified** — prod Supabase went Unhealthy (Supabase platform incident, not our code) before test/merge. Verify on dev, then dev→main.
+- `SPEC_contributor_ledger_desync.md` build-gated on one open question: rule (a) needs a per-actor quantity *delta*, but the stepper reports end states — unproven the client can attribute a change to an actor under polling/optimistic updates.
+- The spec's claim that migration 009 "solved the wrong problem" is asserted from a code comment — verify before acting.
+- Remove-confirm dialog + `addedByMap` still read `added_by` — repoint, then demote `added_by` to audit-only.
+- **Prod has no backups** (Free tier, nano, real beta users' data). Pro-plan decision deliberately deferred to a green dashboard (both projects share the Velayo org, so Pro pulls dev onto paid too, ~$45/mo).
+**Next session:**
+SESSION START
+Goal: Verify the contributor A-fix on dev and merge to main; then take a prod `pg_dump` as a zero-cost backup floor.
+State: F0 (020) live dev + prod. F1b built, verified both envs, merged. Add-pill merged. Contributor display-fix on dev, unverified. Prod Supabase was Unhealthy at session end — confirm recovery FIRST.
+Done when: A-fix verified on dev (name renders from ledger; own items show no name line), merged to main, a two-user item reads the real contributor on prod, and a prod dump exists off-instance.
+**Files updated:** `src/App.js` (F1b Layer 1 + reveal card + Add pill + contributor display fix), `src/hooks/useProvisions.js` (`unhideItem`, `updateQty` resolver hardening), `migrations/020_uq_live_list_item.sql` (record of applied migration); spec moves (F0 / F1b / shared_list_integrity → `built/`, contributor → `active/`).
+**DB changes:** `uq_live_list_item` partial unique index on `list_items (household_id, catalog_item_id) where deleted_at is null` — applied by hand to dev (`zxwtxjjmssykhqrghouf`) + prod (`parpauldmbetptkmdwbd`), clean CREATE both. Reversible: `drop index uq_live_list_item;`
+
+### [2026-07-14] — [OurProvisions] — Beta feedback capture: Chris & Heddi live testing session
+*(Retroactive capture — session occurred 2026-07-14, handed off 2026-07-15 after two later build sessions were already logged; slotted by date per the handoff's merge note.)*
+**Goal:** Capture and structure beta feedback from watching Chris and Heddi use OurProvisions live — without acting on it.
+**Completed:**
+- Diagnosed Heddi's Android launch failure as an RCS rich-card intent-resolution problem, not a PWA-install problem — the card intercepts the tap and fires an unresolvable intent; typing the URL bypasses it. Fix lives in invite *delivery* (plain link + expectation copy), not the app.
+- Established invite-arrival friction as **systemic**: 3/3 external testers failed at the link→app seam (Aidan expected a native download; Heddi hit the card intent; Chris's first accept didn't activate the household) — gating the CI activation metric.
+- Separated **referral** (advocacy — no token, no grant) from **household-invite** (authorization — token + membership + write access) as two distinct primitives; capture referrer attribution at the link layer now, defer rewards to Phase 4.
+- Reframed Chris's "I want my own list" as a personal *lens* on the shared list, not a fork — consistent with the `activeHouseholdId` lens pattern; shared list stays sacred.
+- Identified **priority/intent signaling** as the missing dimension behind Chris's and Heddi's asks (must-have vs skippable; who owns the miss) — a field on `list_items`, three-state max, mechanism deferred.
+- Confirmed swipe-discoverability failure with a third data point (Chris, Aidan, Helen all reached for long-press); prioritized **hidden-items findability** as the one correctness defect of the night (generates bad state, not merely suboptimal).
+**Unfinished:**
+- Prod DB verification of Chris's first failed join (stale client view vs missing `household_members` row) — never queried; unknown whether distinct from the banner-timing race.
+- Splunk RUM replays for Heddi + Chris not pulled (would settle the false-red-banner / missing-green-banner timing question).
+- Search/filter label decision + per-item action surface (long-press vs visible affordance) + event-vs-household modeling fork — all deferred to their own sessions.
+**Next session:** *(SUPERSEDED — see drift note below)*
+SESSION START
+Goal: Build the hidden-items findability fix — search surfaces hidden matches with per-item inline unhide.
+State: Beta live with real users (Helen, Elly, Aidan, Chris, Heddi). Core loop works once past invite-arrival friction.
+Done when: Searching a hidden item surfaces it with inline per-item unhide; re-searching a hidden item no longer walks the user into creating a duplicate.
+**⚠ DRIFT / SUPERSESSION (resolved at merge 2026-07-15):** This 2026-07-14 Next-session goal — hidden-items findability — was substantially DELIVERED by **F1b on 2026-07-15** (reveal card for a hidden-but-live exact match + `unhideItem` un-hide-only + `updateQty` resolver hardening so re-adding no longer forks/stomps). The current live direction is the 2026-07-15 entry's Next block (verify contributor A-fix → merge; prod backups). Residual from this handoff's fuller vision: hidden matches shown as a *distinct group* in search results (F1b surfaces a single exact match, not a grouped list) — tracked in NEXT. Dan to confirm.
+**Files updated:** None
+**DB changes:** None
+
+### [2026-07-13] — [OurProvisions] — Shared-list data-integrity: fixed Bugs 1, 2, 3 (catalog fork + check path) — shipped to prod
+**Goal:** Root-cause and fix the three shared-list bugs (duplicate catalog item on re-add; check-one-checks-both; toggle bounce) and ship to prod.
+**Completed:**
+- Diagnosed all three from code + a prod query (not guessed): Bug 2 = un-scoped toggle write; Bug 3 = poll clobbering optimistic check (no guard, unlike quantities); Bug 1 = catalog-**layer** fork — a prod query overturned the initial list-layer hypothesis (3 list rows → 3 distinct `catalog_item_id`s).
+- Shipped migration 018 (idempotent `insert_custom_catalog_item`: sql→plpgsql, normalized-name reuse, prefer global then oldest custom, store original casing) to dev + prod; committed the `.sql` record (`dcdf2bc`).
+- Ran reversible prod cleanup (soft-delete/merge) resolving all **12 fork sets** the census found — 10 global double-seed dups (Mar-20 + Mar-30, prod-only; dev never affected) + 2 custom (English Muffins, Sandwich Bread); verified 0 remaining.
+- Shipped migration 019 (F1c: partial unique indexes `uq_global_catalog_norm` + `uq_custom_catalog_norm`) to dev + prod; committed the `.sql` record (`7173f6a`). Clean CREATE is itself proof the dedup was complete.
+- Built + shipped F2 (row-scoped toggle `.eq("id", listItemId)`, `listItemId` threaded end-to-end) + F3 (`pendingCheckRef` optimistic guard mirroring `pendingQtyRef`) — commit `b85dcbf`; promoted dev→main (`851b5ae`); prod-verified via tap tests incl. Slow-3G stress.
+- Produced July beta content in the design chat (blog_july_beta.md + email_july_beta_update.md — authored there, not in this repo).
+**Unfinished:**
+- F0 (`uq_live_list_item` partial-unique on `list_items`) — the list-layer structural twin of 019; not yet built.
+- F1b (client resolver eviction fix — `hiddenIdsRef` blinding `updateQty`'s lookup so re-add un-hides/reuses instead of forking) — not yet built.
+- Double-seed root confirmation (evidence says manual/prod-only; ~5-min March-notes check to close).
+- Spec kept in `docs/specs/active/` (NOT `built/`) — F0/F1b still to build from it; it graduates to `built/` on their ship.
+- Stale migration numbering: 018/019 are now consumed (applied to prod), so ROADMAP's *planned* 017 (receipts) / 018 (beta_signups) need fresh numbers ≥ 020 — tracked in NEXT.
+**Next session:**
+SESSION START
+Goal: Build F0 (`uq_live_list_item` partial-unique on `list_items`) to close Bug 2's root at the list layer, then F1b (resolver eviction).
+State: All three shared-list bugs fixed + verified on dev AND prod. 018+019 live both envs, catalog fork-free both envs, F2+F3 in prod. Check path solid.
+Done when: query (b) reads zero live-row dups on prod; `uq_live_list_item` created dev then prod (clean CREATE proves no violations); F1b re-add-un-hides behavior verified on the dev preview.
+**Files updated:** migrations/018_dedupe_custom_catalog.sql + migrations/019_catalog_norm_unique_indexes.sql (committed this session), src/hooks/useProvisions.js (F2+F3, `b85dcbf`), src/App.js (`listItemId` threaded to `toggleChecked`), handoff→`docs/specs/active/` spec move. (Design-chat only: blog_july_beta.md, email_july_beta_update.md.)
+**DB changes:** 018 (RPC) + 019 (2 indexes) applied dev+prod; 12 prod fork sets cleaned (reversible via `deleted_at`).
+
+### [2026-07-11] — [Velayo OS] — Executed docs/ reorg: spec lifecycle folders (active/built/retired) + sorted the flat docs/ root
+**Goal:** Turn the flat 40+-item `ourprovisions/docs/` into a scope→lifecycle structure and physically create the spec lifecycle folders — design handed off from a chat session; Claude Code confirmed each bucket against `git log` and executed the moves. *(Velayo OS repo-hygiene work; logged here per the single-company-log rule until app #2 forces the split.)*
+**Completed:**
+- Executed the reorg manifest (`SPEC_docs_reorg.md`) as ONE OS-scoped commit (`0303397`): created `docs/specs/{active,built,retired}/` and moved ~43 files by scope→lifecycle.
+- Sorted specs: 31 → `built/` (shipped, forensic), 10 → `active/` (open/in-flight), 1 → `retired/` (spent `DECLUTTER_BUILD_HANDOFF`). `docs/` root now holds only the 3 canonicals + `DEV_SETUP` + `EVIDENCE` + `mockups/` + `specs/`.
+- Resolved 3 specs the manifest never bucketed, via `git log`: `fix_authuid_rls` (migration 014 live) + `full_name_sync` (shipped 07-01) → `built/`; `beta_signups` (design-only, no ship commit) → `active/` (Dan's call).
+- Moved the misfiled `007_dev_restore_role_grants.sql` from `docs/` → `migrations/`; flagged it now duplicates migration number 007 (`007_finish_authorize_sweep.sql`) — renumber TBD.
+- Confirmed no-ops against ground truth: `qa/` moves already done (harness + `prod_test_plan` already there, no stale docs copies); `docs/mockups/` already populated (no loose mockups at root).
+- Filed the manifest itself (`SPEC_docs_reorg.md`) to `built/`; consumed + deleted `design_handoff.md`.
+**Unfinished:**
+- **velayo-os leg not performed:** `velayo_os_flight_checklist.html` not present anywhere in the repo; `DESIGN_CHAT_handoff_prompt.md` is a protected airlock baseline (CLAUDE.md forbids moving it) — conflict flagged, not acted on.
+- **Airlock wiring deferred** (Dan's choice: "move existing specs, wire airlock later") — CLAUDE.md + `DESIGN_CHAT_handoff_prompt.md` still land new specs at `docs/` root, not `docs/specs/active/`.
+- **Stale spec-path references** across ROADMAP/ARCHITECTURE still point at old `docs/SPEC_*.md` paths; queued as a targeted NEXT sweep (not blanket-rewritten — many are woven into prose that discusses the paths).
+- **Duplicate migration 007** number stands — renumber `007_dev_restore_role_grants.sql`.
+**Next session:**
+SESSION START
+Goal: Return to the Tier-1 shared-list data-integrity bugs (duplicate catalog item on re-add; check-one-checks-both; toggle bounce) — diagnosis first.
+State: Production live (Helen, Elly, Aidan). Declutter cycle prod-verified. docs/ reorg executed (`0303397`); lifecycle folders live. Three shared-list bugs still open, diagnosis-pending.
+Done when: Root cause confirmed via prod DB query + `useProvisions.js` read; check-one-checks-one verified two-account; duplicate-on-readd prevented.
+**Files updated:** Reorg (`0303397`): ~43 specs moved into `docs/specs/{active,built,retired}/` + `migrations/007_dev_restore_role_grants.sql`. Docs: SESSION_LOG, ROADMAP, ARCHITECTURE.
+**DB changes:** None.
+
+### [2026-07-11] — [OurProvisions] — Beta field-testing capture (Helen + Aidan) — 11 findings, photo-header design, invisible-affordances pattern
+**Goal:** Capture usability + bug findings from watching two real first-time users on production, prioritize them by threat-to-beta-success, and schedule the household photo-header feature. *(Design/capture session — no code touched; merged from `design_handoff.md`.)*
+**Completed:**
+- Ran a live field-test debrief from watching Helen and Aidan use production; captured 11 findings + 1 validated win + 1 cross-cutting insight.
+- Diagnosed three shared-list bugs — (1) duplicate catalog item on re-add; (2) check-one-checks-both; (3) toggle bounce — and framed 2+3 as a likely single root cause (toggle not bound to a unique `list_item` id). Flagged diagnosis-pending (need prod DB query + code read); no fix written.
+- Designed + mocked the **household photo header** (Beat 1): eye-tested scrim treatments over the real Sacandaga photo, corrected an EXIF-orientation issue, landed on top-and-bottom gradient scrim + Slice B framing (cottage/flag/water). A direct expression of the ExD-as-art pillar.
+- Named the ★ **"invisible affordances"** cross-cutting pattern: four usability reports share one root (hidden gestures / camouflaged chrome that only work once a human reveals them). Shaped a two-part solution philosophy: (a) visible affordances as durable floor, (b) a reusable milestone-keyed coachmark primitive as the welcoming layer.
+- Logged the **invite flow validated in the field**: Aidan invited a second person first-try, unprompted — the CI/activation (depth) thesis firing live.
+- Prioritized the board by **threat-to-beta-success** (breadth + depth), not by bug-vs-UX type.
+**Unfinished:**
+- Bugs 1/2/3 not fixed — diagnosis-pending. Need: (a) prod DB query on the English Muffins rows (2 catalog rows vs. 1 catalog + 2 list rows?); (b) read of the check/uncheck toggle handler + realtime subscription in `useProvisions.js` (keying vs. echo-collision). This is the next build session.
+- ★ invisible-affordances philosophy is a **candidate** ARCHITECTURE principle, not yet ratified — needs a design session to adopt the two tenets + the coachmark-primitive approach.
+- Households-in-Preferences (#7): unresolved whether Aidan meant "manage my households" vs. "switch active household." Clarify with Aidan before speccing.
+- Nav cluster (tabs visibility / browse→list / bottom-reach / swipe-discoverability): bottom tab bar vs. sticky-top is an open design question; may resolve 3 of 4 in one structural move.
+**Next session:**
+SESSION START
+Goal: Fix the shared-list data-integrity bugs (1 duplicate catalog item, 2 check-one-checks-both, 3 toggle bounce) — diagnosis first, then fix. Build session (Claude Code).
+State: Production live with real users (Helen, Elly, Aidan). Invite flow validated in the field. Household photo header scheduled for Beat 1. Three shared-list bugs open, diagnosis-pending.
+Done when: Root cause confirmed via DB query + code read; check-one-checks-one verified with a two-account realtime test; duplicate-on-readd prevented; toggle sticks first try. Combined spec if 2+3 prove one root cause.
+**Files updated:** None (design/capture session).
+**DB changes:** None (a read-only diagnostic query is proposed for next session, not yet run).
+
+### [2026-07-11] — [Cross] — Shared declutter cycle built + promoted to prod (Browse + Shop), incl. two-account realtime verification
+**Goal:** Build the shared declutter cycle (`SPEC_declutter_cycle.md`) in staged, individually dev-verified commits, then promote dev→main — a beta-worthy view-declutter primitive across both tabs.
+**Completed:**
+- Shipped the cycle in **3 staged, individually dev-verified commits**, then promoted dev→main (`3d256aa`): Shop hide-checked + flat A–Z (`80f1a03`); Browse hide-pills + flat A–Z (`419a5b9`); unify onto one shared `CycleIcon` + `FlatHeader` (`7b18db4`). Local guards clean each commit (Babel parse + ESLint `react-app`/`CI=true`, no unused-var fallout).
+- Built one 46×46 icon cycling 0→1→2→0 (default grouped → tidied/noise-hidden grouped → flat A–Z). Encodes both axes in one control: bg light→dark = filters/checked shown→hidden (via an `.on` class, single CSS rule); lines tapering→equal = grouped→flat (two shapes, drawn once with `stroke="currentColor"`). Shop top row `[N of M checked] · [icon] · [Wrap up]` (Wrap up restyled distinct — espresso, normal case); Browse icon on the search line right of the field (heights matched at 46px), no item count. Quiet italic descriptor states the consequence when decluttered ("N checked items hidden" / "N filters active · filters hidden"), blank in phase 0.
+- Confirmed the icon = approved mockup (`cycle_dual_readout.html`, variant A: 3 tapering "funnel" bars → 3 equal bars; the narrowing taper IS the implied Velayo V — chosen over a literal chevron, which risks reading as an accordion caret). Built to the mockup's CSS-bg + `currentColor` approach (46px), not the spec-prose's rect-in-SVG 48px sketch.
+- Resolved an internal spec contradiction (state table said both "grouped/flat pref persists" and "phase resets to 0" — impossible, flat exists only at phase 2): followed the stateless approved mockup and **removed the persistent flat pref (`op_showCategories`)**. Reset-to-grouped is the better default anyway (grouping is the everyday shop-by-aisle view; flat A–Z is the hunt-for-one-item escape hatch).
+- Verified on dev each step: core cycle both tabs, filter×flat interaction (flat renders the FILTERED set, header count matches), selections survive the cycle, phase resets to 0 on tab/household switch.
+- **Two-account realtime verification passed** (DH/DT, same household, Shop; from the design-chat handoff): an incoming check under phase 1 → item hides, descriptor count updates, phase holds; Wrap up under a decluttered view rolls only unbought items, no phase-confused mis-write of the shared list. Closed the one surface a single-driver dev test can't exercise.
+- **Closed the Browse filter-reset gap** (`dbb57f2`, on dev): the intended "commit 0" was dropped from the batch — `selectedCategories`/`stapleFilter` did not reset on household switch, a live household-scoped-state leak once phase 1 hides the pills (stale filter silently shrinks the new household's list). Added both resets to the existing `[view, activeHouseholdId]` effect (also clears on tab switch — intended; Browse filters are session state, not sticky). Babel + ESLint `react-app`/`CI=true` clean, no new deps. Pending dev-verify (2-household account) then dev→main.
+**Unfinished:**
+- **Dev-verify + promote the filter-reset fix** — `dbb57f2` is on dev, not yet verified or promoted. Test: switch households while in phase 1 (pills hidden) → land in phase 0, pills visible, no filters, full new-household catalog; and phase-0 filters clear on switch. Then dev→main.
+- **Prod-verify pending** — cycle promotion done (`3d256aa`); still need hard-refresh + smoke test on both tabs + a quick two-account check on real prod data (fold in the filter-reset check once promoted).
+- Icon legibility at 46px accepted on dev; if it ever reads mushy on a device, fallback is chunkier bars (heavier stroke / wider taper), NOT more bars.
+**Next session:**
+SESSION START
+Goal: Dev-verify + promote the filter-reset fix (`dbb57f2`), then prod-verify the full declutter cycle on `ourprovisions.velayo.ai`.
+State: Declutter cycle live on main (`3d256aa`); filter-reset fix on dev only (`dbb57f2`), unverified. Browse + Shop share one 46×46 cycle icon via `CycleIcon`.
+Done when: Filter-reset dev-verified in a 2-household account (phase-1 switch lands in phase 0 with pills visible + no filters + full catalog; phase-0 filters clear on switch) → dev→main; AND the cycle is prod-verified on both tabs incl. a two-account check on real data.
+**Files updated:** `src/App.js` (Shop cycle `80f1a03`; Browse cycle `419a5b9`; unify `7b18db4`; filter-reset `dbb57f2`); removed `op_showCategories` persistence; docs (SESSION_LOG/ROADMAP/ARCHITECTURE); routed `DECLUTTER_BUILD_HANDOFF.md` handoff→`docs/`.
+**DB changes:** None.
+
+### [2026-07-10] — [Cross] — Browse stepper ExD polish (Add⇄stepper) + iOS sticky-hover fix + spec-folder reorg design
+**Goal:** Raise the Browse quantity controls to the ExD bar before beta — unify the +/− stepper into one pill and replace the ambiguous zero-state with an explicit "Add" affordance — and design Velayo OS spec-folder hygiene.
+**Completed:**
+- Unified the +/− quantity control from three floating circles into one pill (`ae7708c`); mockup-before-code, 3 variants eye-tested against the real palette.
+- Shipped **Add → Stepper** (`a13530a`, built from `SPEC_add_to_stepper.md`): un-added Browse rows render a single "Add" ghost pill; tapping adds (qty 1) and reveals the −/N/+ stepper; − at qty 1 snaps the row back to "Add". Zero is never rendered — the ambiguous zero-state is gone.
+- Fixed an intermittent iOS/WebKit sticky-hover on the Add button (`dea88a1`): guarded the `:hover` fill behind `@media (hover: hover)` + `.blur()` on tap so a re-render under the touch point can't latch the clay fill. Promoted with the stepper work dev→main (`27d881b`); prod-verified clean on `ourprovisions.velayo.ai`.
+- Matched the stepper to the Add ghost treatment (`1cd0c6e`, own atomic commit): transparent-on-cream fill, clay-lo `#C9A97A` outline + dividers, no white fill, no shadow — the un-added "Add" pill and the added "− N +" stepper now read as one control family. Promoted dev→main (`85de8e0`); dev-preview confirmed before promote.
+- Confirmed production domain = `ourprovisions.velayo.ai` (an earlier `ourprovisions.app` reference was a misstatement; CLAUDE.md already correct — no doc change).
+- Designed a 3-folder spec reorg (`docs/specs/{active,built,retired}/`) with a proposed categorization of all 36 specs — DESIGN ONLY, not executed (Velayo OS hygiene).
+**Unfinished:**
+- **Declutter cycle build** — `SPEC_declutter_cycle.md` build-ready (3 staged commits: hide-checked on Shop, flat render on Browse, unify). Not started.
+- **Spec-folder reorg** — categorization proposed but NOT executed; Claude Code must confirm each spec's bucket against `git log` before moving (design-chat inference is a proposal, not authority). Own commit; requires CLAUDE.md + DESIGN_CHAT_handoff_prompt.md edits (airlock specs would land in `docs/specs/active/`). Velayo OS scope — likely belongs in the velayo-os log once that repo's docs exist.
+- Old stepper color-softening one-liner (`#fff → #FBF7F0`) — SUPERSEDED by the match-to-Add decision; do not apply.
+**Next session:**
+SESSION START
+Goal: Build the shared declutter cycle (`SPEC_declutter_cycle.md`) in 3 staged, individually dev-verified commits.
+State: Prod clean — Add→Stepper + hover fix + stepper-match all live on `ourprovisions.velayo.ai`. dev == main (all merged, prod-green), so declutter starts from an even base.
+Done when: Browse + Shop share one 48×48 declutter icon; 3-phase cycle (default → tidied → flat A–Z) works on both tabs; Wrap-up + checked-state unaffected on Shop; Browse filters confirmed to reset on household switch; phase resets to 0 on tab/household switch. Each of the 3 commits verified on dev preview before the next.
+**Files updated:** `src/App.js` (stepper pill `ae7708c`, Add⇄stepper `a13530a`, iOS hover fix `dea88a1`, stepper-match `1cd0c6e`); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; routed `SPEC_add_to_stepper.md` handoff→`docs/`.
+**DB changes:** None.
+
+### [2026-07-10] — [OurProvisions] — Beat 0 gates closed to prod + Beta 1 invite pivot: Web Share, duplicate-create fix, dead-code cleanup
+**Goal:** Sync + merge the stacked dev commits to prod-verified main, then clear the tech debt gating the Beta 1 invite/CI pivot — the duplicate-household bug, dead scaffolding, and the invite flow itself.
+**Completed:**
+- Merged the stacked Beat-0 batch dev→main (`68d38c5`, `--no-ff`) and **prod-verified the false-removal-banner P0** (the deliberate-loss guard) — no observed defects. This was the last gate on the signup-email flip + the Beta 1 invite pivot; both now unblocked. ESLint `react-app` clean on all changed files (the CI=true warnings-as-errors gate).
+- Shipped the streamlined invite flow (`8c62315`, **real-phone verified**): Send via `navigator.share` (feature-detected, Copy fallback) + single-source brand-voice `INVITE_MESSAGE` (preview === what's sent). Lazy-generate (Option B) — `prepareInvite()` on a ~500ms idle-after-open timer OR explicit tap, so a fast open/close writes no `household_invites` row; idempotent, in-flight-guarded. Trigger renamed "Invite someone aboard" + teal. Eye-tested against a mockup before code.
+- Fixed duplicate-household creation (`565b133`, verified): root-caused via prod queries to a creation-race — Create's async onClick was never disabled during the ~2s await, so a 259ms double-tap fired two `create_household` RPCs → two distinct ids, each with its own owner membership. Fix = `creatingInFlight` guard (disable + dim + "Creating…", early-return, clears in `finally`). Diagnosis decidable from the read path (`get_my_households` returns one row per membership → a UI dupe is a data dupe). Server idempotency kept as a WATCH ITEM.
+- **Ran the one-time prod cleanup (Part 2):** soft-deleted the later id of the existing "Test House 200" dup pair (2a preview → 2b soft-delete → 2c verify) — one live household per name, reversible (`deleted_at`, not hard delete).
+- Removed dead `selfDepartureRef`/`markSelfDeparture` (`5da1c37`, verified): superseded by `deliberateLossRef`, grep-confirmed consumed nowhere in `src`. Dropped the ref, the callback, and its context-value entry; synced ARCHITECTURE's 3 stale mentions.
+- Confirmed the Web Share email-subject gap is at the platform ceiling (`title` passed correctly; iOS Mail drops it; the full invite + link ride in `text` across every target) — documented as a known limitation, not code-fixable.
+- Routed 3 specs handoff→docs + tracked the invite mockup.
+**Unfinished:**
+- **Splunk-on-local-dev** — unsolved. A dynamic-`import()` attempt was tried + reverted (webpack didn't dead-code-eliminate the branch on an unset token, so it didn't exclude Splunk). The reliable fix is a prod-telemetry change with tradeoffs that need a decision. ESLint remains a sound CI proxy; deployed builds unaffected.
+- Local `npm run build` on the primary machine still can't run (broken partial `@splunk/otel-web-session-recorder` install + npm TLS `UNABLE_TO_VERIFY_LEAF_SIGNATURE`) — local-env only, unrelated to code.
+- **WATCH ITEM — server-side idempotent `create_household`**: build only if prod shows a non-human duplicate `created_at` signature (sub-10ms or retry-spaced). The 259ms trigger was a human double-tap; button-disable covers it.
+- Beta 1 launch assets still unwritten (the invite-button rename is only the in-app half of the "bring your first mate" match).
+**Next session:**
+SESSION START
+Goal: Write the Beta 1 launch destination — the sign-up page + the reframed seven-question "come aboard" questionnaire copy — now that the invite/CI-pivot tech-debt pass is done and prod-verified.
+State: All Beat-0 P0s prod-verified. Duplicate-household bug fixed + prod data cleaned. Dead scaffolding removed. Invite share-flow live + real-phone verified. Signup-email flip and invite pivot both unblocked. dev == main (all merged + prod-green).
+Done when: sign-up page + questionnaire copy exist and eye-test passes; the inside-out build order for the remaining launch assets (welcome email → Mailchimp segments → blog → user email + social) is ready to execute.
+**Files updated:** `src/App.js` (create-in-flight guard `565b133`; invite share flow `8c62315`), `src/contexts/ActiveHouseholdContext.js` (scaffolding removal `5da1c37`), `docs/ARCHITECTURE.md`.
+**DB changes:** Prod one-time cleanup — soft-deleted the later id of the "Test House 200" dup pair (`deleted_at` set). No schema change.
+
+### [2026-07-09] — [Cross] — Designed the Beta 1 "Come Aboard" launch funnel + defined the two-number success metric
+**Goal:** Design the end-to-end customer experience for the first public beta — the call-to-action, the funnel from blog to app, the marketing asset set, and what "a successful beta" means as a number.
+**Completed:**
+- Settled the funnel shape: velayo.ai blog post is the primary ad vehicle; **ranked, not forked** CTAs — primary "Come Aboard" (→ ourprovisions.app questionnaire), secondary catch-net "Follow the journey" (→ Mailchimp) for the not-ready-today reader.
+- Reframed the seven-question `beta_signups` questionnaire from an *application* to *onboarding intelligence* ("set your galley up right") — beta is open, so the questions collect setup signal, not admission judgment. Founder-only `status`/`fit_note` columns still populated by watching, not gatekeeping.
+- Resolved the post-signup seam to "fewest clicks": questionnaire submit → straight into the app; Clerk account creation is the only step. Welcome email is a *parallel keepsake* (context + link back), never a gate.
+- Verified (web) that Clerk supports pre-filling sign-up email via `initialValues` prop OR query string — carrying the questionnaire email into Clerk sign-up is real and cheap. CAVEAT: pre-fill ≠ verified; Clerk still runs its own OTP, so copy must expect a "confirm it's you" beat.
+- Defined the **activation ladder** with the second-person **invite as the pivot**: R1 in-the-door (solo-safe: create/join → first item → browse); R2 the pivot (invite a second person); R3 the aha (see a shared edit sync live — only via R2); R4 it's-mine (qty/price, budget, waste); R5 come-back (PWA install + Message the bridge).
+- Locked the **two-number beta success metric**: breadth = 10 users touch the key features; depth = ≥50% (5 of 10) invite a second person to exercise the CI thesis. Growth ladder in 10s: 10 → 100 → 1,000 → 10,000.
+- Surfaced hidden gaps in the six-item deliverables list (see Unfinished) and set the inside-out build order.
+**Unfinished:**
+- All launch assets DESIGNED but UNWRITTEN. Set: (1) July "Come Aboard" blog post, (2) existing-user email → blog, (3) social announcement → blog, (4) sign-up page, (5) post-signup welcome email, (6) Mailchimp nurture series. Gaps added: (7) seven-question questionnaire copy (highest-leverage, own task), (8) velayo.ai "Follow the journey" catch-net form, (9) Mailchimp SEGMENTATION — beta users (in-app) vs journey-followers must be separate segments or feature-nudge emails misfire.
+- Nurture series split nurture-now (live today) vs nurture-later (Beat 1/2 features become "we heard you" emails on ship). Receipt scanning drops off the beta-10 list entirely (Phase 3, no beta user touches it).
+- Welcome email (#5) reshaped generic "welcome aboard" → pointed "bring your first mate" — now the single most important asset (invite-email success IS the 50% depth metric). Not yet written.
+- Clerk pre-fill query-string PARAM NAME unconfirmed against the installed Clerk version — verify at build (don't assert from the 2023 changelog).
+- The "data is yours" editable-profile surface — BANKED as a future beat (see ARCHITECTURE), not built.
+**Next session:**
+SESSION START
+Goal: Produce the launch destination first — the sign-up page + the reframed seven-question questionnaire copy — since the activation ladder makes it the surface everything upstream links to. (Blocked-behind: the tech-debt pass to make the invite/CI pivot solid.)
+State: Full beta launch STRATEGY locked (funnel shape, questionnaire reframe, Clerk pre-fill seam verified, activation ladder, invite-as-pivot, two-number success metric). Zero assets written yet. Beat 0 P0 fixes on dev; dev→main merge still gated. `beta_signups` table exists (insert-only, no-select RLS, founder-only status/fit_note).
+Done when: sign-up page + questionnaire copy exist and eye-test passes; build order for the remaining assets (welcome email → Mailchimp segments → blog → user email + social) is ready to execute inside-out.
+**Files updated:** None (design/decision session — read-only orientation + strategy).
+**DB changes:** None.
+
+---
+
+### [2026-07-09] — [OurProvisions] — Closed the false-removal-banner P0; fixed blank-catalog + RUM masking; session replay working
+**Goal:** Diagnose and fix the false "No longer a member" banner (the Beat 0 launch-email blocker), using session replay as the instrument.
+**Completed:**
+- Closed the false-removal-banner P0 across a four-commit arc (diagnostic `c9e330f` → v1 `a43a1ba` → v2 `081c641`; diagnostic reverted by v1). Root cause: a deliberate delete/leave and the 30s `checkPresence` watchdog both react to one membership loss; the poll fires the loud notice during the reconciliation gap. v2 raises `deliberateLossRef` at the START of the handler (before the destructive RPC), cleared in `finally`, so the poll defers across the whole action. Verified on dev — heavy create/delete churn on Slow 3G, no false banner.
+- Fixed banner name-correctness (folded into `a43a1ba`): banner showed a stale sticky name instead of the actually-lost household; now threads the lost name from the pre-update `myHouseholdsRef` through an optional `lostName` param.
+- Verified the genuine-external-removal regression (DH removed DT from Test 101): the notice still fires and names the household right — the guard does not over-suppress real removals.
+- Fixed blank-catalog-on-category-delete (`4d17c58`, verified): deleting a filtered category left its `rawName` in `selectedCategories`, collapsing the filter predicate to empty. Fix = evict on delete + self-healing predicate (narrow only by categories that still exist).
+- Fixed RUM session-replay masking (`f9ae19e`): `sensitivityRules` used key `type:` where the Splunk recorder expects `rule:` → all rules silently ignored → recorder fell back to mask-everything. One-word fix ×5.
+- Got Splunk session replay rendering + unmasked; chased a blank-replay red herring to ground (capture/ingest/versions/console all healthy — blank frames were render latency, not a bug). Replay now usable as a diagnostic instrument (it surfaced the blank-catalog bug).
+- Routed 5 built specs handoff→docs and reverted the temporary DIAG instrumentation (poll back to 30000, all `// DIAG` removed).
+**Unfinished:**
+- dev→main merge of the P0 fix — pending Dan's gate (deliberate: sleeping on a launch-critical change before promoting).
+- NEW known-issue — duplicate same-named households surfaced during churn (create/invite/accept/remove/delete). Unclear: true duplicate creation (two ids) vs a display/dedup bug (one id rendered twice). Needs a clean controlled repro; not chased mid-churn to avoid debugging without attribution.
+- Regression #3 re-confirm on v2 — passed on v1; v2 only widened the deliberate-action window so the path is logically sound, but a fresh two-device recheck before main is cheap insurance.
+- Dead-scaffolding cleanup — `selfDepartureRef`/`markSelfDeparture` now doubly superseded by `deliberateLossRef`; defined + exported but never consumed. Queued (touches exported context API — kept out of the launch commit).
+**Next session:**
+SESSION START
+Goal: Verify the P0 fix holds, promote dev→main, then get a clean controlled repro of the duplicate-same-named-household bug (determine two ids vs one id rendered twice).
+State: False-removal-banner P0 fixed + verified on dev (`081c641`), not yet on main. Blank-catalog and RUM-unmask fixes on dev. Session replay working + unmasked. Beat 0 launch email still on the personal variant, still gated on the P0 reaching prod.
+Done when: P0 fix verified on prod after merge; duplicate-household bug has a reliable repro and a root-cause direction (creation-race vs render-dedup).
+**Files updated:** `src/rum.js` (RUM masking key `f9ae19e`); `src/App.js` (blank-catalog filter predicate + `deleteCategory` `4d17c58`; deliberate-loss guard in delete/leave handlers `081c641`); `src/contexts/ActiveHouseholdContext.js` (banner race fix + name fix + DIAG add/revert across `c9e330f`/`a43a1ba`/`081c641`).
+**DB changes:** None.
+
+---
+
+### [2026-07-07] — [OurProvisions] — Beat 0 launch floor: ship + prod-verify the P0 fixes and run the cold-start gate
+**Goal:** Close out the Beat 0 launch-floor fixes end-to-end (dev → prod-verified) and run the new-user cold-start walk to decide whether to flip the signup email to self-serve.
+**Completed:**
+- Shipped + PROD-verified the join-activation REOPEN (ADDENDUM): the dev-green `pendingJoinId` fix failed on prod under membership-propagation latency; replaced with durable/retriable flag consumption (`c1ceab2`) — invite → auto-switch → banner → survives hard-reload, verified on prod with an existing user starting in a prior household.
+- Shipped + PROD-verified the sign-in/sign-up cold-load fix (`2249d0b`): disabled-placeholder gated on Clerk `isLoaded` (no layout shift) — no more dead-clicks on a cold load; verified disable-then-trigger on Slow 4G.
+- Diagnosis-first split the staples/filter cluster into TWO independent bugs (A: staples symptoms 1+2; B: cold-start empty Browse symptom 3); ratified the staple model (join table for ALL staples) and two-separate-commits sequencing.
+- Shipped + PROD-verified `household_staples` (Bug A, `949a8e9`): migration 016 (table + RLS on `is_member_of` + backfill + `get_list_items_for_household` repoint) applied to dev + prod; rewrote `toggleStaple`/catalog reads → global staples now persist per-household.
+- Shipped + PROD-verified the cold-start empty-Browse race (Bug B, `7d1e3c2`): bounded retry on an empty/errored first global-catalog fetch so a cold start self-recovers instead of stranding `catalogMap={}` behind `loading=false`.
+- Ran the new-user cold-start walk with real data: Bugs A + B both fixed; BUT the false "No longer a member" banner leaked once on prod during staple add/delete churn (non-reproducible) — now the blocker for the self-serve email flip.
+- Captured three field-test feedback items from a real Sacandaga/Hannaford shop (orientation drift, shop-timer idea, rotation-lock coach-mark).
+**Unfinished:**
+- False-removal-banner leak ("No longer a member of that household") fired on prod during add/delete staple churn; non-deterministic, could not reproduce. Diagnosis-only next; blocks the signup-email flip.
+- Signup email NOT flipped to self-serve — held on the personal variant (cold-start gate = PARTIAL GREEN) pending the banner-leak fix.
+- Auth-gate residual: on pathological 3G, `isLoaded` enables the button before Clerk's modal chunks finish → brief tap-no-op window. Deferred (wait-until-complain).
+- Migration-number collision: `016` is now `household_staples` (live on dev+prod); the queued `receipts` (was "016") and `beta_signups` (was "017") must renumber. Reconciled in ARCHITECTURE/ROADMAP this session.
+- `catalog_items.is_staple` left dormant (no read path); drop in a later cleanup migration. `ON DELETE CASCADE` carve-out now documented in ARCHITECTURE.
+- Local prod build broken on this machine: `@splunk/otel-web` in package.json but not installed locally; npm "Exit handler never called" glitch. Vercel builds fine — clean reinstall when convenient.
+**Next session:**
+SESSION START
+Goal: Fix the false "No longer a member" banner leak that fires on a fresh/cold-start prod session during staple churn (stale membership/removal flag in storage surfacing while the user is still a member), so the cold-start gate can go fully green and the signup email can flip to self-serve.
+State: Beat 0 launch floor otherwise clear — join-activation, auth-gate, staples (`household_staples`), and cold-start-empty-Browse all shipped and prod-verified. Migration 016 live on dev + prod. Invite path fully working on prod.
+Done when: A fresh cold-start identity (and an add/delete staple churn session) on prod never shows the false removal banner while the user is still a member; verified on deployed dev then prod. Then flip the signup email to the self-serve "come aboard" variant.
+**Files updated:** `src/App.js` (join-activation reopen `c1ceab2`; auth-gate `isLoaded` `2249d0b`), `src/hooks/useProvisions.js` (staples client `949a8e9`; cold-start retry `7d1e3c2`), `migrations/016_household_staples.sql` (new).
+**DB changes:** `migrations/016_household_staples.sql` applied to dev (`zxwtxjjmssykhqrghouf`) AND prod (`parpauldmbetptkmdwbd`) — `household_staples` table + RLS + backfill (dev 1=1, prod 5=5) + `get_list_items_for_household` repoint (verified via `prosrc`).
+
+---
+
+### [2026-07-06] — [OurProvisions] — Plan the 45-day rolling-thunder beta launch
+**Goal:** Design the structure, front door, and Beat 0 scope for a high-velocity beta that ramps engagement with a wider circle of friends and social connections.
+**Completed:**
+- Reframed the launch from "one polished release" to a 45-day high-velocity "rolling thunder" beta: ~6 weekly beats, cadence-as-product, "we're doing this together, you're aboard" narrative.
+- Structured the beats: Beat 0 = launch floor + two-way channel (this week); Beat 1 = Shop/Filter (first visible ExD); Beat 2 = receipts (first AI); Beats 3–6 deliberately held open for real feedback.
+- Settled the front-door architecture: velayo.ai (brand/journey) + ourprovisions.app (product) both feed ONE Mailchimp list; dropped the landing-page questionnaire (Mailchimp capture replaces it).
+- Designed Beat 0 two-way channel: "Message the bridge" in-app feedback (store + notify, auto-context) and "Dispatches" in-app what's-new surface (one message → Mailchimp + in-app banner + social).
+- Designed iOS install coach-mark in full: iOS Safari only, first-open show, two-step dismissal ladder, localStorage counter, "visit" = fresh app open; Android deferred to Chrome's native prompt.
+- Confirmed self-serve cold-start is viable (household creation on first run already exists); gated the signup-email flip on a timed cold-start walk verifying clean zero-state onboard.
+- Held join-activation fix as P0 launch-blocker — the invite path is the launch.
+- [Session housekeeping] Completed July 5 SESSION END carry-over: appended 7 decisions, updated ARCHITECTURE.md with `beta_signups` schema/patterns, filed `EVIDENCE_grocery_savings.md` to `docs/`, committed `8956c07`.
+**Unfinished:**
+- Dispatch dismissal behavior undecided (lean: always-show-latest + ship's-log panel).
+- Signup email flip to self-serve — gates on cold-start walk verdict; not decidable in design chat alone.
+- All four Beat 0 specs authored; none yet built or applied to prod.
+**Next session:**
+SESSION START
+Goal: Execute Beat 0 — ship the join-activation fix (P0) as the first clean win, then run the timed new-user cold-start walk.
+State: Phase 1 live (core list, household sharing, categories, budget, waste tracker); Realtime on list_items + household_members; Splunk RUM + session replay live on prod; velayo.ai form posts to Mailchimp; cold-start household creation exists but not yet walked as a true zero-state user.
+Done when: A fresh test identity accepts an invite via link and lands in the correct household on first render, verified on deployed dev then promoted to prod (DT + a Gmail plus-alias, two devices).
+**Files updated:** `docs/SPEC_pwa_install_coachmark.md` (new), `docs/SPEC_feedback_bridge.md` (new), `docs/SPEC_dispatches.md` (new), `docs/SPEC_new_user_coldstart.md` (new).
+**DB changes:** None applied. Pending (Beat 0 build): `feedback` table, `dispatches` table.
+
+---
+
+### [2026-07-05] — [OurProvisions] — Design "Come aboard" beta landing page + signup, grounded in sourced savings argument
+**Goal:** Turn the "Come aboard" CTA into a real front door — a beta signup questionnaire backed by Supabase — and reframe the landing page around a bold, sourced business case that pivots from money to life.
+**Completed:**
+- Reframed "Come aboard" from a plain CTA into a short questionnaire — completing it *is* coming aboard; friction qualifies applicants ("willing to give to get") and pre-validates roadmap phases with GTM research.
+- Locked questionnaire: 7 behavioral questions (keeps_list, who_shops, store_count, crew, multi_household, list_method, region) + optional free-text (wishes) + name/email. Cut income, age, "do you cook?" against the "does the answer change a 6-month decision?" test.
+- Designed sine-wave landing flow: Boardroom (rational peak) → Trough (out-of-control feeling) → Ah-ha (biggest problem, smallest fix = a list) → Vision overshoot → Front Door (questionnaire). Questionnaire at the END because problem-led opening peaks intent there.
+- Settled the fundamental ache framing: groceries are the largest *controllable* household expense and it feels out of control; the humble fix is a list; a list is the gateway to a better life. Lead with the wallet, land on the life.
+- Researched and sourced the savings claim. Killed bare "10–20%" and phantom "NYT 10%" stat (neither defensible). Anchored on Davydenko & Peetz (2020), *Journal of Consumer Behaviour* — randomized studies, list-makers spend ~$10–13 less per trip (~10% on a $108 trip).
+- Flagged gap in investor Vision Roadmap: no external savings citation — only illustrative in-app figures. Closes with the JCB source.
+- Produced `SPEC_beta_signups.md`, `mockup_come_aboard.html`, `EVIDENCE_grocery_savings.md` (all filed or surfaced per below).
+**Unfinished:**
+- Boardroom→trough→ah-ha hero copy not yet drafted to final — next drafting pass uses `EVIDENCE_grocery_savings.md`.
+- Movement II placement pattern unresolved: full questionnaire inline vs. short invitation with questions-on-tap (reveal). Leaning invitation-on-tap.
+- Questionnaire mockup not yet eye-tested by Dan for warmth (warm handshake vs. survey).
+- `beta_signups` migration NOT yet run; anon insert NOT yet wired; questionnaire NOT yet spliced into the page.
+**Next session:**
+SESSION START
+Goal: Draft boardroom→trough→ah-ha hero copy to final using `EVIDENCE_grocery_savings.md`; resolve Movement II inline-vs-reveal fork; eye-test mockup; then Claude Code BUILD: run migration → wire anon insert → splice questionnaire into page.
+State: Questionnaire question set locked. `beta_signups` schema + insert-only RLS spec written (not yet applied). Sine-wave flow + money-ache reframe settled. Savings evidence sourced. Mockup awaiting approval. Nothing applied to prod yet.
+Done when: Hero copy final and sourced; Movement II pattern chosen; mockup approved or revised; clean BUILD handoff exists.
+**Files updated:** `docs/specs/SPEC_beta_signups.md` (new), `docs/mockups/mockup_come_aboard.html` (new). `EVIDENCE_grocery_savings.md` in airlock — destination TBD (surfaced to Dan).
+**DB changes:** None applied. Pending (in SPEC_beta_signups.md): create `public.beta_signups` on prod, enable RLS, insert-only anon policy.
+
+---
+
+### [2026-07-03] — [Cross] — Receipt import design + use-case validation + fleet/vision brand work; wrap-up modal fix + git reconcile + prod migration verification
+**Goal:** Design the receipt import feature end-to-end and validate against the full downstream vision; reconcile the Harbour fleet and build the investor narrative. Parallel build: ship the wrap-up modal fix and verify prod migration state before promoting.
+**Completed:**
+- Designed the receipt import pipeline as a source-agnostic core (capture → normalize → reconcile → review → commit); photo is the first swappable adapter, email/API later.
+- Settled four load-bearing receipt decisions: confidence-gated review, rolling-average `price_hint` from last-N `receipt_items` (no counter column), alias learning deferred with `match_source` as training hook, and NO `list_items` write in v1.
+- Specced vision extraction (photo→strict JSON, two-confidence separation, structured-refusal rule, defensive parsing) and Tier 1/Tier 2 reconcile (deterministic free / AI paid — gets smarter and cheaper as catalog fills).
+- Documented and validated 17 receipt use cases against live prod schema; surfaced four cheap schema additions (shopped_by, store_key, line_type, numeric quantity) to catch now vs. a painful Phase-4 backfill.
+- Reconciled Harbour fleet to 8 apps; built investor vision narrative (paper→intelligence→the Harbour) with BVI harbour photo graded to brand tokens; exported standalone photo assets to SharePoint.
+- [Parallel] Fixed invisible Cancel button on wrap-up modal — phantom `className="modal-box"` (never defined) → `.modal` (real card class, ~line 1046); inline `maxWidth: 360px` preserved. Commit `91b531a`, verified dev, promoted to prod.
+- [Parallel] Untangled two-machine git divergence (local `main`/`dev` ~30 commits behind `origin/dev`) via merge abort → hard-reset to `origin/main` → merge `dev` → push; no work lost. Confirmed migrations 014 + 015 live on prod by direct query.
+**Unfinished:**
+- Vision extraction UNPROVEN on real thermal-paper receipts — must be first build step (one API call on a real crumpled receipt before any DB work).
+- Four receipt-table columns not yet migrated: `shopped_by`, `store_key` (receipts); `line_type` (receipt_items); migration 016 written in the build session.
+- `OurKeep` and `OurGames` have no user-facing definition — named in the 8-app fleet but not specced.
+- Investor narrative fleet (8 apps) diverges from `Velayo_Harbor_Investor_Narrative.docx` (6 apps); doc needs updating.
+**Next session:**
+SESSION START
+Goal: Take the receipt vision-extraction spec to Claude Code and prove photo → JSON on a real receipt, in isolation, before any schema work.
+State: Wrap-up modal fix live on prod. Migrations 014 + 015 confirmed live on prod. Full receipt import feature designed across 5 airlock artifacts now in `docs/specs/` and `docs/mockups/`. Nothing of the receipt feature built yet — pure design.
+Done when: A real photographed receipt returns valid JSON matching the extraction contract, with honest confidence (a deliberately ambiguous line scores low, not high) and non-item lines flagged.
+**Files updated:** `docs/specs/SPEC_receipt_import.md`, `docs/specs/SPEC_receipt_vision_extraction.md`, `docs/specs/SPEC_receipt_reconcile.md`, `docs/specs/SPEC_receipt_use_cases.md`, `docs/mockups/mockup_receipt_review.html` (all new, filed from handoff). `src/App.js` (wrap-up modal fix, commit `91b531a` — already on prod).
+**DB changes:** None this session. Confirmed live on prod: 014 (auth.uid RLS fix), 015 (helper consolidation). Pending: migration 016 will add `receipts` + `receipt_items` tables.
+
+---
+
 ### [2026-07-01 — AMENDMENT] — [OurProvisions] — Promoted both changes to prod; list text-size DONE, join-activation REOPENED after prod failure
 **Goal:** Promote the two dev-verified changes to prod and confirm there. *(Corrects the same-day entry below, which marked join-activation DONE on dev evidence only.)*
 **Completed:**

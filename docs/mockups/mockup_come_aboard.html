@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Come Aboard — OurProvisions</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&family=Lato:wght@300;400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --espresso:#2C1A0E;
+    --cream:#FAF4EC;
+    --cream-deep:#F3E9DA;
+    --sand:#C9A97A;
+    --sand-soft:#E4D2B3;
+    --teal:#0D9488;
+    --teal-deep:#0b7f76;
+    --abyss:#020F1A;
+    --paper:#FBF7F0;
+    --ink-soft:#6f5a45;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--cream);
+    color:var(--espresso);
+    font-family:'Lato',sans-serif;
+    font-weight:400;line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:680px;margin:0 auto;padding:0 28px;}
+  h1,h2,h3{font-family:'Playfair Display',serif;line-height:1.14;font-weight:700;}
+  .eyebrow{font-size:12px;letter-spacing:4px;text-transform:uppercase;color:var(--sand);font-weight:700;margin-bottom:18px;}
+
+  /* ---------- intro ---------- */
+  .aboard-intro{
+    background:
+      radial-gradient(120% 90% at 80% -10%, rgba(13,148,136,0.10), transparent 60%),
+      linear-gradient(180deg,var(--cream) 0%,var(--cream-deep) 100%);
+    padding:74px 0 40px;text-align:left;
+  }
+  .aboard-intro h1{font-size:clamp(32px,5.4vw,48px);letter-spacing:-0.5px;margin-bottom:20px;}
+  .aboard-intro h1 em{font-style:italic;color:var(--teal);}
+  .aboard-intro p{font-size:18px;color:var(--ink-soft);max-width:52ch;}
+  .honest{
+    margin-top:24px;padding:16px 20px;border-left:2px solid var(--sand);
+    background:rgba(201,169,122,0.10);border-radius:0 10px 10px 0;
+    font-size:14.5px;color:var(--ink-soft);max-width:56ch;
+  }
+  .honest b{color:var(--espresso);font-weight:700;}
+
+  /* ---------- the questions ---------- */
+  .questions{padding:44px 0 30px;}
+  .q{margin-bottom:40px;}
+  .q .num{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--sand);font-weight:700;}
+  .q .ask{font-family:'Playfair Display',serif;font-size:21px;font-weight:700;margin:2px 0 16px;}
+
+  /* chips */
+  .chips{display:flex;flex-wrap:wrap;gap:10px;}
+  .chip{
+    font-family:'Lato';font-size:15px;font-weight:700;color:var(--espresso);
+    background:var(--paper);border:1.5px solid var(--sand-soft);border-radius:999px;
+    padding:11px 20px;cursor:pointer;transition:all .15s ease;user-select:none;
+  }
+  .chip:hover{border-color:var(--sand);}
+  .chip.on{
+    background:var(--teal);border-color:var(--teal);color:#fff;
+    box-shadow:0 4px 14px rgba(13,148,136,0.28);
+  }
+  .chip:focus-visible{outline:2px solid var(--teal-deep);outline-offset:2px;}
+
+  /* reveal (elsewhere → free text) */
+  .reveal{max-height:0;overflow:hidden;transition:max-height .25s ease,margin .25s ease;}
+  .reveal.open{max-height:90px;margin-top:12px;}
+
+  /* text inputs */
+  .field{
+    width:100%;font-family:'Lato';font-size:16px;color:var(--espresso);
+    background:var(--paper);border:1.5px solid var(--sand-soft);border-radius:12px;
+    padding:13px 16px;transition:border-color .15s ease;
+  }
+  .field::placeholder{color:#b8a489;}
+  .field:focus{outline:none;border-color:var(--teal);}
+  textarea.field{resize:vertical;min-height:84px;line-height:1.5;}
+  .optional{font-size:12px;color:var(--sand);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-left:8px;}
+
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media (max-width:520px){.pair{grid-template-columns:1fr;}}
+
+  /* ---------- CTA ---------- */
+  .aboard-cta{padding:20px 0 84px;}
+  .btn{
+    font-family:'Lato';font-size:17px;font-weight:900;letter-spacing:0.5px;
+    color:#fff;background:var(--teal);border:none;border-radius:14px;
+    padding:17px 40px;cursor:pointer;transition:all .18s ease;
+    box-shadow:0 6px 20px rgba(13,148,136,0.30);
+  }
+  .btn:hover{background:var(--teal-deep);transform:translateY(-1px);}
+  .btn:focus-visible{outline:2px solid var(--espresso);outline-offset:3px;}
+  .cta-note{margin-top:16px;font-size:13px;color:var(--ink-soft);max-width:48ch;}
+
+  /* ---------- confirmation (mock only) ---------- */
+  .aboard-done{display:none;padding:80px 0;text-align:center;}
+  .aboard-done.show{display:block;}
+  .aboard-done .mark{font-family:'Playfair Display',serif;font-weight:800;font-size:clamp(28px,4.6vw,40px);letter-spacing:-0.5px;}
+  .aboard-done .mark em{color:var(--teal);font-style:italic;}
+  .aboard-done p{margin-top:16px;font-size:17px;color:var(--ink-soft);max-width:46ch;margin-left:auto;margin-right:auto;}
+
+  .mockbar{background:var(--abyss);color:var(--sand);font-size:12px;letter-spacing:1px;
+    text-transform:uppercase;font-weight:700;text-align:center;padding:12px;}
+</style>
+</head>
+<body>
+
+<div class="mockbar">Mockup · Come Aboard · not wired to Supabase yet</div>
+
+<!-- ============ THE QUESTIONNAIRE ============ -->
+<div id="form-view">
+  <section class="aboard-intro">
+    <div class="wrap">
+      <div class="eyebrow">Beta · Invite only</div>
+      <h1>Come <em>aboard.</em></h1>
+      <p>OurProvisions is early — we're welcoming households one at a time, in person. Tell us how your home shops, and we'll be in touch to get you set up.</p>
+      <div class="honest">
+        This isn't a sign-up wall. It's a <b>handshake.</b> There's no instant login yet — Dan reads every one of these and reaches out personally to bring you aboard.
+      </div>
+    </div>
+  </section>
+
+  <section class="questions">
+    <div class="wrap">
+
+      <div class="q">
+        <div class="num">01</div>
+        <div class="ask">Do you keep a running grocery list?</div>
+        <div class="chips" data-single>
+          <div class="chip" tabindex="0" data-val="always">Always — there's one going</div>
+          <div class="chip" tabindex="0" data-val="sometimes">Sometimes</div>
+          <div class="chip" tabindex="0" data-val="wings_it">I wing it</div>
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="num">02</div>
+        <div class="ask">Who does the shopping in your home?</div>
+        <div class="chips" data-single>
+          <div class="chip" tabindex="0" data-val="mostly_me">Mostly me</div>
+          <div class="chip" tabindex="0" data-val="split">We split it</div>
+          <div class="chip" tabindex="0" data-val="someone_else">Someone else — I plan</div>
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="num">03</div>
+        <div class="ask">How many stores in a typical month?</div>
+        <div class="chips" data-single>
+          <div class="chip" tabindex="0" data-val="one">One</div>
+          <div class="chip" tabindex="0" data-val="two_three">Two or three</div>
+          <div class="chip" tabindex="0" data-val="three_plus">More than three</div>
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="num">04</div>
+        <div class="ask">Who's on your crew?</div>
+        <div class="chips" data-single>
+          <div class="chip" tabindex="0" data-val="just_me">Just me</div>
+          <div class="chip" tabindex="0" data-val="partner">A partner</div>
+          <div class="chip" tabindex="0" data-val="family">A family</div>
+          <div class="chip" tabindex="0" data-val="roommates">A house of roommates</div>
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="num">05</div>
+        <div class="ask">More than one household?</div>
+        <div class="chips" data-single>
+          <div class="chip" tabindex="0" data-val="false">Just one</div>
+          <div class="chip" tabindex="0" data-val="true">Yes — I run more than one</div>
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="num">06</div>
+        <div class="ask">When you build your list, do you start from meals or staples?</div>
+        <div class="chips" data-single>
+          <div class="chip" tabindex="0" data-val="meals">Plan meals, then list</div>
+          <div class="chip" tabindex="0" data-val="staples">Restock what's low</div>
+          <div class="chip" tabindex="0" data-val="mixed">A bit of both</div>
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="num">07</div>
+        <div class="ask">Where are you shopping from?</div>
+        <div class="chips" data-single data-region>
+          <div class="chip" tabindex="0" data-val="caribbean">Caribbean</div>
+          <div class="chip" tabindex="0" data-val="us_east">US East</div>
+          <div class="chip" tabindex="0" data-val="us_west">US West</div>
+          <div class="chip" tabindex="0" data-val="uk">UK</div>
+          <div class="chip" tabindex="0" data-val="europe">Europe</div>
+          <div class="chip" tabindex="0" data-val="elsewhere">Elsewhere</div>
+        </div>
+        <div class="reveal" id="region-reveal">
+          <input class="field" id="region-other" placeholder="Tell us where — a town, an island, a boat…">
+        </div>
+      </div>
+
+      <div class="q">
+        <div class="num">08</div>
+        <div class="ask">What would make your shopping better?<span class="optional">Optional</span></div>
+        <textarea class="field" placeholder="Anything — a frustration, a wish, a habit you'd never break."></textarea>
+      </div>
+
+      <div class="q">
+        <div class="num">09</div>
+        <div class="ask">Where do we find you?</div>
+        <div class="pair">
+          <input class="field" placeholder="Your name">
+          <input class="field" placeholder="Email" type="email">
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="aboard-cta">
+    <div class="wrap">
+      <button class="btn" onclick="document.getElementById('form-view').style.display='none';document.getElementById('done-view').classList.add('show');window.scrollTo(0,0);">Come aboard</button>
+      <p class="cta-note">We'll only ever use this to bring you aboard OurProvisions. No lists, no noise.</p>
+    </div>
+  </section>
+</div>
+
+<!-- ============ CONFIRMATION (mock) ============ -->
+<div id="done-view" class="aboard-done">
+  <div class="wrap">
+    <div class="eyebrow">You're on the manifest</div>
+    <div class="mark">Welcome aboard, <em>almost.</em></div>
+    <p>Thanks for the handshake. Dan will read this and reach out personally to get your household set up. Keep an eye on your inbox.</p>
+  </div>
+</div>
+
+<script>
+  // single-select chips
+  document.querySelectorAll('.chips[data-single]').forEach(group=>{
+    const select = chip=>{
+      group.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+      chip.classList.add('on');
+      if(group.hasAttribute('data-region')){
+        const reveal=document.getElementById('region-reveal');
+        reveal.classList.toggle('open', chip.dataset.val==='elsewhere');
+      }
+    };
+    group.querySelectorAll('.chip').forEach(chip=>{
+      chip.addEventListener('click',()=>select(chip));
+      chip.addEventListener('keydown',e=>{
+        if(e.key==='Enter'||e.key===' '){e.preventDefault();select(chip);}
+      });
+    });
+  });
+</script>
+
+</body>
+</html>

@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError } from "../lib/classifyFetchError";
 import { useConnectivity } from "../contexts/ConnectivityContext";
+import { normalizeHouseholdPhoto } from "../lib/image";
 
 export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
   const [quantities, setQuantities] = useState({});
@@ -36,6 +37,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // overwrite these from the DB until the write confirms, or it'll briefly
   // snap the optimistic value back to the stale server value (5→4→5 flicker).
   const pendingQtyRef = useRef(new Set());
+  // Same guard for optimistic check state: while a toggle write is in flight,
+  // the 2s poll must not overwrite the optimistic value with the stale server
+  // status (Bug 3: toggle bounces / takes ~3 taps to stick). Keyed by name,
+  // matching `checked`.
+  const pendingCheckRef = useRef(new Set());
   const [activeCycle, setActiveCycle] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
   const activeCycleRef = useRef(null);
@@ -47,6 +53,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [bootstrapped, setBootstrapped] = useState(false);
   const justJoinedViaInviteRef = useRef(false);
   const realtimeChannelRef = useRef(null);
+
+  // Staple state is per-household row-presence in household_staples (migration
+  // 016) — the single source of truth for BOTH global and custom items. Returns
+  // the set of catalog_item_ids this household has stapled, so catalog reads can
+  // stamp is_staple per item without trusting the dormant catalog_items column.
+  async function fetchStapleSet(db, householdId) {
+    const { data } = await db
+      .from("household_staples")
+      .select("catalog_item_id")
+      .eq("household_id", householdId);
+    return new Set((data || []).map((r) => r.catalog_item_id));
+  }
 
   async function loadListItems(db, householdId) {
     if (wrappingUpRef.current) return;
@@ -171,7 +189,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       });
       return merged;
     });
-    setChecked(newChecked);
+    setChecked((prev) => {
+      if (pendingCheckRef.current.size === 0) return newChecked;
+      const merged = { ...newChecked };
+      pendingCheckRef.current.forEach((name) => {
+        if (name in prev) merged[name] = prev[name];
+      });
+      return merged;
+    });
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
     setContributorsMap(newContributors);
@@ -398,18 +423,49 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       activeCycleRef.current = null;
 
       try {
-        // Fetch the household record
-        const { data: hhData, error: hhErr } = await db
-          .from("households")
-          .select("id, name, budget_goal")
-          .eq("id", householdId)
-          .single();
+        // Fetch the household record. Banner columns (migration 024) are read
+        // best-effort: if 024 hasn't been applied to this environment yet, the
+        // extended select errors on the missing column, and we fall back to the
+        // base columns so the app degrades to today's espresso header instead of
+        // hard-erroring. Once 024 is applied, the extended select succeeds.
+        const BANNER_COLS = "photo_path, photo_position_x, photo_position_y, photo_zoom, banner_wordmark, created_by";
+        let hhData = null, hhErr = null;
+        {
+          const ext = await db
+            .from("households")
+            .select(`id, name, budget_goal, ${BANNER_COLS}`)
+            .eq("id", householdId)
+            .single();
+          if (ext.error) {
+            // Retry with base columns — distinguishes "migration not applied" (retry
+            // succeeds) from a genuine fetch failure (retry also errors).
+            const base = await db
+              .from("households")
+              .select("id, name, budget_goal")
+              .eq("id", householdId)
+              .single();
+            hhData = base.data; hhErr = base.error;
+          } else {
+            hhData = ext.data; hhErr = ext.error;
+          }
+        }
         if (hhErr) {
           if (classifyFetchError(hhErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not fetch household: ${hhErr.message}`); }
           setLoading(false); return;
         }
         if (cancelled) return;
         const hh = hhData;
+        // Private bucket → resolve photo_path to a signed URL for the header.
+        // Best-effort: a resolve failure just leaves the espresso header.
+        if (hh.photo_path) {
+          try {
+            const { data: signed } = await db.storage
+              .from("household-photos")
+              .createSignedUrl(hh.photo_path, 60 * 60);
+            if (cancelled) return;
+            hh.photoUrl = signed?.signedUrl || null;
+          } catch (_e) { hh.photoUrl = null; }
+        }
         setHousehold(hh);
         householdRef.current = hh;
 
@@ -445,14 +501,28 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         hiddenCatalogItemsRef.current = hiddenCatalogList;
         setHiddenCatalogItems(hiddenCatalogList);
 
-        // Global catalog
-        const { data: catalog, error: catalogErr } = await db
-          .from("catalog_items")
-          .select("id, name, category, is_global, price_hint, is_staple")
-          .eq("is_global", true)
-          .is("deleted_at", null);
+        // Global catalog — the shared seed set (~50 rows) that ALWAYS exists.
+        // On a cold start the first read can return empty (or transiently error)
+        // before the session/RLS is warm; proceeding then would strand
+        // catalogMap={} with loading already false, so Browse renders a blank
+        // void until something forces a refetch — the "empty until you tap a
+        // filter" cold-start bug (a filter can't add rows; the data was simply
+        // missing). An empty global catalog is never legitimate, so retry with a
+        // short backoff before giving up.
+        let catalog = null;
+        let catalogErr = null;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          ({ data: catalog, error: catalogErr } = await db
+            .from("catalog_items")
+            .select("id, name, category, is_global, price_hint, is_staple")
+            .eq("is_global", true)
+            .is("deleted_at", null));
+          if (cancelled) return;
+          if (!catalogErr && catalog && catalog.length > 0) break;
+          await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+          if (cancelled) return;
+        }
         if (catalogErr) { setError(`Could not load catalog: ${catalogErr.message}`); setLoading(false); return; }
-        if (cancelled) return;
 
         // Custom catalog (household-scoped)
         const { data: customItems, error: customErr } = await db
@@ -464,12 +534,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         if (customErr) { setError(`Could not load custom items: ${customErr.message}`); setLoading(false); return; }
         if (cancelled) return;
 
+        // Per-household staples (row-presence). is_staple is stamped from this
+        // set, NOT the shared catalog_items column (migration 016).
+        const stapleSet = await fetchStapleSet(db, hh.id);
+        if (cancelled) return;
+
         const cMap = {};
         (catalog || []).forEach((item) => {
-          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: null };
+          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, is_staple: stapleSet.has(item.id), created_by: null };
         });
         (customItems || []).forEach((item) => {
-          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, created_by: item.created_by ?? "custom" };
+          if (!hiddenIds.has(item.id)) cMap[item.name] = { ...item, is_staple: stapleSet.has(item.id), created_by: item.created_by ?? "custom" };
         });
         setCatalogMap(cMap);
         catalogRef.current = cMap;
@@ -544,19 +619,31 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
       // If not found, this is a brand-new custom item — insert it into catalog_items
       if (!catalogItem) {
-        const category = categoryName || "Household";
-        const { data: insertedId, error: insertErr } = await db
-          .rpc("insert_custom_catalog_item", {
-            p_name: itemName,
-            p_category: category,
-            p_household_id: hh.id,
-            p_created_by: internalUserIdRef.current,
-          });
-        if (insertErr) throw insertErr;
-        catalogItem = { id: insertedId, name: itemName, category: category, is_global: false, household_id: hh.id };
-        // Keep catalogRef and catalogMap in sync
-        catalogRef.current = { ...catalogRef.current, [itemName]: catalogItem };
-        setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
+        // Resolver hardening (F1b Layer 2): a HIDDEN item is evicted from catalogRef,
+        // so it looks "new" here. Before inserting a fork, resolve an exact-normalized
+        // name match against the hidden set to the EXISTING catalog row. (F0's DB index
+        // uq_live_list_item would reject a duplicate live row anyway; this keeps the
+        // path a clean reuse rather than surfacing as an error.)
+        const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+        const hiddenMatch = hiddenCatalogItemsRef.current.find(it => norm(it.name) === norm(itemName));
+        if (hiddenMatch) {
+          catalogItem = hiddenMatch;
+          catalogRef.current = { ...catalogRef.current, [itemName]: hiddenMatch };
+        } else {
+          const category = categoryName || "Household";
+          const { data: insertedId, error: insertErr } = await db
+            .rpc("insert_custom_catalog_item", {
+              p_name: itemName,
+              p_category: category,
+              p_household_id: hh.id,
+              p_created_by: internalUserIdRef.current,
+            });
+          if (insertErr) throw insertErr;
+          catalogItem = { id: insertedId, name: itemName, category: category, is_global: false, household_id: hh.id };
+          // Keep catalogRef and catalogMap in sync
+          catalogRef.current = { ...catalogRef.current, [itemName]: catalogItem };
+          setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
+        }
       }
 
       if (qty <= 0) {
@@ -654,29 +741,36 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
 
-  const toggleChecked = useCallback(async (itemName, catalogItemId) => {
+  const toggleChecked = useCallback(async (itemName, listItemId) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return;
 
-    // Resolve the catalog id from the id passed by the caller (stable, from
-    // listRows). Fall back to the name-keyed catalog map only if no id arrived.
-    const resolvedId = catalogItemId ?? catalogRef.current[itemName]?.id;
-    if (!resolvedId) { setError(`"${itemName}" not in catalog`); return; }
+    // F2: write to the specific list_items row by its id (threaded from
+    // listRows). Scoping by catalog_item_id flipped EVERY live row sharing
+    // that catalog id (Bug 2: "check one, both check"). The id is unique, so
+    // this can only ever touch the tapped row.
+    if (!listItemId) { setError(`"${itemName}" is not on the list`); return; }
 
     const newStatus = checked[itemName] ? "pending" : "bought";
+    // F3: mark this item as having an in-flight write so the 2s poll won't
+    // snap the optimistic value back to the stale server status before the
+    // update commits (Bug 3: toggle bounces / needs ~3 taps to stick).
+    pendingCheckRef.current.add(itemName);
     setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
 
     try {
       const { error: updateErr } = await db
         .from("list_items")
         .update({ status: newStatus })
+        .eq("id", listItemId)
         .eq("household_id", hh.id)
-        .eq("catalog_item_id", resolvedId)
         .is("deleted_at", null);
       if (updateErr) throw updateErr;
+      pendingCheckRef.current.delete(itemName);
       reportSuccess();
     } catch (err) {
+      pendingCheckRef.current.delete(itemName);
       console.error("toggleChecked error:", err.message);
       setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
       if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
@@ -1220,6 +1314,35 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setHiddenCatalogItems(prev => prev.filter(item => !ids.includes(item.id)));
   }, []);
 
+  // Un-hide a SINGLE catalog item (F1b). The un-hide-only primitive: it deletes the
+  // user_hidden_items row, clears hiddenIdsRef, and restores the item to catalogRef.
+  // It NEVER touches list_items — revealing a shared row leaves its quantity exactly
+  // as the household set it. Single-item twin of restoreHiddenByCategory.
+  const unhideItem = useCallback(async (catalogItemId) => {
+    const db = supabaseRef.current;
+    if (!db) return;
+
+    const item = hiddenCatalogItemsRef.current.find(it => it.id === catalogItemId);
+    if (!item) return;
+
+    const { error: restoreErr } = await db
+      .from("user_hidden_items")
+      .delete()
+      .eq("clerk_id", clerkIdRef.current)
+      .eq("catalog_item_id", catalogItemId);
+    if (restoreErr) { setError(`Could not reveal item: ${restoreErr.message}`); return; }
+
+    const newHiddenIds = new Set(hiddenIdsRef.current);
+    newHiddenIds.delete(catalogItemId);
+    hiddenIdsRef.current = newHiddenIds;
+
+    catalogRef.current = { ...catalogRef.current, [item.name]: item };
+    setCatalogMap(prev => ({ ...prev, [item.name]: item }));
+
+    hiddenCatalogItemsRef.current = hiddenCatalogItemsRef.current.filter(it => it.id !== catalogItemId);
+    setHiddenCatalogItems(prev => prev.filter(it => it.id !== catalogItemId));
+  }, []);
+
   const refreshCatalog = useCallback(async () => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -1248,14 +1371,19 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     reportSuccess();
 
+    // Per-household staples (row-presence, migration 016). Reading this here —
+    // instead of the shared catalog_items.is_staple column — is what makes a
+    // global-item staple PERSIST across the poll instead of reverting to grey.
+    const stapleSet = await fetchStapleSet(db, hh.id);
+
     const next = {};
     (catalog || []).forEach((item) => {
       if (hiddenIdsRef.current.has(item.id) || deletedIdsRef.current.has(item.id)) return; // never show hidden or just-deleted
-      next[item.name] = { ...item, created_by: null };
+      next[item.name] = { ...item, is_staple: stapleSet.has(item.id), created_by: null };
     });
     (customItems || []).forEach((item) => {
       if (hiddenIdsRef.current.has(item.id) || deletedIdsRef.current.has(item.id)) return;
-      next[item.name] = { ...item, created_by: item.created_by ?? "custom" };
+      next[item.name] = { ...item, is_staple: stapleSet.has(item.id), created_by: item.created_by ?? "custom" };
     });
 
     // Guarded merge: only commit if the catalog actually changed, so a
@@ -1339,11 +1467,23 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const item = catalogRef.current[itemName];
     if (!item) return;
     const newVal = !item.is_staple;
-    const { error: stapleErr } = await db
-      .from("catalog_items")
-      .update({ is_staple: newVal })
-      .eq("id", item.id);
-    if (stapleErr) { setError(`Could not update staple: ${stapleErr.message}`); return; }
+    // Staple is per-household row-presence in household_staples (migration 016),
+    // uniform for global AND custom items. The old catalog_items UPDATE silently
+    // no-op'd on global rows (household_id=NULL failed the RLS USING clause).
+    if (newVal) {
+      const { error: insErr } = await db
+        .from("household_staples")
+        .insert({ household_id: hh.id, catalog_item_id: item.id });
+      // 23505 = unique_violation (already stapled: double-tap / race) → success.
+      if (insErr && insErr.code !== "23505") { setError(`Could not update staple: ${insErr.message}`); return; }
+    } else {
+      const { error: delErr } = await db
+        .from("household_staples")
+        .delete()
+        .eq("household_id", hh.id)
+        .eq("catalog_item_id", item.id);
+      if (delErr) { setError(`Could not update staple: ${delErr.message}`); return; }
+    }
     const updated = { ...item, is_staple: newVal };
     catalogRef.current = { ...catalogRef.current, [itemName]: updated };
     setCatalogMap(prev => ({ ...prev, [itemName]: updated }));
@@ -1384,6 +1524,117 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, []);
 
+  // ─────────────────────────────────────────────────────────────
+  // OurBanner — photo upload + framing/name commit (migration 024)
+  //
+  // uploadHouseholdPhoto: EXIF-normalize + downscale, upload to
+  //   {household_id}/header.jpg (upsert = replace overwrites), then
+  //   return the stored object path. Does NOT persist the row — the
+  //   caller commits path + framing + name together via
+  //   updateHouseholdBanner (one Save, per spec D8).
+  // ─────────────────────────────────────────────────────────────
+  const uploadHouseholdPhoto = useCallback(async (file) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !file) {
+      console.error("[photo upload] aborted before start:", { hasDb: !!db, hasHousehold: !!hh, hasFile: !!file });
+      return null;
+    }
+    // Stage 1 — EXIF-normalize + downscale (client-side canvas work). This is the
+    // step most likely to throw on browser-support gaps, so it's isolated with its
+    // own label; a throw here means the .upload() below is never reached (no
+    // network request), which is exactly the silent-no-op signature.
+    let blob;
+    try {
+      blob = await normalizeHouseholdPhoto(file);
+    } catch (err) {
+      console.error("[photo upload] normalize/EXIF step threw:", err);
+      setError(`Could not process photo: ${err?.message || err}`);
+      return null;
+    }
+    // Stage 2 — storage upload (the network request to household-photos).
+    try {
+      const path = `${hh.id}/header.jpg`;
+      const { error: upErr } = await db.storage
+        .from("household-photos")
+        .upload(path, blob, { contentType: "image/jpeg", upsert: true });
+      if (upErr) throw upErr;
+      return path;
+    } catch (err) {
+      console.error("[photo upload] storage .upload() step threw:", err);
+      setError(`Could not upload photo: ${err?.message || err}`);
+      return null;
+    }
+  }, []);
+
+  // updateHouseholdBanner: commit name + framing + wordmark (+ optional
+  // photo_path change) in one update. Pass only the fields to change;
+  // `photo_path: null` removes the photo. Re-resolves the signed URL and
+  // updates household state so the header swaps without a reload.
+  const updateHouseholdBanner = useCallback(async (patch) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return false;
+    // Only send known banner/name columns.
+    const allowed = ["name", "photo_path", "photo_position_x", "photo_position_y", "photo_zoom", "banner_wordmark"];
+    const update = {};
+    for (const k of allowed) if (k in patch) update[k] = patch[k];
+    if (Object.keys(update).length === 0) return true;
+    if (typeof update.name === "string") {
+      const trimmed = update.name.trim();
+      if (!trimmed) { delete update.name; } else { update.name = trimmed; }
+    }
+    try {
+      const { error: updErr } = await db
+        .from("households").update(update).eq("id", hh.id);
+      if (updErr) throw updErr;
+      const updated = { ...hh, ...update };
+      // Re-resolve the signed URL when the photo path changed.
+      if ("photo_path" in update) {
+        if (update.photo_path) {
+          try {
+            const { data: signed } = await db.storage
+              .from("household-photos")
+              .createSignedUrl(update.photo_path, 60 * 60);
+            updated.photoUrl = signed?.signedUrl || null;
+          } catch (_e) { updated.photoUrl = null; }
+        } else {
+          updated.photoUrl = null;
+        }
+      }
+      setHousehold(updated);
+      householdRef.current = updated;
+      return true;
+    } catch (err) {
+      console.error("updateHouseholdBanner error:", err.message);
+      setError(`Could not save changes: ${err.message}`);
+      return false;
+    }
+  }, []);
+
+  // removeHouseholdPhoto: delete the stored object AND null out the row's
+  // photo_path/framing. banner_wordmark is intentionally NOT reset — per spec
+  // "Dormancy": the household's wordmark choice stays dormant and reapplies if
+  // a photo is added again. Resetting it would silently discard their choice.
+  const removeHouseholdPhoto = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return false;
+    try {
+      if (hh.photo_path) {
+        // Best-effort object delete; the row update below is the source of truth.
+        await db.storage.from("household-photos").remove([hh.photo_path]);
+      }
+      return await updateHouseholdBanner({
+        photo_path: null, photo_position_x: 50, photo_position_y: 50, photo_zoom: 100,
+      });
+    } catch (err) {
+      console.error("removeHouseholdPhoto error:", err.message);
+      setError(`Could not remove photo: ${err.message}`);
+      return false;
+    }
+  }, [updateHouseholdBanner]);
+
   const renameHousehold = useCallback(async (newName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -1409,8 +1660,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, toggleStaple, renameItem, refreshCatalog,
+    hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
+    uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,
