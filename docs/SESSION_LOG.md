@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-21] — [Cross] — Feedback inbox + Velayo welcome email (design chat); reconciled the two-machine dev docs merge (Claude Code)
+**Goal:** Stand up a customer feedback channel and land the final Velayo welcome email (design chat), and reconcile the divergent canonical docs after the Madbury/lake two-machine split (Claude Code).
+**Completed:**
+- Reconciled the divergent-docs merge on `dev` — 1 un-pushed local Jul-1 commit (join-activation REOPENED) vs 65 lake commits (Jul 1–19): SESSION_LOG amendment slotted chronologically, ROADMAP join-activation status yielded to the lake's **prod-verified DONE** (lake built the reopen fix `c1ceab2` + verified it Jul 7), ARCHITECTURE header + durable-intent refinement folded, orphan addendum spec removed, 4 stale spec-path refs repointed. Merge `6d63729` + cleanup `1b986e1`, pushed to origin/dev — desktop + remote back in sync.
+- (Design) Created + verified **thoughts@velayo.ai** as a Google Group feedback inbox — external posting on, owner/members set, end-to-end tested from an external address, Gmail filter auto-labels → "Good Thoughts".
+- (Design) Finalized the **Velayo welcome email to v17** — a COMPANY (not product) welcome: goal→how opening, two-part philosophy (world / your peace), starfish, "AI but never the point," honest co-build framing; subject "We're glad we found each other," preview "Technology that gives you time back," CTA → ourprovisions.app.
+- (Design) Drafted the first **weekly beta email (Beat 1)** routing feedback to thoughts@; locked the brand thesis line and the harbour-as-refuge ("safe but never stuck") principle.
+- (Design) Founder confirmed the **cold-start invite path (ourprovisions.app → toll → app) walked end-to-end by a stranger** — P0 launch-blocker considered cleared (pending the deployed-URL technical gates).
+- (Claude Code) Consumed the design handoff: +6 DECISIONS, feedback inbox → DONE, welcome-email copy → NEXT, About page/founder's letter → LATER; routed `email_welcome_velayo.md` → `docs/content/`.
+**Unfinished:**
+- Weekly beta email drafted, not finalized/reviewed.
+- Full starfish parable + harbor-refuge long-form written, not yet homed → About page / founder's letter (backlog).
+- Welcome email not yet built in Mailchimp (FNAME conditional fallback + Come aboard → ourprovisions.app CTA still to wire).
+- Landing-page LIVE P0: founder reports the cold-start path works, but the deployed-URL technical gates (anon zero-row read + CORS) were not formally re-confirmed this session.
+**Next session:**
+SESSION START
+Goal: Build the Velayo welcome email in Mailchimp (FNAME fallback + CTA URL) and finalize the first weekly beta email.
+State: thoughts@velayo.ai live + tested; welcome email v17 final (copy) at `docs/content/email_welcome_velayo.md`; weekly beta email drafted; cold-start path founder-confirmed; dev docs merge reconciled + pushed (desktop + remote in sync).
+Done when: Welcome email live in the existing Mailchimp automation with a working FNAME merge-tag fallback and Come aboard → ourprovisions.app; weekly beta email reviewed and ready to send.
+**Files updated:** `docs/content/email_welcome_velayo.md` (new, routed from handoff); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`. (ARCHITECTURE.md changed earlier this session via the merge commits.)
+**DB changes:** None.
+
 ### [2026-07-19] — [OurProvisions] — Built Phase I to dev: household-management redesign + OurBanner; migration 024 applied to dev
 **Goal:** Build the full Phase I feature set (household-management redesign + OurBanner photo header) in Claude Code, clear the DB gate on dev, and land it on the dev preview.
 **Completed:**
