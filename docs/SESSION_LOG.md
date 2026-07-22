@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-22] — [OurProvisions] — Splash reimagined as a branded launch *experience* (design chat); handoff consumed + splash spec filed (Claude Code)
+**Goal:** Turn the OurProvisions launch splash from a generic Velayo-branded screen into a branded, emotional entry experience — threshold → reveal → BVI water wash → app, with sound — and route the design handoff + splash spec into the repo.
+**Completed:**
+- (Design) Replaced the Velayo-navy splash with an OurProvisions **vessel** splash on Warm Dark espresso `#2C1A0E`; Velayo demoted to a quiet `VELAYO INC.` footer (the Harbour "colophon" pattern the whole fleet inherits). Locked the wordmark ("*Our*Provisions", Playfair italic, Our 400 / Provisions 700, Parchment) + tagline **"Save time. Shop smarter."**
+- (Design) Locked **arch geometry via Dan's arch-matched logo-overlay test**: arch width = 0.52 × wordmark width (~124px at the 238px wordmark), "higher" placement with clear espresso air above the word (earlier 94/156px + "stranded/strikethrough" placements rejected).
+- (Design) Designed the full experience arc — **Threshold** (compressed, breathing "Tap to enter") → **Crest** (tap lightens depth, vignette retreats, horizon blooms) → **Reveal** (arch draws, wordmark surfaces + de-blurs, tagline, footer) → **Hold** → **BVI turquoise water wash** send-off (sunset-gold rejected) → **Surfaced** into an atmospheric app.
+- (Design) Established **continuity into the app**: the dark scene surfaces into the espresso header (which keeps a faint permanent BVI depth-glow); app motion shares the scene easing `cubic-bezier(0.16,1,0.3,1)`. Flagged as a likely fast-follow build phase, NOT shipped with the first splash.
+- (Design) Designed the **sound** — a **single wave breaking on the dissolve** (`wave_hit.mp3`), triggered on the entry tap (satisfies autoplay), cold-start only, respects mute (chime + anchor-clank rejected; synthesis can't render heavy chain). Removed a wordmark shimmer sweep (read as a "ghost"). Produced a working end-to-end reference (`SPLASH_final.html`).
+- (Claude Code) Consumed the design handoff: **+7 DECISIONS**, moved "build splash experience Phase 1" to NEXT, folded the splash architecture facts into ARCHITECTURE (post-launch React view, readiness-gated dismissal, runtime-measured wordmark hand-off, header "Our Provisions" standardization, atmospheric-header + shared-easing principles).
+- (Claude Code) Filed `SPEC_splash_vessel_identity.md` → `docs/specs/active/`; deleted the consumed handoff.
+**Unfinished:**
+- Splash Phase 1 **not built** — this session was design + spec-routing only. Build in React/PWA next.
+- `wave_hit.mp3` is a **synthesized draft** — a real wave recording (freesound.org) layered at the same spot would add grit synthesis can't; the anchor-chain idea is abandoned (use a real recording if ever revived).
+- Haptic sync on the wash (native only), frame-accurate audio↔visual timing (finalize in the real build), and the atmospheric-header/shared-motion scope expansion (likely its own phase) all deferred.
+- Ambiguous handoff payload assets (`SPLASH_final.html`, `bvi_palette.png`, `h_high.png`, `enter_wave_hum.mp3`, `wave_hit.mp3`) had **no `## DROPPED_FILES` manifest** — routing awaits Dan's call before the airlock can clear.
+- Three-way tagline conflict unresolved: splash "Save time. Shop smarter." vs live site "Shop smarter. Eat better." vs palette page "The Market, Distilled."
+- Corrupted brand-deck PDF (`velayobranddeck__March_28_2026.pdf`) needs a clean re-export; prefer a true transparent SVG/PNG Velayo V-mark over the white-PNG knockout for the footer.
+**Next session:**
+SESSION START
+Goal: Build splash-experience Phase 1 in the React/PWA app — threshold → reveal → BVI wash → wave sound → hand-off to the header.
+State: Design fully specced + proven in mockup (`SPLASH_final.html`); arch geometry, palette, tagline, sound cue, choreography all locked. Current splash lives in `App.js` as a post-launch React view (`SplashScreen` ~L174–216; render ~L1224; `showSplash` ~L360; `loading` flag already in scope). Spec at `docs/specs/active/SPEC_splash_vessel_identity.md`.
+Done when: The real app plays threshold → reveal → BVI wash → app on cold start, with the wave cue on first tap; arch/wordmark/footer match the spec; the dissolve lands the wordmark on the real header title **measured at runtime** (not hardcoded), seam invisible at 390px & 430px; dissolve fires on `!loading` with a ~2s min and ~5s failsafe; no regression to signed-out / photo-header / no-photo-header states.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; `docs/specs/active/SPEC_splash_vessel_identity.md` (new, routed from handoff). Handoff asset files pending routing.
+**DB changes:** None.
+
 ### [2026-07-21] — [Cross] — Feedback inbox + Velayo welcome email (design chat); reconciled the two-machine dev docs merge (Claude Code)
 **Goal:** Stand up a customer feedback channel and land the final Velayo welcome email (design chat), and reconcile the divergent canonical docs after the Madbury/lake two-machine split (Claude Code).
 **Completed:**
