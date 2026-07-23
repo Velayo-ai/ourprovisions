@@ -184,16 +184,20 @@ const OP_FAILSAFE_MS = 5000; // §5 max: a stuck load must never trap the user
 const OP_REDUCED_HOLD = 400; // reduced-motion: brief settle before the gate
 const OP_FADE_MS = 700;      // reduced-motion dissolve fade duration
 const OP_WASH_MS = 2400;     // BVI wash: HARD bound on the dissolve (§9 safety)
-function SplashScreen({ onDone, ready }) {
+function SplashScreen({ onDone, ready, headerTitleRef }) {
   const reduced = typeof window !== "undefined" && window.matchMedia
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   // 'threshold' (beat 1, holds for the tap) → 'crest' (beat 2 + reveal fire).
   const [phase, setPhase] = useState("threshold");
   const [revealDone, setRevealDone] = useState(false);
   const [fading, setFading] = useState(false);
+  const [handoff, setHandoff] = useState(false); // measured hand-off armed (§6b)
   const mountRef = useRef(Date.now());
   const exitedRef = useRef(false);
   const canvasRef = useRef(null);
+  const wmRef = useRef(null);      // splash wordmark — the thing that travels
+  const audioRef = useRef(null);   // wave_hit.mp3 (§7)
+  const primedRef = useRef(false); // audio unlocked on the entry tap, once
 
   // Single dissolve path — idempotent so the readiness gate and the failsafe can
   // both point here without racing to double-fire onDone. In full motion the BVI
@@ -206,15 +210,53 @@ function SplashScreen({ onDone, ready }) {
     if (reduced) {
       setFading(true);
       setTimeout(() => onDone(), OP_FADE_MS);
-    } else {
-      setPhase("wash");
-      setTimeout(() => onDone(), OP_WASH_MS);
+      return;
     }
-  }, [reduced, onDone]);
+    // Measure the hand-off target NOW (§6b): the real header title is in the DOM
+    // beneath us, at its final resting place (ready === true). Compute the exact
+    // translate + scale from the two rects and arm the travel; if it isn't
+    // measurable (e.g. wordmark hidden over a photo), fall back to a clean fade —
+    // never a misaligned landing.
+    const wm = wmRef.current;
+    const target = headerTitleRef && headerTitleRef.current;
+    let ok = false;
+    if (wm && target) {
+      const wr = wm.getBoundingClientRect();
+      const tr = target.getBoundingClientRect();
+      const tf = parseFloat(getComputedStyle(target).fontSize) || 0;
+      const wf = parseFloat(getComputedStyle(wm).fontSize) || 40;
+      if (tr.width > 4 && tr.height > 4 && tf > 4) {
+        const s = tf / wf;
+        const dx = (tr.left + tr.width / 2) - (wr.left + wr.width / 2);
+        const dy = (tr.top + tr.height / 2) - (wr.top + wr.height / 2);
+        wm.style.setProperty("--op-dx", dx.toFixed(2) + "px");
+        wm.style.setProperty("--op-dy", dy.toFixed(2) + "px");
+        wm.style.setProperty("--op-s", s.toFixed(4));
+        ok = true;
+      }
+    }
+    setHandoff(ok);
+    // Audio (§7): the wave breaks as the water floods. Play unmuted here (already
+    // unlocked by the muted priming pass on the entry tap → no double-wave).
+    const a = audioRef.current;
+    if (a) { try { a.muted = false; a.currentTime = 0; const pr = a.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) { /* blocked */ } }
+    setPhase("wash");
+    setTimeout(() => onDone(), OP_WASH_MS);
+  }, [reduced, onDone, headerTitleRef]);
 
-  // The entry tap (beat 2) — the SINGLE entry point. COMMIT 4 hooks audio unlock
-  // in here too; keep it the one gesture that begins everything.
+  // The entry tap (beat 2) — the SINGLE entry point (also the audio-unlock
+  // gesture, §7). Prime the wave MUTED (muted play/pause pass) so the browser
+  // will let us play it later at the wash — a NON-muted prime caused an audible
+  // double-wave (trap 3). One tap only.
   const handleEnter = useCallback(() => {
+    if (primedRef.current) return;
+    primedRef.current = true;
+    const a = audioRef.current;
+    if (a) {
+      a.muted = true;
+      const pr = a.play();
+      if (pr && pr.then) pr.then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; });
+    }
     setPhase((p) => (p === "threshold" ? "crest" : p));
   }, []);
 
@@ -314,7 +356,7 @@ function SplashScreen({ onDone, ready }) {
 
   const crested = !reduced && (phase === "crest" || phase === "wash"); // hold reveal end-states through the wash
   const washing = !reduced && phase === "wash";
-  const rootClass = `op-splash${crested ? " op-crest" : ""}${washing ? " op-wash" : ""}${reduced ? " op-reduced" : ""}`;
+  const rootClass = `op-splash${crested ? " op-crest" : ""}${washing ? " op-wash" : ""}${handoff ? " op-handoff" : ""}${reduced ? " op-reduced" : ""}`;
 
   return (
     <div
@@ -412,7 +454,7 @@ function SplashScreen({ onDone, ready }) {
         .op-wm {
           display: inline-block; font-family: 'Playfair Display', serif;
           font-style: italic; color: #FAF4EC; white-space: nowrap;
-          font-size: 40px; line-height: 1;
+          font-size: 40px; line-height: 1; letter-spacing: 0.02em; /* matches header for a seamless hand-off */
           opacity: 0; transform: translateY(54px) scale(0.94); filter: blur(12px);
         }
         .op-wm .o { font-weight: 400; }
@@ -476,9 +518,23 @@ function SplashScreen({ onDone, ready }) {
         }
         .op-wash .op-scene { animation: opSceneFade 1.4s ease 0.3s forwards; }
         @keyframes opSceneFade { to { opacity: 0; } }
-        /* The wordmark holds as the still point through the wash, then fades at the
-           very end. COMMIT 4 replaces this fade with the measured header hand-off. */
-        .op-wash .op-wm-wrap { animation: opFadeOut 0.6s ease 1.5s forwards; }
+        /* Wordmark hand-off (beat 6, §6b) — the name travels to the header title's
+           measured rect/size (--op-dx/dy/s set at runtime), then crossfades as the
+           real header title surfaces beneath. Starts from the surfaced state so
+           there is no jump. Placed AFTER the reveal rule so it wins the animation. */
+        .op-handoff .op-wm {
+          animation:
+            opHandoff 1.5s cubic-bezier(0.5,0,0.15,1) forwards,
+            opHandFade 0.4s ease 1.35s forwards;
+        }
+        @keyframes opHandoff {
+          from { opacity: 1; transform: translate(0px,0px) scale(1); filter: blur(0); }
+          to   { opacity: 1; transform: translate(var(--op-dx,0px), var(--op-dy,0px)) scale(var(--op-s,1)); filter: blur(0); }
+        }
+        @keyframes opHandFade { to { opacity: 0; } }
+        /* Fallback (§6b): if the hand-off couldn't be measured, the wordmark simply
+           fades with the wash — a clean dissolve, never a misaligned landing. */
+        .op-wash:not(.op-handoff) .op-wm-wrap { animation: opFadeOut 0.6s ease 1.5s forwards; }
       `}</style>
 
       {/* Scene — everything that fades away under the wash. The ground carries the
@@ -507,13 +563,19 @@ function SplashScreen({ onDone, ready }) {
       {!reduced && <div className="op-watersheet" aria-hidden="true" />}
       {!reduced && <canvas className="op-canvas" ref={canvasRef} aria-hidden="true" />}
 
-      {/* Wordmark — the still point everything resolves around (COMMIT 4 hands it
-          off to the header). Sits above the wash so the name stays intact. */}
+      {/* Wordmark — the still point everything resolves around; on the wash it
+          travels to become the header title (§6b). Sits above the wash so the name
+          stays intact. */}
       <div className="op-wm-wrap">
-        <span className="op-wm">
+        <span className="op-wm" ref={wmRef}>
           <span className="o">Our</span><span className="p">Provisions</span>
         </span>
       </div>
+
+      {/* Wave audio (§7): the single sound, only when water is visible. Primed
+          muted on the entry tap, played once at the wash. An <audio> element (not
+          Web Audio) respects the device silent switch. */}
+      {!reduced && <audio ref={audioRef} src={process.env.PUBLIC_URL + "/wave_hit.mp3"} preload="auto" />}
     </div>
   );
 }
@@ -663,6 +725,8 @@ function ProvisionsApp() {
 
   const [showSplash, setShowSplash] = useState(true);
   const handleSplashDone = useCallback(() => setShowSplash(false), []);
+  // The real header title — the splash wordmark hands off to its measured rect (§6b).
+  const headerTitleRef = useRef(null);
   const [localPrices, setLocalPrices] = useState({});
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
@@ -1527,7 +1591,7 @@ function ProvisionsApp() {
       <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
-      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || !loading)} />}
+      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || !loading)} headerTitleRef={headerTitleRef} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
       {isSignedIn && loading && (
@@ -1814,21 +1878,17 @@ function ProvisionsApp() {
               textShadow: WORDMARK_SHADOW,
               transform: bannerHasPhoto ? "translateY(-5%)" : "none",
             }}>
-              {householdMembers.length > 1 ? (
-                <button
-                  onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
-                  style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit", display: "inline-flex", alignItems: "center", gap: "8px" }}
-                >
-                  <span style={{ fontWeight: 400, fontStyle: "italic", marginRight: "0.25em" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
-                </button>
-              ) : (
-                <button
-                  onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
-                  style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit" }}
-                >
-                  <span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
-                </button>
-              )}
+              {/* §8: always "OurProvisions" (tight, matching the splash wordmark and
+                  the reference) so the splash hands off to the same words — no more
+                  bare "Provisions" for single-member households. The button is the
+                  measured hand-off target (headerTitleRef). */}
+              <button
+                ref={headerTitleRef}
+                onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
+                style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit" }}
+              >
+                <span style={{ fontWeight: 400, fontStyle: "italic" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
+              </button>
             </h1>
           )}
         </div>
