@@ -245,9 +245,10 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
   }, [reduced, onDone, headerTitleRef]);
 
   // The entry tap (beat 2) — the SINGLE entry point (also the audio-unlock
-  // gesture, §7). Prime the wave MUTED (muted play/pause pass) so the browser
-  // will let us play it later at the wash — a NON-muted prime caused an audible
-  // double-wave (trap 3). One tap only.
+  // gesture, §7). Prime the wave MUTED: play → pause, and CRUCIALLY stay muted
+  // the whole time (the wash unmutes it, §exit). Unmuting here — inside the
+  // play/pause .then — races the pause on some phones and leaks the clip's tail
+  // audibly at the tap, i.e. the double-wave (trap 3). One tap only.
   const handleEnter = useCallback(() => {
     if (primedRef.current) return;
     primedRef.current = true;
@@ -255,7 +256,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     if (a) {
       a.muted = true;
       const pr = a.play();
-      if (pr && pr.then) pr.then(() => { a.pause(); a.currentTime = 0; a.muted = false; }).catch(() => { a.muted = false; });
+      if (pr && pr.then) pr.then(() => { a.pause(); a.currentTime = 0; }).catch(() => {});
     }
     setPhase((p) => (p === "threshold" ? "crest" : p));
   }, []);
