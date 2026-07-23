@@ -183,7 +183,7 @@ const OP_REVEAL_MS = 4200;   // from crest: footer settles ~3.8s, then a beat
 const OP_FAILSAFE_MS = 5000; // §5 max: a stuck load must never trap the user
 const OP_REDUCED_HOLD = 400; // reduced-motion: brief settle before the gate
 const OP_FADE_MS = 700;      // reduced-motion dissolve fade duration
-const OP_WASH_MS = 2400;     // BVI wash: HARD bound on the dissolve (§9 safety)
+const OP_WASH_MAX = 3400;    // wash: HARD bound on unmount (clip ~2.8s + buffer; §9 safety)
 function SplashScreen({ onDone, ready, headerTitleRef }) {
   const reduced = typeof window !== "undefined" && window.matchMedia
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -236,12 +236,22 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
       }
     }
     setHandoff(ok);
-    // Audio (§7): the wave breaks as the water floods. Play unmuted here (already
-    // unlocked by the muted priming pass on the entry tap → no double-wave).
-    const a = audioRef.current;
-    if (a) { try { a.muted = false; a.currentTime = 0; const pr = a.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) { /* blocked */ } }
     setPhase("wash");
-    setTimeout(() => onDone(), OP_WASH_MS);
+    // Audio (§7): the wave breaks as the water floods. Play unmuted here (already
+    // unlocked by the muted priming pass on the entry tap → no double-wave). Do
+    // NOT start it earlier — the break stays locked to the flood.
+    // The visual wash finishes ~2.2s but the clip washes out to silence over
+    // ~2.8s. Keep the (now transparent, non-interactive) overlay mounted until the
+    // clip's 'ended' fires so the tail isn't cut; a failsafe bounds a blocked or
+    // errored clip (§9: unmount still always happens).
+    let done = false;
+    const finish = () => { if (done) return; done = true; onDone(); };
+    const a = audioRef.current;
+    if (a) {
+      try { a.muted = false; a.currentTime = 0; const pr = a.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) { /* blocked */ }
+      a.addEventListener("ended", finish, { once: true });
+    }
+    setTimeout(finish, OP_WASH_MAX);
   }, [reduced, onDone, headerTitleRef]);
 
   // The entry tap (beat 2) — the SINGLE entry point (also the audio-unlock
@@ -380,7 +390,13 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
   return (
     <div
       className={rootClass}
-      style={{ opacity: fading ? 0 : 1, cursor: !reduced && phase === "threshold" ? "pointer" : "default" }}
+      style={{
+        opacity: fading ? 0 : 1,
+        cursor: !reduced && phase === "threshold" ? "pointer" : "default",
+        // Once dissolving the overlay is transparent but still mounted (for the
+        // audio tail / fade) — let taps reach the app revealed beneath.
+        pointerEvents: (washing || fading) ? "none" : undefined,
+      }}
       onClick={!reduced ? handleEnter : undefined}
     >
       <style>{`
