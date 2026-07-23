@@ -182,7 +182,8 @@ const OP_MIN_VISIBLE = 2000; // never dissolve before the scene has been seen
 const OP_REVEAL_MS = 4200;   // from crest: footer settles ~3.8s, then a beat
 const OP_FAILSAFE_MS = 5000; // §5 max: a stuck load must never trap the user
 const OP_REDUCED_HOLD = 400; // reduced-motion: brief settle before the gate
-const OP_FADE_MS = 700;      // dissolve fade duration
+const OP_FADE_MS = 700;      // reduced-motion dissolve fade duration
+const OP_WASH_MS = 2400;     // BVI wash: HARD bound on the dissolve (§9 safety)
 function SplashScreen({ onDone, ready }) {
   const reduced = typeof window !== "undefined" && window.matchMedia
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -192,15 +193,24 @@ function SplashScreen({ onDone, ready }) {
   const [fading, setFading] = useState(false);
   const mountRef = useRef(Date.now());
   const exitedRef = useRef(false);
+  const canvasRef = useRef(null);
 
-  // Single dissolve path — idempotent so the readiness gate and the failsafe
-  // can both point here without racing to double-fire onDone.
+  // Single dissolve path — idempotent so the readiness gate and the failsafe can
+  // both point here without racing to double-fire onDone. In full motion the BVI
+  // wash (beat 5) IS the dissolve; reduced motion falls back to a plain fade.
+  // Either way onDone fires on a HARD timer (never gated on particle completion),
+  // so a stalled loop can't leave the overlay covering the header.
   const exit = useCallback(() => {
     if (exitedRef.current) return;
     exitedRef.current = true;
-    setFading(true);
-    setTimeout(() => onDone(), OP_FADE_MS);
-  }, [onDone]);
+    if (reduced) {
+      setFading(true);
+      setTimeout(() => onDone(), OP_FADE_MS);
+    } else {
+      setPhase("wash");
+      setTimeout(() => onDone(), OP_WASH_MS);
+    }
+  }, [reduced, onDone]);
 
   // The entry tap (beat 2) — the SINGLE entry point. COMMIT 4 hooks audio unlock
   // in here too; keep it the one gesture that begins everything.
@@ -238,7 +248,73 @@ function SplashScreen({ onDone, ready }) {
     exit();
   }, [revealDone, ready, exit]);
 
-  const rootClass = `op-splash${phase === "crest" && !reduced ? " op-crest" : ""}${reduced ? " op-reduced" : ""}`;
+  // BVI water wash (beat 5, §9). Thousands of additive-blended particles rise with
+  // lateral drift and clear BOTTOM-UP, reinforcing surfacing. Bounded two ways so
+  // it can NEVER stall as a block over the header: a hard frame cap ends the loop,
+  // and unmount (onDone's timer) cancels the rAF and clears the canvas regardless.
+  useEffect(() => {
+    if (reduced || phase !== "wash") return;
+    const cv = canvasRef.current;
+    if (!cv) return;
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = cv.getBoundingClientRect();
+    const W = Math.max(1, Math.round(rect.width * DPR));
+    const H = Math.max(1, Math.round(rect.height * DPR));
+    cv.width = W; cv.height = H;
+    // BVI band — water tones ONLY (no warm mix, which reads as confetti), weighted
+    // to pale aqua / turquoise so overlaps read as sunlit water, not dots.
+    const COLORS = [[226,247,247],[168,231,230],[168,231,230],[94,206,205],[94,206,205],[38,169,177],[17,124,140]];
+    const parts = [];
+    const cols = 64, rows = 120;
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+      const x = (i + 0.5) / cols * W, y = (j + 0.5) / rows * H;
+      if (y < H * 0.12) continue;             // preserve the wordmark/header band
+      if (Math.random() > 0.42) continue;
+      const c = COLORS[(Math.random() * COLORS.length) | 0];
+      parts.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 0.6 * DPR,
+        vy: -(0.4 + Math.random() * 1.2) * DPR,  // rise
+        life: 0, ttl: 70 + Math.random() * 50,
+        r: (0.9 + Math.random() * 1.8) * DPR, c,
+        delay: (1 - y / H) * 14,                 // bottom rows start first → clear bottom-up
+      });
+    }
+    let raf = 0, frames = 0;
+    const MAX_FRAMES = 190;                       // backstop; unmount cancels sooner
+    const draw = () => {
+      frames++;
+      ctx.clearRect(0, 0, W, H);
+      ctx.globalCompositeOperation = "lighter";   // additive → overlaps are light
+      let alive = 0;
+      for (const p of parts) {
+        if (p.delay > 0) { p.delay--; alive++; continue; }
+        p.life++;
+        const t = p.life / p.ttl;
+        if (t >= 1) continue;
+        alive++;
+        p.x += p.vx; p.y += p.vy; p.vy *= 0.99;
+        p.vx += (Math.random() - 0.5) * 0.08 * DPR;  // lateral caustic drift
+        ctx.globalAlpha = (1 - t) * 0.8;
+        const rr = p.r * (1 - t * 0.4) * 2.4;
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rr);
+        g.addColorStop(0, `rgba(${p.c[0]},${p.c[1]},${p.c[2]},1)`);
+        g.addColorStop(1, `rgba(${p.c[0]},${p.c[1]},${p.c[2]},0)`);  // soft radial falloff
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, 6.283); ctx.fill();
+      }
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
+      if (alive > 0 && frames < MAX_FRAMES) raf = requestAnimationFrame(draw);
+      else ctx.clearRect(0, 0, W, H);             // finish clean — no residual block
+    };
+    raf = requestAnimationFrame(draw);
+    return () => { if (raf) cancelAnimationFrame(raf); try { ctx.clearRect(0, 0, W, H); } catch (e) { /* unmounting */ } };
+  }, [reduced, phase]);
+
+  const crested = !reduced && (phase === "crest" || phase === "wash"); // hold reveal end-states through the wash
+  const washing = !reduced && phase === "wash";
+  const rootClass = `op-splash${crested ? " op-crest" : ""}${washing ? " op-wash" : ""}${reduced ? " op-reduced" : ""}`;
 
   return (
     <div
@@ -249,13 +325,23 @@ function SplashScreen({ onDone, ready }) {
       <style>{`
         .op-splash {
           position: fixed; inset: 0; z-index: 999; overflow: hidden;
-          background: radial-gradient(140% 100% at 50% 44%, #4a2f18 0%, #2C1A0E 46%, #160B04 100%);
           transition: opacity 0.7s ease;
+        }
+        /* Scene container — everything that must FADE AWAY as the app is revealed
+           (ground, atmosphere, arch, tagline, footer). The wordmark and the wash
+           layers deliberately live OUTSIDE it so the name stays the still point and
+           the turquoise sheet can wash over a fading scene. */
+        .op-scene { position: absolute; inset: 0; z-index: 1; }
+        /* Open espresso ground — was on the root in commits 1–2; moved to its own
+           fadeable layer so the wash can dissolve it to reveal the app beneath. */
+        .op-ground {
+          position: absolute; inset: 0; z-index: 0;
+          background: radial-gradient(140% 100% at 50% 44%, #4a2f18 0%, #2C1A0E 46%, #160B04 100%);
         }
         /* Threshold atmosphere (beats 1–2). Depth/vignette/bloom animate on crest
            via GPU-friendly props ONLY — opacity + transform (no gradient/box-shadow
-           tweening). The root already holds the OPEN gradient; the closed depth
-           layer sits over it and fades away to reveal it. */
+           tweening). The ground holds the OPEN gradient; the closed depth layer
+           sits over it and fades away to reveal it. */
         .op-depth {
           position: absolute; inset: 0; z-index: 0; pointer-events: none;
           background: radial-gradient(80% 55% at 50% 55%, #24140a 0%, #1A0E06 45%, #0d0602 100%);
@@ -321,7 +407,7 @@ function SplashScreen({ onDone, ready }) {
            free for the surface animation. Anchored proportionally (~430/844). */
         .op-wm-wrap {
           position: absolute; left: 0; right: 0; top: 50.95%;
-          text-align: center; pointer-events: none; z-index: 9;
+          text-align: center; pointer-events: none; z-index: 4; /* above scene(1), sheet(2), canvas(3) */
         }
         .op-wm {
           display: inline-block; font-family: 'Playfair Display', serif;
@@ -365,32 +451,69 @@ function SplashScreen({ onDone, ready }) {
         .op-reduced .op-arch path { stroke-dashoffset: 0; }
         .op-reduced .op-tag { opacity: 1; }
         .op-reduced .op-foot { opacity: 1; }
+
+        /* ── BVI water wash (beat 5, §9) ── The translucent turquoise sheet floods
+           UP over the scene, then recedes UP to reveal the app beneath. The scene
+           fades under it so what surfaces is the app, not espresso. Sheet + canvas
+           sit above the scene but BELOW the wordmark (the still point). Everything
+           here is transform + opacity — GPU-friendly. */
+        .op-watersheet {
+          position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0;
+          background: linear-gradient(180deg,
+            rgba(226,247,247,0.0) 0%,
+            rgba(168,231,230,0.55) 30%,
+            rgba(94,206,205,0.65) 60%,
+            rgba(38,169,177,0.55) 100%);
+          transform: translateY(100%);
+        }
+        .op-canvas { position: absolute; inset: 0; z-index: 3; pointer-events: none; width: 100%; height: 100%; }
+        .op-wash .op-watersheet { animation: opFlood 2.2s cubic-bezier(0.4,0,0.2,1) forwards; }
+        @keyframes opFlood {
+          0%   { opacity: 0;   transform: translateY(100%); }  /* below the fold */
+          35%  { opacity: 1;   transform: translateY(0); }     /* floods over the view */
+          65%  { opacity: 0.9; transform: translateY(0); }
+          100% { opacity: 0;   transform: translateY(-100%); } /* recedes up, app revealed */
+        }
+        .op-wash .op-scene { animation: opSceneFade 1.4s ease 0.3s forwards; }
+        @keyframes opSceneFade { to { opacity: 0; } }
+        /* The wordmark holds as the still point through the wash, then fades at the
+           very end. COMMIT 4 replaces this fade with the measured header hand-off. */
+        .op-wash .op-wm-wrap { animation: opFadeOut 0.6s ease 1.5s forwards; }
       `}</style>
 
-      {/* Threshold atmosphere — only in full motion; reduced collapses to a
-          clean espresso→app fade (no parallax, no bloom). */}
-      {!reduced && <div className="op-depth" aria-hidden="true" />}
-      {!reduced && <div className="op-vignette" aria-hidden="true" />}
-      {!reduced && <div className="op-bloom" aria-hidden="true" />}
+      {/* Scene — everything that fades away under the wash. The ground carries the
+          espresso; atmosphere is full-motion only (reduced collapses to a fade). */}
+      <div className="op-scene">
+        <div className="op-ground" aria-hidden="true" />
+        {!reduced && <div className="op-depth" aria-hidden="true" />}
+        {!reduced && <div className="op-vignette" aria-hidden="true" />}
+        {!reduced && <div className="op-bloom" aria-hidden="true" />}
 
-      <svg className="op-arch" viewBox="0 0 120 22" aria-hidden="true">
-        <path d="M4 20 Q60 -2 116 20" />
-      </svg>
+        <svg className="op-arch" viewBox="0 0 120 22" aria-hidden="true">
+          <path d="M4 20 Q60 -2 116 20" />
+        </svg>
 
+        <div className="op-tag">Save time. Shop smarter.</div>
+
+        <div className="op-foot">
+          <img src={process.env.PUBLIC_URL + "/velayo-mark.png"} alt="Velayo" />
+          <div className="op-vt">VELAYO INC.</div>
+        </div>
+
+        {!reduced && phase === "threshold" && <div className="op-prompt">Tap to enter</div>}
+      </div>
+
+      {/* Wash layers — above the fading scene, below the wordmark. Full motion only. */}
+      {!reduced && <div className="op-watersheet" aria-hidden="true" />}
+      {!reduced && <canvas className="op-canvas" ref={canvasRef} aria-hidden="true" />}
+
+      {/* Wordmark — the still point everything resolves around (COMMIT 4 hands it
+          off to the header). Sits above the wash so the name stays intact. */}
       <div className="op-wm-wrap">
         <span className="op-wm">
           <span className="o">Our</span><span className="p">Provisions</span>
         </span>
       </div>
-
-      <div className="op-tag">Save time. Shop smarter.</div>
-
-      <div className="op-foot">
-        <img src={process.env.PUBLIC_URL + "/velayo-mark.png"} alt="Velayo" />
-        <div className="op-vt">VELAYO INC.</div>
-      </div>
-
-      {!reduced && phase === "threshold" && <div className="op-prompt">Tap to enter</div>}
     </div>
   );
 }
