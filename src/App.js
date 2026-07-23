@@ -440,9 +440,15 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
            light on the espresso. Sits just BELOW the wordmark, close under the
            letterforms; it must NEVER intrude on the locked arch-to-wordmark gap
            above (Dan's overlay test). Blooms outward from center via scaleX
-           (compositor), not width. */
+           (compositor), not width.
+           POSITION is relative to the WORDMARK, not the viewport (same principle as
+           the arch): the wordmark anchors at 50.95% and renders at a fixed 40px, so
+           the line sits a fixed multiple of that height below it (56px ≈ 1.4× →
+           clears the 40px line-box + ~16px espresso). A viewport-% offset collapsed
+           the descender-to-line gap on phone while holding on desktop; this keeps
+           it constant at every width. */
         .op-bloom {
-          position: absolute; left: 50%; top: 57%; z-index: 2; pointer-events: none;
+          position: absolute; left: 50%; top: calc(50.95% + 56px); z-index: 2; pointer-events: none;
           width: 120vw; height: 3px; margin-top: -1.5px; margin-left: -60vw;
           background: radial-gradient(closest-side,
             rgba(226,247,247,0.95) 0%,
