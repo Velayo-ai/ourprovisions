@@ -400,27 +400,27 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         }
         .op-crest .op-vignette { animation: opVigOpen 2.2s cubic-bezier(0.19,1,0.22,1) forwards; }
         @keyframes opVigOpen { to { transform: scale(1.6); opacity: 0.35; } }
-        /* Horizon bloom — a broad, soft radial glow low on screen, blooming
-           outward from center (§2). Its center sits WELL BELOW the wordmark so no
-           bright edge ever crosses the load-bearing arch-to-wordmark gap (§3): the
-           arch must read as floating, never underlined. Long imperceptible falloff
-           + heavy blur = light, not a rule. Grows via transform scale (compositor),
-           not width/height. */
+        /* Horizon bloom — a thin, defined horizontal line (§2): brightest at
+           center, falling off toward both edges — a HORIZON, not a cloud. Cool/pale
+           light on the espresso. Sits just BELOW the wordmark, close under the
+           letterforms; it must NEVER intrude on the locked arch-to-wordmark gap
+           above (Dan's overlay test). Blooms outward from center via scaleX
+           (compositor), not width. */
         .op-bloom {
-          position: absolute; left: 50%; top: 75%; z-index: 2; pointer-events: none;
-          width: 840px; height: 400px; margin: -200px 0 0 -420px; border-radius: 50%;
-          background: radial-gradient(ellipse 50% 50% at 50% 50%,
-            rgba(168,231,230,0.5) 0%,
-            rgba(94,206,205,0.22) 34%,
-            rgba(38,169,177,0.08) 54%,
-            transparent 74%);
-          opacity: 0; transform: scale(0.14); filter: blur(30px);
+          position: absolute; left: 50%; top: 57%; z-index: 2; pointer-events: none;
+          width: 120vw; height: 3px; margin-top: -1.5px; margin-left: -60vw;
+          background: radial-gradient(closest-side,
+            rgba(226,247,247,0.95) 0%,
+            rgba(168,231,230,0.7) 30%,
+            rgba(94,206,205,0.3) 60%,
+            rgba(38,169,177,0.0) 100%);
+          opacity: 0; transform: scaleX(0.02); filter: blur(1px);
         }
-        .op-crest .op-bloom { animation: opBloom 2.4s cubic-bezier(0.19,1,0.22,1) 0.1s forwards; }
+        .op-crest .op-bloom { animation: opBloom 2.2s cubic-bezier(0.19,1,0.22,1) 0.1s forwards; }
         @keyframes opBloom {
-          0% { opacity: 0; transform: scale(0.14); }
-          35% { opacity: 0.85; transform: scale(0.7); }
-          100% { opacity: 0.4; transform: scale(1); }
+          0%   { opacity: 0;   transform: scaleX(0.02); }  /* a point at center */
+          35%  { opacity: 1;   transform: scaleX(0.85); }  /* blooms outward */
+          100% { opacity: 0.6; transform: scaleX(1); }     /* settles as a horizon */
         }
         /* Tap-to-enter prompt — slow breathe (opacity only). Static letter-spacing
            is fine; only ANIMATING it janks (trap 2). Fades out on crest. */
