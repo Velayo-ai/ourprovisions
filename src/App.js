@@ -290,38 +290,58 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     exit();
   }, [revealDone, ready, exit]);
 
-  // BVI water wash (beat 5, §9). Thousands of additive-blended particles rise with
-  // lateral drift and clear BOTTOM-UP, reinforcing surfacing. Bounded two ways so
-  // it can NEVER stall as a block over the header: a hard frame cap ends the loop,
-  // and unmount (onDone's timer) cancels the rAF and clears the canvas regardless.
+  // BVI water wash (beat 5, §9). Additive-blended water-light particles rise with
+  // lateral drift and clear BOTTOM-UP, reinforcing surfacing. Tuned for phone
+  // fill-rate (desktop was never the constraint): (1) backing store capped at DPR
+  // 1.5 — soft light needs no 2–3× resolution; (2) particle count scaled to the
+  // device, fewer but slightly larger; (3) each colour's soft radial pre-rendered
+  // ONCE to a sprite and blitted, instead of a gradient built per particle per
+  // frame — the single biggest win. Still reads as light, not dots.
+  // Bounded two ways so it can NEVER stall as a block over the header: a hard
+  // frame cap ends the loop, and unmount (onDone's timer) cancels the rAF.
   useEffect(() => {
     if (reduced || phase !== "wash") return;
     const cv = canvasRef.current;
     if (!cv) return;
     const ctx = cv.getContext("2d");
     if (!ctx) return;
-    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const DPR = Math.min(window.devicePixelRatio || 1, 1.5); // fill-rate cap (was 2)
     const rect = cv.getBoundingClientRect();
-    const W = Math.max(1, Math.round(rect.width * DPR));
-    const H = Math.max(1, Math.round(rect.height * DPR));
+    const cssW = rect.width, cssH = rect.height;
+    const W = Math.max(1, Math.round(cssW * DPR));
+    const H = Math.max(1, Math.round(cssH * DPR));
     cv.width = W; cv.height = H;
     // BVI band — water tones ONLY (no warm mix, which reads as confetti), weighted
     // to pale aqua / turquoise so overlaps read as sunlit water, not dots.
     const COLORS = [[226,247,247],[168,231,230],[168,231,230],[94,206,205],[94,206,205],[38,169,177],[17,124,140]];
+    // Pre-render each colour's soft radial sprite ONCE. Per frame we blit a cached
+    // sprite (a GPU texture copy) instead of allocating+rasterising a gradient per
+    // particle — same soft falloff, a fraction of the cost.
+    const SPRITE = 64;
+    const sprites = COLORS.map((c) => {
+      const s = document.createElement("canvas"); s.width = SPRITE; s.height = SPRITE;
+      const g = s.getContext("2d");
+      const grad = g.createRadialGradient(SPRITE / 2, SPRITE / 2, 0, SPRITE / 2, SPRITE / 2, SPRITE / 2);
+      grad.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},1)`);
+      grad.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},0)`);
+      g.fillStyle = grad; g.fillRect(0, 0, SPRITE, SPRITE);
+      return s;
+    });
+    // Scale the count to the screen rather than a fixed number; fewer, slightly
+    // larger particles read the same at speed (was a fixed ~2850).
+    const count = Math.max(500, Math.min(2200, Math.round(cssW * cssH / 220)));
     const parts = [];
-    const cols = 64, rows = 120;
-    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
-      const x = (i + 0.5) / cols * W, y = (j + 0.5) / rows * H;
-      if (y < H * 0.12) continue;             // preserve the wordmark/header band
-      if (Math.random() > 0.42) continue;
-      const c = COLORS[(Math.random() * COLORS.length) | 0];
+    for (let n = 0; n < count; n++) {
+      const x = Math.random() * W;
+      const y = (0.12 + Math.random() * 0.88) * H;    // below the wordmark/header band
       parts.push({
         x, y,
         vx: (Math.random() - 0.5) * 0.6 * DPR,
-        vy: -(0.4 + Math.random() * 1.2) * DPR,  // rise
+        vy: -(0.4 + Math.random() * 1.2) * DPR,        // rise
         life: 0, ttl: 70 + Math.random() * 50,
-        r: (0.9 + Math.random() * 1.8) * DPR, c,
-        delay: (1 - y / H) * 14,                 // bottom rows start first → clear bottom-up
+        r: (1.4 + Math.random() * 2.6) * DPR,          // slightly larger to offset the lower count
+        sprite: sprites[(Math.random() * sprites.length) | 0],
+        delay: (1 - y / H) * 14,                       // bottom starts first → clear bottom-up
       });
     }
     let raf = 0, frames = 0;
@@ -339,12 +359,10 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         alive++;
         p.x += p.vx; p.y += p.vy; p.vy *= 0.99;
         p.vx += (Math.random() - 0.5) * 0.08 * DPR;  // lateral caustic drift
-        ctx.globalAlpha = (1 - t) * 0.8;
         const rr = p.r * (1 - t * 0.4) * 2.4;
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rr);
-        g.addColorStop(0, `rgba(${p.c[0]},${p.c[1]},${p.c[2]},1)`);
-        g.addColorStop(1, `rgba(${p.c[0]},${p.c[1]},${p.c[2]},0)`);  // soft radial falloff
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, 6.283); ctx.fill();
+        const d = rr * 2;
+        ctx.globalAlpha = (1 - t) * 0.8;
+        ctx.drawImage(p.sprite, p.x - rr, p.y - rr, d, d);  // blit cached soft sprite
       }
       ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
       if (alive > 0 && frames < MAX_FRAMES) raf = requestAnimationFrame(draw);
