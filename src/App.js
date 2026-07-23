@@ -177,45 +177,133 @@ const VELAYO_LOGO_TEAL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAbgAAAH+
 // water wash (beat 5), and the measured header hand-off (beat 6) land in later
 // commits. A prefers-reduced-motion variant is built alongside, not retrofitted.
 const OP_EASE = "cubic-bezier(0.16,1,0.3,1)";
-function SplashScreen({ onDone }) {
+// Timing (ms). MIN/FAILSAFE per §5; REVEAL covers beats 3–4 + a short hold.
+const OP_MIN_VISIBLE = 2000; // never dissolve before the scene has been seen
+const OP_REVEAL_MS = 4200;   // from crest: footer settles ~3.8s, then a beat
+const OP_FAILSAFE_MS = 5000; // §5 max: a stuck load must never trap the user
+const OP_REDUCED_HOLD = 400; // reduced-motion: brief settle before the gate
+const OP_FADE_MS = 700;      // dissolve fade duration
+function SplashScreen({ onDone, ready }) {
   const reduced = typeof window !== "undefined" && window.matchMedia
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const [phase, setPhase] = useState("enter"); // 'enter' → 'crest' (reveal)
+  // 'threshold' (beat 1, holds for the tap) → 'crest' (beat 2 + reveal fire).
+  const [phase, setPhase] = useState("threshold");
+  const [revealDone, setRevealDone] = useState(false);
   const [fading, setFading] = useState(false);
+  const mountRef = useRef(Date.now());
+  const exitedRef = useRef(false);
 
+  // Single dissolve path — idempotent so the readiness gate and the failsafe
+  // can both point here without racing to double-fire onDone.
+  const exit = useCallback(() => {
+    if (exitedRef.current) return;
+    exitedRef.current = true;
+    setFading(true);
+    setTimeout(() => onDone(), OP_FADE_MS);
+  }, [onDone]);
+
+  // The entry tap (beat 2) — the SINGLE entry point. COMMIT 4 hooks audio unlock
+  // in here too; keep it the one gesture that begins everything.
+  const handleEnter = useCallback(() => {
+    setPhase((p) => (p === "threshold" ? "crest" : p));
+  }, []);
+
+  // Reduced motion: no threshold gesture, no parallax — the resolved scene shows,
+  // settles briefly, then dissolves on readiness (failsafe still bounds it).
   useEffect(() => {
-    if (reduced) {
-      // Reduced: no parallax/particles — the scene shows resolved, holds, fades.
-      const f = setTimeout(() => setFading(true), 1400);
-      const d = setTimeout(() => onDone(), 2100);
-      return () => { clearTimeout(f); clearTimeout(d); };
-    }
-    // Full motion: kick the reveal on the next frame so the CSS animations run,
-    // hold a beat once the footer has settled, then dismiss. (The fixed timer is
-    // a COMMIT 1 placeholder — COMMIT 2 replaces it with !loading gating.)
-    const t0 = setTimeout(() => setPhase("crest"), 60);
-    const f = setTimeout(() => setFading(true), 4600);
-    const d = setTimeout(() => onDone(), 5300);
-    return () => { clearTimeout(t0); clearTimeout(f); clearTimeout(d); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!reduced) return;
+    const rt = setTimeout(() => setRevealDone(true), OP_REDUCED_HOLD);
+    const ft = setTimeout(() => exit(), OP_FAILSAFE_MS);
+    return () => { clearTimeout(rt); clearTimeout(ft); };
+  }, [reduced, exit]);
 
-  const rootClass = `op-splash${phase === "crest" ? " op-crest" : ""}${reduced ? " op-reduced" : ""}`;
+  // Full motion: once the user crests, let the reveal (beats 3–4) play, then arm
+  // the §5 failsafe. revealDone gates the readiness dissolve below.
+  useEffect(() => {
+    if (reduced || phase !== "crest") return;
+    const rt = setTimeout(() => setRevealDone(true), OP_REVEAL_MS);
+    const ft = setTimeout(() => exit(), OP_FAILSAFE_MS);
+    return () => { clearTimeout(rt); clearTimeout(ft); };
+  }, [reduced, phase, exit]);
+
+  // Readiness gate (§5): dissolve only once the reveal has settled AND the app is
+  // ready (!loading, auth resolved) — and never before the minimum visible time.
+  useEffect(() => {
+    if (!revealDone || !ready) return;
+    const remaining = OP_MIN_VISIBLE - (Date.now() - mountRef.current);
+    if (remaining > 0) {
+      const t = setTimeout(() => exit(), remaining);
+      return () => clearTimeout(t);
+    }
+    exit();
+  }, [revealDone, ready, exit]);
+
+  const rootClass = `op-splash${phase === "crest" && !reduced ? " op-crest" : ""}${reduced ? " op-reduced" : ""}`;
 
   return (
-    <div className={rootClass} style={{ opacity: fading ? 0 : 1 }}>
+    <div
+      className={rootClass}
+      style={{ opacity: fading ? 0 : 1, cursor: !reduced && phase === "threshold" ? "pointer" : "default" }}
+      onClick={!reduced ? handleEnter : undefined}
+    >
       <style>{`
         .op-splash {
           position: fixed; inset: 0; z-index: 999; overflow: hidden;
           background: radial-gradient(140% 100% at 50% 44%, #4a2f18 0%, #2C1A0E 46%, #160B04 100%);
           transition: opacity 0.7s ease;
         }
+        /* Threshold atmosphere (beats 1–2). Depth/vignette/bloom animate on crest
+           via GPU-friendly props ONLY — opacity + transform (no gradient/box-shadow
+           tweening). The root already holds the OPEN gradient; the closed depth
+           layer sits over it and fades away to reveal it. */
+        .op-depth {
+          position: absolute; inset: 0; z-index: 0; pointer-events: none;
+          background: radial-gradient(80% 55% at 50% 55%, #24140a 0%, #1A0E06 45%, #0d0602 100%);
+          transform: scale(1.15);
+        }
+        .op-crest .op-depth { animation: opDepthOpen 2.4s cubic-bezier(0.19,1,0.22,1) forwards; }
+        @keyframes opDepthOpen { to { opacity: 0; transform: scale(1); } }
+        /* Vignette as a scalable radial mask — tight in threshold, retreats on crest
+           (scale out + fade), so no box-shadow paint tweening. */
+        .op-vignette {
+          position: absolute; inset: -20%; z-index: 1; pointer-events: none;
+          background: radial-gradient(ellipse 60% 55% at 50% 50%, transparent 40%, rgba(0,0,0,0.92) 100%);
+          transform: scale(1);
+        }
+        .op-crest .op-vignette { animation: opVigOpen 2.2s cubic-bezier(0.19,1,0.22,1) forwards; }
+        @keyframes opVigOpen { to { transform: scale(1.6); opacity: 0.35; } }
+        /* Horizon bloom — fixed-size, scaled via transform (not width/height) so it
+           stays on the compositor. */
+        .op-bloom {
+          position: absolute; left: 50%; top: 44%; z-index: 2; pointer-events: none;
+          width: 520px; height: 6px; margin: -3px 0 0 -260px; border-radius: 50%;
+          background: radial-gradient(closest-side, rgba(168,231,230,0.9), rgba(38,169,177,0.3), transparent);
+          opacity: 0; transform: scaleX(0.02); filter: blur(3px);
+        }
+        .op-crest .op-bloom { animation: opBloom 2.2s cubic-bezier(0.19,1,0.22,1) 0.1s forwards; }
+        @keyframes opBloom {
+          0% { opacity: 0; transform: scaleX(0.02); }
+          35% { opacity: 1; transform: scaleX(0.8); }
+          100% { opacity: 0.3; transform: scaleX(1); }
+        }
+        /* Tap-to-enter prompt — slow breathe (opacity only). Static letter-spacing
+           is fine; only ANIMATING it janks (trap 2). Fades out on crest. */
+        .op-prompt {
+          position: absolute; left: 0; right: 0; top: 72%; text-align: center; z-index: 6;
+          font-family: 'Lato', sans-serif; font-weight: 300; font-size: 11px;
+          letter-spacing: 6px; text-transform: uppercase; color: #C9A97A;
+          animation: opBreathe 3.4s ease-in-out infinite;
+        }
+        @keyframes opBreathe { 0%,100% { opacity: 0.22; } 50% { opacity: 0.7; } }
+        .op-crest .op-prompt { animation: opFadeOut 0.4s ease forwards; }
+        @keyframes opFadeOut { to { opacity: 0; } }
         /* Arch — ABSOLUTELY positioned (trap 1): never inside the wordmark's flex
            column, where a margin would just recenter the cluster and collapse the
            gap. Width = 0.52 × wordmark (~124px); floats higher with clear espresso
            air below it before the letter tops. */
         .op-arch {
           position: absolute; left: 50%; top: 39.6%; transform: translateX(-50%);
-          width: 124px; height: auto; overflow: visible; opacity: 0; z-index: 1;
+          width: 124px; height: auto; overflow: visible; opacity: 0; z-index: 8;
         }
         .op-arch path {
           fill: none; stroke: #0D9488; stroke-width: 2.4; stroke-linecap: round;
@@ -225,7 +313,7 @@ function SplashScreen({ onDone }) {
            free for the surface animation. Anchored proportionally (~430/844). */
         .op-wm-wrap {
           position: absolute; left: 0; right: 0; top: 50.95%;
-          text-align: center; pointer-events: none; z-index: 2;
+          text-align: center; pointer-events: none; z-index: 9;
         }
         .op-wm {
           display: inline-block; font-family: 'Playfair Display', serif;
@@ -236,14 +324,14 @@ function SplashScreen({ onDone }) {
         .op-wm .o { font-weight: 400; }
         .op-wm .p { font-weight: 700; }
         .op-tag {
-          position: absolute; left: 0; right: 0; top: 62%; text-align: center;
+          position: absolute; left: 0; right: 0; top: 62%; text-align: center; z-index: 6;
           font-family: 'Lato', sans-serif; font-weight: 300; font-size: 11px;
           letter-spacing: 4px; text-transform: uppercase; color: #C9A97A; opacity: 0;
         }
         /* Footer — the colophon: transparent V-mark over VELAYO INC., bottom-pinned,
            no bar, no divider, floating on the espresso. Fades in last and slowest. */
         .op-foot {
-          position: absolute; left: 0; right: 0; bottom: 36px;
+          position: absolute; left: 0; right: 0; bottom: 36px; z-index: 6;
           display: flex; flex-direction: column; align-items: center; gap: 8px; opacity: 0;
         }
         .op-foot img { width: 26px; height: auto; opacity: 0.9; }
@@ -271,6 +359,12 @@ function SplashScreen({ onDone }) {
         .op-reduced .op-foot { opacity: 1; }
       `}</style>
 
+      {/* Threshold atmosphere — only in full motion; reduced collapses to a
+          clean espresso→app fade (no parallax, no bloom). */}
+      {!reduced && <div className="op-depth" aria-hidden="true" />}
+      {!reduced && <div className="op-vignette" aria-hidden="true" />}
+      {!reduced && <div className="op-bloom" aria-hidden="true" />}
+
       <svg className="op-arch" viewBox="0 0 120 22" aria-hidden="true">
         <path d="M4 20 Q60 -2 116 20" />
       </svg>
@@ -287,6 +381,8 @@ function SplashScreen({ onDone }) {
         <img src={process.env.PUBLIC_URL + "/velayo-mark.png"} alt="Velayo" />
         <div className="op-vt">VELAYO INC.</div>
       </div>
+
+      {!reduced && phase === "threshold" && <div className="op-prompt">Tap to enter</div>}
     </div>
   );
 }
@@ -1298,7 +1394,9 @@ function ProvisionsApp() {
 
   return (
       <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
-      {showSplash && <SplashScreen onDone={handleSplashDone} />}
+      {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
+          loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
+      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || !loading)} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
       {isSignedIn && loading && (
