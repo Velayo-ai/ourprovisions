@@ -523,11 +523,11 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
              through the whole breath, incl. outdoors. Floor raised well up (never
              below legible) and base colour lightened for luminance. */
           position: absolute; left: 0; right: 0; top: 72%; text-align: center; z-index: 6;
-          font-family: 'Lato', sans-serif; font-weight: 300; font-size: 11px;
-          letter-spacing: 6px; text-transform: uppercase; color: #E6D2AC;
+          font-family: 'Lato', sans-serif; font-weight: 300; font-size: 13px;
+          letter-spacing: 3.5px; text-transform: uppercase; color: #E6D2AC;
           animation: opBreathe 3.4s ease-in-out infinite;
         }
-        @keyframes opBreathe { 0%,100% { opacity: 0.62; } 50% { opacity: 0.98; } }
+        @keyframes opBreathe { 0%,100% { opacity: 0.72; } 50% { opacity: 1; } }
         .op-crest .op-prompt { animation: opFadeOut 0.4s ease forwards; }
         @keyframes opFadeOut { to { opacity: 0; } }
         /* Arch — ABSOLUTELY positioned (trap 1): never inside the wordmark's flex
