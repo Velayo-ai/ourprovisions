@@ -272,19 +272,27 @@ function SplashScreen({ onDone, ready }) {
         }
         .op-crest .op-vignette { animation: opVigOpen 2.2s cubic-bezier(0.19,1,0.22,1) forwards; }
         @keyframes opVigOpen { to { transform: scale(1.6); opacity: 0.35; } }
-        /* Horizon bloom — fixed-size, scaled via transform (not width/height) so it
-           stays on the compositor. */
+        /* Horizon bloom — a broad, soft radial glow low on screen, blooming
+           outward from center (§2). Its center sits WELL BELOW the wordmark so no
+           bright edge ever crosses the load-bearing arch-to-wordmark gap (§3): the
+           arch must read as floating, never underlined. Long imperceptible falloff
+           + heavy blur = light, not a rule. Grows via transform scale (compositor),
+           not width/height. */
         .op-bloom {
-          position: absolute; left: 50%; top: 44%; z-index: 2; pointer-events: none;
-          width: 520px; height: 6px; margin: -3px 0 0 -260px; border-radius: 50%;
-          background: radial-gradient(closest-side, rgba(168,231,230,0.9), rgba(38,169,177,0.3), transparent);
-          opacity: 0; transform: scaleX(0.02); filter: blur(3px);
+          position: absolute; left: 50%; top: 75%; z-index: 2; pointer-events: none;
+          width: 840px; height: 400px; margin: -200px 0 0 -420px; border-radius: 50%;
+          background: radial-gradient(ellipse 50% 50% at 50% 50%,
+            rgba(168,231,230,0.5) 0%,
+            rgba(94,206,205,0.22) 34%,
+            rgba(38,169,177,0.08) 54%,
+            transparent 74%);
+          opacity: 0; transform: scale(0.14); filter: blur(30px);
         }
-        .op-crest .op-bloom { animation: opBloom 2.2s cubic-bezier(0.19,1,0.22,1) 0.1s forwards; }
+        .op-crest .op-bloom { animation: opBloom 2.4s cubic-bezier(0.19,1,0.22,1) 0.1s forwards; }
         @keyframes opBloom {
-          0% { opacity: 0; transform: scaleX(0.02); }
-          35% { opacity: 1; transform: scaleX(0.8); }
-          100% { opacity: 0.3; transform: scaleX(1); }
+          0% { opacity: 0; transform: scale(0.14); }
+          35% { opacity: 0.85; transform: scale(0.7); }
+          100% { opacity: 0.4; transform: scale(1); }
         }
         /* Tap-to-enter prompt — slow breathe (opacity only). Static letter-spacing
            is fine; only ANIMATING it janks (trap 2). Fades out on crest. */
