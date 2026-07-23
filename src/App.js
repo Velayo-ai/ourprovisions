@@ -196,6 +196,8 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
   const exitedRef = useRef(false);
   const canvasRef = useRef(null);
   const wmRef = useRef(null);      // splash wordmark — the thing that travels
+  const wmWrapRef = useRef(null);  // wordmark wrapper — transform-free box to measure
+  const rootRef = useRef(null);    // splash root — carries the measured position vars
   const audioRef = useRef(null);   // wave_hit.mp3 (§7)
   const primedRef = useRef(false); // audio unlocked on the entry tap, once
 
@@ -301,6 +303,36 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     exit();
   }, [revealDone, ready, exit]);
 
+  // Position the arch AND the horizon line RELATIVE TO THE WORDMARK, not the
+  // viewport (§3, Dan's overlay test): a viewport-% offset drifts whenever window
+  // height changes while the wordmark stays a fixed size — the arch crept toward
+  // the caps and the line sat on the descenders. Measure the wordmark's resting
+  // box (the WRAPPER is transform-free, so it's stable during the reveal) and set
+  // px vars for both as fixed relationships to it. Re-measured on resize / font
+  // load. The arch/line start at opacity 0, so setting these after paint is fine.
+  const measure = useCallback(() => {
+    const root = rootRef.current, wrap = wmWrapRef.current, wm = wmRef.current;
+    if (!root || !wrap || !wm) return;
+    const box = wrap.getBoundingClientRect();
+    const fs = parseFloat(getComputedStyle(wm).fontSize) || 40;
+    const archW = 0.52 * wm.offsetWidth;                                    // §3 locked ratio
+    root.style.setProperty("--op-arch-w", archW.toFixed(1) + "px");
+    root.style.setProperty("--op-arch-top", (box.top - 0.8 * archW).toFixed(1) + "px");   // 0.8× arch width of air above the cap-line
+    root.style.setProperty("--op-bloom-top", (box.bottom + 0.6 * fs).toFixed(1) + "px");  // clear of the descenders
+    root.style.setProperty("--op-tag-top", (box.bottom + 1.6 * fs).toFixed(1) + "px");    // tagline below the line
+  }, []);
+
+  useEffect(() => {
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure).catch(() => {});
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+    };
+  }, [measure]);
+
   // BVI water wash (beat 5, §9). Additive-blended water-light particles rise with
   // lateral drift and clear BOTTOM-UP, reinforcing surfacing. Tuned for phone
   // fill-rate (desktop was never the constraint): (1) backing store capped at DPR
@@ -389,6 +421,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
 
   return (
     <div
+      ref={rootRef}
       className={rootClass}
       style={{
         opacity: fading ? 0 : 1,
@@ -441,14 +474,12 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
            letterforms; it must NEVER intrude on the locked arch-to-wordmark gap
            above (Dan's overlay test). Blooms outward from center via scaleX
            (compositor), not width.
-           POSITION is relative to the WORDMARK, not the viewport (same principle as
-           the arch): the wordmark anchors at 50.95% and renders at a fixed 40px, so
-           the line sits a fixed multiple of that height below it (56px ≈ 1.4× →
-           clears the 40px line-box + ~16px espresso). A viewport-% offset collapsed
-           the descender-to-line gap on phone while holding on desktop; this keeps
-           it constant at every width. */
+           POSITION is measured relative to the WORDMARK's real box (see measure()):
+           a fixed fraction of the font size below the measured baseline/box bottom,
+           so descenders always clear it — constant at every viewport, not a
+           viewport-% that drifted. Fallback applies only pre-JS (line is opacity 0). */
         .op-bloom {
-          position: absolute; left: 50%; top: calc(50.95% + 56px); z-index: 2; pointer-events: none;
+          position: absolute; left: 50%; top: var(--op-bloom-top, 57%); z-index: 2; pointer-events: none;
           width: 120vw; height: 3px; margin-top: -1.5px; margin-left: -60vw;
           background: radial-gradient(closest-side,
             rgba(226,247,247,0.95) 0%,
@@ -479,8 +510,10 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
            gap. Width = 0.52 × wordmark (~124px); floats higher with clear espresso
            air below it before the letter tops. */
         .op-arch {
-          position: absolute; left: 50%; top: 39.6%; transform: translateX(-50%);
-          width: 124px; height: auto; overflow: visible; opacity: 0; z-index: 8;
+          /* top + width are measured relative to the wordmark (see measure()); the
+             fallbacks apply only for the first frame before JS runs (arch is opacity 0). */
+          position: absolute; left: 50%; top: var(--op-arch-top, 39.6%); transform: translateX(-50%);
+          width: var(--op-arch-w, 124px); height: auto; overflow: visible; opacity: 0; z-index: 8;
         }
         .op-arch path {
           fill: none; stroke: #0D9488; stroke-width: 2.4; stroke-linecap: round;
@@ -491,6 +524,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         .op-wm-wrap {
           position: absolute; left: 0; right: 0; top: 50.95%;
           text-align: center; pointer-events: none; z-index: 4; /* above scene(1), sheet(2), canvas(3) */
+          font-size: 40px; line-height: 1; /* strut matches the wordmark so its measured box is tight */
         }
         .op-wm {
           display: inline-block; font-family: 'Playfair Display', serif;
@@ -501,7 +535,9 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         .op-wm .o { font-weight: 400; }
         .op-wm .p { font-weight: 700; }
         .op-tag {
-          position: absolute; left: 0; right: 0; top: 62%; text-align: center; z-index: 6;
+          /* Also wordmark-relative (measured) — below the horizon line, not a
+             viewport-% that would drift on resize. Fallback pre-JS only. */
+          position: absolute; left: 0; right: 0; top: var(--op-tag-top, 62%); text-align: center; z-index: 6;
           font-family: 'Lato', sans-serif; font-weight: 300; font-size: 11px;
           letter-spacing: 4px; text-transform: uppercase; color: #C9A97A; opacity: 0;
         }
@@ -607,7 +643,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
       {/* Wordmark — the still point everything resolves around; on the wash it
           travels to become the header title (§6b). Sits above the wash so the name
           stays intact. */}
-      <div className="op-wm-wrap">
+      <div className="op-wm-wrap" ref={wmWrapRef}>
         <span className="op-wm" ref={wmRef}>
           <span className="o">Our</span><span className="p">Provisions</span>
         </span>
