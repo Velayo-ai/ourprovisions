@@ -184,6 +184,7 @@ const OP_FAILSAFE_MS = 5000; // §5 max: a stuck load must never trap the user
 const OP_REDUCED_HOLD = 400; // reduced-motion: brief settle before the gate
 const OP_FADE_MS = 700;      // reduced-motion dissolve fade duration
 const OP_WASH_MAX = 3400;    // wash: HARD bound on unmount (clip ~2.8s + buffer; §9 safety)
+const OP_GROUP_CENTER = 0.48; // arch+wordmark+tagline group centre, as a fraction of the VISIBLE viewport (just above true centre)
 function SplashScreen({ onDone, ready, headerTitleRef }) {
   const reduced = typeof window !== "undefined" && window.matchMedia
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -198,7 +199,6 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
   const wmRef = useRef(null);      // splash wordmark — the thing that travels
   const wmWrapRef = useRef(null);  // wordmark wrapper — transform-free box to measure
   const rootRef = useRef(null);    // splash root — carries the measured position vars
-  const footRef = useRef(null);    // Velayo footer — bottom-pinned, for group balance
   const audioRef = useRef(null);   // wave_hit.mp3 (§7)
   const primedRef = useRef(false); // audio unlocked on the entry tap, once
 
@@ -324,9 +324,14 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     const aboveWm = 0.8 * archW;                            // arch top sits this far above the wordmark box top
     const belowWm = wmH + 1.6 * fs + tagH;                  // tagline bottom sits this far below the box top
     const groupH = aboveWm + belowWm;
-    const vh = root.getBoundingClientRect().height || window.innerHeight;
-    const footTop = footRef.current ? footRef.current.getBoundingClientRect().top : (vh - 82);
-    const groupCenter = footTop / 2;                        // space above group == space below to footer
+    // Center against the VISIBLE viewport (visualViewport), NOT the layout viewport:
+    // on mobile a position:fixed overlay is sized to the taller layout viewport, so
+    // % / getBoundingClientRect heights overstate what's on screen and the cluster
+    // read high. visualViewport.height is exactly what the user sees; the overlay's
+    // top aligns with the visible top, so px-from-top maps 1:1 to the visible area.
+    const vv = window.visualViewport;
+    const visH = (vv && vv.height) || window.innerHeight || root.getBoundingClientRect().height;
+    const groupCenter = OP_GROUP_CENTER * visH;             // optical centre just above true centre
     const wmTop = groupCenter - groupH / 2 + aboveWm;
     const wmBottom = wmTop + wmH;
     root.style.setProperty("--op-wm-top", wmTop.toFixed(1) + "px");
@@ -340,10 +345,13 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     measure();
     window.addEventListener("resize", measure);
     window.addEventListener("orientationchange", measure);
+    const vv = window.visualViewport;
+    if (vv) vv.addEventListener("resize", measure);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure).catch(() => {});
     return () => {
       window.removeEventListener("resize", measure);
       window.removeEventListener("orientationchange", measure);
+      if (vv) vv.removeEventListener("resize", measure);
     };
   }, [measure]);
 
@@ -646,7 +654,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
 
         <div className="op-tag">Save time. Shop smarter.</div>
 
-        <div className="op-foot" ref={footRef}>
+        <div className="op-foot">
           <img src={process.env.PUBLIC_URL + "/velayo-mark.png"} alt="Velayo" />
           <div className="op-vt">VELAYO INC.</div>
         </div>
