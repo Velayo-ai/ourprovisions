@@ -198,6 +198,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
   const wmRef = useRef(null);      // splash wordmark — the thing that travels
   const wmWrapRef = useRef(null);  // wordmark wrapper — transform-free box to measure
   const rootRef = useRef(null);    // splash root — carries the measured position vars
+  const footRef = useRef(null);    // Velayo footer — bottom-pinned, for group balance
   const audioRef = useRef(null);   // wave_hit.mp3 (§7)
   const primedRef = useRef(false); // audio unlocked on the entry tap, once
 
@@ -303,23 +304,36 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     exit();
   }, [revealDone, ready, exit]);
 
-  // Position the arch AND the horizon line RELATIVE TO THE WORDMARK, not the
-  // viewport (§3, Dan's overlay test): a viewport-% offset drifts whenever window
-  // height changes while the wordmark stays a fixed size — the arch crept toward
-  // the caps and the line sat on the descenders. Measure the wordmark's resting
-  // box (the WRAPPER is transform-free, so it's stable during the reveal) and set
-  // px vars for both as fixed relationships to it. Re-measured on resize / font
-  // load. The arch/line start at opacity 0, so setting these after paint is fine.
+  // Compose the arch + wordmark + horizon line + tagline as ONE group and place
+  // the GROUP, not each element from the top (which left it top-heavy with a dead
+  // span above the bottom-pinned footer). Everything is expressed as fixed
+  // relationships to the wordmark (§3, Dan's overlay test) — arch 0.8× its width
+  // above the cap-line, line/tagline a fixed fraction of the font below the box —
+  // so the internal spacing is viewport-independent (no more arch creep / line on
+  // the descenders). Then the whole group is centred so the space ABOVE it equals
+  // the space BELOW it to the footer, which lands it just above true centre on a
+  // tall phone. Re-measured on resize / orientation / font load. The group is
+  // opacity 0 until the crest, so setting these after paint causes no jump.
   const measure = useCallback(() => {
     const root = rootRef.current, wrap = wmWrapRef.current, wm = wmRef.current;
     if (!root || !wrap || !wm) return;
-    const box = wrap.getBoundingClientRect();
+    const wmH = wrap.getBoundingClientRect().height || 40; // height only (position-independent)
     const fs = parseFloat(getComputedStyle(wm).fontSize) || 40;
-    const archW = 0.52 * wm.offsetWidth;                                    // §3 locked ratio
+    const archW = 0.52 * (wm.offsetWidth || 238);          // §3 locked ratio
+    const tagH = 1.3 * 11;                                  // tagline line box (~14px)
+    const aboveWm = 0.8 * archW;                            // arch top sits this far above the wordmark box top
+    const belowWm = wmH + 1.6 * fs + tagH;                  // tagline bottom sits this far below the box top
+    const groupH = aboveWm + belowWm;
+    const vh = root.getBoundingClientRect().height || window.innerHeight;
+    const footTop = footRef.current ? footRef.current.getBoundingClientRect().top : (vh - 82);
+    const groupCenter = footTop / 2;                        // space above group == space below to footer
+    const wmTop = groupCenter - groupH / 2 + aboveWm;
+    const wmBottom = wmTop + wmH;
+    root.style.setProperty("--op-wm-top", wmTop.toFixed(1) + "px");
     root.style.setProperty("--op-arch-w", archW.toFixed(1) + "px");
-    root.style.setProperty("--op-arch-top", (box.top - 0.8 * archW).toFixed(1) + "px");   // 0.8× arch width of air above the cap-line
-    root.style.setProperty("--op-bloom-top", (box.bottom + 0.6 * fs).toFixed(1) + "px");  // clear of the descenders
-    root.style.setProperty("--op-tag-top", (box.bottom + 1.6 * fs).toFixed(1) + "px");    // tagline below the line
+    root.style.setProperty("--op-arch-top", (wmTop - aboveWm).toFixed(1) + "px");
+    root.style.setProperty("--op-bloom-top", (wmBottom + 0.6 * fs).toFixed(1) + "px"); // clear of the descenders
+    root.style.setProperty("--op-tag-top", (wmBottom + 1.6 * fs).toFixed(1) + "px");
   }, []);
 
   useEffect(() => {
@@ -497,12 +511,15 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         /* Tap-to-enter prompt — slow breathe (opacity only). Static letter-spacing
            is fine; only ANIMATING it janks (trap 2). Fades out on crest. */
         .op-prompt {
+          /* It is the only instruction on screen — must stay clearly readable
+             through the whole breath, incl. outdoors. Floor raised well up (never
+             below legible) and base colour lightened for luminance. */
           position: absolute; left: 0; right: 0; top: 72%; text-align: center; z-index: 6;
           font-family: 'Lato', sans-serif; font-weight: 300; font-size: 11px;
-          letter-spacing: 6px; text-transform: uppercase; color: #C9A97A;
+          letter-spacing: 6px; text-transform: uppercase; color: #E6D2AC;
           animation: opBreathe 3.4s ease-in-out infinite;
         }
-        @keyframes opBreathe { 0%,100% { opacity: 0.22; } 50% { opacity: 0.7; } }
+        @keyframes opBreathe { 0%,100% { opacity: 0.62; } 50% { opacity: 0.98; } }
         .op-crest .op-prompt { animation: opFadeOut 0.4s ease forwards; }
         @keyframes opFadeOut { to { opacity: 0; } }
         /* Arch — ABSOLUTELY positioned (trap 1): never inside the wordmark's flex
@@ -522,7 +539,8 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         /* Wordmark — centered by its wrapper (text-align), so its own transform is
            free for the surface animation. Anchored proportionally (~430/844). */
         .op-wm-wrap {
-          position: absolute; left: 0; right: 0; top: 50.95%;
+          /* top is the measured GROUP position (see measure()); fallback pre-JS only. */
+          position: absolute; left: 0; right: 0; top: var(--op-wm-top, 50.95%);
           text-align: center; pointer-events: none; z-index: 4; /* above scene(1), sheet(2), canvas(3) */
           font-size: 40px; line-height: 1; /* strut matches the wordmark so its measured box is tight */
         }
@@ -628,7 +646,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
 
         <div className="op-tag">Save time. Shop smarter.</div>
 
-        <div className="op-foot">
+        <div className="op-foot" ref={footRef}>
           <img src={process.env.PUBLIC_URL + "/velayo-mark.png"} alt="Velayo" />
           <div className="op-vt">VELAYO INC.</div>
         </div>
