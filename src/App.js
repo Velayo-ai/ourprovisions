@@ -179,7 +179,7 @@ const VELAYO_LOGO_TEAL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAbgAAAH+
 const OP_EASE = "cubic-bezier(0.16,1,0.3,1)";
 // Timing (ms). MIN/FAILSAFE per §5; REVEAL covers beats 3–4 + a short hold.
 const OP_MIN_VISIBLE = 2000; // never dissolve before the scene has been seen
-const OP_REVEAL_MS = 4200;   // from crest: footer settles ~3.8s, then a beat
+const OP_REVEAL_MS = 2600;   // from crest: footer settles ~2.0s, then a ~0.6s hold (~38% faster)
 const OP_FAILSAFE_MS = 5000; // §5 max: a stuck load must never trap the user
 const OP_REDUCED_HOLD = 400; // reduced-motion: brief settle before the gate
 const OP_FADE_MS = 700;      // reduced-motion dissolve fade duration
@@ -479,7 +479,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
           background: radial-gradient(80% 55% at 50% 55%, #24140a 0%, #1A0E06 45%, #0d0602 100%);
           transform: scale(1.15);
         }
-        .op-crest .op-depth { animation: opDepthOpen 2.4s cubic-bezier(0.19,1,0.22,1) forwards; }
+        .op-crest .op-depth { animation: opDepthOpen 1.8s cubic-bezier(0.19,1,0.22,1) forwards; }
         @keyframes opDepthOpen { to { opacity: 0; transform: scale(1); } }
         /* Vignette as a scalable radial mask — tight in threshold, retreats on crest
            (scale out + fade), so no box-shadow paint tweening. */
@@ -488,7 +488,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
           background: radial-gradient(ellipse 60% 55% at 50% 50%, transparent 40%, rgba(0,0,0,0.92) 100%);
           transform: scale(1);
         }
-        .op-crest .op-vignette { animation: opVigOpen 2.2s cubic-bezier(0.19,1,0.22,1) forwards; }
+        .op-crest .op-vignette { animation: opVigOpen 1.65s cubic-bezier(0.19,1,0.22,1) forwards; }
         @keyframes opVigOpen { to { transform: scale(1.6); opacity: 0.35; } }
         /* Horizon bloom — a thin, defined horizontal line (§2): brightest at
            center, falling off toward both edges — a HORIZON, not a cloud. Cool/pale
@@ -510,7 +510,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
             rgba(38,169,177,0.0) 100%);
           opacity: 0; transform: scaleX(0.02); filter: blur(1px);
         }
-        .op-crest .op-bloom { animation: opBloom 2.2s cubic-bezier(0.19,1,0.22,1) 0.1s forwards; }
+        .op-crest .op-bloom { animation: opBloom 1.65s cubic-bezier(0.19,1,0.22,1) 0.1s forwards; }
         @keyframes opBloom {
           0%   { opacity: 0;   transform: scaleX(0.02); }  /* a point at center */
           35%  { opacity: 1;   transform: scaleX(0.85); }  /* blooms outward */
@@ -580,15 +580,20 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         }
         /* Reveal choreography (beats 3–4). GPU-friendly props ONLY — opacity,
            transform, filter:blur. NO letter-spacing animation (trap 2: per-frame
-           text reflow janks). */
-        .op-crest .op-wm { animation: opSurface 1.8s ${OP_EASE} 0.5s forwards; }
+           text reflow janks). Durations compressed ~25-30% and offsets pulled in
+           so each element STARTS before the previous settles — one continuous
+           arrival, not four discrete events. Order and relationship preserved:
+           wordmark → arch → tagline → footer (last, and still the slowest of the
+           four — the house signing after the vessel has had the stage). Same calm
+           cubic-bezier(0.16,1,0.3,1) throughout, so faster still feels calm. */
+        .op-crest .op-wm { animation: opSurface 1.3s ${OP_EASE} 0.2s forwards; }
         @keyframes opSurface { to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } }
-        .op-crest .op-arch { animation: opArchIn 1.5s ease 0.9s forwards; }
+        .op-crest .op-arch { animation: opArchIn 1.0s ${OP_EASE} 0.45s forwards; }
         @keyframes opArchIn { to { opacity: 0.92; } }
-        .op-crest .op-arch path { animation: opArchDraw 1.4s cubic-bezier(0.22,1,0.36,1) 1.0s forwards; }
+        .op-crest .op-arch path { animation: opArchDraw 1.0s ${OP_EASE} 0.5s forwards; }
         @keyframes opArchDraw { to { stroke-dashoffset: 0; } }
-        .op-crest .op-tag { animation: opFadeIn 1.2s ease 2.1s forwards; }
-        .op-crest .op-foot { animation: opFadeIn 1.3s ease 2.5s forwards; }
+        .op-crest .op-tag { animation: opFadeIn 0.85s ${OP_EASE} 0.9s forwards; }
+        .op-crest .op-foot { animation: opFadeIn 0.95s ${OP_EASE} 1.05s forwards; }
         @keyframes opFadeIn { to { opacity: 1; } }
         /* Reduced motion: resolved state, no parallax/particles, simple fade. */
         .op-reduced .op-wm { opacity: 1; transform: none; filter: none; }
