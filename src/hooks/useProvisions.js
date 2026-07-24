@@ -42,6 +42,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // status (Bug 3: toggle bounces / takes ~3 taps to stick). Keyed by name,
   // matching `checked`.
   const pendingCheckRef = useRef(new Set());
+  // In-flight guard for the 2s list poll. On a slow (3G) connection a single
+  // loadListItems cycle (get_list_items RPC → contributors query → setStates) can
+  // outlast the 2s interval; without this the setInterval keeps firing and the
+  // cycles overlap and pile up (the "never settles / count climbs" symptom). If a
+  // cycle is still running, the next tick is skipped and the poll effectively
+  // backs off to the cycle duration.
+  const loadingListRef = useRef(false);
   const [activeCycle, setActiveCycle] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
   const activeCycleRef = useRef(null);
@@ -68,6 +75,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
   async function loadListItems(db, householdId) {
     if (wrappingUpRef.current) return;
+    if (loadingListRef.current) return;   // skip this tick — a cycle is still in flight
+    loadingListRef.current = true;
+    try {
+      await loadListItemsInner(db, householdId);
+    } finally {
+      loadingListRef.current = false;
+    }
+  }
+
+  async function loadListItemsInner(db, householdId) {
     const { data: items, error: listErr } = await db
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
