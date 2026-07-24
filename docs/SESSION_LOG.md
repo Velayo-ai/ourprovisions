@@ -25,6 +25,32 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-23] — [OurProvisions] — Built the splash scene, then stripped the entry to auto-play + surfacing (audio, wash & tap gate removed)
+**Goal:** Implement the splash per `SPEC_splash_vessel_identity_v2.md`, then refine it on device until the entry reads as intentional rather than as a toll.
+**Completed:**
+- Built the splash across four commits — static scene + reveal, threshold/crest/readiness gate, BVI water wash, measured wordmark hand-off + header standardization + wave audio — device-verified between each; retired v1 spec to `docs/specs/retired/` (after briefly misfiling it in `active/`).
+- Restructured the entry into **three meaning-grouped motions**: horizon (the world) → vessel (*Our*Provisions + tagline) → house (arch + Velayo colophon). The arch groups with the house (it is part of the Velayo logo) though it sits spatially over the wordmark.
+- **Removed the tap gate, "TAP TO ENTER", the BVI wash, and all audio from the entry** — the scene now auto-plays on cold start and asks nothing of the user. The dissolve is a **simple surfacing**: espresso recedes into the header, cream body revealed below, wordmark lands on the measured header position. No particles.
+- Converted arch + horizon-line + tagline positioning from viewport-relative to **wordmark-relative** (measured `getBoundingClientRect`), fixing cross-device / window-height drift; composed them as one group centered against the **visible** viewport (visualViewport, not the taller layout viewport).
+- Changed the wordmark entrance from slide-up to **emerge-in-place** (opacity + blur), so the hand-off is the sequence's only travel.
+- Fixed the **double-wordmark on hand-off** — the real header title is hidden until the travelling clone unmounts, then revealed in the same frame (invisible swap, §6b).
+- On the (now-removed) wash: perf-tuned for phone fill-rate (DPR 1.5 cap, device-scaled count, pre-rendered sprite blit), fixed an audible double-wave and a cut audio tail — all captured for the Trip Complete inheritance.
+**Unfinished:**
+- Wave audio + BVI wash are built but **now unwired** — reserved for a **Trip Complete spec (not yet written)**. Source `wave_hit.mp3` retained in `docs/assets/splash/`; the wash canvas code was removed from `App.js` this session (recover from git history).
+- Splash is **on dev only** — not merged to main/production (Dan's dev→main gate).
+- Horizon-line resting glow was parked ("decide at end") then the line was reworked to a thin horizon; final resting read still unjudged.
+- Footer V-mark is still the knocked-out PNG (reads cool against Dune) — a true-source SVG/alpha PNG preferred (§11).
+- Removing the tap gate removed the load buffer it provided; whether the readiness gate covers a genuinely slow load invisibly is untested.
+- Over a photo with the *small* wordmark, the clone lands at opacity 1 but the header settles at 0.8 — a possible barely-perceptible dip in that one state, unverified.
+- Claude.ai phone↔browser conversation sync failed one-directionally all session (reported as a bug; worked around by retyping prompts).
+**Next session:**
+SESSION START
+Goal: Design the trip-completion moment — give the wave and wash their real home (water rising over the checked list, receding to the empty state), with audio gated behind the existing "Close & clear" confirmation.
+State: Splash is live on dev — silent, gestureless, three motions, hand-off into the header working. Wrap-up flow exists (All done! → confirmation modal → empty list) but clears instantly with no transition. `wave_hit.mp3` is in `docs/assets/splash/`; the BVI wash canvas code was in `App.js` this session (recover from git).
+Done when: A Trip Complete spec exists defining the wash as the clearing transition, audio gated behind "Close & clear", and a decision on whether sound defaults on or off in a store context.
+**Files updated:** `src/App.js` (splash rewrite; header title ref + hidden-during-splash; header wording standardized to "*Our*Provisions"), `public/velayo-mark.png` (new), `public/wave_hit.mp3` (added, now removed), `docs/specs/retired/SPEC_splash_vessel_identity.md` (v1 moved), `docs/specs/built/SPEC_splash_vessel_identity_v2.md` (routed from airlock), plus `docs/SESSION_LOG.md` / `ROADMAP.md` / `ARCHITECTURE.md`.
+**DB changes:** None.
+
 ### [2026-07-22] — [OurProvisions] — Splash reimagined as a branded launch *experience* (design chat); handoff consumed + splash spec filed (Claude Code)
 **Goal:** Turn the OurProvisions launch splash from a generic Velayo-branded screen into a branded, emotional entry experience — threshold → reveal → BVI water wash → app, with sound — and route the design handoff + splash spec into the repo.
 **Completed:**
