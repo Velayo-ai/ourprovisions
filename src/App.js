@@ -177,36 +177,33 @@ const VELAYO_LOGO_TEAL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAbgAAAH+
 // water wash (beat 5), and the measured header hand-off (beat 6) land in later
 // commits. A prefers-reduced-motion variant is built alongside, not retrofitted.
 const OP_EASE = "cubic-bezier(0.16,1,0.3,1)";
-// Timing (ms). MIN/FAILSAFE per §5; REVEAL covers beats 3–4 + a short hold.
-const OP_MIN_VISIBLE = 2000; // never dissolve before the scene has been seen
-const OP_REVEAL_MS = 4450;   // from crest: 3 motions (horizon→vessel→house) w/ beats settle ~4.0s, then a ~0.45s hold
+// Timing (ms), all from mount (the scene auto-plays on cold start — no tap gate).
+const OP_MIN_VISIBLE = 2000; // §5: never dissolve before the scene has been seen
+const OP_REVEAL_MS = 4450;   // 3 motions (horizon→vessel→house) w/ beats settle ~4.0s, then a ~0.45s hold
 const OP_FAILSAFE_MS = 5000; // §5 max: a stuck load must never trap the user
 const OP_REDUCED_HOLD = 400; // reduced-motion: brief settle before the gate
 const OP_FADE_MS = 700;      // reduced-motion dissolve fade duration
-const OP_WASH_MAX = 3400;    // wash: HARD bound on unmount (clip ~2.8s + buffer; §9 safety)
+const OP_SURFACE_MS = 1900;  // surfacing dissolve: scene fade + measured hand-off settle, then unmount
 const OP_GROUP_CENTER = 0.48; // arch+wordmark+tagline group centre, as a fraction of the VISIBLE viewport (just above true centre)
 function SplashScreen({ onDone, ready, headerTitleRef }) {
   const reduced = typeof window !== "undefined" && window.matchMedia
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // 'threshold' (beat 1, holds for the tap) → 'crest' (beat 2 + reveal fire).
-  const [phase, setPhase] = useState("threshold");
+  // No tap gate: the scene auto-plays on cold start. 'crest' (reveal) →
+  // 'surface' (the simple surfacing dissolve + measured hand-off).
+  const [phase, setPhase] = useState("crest");
   const [revealDone, setRevealDone] = useState(false);
   const [fading, setFading] = useState(false);
   const [handoff, setHandoff] = useState(false); // measured hand-off armed (§6b)
   const mountRef = useRef(Date.now());
   const exitedRef = useRef(false);
-  const canvasRef = useRef(null);
   const wmRef = useRef(null);      // splash wordmark — the thing that travels
   const wmWrapRef = useRef(null);  // wordmark wrapper — transform-free box to measure
   const rootRef = useRef(null);    // splash root — carries the measured position vars
-  const audioRef = useRef(null);   // wave_hit.mp3 (§7)
-  const primedRef = useRef(false); // audio unlocked on the entry tap, once
 
   // Single dissolve path — idempotent so the readiness gate and the failsafe can
-  // both point here without racing to double-fire onDone. In full motion the BVI
-  // wash (beat 5) IS the dissolve; reduced motion falls back to a plain fade.
-  // Either way onDone fires on a HARD timer (never gated on particle completion),
-  // so a stalled loop can't leave the overlay covering the header.
+  // both point here without racing to double-fire onDone. Full motion does the
+  // simple surfacing (scene recedes, wordmark travels to the header, §6b); reduced
+  // motion falls back to a plain fade. onDone always fires on a HARD timer.
   const exit = useCallback(() => {
     if (exitedRef.current) return;
     exitedRef.current = true;
@@ -239,43 +236,12 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
       }
     }
     setHandoff(ok);
-    setPhase("wash");
-    // Audio (§7): the wave breaks as the water floods. Play unmuted here (already
-    // unlocked by the muted priming pass on the entry tap → no double-wave). Do
-    // NOT start it earlier — the break stays locked to the flood.
-    // The visual wash finishes ~2.2s but the clip washes out to silence over
-    // ~2.8s. Keep the (now transparent, non-interactive) overlay mounted until the
-    // clip's 'ended' fires so the tail isn't cut; a failsafe bounds a blocked or
-    // errored clip (§9: unmount still always happens).
-    let done = false;
-    const finish = () => { if (done) return; done = true; onDone(); };
-    const a = audioRef.current;
-    if (a) {
-      try { a.muted = false; a.currentTime = 0; const pr = a.play(); if (pr && pr.catch) pr.catch(() => {}); } catch (e) { /* blocked */ }
-      a.addEventListener("ended", finish, { once: true });
-    }
-    setTimeout(finish, OP_WASH_MAX);
+    setPhase("surface");                     // espresso recedes into the header, cream revealed below
+    setTimeout(() => onDone(), OP_SURFACE_MS);
   }, [reduced, onDone, headerTitleRef]);
 
-  // The entry tap (beat 2) — the SINGLE entry point (also the audio-unlock
-  // gesture, §7). Prime the wave MUTED: play → pause, and CRUCIALLY stay muted
-  // the whole time (the wash unmutes it, §exit). Unmuting here — inside the
-  // play/pause .then — races the pause on some phones and leaks the clip's tail
-  // audibly at the tap, i.e. the double-wave (trap 3). One tap only.
-  const handleEnter = useCallback(() => {
-    if (primedRef.current) return;
-    primedRef.current = true;
-    const a = audioRef.current;
-    if (a) {
-      a.muted = true;
-      const pr = a.play();
-      if (pr && pr.then) pr.then(() => { a.pause(); a.currentTime = 0; }).catch(() => {});
-    }
-    setPhase((p) => (p === "threshold" ? "crest" : p));
-  }, []);
-
-  // Reduced motion: no threshold gesture, no parallax — the resolved scene shows,
-  // settles briefly, then dissolves on readiness (failsafe still bounds it).
+  // Reduced motion: no parallax — the resolved scene shows, settles briefly, then
+  // dissolves on readiness (failsafe still bounds it).
   useEffect(() => {
     if (!reduced) return;
     const rt = setTimeout(() => setRevealDone(true), OP_REDUCED_HOLD);
@@ -283,8 +249,8 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     return () => { clearTimeout(rt); clearTimeout(ft); };
   }, [reduced, exit]);
 
-  // Full motion: once the user crests, let the reveal (beats 3–4) play, then arm
-  // the §5 failsafe. revealDone gates the readiness dissolve below.
+  // Full motion: the reveal auto-plays from mount; let it run, then arm the §5
+  // failsafe. revealDone gates the readiness dissolve below.
   useEffect(() => {
     if (reduced || phase !== "crest") return;
     const rt = setTimeout(() => setRevealDone(true), OP_REVEAL_MS);
@@ -355,91 +321,9 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     };
   }, [measure]);
 
-  // BVI water wash (beat 5, §9). Additive-blended water-light particles rise with
-  // lateral drift and clear BOTTOM-UP, reinforcing surfacing. Tuned for phone
-  // fill-rate (desktop was never the constraint): (1) backing store capped at DPR
-  // 1.5 — soft light needs no 2–3× resolution; (2) particle count scaled to the
-  // device, fewer but slightly larger; (3) each colour's soft radial pre-rendered
-  // ONCE to a sprite and blitted, instead of a gradient built per particle per
-  // frame — the single biggest win. Still reads as light, not dots.
-  // Bounded two ways so it can NEVER stall as a block over the header: a hard
-  // frame cap ends the loop, and unmount (onDone's timer) cancels the rAF.
-  useEffect(() => {
-    if (reduced || phase !== "wash") return;
-    const cv = canvasRef.current;
-    if (!cv) return;
-    const ctx = cv.getContext("2d");
-    if (!ctx) return;
-    const DPR = Math.min(window.devicePixelRatio || 1, 1.5); // fill-rate cap (was 2)
-    const rect = cv.getBoundingClientRect();
-    const cssW = rect.width, cssH = rect.height;
-    const W = Math.max(1, Math.round(cssW * DPR));
-    const H = Math.max(1, Math.round(cssH * DPR));
-    cv.width = W; cv.height = H;
-    // BVI band — water tones ONLY (no warm mix, which reads as confetti), weighted
-    // to pale aqua / turquoise so overlaps read as sunlit water, not dots.
-    const COLORS = [[226,247,247],[168,231,230],[168,231,230],[94,206,205],[94,206,205],[38,169,177],[17,124,140]];
-    // Pre-render each colour's soft radial sprite ONCE. Per frame we blit a cached
-    // sprite (a GPU texture copy) instead of allocating+rasterising a gradient per
-    // particle — same soft falloff, a fraction of the cost.
-    const SPRITE = 64;
-    const sprites = COLORS.map((c) => {
-      const s = document.createElement("canvas"); s.width = SPRITE; s.height = SPRITE;
-      const g = s.getContext("2d");
-      const grad = g.createRadialGradient(SPRITE / 2, SPRITE / 2, 0, SPRITE / 2, SPRITE / 2, SPRITE / 2);
-      grad.addColorStop(0, `rgba(${c[0]},${c[1]},${c[2]},1)`);
-      grad.addColorStop(1, `rgba(${c[0]},${c[1]},${c[2]},0)`);
-      g.fillStyle = grad; g.fillRect(0, 0, SPRITE, SPRITE);
-      return s;
-    });
-    // Scale the count to the screen rather than a fixed number; fewer, slightly
-    // larger particles read the same at speed (was a fixed ~2850).
-    const count = Math.max(500, Math.min(2200, Math.round(cssW * cssH / 220)));
-    const parts = [];
-    for (let n = 0; n < count; n++) {
-      const x = Math.random() * W;
-      const y = (0.12 + Math.random() * 0.88) * H;    // below the wordmark/header band
-      parts.push({
-        x, y,
-        vx: (Math.random() - 0.5) * 0.6 * DPR,
-        vy: -(0.4 + Math.random() * 1.2) * DPR,        // rise
-        life: 0, ttl: 70 + Math.random() * 50,
-        r: (1.4 + Math.random() * 2.6) * DPR,          // slightly larger to offset the lower count
-        sprite: sprites[(Math.random() * sprites.length) | 0],
-        delay: (1 - y / H) * 14,                       // bottom starts first → clear bottom-up
-      });
-    }
-    let raf = 0, frames = 0;
-    const MAX_FRAMES = 190;                       // backstop; unmount cancels sooner
-    const draw = () => {
-      frames++;
-      ctx.clearRect(0, 0, W, H);
-      ctx.globalCompositeOperation = "lighter";   // additive → overlaps are light
-      let alive = 0;
-      for (const p of parts) {
-        if (p.delay > 0) { p.delay--; alive++; continue; }
-        p.life++;
-        const t = p.life / p.ttl;
-        if (t >= 1) continue;
-        alive++;
-        p.x += p.vx; p.y += p.vy; p.vy *= 0.99;
-        p.vx += (Math.random() - 0.5) * 0.08 * DPR;  // lateral caustic drift
-        const rr = p.r * (1 - t * 0.4) * 2.4;
-        const d = rr * 2;
-        ctx.globalAlpha = (1 - t) * 0.8;
-        ctx.drawImage(p.sprite, p.x - rr, p.y - rr, d, d);  // blit cached soft sprite
-      }
-      ctx.globalAlpha = 1; ctx.globalCompositeOperation = "source-over";
-      if (alive > 0 && frames < MAX_FRAMES) raf = requestAnimationFrame(draw);
-      else ctx.clearRect(0, 0, W, H);             // finish clean — no residual block
-    };
-    raf = requestAnimationFrame(draw);
-    return () => { if (raf) cancelAnimationFrame(raf); try { ctx.clearRect(0, 0, W, H); } catch (e) { /* unmounting */ } };
-  }, [reduced, phase]);
-
-  const crested = !reduced && (phase === "crest" || phase === "wash"); // hold reveal end-states through the wash
-  const washing = !reduced && phase === "wash";
-  const rootClass = `op-splash${crested ? " op-crest" : ""}${washing ? " op-wash" : ""}${handoff ? " op-handoff" : ""}${reduced ? " op-reduced" : ""}`;
+  const crested = !reduced && (phase === "crest" || phase === "surface"); // hold reveal end-states through the surfacing
+  const surfacing = !reduced && phase === "surface";
+  const rootClass = `op-splash${crested ? " op-crest" : ""}${surfacing ? " op-surface" : ""}${handoff ? " op-handoff" : ""}${reduced ? " op-reduced" : ""}`;
 
   return (
     <div
@@ -447,12 +331,10 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
       className={rootClass}
       style={{
         opacity: fading ? 0 : 1,
-        cursor: !reduced && phase === "threshold" ? "pointer" : "default",
-        // Once dissolving the overlay is transparent but still mounted (for the
-        // audio tail / fade) — let taps reach the app revealed beneath.
-        pointerEvents: (washing || fading) ? "none" : undefined,
+        // Once surfacing, the overlay is transparent but briefly still mounted —
+        // let taps reach the app revealed beneath.
+        pointerEvents: (surfacing || fading) ? "none" : undefined,
       }}
-      onClick={!reduced ? handleEnter : undefined}
     >
       <style>{`
         .op-splash {
@@ -460,20 +342,20 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
           transition: opacity 0.7s ease;
         }
         /* Scene container — everything that must FADE AWAY as the app is revealed
-           (ground, atmosphere, arch, tagline, footer). The wordmark and the wash
-           layers deliberately live OUTSIDE it so the name stays the still point and
-           the turquoise sheet can wash over a fading scene. */
+           (ground, atmosphere, arch, tagline, footer). The wordmark lives OUTSIDE
+           it so it stays the still point and travels to the header while the scene
+           recedes beneath it. */
         .op-scene { position: absolute; inset: 0; z-index: 1; }
-        /* Open espresso ground — was on the root in commits 1–2; moved to its own
-           fadeable layer so the wash can dissolve it to reveal the app beneath. */
+        /* Open espresso ground — on its own fadeable layer so the surfacing can
+           dissolve it to reveal the app beneath. */
         .op-ground {
           position: absolute; inset: 0; z-index: 0;
           background: radial-gradient(140% 100% at 50% 44%, #4a2f18 0%, #2C1A0E 46%, #160B04 100%);
         }
-        /* Threshold atmosphere (beats 1–2). Depth/vignette/bloom animate on crest
-           via GPU-friendly props ONLY — opacity + transform (no gradient/box-shadow
-           tweening). The ground holds the OPEN gradient; the closed depth layer
-           sits over it and fades away to reveal it. */
+        /* MOTION 1 — the horizon. Depth opens / vignette retreats / bloom line
+           arrives, establishing the world. GPU-friendly props ONLY — opacity +
+           transform (no gradient/box-shadow tweening). The ground holds the OPEN
+           gradient; the closed depth layer sits over it and fades away to reveal it. */
         .op-depth {
           position: absolute; inset: 0; z-index: 0; pointer-events: none;
           background: radial-gradient(80% 55% at 50% 55%, #24140a 0%, #1A0E06 45%, #0d0602 100%);
@@ -516,19 +398,6 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
           35%  { opacity: 1;   transform: scaleX(0.85); }  /* blooms outward */
           100% { opacity: 0.6; transform: scaleX(1); }     /* settles as a horizon */
         }
-        /* Tap-to-enter prompt — slow breathe (opacity only). Static letter-spacing
-           is fine; only ANIMATING it janks (trap 2). Fades out on crest. */
-        .op-prompt {
-          /* It is the only instruction on screen — must stay clearly readable
-             through the whole breath, incl. outdoors. Floor raised well up (never
-             below legible) and base colour lightened for luminance. */
-          position: absolute; left: 0; right: 0; top: 72%; text-align: center; z-index: 6;
-          font-family: 'Lato', sans-serif; font-weight: 300; font-size: 13px;
-          letter-spacing: 3.5px; text-transform: uppercase; color: #E6D2AC;
-          animation: opBreathe 3.4s ease-in-out infinite;
-        }
-        @keyframes opBreathe { 0%,100% { opacity: 0.72; } 50% { opacity: 1; } }
-        .op-crest .op-prompt { animation: opFadeOut 0.4s ease forwards; }
         @keyframes opFadeOut { to { opacity: 0; } }
         /* Arch — ABSOLUTELY positioned (trap 1): never inside the wordmark's flex
            column, where a margin would just recenter the cluster and collapse the
@@ -609,34 +478,17 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         .op-reduced .op-tag { opacity: 1; }
         .op-reduced .op-foot { opacity: 1; }
 
-        /* ── BVI water wash (beat 5, §9) ── The translucent turquoise sheet floods
-           UP over the scene, then recedes UP to reveal the app beneath. The scene
-           fades under it so what surfaces is the app, not espresso. Sheet + canvas
-           sit above the scene but BELOW the wordmark (the still point). Everything
-           here is transform + opacity — GPU-friendly. */
-        .op-watersheet {
-          position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0;
-          background: linear-gradient(180deg,
-            rgba(226,247,247,0.0) 0%,
-            rgba(168,231,230,0.55) 30%,
-            rgba(94,206,205,0.65) 60%,
-            rgba(38,169,177,0.55) 100%);
-          transform: translateY(100%);
-        }
-        .op-canvas { position: absolute; inset: 0; z-index: 3; pointer-events: none; width: 100%; height: 100%; }
-        .op-wash .op-watersheet { animation: opFlood 2.2s cubic-bezier(0.4,0,0.2,1) forwards; }
-        @keyframes opFlood {
-          0%   { opacity: 0;   transform: translateY(100%); }  /* below the fold */
-          35%  { opacity: 1;   transform: translateY(0); }     /* floods over the view */
-          65%  { opacity: 0.9; transform: translateY(0); }
-          100% { opacity: 0;   transform: translateY(-100%); } /* recedes up, app revealed */
-        }
-        .op-wash .op-scene { animation: opSceneFade 1.4s ease 0.3s forwards; }
+        /* ── Surfacing dissolve (§6a) ── The espresso scene recedes (fades) to
+           reveal the cream app body and the espresso header beneath, while the
+           wordmark travels up to the header title. A simple surfacing — no water
+           wash, no particles (those move to Trip Complete). */
+        .op-surface .op-scene { animation: opSceneFade 1.4s ${OP_EASE} 0.3s forwards; }
         @keyframes opSceneFade { to { opacity: 0; } }
-        /* Wordmark hand-off (beat 6, §6b) — the name travels to the header title's
-           measured rect/size (--op-dx/dy/s set at runtime), then crossfades as the
-           real header title surfaces beneath. Starts from the surfaced state so
-           there is no jump. Placed AFTER the reveal rule so it wins the animation. */
+        /* Wordmark hand-off (§6b) — the name travels to the header title's measured
+           rect/size (--op-dx/dy/s set at runtime), then crossfades as the real
+           header title surfaces beneath. Starts from the surfaced state so there is
+           no jump. Placed AFTER the reveal rule so it wins the animation. Kept
+           exactly as built. */
         .op-handoff .op-wm {
           animation:
             opHandoff 1.5s cubic-bezier(0.5,0,0.15,1) forwards,
@@ -648,11 +500,11 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         }
         @keyframes opHandFade { to { opacity: 0; } }
         /* Fallback (§6b): if the hand-off couldn't be measured, the wordmark simply
-           fades with the wash — a clean dissolve, never a misaligned landing. */
-        .op-wash:not(.op-handoff) .op-wm-wrap { animation: opFadeOut 0.6s ease 1.5s forwards; }
+           fades with the surfacing — a clean dissolve, never a misaligned landing. */
+        .op-surface:not(.op-handoff) .op-wm-wrap { animation: opFadeOut 0.6s ease 1.5s forwards; }
       `}</style>
 
-      {/* Scene — everything that fades away under the wash. The ground carries the
+      {/* Scene — everything that recedes as the app surfaces. The ground carries the
           espresso; atmosphere is full-motion only (reduced collapses to a fade). */}
       <div className="op-scene">
         <div className="op-ground" aria-hidden="true" />
@@ -670,27 +522,16 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
           <img src={process.env.PUBLIC_URL + "/velayo-mark.png"} alt="Velayo" />
           <div className="op-vt">VELAYO INC.</div>
         </div>
-
-        {!reduced && phase === "threshold" && <div className="op-prompt">Tap to enter</div>}
       </div>
 
-      {/* Wash layers — above the fading scene, below the wordmark. Full motion only. */}
-      {!reduced && <div className="op-watersheet" aria-hidden="true" />}
-      {!reduced && <canvas className="op-canvas" ref={canvasRef} aria-hidden="true" />}
-
-      {/* Wordmark — the still point everything resolves around; on the wash it
-          travels to become the header title (§6b). Sits above the wash so the name
-          stays intact. */}
+      {/* Wordmark — the still point everything resolves around; on the surfacing it
+          travels to become the header title (§6b). Sits above the scene so the name
+          stays intact as the espresso recedes beneath it. */}
       <div className="op-wm-wrap" ref={wmWrapRef}>
         <span className="op-wm" ref={wmRef}>
           <span className="o">Our</span><span className="p">Provisions</span>
         </span>
       </div>
-
-      {/* Wave audio (§7): the single sound, only when water is visible. Primed
-          muted on the entry tap, played once at the wash. An <audio> element (not
-          Web Audio) respects the device silent switch. */}
-      {!reduced && <audio ref={audioRef} src={process.env.PUBLIC_URL + "/wave_hit.mp3"} preload="auto" />}
     </div>
   );
 }
