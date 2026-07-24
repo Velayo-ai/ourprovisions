@@ -425,7 +425,10 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
           display: inline-block; font-family: 'Playfair Display', serif;
           font-style: italic; color: #FAF4EC; white-space: nowrap;
           font-size: 40px; line-height: 1; letter-spacing: 0.02em; /* matches header for a seamless hand-off */
-          opacity: 0; transform: translateY(54px) scale(0.94); filter: blur(12px);
+          /* Emerges IN PLACE — no translation: resolves from soft to sharp where it
+             already sits ("the word arriving into itself"), so the hand-off is the
+             sequence's only travel. */
+          opacity: 0; filter: blur(12px);
         }
         .op-wm .o { font-weight: 400; }
         .op-wm .p { font-weight: 700; }
@@ -460,9 +463,9 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
                standing. Starts 2.8s. Settles ~4.0s.
            Arch keeps its L→R draw and locked geometry — only its timing GROUP
            changed (now with the footer, not the wordmark). */
-        /* MOTION 2 — the vessel */
+        /* MOTION 2 — the vessel. Wordmark de-blurs into focus in place (no rise). */
         .op-crest .op-wm { animation: opSurface 1.0s ${OP_EASE} 1.5s forwards; }
-        @keyframes opSurface { to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); } }
+        @keyframes opSurface { to { opacity: 1; filter: blur(0); } }
         .op-crest .op-tag { animation: opFadeIn 0.85s ${OP_EASE} 1.57s forwards; }
         /* MOTION 3 — the house (arch + footer), slower + quieter, over the vessel */
         .op-crest .op-arch { animation: opArchIn 1.1s ${OP_EASE} 2.8s forwards; }
@@ -485,20 +488,19 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         .op-surface .op-scene { animation: opSceneFade 1.4s ${OP_EASE} 0.3s forwards; }
         @keyframes opSceneFade { to { opacity: 0; } }
         /* Wordmark hand-off (§6b) — the name travels to the header title's measured
-           rect/size (--op-dx/dy/s set at runtime), then crossfades as the real
-           header title surfaces beneath. Starts from the surfaced state so there is
-           no jump. Placed AFTER the reveal rule so it wins the animation. Kept
-           exactly as built. */
+           rect/size (--op-dx/dy/s set at runtime) and HOLDS there at full opacity.
+           The real header title is hidden until the splash unmounts, then revealed
+           in the same instant the clone is removed (App.js gates it on showSplash) —
+           the title BECOMES the header rather than landing on top of it, so there is
+           no double wordmark and no crossfade gap. Starts from the surfaced state so
+           there is no jump; placed AFTER the reveal rule so it wins the animation. */
         .op-handoff .op-wm {
-          animation:
-            opHandoff 1.5s cubic-bezier(0.5,0,0.15,1) forwards,
-            opHandFade 0.4s ease 1.35s forwards;
+          animation: opHandoff 1.5s cubic-bezier(0.5,0,0.15,1) forwards;
         }
         @keyframes opHandoff {
           from { opacity: 1; transform: translate(0px,0px) scale(1); filter: blur(0); }
           to   { opacity: 1; transform: translate(var(--op-dx,0px), var(--op-dy,0px)) scale(var(--op-s,1)); filter: blur(0); }
         }
-        @keyframes opHandFade { to { opacity: 0; } }
         /* Fallback (§6b): if the hand-off couldn't be measured, the wordmark simply
            fades with the surfacing — a clean dissolve, never a misaligned landing. */
         .op-surface:not(.op-handoff) .op-wm-wrap { animation: opFadeOut 0.6s ease 1.5s forwards; }
@@ -1830,7 +1832,12 @@ function ProvisionsApp() {
               fontFamily: "'Playfair Display', serif",
               fontSize: bannerWordmark === "small" ? "28px" : "42px",
               letterSpacing: "0.02em", color: "#FAF4EC", fontWeight: 400, margin: 0,
-              opacity: bannerWordmark === "small" ? 0.8 : 1,
+              // Hidden (but still laid out, so the splash can measure it) while the
+              // splash is up; revealed the instant the splash unmounts — the splash
+              // clone travels here and HOLDS, then this appears in the same frame the
+              // clone is removed, so the hand-off is an invisible swap (§6b), no
+              // double wordmark. No transition → the reveal is instantaneous.
+              opacity: showSplash ? 0 : (bannerWordmark === "small" ? 0.8 : 1),
               textShadow: WORDMARK_SHADOW,
               transform: bannerHasPhoto ? "translateY(-5%)" : "none",
             }}>
