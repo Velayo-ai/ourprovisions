@@ -25,6 +25,81 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-23] — [OurProvisions] — Built the splash scene (auto-play + surfacing); diagnosed & guarded the list-poll refetch loop
+**Goal:** Implement the splash per `SPEC_splash_vessel_identity_v2.md`, then refine it on device until the entry reads as intentional rather than as a toll.
+**Completed:**
+- Built the splash across four commits — static scene + reveal, threshold/crest/readiness gate, BVI water wash, measured wordmark hand-off + header standardization + wave audio — device-verified between each; retired v1 spec to `docs/specs/retired/` (after briefly misfiling it in `active/`).
+- Restructured the entry into **three meaning-grouped motions**: horizon (the world) → vessel (*Our*Provisions + tagline) → house (arch + Velayo colophon). The arch groups with the house (it is part of the Velayo logo) though it sits spatially over the wordmark.
+- **Removed the tap gate, "TAP TO ENTER", the BVI wash, and all audio from the entry** — the scene now auto-plays on cold start and asks nothing of the user. The dissolve is a **simple surfacing**: espresso recedes into the header, cream body revealed below, wordmark lands on the measured header position. No particles.
+- Converted arch + horizon-line + tagline positioning from viewport-relative to **wordmark-relative** (measured `getBoundingClientRect`), fixing cross-device / window-height drift; composed them as one group centered against the **visible** viewport (visualViewport, not the taller layout viewport).
+- Changed the wordmark entrance from slide-up to **emerge-in-place** (opacity + blur), so the hand-off is the sequence's only travel.
+- Fixed the **double-wordmark on hand-off** — the real header title is hidden until the travelling clone unmounts, then revealed in the same frame (invisible swap, §6b).
+- On the (now-removed) wash: perf-tuned for phone fill-rate (DPR 1.5 cap, device-scaled count, pre-rendered sprite blit), fixed an audible double-wave and a cut audio tail — all captured for the Trip Complete inheritance.
+- **Diagnosed the `get_list_items_for_household` "loop" and shipped an in-flight guard (`c6fa026`).** The stated hypothesis was a React `useEffect` dependency recreated every render (fetch → setState → new reference → refetch); the diagnosis **disproved that with evidence** — the count scaled with *time on page*, not tree size, and the culprit was **three unguarded `setInterval` polls** (list every 2s, catalog 20s, presence 30s), not a dependency bug. On a slow connection a list cycle (`get_list_items` RPC → `list_item_contributors` → setStates) outlasts the 2s interval, so the interval keeps firing and cycles pile up. Fix = a `loadingListRef` in-flight guard on `loadListItems` only (skip a tick if a cycle is still running); **measured on localhost 3G: ~31 → ~12.5 fires/min (2.5×), total requests 1,124 → 704**, T≈4.8s matching the `60/T` model. Held back deliberately (not stacked): `setInterval`→`setTimeout` chain, and folding contributors into the list RPC.
+**Unfinished:**
+- Wave audio + BVI wash are built but **now unwired** — reserved for a **Trip Complete spec (not yet written)**. Source `wave_hit.mp3` retained in `docs/assets/splash/`; the wash canvas code was removed from `App.js` this session (recover from git history).
+- Splash is **on dev only** — not merged to main/production (Dan's dev→main gate).
+- Horizon-line resting glow was parked ("decide at end") then the line was reworked to a thin horizon; final resting read still unjudged.
+- Footer V-mark is still the knocked-out PNG (reads cool against Dune) — a true-source SVG/alpha PNG preferred (§11).
+- Removing the tap gate removed the load buffer it provided; whether the readiness gate covers a genuinely slow load invisibly is untested.
+- Over a photo with the *small* wordmark, the clone lands at opacity 1 but the header settles at 0.8 — a possible barely-perceptible dip in that one state, unverified.
+- Claude.ai phone↔browser conversation sync failed one-directionally all session (reported as a bug; worked around by retyping prompts).
+- **Process miss:** the SESSION END docs commit (`cf12e93`) was meant to stay local for review, but a later `git push origin dev` (for the list-poll guard `c6fa026`) carried it to `origin/dev` — a single branch push ships every local commit on the branch. Impact minor (dev only, main untouched, docs still amendable). Added a CLAUDE.md rule so the next SESSION END stages the docs commit separately or warns before any push.
+**Next session:**
+SESSION START
+Goal: Design the trip-completion moment — give the wave and wash their real home (water rising over the checked list, receding to the empty state), with audio gated behind the existing "Close & clear" confirmation.
+State: Splash is live on dev — silent, gestureless, three motions, hand-off into the header working. Wrap-up flow exists (All done! → confirmation modal → empty list) but clears instantly with no transition. `wave_hit.mp3` is in `docs/assets/splash/`; the BVI wash canvas code was in `App.js` this session (recover from git).
+Done when: A Trip Complete spec exists defining the wash as the clearing transition, audio gated behind "Close & clear", and a decision on whether sound defaults on or off in a store context.
+**Files updated:** `src/App.js` (splash rewrite; header title ref + hidden-during-splash; header wording standardized to "*Our*Provisions"), `src/hooks/useProvisions.js` (list-poll in-flight guard), `public/velayo-mark.png` (new), `public/wave_hit.mp3` (added, now removed), `docs/specs/retired/SPEC_splash_vessel_identity.md` (v1 moved), `docs/specs/built/SPEC_splash_vessel_identity_v2.md` (routed from airlock), plus `docs/SESSION_LOG.md` / `ROADMAP.md` / `ARCHITECTURE.md`.
+**DB changes:** None.
+
+### [2026-07-22] — [OurProvisions] — Splash reimagined as a branded launch *experience* (design chat); handoff consumed + splash spec filed (Claude Code)
+**Goal:** Turn the OurProvisions launch splash from a generic Velayo-branded screen into a branded, emotional entry experience — threshold → reveal → BVI water wash → app, with sound — and route the design handoff + splash spec into the repo.
+**Completed:**
+- (Design) Replaced the Velayo-navy splash with an OurProvisions **vessel** splash on Warm Dark espresso `#2C1A0E`; Velayo demoted to a quiet `VELAYO INC.` footer (the Harbour "colophon" pattern the whole fleet inherits). Locked the wordmark ("*Our*Provisions", Playfair italic, Our 400 / Provisions 700, Parchment) + tagline **"Save time. Shop smarter."**
+- (Design) Locked **arch geometry via Dan's arch-matched logo-overlay test**: arch width = 0.52 × wordmark width (~124px at the 238px wordmark), "higher" placement with clear espresso air above the word (earlier 94/156px + "stranded/strikethrough" placements rejected).
+- (Design) Designed the full experience arc — **Threshold** (compressed, breathing "Tap to enter") → **Crest** (tap lightens depth, vignette retreats, horizon blooms) → **Reveal** (arch draws, wordmark surfaces + de-blurs, tagline, footer) → **Hold** → **BVI turquoise water wash** send-off (sunset-gold rejected) → **Surfaced** into an atmospheric app.
+- (Design) Established **continuity into the app**: the dark scene surfaces into the espresso header (which keeps a faint permanent BVI depth-glow); app motion shares the scene easing `cubic-bezier(0.16,1,0.3,1)`. Flagged as a likely fast-follow build phase, NOT shipped with the first splash.
+- (Design) Designed the **sound** — a **single wave breaking on the dissolve** (`wave_hit.mp3`), triggered on the entry tap (satisfies autoplay), cold-start only, respects mute (chime + anchor-clank rejected; synthesis can't render heavy chain). Removed a wordmark shimmer sweep (read as a "ghost"). Produced a working end-to-end reference (`SPLASH_final.html`).
+- (Claude Code) Consumed the design handoff: **+7 DECISIONS**, moved "build splash experience Phase 1" to NEXT, folded the splash architecture facts into ARCHITECTURE (post-launch React view, readiness-gated dismissal, runtime-measured wordmark hand-off, header "Our Provisions" standardization, atmospheric-header + shared-easing principles).
+- (Claude Code) Filed `SPEC_splash_vessel_identity.md` → `docs/specs/active/`; deleted the consumed handoff.
+**Unfinished:**
+- Splash Phase 1 **not built** — this session was design + spec-routing only. Build in React/PWA next.
+- `wave_hit.mp3` is a **synthesized draft** — a real wave recording (freesound.org) layered at the same spot would add grit synthesis can't; the anchor-chain idea is abandoned (use a real recording if ever revived).
+- Haptic sync on the wash (native only), frame-accurate audio↔visual timing (finalize in the real build), and the atmospheric-header/shared-motion scope expansion (likely its own phase) all deferred.
+- Ambiguous handoff payload assets (`SPLASH_final.html`, `bvi_palette.png`, `h_high.png`, `enter_wave_hum.mp3`, `wave_hit.mp3`) had **no `## DROPPED_FILES` manifest** — routing awaits Dan's call before the airlock can clear.
+- Three-way tagline conflict unresolved: splash "Save time. Shop smarter." vs live site "Shop smarter. Eat better." vs palette page "The Market, Distilled."
+- Corrupted brand-deck PDF (`velayobranddeck__March_28_2026.pdf`) needs a clean re-export; prefer a true transparent SVG/PNG Velayo V-mark over the white-PNG knockout for the footer.
+**Next session:**
+SESSION START
+Goal: Build splash-experience Phase 1 in the React/PWA app — threshold → reveal → BVI wash → wave sound → hand-off to the header.
+State: Design fully specced + proven in mockup (`SPLASH_final.html`); arch geometry, palette, tagline, sound cue, choreography all locked. Current splash lives in `App.js` as a post-launch React view (`SplashScreen` ~L174–216; render ~L1224; `showSplash` ~L360; `loading` flag already in scope). Spec at `docs/specs/active/SPEC_splash_vessel_identity.md`.
+Done when: The real app plays threshold → reveal → BVI wash → app on cold start, with the wave cue on first tap; arch/wordmark/footer match the spec; the dissolve lands the wordmark on the real header title **measured at runtime** (not hardcoded), seam invisible at 390px & 430px; dissolve fires on `!loading` with a ~2s min and ~5s failsafe; no regression to signed-out / photo-header / no-photo-header states.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; `docs/specs/active/SPEC_splash_vessel_identity.md` (new, routed from handoff). Handoff asset files pending routing.
+**DB changes:** None.
+
+### [2026-07-21] — [Cross] — Feedback inbox + Velayo welcome email (design chat); reconciled the two-machine dev docs merge (Claude Code)
+**Goal:** Stand up a customer feedback channel and land the final Velayo welcome email (design chat), and reconcile the divergent canonical docs after the Madbury/lake two-machine split (Claude Code).
+**Completed:**
+- Reconciled the divergent-docs merge on `dev` — 1 un-pushed local Jul-1 commit (join-activation REOPENED) vs 65 lake commits (Jul 1–19): SESSION_LOG amendment slotted chronologically, ROADMAP join-activation status yielded to the lake's **prod-verified DONE** (lake built the reopen fix `c1ceab2` + verified it Jul 7), ARCHITECTURE header + durable-intent refinement folded, orphan addendum spec removed, 4 stale spec-path refs repointed. Merge `6d63729` + cleanup `1b986e1`, pushed to origin/dev — desktop + remote back in sync.
+- (Design) Created + verified **thoughts@velayo.ai** as a Google Group feedback inbox — external posting on, owner/members set, end-to-end tested from an external address, Gmail filter auto-labels → "Good Thoughts".
+- (Design) Finalized the **Velayo welcome email to v17** — a COMPANY (not product) welcome: goal→how opening, two-part philosophy (world / your peace), starfish, "AI but never the point," honest co-build framing; subject "We're glad we found each other," preview "Technology that gives you time back," CTA → ourprovisions.app.
+- (Design) Drafted the first **weekly beta email (Beat 1)** routing feedback to thoughts@; locked the brand thesis line and the harbour-as-refuge ("safe but never stuck") principle.
+- (Design) Founder confirmed the **cold-start invite path (ourprovisions.app → toll → app) walked end-to-end by a stranger** — P0 launch-blocker considered cleared (pending the deployed-URL technical gates).
+- (Claude Code) Consumed the design handoff: +6 DECISIONS, feedback inbox → DONE, welcome-email copy → NEXT, About page/founder's letter → LATER; routed `email_welcome_velayo.md` → `docs/content/`.
+**Unfinished:**
+- Weekly beta email drafted, not finalized/reviewed.
+- Full starfish parable + harbor-refuge long-form written, not yet homed → About page / founder's letter (backlog).
+- Welcome email not yet built in Mailchimp (FNAME conditional fallback + Come aboard → ourprovisions.app CTA still to wire).
+- Landing-page LIVE P0: founder reports the cold-start path works, but the deployed-URL technical gates (anon zero-row read + CORS) were not formally re-confirmed this session.
+**Next session:**
+SESSION START
+Goal: Build the Velayo welcome email in Mailchimp (FNAME fallback + CTA URL) and finalize the first weekly beta email.
+State: thoughts@velayo.ai live + tested; welcome email v17 final (copy) at `docs/content/email_welcome_velayo.md`; weekly beta email drafted; cold-start path founder-confirmed; dev docs merge reconciled + pushed (desktop + remote in sync).
+Done when: Welcome email live in the existing Mailchimp automation with a working FNAME merge-tag fallback and Come aboard → ourprovisions.app; weekly beta email reviewed and ready to send.
+**Files updated:** `docs/content/email_welcome_velayo.md` (new, routed from handoff); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`. (ARCHITECTURE.md changed earlier this session via the merge commits.)
+**DB changes:** None.
+
 ### [2026-07-19] — [OurProvisions] — Built Phase I to dev: household-management redesign + OurBanner; migration 024 applied to dev
 **Goal:** Build the full Phase I feature set (household-management redesign + OurBanner photo header) in Claude Code, clear the DB gate on dev, and land it on the dev preview.
 **Completed:**
@@ -520,6 +595,26 @@ Done when: A real photographed receipt returns valid JSON matching the extractio
 **DB changes:** None this session. Confirmed live on prod: 014 (auth.uid RLS fix), 015 (helper consolidation). Pending: migration 016 will add `receipts` + `receipt_items` tables.
 
 ---
+
+### [2026-07-01 — AMENDMENT] — [OurProvisions] — Promoted both changes to prod; list text-size DONE, join-activation REOPENED after prod failure
+**Goal:** Promote the two dev-verified changes to prod and confirm there. *(Corrects the same-day entry below, which marked join-activation DONE on dev evidence only.)*
+**Completed:**
+- Pushed `dev` and fast-forward-merged `dev`→`main` (`15712ba`→`b3ee74d`); Vercel deployed to prod. Both changes live on `ourprovisions.velayo.ai`.
+- Verified **list text-size on prod** — scales rows, persists across regular + hard reload. **Stays DONE. Green.**
+- Tested **join-activation on prod** (existing user Test User 60 with a prior "My Household", incognito; inviter DH in household Madbury; fresh invite `Z8165W`) and **reproduced the original bug**: after a genuine invite-consuming load (`bootstrap_new_user` fired), the header stayed on My Household; Madbury populated into the switcher late but was never activated.
+- Captured console evidence in the failed prod state: `localStorage.activeHouseholdId` = My Household's id (lens never moved); `sessionStorage.just_joined_household_id` = Madbury's id (flag SET but never consumed/cleared). GoTrueClient project id = `parpauldmbetptkmdwbd` (genuinely prod).
+- Root-caused: the shipped `pendingJoinId` fix (`1c5a916`) is a **single-fire reconcile** — it switches only when `myHouseholds` already contains the joined id. On prod's slower membership propagation, Madbury arrives in `myHouseholds` late, the effect doesn't re-fire, and the flag parks forever. This is the exact "late-membership window" flagged as reasoned-but-not-reproduced in `1c5a916` — now reproduced on prod by real latency.
+- Wrote `docs/specs/built/SPEC_join_activates_household_ADDENDUM_reopen.md` (diagnosis + console evidence + the concrete three-part durable/retriable fix); supersedes the original spec's "Fix" section.
+**Unfinished:**
+- **Join-activation is REOPENED and not shipped-as-working.** The fix is live but incomplete; prod still exhibits the bug. Fix direction specified (durable/retriable flag consumption) but not built.
+- "No longer a member of that household" banner fired on a brand-new user's first prod sign-in (Test User 50) during testing — the separately-tracked pre-existing BACKLOG bug, not caused by tonight's work. Noted, not fixed.
+**Next session:**
+SESSION START
+Goal: Build the join-activation reopen fix per `docs/specs/built/SPEC_join_activates_household_ADDENDUM_reopen.md`, and verify it ON PROD (dev-green is insufficient — the failure is latency-triggered).
+State: List text-size DONE on prod. Join-activation fix `1c5a916` live on prod but INCOMPLETE — `just_joined_household_id` is set but never consumed into a switch when membership propagates late. Cause identified; fix = re-derive `pendingJoinId` from the surviving flag, re-fire the switch on every `myHouseholds` change while unresolved, clear the flag only after a confirmed switch (+ optional bounded refresh retry).
+Done when: On prod, an existing multi-household user pasting a fresh invite lands in the joined household, `just_joined_household_id` reads null afterward, active id = joined id, and it survives a hard reload — including a run where the joined household populates late.
+**Files updated:** None to source (prod verification + diagnosis only; the fix is next session's build).
+**DB changes:** None. Cause is client-side; `bootstrap_new_user` confirmed correct on prod (flag was set).
 
 ### [2026-07-01] — [OurProvisions] — Shipped list text-size control to dev; diagnosed + fixed join-doesn't-activate-household (both dev-only)
 **Goal:** BUILD the fully-specced device-local list text-size control, then diagnose and fix "join should activate the joined household" — client-only, no RPC.
