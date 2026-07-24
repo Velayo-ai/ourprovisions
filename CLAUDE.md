@@ -26,6 +26,13 @@ Vercel hosting, Anthropic Claude API.
 
 - Commit before switching branches — uncommitted changes have been lost before.
 - Workflow: commit -> push dev -> test -> merge to main -> push main.
+- **`git push <branch>` ships EVERY local commit on that branch, not just the one
+  you mean to send.** So if a commit is meant to stay local for review (e.g. the
+  SESSION END docs commit, Step 5), do NOT push that branch for any *other* work
+  until it's handled: either warn me first, or keep the review-only commit off the
+  branch you're pushing. "Leave X local" and "push Y from the same branch" cannot
+  both hold. (Happened 2026-07-23: the SESSION END docs commit rode a later dev
+  push for a bugfix — dev only, main untouched.)
 - `CI=true` on Vercel treats ESLint warnings as errors — every declared variable
   must be used. Report unused vars; don't silently delete.
 

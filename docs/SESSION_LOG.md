@@ -25,7 +25,7 @@ Done when: [clear success condition]
 
 ## LOG
 
-### [2026-07-23] — [OurProvisions] — Built the splash scene, then stripped the entry to auto-play + surfacing (audio, wash & tap gate removed)
+### [2026-07-23] — [OurProvisions] — Built the splash scene (auto-play + surfacing); diagnosed & guarded the list-poll refetch loop
 **Goal:** Implement the splash per `SPEC_splash_vessel_identity_v2.md`, then refine it on device until the entry reads as intentional rather than as a toll.
 **Completed:**
 - Built the splash across four commits — static scene + reveal, threshold/crest/readiness gate, BVI water wash, measured wordmark hand-off + header standardization + wave audio — device-verified between each; retired v1 spec to `docs/specs/retired/` (after briefly misfiling it in `active/`).
@@ -35,6 +35,7 @@ Done when: [clear success condition]
 - Changed the wordmark entrance from slide-up to **emerge-in-place** (opacity + blur), so the hand-off is the sequence's only travel.
 - Fixed the **double-wordmark on hand-off** — the real header title is hidden until the travelling clone unmounts, then revealed in the same frame (invisible swap, §6b).
 - On the (now-removed) wash: perf-tuned for phone fill-rate (DPR 1.5 cap, device-scaled count, pre-rendered sprite blit), fixed an audible double-wave and a cut audio tail — all captured for the Trip Complete inheritance.
+- **Diagnosed the `get_list_items_for_household` "loop" and shipped an in-flight guard (`c6fa026`).** The stated hypothesis was a React `useEffect` dependency recreated every render (fetch → setState → new reference → refetch); the diagnosis **disproved that with evidence** — the count scaled with *time on page*, not tree size, and the culprit was **three unguarded `setInterval` polls** (list every 2s, catalog 20s, presence 30s), not a dependency bug. On a slow connection a list cycle (`get_list_items` RPC → `list_item_contributors` → setStates) outlasts the 2s interval, so the interval keeps firing and cycles pile up. Fix = a `loadingListRef` in-flight guard on `loadListItems` only (skip a tick if a cycle is still running); **measured on localhost 3G: ~31 → ~12.5 fires/min (2.5×), total requests 1,124 → 704**, T≈4.8s matching the `60/T` model. Held back deliberately (not stacked): `setInterval`→`setTimeout` chain, and folding contributors into the list RPC.
 **Unfinished:**
 - Wave audio + BVI wash are built but **now unwired** — reserved for a **Trip Complete spec (not yet written)**. Source `wave_hit.mp3` retained in `docs/assets/splash/`; the wash canvas code was removed from `App.js` this session (recover from git history).
 - Splash is **on dev only** — not merged to main/production (Dan's dev→main gate).
@@ -43,12 +44,13 @@ Done when: [clear success condition]
 - Removing the tap gate removed the load buffer it provided; whether the readiness gate covers a genuinely slow load invisibly is untested.
 - Over a photo with the *small* wordmark, the clone lands at opacity 1 but the header settles at 0.8 — a possible barely-perceptible dip in that one state, unverified.
 - Claude.ai phone↔browser conversation sync failed one-directionally all session (reported as a bug; worked around by retyping prompts).
+- **Process miss:** the SESSION END docs commit (`cf12e93`) was meant to stay local for review, but a later `git push origin dev` (for the list-poll guard `c6fa026`) carried it to `origin/dev` — a single branch push ships every local commit on the branch. Impact minor (dev only, main untouched, docs still amendable). Added a CLAUDE.md rule so the next SESSION END stages the docs commit separately or warns before any push.
 **Next session:**
 SESSION START
 Goal: Design the trip-completion moment — give the wave and wash their real home (water rising over the checked list, receding to the empty state), with audio gated behind the existing "Close & clear" confirmation.
 State: Splash is live on dev — silent, gestureless, three motions, hand-off into the header working. Wrap-up flow exists (All done! → confirmation modal → empty list) but clears instantly with no transition. `wave_hit.mp3` is in `docs/assets/splash/`; the BVI wash canvas code was in `App.js` this session (recover from git).
 Done when: A Trip Complete spec exists defining the wash as the clearing transition, audio gated behind "Close & clear", and a decision on whether sound defaults on or off in a store context.
-**Files updated:** `src/App.js` (splash rewrite; header title ref + hidden-during-splash; header wording standardized to "*Our*Provisions"), `public/velayo-mark.png` (new), `public/wave_hit.mp3` (added, now removed), `docs/specs/retired/SPEC_splash_vessel_identity.md` (v1 moved), `docs/specs/built/SPEC_splash_vessel_identity_v2.md` (routed from airlock), plus `docs/SESSION_LOG.md` / `ROADMAP.md` / `ARCHITECTURE.md`.
+**Files updated:** `src/App.js` (splash rewrite; header title ref + hidden-during-splash; header wording standardized to "*Our*Provisions"), `src/hooks/useProvisions.js` (list-poll in-flight guard), `public/velayo-mark.png` (new), `public/wave_hit.mp3` (added, now removed), `docs/specs/retired/SPEC_splash_vessel_identity.md` (v1 moved), `docs/specs/built/SPEC_splash_vessel_identity_v2.md` (routed from airlock), plus `docs/SESSION_LOG.md` / `ROADMAP.md` / `ARCHITECTURE.md`.
 **DB changes:** None.
 
 ### [2026-07-22] — [OurProvisions] — Splash reimagined as a branded launch *experience* (design chat); handoff consumed + splash spec filed (Claude Code)
