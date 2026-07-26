@@ -492,7 +492,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
           <path d="M4 20 Q60 -2 116 20" />
         </svg>
 
-        <div className="op-tag">Save time. Shop smarter.</div>
+        <div className="op-tag">Shop smarter. Shop faster.</div>
 
         <div className="op-foot">
           <div className="op-vt">VELAYO INC.</div>
