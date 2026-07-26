@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OurProvisions — splash: resolve in place</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&family=Lato:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --espresso:#2C1A0E; --cream:#FAF4EC; --teal:#0D9488; --sand:#C9A97A;
+    --ease:cubic-bezier(0.22,1,0.36,1);   /* long, slow tail */
+    --speed:1;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#120a04;color:var(--cream);font-family:'Lato',sans-serif;font-weight:300;
+       min-height:100vh;padding:18px;display:flex;flex-direction:column;align-items:center}
+  h1{font-family:'Playfair Display',serif;font-style:italic;font-weight:700;font-size:20px;color:var(--cream)}
+  .hint{font-size:12px;color:var(--sand);letter-spacing:1px;margin:4px 0 16px;text-align:center}
+  .controls{display:flex;gap:14px;justify-content:center;align-items:center;flex-wrap:wrap;margin-bottom:18px}
+  button{background:transparent;border:1px solid var(--sand);color:var(--sand);font-family:'Lato',sans-serif;
+         font-size:12px;letter-spacing:2px;text-transform:uppercase;padding:9px 18px;border-radius:2px;cursor:pointer;transition:all .2s}
+  button:hover{background:var(--sand);color:var(--espresso)}
+  .slider-wrap{display:flex;align-items:center;gap:8px;color:var(--sand);font-size:12px;letter-spacing:1px}
+  input[type=range]{width:150px;accent-color:var(--teal)}
+
+  /* single stage, phone-shaped, so you judge the real thing not a comparison */
+  .stage{position:relative;width:min(88vw,420px);aspect-ratio:9/16;max-height:76vh;
+         border-radius:8px;overflow:hidden;box-shadow:0 12px 48px rgba(0,0,0,.55)}
+  .ground{position:absolute;inset:0;background:radial-gradient(140% 100% at 50% 44%,#4a2f18 0%,#2C1A0E 46%,#160B04 100%)}
+  .vignette{position:absolute;inset:-20%;pointer-events:none;
+            background:radial-gradient(ellipse 60% 55% at 50% 50%,transparent 40%,rgba(0,0,0,.5) 100%)}
+
+  /* ── the lockup: arch is a CLOSE CROWN measured off the wordmark box ──
+     wordmark cap sits at the optical centre; arch hugs just above it;
+     tagline sits a measured distance below. (JS positions them so the
+     spacing is composed, not floating percentages.) */
+  .lockup{position:absolute;left:0;right:0;top:0;bottom:0}
+  .arch{position:absolute;left:50%;transform:translateX(-50%);height:auto;overflow:visible;z-index:8;
+        opacity:0}
+  .arch path{fill:none;stroke:var(--teal);stroke-width:2.4;stroke-linecap:round}
+  .wm{position:absolute;left:0;right:0;text-align:center;z-index:9;
+      font-family:'Playfair Display',serif;font-style:italic;line-height:1;letter-spacing:.02em;
+      color:var(--cream);white-space:nowrap;font-size:clamp(32px,7vw,46px);
+      opacity:0;filter:blur(18px)}
+  .wm .o{font-weight:400}.wm .p{font-weight:700}
+  .tag{position:absolute;left:0;right:0;text-align:center;z-index:9;
+       font-family:'Lato',sans-serif;font-weight:300;font-size:11px;letter-spacing:4px;
+       text-transform:uppercase;color:var(--sand);opacity:0;filter:blur(10px)}
+  .foot{position:absolute;left:0;right:0;bottom:48px;z-index:9;text-align:center;
+        opacity:0;filter:blur(8px)}
+  .foot .vt{font-family:'Lato',sans-serif;font-weight:400;font-size:10px;
+            letter-spacing:5px;text-transform:uppercase;color:var(--sand);opacity:.75}
+
+  /* ── ONE gesture: resolve blur→sharp, in place, slow, everything together on
+     the same curve. No translation. Duration scales with --speed. The arch
+     resolves from blur too (no self-draw). A whisper of internal offset (<90ms)
+     keeps it from being a hard flash without becoming a staged build. ── */
+  #s{--dur:calc(2.5s / var(--speed))}
+  #s.play .wm  {animation:resolve var(--dur) var(--ease) 0ms   forwards}
+  #s.play .arch{animation:resolveArch var(--dur) var(--ease) 60ms forwards}
+  #s.play .tag {animation:resolveTag var(--dur) var(--ease) 90ms forwards}
+  #s.play .foot{animation:resolveTag var(--dur) var(--ease) 120ms forwards}
+  @keyframes resolve    {to{opacity:1;filter:blur(0)}}
+  @keyframes resolveArch{to{opacity:.92;filter:blur(0)}}
+  @keyframes resolveTag {to{opacity:1;filter:blur(0)}}
+  .arch{filter:blur(10px)}
+
+  @media (prefers-reduced-motion: reduce){
+    #s .wm,#s .arch,#s .tag,#s .foot{filter:none}
+    #s .wm,#s .tag,#s .foot{opacity:1}#s .arch{opacity:.92}
+  }
+</style>
+</head>
+<body>
+  <h1>OurProvisions</h1>
+  <div class="hint">resolve from blur → sharp, in place · one slow gesture · arch as a close crown</div>
+
+  <div class="controls">
+    <button id="replay">▸ Replay</button>
+    <div class="slider-wrap"><span>1.4s</span>
+      <input id="speed" type="range" min="0.75" max="1.55" step="0.05" value="1">
+      <span>2.5s</span><span id="speedval" style="min-width:52px">~1.9s</span></div>
+  </div>
+
+  <div class="stage" id="s">
+    <div class="ground"></div><div class="vignette"></div>
+    <div class="lockup" id="lockup">
+      <svg class="arch" id="arch" viewBox="0 0 120 22"><path d="M4 20 Q60 -2 116 20"/></svg>
+      <div class="wm" id="wm"><span class="o">Our</span><span class="p">Provisions</span></div>
+      <div class="tag" id="tag">Save time. Shop smarter.</div>
+      <div class="foot"><div class="vt">VELAYO INC.</div></div>
+    </div>
+  </div>
+
+<script>
+  const s=document.getElementById('s'),wm=document.getElementById('wm'),
+        arch=document.getElementById('arch'),tag=document.getElementById('tag'),
+        stage=document.getElementById('s');
+  const GROUP_CENTER=0.46;      // wordmark optical centre, just above true centre
+  const ARCH_W=0.50;            // arch width as fraction of wordmark width
+  // Composition rule: arch↔wordmark gap = 2 × wordmark↔tagline gap.
+  // Both are TRUE VISIBLE gaps (edge to edge), expressed in wordmark-heights.
+  const TAG_GAP=0.72;           // visible gap below the wordmark to the tagline (base unit)
+  const ARCH_GAP=2 * TAG_GAP;   // visible gap above the wordmark to the arch = 2× (locked)
+
+  // Position the lockup so spacing is COMPOSED off the wordmark's real box,
+  // the same idea App.js uses (measured relationships, not floating %).
+  function measure(){
+    const H=stage.clientHeight, W=stage.clientWidth;
+    const wmH=wm.offsetHeight||44, wmW=wm.offsetWidth||240;
+    const wmCenterY=GROUP_CENTER*H;
+    const wmTop=wmCenterY - wmH/2;
+    wm.style.top=wmTop+'px';
+    // arch: raised crown — its BOTTOM sits ARCH_GAP·wmH above the wordmark top
+    const aw=ARCH_W*wmW; arch.style.width=aw+'px';
+    const archH=aw*(22/120);
+    arch.style.top=(wmTop - ARCH_GAP*wmH - archH)+'px';
+    // tagline: its TOP sits TAG_GAP·wmH below the wordmark bottom (= half the arch gap)
+    tag.style.top=(wmTop + wmH + TAG_GAP*wmH)+'px';
+  }
+  function play(){s.classList.remove('play');void s.offsetWidth;measure();s.classList.add('play');}
+  document.getElementById('replay').onclick=play;
+  const speed=document.getElementById('speed'),val=document.getElementById('speedval');
+  speed.oninput=()=>{document.documentElement.style.setProperty('--speed',speed.value);
+    val.textContent='~'+(1.9/speed.value).toFixed(1)+'s';play();};
+  addEventListener('resize',measure);
+  if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{measure();play();});
+  measure();play();
+  setInterval(play,5200);
+</script>
+</body>
+</html>

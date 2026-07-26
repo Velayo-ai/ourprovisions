@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-25] — [OurProvisions] — Splash finalized (resolve-in-place + shake fix + canonical tagline); Clerk key env-driven
+**Goal:** Make the cold-start splash read as a modern app (not a staged PowerPoint build), fix the persistent "too low" wordmark, land the Clerk env-drive code, and get it all dev-verified and ready to ship.
+**Completed:**
+- **Redesigned splash motion — one resolve in place** (`8c16e46`): retired v2's 3-act staged reveal (horizon→vessel→house, ~4.45s) for a single slow blur→sharp resolve IN PLACE (~2.5s, one curve `cubic-bezier(0.22,1,0.36,1)`, no travel, no self-drawing arch). Kept v2's wordmark→header hand-off exit. Per `SPEC_splash_resolve_v3.md`; `splash_motion_v2.html` the visual target.
+- **Fixed "too low" at root:** `measure()` was centering the lockup's **bottom-weighted bounding box**; now centers on the **wordmark's optical center** (`OP_GROUP_CENTER` 0.48→0.46). Locked geometry: raised-crown arch at **arch↔wordmark = 2× wordmark↔tagline** (true visible, viewport-independent); **typeset "VELAYO INC." foot** (dropped the full Velayo lockup — illegible small + its crest doubled the arch, and the `velayo-mark.png` dependency); **removed the orphaned `op-bloom` horizon seam**.
+- **Fixed a horizontal shake** (`5be6f0a`): the body behind the fixed splash overlay is taller than the viewport, so its vertical scrollbar toggled during load and reflowed the full-width overlay sideways. Fix = lock `document.body` scroll for the splash lifecycle, restore on unmount (scoped, not a global `overflow-x` mask). Diagnosed by evidence — the overlay's own `overflow:hidden` already clips its children, so the scrollbar had to be the document behind it.
+- **Unified the tagline to "Shop smarter. Shop faster."** (`0ed3f3e`, sentence case) on the app splash — closes a long-open multi-variant conflict. Smarter-first matches fleet series grammar; order encodes causality (smarter→faster); anaphora gives rhythm and dodges the "Live Better. Live Smarter." echo. Retired "Save time. Shop smarter."
+- **Env-drove the Clerk publishable key** (`a652a52`, the code half of `SPEC_prod_clerk_instance` Step 3): `src/index.js` `pk_test_` literal → `process.env.REACT_APP_CLERK_PUBLISHABLE_KEY` with a **fail-loud guard** (renders "Configuration error" on a falsy key — checks non-empty, NOT validity).
+- **Verified on the dev preview:** 3G slow-load timing clean (wordmark fully sharp before dissolve), no tagline wrap on a real narrow phone, no shake. Confirmed Vercel **Preview** Clerk env set (guard passes on preview) and **Production** env = the `pk_test_` dev key (non-empty) — so a dev→main merge will NOT blank the live app.
+- **Commit hygiene:** each change its own discrete commit (`a652a52` Clerk / `8c16e46` resolve / `5be6f0a` shake / `0ed3f3e` tagline), pushed to `origin/dev`; nothing squashed.
+**Unfinished:**
+- **dev→main promotion NOT done** — deliberate next step; all four gates cleared (3G dissolve, phone wrap, Production Clerk env, Preview Clerk env).
+- **Marketing-site tagline still old:** `ourprovisions-landing` (velayo.ai) carries "Shop smarter. Eat better." — that repo is **unreachable from this build env** (not on disk here), so it wasn't updated. Greps for when in that repo: "Shop smarter" / "Shop faster" / "Eat better" / "Save time" → replace tagline instances with the canonical line (leave mood line "The Market, Distilled." alone).
+- **Prod Clerk cutover still BLOCKED on DNS** — Clerk shows 0/5 verified, SSL pending; Steps 4–8 gated on Step 2. Only actionable move: check Clerk for DNS verification. **Production env must stay `pk_test_`** until the whole chain completes — `pk_live_` early passes the guard but denies every authenticated query (Supabase still on the dev issuer).
+- **List-poll request volume:** ~130–295 requests on an idle "TEST" household (many `get_list_items_for_household` fetches, splunk-context initiated) — unclear if intended cadence or a re-firing storm. Own future session.
+**Next session:**
+SESSION START
+Goal: (a) complete the dev→main splash promotion and verify on production; (b) update the marketing-site tagline in the `ourprovisions-landing` repo.
+State: Splash resolve-in-place + shake fix + "Shop smarter. Shop faster." verified on dev; Production Clerk env confirmed `pk_test_` (safe). `SPEC_splash_resolve_v3` built; v2 retired.
+Done when: Splash live on `ourprovisions.velayo.ai` (resolves cleanly, new tagline, no shake, app loads signed-in); marketing-site tagline unified.
+**Files updated:** `src/index.js` (Clerk key env-driven + guard), `src/App.js` (splash resolve-in-place + shake fix + tagline), `docs/specs/built/SPEC_splash_resolve_v3.md` (routed from airlock), `docs/specs/retired/SPEC_splash_vessel_identity_v2.md` (v2 retired), `docs/mockups/splash_motion_v2.html` (visual target), plus `docs/SESSION_LOG.md` / `ROADMAP.md` / `ARCHITECTURE.md`.
+**DB changes:** None.
+
 ### [2026-07-24] — [OurProvisions] — Found the live app runs on DEV Clerk keys; provisioned the prod Clerk instance (blocked on DNS)
 **Goal:** Close the two carried OurBanner verifications (storage RLS denial + EXIF-upright) — pivoted on discovering a higher-priority prod-auth defect.
 **Completed:**
