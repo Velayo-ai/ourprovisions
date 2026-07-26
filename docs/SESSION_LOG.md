@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-24] — [OurProvisions] — Found the live app runs on DEV Clerk keys; provisioned the prod Clerk instance (blocked on DNS)
+**Goal:** Close the two carried OurBanner verifications (storage RLS denial + EXIF-upright) — pivoted on discovering a higher-priority prod-auth defect.
+**Completed:**
+- **Found the root defect:** the live app (`ourprovisions.velayo.ai`) reads/writes **prod** Supabase (`parpauldmbetptkmdwbd`) while authenticating against a **dev** Clerk instance (`many-puma-34.clerk.accounts.dev`) — prod data behind dev auth. Evidence gathered in-browser (`performance` resource URLs), not from docs; the Clerk publishable key is hardcoded `pk_test_…` in `src/index.js`.
+- **Established this gates beta expansion harder than RLS/EXIF** — dev Clerk is "for internal/test users" per Clerk; expanding the audience crosses that line. Jumps the queue ahead of Trip Complete + Receipt Capture.
+- **Provisioned the prod Clerk instance** — cloned from dev (carries OAuth + theme config); chose **Secondary application** so Clerk hosts at `clerk.ourprovisions.velayo.ai` and reserves `clerk.velayo.ai` (the primary slot) for a future fleet/Harbour identity layer, not this one app.
+- **Authorized 5 Cloudflare DNS records** via Domain Connect — `clerk.`/`accounts.`/`clk._domainkey`/`clk2._domainkey`/`clkmail` under `ourprovisions`, all **grey-cloud (DNS-only)**, none touching the app→Vercel record; verified correct before committing.
+- **Settled the user-migration roster** from a live prod census (join `users.id = household_members.user_id`, Clerk sub in `users.clerk_id`): **10 migrate, 11 drop.**
+- **Completed Google OAuth prod setup end-to-end** — GCP project `ourprovisions` under the `velayo.ai` org, consent screen (User type **External**), Web OAuth client (JS origin `https://ourprovisions.velayo.ai`, redirect `https://clerk.ourprovisions.velayo.ai/v1/oauth_callback`), Client ID + Secret into Clerk, and **published to production** (basic scopes → no verification review, no user cap, no "unverified app" screen).
+**Unfinished (blocked on the DNS wall — external, not a stall):**
+- DNS not yet verified: Clerk shows **0/5 verified, SSL pending** — propagation + verification + SSL must complete before anything downstream.
+- Supabase Third-Party Auth NOT yet re-pointed to the prod Clerk issuer/JWKS (the auth kill-switch step).
+- User migration (10) NOT yet run — must preserve/reconcile `users.clerk_id` so prod `household_members` (keyed on internal `users.id`) still resolve. **Sub-continuity is the quiet trap.**
+- `src/index.js` still hardcodes `pk_test_…` — not yet env-driven; `pk_live_` not in Vercel.
+- The two carried items (storage RLS denial, EXIF-upright) NOT closed — deliberately deferred; they must run on **prod-minted tokens** after cutover, or they're false passes.
+**Next session:**
+SESSION START
+Goal: Complete the prod Clerk cutover once DNS verifies — re-point Supabase, migrate the 10, deploy, then run the deferred verifications on prod tokens.
+State: Prod Clerk instance live; DNS records authorized (grey-cloud); Google OAuth published (External, basic scopes). App still on dev Clerk keys until deploy. Prod census done: 10 migrate / 11 drop.
+Done when: `performance` clerk resource on the live app shows `clerk.ourprovisions.velayo.ai` (not `.accounts.dev`); a migrated user signs in and sees their own households/lists (proves sub-continuity + Supabase re-point); bundle contains no `pk_test_`; Google sign-in works; storage RLS (anon + authed non-member denied, member control passes) and EXIF-upright both verified on prod.
+**Files updated:** None this session (design/provisioning only). Pending for build: `src/index.js` (`pk_test_` → `process.env.REACT_APP_CLERK_PUBLISHABLE_KEY` + missing-key guard); Vercel env `REACT_APP_CLERK_PUBLISHABLE_KEY` = `pk_live_…` (Production) / `pk_test_…` (Preview). Spec filed `docs/specs/active/SPEC_prod_clerk_instance.md`.
+**DB changes:** None to schema. Supabase **prod** Third-Party Auth must be re-pointed to the prod Clerk issuer/JWKS (dashboard config, not a migration). Clerk user pool: migrate 10, drop 11.
+
 ### [2026-07-23] — [OurProvisions] — Built the splash scene (auto-play + surfacing); diagnosed & guarded the list-poll refetch loop
 **Goal:** Implement the splash per `SPEC_splash_vessel_identity_v2.md`, then refine it on device until the entry reads as intentional rather than as a toll.
 **Completed:**
