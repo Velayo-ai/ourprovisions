@@ -203,6 +203,19 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
   const wmWrapRef = useRef(null);  // wordmark wrapper — transform-free box to measure
   const rootRef = useRef(null);    // splash root — carries the measured position vars
 
+  // Lock body scroll while the full-screen splash is mounted. The app tree renders
+  // BENEATH this fixed overlay; its content is taller than the viewport, so the
+  // document's vertical scrollbar would show at the right edge and — worse — toggle
+  // on/off as the app loads, each ~15px change reflowing the full-width overlay
+  // sideways (the "shake"). A full-screen overlay shouldn't let the body scroll
+  // behind it anyway. Restored to its prior value on unmount, so the app scrolls
+  // normally once the splash dissolves.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // Single dissolve path — idempotent so the readiness gate and the failsafe can
   // both point here without racing to double-fire onDone. Full motion does the
   // simple surfacing (scene recedes, wordmark travels to the header, §6b); reduced
