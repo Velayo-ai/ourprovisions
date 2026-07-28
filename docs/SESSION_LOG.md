@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-27] — [OurProvisions] — Splash promoted to production; prod Clerk cutover unblocked (DNS/SSL cleared, user migration half-executed)
+**Goal:** Ship the finalized splash to production, and (design chat) advance the prod Clerk cutover — clear the DNS/SSL block and migrate the keeper users without orphaning live households.
+**Completed:**
+- **Promoted the splash to production** — merged `dev→main` (`30345d7`) shipping resolve-in-place (`8c16e46`) + shake fix (`5be6f0a`) + "Shop smarter. Shop faster." tagline (`0ed3f3e`) + Clerk key env-drive (`a652a52`) + the 2026-07-24 prod-clerk docs (`a680af9`); clean merge, pushed `origin/main` → Vercel prod deploy triggered. **No env vars touched** — Production Clerk key stays `pk_test_`, so the guard passes and auth is unchanged. Then promoted this session's SESSION END docs (`868fa3d` → merge `16a6cc4`); `dev` and `main` now in content sync.
+- **[Clerk cutover] Cleared the DNS/SSL wall** that blocked two sessions: 5 Clerk CNAMEs verified live + grey-cloud (zone-file confirmed), Clerk re-verify → **DNS Verified, SSL Issued**. Prod Clerk now **live over TLS** at `clerk.ourprovisions.velayo.ai` (issuer `https://clerk.ourprovisions.velayo.ai`, API version `2025-11-10` — matches dev, so `sub`-claim shape is consistent).
+- **[Clerk] Chose Path A** (reconcile `users.clerk_id` by email post-creation) over Path B (externalId re-architecture) for this cutover — Clerk can't transfer users dev→prod (mints new subs). Ran a prod census: **12-row keeper roster**, every email resolves 1:1, all `deleted_at` null; captured each `users.id`, dev sub, and `live_memberships`. Confirmed `users.email` is `unique not null` → safe join key.
+- **[Clerk] Found `bootstrap_new_user` upserts `on conflict (clerk_id)`** — so a post-flip login by an **un-reconciled** user throws an email-unique violation (a hard error, not just an empty app). Proves **reconcile-BEFORE-flip is mandatory**; reconciled users self-heal through the conflict branch.
+- **[Clerk] Proved the reconciliation pipeline end-to-end on the pilot** (Dan Test User): invite → capture prod sub → id-keyed `UPDATE` → verify read-back (dev sub → prod sub confirmed). Sent invites to the roster; **8/12 accepted + subs captured.**
+- **[Clerk] Reversal:** Dan Test User is now a **keeper** that migrates to prod (2 live memberships), overriding last session's "delete/dev-only."
+**Unfinished:**
+- **Splash prod deploy:** the `main` push triggered the Vercel build; **production visual verification NOT yet confirmed** (splash resolves, new tagline, no shake, app loads signed-in) — pending Dan's hard-refresh check.
+- **[Clerk] 4 subs uncaptured** (pending acceptance): Christopher, Heddi, Jean, Michael. **CUTOVER GATE:** Christopher (4 memberships), Heddi (2), Jean (1) still gate the flip; Aidan (0) / Michael (0) do NOT gate.
+- **[Clerk] Only the pilot is reconciled** — the other 7 captured subs are staged but NOT yet `UPDATE`'d (held for cutover; a reconciled-but-not-flipped user's live login is broken until the flip, so run the real UPDATEs close to the flip). Cutover Stages 3–6 not done: Supabase issuer re-point, `pk_live_` flip, deploy, cutover verify, deferred OurBanner storage-RLS + EXIF-upright checks.
+- **[Clerk] RISK — the migration tracker `.xlsx` is the SOLE record of captured prod subs**, on Dan's machine, not in repo/Drive (single point of failure). Tracker hygiene: a stray sub value on Helen's row; confirm/clear Heddi's "Accepted" flag.
+- Marketing-site tagline still old (`ourprovisions-landing` unreachable from the build env).
+**Next session:**
+SESSION START
+Goal: Execute the prod Clerk cutover once the gating membership-holders (Christopher/Heddi/Jean) are accepted + sub-captured.
+State: Splash LIVE on prod (final visual confirm pending); prod Clerk live over TLS; prod Supabase still trusts the DEV issuer; live app still `pk_test_`. 8/12 subs captured, 1 reconciled (pilot). Tracker `.xlsx` is the sole record of captured subs.
+Done when: all `live_memberships ≥ 1` users reconciled to prod subs; Supabase re-pointed to `https://clerk.ourprovisions.velayo.ai`; Vercel prod on `pk_live_`; a migrated family user (Helen/Elly) signs in and sees their own household; no `pk_test_` in bundle; Google + password sign-in both work; OurBanner storage-RLS + EXIF-upright verified on prod tokens. **At flip: run all 11 remaining UPDATEs → re-point Supabase → flip key → verify (in that order).**
+**Files updated:** None (git promotion + Clerk/Supabase dashboard + tracker work only).
+**DB changes:** One prod `users` row reconciled (Dan Test User `clerk_id` → prod sub).
+
 ### [2026-07-25] — [OurProvisions] — Splash finalized (resolve-in-place + shake fix + canonical tagline); Clerk key env-driven
 **Goal:** Make the cold-start splash read as a modern app (not a staged PowerPoint build), fix the persistent "too low" wordmark, land the Clerk env-drive code, and get it all dev-verified and ready to ship.
 **Completed:**
