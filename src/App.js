@@ -1025,7 +1025,7 @@ function ProvisionsApp() {
     try {
       const url = await createInvite();
       if (!url) { showToast("Couldn't prepare an invite link. Try again."); return; }
-      const name = household?.name || "my household";
+      const name = household?.name || "my place";
       const text = `Come aboard my OurProvisions list — join ${name} and it gets smarter as we go. ${url}`;
       if (typeof navigator !== "undefined" && navigator.share) {
         try {
@@ -1247,7 +1247,7 @@ function ProvisionsApp() {
 
   const handleRemoveMember = async (m) => {
     const name = m.users?.full_name || (m.users?.email ? m.users.email.split("@")[0] : "this member");
-    if (!window.confirm(`Remove ${name} from this household? Anything they added to the current list stays.`)) return;
+    if (!window.confirm(`Remove ${name} from this place? Anything they added to the current list stays.`)) return;
     try {
       const { error } = await supabase.rpc("remove_member", {
         p_household_id: household.id,
@@ -1263,7 +1263,7 @@ function ProvisionsApp() {
   };
 
   const handleLeaveHousehold = async () => {
-    if (!window.confirm("Leave this household? Anything you added stays behind for the others.")) return;
+    if (!window.confirm("Leave this place? Anything you added stays behind for the others.")) return;
     beginDeliberateLoss();                     // BEFORE the RPC — closes the watchdog gap
     try {
       const leftId = household.id;
@@ -1275,9 +1275,9 @@ function ProvisionsApp() {
       await refreshHouseholds();
       const remaining = myHouseholds.filter(h => h.id !== leftId);
       if (remaining.length > 0) switchHousehold(remaining[0].id);
-      showToast("You left the household");
+      showToast("You left the place");
     } catch (err) {
-      showToast(err.message || "Could not leave household");
+      showToast(err.message || "Could not leave place");
     } finally {
       endDeliberateLoss();                     // always clears, even on error
     }
@@ -1292,10 +1292,10 @@ function ProvisionsApp() {
       setShowEditHousehold(false);
       setEdDeleteConfirm(false);
       setShowHouseholdModal(false);
-      showToast("Household deleted");
+      showToast("Place deleted");
       await resolveAfterHouseholdLoss(deletedId, false);
     } catch (err) {
-      showToast(err.message || "Could not delete household");
+      showToast(err.message || "Could not delete place");
     } finally {
       endDeliberateLoss();                     // always clears, even on error
     }
@@ -1385,7 +1385,7 @@ function ProvisionsApp() {
 
   const saveEditHousehold = async () => {
     if (edSaving) return;
-    if (!edName.trim()) { showToast("Household needs a name"); return; }
+    if (!edName.trim()) { showToast("Place needs a name"); return; }
     setEdSaving(true);
     try {
       const patch = { name: edName, banner_wordmark: edWordmark };
@@ -1711,7 +1711,7 @@ function ProvisionsApp() {
           {isSignedIn && household?.name && (
             <button
               onClick={() => setShowHouseholdModal(true)}
-              aria-label="Manage household"
+              aria-label="Manage place"
               style={{
                 position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)",
                 background: "none", border: "none", padding: "4px 8px", cursor: "pointer",
@@ -1916,7 +1916,7 @@ function ProvisionsApp() {
               <div style={{
                 fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
                 textTransform: "uppercase", color: "#A0724A", marginBottom: "10px",
-              }}>Your Households</div>
+              }}>Your Places</div>
               {(myHouseholds || []).map((hh) => {
                 const isActive = hh.id === activeHouseholdId;
                 if (isActive) {
@@ -1982,14 +1982,14 @@ function ProvisionsApp() {
                     fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#A0724A",
                     cursor: "pointer", textAlign: "center", boxSizing: "border-box",
                   }}
-                >+ Create new household</button>
+                >+ Create new place</button>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "2px" }}>
                   <input
                     autoFocus
                     value={newHouseholdName}
                     onChange={(e) => setNewHouseholdName(e.target.value)}
-                    placeholder="Household name"
+                    placeholder="Place name"
                     style={{
                       width: "100%", padding: "10px 12px", borderRadius: "8px",
                       border: "1.5px solid #A0724A", fontFamily: "'Lato', sans-serif",
@@ -2045,7 +2045,7 @@ function ProvisionsApp() {
               <div style={{
                 fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
                 textTransform: "uppercase", color: "#A0724A", marginBottom: "14px",
-              }}>{(household?.name || "This household")} · Members</div>
+              }}>{(household?.name || "This place")} · Members</div>
 
               {/* Member list */}
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
@@ -2123,7 +2123,7 @@ function ProvisionsApp() {
                     background: "none", color: "#b08968", border: "none",
                     cursor: "pointer", marginTop: "10px",
                   }}
-                >Leave household</button>
+                >Leave place</button>
               )}
             </div>
 
@@ -2168,7 +2168,7 @@ function ProvisionsApp() {
             {/* Header: Cancel · title · Save */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px" }}>
               <button onClick={closeEditHousehold} style={{ background: "none", border: "none", color: "#A0724A", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.05rem", color: "#2C1A0E" }}>Edit household</div>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.05rem", color: "#2C1A0E" }}>Edit place</div>
               <button
                 onClick={saveEditHousehold}
                 disabled={edSaving}
@@ -2278,7 +2278,7 @@ function ProvisionsApp() {
               )}
 
               {/* Household name */}
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Household name</div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Place name</div>
               <input
                 value={edName}
                 onChange={(e) => setEdName(e.target.value)}
@@ -2286,7 +2286,7 @@ function ProvisionsApp() {
               />
 
               <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", color: "#9a8a78", lineHeight: 1.5, margin: "12px 2px 0" }}>
-                Anyone in the household can change the photo, the name, and the wordmark.
+                Anyone in the place can change the photo, the name, and the wordmark.
               </div>
 
               {/* Creator-only Delete danger zone (spec D3/D4) */}
@@ -2302,7 +2302,7 @@ function ProvisionsApp() {
                       }}
                     >
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
-                      Delete household
+                      Delete place
                     </button>
                   ) : (
                     <div style={{ display: "flex", gap: "8px" }}>
@@ -2313,11 +2313,11 @@ function ProvisionsApp() {
                       <button
                         onClick={handleDeleteHousehold}
                         style={{ flex: 2, background: "#c0392b", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#fff", cursor: "pointer" }}
-                      >Yes, delete household</button>
+                      >Yes, delete place</button>
                     </div>
                   )}
                   <div style={{ fontSize: "0.7rem", color: "#9a8a78", textAlign: "center", marginTop: "8px", lineHeight: 1.4 }}>
-                    Deletes {household?.name || "this household"} for everyone aboard. This can't be undone.
+                    Deletes {household?.name || "this place"} for everyone aboard. This can't be undone.
                   </div>
                 </div>
               )}
@@ -3263,7 +3263,7 @@ function ProvisionsApp() {
                   <button
                     onClick={() => {
                       const ok = window.confirm(
-                        `Delete "${editModalItem.name}" for the whole household? This removes it from the current list and can't be undone.`
+                        `Delete "${editModalItem.name}" for the whole place? This removes it from the current list and can't be undone.`
                       );
                       if (ok) {
                         deleteItem(editModalItem.name);
@@ -3684,7 +3684,7 @@ export default function ShoppingListApp() {
     postSystemMessage({
       kind: 'info',
       householdName,
-      subtext: provisioned ? "We've set you up with a fresh household." : undefined,
+      subtext: provisioned ? "We've set you up with a fresh place." : undefined,
       durationMs: 30000,
       dismissible: true,
     });
@@ -3723,7 +3723,7 @@ export default function ShoppingListApp() {
               <div style={{ fontSize: '13.5px', fontWeight: 400, lineHeight: '1.4', color: '#FAF4EC' }}>
                 No longer a member of{' '}
                 <strong style={{ color: '#5fd8c9', fontWeight: 700 }}>
-                  {systemMessage.householdName ?? 'that household'}
+                  {systemMessage.householdName ?? 'that place'}
                 </strong>.
               </div>
               {systemMessage.subtext && (
