@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-29] — [OurProvisions] — Meals data model (buildable) + giving meals between households (design)
+**Goal:** Design the meals feature (meals-as-lens that fills the shared list) down to a buildable data model, and design person-initiated meal giving between households.
+**Completed:**
+- **Specified the meals data model** — `meals` (household-owned, `base_servings` scaling seam, `created_by`, soft-delete), `meal_ingredients` (FK to `catalog_items` — **load-bearing:** the FK is what lets a meal flow to the list; `quantity_per_serving`), and a `list_item_meals` provenance JOIN. Two approved specs → `docs/specs/active/` (`SPEC_meals_model.md`, `SPEC_meal_sharing.md`).
+- **Chose scaling-ready schema + simple behavior** — store `quantity_per_serving` + `base_servings` (=1) day one, defer the serving dial; the recipe-with-scaling option (3→1) becomes additive later, no migration/rewrite. Resolved that the two existing mockups encoded two different mental models (recipe-with-scaling vs. labeled bundle).
+- **Chose one-row-per-item + "Multiple meals" badge** over per-meal rows (`uq_live_list_item` holds — the shopper doesn't care which meal a lemon is for); **JOIN table over array column** for meal↔item links (referential integrity on the sacred shared list).
+- **Drew the OurProvisions/OurChef boundary: places vs. people.** Copy (snapshot, drift-OK) = household op (OurProvisions); reference (live-sync, evolving) = person op (OurChef) and a natural OurChef signup driver. Closed copy-vs-reference as a product split, not a toggle.
+- **Specified giving meals** — a `meal_shares` pending-offer ("doorbell") table, **accept-first** flow (the copy happens at ACCEPT, not at give — protects the shared list), batch-accept pre-checked, "{name} (from {giver})" on name collision. User-facing verb = **"give"** (leaves your hands, becomes theirs — accurate, not just warmer).
+- **Incorporated external review feedback** — added the thank-you moment (at accept; optional, once, never nags), a lineage breadcrumb on the copy (`copied_from_meal_id`/`_household_id`/`copied_at` — provenance only, NEVER sync), and resolved `created_by` = preserve the original author (feeds OurChef lineage).
+- **Held context/events + people-owned meals explicitly OUT of scope** (their own sessions), while protecting the `created_by` + lineage seams that keep those futures possible.
+**Unfinished:**
+- Nothing built — design session; all work is spec.
+- **Open in meals model:** how a `list_item` tracks meal-contributed vs. manually-added quantity (needed for the remove-a-meal flow; NOT needed for the add path).
+- **Open in giving:** thank-you delivery channel; stale pending gift on source deletion; duplicate-offer blocking; who-can-give.
+**Next session:**
+SESSION START
+Goal: BUILD the meals model — migration for `meals`, `meal_ingredients`, `list_item_meals`; the add-a-meal-to-list path; the Browse-lens UI (both mockups drawn). Scope = **add-path only**; defer remove-a-meal and giving to later builds.
+State: Two approved specs in `docs/specs/active/` (`SPEC_meals_model.md`, `SPEC_meal_sharing.md`). Phase-1 schema live in prod; Household→Place rename live. No meal tables exist yet. Two meal mockups exist in `docs/mockups/`.
+Done when: The three tables are migrated (dev first, verified, then prod), a meal can be created + added to the shared list with correct quantities and "Multiple meals" provenance, and the Browse-lens renders against real data. A **live RLS test** proves a non-member cannot read/write another household's meals.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md` (this SESSION END). Routed: `docs/specs/active/SPEC_meals_model.md`, `docs/specs/active/SPEC_meal_sharing.md`.
+**DB changes:** None yet (three tables + `meal_shares` designed, not migrated — migration number assigned at point-of-build).
+
 ### [2026-07-28] — [OurProvisions] — Household→Place rename built to dev; app IA redesigned around meals + a consumption-signal strategy (design)
 **Goal:** Rename the user-facing "Household" concept to "Place" (build), and — from the design chat — rethink the tab structure and the meal/list model end-to-end and frame the product against a single strategic thesis.
 **Completed:**
