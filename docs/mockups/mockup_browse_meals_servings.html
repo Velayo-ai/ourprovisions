@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Browse · Meals lens (servings model)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60;
+    --hairline:#E3D4BC;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; justify-content:center; padding:24px 12px; }
+  .phone{ width:390px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+
+  /* header */
+  .header{ background:var(--espresso); color:var(--cream); padding:16px 20px 14px; }
+  .place{ display:flex; align-items:center; gap:8px; }
+  .place-name{ font-family:'Playfair Display',serif; font-size:1.05rem; }
+  .place-chev{ color:var(--sand); font-size:0.8rem; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:9px 4px 11px; text-align:center; font-size:0.7rem; letter-spacing:2px;
+        text-transform:uppercase; color:var(--sand); border-bottom:2px solid transparent; }
+  .tab.active{ color:var(--cream); border-bottom:2px solid var(--sand); }
+
+  .body{ padding:16px 18px 26px; }
+
+  /* lens toggle */
+  .lens{ display:flex; gap:5px; background:var(--sand-row); border-radius:11px; padding:4px; margin-bottom:18px; }
+  .lens-seg{ flex:1; text-align:center; padding:8px; border-radius:8px; font-size:0.78rem;
+             letter-spacing:1px; text-transform:uppercase; color:var(--clay); }
+  .lens-seg.active{ background:var(--cream); color:var(--espresso); font-weight:700;
+                    box-shadow:0 1px 3px rgba(44,26,14,0.14); }
+
+  .section-label{ font-size:0.68rem; font-weight:700; letter-spacing:2.5px; text-transform:uppercase;
+                  color:var(--clay); margin:2px 2px 12px; }
+
+  /* meal card */
+  .meal{ border:1px solid var(--hairline); border-radius:12px; overflow:hidden; margin-bottom:16px; background:#fff; }
+  .meal-head{ display:flex; align-items:center; gap:12px; padding:14px; background:#F3E9D8; }
+  .meal-photo{ width:44px; height:44px; border-radius:9px; flex-shrink:0;
+               background:linear-gradient(135deg,#c98a8a,#8a4a4a); }
+  .meal-title{ font-family:'Playfair Display',serif; font-size:1.05rem; color:var(--espresso); }
+  .meal-sub{ font-size:0.72rem; color:var(--clay); letter-spacing:1px; text-transform:uppercase; margin-top:2px; }
+
+  /* servings row */
+  .serv{ display:flex; align-items:center; justify-content:space-between; padding:12px 14px;
+         border-bottom:1px solid var(--hairline); background:var(--cream); }
+  .serv-label{ font-size:0.78rem; letter-spacing:1px; text-transform:uppercase; color:var(--muted); font-weight:700; }
+  .serv-note{ font-size:0.72rem; color:var(--muted); margin-top:2px; }
+  .stepper{ display:flex; align-items:center; border:1px solid var(--clay); border-radius:20px; overflow:hidden; background:#fff; }
+  .step-btn{ width:36px; height:34px; display:flex; align-items:center; justify-content:center;
+             color:var(--clay); font-size:1.1rem; }
+  .step-val{ min-width:40px; text-align:center; font-family:'Playfair Display',serif;
+             font-size:1.1rem; font-weight:700; color:var(--espresso); }
+
+  /* ingredient rows */
+  .ing{ display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid var(--hairline); }
+  .ing:last-child{ border-bottom:none; }
+  .ing-name{ font-size:0.95rem; color:var(--espresso); }
+  .ing-per{ font-size:0.72rem; color:var(--muted); margin-top:1px; }
+  .ing-qty{ font-family:'Playfair Display',serif; font-size:1.05rem; font-weight:700; color:var(--espresso); }
+  .ing.off .ing-name{ color:var(--muted); text-decoration:line-through; }
+  .ing.off .ing-note{ font-size:0.72rem; color:#a8763a; margin-top:1px; }
+  .ing.off .ing-qty{ color:var(--muted); }
+
+  .foot{ font-size:0.8rem; color:var(--muted); line-height:1.55; text-align:center; padding:2px 14px; }
+
+  /* browse-more meal */
+  .browse-meal{ display:flex; align-items:center; gap:12px; padding:12px; border:1px solid var(--hairline);
+                border-radius:12px; margin-bottom:9px; background:#fff; }
+  .bm-photo{ width:38px; height:38px; border-radius:9px; flex-shrink:0; }
+  .bm-title{ font-size:0.95rem; font-weight:700; color:var(--espresso); }
+  .bm-sub{ font-size:0.72rem; color:var(--muted); margin-top:1px; }
+  .add-all{ font-size:0.7rem; letter-spacing:1px; text-transform:uppercase; padding:7px 14px;
+            background:var(--clay); color:var(--cream); border:none; border-radius:5px; }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="header">
+      <div class="place"><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div>
+    </div>
+    <div class="tab-bar">
+      <div class="tab">Home</div>
+      <div class="tab">Plan</div>
+      <div class="tab active">Browse</div>
+      <div class="tab">Shop</div>
+    </div>
+
+    <div class="body">
+      <div class="lens">
+        <div class="lens-seg">Ingredients</div>
+        <div class="lens-seg active">Meals</div>
+      </div>
+
+      <div class="section-label">Planned this week</div>
+
+      <div class="meal">
+        <div class="meal-head">
+          <div class="meal-photo"></div>
+          <div>
+            <div class="meal-title">Sheet-pan salmon</div>
+            <div class="meal-sub">Saturday &middot; dinner party</div>
+          </div>
+        </div>
+
+        <div class="serv">
+          <div>
+            <div class="serv-label">Serving</div>
+            <div class="serv-note">recipe is for 3</div>
+          </div>
+          <div class="stepper">
+            <div class="step-btn">&minus;</div>
+            <div class="step-val">6</div>
+            <div class="step-btn">+</div>
+          </div>
+        </div>
+
+        <div class="ing">
+          <div style="flex:1;">
+            <div class="ing-name">Salmon fillets</div>
+            <div class="ing-per">2 per serving</div>
+          </div>
+          <div class="ing-qty">6</div>
+        </div>
+        <div class="ing">
+          <div style="flex:1;">
+            <div class="ing-name">Asparagus</div>
+            <div class="ing-per">1 bunch per 3</div>
+          </div>
+          <div class="ing-qty">2</div>
+        </div>
+        <div class="ing">
+          <div style="flex:1;">
+            <div class="ing-name">Lemon</div>
+            <div class="ing-per">1 per 3</div>
+          </div>
+          <div class="ing-qty">2</div>
+        </div>
+        <div class="ing off">
+          <div style="flex:1;">
+            <div class="ing-name">Olive oil</div>
+            <div class="ing-note">you have it &middot; overridden to 0</div>
+          </div>
+          <div class="ing-qty">0</div>
+        </div>
+      </div>
+
+      <div class="foot" style="margin-bottom:22px;">
+        Set the serving and every ingredient scales. Override any one &mdash; olive oil stays at zero even as the party grows.
+      </div>
+
+      <div class="section-label">More to browse</div>
+
+      <div class="browse-meal">
+        <div class="bm-photo" style="background:linear-gradient(135deg,#a3c0a8,#6b8a70);"></div>
+        <div style="flex:1;">
+          <div class="bm-title">Lemon pasta</div>
+          <div class="bm-sub">6 ingredients</div>
+        </div>
+        <button class="add-all">Add all</button>
+      </div>
+      <div class="browse-meal">
+        <div class="bm-photo" style="background:linear-gradient(135deg,#d4b98a,#a0724a);"></div>
+        <div style="flex:1;">
+          <div class="bm-title">Taco night</div>
+          <div class="bm-sub">5 ingredients</div>
+        </div>
+        <button class="add-all">Add all</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

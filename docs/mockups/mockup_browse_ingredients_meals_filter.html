@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Browse · Ingredients lens (from-meals filter)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60;
+    --hairline:#E3D4BC;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; justify-content:center; padding:24px 12px; }
+  .phone{ width:390px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+
+  .header{ background:var(--espresso); color:var(--cream); padding:16px 20px 14px; }
+  .place{ display:flex; align-items:center; gap:8px; }
+  .place-name{ font-family:'Playfair Display',serif; font-size:1.05rem; }
+  .place-chev{ color:var(--sand); font-size:0.8rem; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:9px 4px 11px; text-align:center; font-size:0.7rem; letter-spacing:2px;
+        text-transform:uppercase; color:var(--sand); border-bottom:2px solid transparent; }
+  .tab.active{ color:var(--cream); border-bottom:2px solid var(--sand); }
+
+  .body{ padding:16px 18px 26px; }
+
+  .lens{ display:flex; gap:5px; background:var(--sand-row); border-radius:11px; padding:4px; margin-bottom:16px; }
+  .lens-seg{ flex:1; text-align:center; padding:8px; border-radius:8px; font-size:0.78rem;
+             letter-spacing:1px; text-transform:uppercase; color:var(--clay); }
+  .lens-seg.active{ background:var(--cream); color:var(--espresso); font-weight:700;
+                    box-shadow:0 1px 3px rgba(44,26,14,0.14); }
+
+  .filters{ display:flex; gap:8px; margin-bottom:14px; }
+  .chip{ font-size:0.74rem; letter-spacing:0.5px; padding:6px 15px; border-radius:20px;
+         border:1px solid var(--hairline); color:var(--muted); background:#fff; }
+  .chip.active{ background:#DDEDE9; border-color:var(--teal); color:#0b6b60; font-weight:700; }
+
+  .helper{ font-size:0.78rem; color:var(--muted); margin:0 2px 14px; }
+
+  .row{ display:flex; align-items:center; gap:11px; padding:13px 4px; border-bottom:1px solid var(--hairline); }
+  .row:last-child{ border-bottom:none; }
+  .r-name{ font-size:1rem; color:var(--espresso); }
+  .r-origin{ font-size:0.74rem; color:var(--teal); margin-top:2px; display:flex; align-items:center; gap:4px; }
+  .r-origin .glyph{ font-size:0.7rem; }
+  .row.off .r-name{ color:var(--muted); text-decoration:line-through; }
+  .row.off .r-origin{ color:#a8763a; }
+
+  .stepper{ display:flex; align-items:center; border:1px solid var(--clay); border-radius:20px; overflow:hidden; background:#fff; }
+  .stepper.zero{ border-color:var(--hairline); }
+  .step-btn{ width:32px; height:32px; display:flex; align-items:center; justify-content:center;
+             color:var(--clay); font-size:1rem; }
+  .stepper.zero .step-btn{ color:var(--muted); }
+  .step-val{ min-width:26px; text-align:center; font-family:'Playfair Display',serif;
+             font-size:1rem; font-weight:700; color:var(--espresso); }
+  .stepper.zero .step-val{ color:var(--muted); }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="header">
+      <div class="place"><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div>
+    </div>
+    <div class="tab-bar">
+      <div class="tab">Home</div>
+      <div class="tab">Plan</div>
+      <div class="tab active">Browse</div>
+      <div class="tab">Shop</div>
+    </div>
+
+    <div class="body">
+      <div class="lens">
+        <div class="lens-seg active">Ingredients</div>
+        <div class="lens-seg">Meals</div>
+      </div>
+
+      <div class="filters">
+        <div class="chip">All</div>
+        <div class="chip active">From meals</div>
+        <div class="chip">Staples</div>
+      </div>
+
+      <div class="helper">Showing items added by your planned meals.</div>
+
+      <div class="row off">
+        <div style="flex:1;">
+          <div class="r-name">Spaghetti</div>
+          <div class="r-origin"><span class="glyph">&#9670;</span>from Lemon pasta &middot; you have it</div>
+        </div>
+        <div class="stepper zero">
+          <div class="step-btn">&minus;</div>
+          <div class="step-val">0</div>
+          <div class="step-btn">+</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="flex:1;">
+          <div class="r-name">Parmesan</div>
+          <div class="r-origin"><span class="glyph">&#9670;</span>from Lemon pasta</div>
+        </div>
+        <div class="stepper">
+          <div class="step-btn">&minus;</div>
+          <div class="step-val">1</div>
+          <div class="step-btn">+</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="flex:1;">
+          <div class="r-name">Lemons</div>
+          <div class="r-origin"><span class="glyph">&#9670;</span>from Lemon pasta</div>
+        </div>
+        <div class="stepper">
+          <div class="step-btn">&minus;</div>
+          <div class="step-val">3</div>
+          <div class="step-btn">+</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="flex:1;">
+          <div class="r-name">Salmon fillets</div>
+          <div class="r-origin"><span class="glyph">&#9670;</span>from Sheet-pan salmon</div>
+        </div>
+        <div class="stepper">
+          <div class="step-btn">&minus;</div>
+          <div class="step-val">2</div>
+          <div class="step-btn">+</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="flex:1;">
+          <div class="r-name">Asparagus</div>
+          <div class="r-origin"><span class="glyph">&#9670;</span>from Sheet-pan salmon</div>
+        </div>
+        <div class="stepper">
+          <div class="step-btn">&minus;</div>
+          <div class="step-val">1</div>
+          <div class="step-btn">+</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

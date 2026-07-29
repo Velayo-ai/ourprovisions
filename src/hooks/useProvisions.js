@@ -328,7 +328,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // Clear invite from URL and flag for join banner
         if (bootstrapData.joined_via_invite) {
           window.history.replaceState({}, "", window.location.pathname);
-          sessionStorage.setItem("just_joined_household", bootstrapData.household_name || "the household");
+          sessionStorage.setItem("just_joined_household", bootstrapData.household_name || "the place");
           sessionStorage.setItem("just_joined_household_id", bootstrapData.household_id);
         }
 
@@ -467,7 +467,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           }
         }
         if (hhErr) {
-          if (classifyFetchError(hhErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not fetch household: ${hhErr.message}`); }
+          if (classifyFetchError(hhErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not fetch place: ${hhErr.message}`); }
           setLoading(false); return;
         }
         if (cancelled) return;
@@ -1174,7 +1174,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           .subscribe();
       }
 
-      return invite.households?.name || "the household";
+      return invite.households?.name || "the place";
     } catch (err) {
       console.error("acceptInvite error:", err.message);
       setError(err.message);
@@ -1536,7 +1536,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       return data?.household_id || null;
     } catch (err) {
       console.error("createHousehold error:", err.message);
-      setError(`Could not create household: ${err.message}`);
+      setError(`Could not create place: ${err.message}`);
       return null;
     }
   }, []);
@@ -1668,7 +1668,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       return true;
     } catch (err) {
       console.error("renameHousehold error:", err.message);
-      setError(`Could not rename household: ${err.message}`);
+      setError(`Could not rename place: ${err.message}`);
       return false;
     }
   }, []);

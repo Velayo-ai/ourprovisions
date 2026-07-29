@@ -25,6 +25,51 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-28] — [OurProvisions] — Household→Place rename built to dev; app IA redesigned around meals + a consumption-signal strategy (design)
+**Goal:** Rename the user-facing "Household" concept to "Place" (build), and — from the design chat — rethink the tab structure and the meal/list model end-to-end and frame the product against a single strategic thesis.
+**Completed:**
+- **Built the Household→Place user-facing copy rename** (`b93c64e`): 28 strings across `App.js` + `useProvisions.js` (toasts, confirms, aria-labels, placeholders, headings/labels, the share/invite copy, `setError` diagnostics). **Schema, RPCs, storage bucket, React identifiers, and the grocery aisle category "Household" all untouched** — copy-only by design (schema generalizes to `contexts` when Events lands, not to `places`). **Verified on dev + promoted `dev→main` to production 2026-07-28** — now LIVE on `ourprovisions.velayo.ai`; spec → `docs/specs/built/`.
+- **Extended past the spec's drifted line-map** where it was incomplete (renamed omitted user-facing strings: `Your Households`, `Delete household`, the `Household name` label, remove-member + delete-item confirms) so the UI isn't a half-rename. **Deliberately left `App.js:943` `name !== "My Household"`** — a sentinel comparison against the DB-seeded default name (migration 006 / baseline / `ActiveHouseholdContext.js`), NOT display copy; changing it while the DB still creates "My Household" households would break the join-banner guard.
+- **[design] Settled nav = HOME / PLAN / BROWSE / SHOP** — split "plan the week" (PLAN) from "build the list" (BROWSE) as genuinely different jobs; PLAN absorbs the old coming-soon placeholder.
+- **[design] Designed BROWSE as a two-lens list-builder** (Ingredients ⇄ Meals) — one shared list viewed two ways, with a persistent conversational "talk to me" composer threaded under both lenses; an edit through either lens is the same realtime write.
+- **[design] Established the meal↔item model** — meals carry a servings multiplier; each recipe ingredient stores a per-serving amount (stable = "the recipe"); list qty = per-serving × servings, override-able ("Have it" = override to 0). Recipe stays stable; only the shopping instance changes. Validated against two real household workflows (Dan zeroing spaghetti; Helen swiping mozzarella) as the same edit through different lenses.
+- **[design] Built the consumption-signal strategy** — ten household problems → two sensors (list = intention, receipts = ground truth) → one consumption signal → capabilities tiered now/later. OurProvisions' defensible asset = the household's **live consumption signal**, not the list. Sequenced the build: **Meals → Plan → Receipts**.
+**Unfinished:**
+- **[design] 3-vs-4 doors unresolved** — does PLAN-the-week fold into HOME (→ HOME/BROWSE/SHOP), or does the app move to four doors? The tri-hull triad was a design goal.
+- **[design] Swipe-left semantics** — set-to-zero (lens-consistent, recoverable) vs. remove-from-instance (matches "gone")? Leaning set-to-zero; Dan makes the gesture-feel call.
+- **[design] "Have it" binary vs. quantity** — override-to-0 means "buy none"; the slow-tail provisions/inventory vision eventually needs "have *some amount*." Flagged, not designed.
+- **[design] HOME surface content designed, not built**; the PLAN→HOME label is deferred until the surface proves what it is (behavior before label).
+**Next session:**
+SESSION START
+Goal: Design the Meals surface — the meal↔item data model and the two-lens BROWSE Meals view.
+State: OurProvisions beta live at `ourprovisions.velayo.ai` (collaborative list, households, waste tracker, realtime on `list_items`). Places rename verified + LIVE on prod. This session's design work is design-only — nothing built beyond the rename.
+Done when: We've resolved where meals come from (seed / user-created / AI-generated / imported — the recipe → per-serving-ingredient data model) and mocked the Meals lens against real meal data. Do NOT design Meals UI before the meal-source question is answered — a Meals lens with no meals to fill it is the failure mode.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js` (rename build, `b93c64e`); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md` (this SESSION END). Routed: `docs/specs/active/SPEC_places_rename.md`, `docs/mockups/mockup_browse_ingredients_meals_filter.html`, `docs/mockups/mockup_browse_meals_servings.html`.
+**DB changes:** None.
+
+### [2026-07-27] — [OurProvisions] — Splash promoted to production; prod Clerk cutover unblocked (DNS/SSL cleared, user migration half-executed)
+**Goal:** Ship the finalized splash to production, and (design chat) advance the prod Clerk cutover — clear the DNS/SSL block and migrate the keeper users without orphaning live households.
+**Completed:**
+- **Promoted the splash to production** — merged `dev→main` (`30345d7`) shipping resolve-in-place (`8c16e46`) + shake fix (`5be6f0a`) + "Shop smarter. Shop faster." tagline (`0ed3f3e`) + Clerk key env-drive (`a652a52`) + the 2026-07-24 prod-clerk docs (`a680af9`); clean merge, pushed `origin/main` → Vercel prod deploy triggered. **No env vars touched** — Production Clerk key stays `pk_test_`, so the guard passes and auth is unchanged. Then promoted this session's SESSION END docs (`868fa3d` → merge `16a6cc4`); `dev` and `main` now in content sync.
+- **[Clerk cutover] Cleared the DNS/SSL wall** that blocked two sessions: 5 Clerk CNAMEs verified live + grey-cloud (zone-file confirmed), Clerk re-verify → **DNS Verified, SSL Issued**. Prod Clerk now **live over TLS** at `clerk.ourprovisions.velayo.ai` (issuer `https://clerk.ourprovisions.velayo.ai`, API version `2025-11-10` — matches dev, so `sub`-claim shape is consistent).
+- **[Clerk] Chose Path A** (reconcile `users.clerk_id` by email post-creation) over Path B (externalId re-architecture) for this cutover — Clerk can't transfer users dev→prod (mints new subs). Ran a prod census: **12-row keeper roster**, every email resolves 1:1, all `deleted_at` null; captured each `users.id`, dev sub, and `live_memberships`. Confirmed `users.email` is `unique not null` → safe join key.
+- **[Clerk] Found `bootstrap_new_user` upserts `on conflict (clerk_id)`** — so a post-flip login by an **un-reconciled** user throws an email-unique violation (a hard error, not just an empty app). Proves **reconcile-BEFORE-flip is mandatory**; reconciled users self-heal through the conflict branch.
+- **[Clerk] Proved the reconciliation pipeline end-to-end on the pilot** (Dan Test User): invite → capture prod sub → id-keyed `UPDATE` → verify read-back (dev sub → prod sub confirmed). Sent invites to the roster; **8/12 accepted + subs captured.**
+- **[Clerk] Reversal:** Dan Test User is now a **keeper** that migrates to prod (2 live memberships), overriding last session's "delete/dev-only."
+**Unfinished:**
+- **Splash prod deploy:** the `main` push triggered the Vercel build; **production visual verification NOT yet confirmed** (splash resolves, new tagline, no shake, app loads signed-in) — pending Dan's hard-refresh check.
+- **[Clerk] 4 subs uncaptured** (pending acceptance): Christopher, Heddi, Jean, Michael. **CUTOVER GATE:** Christopher (4 memberships), Heddi (2), Jean (1) still gate the flip; Aidan (0) / Michael (0) do NOT gate.
+- **[Clerk] Only the pilot is reconciled** — the other 7 captured subs are staged but NOT yet `UPDATE`'d (held for cutover; a reconciled-but-not-flipped user's live login is broken until the flip, so run the real UPDATEs close to the flip). Cutover Stages 3–6 not done: Supabase issuer re-point, `pk_live_` flip, deploy, cutover verify, deferred OurBanner storage-RLS + EXIF-upright checks.
+- **[Clerk] RISK — the migration tracker `.xlsx` is the SOLE record of captured prod subs**, on Dan's machine, not in repo/Drive (single point of failure). Tracker hygiene: a stray sub value on Helen's row; confirm/clear Heddi's "Accepted" flag.
+- Marketing-site tagline still old (`ourprovisions-landing` unreachable from the build env).
+**Next session:**
+SESSION START
+Goal: Execute the prod Clerk cutover once the gating membership-holders (Christopher/Heddi/Jean) are accepted + sub-captured.
+State: Splash LIVE on prod (final visual confirm pending); prod Clerk live over TLS; prod Supabase still trusts the DEV issuer; live app still `pk_test_`. 8/12 subs captured, 1 reconciled (pilot). Tracker `.xlsx` is the sole record of captured subs.
+Done when: all `live_memberships ≥ 1` users reconciled to prod subs; Supabase re-pointed to `https://clerk.ourprovisions.velayo.ai`; Vercel prod on `pk_live_`; a migrated family user (Helen/Elly) signs in and sees their own household; no `pk_test_` in bundle; Google + password sign-in both work; OurBanner storage-RLS + EXIF-upright verified on prod tokens. **At flip: run all 11 remaining UPDATEs → re-point Supabase → flip key → verify (in that order).**
+**Files updated:** None (git promotion + Clerk/Supabase dashboard + tracker work only).
+**DB changes:** One prod `users` row reconciled (Dan Test User `clerk_id` → prod sub).
+
 ### [2026-07-25] — [OurProvisions] — Splash finalized (resolve-in-place + shake fix + canonical tagline); Clerk key env-driven
 **Goal:** Make the cold-start splash read as a modern app (not a staged PowerPoint build), fix the persistent "too low" wordmark, land the Clerk env-drive code, and get it all dev-verified and ready to ship.
 **Completed:**
