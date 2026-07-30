@@ -1673,12 +1673,151 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, []);
 
+  // ─────────────────────────────────────────────────────────────
+  // Meals (migration 025) — add-path data layer.
+  //
+  // fetchMeals:        live meals for the active household, each with its
+  //                    live ingredient rows (joined to catalog_items for
+  //                    name/category so the Browse lens can render them).
+  // createMeal:        insert a meal + its ingredient rows. Returns the
+  //                    new meal id (or null on failure).
+  // addMealToList:     fold a meal's ingredients into the shared list via
+  //                    the add_meal_to_list RPC (increment-or-resurrect +
+  //                    provenance). Ensures an open planned cycle first,
+  //                    for parity with the manual add path.
+  // fetchMealProvenance: which meal(s) put each live list item on the list,
+  //                    keyed by catalog_item_id → [{mealId, name}]. length
+  //                    > 1 is the "Multiple meals" badge.
+  // ─────────────────────────────────────────────────────────────
+  const fetchMeals = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return [];
+    const { data, error: err } = await db
+      .from("meals")
+      .select("id, name, base_servings, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, deleted_at, catalog_items(name, category))")
+      .eq("household_id", hh.id)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false });
+    if (err) {
+      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not load meals: ${err.message}`); }
+      return [];
+    }
+    reportSuccess();
+    // The embed doesn't filter soft-deleted ingredients — drop them here.
+    return (data || []).map((m) => ({
+      ...m,
+      meal_ingredients: (m.meal_ingredients || []).filter((mi) => mi.deleted_at == null),
+    }));
+  }, [reportTransientFailure, reportSuccess]);
+
+  const createMeal = useCallback(async ({ name, baseServings = 1, ingredients = [] }) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const trimmed = (name || "").trim();
+    if (!trimmed) { setError("A meal needs a name."); return null; }
+    try {
+      const { data: meal, error: mErr } = await db
+        .from("meals")
+        .insert({
+          household_id: hh.id,
+          name: trimmed,
+          base_servings: baseServings,
+          created_by: internalUserIdRef.current,
+        })
+        .select("id")
+        .single();
+      if (mErr) throw mErr;
+
+      const rows = (ingredients || [])
+        .filter((i) => i.catalog_item_id && Number(i.quantity_per_serving) > 0)
+        .map((i) => ({
+          meal_id: meal.id,
+          catalog_item_id: i.catalog_item_id,
+          quantity_per_serving: Number(i.quantity_per_serving),
+        }));
+      if (rows.length > 0) {
+        const { error: iErr } = await db.from("meal_ingredients").insert(rows);
+        if (iErr) throw iErr;
+      }
+      reportSuccess();
+      return meal.id;
+    } catch (err) {
+      console.error("createMeal error:", err.message);
+      setError(`Could not create meal: ${err.message}`);
+      return null;
+    }
+  }, [reportSuccess]);
+
+  const addMealToList = useCallback(async (mealId, servings = 1) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId) return 0;
+    try {
+      // Ensure an open planned cycle first, mirroring updateQty's auto-open,
+      // so meal-added items are first-class in the cycle (close_cycle counts
+      // by cycle_id). archive_trip_items clears by household, so a null cycle
+      // is still safe — this is parity, not correctness.
+      if (!activeCycleRef.current) {
+        const { data: newCycle } = await db
+          .from("provision_cycles")
+          .insert({ household_id: hh.id, cycle_type: "planned", created_by: internalUserIdRef.current })
+          .select()
+          .single();
+        if (newCycle) { activeCycleRef.current = newCycle; setActiveCycle(newCycle); }
+      }
+      const { data: count, error: err } = await db.rpc("add_meal_to_list", {
+        p_meal_id: mealId,
+        p_servings: servings,
+        p_cycle_id: activeCycleRef.current?.id || null,
+      });
+      if (err) throw err;
+      // A meal touches many items at once — refresh the whole list so
+      // quantities and provenance reflect immediately (no optimistic path).
+      await loadListItems(db, hh.id);
+      reportSuccess();
+      return count || 0;
+    } catch (err) {
+      console.error("addMealToList error:", err.message);
+      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not add meal to list: ${err.message}`); }
+      return 0;
+    }
+  // loadListItems is a stable hook-scope function (uses refs); matches the
+  // ref-based pattern used by updateQty et al.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportTransientFailure, reportSuccess]);
+
+  const fetchMealProvenance = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return {};
+    // Joined through list_items so we can key by catalog_item_id (the list
+    // renders by item, not by list_item row id). !inner drops rows whose
+    // list_item is gone; RLS gates via list_item membership.
+    const { data, error: err } = await db
+      .from("list_item_meals")
+      .select("meal_id, list_items!inner(catalog_item_id, household_id, deleted_at), meals!inner(name)")
+      .eq("list_items.household_id", hh.id)
+      .is("list_items.deleted_at", null);
+    if (err) { console.error("fetchMealProvenance error:", err.message); return {}; }
+    const map = {};
+    (data || []).forEach((row) => {
+      const ci = row.list_items?.catalog_item_id;
+      if (!ci) return;
+      if (!map[ci]) map[ci] = [];
+      map[ci].push({ mealId: row.meal_id, name: row.meals?.name });
+    });
+    return map;
+  }, []);
+
   return {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
     hiddenCatalogItems, loading, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
+    fetchMeals, createMeal, addMealToList, fetchMealProvenance,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,

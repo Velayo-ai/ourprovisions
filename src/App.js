@@ -599,6 +599,68 @@ function FlatHeader({ count }) {
   return <div className="flat-header">A–Z · {count} {count === 1 ? "item" : "items"}</div>;
 }
 
+// ── Browse · Meals lens (read + "Add all", add-path only — migration 025) ──
+// Read-only card list of the household's meals. "Add all" folds a meal's
+// ingredients into the shared list at flat quantities (servings dial deferred).
+// Create-a-meal is the next PR; until then meals are seeded via
+// migrations/fixtures/dev_meals_seed.sql on dev.
+function MealsLens({ meals, loading, onAddAll, addingMealId }) {
+  if (loading && meals.length === 0) {
+    return (
+      <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7a60",
+        fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "1.05rem" }}>
+        Loading meals…
+      </div>
+    );
+  }
+  if (meals.length === 0) {
+    return (
+      <div style={{ padding: "44px 24px", textAlign: "center" }}>
+        <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic",
+          fontSize: "1.2rem", color: "#8a7a60", margin: 0 }}>No meals yet.</p>
+        <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", color: "#C9A97A",
+          marginTop: "8px", letterSpacing: "0.5px" }}>
+          Building meals is coming soon — plan one and its ingredients fill your list.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div style={{ paddingTop: "6px" }}>
+      {meals.map((m) => {
+        const count = (m.meal_ingredients || []).length;
+        const busy = addingMealId === m.id;
+        return (
+          <div key={m.id} style={{
+            display: "flex", alignItems: "center", gap: "12px", padding: "12px",
+            border: "1px solid #E3D4BC", borderRadius: "12px", marginBottom: "9px", background: "#fff",
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.02rem",
+                fontWeight: 700, color: "#2C1A0E" }}>{m.name}</div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", color: "#8a7a60", marginTop: "2px" }}>
+                {count} {count === 1 ? "ingredient" : "ingredients"}
+              </div>
+            </div>
+            <button
+              onClick={() => { if (!busy) onAddAll(m.id); }}
+              disabled={busy || count === 0}
+              style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "1px",
+                textTransform: "uppercase", padding: "8px 15px", borderRadius: "6px", border: "none",
+                background: count === 0 ? "#E8D5B7" : "#A0724A",
+                color: count === 0 ? "#a8977a" : "#FAF4EC",
+                cursor: busy || count === 0 ? "default" : "pointer",
+                opacity: busy ? 0.6 : 1, whiteSpace: "nowrap", flexShrink: 0,
+              }}
+            >{busy ? "Adding…" : "Add all"}</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
   const { getToken } = useAuth();
@@ -632,6 +694,9 @@ function ProvisionsApp() {
     toggleStaple,
     renameItem,
     refreshCatalog,
+    fetchMeals,
+    addMealToList,
+    fetchMealProvenance,
     updateFullName,
     activeCycle,
     wrapUpTrip,
@@ -662,6 +727,14 @@ function ProvisionsApp() {
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
   const [view, setView] = useState("input");
+  // Browse lens (add-path, migration 025). "ingredients" = the existing
+  // catalog browser; "meals" = read-only meal cards with "Add all".
+  const [browseLens, setBrowseLens] = useState("ingredients");
+  const [meals, setMeals] = useState([]);
+  const [mealsLoading, setMealsLoading] = useState(false);
+  const [addingMealId, setAddingMealId] = useState(null);
+  // Provenance for the "Multiple meals" badge: catalog_item_id → [{mealId,name}].
+  const [mealProvenance, setMealProvenance] = useState({});
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
   const [editModalItem, setEditModalItem] = useState(null);
@@ -683,6 +756,58 @@ function ProvisionsApp() {
       removeFromList(item.name, item.catalogItemId);
     }
   };
+
+  // ── Meals (add-path, migration 025) ──────────────────────────
+  const loadMeals = useCallback(async () => {
+    setMealsLoading(true);
+    try { setMeals(await fetchMeals()); }
+    finally { setMealsLoading(false); }
+  }, [fetchMeals]);
+
+  // Provenance powers the SHOP "Multiple meals" badge, so it's needed on the
+  // list surface too — not only the Meals lens. Cheap read; no poll.
+  const refreshProvenance = useCallback(async () => {
+    setMealProvenance(await fetchMealProvenance());
+  }, [fetchMealProvenance]);
+
+  // Load the meal cards when the Meals lens opens.
+  useEffect(() => {
+    if (browseLens === "meals" && household?.id) loadMeals();
+  }, [browseLens, household?.id, loadMeals]);
+
+  // Load provenance when a surface that shows the badge is visible.
+  useEffect(() => {
+    if (household?.id && (view === "list" || (view === "input" && browseLens === "meals"))) {
+      refreshProvenance();
+    }
+  }, [household?.id, view, browseLens, refreshProvenance]);
+
+  const handleAddMealToList = useCallback(async (mealId) => {
+    setAddingMealId(mealId);
+    try {
+      await addMealToList(mealId, 1);   // flat: servings = 1 (dial deferred)
+      await refreshProvenance();        // reflect the badge immediately
+    } finally {
+      setAddingMealId(null);
+    }
+  }, [addMealToList, refreshProvenance]);
+
+  // SHOP origin badge: which meal(s) put this item on the list. ">1 meal"
+  // reads "Multiple meals"; exactly one reads "from {meal}". (Add-path only:
+  // provenance is additive — a manual tombstone doesn't prune links; pruning
+  // is the deferred remove-a-meal flow's job.)
+  const mealOriginBadge = useCallback((catalogItemId) => {
+    const links = mealProvenance[catalogItemId];
+    if (!links || links.length === 0) return null;
+    const label = links.length > 1 ? "Multiple meals" : `from ${links[0].name || "a meal"}`;
+    return (
+      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.3px",
+        color: "#0D9488", marginTop: "3px", display: "flex", alignItems: "center", gap: "4px" }}>
+        <span style={{ fontSize: "0.62rem" }}>◆</span>{label}
+      </div>
+    );
+  }, [mealProvenance]);
+
   const [editModalName, setEditModalName] = useState("");
   const [editModalPrice, setEditModalPrice] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -2473,6 +2598,34 @@ function ProvisionsApp() {
 
         {view === "input" && (
           <>
+            {/* ── Browse lens toggle — Ingredients ⇄ Meals (add-path, migration 025) ── */}
+            <div style={{ display: "flex", gap: "5px", background: "#E8D5B7", borderRadius: "11px", padding: "4px", margin: "12px 0 4px" }}>
+              {["ingredients", "meals"].map((L) => (
+                <button
+                  key={L}
+                  onClick={() => setBrowseLens(L)}
+                  style={{
+                    flex: 1, textAlign: "center", padding: "8px", borderRadius: "8px",
+                    fontFamily: "'Lato', sans-serif", fontSize: "0.78rem", letterSpacing: "1px",
+                    textTransform: "uppercase", cursor: "pointer", border: "none",
+                    background: browseLens === L ? "#FAF4EC" : "transparent",
+                    color: browseLens === L ? "#2C1A0E" : "#A0724A",
+                    fontWeight: browseLens === L ? 700 : 400,
+                    boxShadow: browseLens === L ? "0 1px 3px rgba(44,26,14,0.14)" : "none",
+                  }}
+                >{L}</button>
+              ))}
+            </div>
+
+            {browseLens === "meals" ? (
+              <MealsLens
+                meals={meals}
+                loading={mealsLoading}
+                onAddAll={handleAddMealToList}
+                addingMealId={addingMealId}
+              />
+            ) : (
+            <>
             {/* ── Search bar — sticky at top ── */}
             <div style={{
               padding: "12px 0 10px",
@@ -2852,6 +3005,8 @@ function ProvisionsApp() {
                 </div>
               </>
             )}
+            </>
+            )}
           </>
         )}
 
@@ -2940,6 +3095,7 @@ function ProvisionsApp() {
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
+                                {mealOriginBadge(item.catalogItemId)}
                                 {item.contributors?.length > 1 && (
                                   <div style={{ display: "flex", gap: "3px", marginTop: "4px" }}>
                                     {item.contributors.map((c, i) => {
@@ -3001,6 +3157,7 @@ function ProvisionsApp() {
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
+                                {mealOriginBadge(item.catalogItemId)}
                                 {item.contributors?.length > 1 && (
                                   <div style={{ display: "flex", gap: "3px", marginTop: "4px" }}>
                                     {item.contributors.map((c, i) => {
