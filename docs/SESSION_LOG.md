@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-29] — [OurProvisions] — Ship the meals add-path (025) to dev + fix the resurrect/cycle-integrity defects it surfaced (026)
+**Goal:** Get migration 025 (meals + `add_meal_to_list`) dev-verified, and resolve the `list_items` provenance + cycle-handling problems the new add-path exposed.
+**Completed:**
+- **Built + migrated 025 to dev** — `meals`, `meal_ingredients`, `list_item_meals` (RLS on, 11 policies, all FKs `ON DELETE CASCADE`) + `add_meal_to_list`. Hardened the RPC: server-side cycle resolution (client `p_cycle_id` = hint only), `deleted_at IS NULL` on all cycle lookups, `pg_advisory_xact_lock` per household, auto-open when none, `REVOKE EXECUTE … FROM PUBLIC, anon` (SECURITY DEFINER bypasses RLS — the membership guard mustn't be the only gate).
+- **Built the Browse Meals lens** — read + "Add all" + "Multiple meals"/"from {meal}" badge; committed re-runnable dev fixture (`dev_meals_seed.sql`, explicit-id target that echoes where it landed). Create-meal UI deferred by design (Option-2); `createMeal` exists in the hook, unused.
+- **Fixed the phantom-meal-badge defect** Dan found using the app normally (manual add after clear-all resurrected a tombstone and inherited its dead provenance). Root cause: per-RPC fixes left `updateQty`/`updatePrice` (client-direct writes) uncovered. Resolved with a **`BEFORE UPDATE` resurrect trigger** (026) — the only place all five resurrect paths pass — that clears provenance and re-resolves `cycle_id`; also converted `insert_list_item` to plpgsql server-side cycle resolution.
+- **Verified 025 + 026 dev-green end-to-end, evidence behind every line** — RPC auto-open, increment, idempotent provenance, tombstone→meal-add reset, tombstone→**manual**-add with no phantom badge, both trigger branches, anon RPC denied (401/`42501`), cross-household RLS on `meals` in a real browser.
+- **Traced six pre-existing cycle-integrity defects the meals work surfaced, three in prod** — 3 live items stranded in closed cycles; 2 items inserted into an already-closed cycle; 1 live household ("Our calendar") with two open cycles holding 2 and 14 items. Root cause: `activeCycleRef` is a boot-set client cache with no cycle realtime, and every legacy open path guards on the ref, not the DB.
+- **Scoped 027 as one "cycle integrity" pass and promoted it ahead of the 025/026 prod gate** — won't ship an add-path whose fallback picks newest-open into a state we haven't fixed. Established the meal-FK **CASCADE carve-out** (tripwire, not policy) and the **"provenance dies with the row"** principle.
+**Unfinished:**
+- **025 + 026 not in prod** — gated behind 027 by decision, not by any defect in the meals code.
+- **027 not opened.** Order agreed: detector first (known-bad prod data to fire it against), then server-side open-cycle resolution replacing the client-ref guards, then the unique index, then cleanup.
+- **"Our calendar" merge is a design question** (2 vs 14 live items across two open cycles — rewrites a real user's list); needs a reviewed proposal before execution. 3 stranded prod rows left untouched deliberately — they're the only evidence of Bug A until the sweep is understood.
+- **Test A** (authenticated non-member calling `add_meal_to_list`) not directly exercised — inferred only (anon denial at the grant layer, cross-household read denial in-browser, `is_member_of` proven `false` not NULL with no JWT). Prod live-RLS test must run it directly.
+- **Create-meal UI absent** (next PR — 025 isn't user-complete without it). Meals lens empty-state copy instructs rather than describes until it lands. Duplicate household names on dev (switcher shows names) — logged to 027.
+**Next session:**
+SESSION START
+Goal: Open 027 cycle integrity — build the detector, then replace the client-ref guards in every cycle-open path with server-side resolution.
+State: 025 + 026 dev-green and verified on `dev.ourprovisions.velayo.ai`; both held at the prod gate. Prod carries 3 stranded rows + 1 household with two open cycles. Meals lens is read + "Add all" only; no create UI.
+Done when: The detector fires against the known-bad prod data (never ship an alarm we haven't watched fire), and no cycle-open path can produce a second open cycle for a household.
+**Files updated:** `migrations/025_meals.sql`, `migrations/026_resurrect_integrity.sql`, `migrations/fixtures/dev_meals_seed.sql`, `src/hooks/useProvisions.js`, `src/App.js`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/SESSION_LOG.md`
+**DB changes:** 025 + 026 applied to **dev only** (`zxwtxjjmssykhqrghouf`). New tables `meals`/`meal_ingredients`/`list_item_meals` (RLS, 11 policies, all FKs `ON DELETE CASCADE`); new RPC `add_meal_to_list`; new trigger `trg_list_items_resurrect` + fn `list_items_resurrect_cleanup`; `insert_list_item` rewritten to plpgsql (server-side cycle); `PUBLIC`/`anon` EXECUTE revoked on `add_meal_to_list`. **Prod (`parpauldmbetptkmdwbd`) unchanged.**
+
 ### [2026-07-29] — [OurProvisions] — Meals data model (buildable) + giving meals between households (design)
 **Goal:** Design the meals feature (meals-as-lens that fills the shared list) down to a buildable data model, and design person-initiated meal giving between households.
 **Completed:**
