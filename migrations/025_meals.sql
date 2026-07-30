@@ -284,14 +284,18 @@ grant select, insert, delete         on public.list_item_meals   to authenticate
 -- a live item is additive by design). Pruning provenance on a plain manual
 -- removal is the deferred remove-a-meal flow's job, not the add path's.
 --
--- CYCLE: p_cycle_id is the caller's active planned cycle (the client
--- ensures one, exactly as the manual add path does). Merge semantics
--- match insert_list_item (migration 008): set it on a fresh insert,
--- and on conflict KEEP the row's existing cycle if it has one, else
--- adopt the passed cycle — never yank a live item out of its open
--- cycle. NULL is safe (archive_trip_items clears by household, not
--- cycle); it only under-counts close_cycle's snapshot, which is why
--- the client passes the real cycle for parity.
+-- CYCLE: resolved SERVER-SIDE, not trusted from the client. p_cycle_id is
+-- only a HINT (kept for contract compatibility) — honored solely if it is
+-- genuinely open for this household; otherwise the household's newest open
+-- cycle; otherwise a fresh planned cycle is opened. Every insert/upsert then
+-- stamps that resolved cycle unconditionally, so a row touched now always
+-- belongs to the current open cycle (matching close_cycle's roll-forward).
+-- WHY server-side: a client-passed cycle_id could be a STALE/closed cycle
+-- (stale activeCycleRef), which is exactly what inserted live prod rows into
+-- already-closed cycles. Resolving here — the same way household_id and the
+-- user are already resolved — makes that race impossible. (insert_list_item,
+-- migration 008, still trusts the client and carries the same bug; fixed
+-- identically in 026.)
 --
 -- Returns the number of ingredient rows folded into the list.
 -- ============================================================
@@ -308,6 +312,7 @@ AS $function$
 DECLARE
   v_household_id  uuid;
   v_user_id       uuid;
+  v_cycle_id      uuid;
   v_ingredient    record;
   v_qty           integer;
   v_list_item_id  uuid;
@@ -331,6 +336,36 @@ BEGIN
 
   v_user_id := get_current_user_id();
 
+  -- Resolve the cycle to stamp SERVER-SIDE — do not trust the client's
+  -- p_cycle_id, which can be a stale/closed cycle (the race that stranded
+  -- prod rows). p_cycle_id is a HINT: honor it only if it is genuinely open
+  -- for this household; otherwise the household's newest open cycle; otherwise
+  -- open a fresh planned one (per design decision — items are always
+  -- cycle-attributed). provision_cycles has no soft-delete (permanent
+  -- history), so the only "open" test is closed_at IS NULL.
+  IF p_cycle_id IS NOT NULL THEN
+    SELECT id INTO v_cycle_id
+      FROM provision_cycles
+      WHERE id = p_cycle_id
+        AND household_id = v_household_id
+        AND closed_at IS NULL;
+  END IF;
+
+  IF v_cycle_id IS NULL THEN
+    SELECT id INTO v_cycle_id
+      FROM provision_cycles
+      WHERE household_id = v_household_id
+        AND closed_at IS NULL
+      ORDER BY started_at DESC
+      LIMIT 1;
+  END IF;
+
+  IF v_cycle_id IS NULL THEN
+    INSERT INTO provision_cycles (household_id, cycle_type, created_by)
+      VALUES (v_household_id, 'planned', v_user_id)
+      RETURNING id INTO v_cycle_id;
+  END IF;
+
   FOR v_ingredient IN
     SELECT catalog_item_id, quantity_per_serving
       FROM meal_ingredients
@@ -348,7 +383,7 @@ BEGIN
         AND catalog_item_id = v_ingredient.catalog_item_id;
 
     INSERT INTO list_items (household_id, catalog_item_id, quantity, status, added_by, cycle_id)
-      VALUES (v_household_id, v_ingredient.catalog_item_id, v_qty, 'pending', v_user_id, p_cycle_id)
+      VALUES (v_household_id, v_ingredient.catalog_item_id, v_qty, 'pending', v_user_id, v_cycle_id)
     ON CONFLICT (household_id, catalog_item_id) DO UPDATE
       SET quantity   = CASE
                          WHEN list_items.deleted_at IS NOT NULL THEN EXCLUDED.quantity   -- resurrected tombstone: reset
@@ -356,11 +391,14 @@ BEGIN
                        END,
           status     = 'pending',
           deleted_at = NULL,
-          cycle_id   = CASE
-                         WHEN list_items.deleted_at IS NOT NULL
-                           THEN COALESCE(EXCLUDED.cycle_id, list_items.cycle_id)          -- resurrect: join the current cycle (fall back to old if none passed)
-                         ELSE COALESCE(list_items.cycle_id, EXCLUDED.cycle_id)            -- live: keep its cycle; adopt one only if it has none
-                       END,
+          -- Stamp the SERVER-RESOLVED open cycle unconditionally (v_cycle_id is
+          -- guaranteed open, or freshly opened). Fresh, live, and resurrected
+          -- rows all join the cycle we're acting in — a row touched now belongs
+          -- to NOW, same as close_cycle's roll-forward. This also HEALS any live
+          -- row still pointing at a closed cycle, and cannot re-strand.
+          -- (insert_list_item, migration 008, still has the stale-cycle
+          -- COALESCE bug that stranded prod rows — fixed identically in 026.)
+          cycle_id   = v_cycle_id,
           updated_at = now()
     RETURNING id INTO v_list_item_id;
 

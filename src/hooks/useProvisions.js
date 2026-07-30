@@ -1755,26 +1755,19 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return 0;
     try {
-      // Ensure an open planned cycle first, mirroring updateQty's auto-open,
-      // so meal-added items are first-class in the cycle (close_cycle counts
-      // by cycle_id). archive_trip_items clears by household, so a null cycle
-      // is still safe — this is parity, not correctness.
-      if (!activeCycleRef.current) {
-        const { data: newCycle } = await db
-          .from("provision_cycles")
-          .insert({ household_id: hh.id, cycle_type: "planned", created_by: internalUserIdRef.current })
-          .select()
-          .single();
-        if (newCycle) { activeCycleRef.current = newCycle; setActiveCycle(newCycle); }
-      }
+      // The RPC resolves the open cycle SERVER-SIDE (opening one if none) — do
+      // NOT auto-open here. A client auto-open is redundant and was itself a
+      // double-open-cycle contributor. Pass activeCycleRef only as a hint; the
+      // RPC ignores it unless it names a genuinely-open cycle.
       const { data: count, error: err } = await db.rpc("add_meal_to_list", {
         p_meal_id: mealId,
         p_servings: servings,
         p_cycle_id: activeCycleRef.current?.id || null,
       });
       if (err) throw err;
-      // A meal touches many items at once — refresh the whole list so
-      // quantities and provenance reflect immediately (no optimistic path).
+      // Re-sync the active cycle (the RPC may have opened one) + refresh the
+      // list so quantities and provenance reflect immediately.
+      await loadActiveCycle(db, hh.id);
       await loadListItems(db, hh.id);
       reportSuccess();
       return count || 0;
