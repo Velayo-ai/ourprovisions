@@ -25,6 +25,32 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-30] — [Cross] — Wire Claude Code to Supabase; five authorization defects found and specced
+**Goal:** Integrate Claude Code with Supabase so database truth can be verified directly instead of from docs or pasted output — then act on whatever that surfaced.
+**Completed:**
+- **Wired Claude Code to Supabase via project-scoped MCP** — `supabase-dev` + `supabase-prod-readonly`, both `read_only=true`, both scoped by `project_ref`, in `.mcp.json`. **Landed in two commits:** `8c907aa` added the **dev** server only (pushed); the **prod read-only** server followed in a separate local commit this session (unpushed). Convention set: one registration per environment, environment named in the server name, never edit-and-swap a single entry. Scoping proven **by evidence** (025 meals tables present on dev, absent on prod, project URL confirmed both ways) rather than by label.
+- **Found RLS disabled on `known_stores`, `provision_cycles`, `shopping_sessions` in BOTH dev and prod** — no policies, and the full Supabase default grant (SELECT/INSERT/UPDATE/DELETE/TRUNCATE) to `anon` and `authenticated`. The anon key ships in the client bundle, so this path needs no account at all.
+- **Traced that into four further defects** — `join_household` performs **no invite validation** (any authenticated user joins any household by UUID; all invite checks are client-side JS); `bootstrap_new_user` trusts a client-supplied `p_clerk_id` (anon-callable impersonation: overwrite a user's email/name, join a household as them); `household_members_insert` is `WITH CHECK (true)`; and soft-delete does not cascade to `household_members`.
+- **Wrote `SPEC_rls_and_rpc_authorization.md`** — four parts, each with finding / one-line exploit / fix SQL / verification, plus commit-and-migration plan. Named the common root: **the server trusts client-supplied values instead of deriving them from the JWT**, and sound invite validation already exists inside `bootstrap_new_user` — merely unreachable from the path the client uses.
+- **Corrected the fix ordering under review.** The first-argued basis (Part 4 subordinate to Part 1) was wrong: they cover **different attack populations** — Part 1 needs an authenticated account, Part 4 needs nothing — so Part 1 alone leaves the zero-barrier path open. Kept 1→2→3→4, re-argued on the real basis: **Part 4 is the only part touching the core loop (seven call sites), making the SQL-only change the highest-regression-risk of the four**, not the safest.
+- **Counted prod directly and found the working figures wrong by an order of magnitude.** `list_tables` reports `reltuples` planner estimates, not counts. Prod is **21 users / 23 live households / 31 live memberships / 19 people with a live membership / 50 live cycles** — not the "2 households, 3 members" a disclosure decision had briefly been closed on. Reopened it.
+- **Established the soft-delete cascade gap has a live consequence, not just one stale row** — `bootstrap_new_user` resolves the caller's household with `limit 1`, no `ORDER BY`, filtering `household_members.deleted_at` but not `households.deleted_at`; one named prod user with 4 live memberships (one to a deleted household) can be resolved into it on cold start. `is_member_of()` carries the identical omission.
+**Unfinished:**
+- **Nothing applied to any database.** Read-only session throughout; the spec is written, twice-reviewed, and unbuilt.
+- **Disclosure is an open decision for Dan.** The spec's original "not warranted" rested on the bad count. 19 people across 23 households is a real beta population. The spec lays out the neutral points — no confirmed disclosure of user text (unlike the 2026-07-18 `catalog_items` exposure), no exploitation observed, no logging that would prove absence either way, long unknown window. The call has not been made.
+- **`is_member_of()`'s soft-delete gap must be resolved BEFORE Part 4 ships, not after** — membership in a deleted household currently satisfies every RLS policy in the schema, so the new Part 4 policies would inherit the gap.
+- **Parts 1–3 were confirmed against prod only.** Dev's function signatures, grants, and `household_members` policies are unverified; reconciliation queries are in the spec. Part 4 is confirmed in both.
+- **`household_invites` policies were never inspected** — blocking for Part 1's pre-flight invite lookup (a not-yet-member reads that table today; something permits it, unknown what).
+- **027 / the 025+026 prod gate untouched** and now sits behind this work.
+- **Process note:** the spec was drafted by Claude Code rather than the design chat, inverting the standing division of labor. Caught mid-flight, allowed to finish, and corrected across two review rounds instead of restarted. Proximity-to-code is a real argument but not sufficient to flip the pattern — **specs originate in the design chat.**
+**Next session:**
+SESSION START
+Goal: Ship Part 1 of `SPEC_rls_and_rpc_authorization.md` — `join_household` validates the invite server-side — dev-green.
+State: MCP live and committed, dev + prod both read-only. Spec written, twice reviewed, routed to `docs/specs/active/`. Nothing applied to any database. Disclosure decision open. `is_member_of()` soft-delete gap open and gating Part 4. 027 gate still open behind all of it.
+Done when: `join_household(uuid)` is gone; `join_household(text)` validates the invite server-side with `anon` revoked; invite accept AND rejoin-after-leave both verified on the deployed dev preview; and the browser-console exploit (`rpc('join_household', {p_household_id})`) returns *function does not exist*.
+**Files updated:** `.mcp.json` — **two commits, not one**: the `supabase-dev` server in `8c907aa` (pushed), the `supabase-prod-readonly` server in a separate local commit this session (unpushed; SHA omitted deliberately — local commits get rewritten). `docs/specs/active/SPEC_rls_and_rpc_authorization.md` (routed from `handoff/`), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`
+**DB changes:** None — read-only session throughout, nothing applied to dev or prod.
+
 ### [2026-07-29] — [OurProvisions] — Ship the meals add-path (025) to dev + fix the resurrect/cycle-integrity defects it surfaced (026)
 **Goal:** Get migration 025 (meals + `add_meal_to_list`) dev-verified, and resolve the `list_items` provenance + cycle-handling problems the new add-path exposed.
 **Completed:**
