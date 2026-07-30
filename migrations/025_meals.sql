@@ -297,6 +297,15 @@ grant select, insert, delete         on public.list_item_meals   to authenticate
 -- migration 008, still trusts the client and carries the same bug; fixed
 -- identically in 026.)
 --
+-- p_cycle_id STATUS (deliberate, not vestigial-yet): today it is a real
+-- disambiguation hint — while multiple open cycles can still exist (the
+-- corruption we're cleaning in 027), it lets the client name WHICH open cycle
+-- to use instead of the RPC arbitrarily picking newest. Once 027's partial
+-- unique index guarantees exactly one open cycle per household, the hint
+-- becomes redundant and this parameter should be REMOVED (both here and in
+-- the hook call). Tracked with the 027 cycle-integrity pass — do not leave it
+-- ambiguous, retire it then.
+--
 -- Returns the number of ingredient rows folded into the list.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.add_meal_to_list(
@@ -336,19 +345,29 @@ BEGIN
 
   v_user_id := get_current_user_id();
 
+  -- Serialize concurrent adds for THIS household so the resolve-and-open
+  -- block below can't let two callers open two cycles at once. Transaction-
+  -- scoped (auto-released at function end), household-scoped (does not
+  -- serialize unrelated households). Backstop until the partial unique index
+  -- on provision_cycles(household_id) WHERE closed_at IS NULL lands (027),
+  -- after which it may be redundant.
+  PERFORM pg_advisory_xact_lock(hashtext(v_household_id::text));
+
   -- Resolve the cycle to stamp SERVER-SIDE — do not trust the client's
   -- p_cycle_id, which can be a stale/closed cycle (the race that stranded
   -- prod rows). p_cycle_id is a HINT: honor it only if it is genuinely open
   -- for this household; otherwise the household's newest open cycle; otherwise
   -- open a fresh planned one (per design decision — items are always
-  -- cycle-attributed). provision_cycles has no soft-delete (permanent
-  -- history), so the only "open" test is closed_at IS NULL.
+  -- cycle-attributed). "Open" = closed_at IS NULL AND deleted_at IS NULL:
+  -- delete_household (migration 013) soft-deletes cycles WITHOUT setting
+  -- closed_at, so a deleted cycle can look open unless deleted_at is checked.
   IF p_cycle_id IS NOT NULL THEN
     SELECT id INTO v_cycle_id
       FROM provision_cycles
       WHERE id = p_cycle_id
         AND household_id = v_household_id
-        AND closed_at IS NULL;
+        AND closed_at IS NULL
+        AND deleted_at IS NULL;
   END IF;
 
   IF v_cycle_id IS NULL THEN
@@ -356,11 +375,15 @@ BEGIN
       FROM provision_cycles
       WHERE household_id = v_household_id
         AND closed_at IS NULL
+        AND deleted_at IS NULL
       ORDER BY started_at DESC
       LIMIT 1;
   END IF;
 
   IF v_cycle_id IS NULL THEN
+    -- started_at / created_at / updated_at all DEFAULT now() (baseline +
+    -- archive/005); existing cycle-inserts (openCycle, wrapUpTrip) omit them
+    -- and rely on the defaults, so no explicit set is needed here.
     INSERT INTO provision_cycles (household_id, cycle_type, created_by)
       VALUES (v_household_id, 'planned', v_user_id)
       RETURNING id INTO v_cycle_id;
