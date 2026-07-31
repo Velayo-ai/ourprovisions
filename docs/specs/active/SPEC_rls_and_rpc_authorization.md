@@ -1,27 +1,58 @@
 # SPEC — RLS and RPC authorization (membership integrity + unprotected tables)
 
-**Status:** Active — spec only, nothing built
+**Status:** Active — **Parts 0 and 4a SHIPPED to dev and prod 2026-07-30. Parts 1, 2, 3, 4b, 5 outstanding.**
 **Severity:** High — live production authorization gaps, no exploitation observed
 **Scope:** OurProvisions
-**Migration:** assign at build time (four separate migrations — see Ordering)
-**Date:** 2026-07-30
-**Verified against:** prod (`parpauldmbetptkmdwbd`) via read-only MCP.
+**Migration:** assign at build time — see Ordering. `028` and `029` are spent.
+**Date:** 2026-07-30 (**revised 2026-07-31** — ordering inverted by measurement; Part 2's overload reasoning corrected; Parts 0 and 5 added)
+**Verified against:** prod (`parpauldmbetptkmdwbd`) and dev (`zxwtxjjmssykhqrghouf`) via read-only MCP.
 **Part 4 confirmed in BOTH dev and prod.** Parts 1-3 are prod-only and unverified on dev — see Dev/prod parity.
 
 ---
 
 ## Summary
 
-Four related authorization defects, found while investigating the Supabase advisory
+Related authorization defects, found while investigating the Supabase advisory
 that three tables have RLS disabled. The RLS gap turned out to be the *least*
-severe of the four.
+severe on paper and the **most urgent in practice** — see Ordering.
 
-| # | Defect | Severity | Touches client? |
-|---|---|---|---|
-| 1 | `join_household` performs no invite validation | **Critical** | Yes — signature change |
-| 2 | `bootstrap_new_user` trusts client-supplied `p_clerk_id` | **Critical** | Yes — signature change |
-| 3 | `household_members_insert` policy is `WITH CHECK (true)` | Medium | No |
-| 4 | RLS disabled on 3 tables | Medium (High once populated) | No |
+| # | Defect | Severity | Touches client? | Status |
+|---|---|---|---|---|
+| **0** | `is_member_of` / `bootstrap_new_user` ignore `households.deleted_at` and `users.deleted_at` | **High** | No | ✅ **DONE — `029`, dev + prod 2026-07-30** |
+| 1 | `join_household` performs no invite validation | **Critical** | Yes — signature change | Open |
+| 2 | `bootstrap_new_user` trusts client-supplied `p_clerk_id` | **Critical** | Yes — signature change | Open |
+| 3 | `household_members_insert` policy is `WITH CHECK (true)` | Medium | No | Open |
+| **4a** | Full DML granted to `anon` on 3 RLS-off tables — **no account required** | **High** | No | ✅ **DONE — `028`, dev + prod 2026-07-30** |
+| **4b** | RLS still disabled on those 3 tables; `authenticated` holds full unfiltered DML | Medium (High once populated) | No | Open |
+| **5** | Six SECURITY DEFINER functions with no pinned `search_path` | Medium | No | Open |
+
+### What shipped, and how it was verified
+
+**Part 4a — migration `028`, applied dev + prod 2026-07-30.**
+```sql
+revoke all on public.known_stores      from anon;
+revoke all on public.provision_cycles  from anon;
+revoke all on public.shopping_sessions from anon;
+```
+Verified with `has_table_privilege` (which resolves PUBLIC grants and role inheritance — a
+direct `relacl` read does not) **and independently from outside the database** with an
+anon-key REST request. Prod `provision_cycles` went from `HTTP 206 / Content-Range: 0-0/56`
+to `HTTP 401 / 42501 permission denied for table provision_cycles`.
+
+**Part 0 — migration `029`, applied dev + prod 2026-07-30.** `is_member_of(uuid)` now joins
+`users` and `households`, filtering `u.deleted_at is null` and `h.deleted_at is null`.
+`bootstrap_new_user` 4-arg gained household-liveness on the invite branch (fall-through, not
+raise), household-liveness plus `order by hm.joined_at desc` on the cold-start branch, and a
+pinned `search_path`. Verified by calling the real function with an injected JWT subject
+(`set_config('request.jwt.claims', …)`, which is what `auth.jwt()` reads):
+`dead_test_house_200` `true → false`, three live households unchanged. Both replaced in place —
+OIDs unchanged (dev 18480 / prod 43112), which matters because the `household-photos` storage
+policies are keyed to the `uuid` overload.
+
+> **⚠️ 4a is not 4b.** `authenticated` **still holds full unfiltered SELECT/INSERT/UPDATE/DELETE
+> on all three tables**, and RLS is still disabled on all three. Any signed-in user can still
+> read and modify every household's cycles, stores and sessions. 4a removed only the
+> no-credential path. **4b remains required** — and now has a correct `is_member_of` to build on.
 
 ### The common root
 
@@ -40,9 +71,47 @@ code path routes around. The fix is largely consolidation, not invention.
 
 ---
 
-## Ordering, and why it is not negotiable
+## Ordering — REVISED 2026-07-31 by measurement
 
-**1 → 2 → 3 → 4.** The non-obvious part is why #3 cannot come first.
+> **⚠️ THIS SECTION PREVIOUSLY ARGUED `1 → 2 → 3 → 4` AND WAS WRONG.**
+> It was reasoned **before exposure was measured**. Measuring it inverted the order.
+
+**Ordering is by credential requirement first, regression risk second.**
+
+Parts 1, 2 and 3 all require an **authenticated identity** — the attacker must sign up
+through Clerk and hold a valid JWT before any of those defects does anything for them.
+Part 4's tables required **nothing at all**: the anon key ships in the client bundle, RLS
+was off, and full DML was granted. Counted directly rather than estimated, that was **56
+live production `provision_cycles` rows readable and writable with no account**.
+
+A defect reachable without a credential outranks one that needs an account, regardless of
+how much client surface the fix touches. **Regression risk is a reason to be careful, not
+a reason to be slow.** The original ordering put Part 4 last precisely because it touches
+seven call sites in the core loop — a real concern, and the wrong tiebreaker against a
+zero-barrier path.
+
+**Actual shipped order: 4a → 0.** Both SQL-only, both applied to dev and prod on
+2026-07-30, neither touching the client. 4a was one statement with near-zero regression
+surface and closed the entire no-credential path; Part 0 unblocked correct membership
+semantics that 4b now depends on.
+
+**Remaining order: 1 → 2 → 3 → 4b, with 5 available any time** (five is six one-line
+`ALTER FUNCTION` statements with no behaviour change; it can ride along with any of them).
+
+### Why Part 4 split into 4a and 4b
+
+The split is what made the re-ordering possible, and it rests on one structural fact:
+**every function in both databases is `SECURITY DEFINER`, and `relforcerowsecurity` is
+`false` on every table.** The RPCs therefore execute as the function owner and never
+consult the `anon`/`authenticated` table grants at all — those grants govern **only**
+direct PostgREST table access.
+
+That makes revoking `anon` (4a) fully separable from enabling RLS and writing policies
+(4b): one statement, no policy design, no RPC impact, no client impact. It closed the
+zero-barrier path in isolation. 4b is the part that carries the seven-call-site regression
+risk described below, and it is still outstanding.
+
+### Why #3 still cannot come first
 
 `household_members_insert` having `WITH CHECK (true)` looks like the headline finding —
 an RLS policy on the membership table that permits any authenticated user to insert any
@@ -59,6 +128,7 @@ be tempted to lead with it. Don't. It is the *cleanup* that becomes correct once
 #2 own joining; on its own it is security theatre.
 
 ### #4 is not downstream of #1 — different attack populations
+*(This section was correct and is what drove the re-ordering. Retained.)*
 
 Do not reason that fixing #1 diminishes #4. They are independent, and the barrier to
 entry is what separates them:
@@ -76,12 +146,14 @@ who *does* hold an account and abuses #1 gains `is_member_of()` and reads throug
 policies. That is an argument for fixing #1, not an argument that #4 is redundant.)
 
 ### The regression risk is inverted from what it looks like
+*(Still true — but it applies to **4b only**. 4a carried none of this risk, which is
+exactly why the split let the urgent half ship first.)*
 
 Parts 3 and 4 are SQL-only and Parts 1 and 2 change client-called signatures, so the
-instinct is that 3 and 4 are the safe ones. **For #4 that instinct is wrong, and it is
-the single most important scheduling fact in this spec.**
+instinct is that 3 and 4 are the safe ones. **For #4b that instinct is wrong, and it is
+the single most important scheduling fact remaining in this spec.**
 
-**#4 is the only part that touches the core loop.** Seven live call sites — active cycle
+**#4b is the only part that touches the core loop.** Seven live call sites — active cycle
 resolution on every load, opening a cycle, starting and closing shopping sessions. A
 policy that is subtly too narrow does not fail loudly at a security boundary; it fails as
 the app quietly not finding the active cycle for everyone, on every session.
@@ -127,6 +199,21 @@ Household UUIDs are not enumerable through RLS, but they travel in invite URLs a
 client state. Treat them as guessable-by-leak, not secret.
 
 ### Fix
+
+> **⚠️ CARRY FORWARD FROM `029` (Part 0) — the replacement MUST include
+> `households.deleted_at is null`.**
+>
+> `029` closed the dead-household hole on `bootstrap_new_user`'s invite branch by making
+> household liveness part of invite *resolution*, so an invite pointing at a soft-deleted
+> household simply does not resolve. **`join_household` is an unguarded second door into
+> exactly that state** — it takes a bare household id today, and even once it validates an
+> invite code, omitting the liveness check reopens the hole `029` just closed.
+>
+> Note the shape `029` chose and match it: **fall through, do not raise.** A raise rolls back
+> the whole transaction; on the bootstrap path that killed the user upsert and wedged signup
+> permanently (`useProvisions.js:319` throws before `:323` clears `sessionStorage`, so the
+> stale code re-fires on every reload). Verify whether the same wedge applies on the
+> `join_household` path before choosing to raise there.
 
 Replace the `uuid` signature with a `text` invite-code signature and move the validation
 server-side, reusing the predicate already proven in `bootstrap_new_user`:
@@ -305,7 +392,41 @@ $$;
 revoke execute on function public.bootstrap_new_user(text, text, text) from anon;
 ```
 
-**Three build-time traps in this one:**
+> **⚠️ CORRECTED 2026-07-31 — the overload-drop reasoning below was wrong.**
+>
+> This spec previously argued that a future 2-key call would **silently land on the legacy
+> 2-arg body**, and that the drops therefore convert a silent-wrong-function failure into a
+> **loud 404**. Both statements are false once parameter defaults are visible.
+>
+> **The live 4-arg overload carries two defaults** — `p_invite_code text DEFAULT NULL::text`,
+> `p_full_name text DEFAULT NULL::text` (`pronargdefaults = 2`, identical dev and prod). All
+> four prod overloads are therefore satisfiable by a 2-argument call:
+>
+> | overload | callable with 2 args? |
+> |---|---|
+> | `(text, text)` | yes — exact arity |
+> | `(text, text, boolean DEFAULT false)` | yes — via default |
+> | `(text, text, text DEFAULT NULL)` | yes — via default |
+> | `(text, text, text DEFAULT NULL, text DEFAULT NULL)` | yes — via two defaults |
+>
+> So a 2-key call is **ambiguous**, raising `function … is not unique` — not a quiet landing
+> on legacy code. And **after the drops it does not 404**: the surviving function is callable
+> with 2, 3 or 4 arguments via its own defaults, so such a call resolves cleanly onto the
+> modern body.
+>
+> **Net: the drops are safer than described, but they are a real behavioural change, not a
+> no-op.** Calls that are ambiguous today will execute current logic afterwards. The drops
+> remain inert *for the current client only*, which always posts four keys including
+> `p_full_name` — the one parameter unique to the surviving overload.
+>
+> **Why this was missed:** every signature in this spec was read with
+> `pg_get_function_identity_arguments()`, which **strips parameter defaults by design** — it
+> returns the identity signature for `DROP`/`ALTER`, not the declaration. It is not a safe
+> basis for authoring `CREATE OR REPLACE`. **Use `pg_get_function_arguments()`.** This cost a
+> failed migration run: `ERROR 42P13: cannot remove parameter defaults from existing function`,
+> whose `HINT` suggests `DROP FUNCTION` — **do not take that hint**, dropping changes the OID.
+
+**Four build-time traps in this one:**
 
 1. **`CREATE OR REPLACE` will not work here.** The new signature `(text, text, text)` is
    *identical in type* to the old `(p_clerk_id, p_email, p_invite_code)` overload, and
@@ -318,15 +439,17 @@ revoke execute on function public.bootstrap_new_user(text, text, text) from anon
    another user's email now hits a constraint violation rather than silently taking it
    over — acceptable, but the error surfaces to the user. Consider sourcing email from the
    JWT claim too if Clerk populates it; otherwise leave and note.
-4. **You will be editing a predicate that has a separate live bug in it — do not fix it
-   here.** Step 3 of this function resolves the caller's household with
-   `where user_id = v_user_id and deleted_at is null limit 1`, which checks
-   `household_members.deleted_at` but *not* `households.deleted_at`, and has no
-   `ORDER BY`. There is a prod user this currently misresolves. That is a distinct defect
-   with its own blast radius — see **Follow-on → Soft-delete cascade gap**. Per the BUILD
-   rules, separate logical changes are separate commits: carry `p_clerk_id` out in this
-   commit, and fix the predicate in its own. Resist the temptation to bundle because your
-   cursor is already in the function.
+4. **✅ RESOLVED — the separate live bug in this function is already fixed.** Step 3 used to
+   resolve the caller's household with `where user_id = v_user_id and deleted_at is null
+   limit 1`, checking `household_members.deleted_at` but *not* `households.deleted_at`, with
+   no `ORDER BY`. **Migration `029` (Part 0) fixed it** on dev and prod: it now joins
+   `households`, filters `h.deleted_at is null`, and orders by `hm.joined_at desc`. It was
+   correctly kept as its own commit rather than bundled here.
+   **What this means for Part 2:** you are now rewriting a function whose body has *already
+   changed*. **Do not author the new version from this spec's code block or from memory —
+   read the live `prosrc` first.** The current body also carries a
+   `DO NOT "FIX" THIS BACK TO A RAISE` comment on the invite branch and a pinned
+   `search_path`; both must survive the rewrite.
 
 **Client change — `useProvisions.js:311-317`:** drop `p_clerk_id` from the `.rpc()` call.
 `clerkId` is still needed locally for `clerkIdRef.current` (:326) — do not delete the
@@ -393,11 +516,31 @@ later; absence states that membership is RPC-only.
 
 ## Part 4 — RLS disabled on `known_stores`, `provision_cycles`, `shopping_sessions`
 
+> **SPLIT 2026-07-31 into 4a (DONE) and 4b (OPEN).**
+>
+> **✅ 4a — revoke `anon` DML. Migration `028`, dev + prod 2026-07-30.** Closed the entire
+> no-credential path in one statement, with near-zero regression surface: the RPCs are all
+> `SECURITY DEFINER` and never consult these grants, and no signed-out client path touches
+> these tables (the only anon-key reads in the client are `catalog_items` and
+> `category_avg_prices`, `useProvisions.js:246,266`). Verified from outside the database —
+> prod `provision_cycles` went `206 / Content-Range: 0-0/56` → `401 / 42501`.
+>
+> **⬜ 4b — enable RLS, write membership policies, revoke `authenticated`. STILL OPEN.**
+> **`authenticated` retains full unfiltered SELECT/INSERT/UPDATE/DELETE on all three tables,
+> and `relrowsecurity` is still `false` on all three.** Any signed-in user can read and
+> modify every household's cycles, stores and sessions. Everything below about policy design
+> and the seven-call-site regression risk applies to **4b**.
+>
+> One thing 4a changed for the better: 4b now builds on a **correct `is_member_of`** (Part 0 /
+> `029`), which checks household and account liveness. Policies written against it inherit
+> that.
+
 ### Finding
 
-All three have `relrowsecurity = false` and hold the full Supabase default grant —
-SELECT, INSERT, UPDATE, DELETE (plus TRUNCATE, REFERENCES, TRIGGER, MAINTAIN) — to both
-`anon` and `authenticated`. With RLS off, the table grant is the only gate.
+All three have `relrowsecurity = false`. As found, they held the full Supabase default
+grant — SELECT, INSERT, UPDATE, DELETE (plus TRUNCATE, REFERENCES, TRIGGER, MAINTAIN) — to
+both `anon` and `authenticated`. With RLS off, the table grant is the only gate.
+**`anon` was revoked by `028`; `authenticated` still holds all of it.**
 
 All three carry `household_id uuid NOT NULL` FK → `households.id`. **No join path needed;
 `is_member_of(household_id)` applies directly, exactly as on `list_items`.**
@@ -543,24 +686,83 @@ already in the schema and empty.
 
 ---
 
+## Part 5 — six SECURITY DEFINER functions with no pinned `search_path`
+*(NEW 2026-07-31 — found while fixing Part 0.)*
+
+### Finding
+
+`proconfig` is `NULL` in **both** environments on six `SECURITY DEFINER` functions:
+
+| function | status |
+|---|---|
+| `archive_trip_items(uuid, uuid[])` | open |
+| `close_cycle(uuid, uuid[])` | open |
+| `get_active_cycle(uuid)` | open |
+| `get_household_user_ids(uuid)` | open |
+| `match_known_store(uuid, float8, float8)` | open |
+| `bootstrap_new_user(text,text,text,text)` | ✅ fixed by `029` |
+
+A `SECURITY DEFINER` function executes with the owner's privileges. With a mutable
+`search_path`, a caller who can create objects in a schema earlier on that path can shadow
+a table or function the body references and have it run as the owner. That is the standard
+privilege-escalation shape, and it is why Supabase's own advisor flags it.
+
+**Note the inversion `029` corrected:** the three legacy `bootstrap_new_user` overloads
+queued for removal in Part 2 all pin `search_path=public`, while the *surviving* overload
+did not. The hardened ones were the ones being dropped.
+
+### Fix
+
+One line each, **no behaviour change** — this does not require `CREATE OR REPLACE` and so
+cannot disturb bodies, defaults, or OIDs:
+
+```sql
+alter function public.archive_trip_items(uuid, uuid[])            set search_path = public, extensions;
+alter function public.close_cycle(uuid, uuid[])                   set search_path = public, extensions;
+alter function public.get_active_cycle(uuid)                      set search_path = public, extensions;
+alter function public.get_household_user_ids(uuid)                set search_path = public, extensions;
+alter function public.match_known_store(uuid, float8, float8)     set search_path = public, extensions;
+```
+
+### Verify
+
+```sql
+select proname, pg_get_function_arguments(oid) as args, proconfig
+from pg_proc
+where pronamespace = 'public'::regnamespace and prosecdef and proconfig is null;
+```
+→ expect **zero rows**. Re-run `get_advisors` and confirm the mutable-`search_path`
+warnings clear.
+
+**Scheduling:** independent of every other part, no client surface, no policy design. It
+can ride along with any other commit or ship alone.
+
+---
+
 ## Commits and migrations
 
 Parts 1 and 2 **change RPC signatures the client calls**. They are coordinated SQL +
 `useProvisions.js` changes, not pure migrations — the migration and the client edit must
-ship together or the app breaks between them. Parts 3 and 4 are SQL-only.
+ship together or the app breaks between them. Parts 3, 4b and 5 are SQL-only.
 
-Per the BUILD rules, **each part is its own scoped commit** — four commits, four
-migrations, one tested change before the next:
+Per the BUILD rules, **each part is its own scoped commit** — one tested change before the
+next:
 
-| Part | Commit | Migration | Client |
-|---|---|---|---|
-| 1 | `fix(NNN): join_household validates invite server-side` | assign at build | `useProvisions.js` acceptInvite |
-| 2 | `fix(NNN): bootstrap_new_user derives clerk_id from JWT` | assign at build | `useProvisions.js` bootstrap call |
-| 3 | `fix(NNN): drop permissive household_members_insert policy` | assign at build | none |
-| 4 | `fix(NNN): enable RLS + household policies on cycle tables` | assign at build | none |
+| Part | Commit | Migration | Client | Status |
+|---|---|---|---|---|
+| 4a | `security(db): revoke anon DML on known_stores, provision_cycles, shopping_sessions` | **`028`** | none | ✅ `559bfca`, dev + prod |
+| 0 | `security(db): household + account liveness in is_member_of and bootstrap_new_user` | **`029`** | none | ✅ `8944f63`, dev + prod |
+| 1 | `fix(NNN): join_household validates invite server-side` | assign at build | `useProvisions.js` acceptInvite | Open |
+| 2 | `fix(NNN): bootstrap_new_user derives clerk_id from JWT` | assign at build | `useProvisions.js` bootstrap call | Open |
+| 3 | `fix(NNN): drop permissive household_members_insert policy` | assign at build | none | Open |
+| 4b | `fix(NNN): enable RLS + household policies on cycle tables` | assign at build | none | Open |
+| 5 | `fix(NNN): pin search_path on remaining SECURITY DEFINER functions` | assign at build | none | Open |
 
 **Migration numbers are deliberately not assigned here** — assign at build time against
-the then-current sequence.
+the then-current sequence. **`028` and `029` are spent. `027` is claimed in prose only**
+(cycle-integrity; referenced from ROADMAP and from inside the bodies of `025` and `026`,
+but no file exists) — **do not take 027**, and check the `migrations/` directory rather
+than trusting any number written in a spec.
 
 Deploy dev → verify on `dev.ourprovisions.velayo.ai` (not localhost) → then prod. Parts 1
 and 2 carry live client-facing regression risk (invite accept, cold start); do not batch
@@ -618,8 +820,29 @@ note the divergence in the session log.
   |---|---|---|---|
   | `a2a1948d-ab10-4cc9-afe2-344943037093` "Test House 200" | 2026-07-10 | 1 | 1 |
 
-  Deleting a household soft-deletes the household row without soft-deleting its
-  `household_members` rows. The FK is `NO ACTION`, so nothing at the DB level closes this.
+  > **⚠️ CORRECTED 2026-07-31 — the stated cause is wrong.** This spec claimed "deleting a
+  > household soft-deletes the household row without soft-deleting its `household_members`
+  > rows." **`delete_household` does soft-delete `household_members`** — verified by reading
+  > `prosrc` on both dev and prod; it cascades through ten tables
+  > (`list_item_contributors`, `waste_events`, `shopping_sessions`, `list_items`,
+  > `provision_cycles`, `catalog_items`, `known_stores`, `household_invites`,
+  > `household_members`, then `households`) and hard-deletes `user_hidden_items`.
+  >
+  > So the current RPC does **not** produce this state. Test House 200's orphaned membership
+  > either predates the current cascade or was created by a path that bypassed the RPC —
+  > **which one is still unknown, and worth establishing before trusting that the cascade is
+  > complete.** Supporting evidence that it generally works: dev has **52** soft-deleted
+  > households and **zero** orphaned live memberships.
+  >
+  > The FK being `NO ACTION` remains true, so nothing at the *database* level enforces this —
+  > it rests entirely on the RPC being the only deletion path.
+
+  **✅ The consequence below is FIXED** — migration `029` (Part 0) made
+  `bootstrap_new_user` join `households`, filter `h.deleted_at is null`, and order by
+  `hm.joined_at desc`. Verified on prod by injected-JWT probe: `Test House 200`
+  `true → false`. The orphaned row still exists; it is simply no longer resolvable. Retained
+  below because **it is the only row in either environment that exercises this defect** —
+  see the retention-policy note in ROADMAP LATER before deleting test data.
 
   **Why it matters beyond one stale test row.** `bootstrap_new_user` resolves the caller's
   household with:
