@@ -1104,37 +1104,33 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!db || !internalUserIdRef.current) return false;
 
     try {
-      const { data: invite, error: lookupErr } = await db
-        .from("household_invites")
-        .select("id, household_id, expires_at, accepted_at, households(name)")
-        .eq("code", code.toUpperCase())
-        .is("deleted_at", null)
-        .single();
-
-      if (lookupErr) throw new Error("Invite not found or already used.");
-      if (invite.accepted_at) throw new Error("This invite has already been used.");
-      if (new Date(invite.expires_at) < new Date()) throw new Error("This invite has expired.");
-
-      const internalUserId = internalUserIdRef.current;
-
-      // Atomic join: revives a soft-deleted membership (leave-then-rejoin)
-      // or inserts a fresh one. Replaces the old read-then-insert that hit
-      // the UNIQUE(household_id, user_id) constraint on the leftover
-      // soft-deleted row and silently failed (migration 011).
-      const { error: joinErr } = await db.rpc("join_household", {
-        p_household_id: invite.household_id,
+      // Migration 030 — the pre-flight lookup, the three JS validations and
+      // the client-direct accepted_at stamp all moved INTO the RPC.
+      //
+      // The lookup could not merely be simplified, it had to go: invites_select
+      // is now members-only, so a not-yet-member can no longer resolve a code to
+      // a household at all. The RPC's return value replaces it — household_id
+      // for the households fetch below, household_name for the success toast.
+      //
+      // The stamp moved server-side because leaving it here meant an attacker
+      // calling the RPC directly and never issuing the UPDATE held a
+      // permanently reusable invite. Read, validate, join and stamp are now one
+      // transaction.
+      //
+      // Server raises three distinct messages: "Invite not found." /
+      // "This invite has already been used." / "This invite has expired."
+      // toUpperCase() is kept as belt-and-braces; the server normalizes with
+      // upper(trim(...)) regardless.
+      const { data: joinResult, error: joinErr } = await db.rpc("join_household", {
+        p_invite_code: code.toUpperCase(),
       });
-      if (joinErr) throw joinErr;
-
-      await db
-        .from("household_invites")
-        .update({ accepted_by: internalUserId, accepted_at: new Date().toISOString() })
-        .eq("id", invite.id);
+      if (joinErr) throw new Error(joinErr.message);
+      if (!joinResult?.household_id) throw new Error("Invite not found.");
 
       const { data: hhData } = await db
         .from("households")
         .select("id, name, budget_goal")
-        .eq("id", invite.household_id)
+        .eq("id", joinResult.household_id)
         .single();
 
       if (hhData) {
@@ -1174,7 +1170,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           .subscribe();
       }
 
-      return invite.households?.name || "the place";
+      return joinResult.household_name || hhData?.name || "the place";
     } catch (err) {
       console.error("acceptInvite error:", err.message);
       setError(err.message);
