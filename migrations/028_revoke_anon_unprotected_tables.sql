@@ -1,0 +1,55 @@
+-- 028_revoke_anon_unprotected_tables.sql
+-- Part 4a — close the unauthenticated read/write hole on the three RLS-off tables.
+--
+-- NUMBERING: 027 is reserved for the cycle-integrity migration (partial unique index
+-- on provision_cycles + removal of add_meal_to_list's now-redundant provenance clear).
+-- 027 gates the 025+026 prod promotion; see ROADMAP DECISIONS 2026-07-29 and the
+-- NOTE blocks in 025_meals.sql and 026_resurrect_integrity.sql. This migration is
+-- INDEPENDENT of that gate — it touches only role grants, no cycle state — and per
+-- ROADMAP 2026-07-30 the security work outranks the 027 prod gate, so 028 may ship
+-- before 027 despite the higher number.
+--
+-- CONTEXT
+-- known_stores, provision_cycles and shopping_sessions all have relrowsecurity = false
+-- in both dev and prod, AND carried full DML grants to `anon`. The anon key ships in
+-- the client bundle by design, so RLS is the only control that makes it safe. With RLS
+-- off and DML granted, any unauthenticated holder of the anon key could read, insert,
+-- update and delete every row in all three tables, for every household.
+-- Verified live on dev before this migration: GET /rest/v1/provision_cycles with only
+-- the anon key returned HTTP 200 and real rows.
+--
+-- WHY THIS IS SAFE TO SHIP AHEAD OF THE RLS WORK
+--   * No signed-out client path touches these tables. The only anon-key reads in the
+--     client are catalog_items and category_avg_prices (useProvisions.js:246,266).
+--   * All seven client touches use the Clerk-JWT client, which resolves to the
+--     `authenticated` role, not `anon`. `authenticated` grants are untouched here.
+--   * Every RPC that reads these tables is SECURITY DEFINER and executes as the
+--     function owner, so revoking table privileges from `anon` does not affect them.
+--     Function EXECUTE grants are not touched.
+--   * known_stores is not referenced anywhere in src/ at all.
+--
+-- WHAT THIS DOES NOT DO
+-- `authenticated` retains full unfiltered DML on all three tables, so any signed-in
+-- user can still read and modify every household's rows. Enabling RLS with correct
+-- policies is still required. This migration only removes the no-credential case.
+
+revoke all on public.known_stores      from anon;
+revoke all on public.provision_cycles  from anon;
+revoke all on public.shopping_sessions from anon;
+
+-- VERIFY (has_table_privilege, not relacl — it resolves PUBLIC grants and role
+-- inheritance, which a direct relacl read does not):
+--
+-- select t.relname, p.priv,
+--        has_table_privilege('anon', t.oid, p.priv)          as anon,
+--        has_table_privilege('authenticated', t.oid, p.priv) as authed
+-- from pg_class t
+-- join pg_namespace n on n.oid = t.relnamespace
+-- cross join (values ('SELECT'),('INSERT'),('UPDATE'),('DELETE')) as p(priv)
+-- where n.nspname = 'public'
+--   and t.relname in ('known_stores','provision_cycles','shopping_sessions')
+-- order by t.relname, p.priv;
+--
+-- Expect: anon false on all 12 rows, authenticated true on all 12.
+-- If any anon cell is still true, a PUBLIC grant is in play — STOP, do not revoke
+-- from PUBLIC without first checking what else depends on it.
