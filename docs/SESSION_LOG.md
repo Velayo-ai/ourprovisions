@@ -25,6 +25,36 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-31] — [OurProvisions] — Ship Part 1 to dev, then re-scope the remaining queue against measured evidence
+**Goal:** Ship Part 1 — `join_household` validates the invite server-side — dev-green, with the client-side pre-flight deleted and `household_invites` SELECT locked to members.
+**Completed:**
+- **Shipped migration 030 to dev** (`db5ec66`): `join_household(p_invite_code text)` returning `{household_id, household_name, revived}`; `join_household(uuid)` **dropped**; `anon`/`PUBLIC` EXECUTE revoked; `invites_select` re-scoped `qual = true` → `is_member_of(household_id)`; `anon` table grants revoked. Evidence pair captured: `join_household_uuid` 1→0, `join_household_text` 0→1, `invites_select_qual` `true`→`is_member_of(household_id)`, `anon_select_on_invites` true→false. `invites_insert`/`invites_accept` and `household_invites_code_key` confirmed untouched.
+- **Found the exploit was worse than the spec described** — no out-of-band code needed. `invites_select` was `qual = true`, so any authenticated account read **every invite row in the system**, and `join_household` took the bare `household_id` those rows handed over. **Blast radius: 9 of 23 live prod households (39%).** `live_redeemable = 0` was no protection — the RPC never consulted invite state, so a dead invite still leaked a permanently valid UUID.
+- **Verified F1, F3, F4 on the deployed dev preview** with two real accounts, and confirmed the member no-op does **not** consume the invite (`accepted_at`/`accepted_by` still NULL after).
+- **Dated the cycle-integrity evidence — it is archaeology, not a live defect.** All known-bad prod rows sit in a 48-hour window, 2026-07-14→07-16; **nine cycle-closes across three households since, zero new violations.** Query 2's BVI/Carrots shape is **absent from prod entirely**.
+- **Found the 025/026 prod gate inverted and dissolved it.** The observed corruption is exactly what `026` prevents, so withholding it kept prod on the **unfixed** insert path. 025+026+031 now ship to prod as one SQL batch.
+- **Retired 027 as a number; the work becomes 031.** Claimed in prose five times, never written to disk, while 028/029/030 shipped. No stub — the 026→028 gap joins 009–012 and 017 as honest drift.
+- **Closed the disclosure decision as NOT WARRANTED**, and adopted a stopping rule: authorization work closes after Part 2; new findings go to ROADMAP unspecced until meals ships.
+**Unfinished:**
+- **F2, F5, F6 not run** — `revived` flag, lowercase-code normalization, the three error strings. Low-risk literals in the function body.
+- **F7/F8 verified structurally, not from a running app.** `supabase` is module-scoped rather than on `window`, and no Supabase token sits in `localStorage` because auth is Clerk-brokered. F7 rests on `join_household_uuid = 0` + `overloads = 1`; F8 on the policy `qual`. Honest, but neither is a console query. **A second account that is a member of nothing would settle F8 properly.**
+- **030 is on dev only. NOT on prod.** Parts 2, 3, 4b remain, plus the `search_path` item on six SECURITY DEFINER functions.
+- **`joined_at` divergence found and deliberately not fixed** — membership revive does not reset it, so a leave-and-rejoin user still sorts by original join in `029`'s cold-start resolution.
+- Multi-use invites: design settled (Option A), build not scoped.
+- 031 unbuilt. `main` 17 commits behind `dev`, deliberately closed.
+**Next session:**
+SESSION START
+Goal: Ship **031** (cycle integrity) to dev, then promote **025 + 026 + 031 to prod as one SQL batch** — the step that unblocks meals.
+State: 030 applied + verified on dev, `dev` pushed, `main` deliberately closed. Authorization Parts 4a, 0 and 1 shipped (1 dev-only); 2, 3, 4b open and all account-required. Cycle-integrity evidence dated as testing-era residue. Disclosure closed.
+Done when: `Our calendar` holds one open cycle with 16 live items; `uq_open_cycle_per_household` exists and is proven by a **failed** duplicate insert on a throwaway dev household; the two stranded Lake house rows are **repointed, not deleted**; and 025+026+031 are live on prod with a real user in `Our calendar` seeing 16 items unchanged.
+Watch-outs: **The two Lake house rows must not be tombstoned** — they are live rows on a real user's list, so deleting them turns an accounting cleanup into a user-visible edit. **`create index concurrently` cannot run inside a transaction** — bare auto-commit statement, on its own. The prod batch is **SQL only**; no client change rides along, so the merge gate stays closed until create-meal UI lands.
+**Files updated:** `migrations/030_join_household_invite_validation.sql` (new, applied dev, `db5ec66`); `src/hooks/useProvisions.js`; `docs/specs/active/SPEC_rls_and_rpc_authorization.md` (patch merged); `docs/specs/active/SPEC_cycle_integrity_031.md` (new); `docs/SESSION_LOG.md`; `docs/ROADMAP.md`; `docs/ARCHITECTURE.md`
+**DB changes:**
+- **030 (dev only)** — `create or replace function public.join_household(p_invite_code text) returns json`, SECURITY DEFINER, `search_path` pinned. `drop function public.join_household(uuid)`. `revoke execute … from public, anon`; `grant execute … to authenticated`. `drop policy invites_select` + recreate `for select to authenticated using (is_member_of(household_id))`. `revoke all on public.household_invites from anon`. One transaction.
+- **Dev test data:** invite `JV4ZAR` hand-expired for F4; TEST household and DT membership created during verification.
+
+---
+
 ### [2026-07-31] — [OurProvisions] — Ship the two highest-severity authorization defects to prod, verified from outside the database
 *(Session ran 2026-07-30 → 07-31; decisions dated 07-30 where made.)*
 **Goal:** Begin the five-defect authorization spec at Part 1 — instead re-ordered by measured exposure and shipped the two defects that outranked it.

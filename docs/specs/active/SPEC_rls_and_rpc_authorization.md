@@ -19,7 +19,7 @@ severe on paper and the **most urgent in practice** — see Ordering.
 | # | Defect | Severity | Touches client? | Status |
 |---|---|---|---|---|
 | **0** | `is_member_of` / `bootstrap_new_user` ignore `households.deleted_at` and `users.deleted_at` | **High** | No | ✅ **DONE — `029`, dev + prod 2026-07-30** |
-| 1 | `join_household` performs no invite validation | **Critical** | Yes — signature change | Open |
+| 1 | `join_household` performs no invite validation | **Critical** | Yes — signature change | ✅ **BUILT — `030`, dev only 2026-07-31; NOT on prod** |
 | 2 | `bootstrap_new_user` trusts client-supplied `p_clerk_id` | **Critical** | Yes — signature change | Open |
 | 3 | `household_members_insert` policy is `WITH CHECK (true)` | Medium | No | Open |
 | **4a** | Full DML granted to `anon` on 3 RLS-off tables — **no account required** | **High** | No | ✅ **DONE — `028`, dev + prod 2026-07-30** |
@@ -318,11 +318,110 @@ revoke execute on function public.join_household(text) from anon;
    ```
    Expect exactly one signature (`p_invite_code text`), `anon` absent.
 
-**Open question for build:** the pre-flight lookup reads `household_invites` as a user
-who is not yet a member. That read path currently works, so a policy permits it — but
-`household_invites` policies were **not** inspected this session. Confirm before assuming
-step 3 passes, and check whether the client still needs UPDATE on `household_invites`
-after the RPC takes over the burn (it should not).
+**~~Open question for build~~ — ANSWERED 2026-07-31.** The pre-flight lookup worked
+because **`invites_select` was `qual = true`** — it permitted *every* authenticated user
+to read *every* invite row. That is not a policy that happened to allow the read; it is
+the leak that made the exploit trivial. The client does **not** need UPDATE after the RPC
+takes over the burn, and no longer has it.
+
+---
+
+## Part 1 — BUILT (dev). Migration `030`, `db5ec66`. Applied dev 2026-07-31; **NOT on prod.**
+
+*Merged from `SPEC_PATCH_rls_authorization_part1.md`, 2026-07-31 — §C–§G, with the
+as-built corrections noted inline. The patch's §A and §B were already folded into the
+Ordering section and the summary table above.*
+
+### The defect was worse than this spec originally described
+
+No out-of-band code is required. It is a two-call chain available to any account that can
+sign up:
+
+1. Sign up. Any account.
+2. `select household_id from household_invites` — `qual = true` returned **every invite
+   row in the system**, all households, all states.
+3. `rpc('join_household', { p_household_id: '<any leaked uuid>' })` — checked nothing.
+
+**Blast radius, confirmed on prod (no longer TBD): 74 invite rows leak 15 distinct
+`household_id` values, of which 9 are still-live households — 9 of 23 live prod
+households, 39%.** The other 6 are soft-deleted and are not blast radius post-`029`.
+
+**Why `live_redeemable = 0` was not protection:** step 3 never consulted the invite.
+Expiry, acceptance and soft-deletion were all irrelevant — a dead invite still leaked a
+permanently valid household UUID, and the UUID was the only input the RPC took.
+
+**Two halves, one commit.** `join_household` alone leaves UUIDs readable but worthless;
+`invites_select` alone stops the leak while every already-harvested UUID works forever.
+The spec's original framing of the policy fix as follow-on hygiene was wrong.
+
+### §C Prerequisites — both resolved
+
+- **C1 `code` uniqueness — the patch's premise was WRONG.** It called for a partial unique
+  index on live rows, asserting no unique constraint existed. **`household_invites_code_key`
+  already exists in both environments and is GLOBAL**, i.e. strictly stronger than the
+  proposed partial index. Duplicate census 2026-07-31, dev and prod: **zero**, all-rows and
+  live-only. **The `CREATE UNIQUE INDEX` was dropped from §D4 and the existing index left
+  untouched.** It was invisible in the column inventory because
+  `information_schema.columns` does not report constraints — resolve via `pg_indexes`.
+- **C2 case normalization — built.** The RPC normalizes with `upper(trim(p_invite_code))`.
+  Client and `createInvite` previously agreed on case only by accident.
+
+### §D The RPC contract — as built
+
+`join_household(p_invite_code text) returns json` → `{household_id, household_name, revived}`.
+The `uuid` overload is **dropped, not replaced** — its existence was the exploit.
+
+Check order, pinned: resolve caller from JWT → normalize → resolve invite **state-blind** →
+live-membership short-circuit → invite exists and not soft-deleted → household liveness →
+accepted → expired → upsert → **stamp `accepted_at` in the same transaction** → return.
+
+- **Deviation from §D1, as built:** the patch ordered the membership check *before* invite
+  resolution, but the target household is unknowable until the invite resolves. The invite
+  is resolved **state-blind** first, then membership short-circuits. Preserves the intent
+  without inverting causality.
+- **State-blind ignores `deleted_at` too — a recorded decision, not predicate placement.**
+  It decides one case: an existing live member tapping a soft-deleted link succeeds as a
+  no-op. Leaks nothing (they can already read the household), grants nothing (the
+  short-circuit requires live membership). Revoking an invite governs who may **enter**;
+  eviction is `remove_member`'s job.
+- **The no-op does not consume the invite** — verified on dev: `accepted_at`/`accepted_by`
+  still NULL after a member re-taps.
+- **Step 8 (server-side stamp) is not optional.** Leaving the stamp client-side meant a
+  direct RPC caller who skipped the UPDATE held a **permanently reusable invite**.
+- **Dead household folds into `Invite not found.`** — matches `029`'s precedent: dead is
+  absent, not a special error state.
+
+### §E Client — as built (`useProvisions.js`)
+
+Pre-flight lookup, the three JS validations and the client-direct `accepted_at` UPDATE all
+deleted; RPC call switched to `p_invite_code`; the households fetch and success toast read
+`household_id` / `household_name` from the RPC return. The lookup could not merely be
+simplified — with `invites_select` members-only, a not-yet-member cannot resolve a code at
+all. The local `internalUserId` const became unused and was removed.
+
+### §F Verification — PARTIAL. See Unfinished.
+
+**Passed on the deployed dev preview, two real accounts:** F1 (fresh accept), F3 (member
+re-taps a consumed link — succeeds, proving the short-circuit precedes the accepted-check),
+F4 (member taps an **expired** link — succeeds).
+
+**Not run: F2, F5, F6** — `revived` flag, lowercase normalization, the three error strings.
+All low-risk literals in the function body.
+
+**F7/F8 verified structurally, not from a running app.** `supabase` is module-scoped rather
+than on `window`, and there is no Supabase token in `localStorage` because auth is
+Clerk-brokered (tokens minted per request). F7 rests on `join_household_uuid = 0` plus
+`overloads = 1`; F8 on the policy `qual`. Both honest, neither from a console query.
+**A second account that is a member of nothing would settle F8 properly.**
+
+### §G Deliberately out of scope
+
+- **Multi-use invites** — single-use preserved exactly as-is here; lifting it is a schema +
+  product change and does not belong inside an exploit fix that may need a clean revert.
+  Design now settled (Option A) — see ROADMAP NEXT.
+- **`created_by` is not pinned to the caller** — a member can mint an invite in their own
+  household attributed to another member. Same root family, much smaller blast radius;
+  **folded into Part 2.**
 
 ---
 
@@ -566,7 +665,7 @@ outright. The 50 live prod cycles are not trivially destroyable.
 buggy client, or a stray script — can rewrite `household_id`, `closed_at`, or
 `cycle_type` on any row.
 
-That is precisely the corruption shape that 026 and 027 exist to fix: **items in closed
+That is precisely the corruption shape that 026 and 031 exist to fix: **items in closed
 cycles, and two concurrent open cycles.** Rewriting `closed_at` produces the first;
 rewriting `household_id` or clearing `closed_at` on a second row produces the second.
 
@@ -576,7 +675,7 @@ their own. No exploitation has been observed and none is suspected.
 
 The point is narrower and worth carrying: **until Part 4 lands there is no structural
 guarantee against that state arising outside the client path.** That bounds how much
-confidence 027's verification can give us. A cycle-integrity detector that finds zero
+confidence 031's verification can give us. A cycle-integrity detector that finds zero
 violations proves the client paths are correct; it cannot prove the invariant *holds*,
 because nothing at the database level enforces it. After Part 4, a clean detector run
 means something stronger.
@@ -752,16 +851,16 @@ next:
 |---|---|---|---|---|
 | 4a | `security(db): revoke anon DML on known_stores, provision_cycles, shopping_sessions` | **`028`** | none | ✅ `559bfca`, dev + prod |
 | 0 | `security(db): household + account liveness in is_member_of and bootstrap_new_user` | **`029`** | none | ✅ `8944f63`, dev + prod |
-| 1 | `fix(NNN): join_household validates invite server-side` | assign at build | `useProvisions.js` acceptInvite | Open |
+| 1 | `fix(030): join_household validates the invite server-side; lock invites_select to members` | **`030`** | `useProvisions.js` acceptInvite | ✅ `db5ec66`, **dev only** |
 | 2 | `fix(NNN): bootstrap_new_user derives clerk_id from JWT` | assign at build | `useProvisions.js` bootstrap call | Open |
 | 3 | `fix(NNN): drop permissive household_members_insert policy` | assign at build | none | Open |
 | 4b | `fix(NNN): enable RLS + household policies on cycle tables` | assign at build | none | Open |
 | 5 | `fix(NNN): pin search_path on remaining SECURITY DEFINER functions` | assign at build | none | Open |
 
 **Migration numbers are deliberately not assigned here** — assign at build time against
-the then-current sequence. **`028` and `029` are spent. `027` is claimed in prose only**
+the then-current sequence. **`028`, `029` and `030` are spent. `027` is RETIRED — never written to disk, and the work is now `031`**
 (cycle-integrity; referenced from ROADMAP and from inside the bodies of `025` and `026`,
-but no file exists) — **do not take 027**, and check the `migrations/` directory rather
+see `SPEC_cycle_integrity_031.md`) — **do not create a 027 stub; the 026→028 gap is honest drift**. Check the `migrations/` directory rather
 than trusting any number written in a spec.
 
 Deploy dev → verify on `dev.ourprovisions.velayo.ai` (not localhost) → then prod. Parts 1
