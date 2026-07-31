@@ -25,6 +25,38 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-07-31] — [OurProvisions] — Ship the two highest-severity authorization defects to prod, verified from outside the database
+*(Session ran 2026-07-30 → 07-31; decisions dated 07-30 where made.)*
+**Goal:** Begin the five-defect authorization spec at Part 1 — instead re-ordered by measured exposure and shipped the two defects that outranked it.
+**Completed:**
+- **Shipped migration 028** — `revoke all` from `anon` on `known_stores`, `provision_cycles`, `shopping_sessions`, dev + prod. Verified from outside the database with the bundled anon key: prod `provision_cycles` went from `206 / Content-Range: 0-0/56` to `401 / 42501 permission denied`.
+- **Shipped migration 029** — household + account liveness in `is_member_of` and `bootstrap_new_user`, dev + prod, both `CREATE OR REPLACE`d in place with OIDs unchanged (dev 18480 / prod 43112). Verified by calling the real function with an injected JWT subject: `Test House 200` (deleted 2026-07-10) `true → false`, three live households unchanged.
+- **Re-ordered the spec by credential requirement.** `anon` held full DML on 56 live prod `provision_cycles` rows with no account at all — that outranks Parts 1–3, which all require an authenticated identity. Split Part 4 into 4a (revoke, near-zero regression surface) and 4b (RLS + policies, still required).
+- **Diagnosed the `is_member_of` / `bootstrap_new_user` compound bug** and established the two must ship in one migration: `is_member_of` alone leaves a user resolved into a household they can neither read nor write.
+- **Decided `users.deleted_at` means "account closed"** (no writer anywhere — no trigger, no function, no client code; six hand-set dev rows, zero on prod), and cold-start household resolution orders by `hm.joined_at desc`.
+- **Established that migration 027 exists only in prose** — five references across ROADMAP and inside the bodies of 025 and 026; no file anywhere in the repo.
+- **Reversed a drafted `raise` to a fall-through** on the dead-household invite branch after tracing that the rollback kills the step-1 user upsert and `useProvisions.js:319` throws before `:323` clears `sessionStorage` — wedging signup permanently.
+**Unfinished:**
+- Parts 1, 2 and 4b of the authorization spec, plus a newly-identified sixth item: six SECURITY DEFINER functions with no pinned `search_path`.
+- **`docs/specs/active/SPEC_rls_and_rpc_authorization.md` still argues the original 1→2→3→4 ordering, which this session disproved.** Live trap — a future session reading it builds the wrong part first. Correcting it is the first action next session.
+- `household_invites` RLS policies still uninspected. Blocks Part 1.
+- 027 still unwritten and still nominally gates the 025+026 prod deploy.
+- Beta disclosure decision still open — now sharper: full unauthenticated DML on live household data, indefinite window, no logging that would show exploitation either way.
+- Test/dev data purge parked deliberately; reframed as retention, not cleanup.
+- **028 (`559bfca`) and 029 (`8944f63`) committed, NOT pushed.** `origin/main` is 15 commits behind `dev`.
+**Next session:**
+SESSION START
+Goal: Ship **Part 1** — `join_household` validates the invite server-side — dev-green, with the client-side pre-flight lookup deleted and `household_invites` SELECT locked to members.
+State: 028 and 029 live on dev and prod, both verified from outside the database. `is_member_of` checks household and account liveness; `bootstrap_new_user` checks household liveness on both the invite and cold-start branches, orders deterministically, and has a pinned `search_path`. The no-credential path to `provision_cycles` is closed. `authenticated` still holds full unfiltered DML on all three previously-exposed tables — 4b remains required.
+Done when: `join_household(uuid)` is gone; its replacement validates the invite server-side **including `households.deleted_at`**; `anon` EXECUTE revoked; the client-side pre-flight lookup deleted with three distinct server-raised error messages replacing it; `household_invites` SELECT locked to members; invite-accept and rejoin-after-leave both verified on the deployed dev preview.
+Watch-outs: **`household_invites` policies were never inspected** — if a permissive SELECT policy exists, every live invite code is readable by anyone holding the bundled anon key, which is a zero-account path into any household and would outrank Part 1 itself. Inspect before drafting. Also: the merge-to-main gate is closed and one push from opening — nine of the fifteen unpushed commits are meals work whose client code would ship to prod against a database with no `meals` tables.
+**Files updated:** `migrations/028_revoke_anon_unprotected_tables.sql` (new, applied dev + prod, `559bfca`); `migrations/029_household_liveness.sql` (new, applied dev + prod, `8944f63`); `docs/SESSION_LOG.md`; `docs/ROADMAP.md`; `docs/ARCHITECTURE.md`
+**DB changes:**
+- **028** — `revoke all on public.known_stores, public.provision_cycles, public.shopping_sessions from anon`. Dev + prod. No PUBLIC grant reaches `anon`; `authenticated` retains SELECT/INSERT/UPDATE/DELETE on all three.
+- **029** — `is_member_of(uuid)` joins `users` and `households`, filtering `u.deleted_at is null` and `h.deleted_at is null`. `bootstrap_new_user(text,text,text,text)` gains a household-liveness join on the invite branch (fall-through, not raise), a household-liveness join plus `order by hm.joined_at desc` on the cold-start branch, and `set search_path = public, extensions`. Dev + prod, replaced in place, OIDs unchanged.
+
+---
+
 ### [2026-07-30] — [Cross] — Wire Claude Code to Supabase; five authorization defects found and specced
 **Goal:** Integrate Claude Code with Supabase so database truth can be verified directly instead of from docs or pasted output — then act on whatever that surfaced.
 **Completed:**
