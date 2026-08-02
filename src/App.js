@@ -299,11 +299,19 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     const root = rootRef.current, wrap = wmWrapRef.current, wm = wmRef.current;
     if (!root || !wrap || !wm) return;
     const wmH = wrap.getBoundingClientRect().height || 40; // wordmark box height (position-independent)
-    const archW = 0.52 * (wm.offsetWidth || 238);          // §3 locked ratio (unchanged)
-    const archH = archW * (22 / 120);                      // arch rendered height (viewBox 120×22)
-    // §2 locked spacing — TRUE VISIBLE edge-to-edge gaps, in wordmark-heights:
-    const TAG_GAP = 0.72;                                  // wordmark bottom → tagline top (base dial)
-    const ARCH_GAP = 2 * TAG_GAP;                          // arch bottom → wordmark top (= 2×, locked)
+    const wmW = wm.offsetWidth || 238;                     // wordmark width — the arc scales off THIS, never the viewport
+    const TAG_GAP = 0.72;                                  // §2 wordmark bottom → tagline top (base dial, locked)
+    // Approved horizon arc (public/splash_arc.png, 1935×954, transparent). Placed as
+    // part of the LOCKUP: its width tracks the wordmark, NOT the viewport — viewport
+    // scaling is what flattened the earlier SVG redraw. Constants are measured from the
+    // source PNG's alpha (visible arc = 0.79× canvas, base at 0.853 down) and the
+    // reference screenshot (arc base ≈ 0.85 cap-height above the wordmark caps).
+    const ARC_W_RATIO = 1.25;                              // arc canvas width ÷ wordmark width (makes the visible arc ≈ wordmark width)
+    const ARC_ASPECT = 954 / 1935;                         // PNG intrinsic aspect (H/W)
+    const ARC_BASE_FRAC = 0.853;                           // arc's visible base (tips) as a fraction down the PNG canvas
+    const ARC_GAP = 0.41;                                  // gap: arc base → wordmark box top, in wordmark-heights (the vertical dial — tune by eye)
+    const arcW = ARC_W_RATIO * wmW;
+    const arcH = arcW * ARC_ASPECT;
     // Center against the VISIBLE viewport (visualViewport), NOT the layout viewport:
     // on mobile a position:fixed overlay is sized to the taller layout viewport, so
     // % / getBoundingClientRect heights overstate what's on screen and the cluster
@@ -314,12 +322,11 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     const wmTop = OP_GROUP_CENTER * visH - wmH / 2;         // §3 wordmark optical center at 46%
     const wmBottom = wmTop + wmH;
     root.style.setProperty("--op-wm-top", wmTop.toFixed(1) + "px");
-    // Full-bleed horizon arc (replaces the crown): anchor its APEX where the crown's
-    // apex used to sit — the SAME spot — so the locked 2:1 / 1.44-height composition
-    // is preserved. The crown's quadratic apex sat ~9/22 down its box, so its apex Y
-    // was archTop + (9/22)·archH = wmTop − ARCH_GAP·wmH − (13/22)·archH. archW/archH
-    // survive only to reproduce that Y; the arc element itself is full viewport width.
-    root.style.setProperty("--op-arc-top", (wmTop - ARCH_GAP * wmH - archH * (13 / 22)).toFixed(1) + "px");
+    // Arc: width = 1.25× wordmark, centered on the wordmark axis (the PNG's apex glow
+    // sits ~29% across, so it lands left-of-centre exactly as the reference). Top is set
+    // so the arc's visible BASE sits ARC_GAP wordmark-heights above the wordmark box top.
+    root.style.setProperty("--op-arc-w", arcW.toFixed(1) + "px");
+    root.style.setProperty("--op-arc-top", (wmTop - ARC_GAP * wmH - ARC_BASE_FRAC * arcH).toFixed(1) + "px");
     root.style.setProperty("--op-tag-top", (wmBottom + TAG_GAP * wmH).toFixed(1) + "px");
   }, []);
 
@@ -364,9 +371,13 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         .op-scene { position: absolute; inset: 0; z-index: 1; }
         /* Open espresso ground — on its own fadeable layer so the surfacing can
            dissolve it to reveal the app beneath. */
+        /* Reference ground: a warm espresso bloom sits behind the arc/wordmark in the
+           upper-middle (~#301C0B) and DARKENS DOWNWARD to a near-black base (#1B1109) at
+           the bottom — so the lower third recedes instead of competing with the wordmark.
+           (The prior build's ground brightened toward the bottom; corrected here.) */
         .op-ground {
           position: absolute; inset: 0; z-index: 0;
-          background: radial-gradient(140% 100% at 50% 44%, #4a2f18 0%, #2C1A0E 46%, #160B04 100%);
+          background: radial-gradient(125% 110% at 50% 40%, #331E0C 0%, #301C0B 34%, #1B1109 100%);
         }
         /* MOTION 1 — the horizon. Depth opens / vignette retreats / bloom line
            arrives, establishing the world. GPU-friendly props ONLY — opacity +
@@ -389,32 +400,19 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         .op-crest .op-vignette { animation: opVigOpen 1.2s ${OP_EASE} forwards; }
         @keyframes opVigOpen { to { transform: scale(1.6); opacity: 0.35; } }
         @keyframes opFadeOut { to { opacity: 0; } }
-        /* Horizon arc (replaces the crown) — a single thin, shallow curve that bleeds
-           the FULL viewport width, exiting both edges (never terminating inside the
-           frame). Its color runs warm gold at the left, brightens to near-white at the
-           apex (~1/3 across, a hair left of center), then cools to teal as it descends
-           off the right edge. Built as a FILLED crescent (fill gradient, not a stroke)
-           so it can genuinely TAPER to points at both ends — a constant-width stroke
-           can't thin at the edges. A soft gold radial glow blooms at the apex into the
-           espresso (no hard edge). ABSOLUTELY positioned (trap 1: never inside the
-           wordmark flex column). Its apex is anchored at --op-arc-top — the crown's old
-           apex spot (see measure()); the fallback applies only pre-JS (arc is opacity 0). */
+        /* Horizon arc — the APPROVED raster (public/splash_arc.png), placed as part of
+           the lockup. It is NOT redrawn in SVG: the redraw lost the apex light and
+           flattened the curve. Width tracks the wordmark (--op-arc-w, set in measure()),
+           NEVER the viewport — viewport scaling is what flattened it before. Centered on
+           the wordmark axis; the baked apex glow lands left-of-centre on its own. Warm
+           gold left tip → near-white apex → teal right tip, all baked into the pixels.
+           Resolves blur→sharp WITH the wordmark in the one pass — no separate animation. */
         .op-arc {
-          position: absolute; left: 0; right: 0; top: var(--op-arc-top, 38%);
-          z-index: 8; pointer-events: none; overflow: visible;
-          opacity: 0; filter: blur(12px); /* resolves from blur; renders already drawn — no self-draw (§1) */
+          position: absolute; left: 50%; top: var(--op-arc-top, 34%);
+          transform: translateX(-50%);
+          width: var(--op-arc-w, 298px); height: auto; z-index: 8; pointer-events: none;
+          opacity: 0; filter: blur(12px); /* resolves from blur; the asset is already drawn — no self-draw (§1) */
         }
-        /* Apex glow — centered on the apex point (33% across, at the arc's top line).
-           Soft gold bleeding to transparent, so it melts into the espresso ground. */
-        .op-arc-glow {
-          position: absolute; left: 33%; top: 0; width: 62vw; height: 62vw;
-          transform: translate(-50%, -50%); pointer-events: none;
-          background: radial-gradient(closest-side,
-            rgba(201,169,122,0.30) 0%, rgba(201,169,122,0.11) 42%, rgba(201,169,122,0) 72%);
-          filter: blur(4px);
-        }
-        .op-arc-svg { display: block; width: 100vw; height: auto; overflow: visible; }
-        .op-arc-svg path { stroke: none; }
         /* Wordmark — centered by its wrapper (text-align), so its own transform is
            free for the surface animation. Anchored proportionally (~430/844). */
         .op-wm-wrap {
@@ -461,14 +459,13 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
            still open underneath (≤2.5s) as texture, concurrent with the resolve — not
            a distinct "Motion 1." GPU-friendly props ONLY (opacity + filter). ── */
         .op-crest .op-wm   { animation: opResolve 2.5s ${OP_EASE_RESOLVE}   0ms forwards; }
-        .op-crest .op-arc  { animation: opResolveArch 2.5s ${OP_EASE_RESOLVE} 60ms forwards; }
+        .op-crest .op-arc  { animation: opResolve 2.5s ${OP_EASE_RESOLVE} 60ms forwards; }
         .op-crest .op-tag  { animation: opResolve 2.5s ${OP_EASE_RESOLVE}  90ms forwards; }
         .op-crest .op-foot { animation: opResolve 2.5s ${OP_EASE_RESOLVE} 120ms forwards; }
         @keyframes opResolve     { to { opacity: 1;    filter: blur(0); } }
-        @keyframes opResolveArch { to { opacity: 0.92; filter: blur(0); } }  /* arc final opacity */
         /* Reduced motion: the resolved final static state — no blur, no animation. */
         .op-reduced .op-wm { opacity: 1; transform: none; filter: none; }
-        .op-reduced .op-arc { opacity: 0.92; filter: none; }
+        .op-reduced .op-arc { opacity: 1; filter: none; }
         .op-reduced .op-tag { opacity: 1; filter: none; }
         .op-reduced .op-foot { opacity: 1; filter: none; }
 
@@ -504,25 +501,8 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         {!reduced && <div className="op-depth" aria-hidden="true" />}
         {!reduced && <div className="op-vignette" aria-hidden="true" />}
 
-        <div className="op-arc" aria-hidden="true">
-          <div className="op-arc-glow" />
-          <svg className="op-arc-svg" viewBox="0 0 1200 60" preserveAspectRatio="xMidYMid meet">
-            <defs>
-              <linearGradient id="opArcGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1200" y2="0">
-                <stop offset="0" stopColor="#C9A97A" />
-                <stop offset="0.33" stopColor="#FBF6EE" />
-                <stop offset="1" stopColor="#0D9488" />
-              </linearGradient>
-            </defs>
-            {/* Filled crescent: fat (~3u) at the apex, tapering to points at both ends
-                (x=−30 / x=1230, past the edges so it bleeds off). Apex at x≈400 = 1/3
-                across. Shallow. Tune the control points by eye against the reference. */}
-            <path
-              d="M-30 30 C130 6 300 2 400 2 C640 2 900 22 1230 44 C900 25 640 5 400 5 C300 5 130 9 -30 30 Z"
-              fill="url(#opArcGrad)"
-            />
-          </svg>
-        </div>
+        {/* Approved horizon arc raster — width/position measured off the wordmark. */}
+        <img className="op-arc" src={`${process.env.PUBLIC_URL}/splash_arc.png`} alt="" aria-hidden="true" />
 
         <div className="op-tag">Shop smarter. Shop faster.</div>
 
