@@ -301,13 +301,14 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     const wmH = wrap.getBoundingClientRect().height || 40; // wordmark box height (position-independent)
     const wmW = wm.offsetWidth || 238;                     // wordmark width — the arc scales off THIS, never the viewport
     const TAG_GAP = 0.72;                                  // §2 wordmark bottom → tagline top (base dial, locked)
-    // Approved horizon arc (public/splash_arc.png, 1935×954, transparent). Placed as
-    // part of the LOCKUP: its width tracks the wordmark, NOT the viewport — viewport
-    // scaling is what flattened the earlier SVG redraw. Constants are measured from the
-    // source PNG's alpha (visible arc = 0.79× canvas, base at 0.853 down) and the
-    // reference screenshot (arc base ≈ 0.85 cap-height above the wordmark caps).
+    // Approved horizon arc (public/splash_arc.png — v2 @1x, 645×318, transparent, outer
+    // 34px feathered to zero alpha, no background veil). Placed as part of the LOCKUP:
+    // its width tracks the wordmark, NOT the viewport — viewport scaling is what
+    // flattened the earlier SVG redraw. Constants are measured from the source PNG's
+    // alpha (visible arc = 0.79× canvas, base at 0.853 down) and the reference
+    // screenshot (arc base ≈ 0.85 cap-height above the wordmark caps).
     const ARC_W_RATIO = 1.25;                              // arc canvas width ÷ wordmark width (makes the visible arc ≈ wordmark width)
-    const ARC_ASPECT = 954 / 1935;                         // PNG intrinsic aspect (H/W)
+    const ARC_ASPECT = 318 / 645;                          // PNG intrinsic aspect (H/W)
     const ARC_BASE_FRAC = 0.853;                           // arc's visible base (tips) as a fraction down the PNG canvas
     const ARC_GAP = 0.41;                                  // gap: arc base → wordmark box top, in wordmark-heights (the vertical dial — tune by eye)
     const arcW = ARC_W_RATIO * wmW;
