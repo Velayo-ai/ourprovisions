@@ -314,8 +314,12 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
     const wmTop = OP_GROUP_CENTER * visH - wmH / 2;         // §3 wordmark optical center at 46%
     const wmBottom = wmTop + wmH;
     root.style.setProperty("--op-wm-top", wmTop.toFixed(1) + "px");
-    root.style.setProperty("--op-arch-w", archW.toFixed(1) + "px");
-    root.style.setProperty("--op-arch-top", (wmTop - ARCH_GAP * wmH - archH).toFixed(1) + "px");
+    // Full-bleed horizon arc (replaces the crown): anchor its APEX where the crown's
+    // apex used to sit — the SAME spot — so the locked 2:1 / 1.44-height composition
+    // is preserved. The crown's quadratic apex sat ~9/22 down its box, so its apex Y
+    // was archTop + (9/22)·archH = wmTop − ARCH_GAP·wmH − (13/22)·archH. archW/archH
+    // survive only to reproduce that Y; the arc element itself is full viewport width.
+    root.style.setProperty("--op-arc-top", (wmTop - ARCH_GAP * wmH - archH * (13 / 22)).toFixed(1) + "px");
     root.style.setProperty("--op-tag-top", (wmBottom + TAG_GAP * wmH).toFixed(1) + "px");
   }, []);
 
@@ -385,20 +389,32 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         .op-crest .op-vignette { animation: opVigOpen 1.2s ${OP_EASE} forwards; }
         @keyframes opVigOpen { to { transform: scale(1.6); opacity: 0.35; } }
         @keyframes opFadeOut { to { opacity: 0; } }
-        /* Arch — ABSOLUTELY positioned (trap 1): never inside the wordmark's flex
-           column, where a margin would just recenter the cluster and collapse the
-           gap. Width = 0.52 × wordmark (~124px); floats higher with clear espresso
-           air below it before the letter tops. */
-        .op-arch {
-          /* top + width are measured relative to the wordmark (see measure()); the
-             fallbacks apply only for the first frame before JS runs (arch is opacity 0). */
-          position: absolute; left: 50%; top: var(--op-arch-top, 39.6%); transform: translateX(-50%);
-          width: var(--op-arch-w, 124px); height: auto; overflow: visible;
-          opacity: 0; filter: blur(10px); z-index: 8; /* resolves from blur; renders already drawn — no self-draw (§1) */
+        /* Horizon arc (replaces the crown) — a single thin, shallow curve that bleeds
+           the FULL viewport width, exiting both edges (never terminating inside the
+           frame). Its color runs warm gold at the left, brightens to near-white at the
+           apex (~1/3 across, a hair left of center), then cools to teal as it descends
+           off the right edge. Built as a FILLED crescent (fill gradient, not a stroke)
+           so it can genuinely TAPER to points at both ends — a constant-width stroke
+           can't thin at the edges. A soft gold radial glow blooms at the apex into the
+           espresso (no hard edge). ABSOLUTELY positioned (trap 1: never inside the
+           wordmark flex column). Its apex is anchored at --op-arc-top — the crown's old
+           apex spot (see measure()); the fallback applies only pre-JS (arc is opacity 0). */
+        .op-arc {
+          position: absolute; left: 0; right: 0; top: var(--op-arc-top, 38%);
+          z-index: 8; pointer-events: none; overflow: visible;
+          opacity: 0; filter: blur(12px); /* resolves from blur; renders already drawn — no self-draw (§1) */
         }
-        .op-arch path {
-          fill: none; stroke: #0D9488; stroke-width: 2.4; stroke-linecap: round;
+        /* Apex glow — centered on the apex point (33% across, at the arc's top line).
+           Soft gold bleeding to transparent, so it melts into the espresso ground. */
+        .op-arc-glow {
+          position: absolute; left: 33%; top: 0; width: 62vw; height: 62vw;
+          transform: translate(-50%, -50%); pointer-events: none;
+          background: radial-gradient(closest-side,
+            rgba(201,169,122,0.30) 0%, rgba(201,169,122,0.11) 42%, rgba(201,169,122,0) 72%);
+          filter: blur(4px);
         }
+        .op-arc-svg { display: block; width: 100vw; height: auto; overflow: visible; }
+        .op-arc-svg path { stroke: none; }
         /* Wordmark — centered by its wrapper (text-align), so its own transform is
            free for the surface animation. Anchored proportionally (~430/844). */
         .op-wm-wrap {
@@ -445,14 +461,14 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
            still open underneath (≤2.5s) as texture, concurrent with the resolve — not
            a distinct "Motion 1." GPU-friendly props ONLY (opacity + filter). ── */
         .op-crest .op-wm   { animation: opResolve 2.5s ${OP_EASE_RESOLVE}   0ms forwards; }
-        .op-crest .op-arch { animation: opResolveArch 2.5s ${OP_EASE_RESOLVE} 60ms forwards; }
+        .op-crest .op-arc  { animation: opResolveArch 2.5s ${OP_EASE_RESOLVE} 60ms forwards; }
         .op-crest .op-tag  { animation: opResolve 2.5s ${OP_EASE_RESOLVE}  90ms forwards; }
         .op-crest .op-foot { animation: opResolve 2.5s ${OP_EASE_RESOLVE} 120ms forwards; }
         @keyframes opResolve     { to { opacity: 1;    filter: blur(0); } }
-        @keyframes opResolveArch { to { opacity: 0.92; filter: blur(0); } }  /* arch final opacity */
+        @keyframes opResolveArch { to { opacity: 0.92; filter: blur(0); } }  /* arc final opacity */
         /* Reduced motion: the resolved final static state — no blur, no animation. */
         .op-reduced .op-wm { opacity: 1; transform: none; filter: none; }
-        .op-reduced .op-arch { opacity: 0.92; filter: none; }
+        .op-reduced .op-arc { opacity: 0.92; filter: none; }
         .op-reduced .op-tag { opacity: 1; filter: none; }
         .op-reduced .op-foot { opacity: 1; filter: none; }
 
@@ -488,9 +504,25 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         {!reduced && <div className="op-depth" aria-hidden="true" />}
         {!reduced && <div className="op-vignette" aria-hidden="true" />}
 
-        <svg className="op-arch" viewBox="0 0 120 22" aria-hidden="true">
-          <path d="M4 20 Q60 -2 116 20" />
-        </svg>
+        <div className="op-arc" aria-hidden="true">
+          <div className="op-arc-glow" />
+          <svg className="op-arc-svg" viewBox="0 0 1200 60" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <linearGradient id="opArcGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1200" y2="0">
+                <stop offset="0" stopColor="#C9A97A" />
+                <stop offset="0.33" stopColor="#FBF6EE" />
+                <stop offset="1" stopColor="#0D9488" />
+              </linearGradient>
+            </defs>
+            {/* Filled crescent: fat (~3u) at the apex, tapering to points at both ends
+                (x=−30 / x=1230, past the edges so it bleeds off). Apex at x≈400 = 1/3
+                across. Shallow. Tune the control points by eye against the reference. */}
+            <path
+              d="M-30 30 C130 6 300 2 400 2 C640 2 900 22 1230 44 C900 25 640 5 400 5 C300 5 130 9 -30 30 Z"
+              fill="url(#opArcGrad)"
+            />
+          </svg>
+        </div>
 
         <div className="op-tag">Shop smarter. Shop faster.</div>
 
