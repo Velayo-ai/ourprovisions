@@ -219,6 +219,11 @@ that changed.
 - Infer today's date from the system date.
 - Velayo voice: concise, action-verb led, honest about what's unfinished.
 - Match the existing file formats exactly.
+- **SESSION_LOG is append-only.** Never edit a past entry after the fact — the log
+  records what was believed at the time. Corrections to a prior entry are appended as a
+  dated addendum line under that entry's heading (`> **Addendum YYYY-MM-DD:** …`), the
+  original text left intact. By contrast, `ROADMAP.md`, `ARCHITECTURE.md`, and the specs
+  describe CURRENT state and are corrected in place.
 - Never claim work as done if it's half-finished — that goes in Unfinished.
 - The "Next session" SESSION START block must include a clear "Done when".
 - Scope discipline: do NOT file Velayo OS / Platform work as OurProvisions

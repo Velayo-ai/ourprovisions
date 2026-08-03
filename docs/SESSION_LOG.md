@@ -57,6 +57,7 @@ Watch-outs: **The two Lake house rows must not be tombstoned** — they are live
 
 ### [2026-07-31] — [OurProvisions] — Ship the two highest-severity authorization defects to prod, verified from outside the database
 *(Session ran 2026-07-30 → 07-31; decisions dated 07-30 where made.)*
+> **Addendum 2026-08-02:** the "six SECURITY DEFINER functions with no pinned `search_path`" recorded below is **five** — the sixth, `bootstrap_new_user`, was pinned by `029`; confirmed by an observed read-only `proconfig is null` query on prod + dev (identical set, no drift). See ROADMAP + SPEC Part 5. *(Correction appended; original entry unchanged.)*
 **Goal:** Begin the five-defect authorization spec at Part 1 — instead re-ordered by measured exposure and shipped the two defects that outranked it.
 **Completed:**
 - **Shipped migration 028** — `revoke all` from `anon` on `known_stores`, `provision_cycles`, `shopping_sessions`, dev + prod. Verified from outside the database with the bundled anon key: prod `provision_cycles` went from `206 / Content-Range: 0-0/56` to `401 / 42501 permission denied`.
