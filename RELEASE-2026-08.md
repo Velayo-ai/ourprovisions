@@ -43,6 +43,18 @@ Commit `db5ec66` contains **both** migration 030 and a +50-line change to
 - ✅ **Confirmed — observed prod read 2026-08-02:** `pg_proc` returns a **single**
   `join_household(p_household_id uuid)` row, **no `text` overload** → 030 is not applied.
 
+> **⚠️ Rationale corrected 2026-08-03 (leaving the bullets above intact):** the claim
+> that "the prod frontend calls `join_household(p_invite_code text)` … and the invite flow
+> breaks on deploy" is **wrong as stated**. `db5ec66`'s client change was to `acceptInvite`,
+> which is **dead code** — no caller in either tree — so the shipped client **never calls
+> `join_household` at runtime**. Merging `db5ec66` *alone* would NOT break the invite flow
+> (the live `?invite=` path runs through `bootstrap_new_user`, unchanged).
+> **B1 becomes real only with `90d5b92`** (bad-invite feedback fix), which introduces a
+> genuine `join_household(text)` call in the bootstrap fallback. **Conclusion unchanged —
+> apply-030-then-merge must be one sequence — but the breaking call now comes from
+> `90d5b92`, not `db5ec66`.** The signature-mismatch reasoning holds; only its *source
+> commit* was misattributed.
+
 Two resolutions — pick one:
 
 - **(a)** Apply migration 030 to the prod database *before* merging. Gated on B2.
