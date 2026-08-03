@@ -617,6 +617,13 @@ function FlatHeader({ count }) {
 // ingredients into the shared list at flat quantities (servings dial deferred).
 // Create-a-meal is the next PR; until then meals are seeded via
 // migrations/fixtures/dev_meals_seed.sql on dev.
+// Feature flag — Browse Meals lens (migration 025). Shipped as code, HIDDEN in the UI
+// until the meals migrations (025/026) reach prod (RELEASE-2026-08 B6). While false there
+// is NO reachable path that renders the lens, fetches `meals`, reads `list_item_meals`,
+// or calls add_meal_to_list — so nothing touches objects that don't exist on prod. Flip
+// to true in the same PR that ships meals to prod.
+const MEALS_ENABLED = false;
+
 function MealsLens({ meals, loading, onAddAll, addingMealId }) {
   if (loading && meals.length === 0) {
     return (
@@ -785,12 +792,15 @@ function ProvisionsApp() {
 
   // Load the meal cards when the Meals lens opens.
   useEffect(() => {
-    if (browseLens === "meals" && household?.id) loadMeals();
+    if (MEALS_ENABLED && browseLens === "meals" && household?.id) loadMeals();
   }, [browseLens, household?.id, loadMeals]);
 
-  // Load provenance when a surface that shows the badge is visible.
+  // Load provenance when a surface that shows the badge is visible. Gated by
+  // MEALS_ENABLED: fetchMealProvenance reads `list_item_meals` + `meals`, and this
+  // effect fires on the LIST view — so without the guard it would hit prod-absent
+  // tables on the core path even with the lens hidden.
   useEffect(() => {
-    if (household?.id && (view === "list" || (view === "input" && browseLens === "meals"))) {
+    if (MEALS_ENABLED && household?.id && (view === "list" || (view === "input" && browseLens === "meals"))) {
       refreshProvenance();
     }
   }, [household?.id, view, browseLens, refreshProvenance]);
@@ -2611,7 +2621,10 @@ function ProvisionsApp() {
 
         {view === "input" && (
           <>
-            {/* ── Browse lens toggle — Ingredients ⇄ Meals (add-path, migration 025) ── */}
+            {/* ── Browse lens toggle — Ingredients ⇄ Meals (add-path, migration 025).
+                 Hidden while MEALS_ENABLED is false (RELEASE-2026-08 B6): no entry point
+                 to the Meals lens, so ingredients render directly below. ── */}
+            {MEALS_ENABLED && (
             <div style={{ display: "flex", gap: "5px", background: "#E8D5B7", borderRadius: "11px", padding: "4px", margin: "12px 0 4px" }}>
               {["ingredients", "meals"].map((L) => (
                 <button
@@ -2629,8 +2642,9 @@ function ProvisionsApp() {
                 >{L}</button>
               ))}
             </div>
+            )}
 
-            {browseLens === "meals" ? (
+            {MEALS_ENABLED && browseLens === "meals" ? (
               <MealsLens
                 meals={meals}
                 loading={mealsLoading}
