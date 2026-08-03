@@ -8,11 +8,14 @@ Real delta: `origin/main..dev` = 22 commits.
 > **RULE — production database state is established by `pg_get_functiondef` against the
 > LIVE prod database, never by migration files.** A migration file proves what was
 > *written*, not what is *running* (this repo hand-applies migrations outside any
-> tracking table; files 009–012 aren't even in the tree). Every claim in this doc about
-> what prod's DB contains — `join_household`, `add_meal_to_list`, `insert_list_item`, the
-> RLS grants — is **provisional until confirmed by an observed `pg_proc` read on prod**.
-> B1 and B6 both hinge on such a read; treat their "prod has / lacks X" statements as
-> pending until the query has actually run against production.
+> tracking table; files 009–012 aren't even in the tree).
+>
+> **✅ 2026-08-02 — the prod `pg_proc` read has been run (observed, read-only):**
+> `join_household` → single row `(p_household_id uuid)`, **030 not applied** → B1 confirmed;
+> `add_meal_to_list` → **absent** → B6 confirmed;
+> `insert_list_item` → the **008 body** (`LANGUAGE sql`, no advisory lock, client-supplied
+> `p_cycle_id`) → 026 drift is live.
+> The prod-state statements below are now **observed, not inferred**.
 
 ## Structural fact that shapes this whole release
 
@@ -37,6 +40,8 @@ Commit `db5ec66` contains **both** migration 030 and a +50-line change to
 - Result: prod frontend calls `join_household(p_invite_code text)` against a prod
   database that has `join_household(p_household_id uuid)`.
 - **The invite / join flow breaks in production on deploy.**
+- ✅ **Confirmed — observed prod read 2026-08-02:** `pg_proc` returns a **single**
+  `join_household(p_household_id uuid)` row, **no `text` overload** → 030 is not applied.
 
 Two resolutions — pick one:
 
@@ -98,8 +103,9 @@ The lens is **coupled to database objects that do not exist in production**:
   (no matching function) → **"Add all" errors in production.**
 - The lens also **reads the `meals` / `meal_ingredients` tables** that 025 creates and
   prod lacks — so the lens fails to load its data at all, not only on "Add all".
-- Prod-absence of the meals objects is per the migration record and **must be confirmed
-  by `pg_get_functiondef` / a `meals` table probe on prod** (see the RULE at the top).
+- ✅ **Confirmed — observed prod read 2026-08-02:** `add_meal_to_list` is **absent** from
+  prod `pg_proc` → the "Add all" call fails with `PGRST202`; the `meals` tables are
+  likewise absent, so the lens can't load its data either.
 
 This is the same class of defect as B1 — a dev client change shipped to a prod database
 that lacks the objects it calls — so it gates the merge the same way.
@@ -160,16 +166,18 @@ move available.
 
 ## Explicitly out of scope
 
-Authorization Parts 2, 3, 4b, 5, and the `search_path` item on the six SECURITY DEFINER
-functions. Open and real; they do not gate this merge. Do not let them expand it.
+Authorization Parts 2, 3, 4b, 5, and the `search_path` item on the **five** remaining
+SECURITY DEFINER functions (one of the original six, `bootstrap_new_user`, was already
+pinned by `029`; the live set must be re-confirmed by the prod `proconfig is null` query,
+per the RULE). Open and real; they do not gate this merge. Do not let them expand it.
 
-**`insert_list_item` behavior drift — real, does NOT gate the merge.** Migration 026
-(dev-only) replaces the *body* of `insert_list_item` with a per-household advisory lock +
-server-side cycle resolution. The **signature is byte-identical** to the 008 version prod
-runs (same 7 params, `RETURNS uuid`), and the client call is unchanged
+**`insert_list_item` behavior drift — a known live prod defect; does NOT gate the merge.**
+Migration 026 (dev-only) replaces the *body* of `insert_list_item` with a per-household
+advisory lock + server-side cycle resolution. The **signature is byte-identical** to the
+008 version prod runs (same 7 params, `RETURNS uuid`), and the client call is unchanged
 ([useProvisions.js:705](src/hooks/useProvisions.js#L705)) — so there is **no call-break**,
-unlike B1/B6. Prod simply keeps running the pre-026 body until 026 is applied to the prod
-database. The cost is correctness, not a crash: prod lacks the cycle-integrity fix
-(concurrent adds can open two open cycles for one household). Ships to prod with 025/026
-as their own SQL deployment, outside this merge. (Prod's running body is per the migration
-record — confirm with `pg_get_functiondef` per the RULE at the top.)
+unlike B1/B6. ✅ **Confirmed live — observed prod read 2026-08-02:** prod runs the **008
+body** (`LANGUAGE sql`, no advisory lock, client-supplied `p_cycle_id`); the 026 drift is
+real and live. The cost is correctness, not a crash: prod lacks the cycle-integrity fix
+(concurrent adds can open two open cycles for one household). Ships to prod with 025/026 as
+their own SQL deployment, outside this merge.
