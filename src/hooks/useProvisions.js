@@ -330,6 +330,29 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           window.history.replaceState({}, "", window.location.pathname);
           sessionStorage.setItem("just_joined_household", bootstrapData.household_name || "the place");
           sessionStorage.setItem("just_joined_household_id", bootstrapData.household_id);
+        } else if (pendingInviteCode) {
+          // A code was supplied but bootstrap did not join via it. bootstrap resolves
+          // every VALID invite (new and existing users alike), so a false here means the
+          // invite did not resolve — surface WHY rather than loading silently. This
+          // regressed when the pre-flight lookup was removed: the pre-030 client showed
+          // "Invite not found or already used." on this path; without this it is silent.
+          // join_household is the single source of the three distinct messages
+          // ("Invite not found." / "…already used." / "…expired."). Clear the URL first
+          // so a reload cannot re-fire the attempt.
+          // NOTE: this is a LIVE join_household(text) call — it REQUIRES migration 030 on
+          // the target database (dev has it; prod must get 030 before/with this client).
+          window.history.replaceState({}, "", window.location.pathname);
+          const { data: joinResult, error: joinErr } = await db.rpc("join_household", {
+            p_invite_code: pendingInviteCode,
+          });
+          if (joinErr) {
+            setError(joinErr.message);
+          } else if (joinResult?.household_id) {
+            // Edge: join_household completed a join bootstrap didn't (e.g. the existing-
+            // member no-op short-circuit). Route it through the same banner/switch flags.
+            sessionStorage.setItem("just_joined_household", joinResult.household_name || "the place");
+            sessionStorage.setItem("just_joined_household_id", joinResult.household_id);
+          }
         }
 
         // Stash bootstrap's chosen household as the fallback for Effect 2
