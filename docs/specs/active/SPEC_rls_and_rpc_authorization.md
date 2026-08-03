@@ -24,7 +24,7 @@ severe on paper and the **most urgent in practice** — see Ordering.
 | 3 | `household_members_insert` policy is `WITH CHECK (true)` | Medium | No | Open |
 | **4a** | Full DML granted to `anon` on 3 RLS-off tables — **no account required** | **High** | No | ✅ **DONE — `028`, dev + prod 2026-07-30** |
 | **4b** | RLS still disabled on those 3 tables; `authenticated` holds full unfiltered DML | Medium (High once populated) | No | Open |
-| **5** | Six SECURITY DEFINER functions with no pinned `search_path` | Medium | No | Open |
+| **5** | Five SECURITY DEFINER functions with no pinned `search_path` (originally six; `bootstrap_new_user` pinned by `029`, confirmed by observed read 2026-08-02) | Medium | No | Open |
 
 ### What shipped, and how it was verified
 
@@ -785,12 +785,16 @@ already in the schema and empty.
 
 ---
 
-## Part 5 — six SECURITY DEFINER functions with no pinned `search_path`
-*(NEW 2026-07-31 — found while fixing Part 0.)*
+## Part 5 — five SECURITY DEFINER functions with no pinned `search_path`
+*(NEW 2026-07-31 — found while fixing Part 0. **Corrected six → five 2026-08-02:** the sixth,
+`bootstrap_new_user`, was pinned by `029`; an observed read-only `proconfig is null` query on
+**both** prod `parpauldmbetptkmdwbd` and dev `zxwtxjjmssykhqrghouf` returns the identical
+five-row set below — dev and prod agree, no drift.)*
 
 ### Finding
 
-`proconfig` is `NULL` in **both** environments on six `SECURITY DEFINER` functions:
+`proconfig` is `NULL` in **both** environments on **five** `SECURITY DEFINER` functions
+(observed 2026-08-02, read-only; prod and dev return the identical set):
 
 | function | status |
 |---|---|
@@ -799,7 +803,7 @@ already in the schema and empty.
 | `get_active_cycle(uuid)` | open |
 | `get_household_user_ids(uuid)` | open |
 | `match_known_store(uuid, float8, float8)` | open |
-| `bootstrap_new_user(text,text,text,text)` | ✅ fixed by `029` |
+| `bootstrap_new_user(text,text,text,text)` | ✅ fixed by `029` — confirmed absent from the `proconfig is null` set on prod + dev, 2026-08-02 |
 
 A `SECURITY DEFINER` function executes with the owner's privileges. With a mutable
 `search_path`, a caller who can create objects in a schema earlier on that path can shadow
