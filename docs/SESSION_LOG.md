@@ -40,12 +40,16 @@ Done when: [clear success condition]
 - **B7 — ARCHITECTURE reconciliation:** the `join_household` catalog entry + the resolved authorization Known-Debt items updated this session for `030`-to-prod; a full sweep of the remaining stale items remains.
 - Meals migrations `025`/`026` to prod = a separate decision for a separate session (lens stays flag-hidden until then).
 - Authorization Parts 2, 3, 4b, 5 and the five unpinned `search_path` functions remain open.
+- **B4 — rotate the two exposed Splunk tokens in Vercel** (flagged highest-priority; independent of the release) and **B5 — verify session-replay masking** (`maskAllText:false`/`maskAllInputs:true`) on a preview deploy — both still open (from the design handoff).
+- **Prod RUM is blind** — Splunk RUM ingest failing on prod (CORS + 503 against `rum-ingest.us1.observability.splunkcloud.com`); cause unknown, may relate to the exposed tokens.
+- **Clerk is loading with DEVELOPMENT keys on production** (observed in the prod console during verification; dev instances carry strict usage limits).
+- **Invites are URL-only** — no join-by-code field (an invite by voice/phone/screenshot can't be redeemed), and the desktop share falls through to the OS share sheet with no obvious copy-link.
 **Next session:**
 SESSION START
-Goal: Either ship `031` (cycle integrity) to dev then the `025`+`026`+`031` prod batch that unblocks meals, or pick up Authorization Part 2 (`bootstrap_new_user` JWT-derived).
-State: RELEASE-2026-08 live on prod (`8cbbf43`); `028`/`029`/`030` all live on the prod DB; meals lens flag-hidden; local main = origin/main = `8cbbf43`.
-Done when: (031 path) `uq_open_cycle_per_household` proven by a failed duplicate insert + `025`+`026`+`031` live on prod with a real user's list unchanged; or (Part 2 path) `bootstrap_new_user` derives identity from the JWT, dead overloads dropped, verified dev→prod.
-**Files updated:** `RELEASE-2026-08.md`, `src/App.js`, `src/hooks/useProvisions.js`, `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/active/SPEC_rls_and_rpc_authorization.md`
+Goal: Operational cleanup first (design handoff) — (1) rotate the Splunk tokens, (2) investigate the prod RUM ingest failure, (3) verify session-replay masking, (4) finish the ARCHITECTURE sweep (B7) — then feature work: `031` (cycle integrity) + the `025`+`026`+`031` prod batch, or Authorization Part 2.
+State: RELEASE-2026-08 live on prod (`8cbbf43`); `028`/`029`/`030` all live on the prod DB; meals lens flag-hidden; local main = origin/main = `8cbbf43`. ⚠️ Prod RUM blind + Clerk on dev keys.
+Done when: Splunk tokens rotated (new live, old revoked, RUM still reporting) + prod RUM flowing again or cause logged + replay masking watched-and-confirmed + B7 leaves no ARCHITECTURE entry describing a defect `028`/`029`/`030` resolved; then the chosen feature milestone (031 index proven on prod, or Part 2 JWT-derived + dead overloads dropped, verified dev→prod).
+**Files updated:** `RELEASE-2026-08.md`, `src/App.js`, `src/hooks/useProvisions.js`, `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/active/SPEC_rls_and_rpc_authorization.md`, `docs/assets/splash/SPLASH_ARC_EXTRACTION.md` + `README.md` (routed from the 2026-08-03 design handoff, now consumed + deleted)
 **DB changes:** **Migration `030` applied to PROD** — `join_household(uuid)` dropped for `join_household(p_invite_code text)`; `invites_select` re-scoped `qual=true` → `is_member_of(household_id)`; `anon` EXECUTE + table grants revoked. (`028`/`029` already on prod since 2026-07-31.) `025`/`026` NOT on prod.
 
 ---
