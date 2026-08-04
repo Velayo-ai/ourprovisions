@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-03] — [OurProvisions] — Ship RELEASE-2026-08 (dev→main) to production
+**Goal:** Close the merge blockers and ship the accumulated dev delta — RLS authorization Part 1 (`030`), the splash horizon arc, and supporting work — to prod as one coordinated apply-030-then-merge sequence.
+**Completed:**
+- **Shipped RELEASE-2026-08 to prod** (`origin/main` `1a13e98`→`8cbbf43`): applied `030` to the prod DB, then fast-forward merged dev→main and pushed; Phase 3 verified on device (invite feedback, no meals tab / zero meals requests on the list view, core loop intact). Includes the splash horizon arc (v3 raster, ground gradient darkened downward, arc placed as a wordmark-scaled lockup).
+- **Closed B1 and corrected its rationale** — `acceptInvite` (the only `join_household` caller) was **dead code**, so `db5ec66` never called the RPC at runtime; the mismatch was real only once the new fix added a live call. Applying `030` to prod was therefore **window-free** (the current prod frontend's only live `household_invites` op is `createInvite`'s INSERT).
+- **Fixed the bad-invite feedback regression** (`90d5b92`) — the `?invite=` path runs through `bootstrap_new_user` and fell silent on a bad code; added a bootstrap fallback that calls `join_household(text)` and surfaces its specific error ("Invite not found." / "…already used." / "…expired."). This is the live call that makes the `030` dependency genuine.
+- **Verified `030` on dev then prod (B2)** — F2 (rejoin revives, no unique violation), F5 (server `upper`+`trim`), F6 (three distinct errors incl. deleted-household fold), F8 (non-member reads zero invite rows via authenticated PostgREST, cross-checked against a member seeing rows) all pass; prod read confirmed single `join_household(text)`, `invites_select` = `is_member_of(household_id)`, no anon.
+- **Flag-hid the Browse Meals lens (B6, `8cbbf43`)** — `MEALS_ENABLED=false` gates the tab entry, lens body, `loadMeals`, **and the list-view `fetchMealProvenance`** (which reads `list_item_meals`/`meals` on the core path); ships the code, hides every reachable path to prod-absent meals objects.
+- **Corrected the `search_path` audit six→five** — `bootstrap_new_user` was already pinned by `029`; an observed `proconfig is null` read on prod + dev returned an identical five-function set (no drift). Fixed in ROADMAP + spec Part 5; SESSION_LOG addendum on the 07-31 entry.
+- **Resolved the stale-local-main hazard** — `merge --ff-only origin/main` caught local main up from the Jul-19 pointer before merging dev; fast-forward push only, no force-push.
+**Unfinished:**
+- **Defect (2):** `join_household` raises `P0002` as **HTTP 500** (should be 4xx) — every bad-invite attempt logs a server error in Splunk. Needs a migration change; logged to ROADMAP, out of this release.
+- **B7 — ARCHITECTURE reconciliation:** the `join_household` catalog entry + the resolved authorization Known-Debt items updated this session for `030`-to-prod; a full sweep of the remaining stale items remains.
+- Meals migrations `025`/`026` to prod = a separate decision for a separate session (lens stays flag-hidden until then).
+- Authorization Parts 2, 3, 4b, 5 and the five unpinned `search_path` functions remain open.
+**Next session:**
+SESSION START
+Goal: Either ship `031` (cycle integrity) to dev then the `025`+`026`+`031` prod batch that unblocks meals, or pick up Authorization Part 2 (`bootstrap_new_user` JWT-derived).
+State: RELEASE-2026-08 live on prod (`8cbbf43`); `028`/`029`/`030` all live on the prod DB; meals lens flag-hidden; local main = origin/main = `8cbbf43`.
+Done when: (031 path) `uq_open_cycle_per_household` proven by a failed duplicate insert + `025`+`026`+`031` live on prod with a real user's list unchanged; or (Part 2 path) `bootstrap_new_user` derives identity from the JWT, dead overloads dropped, verified dev→prod.
+**Files updated:** `RELEASE-2026-08.md`, `src/App.js`, `src/hooks/useProvisions.js`, `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/active/SPEC_rls_and_rpc_authorization.md`
+**DB changes:** **Migration `030` applied to PROD** — `join_household(uuid)` dropped for `join_household(p_invite_code text)`; `invites_select` re-scoped `qual=true` → `is_member_of(household_id)`; `anon` EXECUTE + table grants revoked. (`028`/`029` already on prod since 2026-07-31.) `025`/`026` NOT on prod.
+
+---
+
 ### [2026-07-31] — [OurProvisions] — Ship Part 1 to dev, then re-scope the remaining queue against measured evidence
 **Goal:** Ship Part 1 — `join_household` validates the invite server-side — dev-green, with the client-side pre-flight deleted and `household_invites` SELECT locked to members.
 **Completed:**

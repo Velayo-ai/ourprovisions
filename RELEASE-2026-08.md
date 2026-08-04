@@ -1,6 +1,6 @@
 # RELEASE-2026-08 — dev → main
 
-**Status:** blocked on B1, B6
+**Status:** ✅ **SHIPPED to production 2026-08-03** — `origin/main` `1a13e98`→`8cbbf43`, Phase 3 device-verified. Sequence run: resolve B6 (flag-hide) → apply `030` to prod → `merge --ff-only origin/main` (stale local main → prod tip) → `merge dev` → `push origin main` (fast-forward, no force). B1/B2/B6 closed. Remaining: B3 (folded into Phase 3 core-loop verify), B4/B5 (independent), B7 (ARCHITECTURE sweep), defect (2) → ROADMAP NEXT.
 **Baseline:** `origin/main` = `1a13e98` (Jul 28) — this is what Vercel Production serves.
 Do **not** compute the merge delta against local `main`; it is stale at `8a03e0c` (Jul 19).
 Real delta: `origin/main..dev` = 22 commits.
@@ -30,7 +30,7 @@ both a migration and `src/` has to be reasoned about as two separate deployments
 
 ## Blockers
 
-### B1 — `join_household` signature mismatch — BLOCKS MERGE
+### B1 — `join_household` signature mismatch — ✅ RESOLVED (030 on prod + 90d5b92 client)
 
 Commit `db5ec66` contains **both** migration 030 and a +50-line change to
 `src/hooks/useProvisions.js`.
@@ -63,7 +63,7 @@ Two resolutions — pick one:
 Done when: prod DB function signature and the merged client code agree, verified by
 signing in on production and completing a join via invite code.
 
-### B2 — Finish migration 030 verification on dev
+### B2 — Finish migration 030 verification on dev — ✅ DONE (F2/F5/F6/F8 all pass)
 
 Recorded as 5 of 8 checks passed. Outstanding: **F2, F5, F6** unrun. **F8** needs a
 second account that is a member of no household.
@@ -98,7 +98,7 @@ Done when: new tokens live, old ones revoked, preview deploy still reporting RUM
 
 Done when: an actual replay has been watched and inputs confirmed masked, text not.
 
-### B6 — Browse Meals lens is coupled to `add_meal_to_list` — BLOCKS MERGE
+### B6 — Browse Meals lens is coupled to `add_meal_to_list` — ✅ RESOLVED (flag-hidden, MEALS_ENABLED=false, 8cbbf43)
 
 *(Was a "ship visible vs. flag" decision. It is a blocker: shipping the lens visible
 breaks it in production.)*
