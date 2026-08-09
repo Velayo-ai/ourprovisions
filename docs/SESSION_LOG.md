@@ -25,6 +25,34 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-09] — [Cross] — Bitwarden stood up (human/machine split); `.env.local` completed and verified; Vercel Development scope cleared
+**Goal:** Decide the Bitwarden secrets architecture — which product fits, what genuinely needs to be secret, which agents get which credentials, and whether it clears the Vercel Development-scope debt.
+**Completed:**
+- **Decided the human/machine split and stood up the stack.** Password Manager for human retrieval (interactive unlock); Secrets Manager for unattended agent auth (machine accounts + scoped, independently revocable tokens) — different consumers, not competing products. Bitwarden account on `dan@velayo.ai`, Velayo free org, Secrets Manager subscribed. Free tier = unlimited secrets / 2 users / **3 projects / 3 machine accounts** (Inspector, Scribe, Tester); **Watchman is seat #4 and the first paid seat** (~$6/user/mo Teams).
+- **Sorted credentials into tiers** — public-by-construction (Supabase URL + anon/publishable, Clerk `pk_`) vs. genuinely secret (`service_role`, Postgres connection string, `SUPABASE_ACCESS_TOKEN`, Clerk secret, Vercel token, agent PATs). Established that **`.env.local` was never the reason Bitwarden mattered** — the agent roster introduces the first Tier-1 credentials into the system at all.
+- **Found and fixed a missing Clerk key that broke local dev everywhere.** No `.env.local` on any machine — Drive copy, lake desktop, or Surface — carried `REACT_APP_CLERK_PUBLISHABLE_KEY`. `src/index.js` reads it from `process.env` with no fallback and throws on absence; the hardcoded `pk_test_` literal was removed at some point and **no distribution path carried the replacement anywhere.** Pulled `pk_test_` from the Clerk Velayo/Development instance, completed `.env.local`, and verified **functionally** — `npm start` compiled and the Clerk modal rendered in Development mode.
+- **Cleared the Vercel Development scope — root cause was worse than "stale."** `REACT_APP_SUPABASE_URL` and `REACT_APP_SUPABASE_ANON_KEY` were each a **single row scoped to "Production and Development"** — structurally bound, not merely out of date; the shared value is the **prod** project (`parpauldmbetptkmdwbd`), confirmed by inspection. Edited both rows to Production only. Development now holds **zero** variables, by design.
+- **Fixed a corrupted Preview variable** — Preview-scoped `REACT_APP_SUPABASE_ANON_KEY` carried leading/trailing whitespace and a return character (flagged by Vercel since Jun 11, never acted on). Retyped clean and matched against the vault copy.
+- **Stored `ourprovisions .env.local (dev)`** as a secure note in the personal vault (initially with an explicit INCOMPLETE header rather than a silent gap), then **retired the Google Drive `.env.local`** (301 bytes, Jun 12, two-line) once the vault copy was verified by use.
+- **Corrected repo bookkeeping.** `velayo-os/handoff/` is empty and `velayo-os/docs/` holds only the 2026-06-23 scaffold. **The 2026-08-05 agent-charter handoff was produced on the iPhone and never saved to any repo** — the airlock read clear because the file never landed, not because it merged. It was merged immediately ahead of this entry. The 06-23 entry gates the doc split on OurProvisions reaching production, so the empty `velayo-os` stub is by design.
+**Unfinished:**
+- **Inspector's credential shape undecided** — dedicated read-only Postgres role vs. `service_role` with a promise. Recommendation stands: a credential that *cannot* write beats one you promise not to write with.
+- **Scribe's dependency unverified** — it may need no credential at all if it runs inside a Claude Code session on Dan's existing git credentials. Check before treating Bitwarden as its blocker.
+- **No machine account or token created.** The token is shown exactly once, so it was deferred to a session where it can be generated and used together.
+- YubiKeys not purchased (two, ~$110 total). **Vercel recovery codes not in the vault** — the gap that caused tonight's lockout.
+- **RLS still disabled** on `provision_cycles`, `shopping_sessions`, `known_stores` — which is a live correctness gap in the "the anon key is public by construction because RLS is the lock" claim, not a separate hygiene item.
+- **Preview verified by inspection only**, not by an actual preview deploy.
+- **Drive `Velayo OS` folder not audited** — a parallel doc set (`SESSION_LOG.md`, `ROADMAP.md` ×2, `CLAUDE_OS.md`, `VELAYO_BRIEF.md`) sits alongside the repo, including **two files literally named `ROADMAP.md` in the same folder**.
+**Next session:**
+SESSION START
+Goal: Unblock Inspector Part A — decide the credential shape, create the read-only Postgres role, create the `inspector` machine account, generate and use the token in the same sitting.
+State: Bitwarden account + Velayo org + Secrets Manager live on `dan@velayo.ai`; zero machine accounts created. `.env.local` complete and functionally verified on the Surface and in the vault. Vercel Development scope empty; Preview and Production correct. Drive `.env.local` retired. RLS still off on three tables.
+Done when: Inspector can query prod read-only via `bws run` with a credential that **cannot** write, and the token is not stored anywhere on disk in plaintext.
+**Files updated:** No source files. Docs: `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/DEV_SETUP.md` (three corrections directed by the handoff). Changes that landed **outside git**: `ourprovisions/.env.local` (local, gitignored — Clerk key added), Bitwarden vault (new secure note), Vercel `ourprovisions` project env vars (2 rows rescoped, 1 value cleaned), Google Drive (`.env.local` deleted).
+**DB changes:** None. A read-only Postgres role is proposed, not created.
+
+---
+
 ### [2026-08-05] — [Velayo OS] — Charter the agent crew: the ladder, the counting rule, and the Dev/Ops/Growth groups
 **Goal:** Define what actually counts as an agent — in a way that survives the leverage gauge becoming external positioning — then charter the founding roster.
 **Completed:**

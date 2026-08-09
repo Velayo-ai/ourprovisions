@@ -1,7 +1,7 @@
 # OurProvisions — Dev Setup
 
 *How to stand up a working development environment on any machine.*
-*Last updated: 2026-06-13*
+*Last updated: 2026-08-09 — `.env.local` now comes from the **Bitwarden vault**; the Google Drive copy is retired and the Vercel Development scope is intentionally empty.*
 
 ---
 
@@ -66,18 +66,31 @@ cd ourprovisions
 
 ### 4. Drop in `.env.local`  ← the one non-git step
 
-`.env.local` must point at the **dev** Supabase project
-(`zxwtxjjmssykhqrghouf`), NOT prod (`parpauldmbetptkmdwbd`). Confirm it does
-before running `npm start`.
+**Source: the Bitwarden vault** — the secure note `ourprovisions .env.local (dev)`.
+Copy it into the repo root as `.env.local`. That is the only distribution route.
 
-**Current interim source (until a real secrets manager is set up):** a copy of
-`.env.local` lives in personal Google Drive (My Drive, unshared). Download it
-into the repo root. See "Secrets" below for the plan to replace this.
+`.env.local` holds **three** variables and must point at the **dev** Supabase
+project (`zxwtxjjmssykhqrghouf`), NOT prod (`parpauldmbetptkmdwbd`):
 
-> **Do NOT use `vercel env pull` to get this file right now.** Vercel's
-> *Development*-scope Supabase vars still point at **prod** (see "Secrets"),
-> so a pull silently gives you the prod DB — the exact "tests hit prod" trap.
-> Use the Drive copy until the Vercel env scopes are reconciled.
+```
+REACT_APP_SUPABASE_URL
+REACT_APP_SUPABASE_ANON_KEY
+REACT_APP_CLERK_PUBLISHABLE_KEY      # pk_test_ — Velayo/Development instance
+```
+
+> **Confirm it by running the app, not by reading the file.** All three are
+> load-bearing: `src/index.js` reads the Clerk key from `process.env` with no
+> fallback and **throws** when it's absent. On 2026-08-09 *no* `.env.local` on
+> *any* machine carried that key — the hardcoded literal had been removed and no
+> distribution path ever carried the replacement. Reading the file looked fine.
+> Starting the app is what caught it.
+
+> **Vercel is not a source for dev credentials.** The **Development scope is
+> intentionally empty** — `vercel env pull` returning nothing is the designed
+> behaviour, not a misconfiguration. Vercel owns Production and Preview
+> build-time env only. Do not repoint Development; a second source of truth
+> drifts silently, and a stale-but-plausible file fails six weeks later looking
+> like a code bug.
 
 ### 5. Install dependencies & run
 ```
@@ -110,28 +123,36 @@ No `service_role` / `sk_` secrets live in client files — RLS is the real lock.
 Blast radius is low, but still: don't broadcast it. Don't email it to yourself
 or paste it into a shared doc.
 
-**Current state (interim):** a copy lives as a file in personal Google Drive
-(My Drive, unshared). Adequate because the keys are anon/publishable only.
-This is a stopgap, not the final system — set a reminder to delete it once a
-real secrets manager is in place.
+**Current state (since 2026-08-09): the Bitwarden vault.** The secure note
+`ourprovisions .env.local (dev)` in the personal vault is the source of truth.
+New machine = copy, paste, save, **then start the app to confirm**. Works
+offline once synced (matters on the boat). The Google Drive copy is **retired**
+— deleted 2026-08-09 after the vault copy was verified by use.
 
-**Planned fix: Bitwarden.** Free, cross-platform, real secure notes, works
-offline once synced (matters on the boat). When set up: store the full
-`.env.local` contents as a secure note; new machine = copy, paste, save.
+**Vercel is not a source for dev credentials.** The **Development scope is
+intentionally empty**; an empty `vercel env pull` is designed behaviour, not a
+misconfiguration. Vercel owns **Production** and **Preview** build-time env
+only, and there is no Bitwarden→Vercel sync for a one-app fleet.
 
-**Why NOT `vercel env pull` (for now):** Vercel has three env scopes —
-Production / Preview / Development. As of 2026-06-13:
-- **Production** Supabase vars → prod DB (`parpauldmbetptkmdwbd`). Correct.
-- **Preview** Supabase vars → dev DB (`zxwtxjjmssykhqrghouf`). Correct
-  (repointed Jun 12; this is what `dev`-branch preview deploys use).
-- **Development** Supabase vars → still the original 79-day-old **prod**
-  values. `vercel env pull` reads this scope, so it returns prod. Until the
-  Development-scope vars are repointed (or removed) to dev, do not trust a pull.
-- Also: **Preview is missing `REACT_APP_CLERK_PUBLISHABLE_KEY`** — only
-  Production has it. Worth reconciling when fixing the above.
+The Development scope was cleared by **deletion, not repointing** (2026-08-09).
+The root cause was structural rather than stale: `REACT_APP_SUPABASE_URL` and
+`REACT_APP_SUPABASE_ANON_KEY` were each a **single row scoped to "Production
+and Development"**, so Development was structurally bound to the **prod**
+value. Repointing would have created two sources of truth that drift silently.
 
-Once the Development scope is fixed, `vercel env pull .env.local` becomes the
-cleanest distribution route and this doc should be updated to recommend it.
+> **Distribution is a correctness property, not only a security one.** Two live
+> defects came from copy-paste: Preview's `REACT_APP_SUPABASE_ANON_KEY` carried
+> leading/trailing whitespace and a return character (flagged by Vercel since
+> Jun 11, unnoticed until 2026-08-09), and the Clerk key never propagated to any
+> machine at all. Values moved by a tool don't acquire invisible characters or
+> miss a rollout.
+
+**Agent credentials are a separate system.** Humans use the Bitwarden Password
+Manager (interactive unlock); agents use **Secrets Manager** — one machine
+account per seat, a project-scoped token, injected via `bws run` into a
+subprocess and never written to disk. Handing an agent the master password
+would hand it the whole vault with no scoping and no granular revocation.
+See `docs/ARCHITECTURE.md` → "Secrets & Credentials".
 
 ---
 
@@ -178,10 +199,13 @@ The laptop is the one machine where good internet isn't guaranteed.
 - [ ] Git installed
 - [ ] nvm installed; `nvm use 24`; `node -v` shows v24.x
 - [ ] Repo cloned
-- [ ] `.env.local` in place from Google Drive copy (points at dev DB
-      `zxwtxjjmssykhqrghouf` — NOT prod; do not use `vercel env pull`)
+- [ ] `.env.local` in place **from the Bitwarden vault** (points at dev DB
+      `zxwtxjjmssykhqrghouf` — NOT prod; Vercel is not a source)
+- [ ] `.env.local` has **three** variables — Supabase URL, Supabase anon key,
+      **`REACT_APP_CLERK_PUBLISHABLE_KEY`**
 - [ ] `npm install` clean
-- [ ] `npm start` → localhost:3000 loads, sign-in works
+- [ ] `npm start` → localhost:3000 loads, **sign-in modal renders**, sign-in
+      works — confirm by running the app, not by reading the file
 - [ ] Claude Code installed and authenticated
 - [ ] `git pull origin dev` confirms you're current
 
