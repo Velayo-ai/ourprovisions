@@ -25,6 +25,35 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-05] — [Velayo OS] — Charter the agent crew: the ladder, the counting rule, and the Dev/Ops/Growth groups
+**Goal:** Define what actually counts as an agent — in a way that survives the leverage gauge becoming external positioning — then charter the founding roster.
+**Completed:**
+- **Established the ladder `Ritual → Seat → Agent`** with the promotion line *"the human may stand at the gate, but not on the assembly line"* and four qualifying conditions (fails visibly / no human between its own steps / deterministically verifiable output / bounded blast radius). **Ruled Scribe a Seat, not Velayo's first agent** — a human is its transport layer.
+- **Locked the counting rule** — tasks not seats, binary, no partial credit; phrased **"would otherwise require a human"** (not "used to cost Dan time") so it survives a 30-employee company. Gauge is **company-wide, not per-app**, so the 1:20 target must rise with headcount. **Instruments are equipment, not crew** — Splunk Synthetics doesn't count; the Watchman that reads it does.
+- **Promoted Inspector to Agent #1, ahead of Scribe** — Part C static checks need no DB, no secrets, no Bitwarden, and the first hire should be the one that checks the others' work. Adopted **literal crew naming** (Inspector / Scribe / Tester / Fixer / Watchman / Analyst / Migrator) over nautical.
+- **Split the proposed "SRE agent" into Watchman (detect) and Analyst (diagnose)** — SRE is a discipline with no gradeable failure condition. Added the **heartbeat requirement** (a silent Ops agent is indistinguishable from a healthy system) and established **restore ≠ repair**, the rule that lets Analyst L1 have hands without breaching the prod boundary — allowlist only, one attempt then escalate.
+- **Structured the crew as lanes → squads → groups.** Dev / Ops / Growth is a permanent taxonomy by trigger, clock, and blast radius; squads are per-arc and DevOps by construction. **File agents by blast radius, not where the work starts** (Migrator is Ops). **Charters are fleet-level, instances app-level**; agents justify themselves on platform economics, never "find the current."
+- **Added the Growth group** with its own rule — **no Growth agent addresses a human unsupervised: draft, never send.** Chartered Funnel Inspector, Feedback Scribe, Copy Drafter, and set the governing split: **behaviour comes from telemetry, outcomes come from the database** — the R2 invite/depth metric is a `household_members` fact and is never computed from RUM.
+- **Set two-tier escalation** — SMS = wake me (app down, L1 couldn't restore, chosen because SMS rides the cell network where the boat/lake lack data); email digest = tell me. **On-call written as a role, not a person.** Produced `AGENTS.md` (9 sections) and merged it to `docs/AGENTS.md`.
+**Unfinished:**
+- **Ladder event taxonomy undefined** — the closed, named set of R1–R5 events every app implements identically. Gates the Funnel Inspector fleet-wide. Highest-leverage open item.
+- Watchman's thresholds are not numeric; Analyst L1's restore allowlist is not enumerated; Feedback Scribe's tagging taxonomy is undefined.
+- Business Foundation lane still has zero agents and zero charters.
+- **No agent was actually built or promoted** — Inspector remains "in promotion," not hired. This was charter work only; no code was written in either the design session or this merge pass.
+- `AGENTS.md` roster is prose referencing OurProvisions-specific artifacts; will want a per-app instance table at app #2. Deliberately not built early.
+- Bitwarden remains a blocker for automation past pipeline Stage 0 (unchanged).
+- **Scope flag:** this entry is `[Velayo OS]`, not OurProvisions history. It is logged here because the velayo-os repo has no docs yet — it should move on the "Split company log into `velayo-os/docs`" trigger (app #2's first session).
+**Next session:**
+SESSION START
+Goal: Define the ladder event taxonomy — the closed, named set of activation events (R1–R5) that every app fires identically — then verify what Splunk RUM/DEM already captures versus what needs new instrumentation.
+State: `AGENTS.md` chartered and merged to `docs/`. Three groups defined (Dev/Ops/Growth). Inspector is Agent #1 in promotion, unbuilt. Growth charters written, unstaffed. Funnel Inspector blocked on the taxonomy.
+Done when: a named event list exists with each event's source declared (telemetry vs. database), the R2 invite pivot is explicitly assigned to the database, and the gap between "already captured" and "needs building" is written down.
+Watch-outs: this is the last cheap moment to get the taxonomy right — divergent per-app events defeat the fleet-charter model. The taxonomy itself stays Velayo OS; the instrumentation build routes to OurProvisions.
+**Files updated:** `docs/AGENTS.md` (**new** — routed from `handoff/AGENTS.md` per the handoff's `## DROPPED_FILES` manifest), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`. No source files. `docs/ARCHITECTURE.md` deliberately untouched — the new patterns are company-operating-layer, not app architecture (the activation-ladder events become an app-architecture concern at instrumentation time, not now). Design handoff (2026-08-05) consumed + deleted.
+**DB changes:** None.
+
+---
+
 ### [2026-08-03] — [OurProvisions] — Ship RELEASE-2026-08 (dev→main) to production
 **Goal:** Close the merge blockers and ship the accumulated dev delta — RLS authorization Part 1 (`030`), the splash horizon arc, and supporting work — to prod as one coordinated apply-030-then-merge sequence.
 **Completed:**
