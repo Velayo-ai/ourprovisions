@@ -1111,16 +1111,19 @@ function ProvisionsApp() {
   const catRailNode = useRef(null);
   // Which edges have more content past them. Drives BOTH the fade masks and the
   // desktop pager buttons, so a mask never dims content that isn't overflowing.
-  const [railEdges, setRailEdges] = useState({ atStart: true, atEnd: true });
+  const [railEdges, setRailEdges] = useState({ overflows: false, atStart: true, atEnd: true });
 
   const syncRailEdges = useCallback(() => {
     const rail = catRailNode.current;
     if (!rail) return;
     const max = rail.scrollWidth - rail.clientWidth;
+    const overflows = max > 1;
     const atStart = rail.scrollLeft <= 1;
     const atEnd = rail.scrollLeft >= max - 1;
     setRailEdges(prev =>
-      prev.atStart === atStart && prev.atEnd === atEnd ? prev : { atStart, atEnd });
+      prev.overflows === overflows && prev.atStart === atStart && prev.atEnd === atEnd
+        ? prev
+        : { overflows, atStart, atEnd });
   }, []);
 
   // Resting position. An ACTIVE pill is scrolled into view; with no active pill the
@@ -1138,6 +1141,9 @@ function ProvisionsApp() {
       ? Math.max(0, firstActive.offsetLeft - rail.offsetLeft)
       : 0;
     syncRailEdges();
+    // Emoji metrics can settle after this effect and change scrollWidth without
+    // changing the pill set, so re-measure once fonts are ready.
+    if (document.fonts?.ready) document.fonts.ready.then(syncRailEdges).catch(() => {});
   }, [categories, browsePhase, syncRailEdges]);
 
   useEffect(() => {
@@ -1961,13 +1967,18 @@ function ProvisionsApp() {
            narrow one produce identical pill geometry. */
         .cat-pill .cat-em { font-size: 0.92rem; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
         .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
-        /* Desktop-only pagers. Hidden for touch/coarse pointers, which drag. */
-        .rail-page { display: none; }
-        @media (hover: hover) and (pointer: fine) {
-          .rail-page { position: absolute; top: 0; bottom: 0; width: 24px; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 0; border: none; background: transparent; color: #A0724A; font-size: 17px; line-height: 1; cursor: pointer; }
-          .rail-page-l { left: 0; }
-          .rail-page-r { right: 0; }
-        }
+        /* Pagers are gated on OVERFLOW, not pointer type. On hybrid Windows
+           hardware (touchscreen + attached mouse) hover/pointer/any-hover/
+           any-pointer all report false, so no media query can detect the mouse —
+           and that is common hardware, not an edge case. Overflow is a fact about
+           the layout, which is measurable and always true when the affordance is
+           needed. Kept quiet so they're unobtrusive on touch, where dragging makes
+           them redundant. If they distract on a phone, gate by VIEWPORT WIDTH —
+           a size question, which media queries answer reliably. */
+        .rail-page { position: absolute; top: 0; bottom: 0; width: 24px; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 0; border: none; background: transparent; color: #A0724A; opacity: 0.5; font-size: 16px; line-height: 1; cursor: pointer; transition: opacity 0.15s; }
+        .rail-page:hover { opacity: 0.9; }
+        .rail-page-l { left: 0; }
+        .rail-page-r { right: 0; }
         /* Add-item picker — same pill, wrapped and exhaustive. Never scrolls. */
         .cat-grid { display: flex; flex-wrap: wrap; gap: 9px; }
         .cat-pill-new { background: transparent; border-style: dashed; }
@@ -2904,10 +2915,10 @@ function ProvisionsApp() {
               className={`cat-rail-wrap${railEdges.atStart ? " at-start" : ""}${railEdges.atEnd ? " at-end" : ""}`}
               style={{ marginBottom: browseFilterDescriptor ? "4px" : "24px" }}
             >
-              {!railEdges.atStart && (
+              {railEdges.overflows && !railEdges.atStart && (
                 <button className="rail-page rail-page-l" aria-label="Scroll categories left" onClick={() => pageRail(-1)}>‹</button>
               )}
-              {!railEdges.atEnd && (
+              {railEdges.overflows && !railEdges.atEnd && (
                 <button className="rail-page rail-page-r" aria-label="Scroll categories right" onClick={() => pageRail(1)}>›</button>
               )}
               <div className="cat-rail" ref={catRailNode}>
