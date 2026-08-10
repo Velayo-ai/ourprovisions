@@ -21,6 +21,47 @@ const CATEGORY_ORDER = [
   "Produce", "Meat & Seafood", "Dairy", "Pantry", "Beverages", "Household", "Bakery"
 ];
 
+// Category glyph lookup, keyed on the normalized (trim + lowercase) category value.
+// The 📦 fallback is REQUIRED, not defensive padding: `catalog_items.category` is an
+// open set — users create their own — so an exhaustive map is a map that breaks on
+// the next user-created category.
+const CATEGORY_GLYPH = {
+  "staples": "⭐",
+  "produce": "🥦",
+  "meat & seafood": "🥩",
+  "dairy": "🥛",
+  "pantry": "🥫",
+  "beverages": "🧃",
+  "bakery": "🍞",
+  "bakery & bread": "🍞",
+  "household": "🧹",
+};
+const CATEGORY_GLYPH_FALLBACK = "📦";
+const categoryGlyph = (value) =>
+  CATEGORY_GLYPH[String(value ?? "").trim().toLowerCase()] || CATEGORY_GLYPH_FALLBACK;
+
+// Emoji-free category labels. The glyph renders separately in a fixed-width box,
+// so labels here never carry one. CATEGORY_DISPLAY above keeps the combined
+// "🥦 Produce" form that the section headers still use.
+const CATEGORY_LABEL = {
+  "Produce": "Produce",
+  "Meat & Seafood": "Meat & Seafood",
+  "Dairy": "Dairy",
+  "Pantry": "Pantry",
+  "Beverages": "Beverages",
+  "Household": "Household",
+  "Bakery": "Bakery & Bread",
+};
+const categoryLabel = (raw) => CATEGORY_LABEL[raw] || String(raw ?? "");
+
+// Rail-only shortening — the row is space-constrained. Display string ONLY;
+// the stored category value never changes.
+const CATEGORY_RAIL_SHORT = { "Bakery & Bread": "Bakery" };
+const categoryRailLabel = (raw) => {
+  const full = categoryLabel(raw);
+  return CATEGORY_RAIL_SHORT[full] || full;
+};
+
 const SWIPE_THRESHOLD = 60;
 
 // Device-local list text-size steps. Index (0–4) is persisted; scale drives --op-list-scale.
@@ -1016,6 +1057,31 @@ function ProvisionsApp() {
   // Count of active filters for the declutter descriptor line.
   const browseFilterCount = (stapleFilter ? 1 : 0) + selectedCategories.size;
 
+  // Filter descriptor — names the categories, because a name survives the rail
+  // scrolling out of reach where a bare count doesn't. Derived from
+  // displayCategories (already staple-narrowed), so it always describes what is
+  // actually on screen. Returns null when the selection resolves to nothing live,
+  // which lets the cycle line keep the slot rather than listing every category.
+  const browseFilterDescriptor = useMemo(() => {
+    if (selectedCategories.size === 0) return null;
+    const shown = displayCategories.filter(cat => selectedCategories.has(cat.rawName));
+    if (shown.length === 0) return null;
+    return {
+      names: shown.map(cat => categoryRailLabel(cat.rawName)),
+      count: shown.reduce((total, cat) => total + cat.items.length, 0),
+    };
+  }, [selectedCategories, displayCategories]);
+
+  // On mount, bring the first active pill into view. Runs from a ref callback so it
+  // fires exactly when the rail attaches (Browse, phase 0) and never fights a
+  // scroll the user is in the middle of. scrollLeft, not scrollIntoView — the
+  // latter can drag the page vertically on a phone.
+  const catRailRef = useCallback(node => {
+    if (!node) return;
+    const firstActive = node.querySelector('[data-active="1"]');
+    if (firstActive) node.scrollLeft = Math.max(0, firstActive.offsetLeft - node.offsetLeft - 16);
+  }, []);
+
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return null;
     const q = searchQuery.trim().toLowerCase();
@@ -1779,6 +1845,25 @@ function ProvisionsApp() {
         .wrapup { flex: none; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; border-radius: 11px; height: 48px; padding: 0 18px; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; letter-spacing: 0.2px; color: #2C1A0E; cursor: pointer; white-space: nowrap; transition: border-color 0.2s; }
         .wrapup:hover { border-color: #A0724A; }
         .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
+        /* Names in the filter descriptor read as content, not as voice. */
+        .declutter-desc b { font-style: normal; font-weight: 700; color: #A0724A; }
+        /* ── Browse category rail ──
+           Bleeds to the container edges (.container pads 16px) so pills scroll
+           UNDER the fade rather than clipping at it, while resting flush with the
+           section headers below. */
+        .cat-rail-wrap { position: relative; margin: 0 -16px 4px; }
+        .cat-rail-wrap::before, .cat-rail-wrap::after { content: ''; position: absolute; top: 0; bottom: 0; width: 24px; pointer-events: none; z-index: 3; }
+        .cat-rail-wrap::before { left: 0; background: linear-gradient(90deg, #FAF4EC, rgba(250,244,236,0)); }
+        .cat-rail-wrap::after { right: 0; background: linear-gradient(270deg, #FAF4EC, rgba(250,244,236,0)); }
+        .cat-rail { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px 16px 10px; scroll-snap-type: x proximity; scrollbar-width: none; -ms-overflow-style: none; }
+        .cat-rail::-webkit-scrollbar { display: none; }
+        .cat-rail > * { scroll-snap-align: start; flex: 0 0 auto; white-space: nowrap; }
+        .cat-pill { display: flex; align-items: center; gap: 7px; padding: 9px 16px 9px 13px; border-radius: 999px; border: 1px solid #E8D5B7; background: #F5EADA; color: #A0724A; font-family: 'Lato', sans-serif; font-size: 0.82rem; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+        /* The load-bearing detail: a fixed glyph box makes a wide emoji and a
+           narrow one produce identical pill geometry. */
+        .cat-pill .cat-em { font-size: 0.92rem; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
+        .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
+        .cat-clear { display: flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 999px; border: 1px dashed #A0724A; background: transparent; color: #A0724A; font-family: 'Lato', sans-serif; font-size: 0.74rem; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; }
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
@@ -2697,64 +2782,82 @@ function ProvisionsApp() {
               </div>
             </div>
 
-            {/* ── Filter chips — wrapping; hidden when decluttered (phase 1/2) ── */}
+            {/* ── Category rail — single scrolling row; hidden when decluttered (phase 1/2) ── */}
             {browsePhase === 0 && (
-            <div style={{
-              display: "flex", flexWrap: "wrap", gap: "7px",
-              paddingBottom: "14px",
-            }}>
-              {/* Staples — cross-cutting filter */}
-              <button
-                onClick={() => setStapleFilter(f => !f)}
-                style={{
-                  padding: "5px 13px", borderRadius: "20px",
-                  fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", letterSpacing: "0.4px",
-                  whiteSpace: "nowrap", cursor: "pointer",
-                  background: stapleFilter ? "#c8973a" : "#F5EDE0",
-                  color: stapleFilter ? "white" : "#6B4423",
-                  border: `1px solid ${stapleFilter ? "#c8973a" : "#E8D5B7"}`,
-                  transition: "all 0.15s",
-                }}
-              >⭐ Staples</button>
-
-              {/* Category chips — toggle to filter */}
-              {categories.map(cat => {
-                const isActive = selectedCategories.has(cat.rawName);
-                return (
+            <div className="cat-rail-wrap">
+              <div className="cat-rail" ref={catRailRef}>
+                {/* Clear chip — head of the rail, deliberately unlike a category
+                    pill because it isn't one. Clears categories only. */}
+                {selectedCategories.size > 0 && (
                   <button
-                    key={cat.rawName}
-                    onClick={() => {
-                      setSelectedCategories(prev => {
-                        const next = new Set(prev);
-                        if (next.has(cat.rawName)) {
-                          next.delete(cat.rawName);
-                        } else {
-                          next.add(cat.rawName);
-                        }
-                        return next;
-                      });
-                    }}
-                    style={{
-                      padding: "5px 13px", borderRadius: "20px",
-                      fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", letterSpacing: "0.4px",
-                      whiteSpace: "nowrap", cursor: "pointer",
-                      background: isActive ? "#A0724A" : "#F5EDE0",
-                      color: isActive ? "white" : "#6B4423",
-                      border: `1px solid ${isActive ? "#A0724A" : "#E8D5B7"}`,
-                      transition: "all 0.15s",
-                    }}
-                  >{cat.name}</button>
-                );
-              })}
+                    className="cat-clear"
+                    onClick={() => setSelectedCategories(new Set())}
+                  >✕ Clear {selectedCategories.size}</button>
+                )}
+
+                {/* Staples — cross-cutting filter */}
+                <button
+                  className={`cat-pill${stapleFilter ? " on" : ""}`}
+                  data-active={stapleFilter ? "1" : undefined}
+                  onClick={() => setStapleFilter(f => !f)}
+                >
+                  <span className="cat-em">{categoryGlyph("Staples")}</span>Staples
+                </button>
+
+                {/* Category pills — toggle to filter */}
+                {categories.map(cat => {
+                  const isActive = selectedCategories.has(cat.rawName);
+                  return (
+                    <button
+                      key={cat.rawName}
+                      className={`cat-pill${isActive ? " on" : ""}`}
+                      data-active={isActive ? "1" : undefined}
+                      onClick={() => {
+                        setSelectedCategories(prev => {
+                          const next = new Set(prev);
+                          if (next.has(cat.rawName)) {
+                            next.delete(cat.rawName);
+                          } else {
+                            next.add(cat.rawName);
+                          }
+                          return next;
+                        });
+                      }}
+                    >
+                      <span className="cat-em">{categoryGlyph(cat.rawName)}</span>
+                      {categoryRailLabel(cat.rawName)}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
             )}
-            {browsePhase !== 0 && (
+
+            {/* ── Descriptor — ONE slot, shared with the declutter cycle.
+                 When categories are filtering, the filter line REPLACES the cycle
+                 line entirely; otherwise the cycle line is untouched. Never both. */}
+            {browseFilterDescriptor ? (
+              <div className="declutter-desc" style={{ margin: "0 0 14px" }}>
+                Showing{" "}
+                {browseFilterDescriptor.names.length === 1 ? (
+                  <b>{browseFilterDescriptor.names[0]}</b>
+                ) : browseFilterDescriptor.names.length === 2 ? (
+                  <><b>{browseFilterDescriptor.names[0]}</b> and <b>{browseFilterDescriptor.names[1]}</b></>
+                ) : (
+                  <>
+                    <b>{browseFilterDescriptor.names[0]}</b>, <b>{browseFilterDescriptor.names[1]}</b>
+                    {" "}and {browseFilterDescriptor.names.length - 2} more
+                  </>
+                )}
+                {" "}— {browseFilterDescriptor.count} item{browseFilterDescriptor.count === 1 ? "" : "s"}
+              </div>
+            ) : browsePhase !== 0 ? (
               <div className="declutter-desc" style={{ margin: "0 0 14px" }}>
                 {browseFilterCount > 0
                   ? `${browseFilterCount} filter${browseFilterCount === 1 ? "" : "s"} active · filters hidden`
                   : "filters hidden"}
               </div>
-            )}
+            ) : null}
 
             {/* ── Catalog body ── */}
             {catalogLoading ? (
