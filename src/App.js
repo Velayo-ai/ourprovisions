@@ -62,6 +62,39 @@ const categoryRailLabel = (raw) => {
   return CATEGORY_RAIL_SHORT[full] || full;
 };
 
+// Add-item category picker — the same pills as the Browse rail, the OPPOSITE
+// layout, and the divergence is deliberate: scroll where you're grazing, show
+// everything where you're choosing. The rail scrolls because the user is
+// browsing and may pick several; this wraps and renders every category because
+// the user is completing a task and must pick exactly one. A category hidden
+// off-screen is a category they won't file under, and misfiling degrades the
+// catalog permanently. Do NOT unify these two surfaces.
+function CategoryPickerGrid({ categories, selected, onSelect, onNewCategory }) {
+  return (
+    <div className="cat-grid">
+      {categories.map(cat => (
+        <button
+          key={cat.rawName}
+          type="button"
+          className={`cat-pill${selected === cat.rawName ? " on" : ""}`}
+          onClick={() => onSelect(cat.rawName)}
+        >
+          {/* Full label here — the rail's "Bakery" shortening is for a
+              space-constrained row; accuracy matters more at filing time. */}
+          <span className="cat-em">{categoryGlyph(cat.rawName)}</span>
+          {categoryLabel(cat.rawName)}
+        </button>
+      ))}
+      {/* This tile is the surface that produced today's stray categories, so it
+          stays — but it now reads as a deliberate option rather than the only
+          escape from a list that didn't have the right answer. */}
+      <button type="button" className="cat-pill cat-pill-new" onClick={onNewCategory}>
+        <span className="cat-em">+</span>New category
+      </button>
+    </div>
+  );
+}
+
 const SWIPE_THRESHOLD = 60;
 
 // Device-local list text-size steps. Index (0–4) is persisted; scale drives --op-list-scale.
@@ -917,6 +950,9 @@ function ProvisionsApp() {
   const [selectedCategories, setSelectedCategories] = useState(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPickerOpen, setSearchPickerOpen] = useState(false);
+  // The `+ New category` tile reveals the name input, rather than the input
+  // sitting open as a second, competing answer to "where does this go?".
+  const [searchNewCatOpen, setSearchNewCatOpen] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
@@ -1139,6 +1175,7 @@ function ProvisionsApp() {
     }
     setSearchQuery("");
     setSearchPickerOpen(false);
+    setSearchNewCatOpen(false);
     setNewCategoryInput("");
   };
 
@@ -1870,6 +1907,10 @@ function ProvisionsApp() {
            narrow one produce identical pill geometry. */
         .cat-pill .cat-em { font-size: 0.92rem; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
         .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
+        /* Add-item picker — same pill, wrapped and exhaustive. Never scrolls. */
+        .cat-grid { display: flex; flex-wrap: wrap; gap: 9px; }
+        .cat-pill-new { background: transparent; border-style: dashed; }
+        .picker-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 12px; }
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
@@ -2970,29 +3011,24 @@ function ProvisionsApp() {
                             </div>
                             <span style={{ color: "#C9A97A", fontSize: "18px" }}>−</span>
                           </div>
-                          <div style={{ padding: "0 14px 4px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
-                            Where does it belong?
+                          {/* Global entry — no section context, so nothing is
+                              pre-selected and the copy asks rather than confirms. */}
+                          <div className="picker-sub" style={{ padding: "0 14px", marginBottom: "10px" }}>
+                            Pick a category and we'll file it for next time.
                           </div>
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: "7px", padding: "0 14px 10px" }}>
-                            {categories.filter(cat => cat.rawName !== "⭐ My Custom Items").map(cat => (
-                              <button
-                                key={cat.rawName}
-                                onClick={() => addSearchedItem(cat.rawName)}
-                                style={{
-                                  padding: "6px 14px", borderRadius: "20px",
-                                  fontFamily: "'Lato', sans-serif", fontSize: "12px",
-                                  cursor: "pointer",
-                                  border: "1px solid #E8D5B7",
-                                  background: "#F5EDE0", color: "#6B4423",
-                                  transition: "all 0.15s",
-                                }}
-                              >{cat.name}</button>
-                            ))}
+                          <div style={{ padding: "0 14px 10px" }}>
+                            <CategoryPickerGrid
+                              categories={categories.filter(cat => cat.rawName !== "⭐ My Custom Items")}
+                              selected={null}
+                              onSelect={addSearchedItem}
+                              onNewCategory={() => setSearchNewCatOpen(true)}
+                            />
                           </div>
-                          {/* ── New category inline input ── */}
+                          {/* ── New category inline input — revealed by the tile ── */}
+                          {searchNewCatOpen && (
                           <div style={{ padding: "0 14px 14px" }}>
                             <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
-                              Or create a new category
+                              Name the new category
                             </div>
                             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                               <input
@@ -3031,6 +3067,7 @@ function ProvisionsApp() {
                               >+</button>
                             </div>
                           </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -3397,19 +3434,22 @@ function ProvisionsApp() {
                   <span style={{ fontStyle: "italic", fontSize: "10px", color: "#C9A97A", fontWeight: 400 }}>tap below to unhide</span>
                 )}
               </label>
-              <select className="modal-select" value={newItemCategory}
-                onChange={(e) => {
-                  if (e.target.value === "__new__") {
-                    setShowManageCategoriesModal(true);
-                  } else {
-                    setNewItemCategory(e.target.value);
-                    setAddModalResetDone(false);
-                  }
-                }}>
-                {categories.map(cat => (
-                  <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
-                ))}
-              </select>
+              {/* This modal is only ever reached from a section header's
+                  "＋ Add item", so the category is already known — the user
+                  answered by choosing where they tapped. The step is a
+                  confirmation, not a question. */}
+              <div className="picker-sub">
+                Filed under {categoryLabel(newItemCategory)}. Tap another to move it.
+              </div>
+              <CategoryPickerGrid
+                categories={categories}
+                selected={newItemCategory}
+                onSelect={(raw) => {
+                  setNewItemCategory(raw);
+                  setAddModalResetDone(false);
+                }}
+                onNewCategory={() => setShowManageCategoriesModal(true)}
+              />
               {isSignedIn && !newItemName.trim() && (
                 addModalResetDone ? (
                   <div style={{ fontSize: "12px", color: "#A0724A", fontStyle: "italic", marginTop: "6px" }}>
