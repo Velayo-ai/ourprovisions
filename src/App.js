@@ -1855,7 +1855,14 @@ function ProvisionsApp() {
         .cat-rail-wrap::before, .cat-rail-wrap::after { content: ''; position: absolute; top: 0; bottom: 0; width: 24px; pointer-events: none; z-index: 3; }
         .cat-rail-wrap::before { left: 0; background: linear-gradient(90deg, #FAF4EC, rgba(250,244,236,0)); }
         .cat-rail-wrap::after { right: 0; background: linear-gradient(270deg, #FAF4EC, rgba(250,244,236,0)); }
-        .cat-rail { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px 16px 10px; scroll-snap-type: x proximity; scrollbar-width: none; -ms-overflow-style: none; }
+        /* scroll-padding-left MUST match padding-left. The snapport is the
+           scrollport, which includes the padding area — so with scroll-snap-align:
+           start and no scroll-padding, the browser snaps the first pill's edge to
+           x=0 and visually cancels the 16px, landing it flush to the screen edge
+           under the fade. Padding lives inside the scroller so the rail stays
+           full-bleed; 16px matches .container's horizontal padding, which is what
+           the search bar, descriptor, and item rows align to. */
+        .cat-rail { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px 16px; scroll-padding-left: 16px; scroll-snap-type: x proximity; scrollbar-width: none; -ms-overflow-style: none; }
         .cat-rail::-webkit-scrollbar { display: none; }
         .cat-rail > * { scroll-snap-align: start; flex: 0 0 auto; white-space: nowrap; }
         .cat-pill { display: flex; align-items: center; gap: 7px; padding: 9px 16px 9px 13px; border-radius: 999px; border: 1px solid #E8D5B7; background: #F5EADA; color: #A0724A; font-family: 'Lato', sans-serif; font-size: 0.82rem; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
@@ -1863,7 +1870,6 @@ function ProvisionsApp() {
            narrow one produce identical pill geometry. */
         .cat-pill .cat-em { font-size: 0.92rem; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
         .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
-        .cat-clear { display: flex; align-items: center; gap: 6px; padding: 9px 14px; border-radius: 999px; border: 1px dashed #A0724A; background: transparent; color: #A0724A; font-family: 'Lato', sans-serif; font-size: 0.74rem; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; }
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
@@ -2783,18 +2789,12 @@ function ProvisionsApp() {
             </div>
 
             {/* ── Category rail — single scrolling row; hidden when decluttered (phase 1/2) ── */}
+            {/* Bottom gap is 8px when the descriptor follows (4px rail padding +
+                4px here) and 28px when the slot collapses, so the space below the
+                rail is stable whether the descriptor is present or not. */}
             {browsePhase === 0 && (
-            <div className="cat-rail-wrap">
+            <div className="cat-rail-wrap" style={{ marginBottom: browseFilterDescriptor ? "4px" : "24px" }}>
               <div className="cat-rail" ref={catRailRef}>
-                {/* Clear chip — head of the rail, deliberately unlike a category
-                    pill because it isn't one. Clears categories only. */}
-                {selectedCategories.size > 0 && (
-                  <button
-                    className="cat-clear"
-                    onClick={() => setSelectedCategories(new Set())}
-                  >✕ Clear {selectedCategories.size}</button>
-                )}
-
                 {/* Staples — cross-cutting filter */}
                 <button
                   className={`cat-pill${stapleFilter ? " on" : ""}`}
@@ -2837,8 +2837,10 @@ function ProvisionsApp() {
                  When categories are filtering, the filter line REPLACES the cycle
                  line entirely; otherwise the cycle line is untouched. Never both. */}
             {browseFilterDescriptor ? (
-              <div className="declutter-desc" style={{ margin: "0 0 14px" }}>
-                Showing{" "}
+              <div className="declutter-desc" style={{ margin: "0 0 28px" }}>
+                {/* At phase 1 the rail is hidden, so the line describes an active
+                    state rather than a visible selection. */}
+                {browsePhase === 1 ? "Filtering" : "Showing"}{" "}
                 {browseFilterDescriptor.names.length === 1 ? (
                   <b>{browseFilterDescriptor.names[0]}</b>
                 ) : browseFilterDescriptor.names.length === 2 ? (
@@ -2852,7 +2854,7 @@ function ProvisionsApp() {
                 {" "}— {browseFilterDescriptor.count} item{browseFilterDescriptor.count === 1 ? "" : "s"}
               </div>
             ) : browsePhase !== 0 ? (
-              <div className="declutter-desc" style={{ margin: "0 0 14px" }}>
+              <div className="declutter-desc" style={{ margin: "0 0 28px" }}>
                 {browseFilterCount > 0
                   ? `${browseFilterCount} filter${browseFilterCount === 1 ? "" : "s"} active · filters hidden`
                   : "filters hidden"}
