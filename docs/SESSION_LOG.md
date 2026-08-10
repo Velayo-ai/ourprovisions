@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-09] — [OurProvisions] — Redesign Browse category filters as a single-row rail and fix the add-item category picker
+**Goal:** Replace the four-row wrapped grid of emoji category pills in Browse with something that reads as a filter control and stops eating a third of the viewport.
+**Completed:**
+- **Diagnosed the real defect as layout, not emoji** — ragged rows came from variable glyph widths, solved by a **fixed 17px glyph box** rather than by removing the icons.
+- **Rejected the tab/underline treatment** on Dan's read that filters must not borrow navigation's visual language; multi-select confirmed against `selectedCategories`.
+- **Settled the rail:** single horizontal row, hidden scrollbar, proximity snap, cream gradient edge masks (fade, never clip), active pill fills espresso, **no checkmark swap**.
+- **Established the icon map as a lookup with a mandatory 📦 fallback** — category values are not a closed set, so an exhaustive map is a map that breaks on the next user-created category.
+- **Resolved the descriptor collision:** one slot shared with the declutter cycle; filter text **fully replaces** cycle text when filters are active. Truth table authored across all six phase × filter states.
+- **Chose descriptor copy that names categories** (`Showing Produce and Dairy — 25 items`) over consequence-phrasing or bare counts, because names survive the rail scrolling out of reach.
+- **Designed the add-item category picker as the deliberate opposite of the rail** — wrapped grid, all categories visible, single-select, pre-selected when entered from a section header.
+**Unfinished:**
+- **Build not started.** The spec is routed and ready; no code was written this session.
+- Category data cleanup (merge `Bakery & Bread` / `Bread & Desserts`, retire `Mexican Asian`) — scoped and deferred, needs its own spec and must not land during the Clerk cutover.
+- Sticky rail beneath the search bar — deliberately cut from v1; interacts with the photo header scroll and phase-1 hidden state.
+- **Airlock note:** the payload arrived **mid-merge**, several minutes after `design_handoff.md` — the first airlock read showed the manifest's files absent everywhere (repo, `~/Downloads`, Desktop). All three keepers were routed once they landed. The three superseded explorations (`mockup_category_row.html`, `mockup_category_filters_icons.html`, `mockup_filters_check_ab.html`) were marked **discard** in the manifest and never arrived, so nothing was deleted. **Drop the handoff and its payload together** — a manifest that arrives before its files is indistinguishable from files that were never saved, which is exactly what happened to the 2026-08-05 agent charter.
+**Next session:**
+SESSION START
+Goal: Build the Browse category rail + add-item picker per `docs/specs/active/SPEC_browse_category_rail.md`.
+State: Spec and both mockups routed and in the repo. Design settled; decisions merged into ROADMAP + ARCHITECTURE. No schema or auth-path change involved. Clerk prod cutover still gated on Christopher, Heddi and Jean accepting invites — unchanged by this work.
+Done when: the rail ships to dev and all eleven verification steps in the spec pass — notably **truth-table row four** (phase 1 + filters active shows the filter line) and the **📦 fallback firing on `Mexican Asian`**.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; routed from the airlock — `docs/specs/active/SPEC_browse_category_rail.md`, `docs/mockups/mockup_filters_emoji_descriptor.html`, `docs/mockups/mockup_add_item_category_picker.html`. No source files.
+**DB changes:** None.
+
+---
+
 ### [2026-08-09] — [Cross] — Bitwarden stood up (human/machine split); `.env.local` completed and verified; Vercel Development scope cleared
 **Goal:** Decide the Bitwarden secrets architecture — which product fits, what genuinely needs to be secret, which agents get which credentials, and whether it clears the Vercel Development-scope debt.
 **Completed:**

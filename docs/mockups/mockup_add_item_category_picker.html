@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Add item · category picker</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Lato:wght@300;400;700&display=swap');
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC; --teal:#0D9488;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:'Lato',sans-serif; background:#d8c9b0; color:var(--espresso);
+        padding:26px 12px 60px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .label{ width:100%; max-width:390px; font-size:11px; font-weight:700; letter-spacing:.09em;
+          text-transform:uppercase; color:#5c4632; margin:30px 0 2px; }
+  .label span{ display:block; font-weight:400; text-transform:none; letter-spacing:0;
+               font-size:12px; color:#6b5540; margin-top:3px; }
+
+  .phone{ width:390px; background:#efe3d2; border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,.26); padding-top:70px; }
+  .sheet{ background:var(--cream); border-radius:20px 20px 0 0; padding:8px 0 22px;
+          box-shadow:0 -6px 26px rgba(44,26,14,.14); }
+  .grab{ width:42px; height:4px; border-radius:2px; background:var(--hairline); margin:4px auto 14px; }
+
+  .step{ font-size:.6rem; letter-spacing:.2em; text-transform:uppercase; color:var(--sand);
+         font-weight:700; padding:0 20px 5px; }
+  .title{ font-family:'Playfair Display',serif; font-size:1.22rem; padding:0 20px 3px; }
+  .sub{ font-size:.82rem; color:var(--muted); padding:0 20px 16px; }
+
+  .named{ margin:0 20px 18px; padding:12px 14px; background:#F3E7D6; border-radius:11px;
+          display:flex; align-items:center; justify-content:space-between; }
+  .named .n{ font-size:1rem; font-weight:700; }
+  .named .edit{ font-size:.74rem; color:var(--clay); letter-spacing:.06em; text-transform:uppercase; }
+
+  .grid{ display:flex; flex-wrap:wrap; gap:9px; padding:0 20px; }
+  .pick{ display:flex; align-items:center; gap:7px; padding:11px 16px 11px 13px;
+         border-radius:999px; border:1px solid var(--hairline); background:#F5EADA;
+         color:var(--clay); font-size:.86rem; cursor:pointer; }
+  .pick .em{ font-size:.95rem; line-height:1; width:17px; text-align:center; flex:0 0 auto; }
+  .pick.on{ background:var(--espresso); border-color:var(--espresso); color:var(--cream); font-weight:700; }
+  .pick.new{ background:transparent; border-style:dashed; color:var(--clay); }
+
+  .hint{ font-size:.78rem; font-style:italic; color:var(--muted); padding:16px 20px 0; }
+  .hint b{ font-style:normal; font-weight:700; color:var(--clay); }
+
+  .note{ width:100%; max-width:390px; font-size:12.5px; line-height:1.55; color:#4a3728;
+         background:rgba(255,255,255,.5); border-left:3px solid var(--clay);
+         padding:11px 13px; border-radius:0 8px 8px 0; margin-top:24px; }
+  .note + .note{ margin-top:10px; }
+
+  .ghost{ padding:0 20px 4px; }
+  .ghost .g{ display:flex; align-items:center; justify-content:space-between;
+             background:#F3E7D6; border-radius:11px; padding:13px 14px 13px 16px; margin-bottom:8px;
+             opacity:.45; }
+  .ghost .g span{ font-size:.98rem; }
+</style>
+</head>
+<body>
+
+<div class="label">1 — Cold add · every category visible <span>No scrolling, no hunting. One tap picks the category and closes the sheet — the item is added.</span></div>
+<div class="phone">
+  <div class="ghost">
+    <div class="g"><span>Apples</span></div>
+    <div class="g"><span>Avocados</span></div>
+  </div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="step">Step 2 of 2</div>
+    <div class="title">Where does it live?</div>
+    <div class="sub">Pick a category and we'll file it for next time.</div>
+    <div class="named"><div class="n">Sourdough Loaf</div><div class="edit">Edit</div></div>
+    <div class="grid">
+      <div class="pick"><span class="em">⭐</span>Staples</div>
+      <div class="pick"><span class="em">🥦</span>Produce</div>
+      <div class="pick"><span class="em">🥩</span>Meat &amp; Seafood</div>
+      <div class="pick"><span class="em">🥛</span>Dairy</div>
+      <div class="pick"><span class="em">🥫</span>Pantry</div>
+      <div class="pick"><span class="em">🧃</span>Beverages</div>
+      <div class="pick"><span class="em">🍞</span>Bakery &amp; Bread</div>
+      <div class="pick"><span class="em">🧹</span>Household</div>
+      <div class="pick"><span class="em">📦</span>Other</div>
+      <div class="pick new"><span class="em">+</span>New category</div>
+    </div>
+  </div>
+</div>
+
+<div class="label">2 — Added from a section header <span>The category is already known. Pre-selected, sheet ready to dismiss — the picker becomes a confirmation, not a question.</span></div>
+<div class="phone">
+  <div class="ghost">
+    <div class="g"><span>Apples</span></div>
+    <div class="g"><span>Avocados</span></div>
+  </div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="step">Step 2 of 2</div>
+    <div class="title">Where does it live?</div>
+    <div class="sub">Filed under Produce. Tap another to move it.</div>
+    <div class="named"><div class="n">Rainbow Chard</div><div class="edit">Edit</div></div>
+    <div class="grid">
+      <div class="pick"><span class="em">⭐</span>Staples</div>
+      <div class="pick on"><span class="em">🥦</span>Produce</div>
+      <div class="pick"><span class="em">🥩</span>Meat &amp; Seafood</div>
+      <div class="pick"><span class="em">🥛</span>Dairy</div>
+      <div class="pick"><span class="em">🥫</span>Pantry</div>
+      <div class="pick"><span class="em">🧃</span>Beverages</div>
+      <div class="pick"><span class="em">🍞</span>Bakery &amp; Bread</div>
+      <div class="pick"><span class="em">🧹</span>Household</div>
+      <div class="pick"><span class="em">📦</span>Other</div>
+      <div class="pick new"><span class="em">+</span>New category</div>
+    </div>
+    <div class="hint">Tapping <b>+ Add item</b> under a section already answers this — the sheet opens with that category on.</div>
+  </div>
+</div>
+
+<div class="note"><strong>Same pills, opposite layout.</strong> The Browse rail scrolls because you're grazing and may pick several. The picker wraps because you're completing and must pick exactly one — a category hidden off-screen is a category the user won't file under, and misfiled items are what makes the catalog worse over time.</div>
+
+<div class="note"><strong>Full label here, short label on the rail.</strong> "Bakery &amp; Bread" spells out in the picker because accuracy matters at filing time and vertical space is cheap in a sheet. The rail's "Bakery" is a display shortening only — same stored value.</div>
+
+<script>
+  document.querySelectorAll('.grid').forEach(function(g){
+    g.addEventListener('click', function(e){
+      var p = e.target.closest('.pick'); if(!p || p.classList.contains('new')) return;
+      g.querySelectorAll('.pick.on').forEach(function(x){ x.classList.remove('on'); });
+      p.classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>

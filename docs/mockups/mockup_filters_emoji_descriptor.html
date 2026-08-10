@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Browse filters · emoji rail + descriptor</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ font-family:'Lato',sans-serif; background:#d8c9b0; color:var(--espresso);
+        padding:26px 12px 60px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+
+  .label{ width:100%; max-width:390px; font-size:11px; font-weight:700; letter-spacing:.09em;
+          text-transform:uppercase; color:#5c4632; margin:30px 0 2px; }
+  .label span{ display:block; font-weight:400; text-transform:none; letter-spacing:0;
+               font-size:12px; color:#6b5540; margin-top:3px; }
+
+  .phone{ width:390px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,.26); }
+
+  .hero{ position:relative; height:150px;
+         background:linear-gradient(160deg,#7c8a5e 0%,#5f7a63 40%,#3f5548 100%); }
+  .hero::after{ content:''; position:absolute; inset:0;
+                background:linear-gradient(180deg,rgba(44,26,14,.42) 0%,rgba(44,26,14,.12) 45%,rgba(44,26,14,.62) 100%); }
+  .hero-top{ position:absolute; inset:12px 14px auto 14px; display:flex; align-items:center;
+             justify-content:space-between; z-index:2; }
+  .avatar{ width:38px; height:38px; border-radius:50%; background:#0D9488; color:#fff;
+           display:flex; align-items:center; justify-content:center; font-size:.78rem; font-weight:700; }
+  .place{ font-family:'Playfair Display',serif; color:#fff; font-size:1rem; letter-spacing:.16em;
+          text-shadow:0 1px 6px rgba(0,0,0,.45); }
+  .dots{ color:rgba(255,255,255,.85); font-size:1.1rem; }
+  .tabs{ position:absolute; left:0; right:0; bottom:0; display:flex; z-index:2;
+         border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; text-align:center; padding:8px 0 12px; color:rgba(255,255,255,.72);
+        font-size:.66rem; letter-spacing:.18em; text-transform:uppercase;
+        text-shadow:0 1px 5px rgba(0,0,0,.5); }
+  .tab.active{ color:#fff; font-weight:700; }
+  .tab .ico{ display:block; font-size:1rem; margin-bottom:4px; }
+
+  .searchbar{ display:flex; gap:9px; padding:14px 16px 10px; }
+  .field{ flex:1; height:46px; border-radius:12px; background:#F3E7D6;
+          border:1px solid var(--hairline); display:flex; align-items:center; gap:9px;
+          padding:0 14px; color:var(--muted); font-size:.92rem; }
+  .cycle{ width:46px; height:46px; border-radius:12px; background:#fff;
+          border:1px solid var(--hairline); display:flex; align-items:center; justify-content:center; }
+
+  .catrail{ position:relative; }
+  .catrail::before,.catrail::after{ content:''; position:absolute; top:0; bottom:0; width:24px;
+        pointer-events:none; z-index:3; }
+  .catrail::before{ left:0;  background:linear-gradient(90deg,var(--cream),rgba(250,244,236,0)); }
+  .catrail::after { right:0; background:linear-gradient(270deg,var(--cream),rgba(250,244,236,0)); }
+  .cats{ display:flex; align-items:center; gap:8px; overflow-x:auto; padding:4px 16px 10px;
+         scroll-snap-type:x proximity; scrollbar-width:none; }
+  .cats::-webkit-scrollbar{ display:none; }
+  .cats > *{ scroll-snap-align:start; flex:0 0 auto; white-space:nowrap; }
+
+  .cat{ display:flex; align-items:center; gap:7px; padding:9px 16px 9px 13px;
+        border-radius:999px; border:1px solid var(--hairline); background:#F5EADA;
+        color:var(--clay); font-size:.82rem; cursor:pointer; }
+  .cat .em{ font-size:.92rem; line-height:1; width:17px; text-align:center; flex:0 0 auto; }
+  .cat.on{ background:var(--espresso); border-color:var(--espresso); color:var(--cream); font-weight:700; }
+
+  .clear{ display:flex; align-items:center; gap:6px; padding:9px 14px; border-radius:999px;
+          border:1px dashed var(--clay); background:transparent; color:var(--clay);
+          font-size:.74rem; letter-spacing:.05em; text-transform:uppercase; cursor:pointer; }
+
+  /* the descriptor */
+  .desc{ font-size:.8rem; font-style:italic; color:var(--muted); padding:0 18px 12px;
+         min-height:20px; line-height:1.4; }
+  .desc b{ font-style:normal; font-weight:700; color:var(--clay); }
+
+  .sect{ display:flex; align-items:baseline; justify-content:space-between;
+         padding:6px 16px 8px; border-bottom:1px solid var(--hairline); margin:0 0 10px; }
+  .sect-name{ font-size:.72rem; font-weight:700; letter-spacing:.22em; text-transform:uppercase; color:var(--clay); }
+  .sect-add{ font-size:.8rem; color:var(--clay); }
+  .rows{ padding:0 16px 18px; }
+  .row{ display:flex; align-items:center; justify-content:space-between;
+        background:#F3E7D6; border-radius:11px; padding:14px 14px 14px 16px; margin-bottom:8px; }
+  .row-name{ font-size:1rem; }
+  .add{ padding:8px 20px; border-radius:999px; border:1px solid var(--clay);
+        color:var(--clay); font-size:.82rem; font-weight:700; background:transparent; }
+
+  /* copy comparison */
+  .copy{ width:390px; background:var(--cream); border-radius:16px; padding:6px 0 10px;
+         box-shadow:0 8px 26px rgba(44,26,14,.18); }
+  .copy h4{ font-size:.66rem; letter-spacing:.2em; text-transform:uppercase; color:var(--clay);
+            padding:12px 18px 6px; font-weight:700; }
+  .cline{ padding:9px 18px; border-top:1px solid var(--hairline); }
+  .cline .st{ font-size:.6rem; letter-spacing:.14em; text-transform:uppercase; color:var(--sand);
+              font-weight:700; margin-bottom:3px; }
+  .cline .tx{ font-size:.8rem; font-style:italic; color:var(--muted); }
+  .cline .tx b{ font-style:normal; font-weight:700; color:var(--clay); }
+  .cline .tx em{ color:#b8a68a; }
+
+  .note{ width:100%; max-width:390px; font-size:12.5px; line-height:1.55; color:#4a3728;
+         background:rgba(255,255,255,.5); border-left:3px solid var(--clay);
+         padding:11px 13px; border-radius:0 8px 8px 0; margin-top:24px; }
+</style>
+</head>
+<body>
+
+<div class="label">Emoji rail · no checks · live descriptor <span>Tap pills to toggle. The line under the rail rewrites itself, and the Clear chip comes and goes with it.</span></div>
+<div class="phone">
+  <div class="hero"><div class="hero-top"><div class="avatar">DH</div><div class="place">SACANDAGA</div><div class="dots">⋯</div></div>
+    <div class="tabs"><div class="tab"><span class="ico">▲</span>Plan</div><div class="tab active"><span class="ico">▤</span>Browse</div><div class="tab"><span class="ico">◗</span>Shop</div></div></div>
+  <div class="searchbar"><div class="field">🔍 Search your catalog…</div>
+    <div class="cycle"><svg width="20" height="14" viewBox="0 0 20 14"><g fill="#A0724A"><rect y="0" width="20" height="2" rx="1"/><rect x="3" y="6" width="14" height="2" rx="1"/><rect x="6" y="12" width="8" height="2" rx="1"/></g></svg></div></div>
+  <div class="catrail"><div class="cats" data-rail>
+    <div class="cat on" data-n="Produce" data-c="14"><span class="em">🥦</span>Produce</div>
+    <div class="cat on" data-n="Dairy" data-c="11"><span class="em">🥛</span>Dairy</div>
+    <div class="cat" data-n="Staples" data-c="9"><span class="em">⭐</span>Staples</div>
+    <div class="cat" data-n="Meat &amp; Seafood" data-c="7"><span class="em">🥩</span>Meat &amp; Seafood</div>
+    <div class="cat" data-n="Pantry" data-c="23"><span class="em">🥫</span>Pantry</div>
+    <div class="cat" data-n="Beverages" data-c="8"><span class="em">🧃</span>Beverages</div>
+    <div class="cat" data-n="Bakery" data-c="6"><span class="em">🍞</span>Bakery</div>
+    <div class="cat" data-n="Household" data-c="12"><span class="em">🧹</span>Household</div>
+    <div class="cat" data-n="Other" data-c="5"><span class="em">📦</span>Other</div>
+  </div></div>
+  <div class="desc" data-desc></div>
+  <div class="sect"><div class="sect-name">🥦 Produce</div><div class="sect-add">+ Add item</div></div>
+  <div class="rows">
+    <div class="row"><div class="row-name">Apples</div><button class="add">Add</button></div>
+    <div class="row"><div class="row-name">Avocados</div><button class="add">Add</button></div>
+    <div class="row"><div class="row-name">Bag Salad</div><button class="add">Add</button></div>
+  </div>
+</div>
+
+<div class="label">Descriptor copy — three ways <span>Same four states, three voices. Pick a row, not a line.</span></div>
+
+<div class="copy">
+  <h4>1 · Names the categories</h4>
+  <div class="cline"><div class="st">Nothing on</div><div class="tx"><em>(blank — the line collapses)</em></div></div>
+  <div class="cline"><div class="st">One</div><div class="tx">Showing <b>Produce</b> — 14 items</div></div>
+  <div class="cline"><div class="st">Two</div><div class="tx">Showing <b>Produce</b> and <b>Dairy</b> — 25 items</div></div>
+  <div class="cline"><div class="st">Four</div><div class="tx">Showing <b>Produce</b>, <b>Dairy</b>, <b>Pantry</b> and 1 more — 57 items</div></div>
+</div>
+
+<div class="copy">
+  <h4>2 · Names what's hidden</h4>
+  <div class="cline"><div class="st">Nothing on</div><div class="tx"><em>(blank — the line collapses)</em></div></div>
+  <div class="cline"><div class="st">One</div><div class="tx">8 categories hidden — 73 items out of view</div></div>
+  <div class="cline"><div class="st">Two</div><div class="tx">7 categories hidden — 62 items out of view</div></div>
+  <div class="cline"><div class="st">Four</div><div class="tx">5 categories hidden — 30 items out of view</div></div>
+</div>
+
+<div class="copy">
+  <h4>3 · Bare count</h4>
+  <div class="cline"><div class="st">Nothing on</div><div class="tx"><em>(blank — the line collapses)</em></div></div>
+  <div class="cline"><div class="st">One</div><div class="tx">14 of 87 items</div></div>
+  <div class="cline"><div class="st">Two</div><div class="tx">25 of 87 items</div></div>
+  <div class="cline"><div class="st">Four</div><div class="tx">57 of 87 items</div></div>
+</div>
+
+<div class="note"><strong>The phone above runs copy 1.</strong> It's the one that survives the rail scrolling out of reach — the names tell you what's on without scrolling back to look. Copy 2 mirrors the declutter descriptor's "state the consequence" voice but gets vaguer the more you turn on. Copy 3 is the quietest and the least useful: a number can't tell you which filter to release.</div>
+
+<script>
+  function render(rail){
+    var on = Array.prototype.slice.call(rail.querySelectorAll('.cat.on'));
+    var desc = rail.closest('.catrail').nextElementSibling;
+    var chip = rail.querySelector('.clear');
+
+    if (on.length && !chip){
+      chip = document.createElement('button');
+      chip.className = 'clear';
+      rail.insertBefore(chip, rail.firstChild);
+    }
+    if (chip){
+      if (!on.length) chip.remove();
+      else chip.textContent = '✕ Clear ' + on.length;
+    }
+
+    if (!on.length){ desc.innerHTML = ''; return; }
+
+    var names = on.map(function(p){ return p.dataset.n; });
+    var count = on.reduce(function(a,p){ return a + parseInt(p.dataset.c,10); }, 0);
+    var phrase;
+    if (names.length === 1) phrase = '<b>' + names[0] + '</b>';
+    else if (names.length === 2) phrase = '<b>' + names[0] + '</b> and <b>' + names[1] + '</b>';
+    else phrase = '<b>' + names[0] + '</b>, <b>' + names[1] + '</b> and ' + (names.length - 2) + ' more';
+
+    desc.innerHTML = 'Showing ' + phrase + ' — ' + count + ' item' + (count === 1 ? '' : 's');
+  }
+
+  document.querySelectorAll('[data-rail]').forEach(function(rail){
+    render(rail);
+    rail.addEventListener('click', function(e){
+      var pill = e.target.closest('.cat');
+      if (pill){ pill.classList.toggle('on'); render(rail); return; }
+      if (e.target.closest('.clear')){
+        rail.querySelectorAll('.cat.on').forEach(function(p){ p.classList.remove('on'); });
+        render(rail);
+      }
+    });
+  });
+</script>
+</body>
+</html>
