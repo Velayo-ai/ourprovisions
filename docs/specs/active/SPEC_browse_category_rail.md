@@ -75,30 +75,57 @@ emoji source if one already exists rather than introducing a second map.
 — today's strays, tomorrow's user-created "Boat Snacks" — renders 📦 and behaves
 as a normal filter. No blank glyph box, no crash, no special-casing.
 
-### Clear chip
+### Clear chip — ~~built~~ **REMOVED 2026-08-10**
 
-- Renders at the **head** of the rail when `selectedCategories.length > 0`;
-  absent otherwise.
-- Dashed `--clay` border, transparent fill — deliberately unlike a category pill,
-  because it isn't one.
-- Label: `✕ Clear {n}`. Tapping empties `selectedCategories`.
+> Built as specced, then cut. Deselecting is tapping an active pill; a second
+> control for the same job did not earn its place at the head of the rail.
+> Retained here only so a future session doesn't reintroduce it from this spec.
+
+- ~~Renders at the **head** of the rail when `selectedCategories.length > 0`.~~
+- ~~Dashed `--clay` border, transparent fill. Label `✕ Clear {n}`.~~
+
+### The rail carries TWO kinds of filter *(amended 2026-08-10)*
+
+This is the correction a future session most needs, because the names look alike:
+
+- **Category values** — `catalog_items.category`, held in `selectedCategories`.
+  An **open set**: users create their own, so any category-keyed code needs the
+  📦 fallback.
+- **Staples** — **NOT a category.** It is per-household **row-presence in
+  `household_staples`** (migration 016), held in the separate `stapleFilter`
+  boolean and applied as a **predicate** in `displayCategories` Layer 1, before
+  categories narrow. `catalog_items.is_staple` is a **dormant column** that
+  migration 016 retired; no read path should consult it.
+
+Consequence: **any consumer that keys off `selectedCategories` alone is blind to
+Staples.** That is exactly how the descriptor shipped a line whose count included
+the staple narrowing while its names did not mention it.
 
 ### Descriptor
 
-One slot beneath the rail. Copy pattern, filters active:
+One slot beneath the rail. It names the **active filter set** — not the active
+categories. Copy pattern:
 
 ```
 Showing <b>Produce</b> — 14 items
 Showing <b>Produce</b> and <b>Dairy</b> — 25 items
 Showing <b>Produce</b>, <b>Dairy</b> and 2 more — 57 items
+Showing <b>Staples</b> — 12 items
+Showing <b>Staples</b> and <b>Produce</b> — 5 items
 ```
 
 - 1 name → the name. 2 names → `A and B`. 3+ → `A, B and {n-2} more`.
   Names are bolded in `--clay`; the surrounding text is muted italic, matching the
   existing cycle descriptor's voice.
-- Item count is the number of catalog items in the union of selected categories.
-  Singular/plural on `item`.
+- **Staples leads the name list when active** — it is the broader predicate, and
+  it is not a category.
+- **The count is the rows the list is actually rendering** (post-Layer-1,
+  post-Layer-2), so the number and the names can never disagree. Singular/plural
+  on `item`.
 - No filters active → the filter line contributes nothing and the slot collapses.
+- A category selection that has gone **stale** (deleted here or on another
+  device) does not count as active: it must neither name every category nor
+  suppress a Staples-only line.
 
 ---
 
@@ -106,17 +133,27 @@ Showing <b>Produce</b>, <b>Dairy</b> and 2 more — 57 items
 
 The declutter cycle already writes to this slot. Resolution:
 
+"Filters active" below means **any** active filter — one or more categories, or
+Staples, or both.
+
 | Cycle phase | Filters active | Descriptor shows |
 |---|---|---|
 | 0 — grouped | none | *(existing phase-0 behaviour: blank)* |
 | 0 — grouped | ≥ 1 | `Showing … — N items` |
 | 1 — rail hidden | none | *(existing phase-1 cycle text, unchanged)* |
-| 1 — rail hidden | ≥ 1 | `Showing … — N items` |
+| 1 — rail hidden | ≥ 1 | `Filtering … — N items` |
 | 2 — flat A–Z | none | *(existing phase-2 cycle text, unchanged)* |
 | 2 — flat A–Z | ≥ 1 | `Showing … — N items` |
 
-**Rule: when `selectedCategories.length > 0`, the filter line replaces the cycle
-line entirely. Otherwise the cycle line is untouched.**
+**Rule *(amended 2026-08-10 — supersedes the original
+`selectedCategories.length > 0` condition, which was blind to Staples)*: when
+ANY filter is active — `stapleFilter || selectedCategories.length > 0` — the
+filter line replaces the cycle line entirely. Otherwise the cycle line is
+untouched.**
+
+At **phase 1 the verb is `Filtering`**, not `Showing` — the rail is hidden, so the
+line describes an active state rather than a visible selection. Joining rule,
+bolding, and count are identical.
 
 Why full replacement rather than concatenation: phase 1's existing
 `N filters active · filters hidden` exists to tell the user filters are on when
@@ -216,8 +253,14 @@ item is the only real decision left.
    1 + filters active shows the filter line, not the cycle line.
 5. A category with no map entry renders 📦 and filters normally. Test by pointing
    a pill at `Mexican Asian`.
-6. Clear chip appears only with filters active, count is correct, tap empties the
-   selection and collapses the descriptor.
+6. *(amended 2026-08-10 — the Clear chip was removed)* Tapping an **active pill
+   deselects it** and the descriptor updates; clearing the last filter collapses
+   the slot.
+6a. **Staples names and counts correctly** — Staples alone reads
+    `Showing Staples — N items`; Staples + Produce reads
+    `Showing Staples and Produce — N items` with **Staples first**, and N matches
+    the rows actually rendered. This is the regression that shipped 2026-08-09:
+    the count included the staple narrowing while the names did not.
 7. Filters still reset on household switch and tab switch (existing behaviour from
    `dbb57f2` — confirm no regression).
 8. Two-household account: switching households does not leak a stale filter into

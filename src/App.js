@@ -1093,20 +1093,33 @@ function ProvisionsApp() {
   // Count of active filters for the declutter descriptor line.
   const browseFilterCount = (stapleFilter ? 1 : 0) + selectedCategories.size;
 
-  // Filter descriptor — names the categories, because a name survives the rail
-  // scrolling out of reach where a bare count doesn't. Derived from
-  // displayCategories (already staple-narrowed), so it always describes what is
-  // actually on screen. Returns null when the selection resolves to nothing live,
-  // which lets the cycle line keep the slot rather than listing every category.
+  // Filter descriptor — names the active FILTER SET, not the active categories.
+  // The rail carries two kinds of filter: category values, and Staples, which is
+  // NOT a category — it is per-household row-presence in `household_staples`
+  // (migration 016), applied as a predicate in displayCategories Layer 1. Naming
+  // only the categories while counting a staple-narrowed set made the line
+  // describe a set its own sentence didn't name.
+  //
+  // The count always comes from the same rows the list is rendering, so the
+  // number and the names can never disagree.
   const browseFilterDescriptor = useMemo(() => {
-    if (selectedCategories.size === 0) return null;
-    const shown = displayCategories.filter(cat => selectedCategories.has(cat.rawName));
-    if (shown.length === 0) return null;
+    // Only categories that survive Layer 1 count as active — a selection that has
+    // gone stale (category deleted here or on another device) must not name every
+    // category, and must not suppress a Staples-only line.
+    const shownCats = displayCategories.filter(cat => selectedCategories.has(cat.rawName));
+    const categoriesActive = shownCats.length > 0;
+    if (!stapleFilter && !categoriesActive) return null;
+
+    const shown = categoriesActive ? shownCats : displayCategories;
     return {
-      names: shown.map(cat => categoryRailLabel(cat.rawName)),
+      // Staples leads: it is the broader predicate, and it isn't a category.
+      names: [
+        ...(stapleFilter ? ["Staples"] : []),
+        ...shown.map(cat => categoryRailLabel(cat.rawName)),
+      ],
       count: shown.reduce((total, cat) => total + cat.items.length, 0),
     };
-  }, [selectedCategories, displayCategories]);
+  }, [stapleFilter, selectedCategories, displayCategories]);
 
   const catRailNode = useRef(null);
   // Which edges have more content past them. Drives BOTH the fade masks and the
