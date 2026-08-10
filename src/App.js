@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions } from './hooks/useProvisions';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
@@ -1108,14 +1108,56 @@ function ProvisionsApp() {
     };
   }, [selectedCategories, displayCategories]);
 
-  // On mount, bring the first active pill into view. Runs from a ref callback so it
-  // fires exactly when the rail attaches (Browse, phase 0) and never fights a
-  // scroll the user is in the middle of. scrollLeft, not scrollIntoView — the
-  // latter can drag the page vertically on a phone.
-  const catRailRef = useCallback(node => {
-    if (!node) return;
-    const firstActive = node.querySelector('[data-active="1"]');
-    if (firstActive) node.scrollLeft = Math.max(0, firstActive.offsetLeft - node.offsetLeft - 16);
+  const catRailNode = useRef(null);
+  // Which edges have more content past them. Drives BOTH the fade masks and the
+  // desktop pager buttons, so a mask never dims content that isn't overflowing.
+  const [railEdges, setRailEdges] = useState({ atStart: true, atEnd: true });
+
+  const syncRailEdges = useCallback(() => {
+    const rail = catRailNode.current;
+    if (!rail) return;
+    const max = rail.scrollWidth - rail.clientWidth;
+    const atStart = rail.scrollLeft <= 1;
+    const atEnd = rail.scrollLeft >= max - 1;
+    setRailEdges(prev =>
+      prev.atStart === atStart && prev.atEnd === atEnd ? prev : { atStart, atEnd });
+  }, []);
+
+  // Resting position. An ACTIVE pill is scrolled into view; with no active pill the
+  // rail is pinned to 0 EXPLICITLY rather than just left alone — the pills arrive
+  // asynchronously (catalog load, emoji metrics), and a scroll-snap container that
+  // gains children re-runs snap selection, which is what was parking the rail
+  // mid-list with Staples off-screen. Layout effect so it lands before paint, and
+  // keyed off the pill set rather than the selection so it never yanks a rail the
+  // user is mid-scroll.
+  useLayoutEffect(() => {
+    const rail = catRailNode.current;
+    if (!rail) return;
+    const firstActive = rail.querySelector('[data-active="1"]');
+    rail.scrollLeft = firstActive
+      ? Math.max(0, firstActive.offsetLeft - rail.offsetLeft)
+      : 0;
+    syncRailEdges();
+  }, [categories, browsePhase, syncRailEdges]);
+
+  useEffect(() => {
+    const rail = catRailNode.current;
+    if (!rail) return;
+    rail.addEventListener("scroll", syncRailEdges, { passive: true });
+    window.addEventListener("resize", syncRailEdges);
+    return () => {
+      rail.removeEventListener("scroll", syncRailEdges);
+      window.removeEventListener("resize", syncRailEdges);
+    };
+  }, [syncRailEdges, browsePhase]);
+
+  // Desktop affordance only — a mouse has no drag gesture and the scrollbar is
+  // hidden. Vertical wheel is deliberately NOT mapped to horizontal scroll: that
+  // hijacks a gesture the user expects to scroll the page.
+  const pageRail = useCallback(dir => {
+    const rail = catRailNode.current;
+    if (!rail) return;
+    rail.scrollBy({ left: dir * Math.round(rail.clientWidth * 0.8), behavior: "smooth" });
   }, []);
 
   const searchResults = useMemo(() => {
@@ -1818,7 +1860,7 @@ function ProvisionsApp() {
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
         .header h1 { font-size: 42px; letter-spacing: 0.02em; }
         .tab-bar { display: flex; background: #2C1A0E; border-bottom: 3px solid #c8973a; }
-        .tab { flex: 1; padding: 8px 4px 10px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; background: none; border: none; color: #C9A97A; border-bottom: 2px solid transparent; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: opacity 0.2s; }
+        .tab { flex: 1; padding: 8px 4px 6px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; background: none; border: none; color: #C9A97A; border-bottom: 2px solid transparent; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: opacity 0.2s; }
         .tab.active { border-bottom: 2px solid #C9A97A; }
         .tab-content { display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: 0.5; transition: opacity 0.2s; }
         .tab.active .tab-content { opacity: 1; }
@@ -1888,18 +1930,30 @@ function ProvisionsApp() {
            Bleeds to the container edges (.container pads 16px) so pills scroll
            UNDER the fade rather than clipping at it, while resting flush with the
            section headers below. */
-        .cat-rail-wrap { position: relative; margin: 0 -16px 4px; }
-        .cat-rail-wrap::before, .cat-rail-wrap::after { content: ''; position: absolute; top: 0; bottom: 0; width: 24px; pointer-events: none; z-index: 3; }
+        /* The rail occupies the SAME box as the search bar and the item rows —
+           .container's content column — so their left edges align at every width.
+           It is not full-bleed: on a phone the column edge and the window edge are
+           16px apart, and the rail respects the column. */
+        .cat-rail-wrap { position: relative; margin: 0 0 4px; }
+        .cat-rail-wrap::before, .cat-rail-wrap::after { content: ''; position: absolute; top: 0; bottom: 0; width: 24px; pointer-events: none; z-index: 3; opacity: 1; transition: opacity 0.15s; }
         .cat-rail-wrap::before { left: 0; background: linear-gradient(90deg, #FAF4EC, rgba(250,244,236,0)); }
         .cat-rail-wrap::after { right: 0; background: linear-gradient(270deg, #FAF4EC, rgba(250,244,236,0)); }
-        /* scroll-padding-left MUST match padding-left. The snapport is the
-           scrollport, which includes the padding area — so with scroll-snap-align:
-           start and no scroll-padding, the browser snaps the first pill's edge to
-           x=0 and visually cancels the 16px, landing it flush to the screen edge
-           under the fade. Padding lives inside the scroller so the rail stays
-           full-bleed; 16px matches .container's horizontal padding, which is what
-           the search bar, descriptor, and item rows align to. */
-        .cat-rail { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px 16px; scroll-padding-left: 16px; scroll-snap-type: x proximity; scrollbar-width: none; -ms-overflow-style: none; }
+        /* A fade must never dim content that isn't overflowing — masks engage only
+           when there is more rail past that edge. */
+        .cat-rail-wrap.at-start::before { opacity: 0; }
+        .cat-rail-wrap.at-end::after { opacity: 0; }
+        /* touch-action: pan-x is load-bearing on Windows touch. Without it the
+           element inherits auto, so Chromium waits to disambiguate tap-vs-pan
+           against the <button> children before handing the gesture to the
+           scroller — which is why a finger slide did nothing until a ~1s hold
+           resolved the ambiguity. pan-x claims horizontal immediately and leaves
+           vertical pans to bubble to the page. iOS arbitrates differently, which
+           is why it never reproduced there.
+           No horizontal padding: the rail's content box IS the content column, so
+           the first pill at scrollLeft 0 aligns with the search bar. With
+           padding-left 0 the first pill's snap offset is 0, so no scroll-padding
+           is needed to keep snap from cancelling an inset. */
+        .cat-rail { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px 0; touch-action: pan-x; scroll-snap-type: x proximity; scrollbar-width: none; -ms-overflow-style: none; }
         .cat-rail::-webkit-scrollbar { display: none; }
         .cat-rail > * { scroll-snap-align: start; flex: 0 0 auto; white-space: nowrap; }
         .cat-pill { display: flex; align-items: center; gap: 7px; padding: 9px 16px 9px 13px; border-radius: 999px; border: 1px solid #E8D5B7; background: #F5EADA; color: #A0724A; font-family: 'Lato', sans-serif; font-size: 0.82rem; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
@@ -1907,6 +1961,13 @@ function ProvisionsApp() {
            narrow one produce identical pill geometry. */
         .cat-pill .cat-em { font-size: 0.92rem; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
         .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
+        /* Desktop-only pagers. Hidden for touch/coarse pointers, which drag. */
+        .rail-page { display: none; }
+        @media (hover: hover) and (pointer: fine) {
+          .rail-page { position: absolute; top: 0; bottom: 0; width: 24px; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 0; border: none; background: transparent; color: #A0724A; font-size: 17px; line-height: 1; cursor: pointer; }
+          .rail-page-l { left: 0; }
+          .rail-page-r { right: 0; }
+        }
         /* Add-item picker — same pill, wrapped and exhaustive. Never scrolls. */
         .cat-grid { display: flex; flex-wrap: wrap; gap: 9px; }
         .cat-pill-new { background: transparent; border-style: dashed; }
@@ -2786,8 +2847,13 @@ function ProvisionsApp() {
             ) : (
             <>
             {/* ── Search bar — sticky at top ── */}
+            {/* Vertical scale (4px grid): banner→search 20px = .container's 24px
+                top padding, less 12px here, plus 8px of own padding — the 8px is
+                kept so the bar isn't flush to the viewport edge once it sticks.
+                search→divider 16px, divider→rail 12px. */}
             <div style={{
-              padding: "12px 0 10px",
+              marginTop: "-12px",
+              padding: "8px 0 16px",
               background: "#FAF4EC",
               position: "sticky",
               top: 0,
@@ -2834,8 +2900,17 @@ function ProvisionsApp() {
                 4px here) and 28px when the slot collapses, so the space below the
                 rail is stable whether the descriptor is present or not. */}
             {browsePhase === 0 && (
-            <div className="cat-rail-wrap" style={{ marginBottom: browseFilterDescriptor ? "4px" : "24px" }}>
-              <div className="cat-rail" ref={catRailRef}>
+            <div
+              className={`cat-rail-wrap${railEdges.atStart ? " at-start" : ""}${railEdges.atEnd ? " at-end" : ""}`}
+              style={{ marginBottom: browseFilterDescriptor ? "4px" : "24px" }}
+            >
+              {!railEdges.atStart && (
+                <button className="rail-page rail-page-l" aria-label="Scroll categories left" onClick={() => pageRail(-1)}>‹</button>
+              )}
+              {!railEdges.atEnd && (
+                <button className="rail-page rail-page-r" aria-label="Scroll categories right" onClick={() => pageRail(1)}>›</button>
+              )}
+              <div className="cat-rail" ref={catRailNode}>
                 {/* Staples — cross-cutting filter */}
                 <button
                   className={`cat-pill${stapleFilter ? " on" : ""}`}
