@@ -1988,8 +1988,14 @@ function ProvisionsApp() {
            needed. Kept quiet so they're unobtrusive on touch, where dragging makes
            them redundant. If they distract on a phone, gate by VIEWPORT WIDTH —
            a size question, which media queries answer reliably. */
-        .rail-page { position: absolute; top: 0; bottom: 0; width: 24px; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 0; border: none; background: transparent; color: #A0724A; opacity: 0.5; font-size: 16px; line-height: 1; cursor: pointer; transition: opacity 0.15s; }
-        .rail-page:hover { opacity: 0.9; }
+        /* The button is the hit target (full rail height); the CHIP is the visible
+           surface. The chip carries its own cream ground so contrast never depends
+           on whether an espresso pill or a cream one happens to sit beneath it —
+           which is why the left pager was illegible over an active pill while the
+           right one read fine purely by luck of what it landed on. */
+        .rail-page { position: absolute; top: 0; bottom: 0; width: 26px; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 0; border: none; background: transparent; cursor: pointer; }
+        .rail-page span { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #FAF4EC; border: 1px solid #E8D5B7; box-shadow: 0 1px 3px rgba(44,26,14,0.16); color: #A0724A; font-size: 14px; line-height: 1; opacity: 0.7; transition: opacity 0.15s; }
+        .rail-page:hover span { opacity: 1; }
         .rail-page-l { left: 0; }
         .rail-page-r { right: 0; }
         /* Add-item picker — same pill, wrapped and exhaustive. Never scrolls. */
@@ -2929,10 +2935,10 @@ function ProvisionsApp() {
               style={{ marginBottom: browseFilterDescriptor ? "4px" : "24px" }}
             >
               {railEdges.overflows && !railEdges.atStart && (
-                <button className="rail-page rail-page-l" aria-label="Scroll categories left" onClick={() => pageRail(-1)}>‹</button>
+                <button className="rail-page rail-page-l" aria-label="Scroll categories left" onClick={() => pageRail(-1)}><span>‹</span></button>
               )}
               {railEdges.overflows && !railEdges.atEnd && (
-                <button className="rail-page rail-page-r" aria-label="Scroll categories right" onClick={() => pageRail(1)}>›</button>
+                <button className="rail-page rail-page-r" aria-label="Scroll categories right" onClick={() => pageRail(1)}><span>›</span></button>
               )}
               <div className="cat-rail" ref={catRailNode}>
                 {/* Staples — cross-cutting filter */}
