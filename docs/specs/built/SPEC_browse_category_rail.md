@@ -315,10 +315,16 @@ item is the only real decision left.
 
 ## Verification (dev, before promote)
 
-1. *(amended 2026-08-10)* Rail scrolls horizontally; edges fade, never clip. A
-   styled 4px scrollbar is present in **desktop Chrome**, absent on **iOS Safari**,
-   and — confirm this one specifically — shows **no permanent track** on a
-   **Windows touchscreen in Chrome**. If it does, gate by viewport width.
+1. *(amended 2026-08-10 — **verified on device; result recorded**)* Rail scrolls
+   horizontally; edges fade, never clip. Styled 4px scrollbar **present in desktop
+   Chrome**, **absent on iOS Safari**, and a **permanent track IS present on a
+   Windows touchscreen (Surface) in Chrome**.
+   > **The permanent track was tested and ACCEPTED — no viewport gate was built.**
+   > An earlier draft of this step said to gate by viewport width if a track
+   > appeared. It appeared, and that contingency was **overruled deliberately**:
+   > both touch and mouse scroll via the track, and a thin clay hairline that shows
+   > position is not a defect on a device where a mouse may appear at any moment.
+   > Do not "fix" this by adding the gate. **Android remains untested.**
 1a. **Nothing animates the rail on cold start.** The first-run nudge was removed;
     a rail that moves on its own is a regression, not a hint.
 2. Pills of varying emoji width are the same height with consistent internal

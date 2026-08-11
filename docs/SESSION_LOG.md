@@ -25,6 +25,33 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-10] — [Cross] — Ship the Browse category rail to production, and close a six-session git push gap
+**Goal:** Take the Browse category filter rail from an airlock-ready spec to a device-verified build live on production, correcting the design in the hand rather than on paper.
+**Completed:**
+- **Shipped the rail + add-item picker to production** — `dev→main` fast-forward `8cbbf43..80a5a54`, no merge commit: 16 commits, 13 files, **no migrations and no auth-path change**. Also **closed a six-session push gap** found at session start: `dev` was six commits ahead of `origin/dev`, every one a docs-only SESSION END commit running 2026-08-03 → 08-09 — the rail spec and both mockups existed on one laptop and nowhere else.
+- **Cut the Clear chip.** First element in the rail, the only dashed element on screen, taking visual priority over the categories while not being one. Deselect is now tapping an active pill — which dissolves the phase-1 reachability question the spec had to argue away.
+- **Settled the descriptor on one verb, `Showing only`,** replacing both `Showing` and the phase-1 `Filtering` special case. `Filtering Produce` is backwards — Produce is what *survives*. The real question is not "are filters on" but "where did Bacon go", and `only` states withholding in one word. Also dropped the phase-2 eyebrow's count, which reprinted the descriptor's number ~40px below it.
+- **Replaced the desktop pagers with a styled scrollbar.** The pagers existed solely to compensate for hiding the scrollbar; the scrollbar shows position *and* affords dragging, which they never did. Removing a part beat adding one.
+- **Built the first-run nudge, then cut it entirely** — animation, localStorage key, reduced-motion guard and pointerdown cancel. The scrollbar made it redundant, on device it read as a layout glitch, and it fired ~400ms after the splash resolve.
+- **Root-caused the startup shimmy — it was never the nudge.** A page renders shorter than the viewport, grows past it as content loads, Chrome adds the vertical scrollbar mid-load, and the ~15px it occupies shifts the centered column ~7px left. Fixed app-wide with `scrollbar-gutter: stable` on `html`. **The nudge had already been cut before this was found, and cutting it changed nothing.**
+- **Diagnosed Staples as a predicate, not a category** (`household_staples` row-presence, migration 016), and **verified on device across desktop Chrome, iOS Safari and a Windows touchscreen** — descriptor in all three phases, phase-2 eyebrow, count accuracy, picker steps 9–11, scrollbar present on desktop and absent on iOS, permanent track on Windows touch accepted, shimmy gone.
+**Unfinished:**
+- **Dormant `is_staple` column** — the list RPC selects it and the client merges it into `catalogMap`, overwriting correct `household_staples` stamping on every poll. Migration 016 states no read path should use it. **Blast radius is the shared list, not just Browse.** Filed to NEXT, untouched.
+- **Staples descriptor phrasing.** `Showing only Staples, Produce and 1 more` joins a predicate into a category list as a peer, but Staples *intersects* the others — the line claims three category sets when the truth is stapled items within two categories. Grammatically fine, semantically wrong. Filed to NEXT.
+- **`Multiple GoTrueClient instances detected`** in the prod and dev console — promoted from LATER to NEXT, because it sits directly in front of the Clerk auth-plane flip.
+- **Defect 3 diagnosis was blocked twice on unauthorized Supabase MCP,** then resolved by device observation instead. The two queries were never run.
+- **Commit `a6e94d9` carries a malformed subject line** (literal `@`, real subject on the body's first line — PowerShell here-string syntax passed to the Bash tool). It is now in production history. Deliberately not amended: force-pushing a shared branch for cosmetics is a habit worth not forming.
+- **Android untested** for the permanent-scrollbar question. iOS clean; the Surface shows a permanent track and that was judged acceptable, with no viewport gate built.
+- **Sticky rail** and **category data cleanup** still deferred, unchanged.
+**Next session:**
+SESSION START
+Goal: Execute the prod Clerk cutover.
+State: Browse rail + add-item picker **live on production** — `dev`, `main`, `origin/dev` and `origin/main` all at **`80a5a54`** before this docs commit; working tree clean and in sync with origin. Prod otherwise on RELEASE-2026-08 with Authorization Part 1 live. Meals still flag-hidden. Prod Clerk instance provisioned with DNS/SSL cleared; user migration half-executed.
+Done when: Christopher, Heddi and Jean have accepted their Clerk invites and their subs are captured; all 11 remaining `users.clerk_id` reconcile UPDATEs are run; prod Supabase Third-Party Auth is re-pointed to `https://clerk.ourprovisions.velayo.ai`; Vercel Production is flipped `pk_test_` → `pk_live_` and deployed; and a migrated family user (Helen or Elly) signs in and sees their own household.
+**Files updated:** `docs/specs/active/SPEC_browse_category_rail.md` → **`docs/specs/built/`** (amended: Clear chip struck, verb rule rewritten, Staples model recorded, scroll-affordance section added with both rejections, verification step 1 rewritten to record the accepted Windows-touch track), `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/SESSION_LOG.md`, `src/App.js`, `src/index.css`, `src/hooks/useProvisions.js`. Commits `a75fc0a` → `28a52ec` → `6bee28d` → `a6e94d9` → `507b9e0` → `80a5a54`.
+**DB changes:** None.
+**Machine:** Madbury desktop — the session **started on the Surface** (lake) and finished here. The desktop was two weeks behind at pickup — missing `RELEASE-2026-08.md`, `docs/AGENTS.md`, the splash arc extraction, and the rail spec — and was fast-forwarded `6f7daeb..6bee28d` before any work began.
+
 ### [2026-08-09] — [OurProvisions] — Redesign Browse category filters as a single-row rail and fix the add-item category picker
 **Goal:** Replace the four-row wrapped grid of emoji category pills in Browse with something that reads as a filter control and stops eating a third of the viewport.
 **Completed:**
