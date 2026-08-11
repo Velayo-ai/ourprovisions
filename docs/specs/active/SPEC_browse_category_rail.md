@@ -19,7 +19,7 @@ communicates what the current filter selection is actually doing to the list.
 
 | # | Decision | Rationale |
 |---|---|---|
-| 1 | Single horizontal scrolling row, no visible scrollbar | Reclaims three rows of vertical space. Filters stay one gesture away. |
+| 1 | Single horizontal scrolling row *(amended 2026-08-10: **with** a styled scrollbar — see "Scroll affordance")* | Reclaims three rows of vertical space. Filters stay one gesture away. |
 | 2 | Keep the pill shape; do **not** adopt tab/underline styling | Pills read as toggles. Tabs read as one-of-N navigation, which would misrepresent a multi-select control. |
 | 3 | Keep emoji icons; fix the geometry instead | Emoji are already the product's visual language for category. The raggedness was a layout problem, not an emoji problem — a fixed-width glyph box solves it. |
 | 4 | No checkmark swap on the active pill | With multi-select, a row of identical ticks flattens the actives into each other. The espresso fill carries the state; the emoji keeps each pill identifiable. |
@@ -34,8 +34,8 @@ communicates what the current filter selection is actually doing to the list.
 
 - Replace the wrapped pill container with a single flex row: `overflow-x: auto`,
   `flex: 0 0 auto` + `white-space: nowrap` on each pill.
-- Hide the scrollbar: `scrollbar-width: none` plus the `::-webkit-scrollbar`
-  pseudo-element.
+- ~~Hide the scrollbar: `scrollbar-width: none` plus the `::-webkit-scrollbar`
+  pseudo-element.~~ **Reversed 2026-08-10 — see "Scroll affordance" below.**
 - `scroll-snap-type: x proximity` on the rail, `scroll-snap-align: start` on each
   pill, so a drag settles cleanly instead of drifting.
 - Cream gradient masks (~24px) pinned left and right, `pointer-events: none`.
@@ -43,6 +43,54 @@ communicates what the current filter selection is actually doing to the list.
   reads as a rendering bug rather than an affordance.
 - Horizontal padding on the rail so a pill never sits flush to the screen edge.
 - On mount, scroll the first active pill into view.
+
+### Scroll affordance *(added 2026-08-10 — supersedes "no visible scrollbar")*
+
+The original spec hid the scrollbar for cleanliness. That created a rail with no
+signal that it scrolls, and the next two sessions each tried to buy that signal
+back with a new part. Both were removed. **The scrollbar is the affordance:** it
+shows position *and* affords dragging, which neither replacement did.
+
+Current build:
+
+- Styled `::-webkit-scrollbar`, 4px high, `#E8D5B7` thumb on a transparent track,
+  2px radius. No arrows, no chip, no shadow.
+- **Not gated on a pointer media query.** Device-confirmed on a Surface: with a
+  touchscreen *and* an attached mouse, `hover`, `pointer`, `any-hover` and
+  `any-pointer` **all report false**. A pointer query would therefore hide the
+  scrollbar from exactly the mice that need it. No gate is needed anyway — mobile
+  browsers use transient overlay scrollbars, so this renders on desktop and
+  effectively nothing on touch. If a permanent track ever does appear on a
+  touchscreen, gate by **viewport width** — a size question, which media queries
+  answer honestly.
+- **Chromium finding, load-bearing:** `::-webkit-scrollbar` is ignored **entirely**
+  if `scrollbar-width` or `scrollbar-color` is set on the same element. That is why
+  the Firefox fallback sits behind `@supports not selector(::-webkit-scrollbar)`
+  rather than being declared alongside the webkit rules. A future tidy-up that
+  flattens the two into a plain `scrollbar-width: thin` will **silently kill the
+  styled track in Chrome** — the CSS still parses, the scrollbar just reverts.
+
+#### Rejected: pager buttons *(built 2026-08-10, removed same day)*
+
+Chevron buttons at each rail edge, gated on measured overflow. They existed only
+to compensate for hiding the scrollbar, and they were strictly worse than the
+thing they replaced: they showed no position and afforded no dragging. Removing a
+part beat adding one.
+
+#### Rejected: first-run scroll nudge *(built 2026-08-10, removed same day)*
+
+On cold start, if the rail overflowed, it scrolled ~40px right and back over
+~400ms, capped to a user's first few sessions. **Do not rebuild it.** Three
+reasons, in order of weight:
+
+1. **Its job is already done.** The nudge existed to advertise that the rail
+   scrolls, back when the scrollbar was hidden and there was no visual cue. The
+   styled scrollbar now carries that job permanently and without motion. The
+   nudge is a solution to a problem that no longer exists.
+2. **Device-observed, it read as a layout glitch, not an invitation.** Content
+   moving on its own with no user input is what a rendering bug looks like.
+3. **It fired ~400ms after the splash resolve**, undercutting an entry animation
+   that was deliberately tuned to be calm.
 
 ### The pills
 
@@ -106,12 +154,14 @@ the staple narrowing while its names did not mention it.
 One slot beneath the rail. It names the **active filter set** — not the active
 categories. Copy pattern:
 
+*(verb amended 2026-08-10 — `Showing` → `Showing only`, all phases)*
+
 ```
-Showing <b>Produce</b> — 14 items
-Showing <b>Produce</b> and <b>Dairy</b> — 25 items
-Showing <b>Produce</b>, <b>Dairy</b> and 2 more — 57 items
-Showing <b>Staples</b> — 12 items
-Showing <b>Staples</b> and <b>Produce</b> — 5 items
+Showing only <b>Produce</b> — 14 items
+Showing only <b>Produce</b> and <b>Dairy</b> — 25 items
+Showing only <b>Produce</b>, <b>Dairy</b> and 2 more — 57 items
+Showing only <b>Staples</b> — 12 items
+Showing only <b>Staples</b> and <b>Produce</b> — 5 items
 ```
 
 - 1 name → the name. 2 names → `A and B`. 3+ → `A, B and {n-2} more`.
@@ -139,11 +189,11 @@ Staples, or both.
 | Cycle phase | Filters active | Descriptor shows |
 |---|---|---|
 | 0 — grouped | none | *(existing phase-0 behaviour: blank)* |
-| 0 — grouped | ≥ 1 | `Showing … — N items` |
+| 0 — grouped | ≥ 1 | `Showing only … — N items` |
 | 1 — rail hidden | none | *(existing phase-1 cycle text, unchanged)* |
-| 1 — rail hidden | ≥ 1 | `Filtering … — N items` |
+| 1 — rail hidden | ≥ 1 | `Showing only … — N items` |
 | 2 — flat A–Z | none | *(existing phase-2 cycle text, unchanged)* |
-| 2 — flat A–Z | ≥ 1 | `Showing … — N items` |
+| 2 — flat A–Z | ≥ 1 | `Showing only … — N items` |
 
 **Rule *(amended 2026-08-10 — supersedes the original
 `selectedCategories.length > 0` condition, which was blind to Staples)*: when
@@ -151,9 +201,30 @@ ANY filter is active — `stapleFilter || selectedCategories.length > 0` — the
 filter line replaces the cycle line entirely. Otherwise the cycle line is
 untouched.**
 
-At **phase 1 the verb is `Filtering`**, not `Showing` — the rail is hidden, so the
-line describes an active state rather than a visible selection. Joining rule,
-bolding, and count are identical.
+**One verb in every phase: `Showing only`** *(amended 2026-08-10 — supersedes the
+original phase-1 `Filtering` special case, now deleted from the code).* Two
+reasons a future session needs, because it will otherwise re-derive `Filtering` as
+the more precise word:
+
+- **`Filtering Produce` is semantically backwards.** Produce is not what's being
+  filtered *out* — it's what survives.
+- **The user's question is never "are filters on."** It's *"where did Bacon go."*
+  Someone scanning A–Z with the rail hidden needs to know something was withheld.
+  The sentence's *presence* already signals that filters are on; **`only` states
+  the exclusion in one word**, with no second clause.
+
+Joining rule, bolding, and count are identical across phases.
+
+### The phase-2 eyebrow drops its count *(added 2026-08-10)*
+
+At phase 2 the flat-view eyebrow read `A–Z · 12 ITEMS` roughly 40px beneath a
+descriptor ending `— 12 items`. Same number twice. **When any filter is active the
+eyebrow shows `A–Z` alone**; with no filter active it keeps its count, because
+then nothing else states it.
+
+Checked and clean: the phase-0 section headers carry no count, so the doubling
+does not occur there. The Shop tab's phase-2 eyebrow is untouched — it has no
+filter descriptor above it.
 
 Why full replacement rather than concatenation: phase 1's existing
 `N filters active · filters hidden` exists to tell the user filters are on when
@@ -244,7 +315,12 @@ item is the only real decision left.
 
 ## Verification (dev, before promote)
 
-1. Rail scrolls horizontally with no visible scrollbar; edges fade, never clip.
+1. *(amended 2026-08-10)* Rail scrolls horizontally; edges fade, never clip. A
+   styled 4px scrollbar is present in **desktop Chrome**, absent on **iOS Safari**,
+   and — confirm this one specifically — shows **no permanent track** on a
+   **Windows touchscreen in Chrome**. If it does, gate by viewport width.
+1a. **Nothing animates the rail on cold start.** The first-run nudge was removed;
+    a rail that moves on its own is a regression, not a hint.
 2. Pills of varying emoji width are the same height with consistent internal
    spacing — the fixed glyph box is doing its job.
 3. Multi-select still works: two or more filters on simultaneously, list shows the

@@ -21,12 +21,6 @@ const CATEGORY_ORDER = [
   "Produce", "Meat & Seafood", "Dairy", "Pantry", "Beverages", "Household", "Bakery"
 ];
 
-// How many cold starts still get the category-rail scroll hint. The count is
-// per-device (localStorage), which is the right grain: the hint teaches a
-// gesture on THIS screen.
-const RAIL_NUDGE_KEY = "op_rail_nudge_seen";
-const RAIL_NUDGE_LIMIT = 3;
-
 // Category glyph lookup, keyed on the normalized (trim + lowercase) category value.
 // The 📦 fallback is REQUIRED, not defensive padding: `catalog_items.category` is an
 // open set — users create their own — so an exhaustive map is a map that breaks on
@@ -1183,43 +1177,9 @@ function ProvisionsApp() {
     };
   }, [syncRailEdges, browsePhase]);
 
-  // First-run nudge — the rail scrolls a little and comes back, once, so a new
-  // user sees that there is more past the right edge. It only pays for itself
-  // while the rail is unfamiliar, so it is spent over the first few sessions and
-  // then never fires again: a hint that repeats forever is just noise.
-  const railNudgedRef = useRef(false);
-  useEffect(() => {
-    const rail = catRailNode.current;
-    if (!rail || railNudgedRef.current) return;
-    // Nothing to hint at if everything already fits.
-    if (rail.scrollWidth - rail.clientWidth <= 1) return;
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-
-    let seen = 0;
-    try { seen = parseInt(localStorage.getItem(RAIL_NUDGE_KEY), 10) || 0; } catch { /* private mode */ }
-    if (seen >= RAIL_NUDGE_LIMIT) return;
-
-    railNudgedRef.current = true;
-    try { localStorage.setItem(RAIL_NUDGE_KEY, String(seen + 1)); } catch { /* private mode */ }
-
-    // Out and back on a sine arc: eases at both ends and is exactly 0 at t=1, so
-    // the resting-position pin below still holds afterwards.
-    const DURATION = 400, DISTANCE = 40;
-    let start = null, frame = 0;
-    const step = now => {
-      if (start === null) start = now;
-      const t = Math.min(1, (now - start) / DURATION);
-      rail.scrollLeft = Math.sin(Math.PI * t) * DISTANCE;
-      if (t < 1) frame = requestAnimationFrame(step);
-      else rail.scrollLeft = 0;
-    };
-    // A user who grabs the rail mid-hint owns it — stop and leave it where they put it.
-    const abort = () => { cancelAnimationFrame(frame); rail.removeEventListener("pointerdown", abort); };
-    rail.addEventListener("pointerdown", abort);
-    frame = requestAnimationFrame(step);
-
-    return () => { cancelAnimationFrame(frame); rail.removeEventListener("pointerdown", abort); };
-  }, [categories, browsePhase]);
+  // No first-run scroll hint here by design — see SPEC_browse_category_rail.md.
+  // The styled scrollbar advertises that the rail scrolls, permanently and
+  // without motion, so a one-off animation has nothing left to teach.
 
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return null;
