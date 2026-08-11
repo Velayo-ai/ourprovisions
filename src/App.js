@@ -21,6 +21,12 @@ const CATEGORY_ORDER = [
   "Produce", "Meat & Seafood", "Dairy", "Pantry", "Beverages", "Household", "Bakery"
 ];
 
+// How many cold starts still get the category-rail scroll hint. The count is
+// per-device (localStorage), which is the right grain: the hint teaches a
+// gesture on THIS screen.
+const RAIL_NUDGE_KEY = "op_rail_nudge_seen";
+const RAIL_NUDGE_LIMIT = 3;
+
 // Category glyph lookup, keyed on the normalized (trim + lowercase) category value.
 // The 📦 fallback is REQUIRED, not defensive padding: `catalog_items.category` is an
 // open set — users create their own — so an exhaustive map is a map that breaks on
@@ -682,8 +688,14 @@ function CycleIcon({ phase, onAdvance }) {
 }
 
 // Flat-view header shared by both tabs' phase-2 render.
-function FlatHeader({ count }) {
-  return <div className="flat-header">A–Z · {count} {count === 1 ? "item" : "items"}</div>;
+// `count` is dropped when the descriptor above already states it — the eyebrow
+// sat ~40px under "… — 12 items" and printed the same 12 a second time.
+function FlatHeader({ count, showCount = true }) {
+  return (
+    <div className="flat-header">
+      A–Z{showCount ? <> · {count} {count === 1 ? "item" : "items"}</> : null}
+    </div>
+  );
 }
 
 // ── Browse · Meals lens (read + "Add all", add-path only — migration 025) ──
@@ -1122,21 +1134,22 @@ function ProvisionsApp() {
   }, [stapleFilter, selectedCategories, displayCategories]);
 
   const catRailNode = useRef(null);
-  // Which edges have more content past them. Drives BOTH the fade masks and the
-  // desktop pager buttons, so a mask never dims content that isn't overflowing.
-  const [railEdges, setRailEdges] = useState({ overflows: false, atStart: true, atEnd: true });
+  // Which edges have more content past them — drives the fade masks, so a mask
+  // never dims content that isn't overflowing. A rail that doesn't overflow is
+  // at BOTH edges at once, which turns both masks off with no separate
+  // "overflows" flag to keep in sync.
+  const [railEdges, setRailEdges] = useState({ atStart: true, atEnd: true });
 
   const syncRailEdges = useCallback(() => {
     const rail = catRailNode.current;
     if (!rail) return;
     const max = rail.scrollWidth - rail.clientWidth;
-    const overflows = max > 1;
     const atStart = rail.scrollLeft <= 1;
     const atEnd = rail.scrollLeft >= max - 1;
     setRailEdges(prev =>
-      prev.overflows === overflows && prev.atStart === atStart && prev.atEnd === atEnd
+      prev.atStart === atStart && prev.atEnd === atEnd
         ? prev
-        : { overflows, atStart, atEnd });
+        : { atStart, atEnd });
   }, []);
 
   // Resting position. An ACTIVE pill is scrolled into view; with no active pill the
@@ -1170,14 +1183,43 @@ function ProvisionsApp() {
     };
   }, [syncRailEdges, browsePhase]);
 
-  // Desktop affordance only — a mouse has no drag gesture and the scrollbar is
-  // hidden. Vertical wheel is deliberately NOT mapped to horizontal scroll: that
-  // hijacks a gesture the user expects to scroll the page.
-  const pageRail = useCallback(dir => {
+  // First-run nudge — the rail scrolls a little and comes back, once, so a new
+  // user sees that there is more past the right edge. It only pays for itself
+  // while the rail is unfamiliar, so it is spent over the first few sessions and
+  // then never fires again: a hint that repeats forever is just noise.
+  const railNudgedRef = useRef(false);
+  useEffect(() => {
     const rail = catRailNode.current;
-    if (!rail) return;
-    rail.scrollBy({ left: dir * Math.round(rail.clientWidth * 0.8), behavior: "smooth" });
-  }, []);
+    if (!rail || railNudgedRef.current) return;
+    // Nothing to hint at if everything already fits.
+    if (rail.scrollWidth - rail.clientWidth <= 1) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+
+    let seen = 0;
+    try { seen = parseInt(localStorage.getItem(RAIL_NUDGE_KEY), 10) || 0; } catch { /* private mode */ }
+    if (seen >= RAIL_NUDGE_LIMIT) return;
+
+    railNudgedRef.current = true;
+    try { localStorage.setItem(RAIL_NUDGE_KEY, String(seen + 1)); } catch { /* private mode */ }
+
+    // Out and back on a sine arc: eases at both ends and is exactly 0 at t=1, so
+    // the resting-position pin below still holds afterwards.
+    const DURATION = 400, DISTANCE = 40;
+    let start = null, frame = 0;
+    const step = now => {
+      if (start === null) start = now;
+      const t = Math.min(1, (now - start) / DURATION);
+      rail.scrollLeft = Math.sin(Math.PI * t) * DISTANCE;
+      if (t < 1) frame = requestAnimationFrame(step);
+      else rail.scrollLeft = 0;
+    };
+    // A user who grabs the rail mid-hint owns it — stop and leave it where they put it.
+    const abort = () => { cancelAnimationFrame(frame); rail.removeEventListener("pointerdown", abort); };
+    rail.addEventListener("pointerdown", abort);
+    frame = requestAnimationFrame(step);
+
+    return () => { cancelAnimationFrame(frame); rail.removeEventListener("pointerdown", abort); };
+  }, [categories, browsePhase]);
 
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return null;
@@ -1972,32 +2014,32 @@ function ProvisionsApp() {
            the first pill at scrollLeft 0 aligns with the search bar. With
            padding-left 0 the first pill's snap offset is 0, so no scroll-padding
            is needed to keep snap from cancelling an inset. */
-        .cat-rail { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px 0; touch-action: pan-x; scroll-snap-type: x proximity; scrollbar-width: none; -ms-overflow-style: none; }
-        .cat-rail::-webkit-scrollbar { display: none; }
+        .cat-rail { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 4px 0; touch-action: pan-x; scroll-snap-type: x proximity; }
+        /* The scrollbar IS the affordance — it shows position and affords dragging,
+           which the pager buttons it replaces never did. No pointer media query
+           gates it: on hybrid Windows hardware hover/pointer/any-hover/any-pointer
+           all report false (device-confirmed on a Surface), so those queries would
+           hide it from the exact mice that need it. No gate is needed anyway —
+           mobile browsers use transient overlay scrollbars, so this renders on
+           desktop and effectively nothing on touch. If a permanent track ever does
+           show up on a touchscreen, gate by VIEWPORT WIDTH: a size question, which
+           media queries answer honestly. */
+        .cat-rail::-webkit-scrollbar { height: 4px; }
+        .cat-rail::-webkit-scrollbar-track { background: transparent; }
+        .cat-rail::-webkit-scrollbar-thumb { background: #E8D5B7; border-radius: 2px; }
+        .cat-rail::-webkit-scrollbar-thumb:hover { background: #C9A97A; }
+        /* Firefox only. Chromium IGNORES ::-webkit-scrollbar entirely once
+           scrollbar-width/-color is set on the element, so this must stay behind a
+           query only a non-webkit engine passes. */
+        @supports not selector(::-webkit-scrollbar) {
+          .cat-rail { scrollbar-width: thin; scrollbar-color: #E8D5B7 transparent; }
+        }
         .cat-rail > * { scroll-snap-align: start; flex: 0 0 auto; white-space: nowrap; }
         .cat-pill { display: flex; align-items: center; gap: 7px; padding: 9px 16px 9px 13px; border-radius: 999px; border: 1px solid #E8D5B7; background: #F5EADA; color: #A0724A; font-family: 'Lato', sans-serif; font-size: 0.82rem; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
         /* The load-bearing detail: a fixed glyph box makes a wide emoji and a
            narrow one produce identical pill geometry. */
         .cat-pill .cat-em { font-size: 0.92rem; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
         .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
-        /* Pagers are gated on OVERFLOW, not pointer type. On hybrid Windows
-           hardware (touchscreen + attached mouse) hover/pointer/any-hover/
-           any-pointer all report false, so no media query can detect the mouse —
-           and that is common hardware, not an edge case. Overflow is a fact about
-           the layout, which is measurable and always true when the affordance is
-           needed. Kept quiet so they're unobtrusive on touch, where dragging makes
-           them redundant. If they distract on a phone, gate by VIEWPORT WIDTH —
-           a size question, which media queries answer reliably. */
-        /* The button is the hit target (full rail height); the CHIP is the visible
-           surface. The chip carries its own cream ground so contrast never depends
-           on whether an espresso pill or a cream one happens to sit beneath it —
-           which is why the left pager was illegible over an active pill while the
-           right one read fine purely by luck of what it landed on. */
-        .rail-page { position: absolute; top: 0; bottom: 0; width: 26px; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 0; border: none; background: transparent; cursor: pointer; }
-        .rail-page span { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #FAF4EC; border: 1px solid #E8D5B7; box-shadow: 0 1px 3px rgba(44,26,14,0.16); color: #A0724A; font-size: 14px; line-height: 1; opacity: 0.7; transition: opacity 0.15s; }
-        .rail-page:hover span { opacity: 1; }
-        .rail-page-l { left: 0; }
-        .rail-page-r { right: 0; }
         /* Add-item picker — same pill, wrapped and exhaustive. Never scrolls. */
         .cat-grid { display: flex; flex-wrap: wrap; gap: 9px; }
         .cat-pill-new { background: transparent; border-style: dashed; }
@@ -2934,12 +2976,6 @@ function ProvisionsApp() {
               className={`cat-rail-wrap${railEdges.atStart ? " at-start" : ""}${railEdges.atEnd ? " at-end" : ""}`}
               style={{ marginBottom: browseFilterDescriptor ? "4px" : "24px" }}
             >
-              {railEdges.overflows && !railEdges.atStart && (
-                <button className="rail-page rail-page-l" aria-label="Scroll categories left" onClick={() => pageRail(-1)}><span>‹</span></button>
-              )}
-              {railEdges.overflows && !railEdges.atEnd && (
-                <button className="rail-page rail-page-r" aria-label="Scroll categories right" onClick={() => pageRail(1)}><span>›</span></button>
-              )}
               <div className="cat-rail" ref={catRailNode}>
                 {/* Staples — cross-cutting filter */}
                 <button
@@ -2984,9 +3020,14 @@ function ProvisionsApp() {
                  line entirely; otherwise the cycle line is untouched. Never both. */}
             {browseFilterDescriptor ? (
               <div className="declutter-desc" style={{ margin: "0 0 28px" }}>
-                {/* At phase 1 the rail is hidden, so the line describes an active
-                    state rather than a visible selection. */}
-                {browsePhase === 1 ? "Filtering" : "Showing"}{" "}
+                {/* ONE verb in every phase. "Filtering Produce" was backwards —
+                    Produce is not what's filtered out, it's what survives. And the
+                    user's actual question is never "are filters on," it's "where
+                    did Bacon go": someone scanning A–Z with the rail hidden needs
+                    to know something was withheld. The sentence's presence signals
+                    that filters are on; "only" states the exclusion in one word,
+                    with no second clause. */}
+                Showing only{" "}
                 {browseFilterDescriptor.names.length === 1 ? (
                   <b>{browseFilterDescriptor.names[0]}</b>
                 ) : browseFilterDescriptor.names.length === 2 ? (
@@ -3185,7 +3226,7 @@ function ProvisionsApp() {
                 {browsePhase === 2 ? (
                   /* ── FLAT A–Z (declutter phase 2) ── */
                   <>
-                    <FlatHeader count={browseFlatItems.length} />
+                    <FlatHeader count={browseFlatItems.length} showCount={!browseFilterDescriptor} />
                     <div className="items-grid">
                       {browseFlatItems.map((item) => {
                         const qty = quantities[item.name] || 0;
