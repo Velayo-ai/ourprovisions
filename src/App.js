@@ -284,6 +284,12 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
   // sideways (the "shake"). A full-screen overlay shouldn't let the body scroll
   // behind it anyway. Restored to its prior value on unmount, so the app scrolls
   // normally once the splash dissolves.
+  //
+  // 2026-08-10: the scrollbar half of that rationale is now handled globally and
+  // properly by `scrollbar-gutter: stable` on `html` (src/index.css) — including
+  // the restore above, which used to BE the moment the scrollbar appeared and the
+  // column jumped. This lock stays for its own reason: no scrolling behind a
+  // full-screen overlay. Do not re-derive it as the shimmy fix.
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";

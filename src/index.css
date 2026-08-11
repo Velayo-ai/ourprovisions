@@ -1,3 +1,15 @@
+/* Reserve the vertical scrollbar's space from first paint, app-wide.
+   Without this, every view paints with no scrollbar, content finishes loading,
+   the page crosses the viewport-height threshold, Chrome adds the scrollbar, and
+   the ~15px it takes narrows the viewport — sliding the centered column ~7px
+   left mid-load. It reads as a startup shimmy and is easy to misattribute to
+   whatever happens to be animating at the time (it cost us a rail nudge that was
+   never the cause). Desktop only in effect: mobile overlay scrollbars occupy no
+   layout space, so there is nothing to reserve. */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
