@@ -633,6 +633,14 @@ later; absence states that membership is RPC-only.
 > One thing 4a changed for the better: 4b now builds on a **correct `is_member_of`** (Part 0 /
 > `029`), which checks household and account liveness. Policies written against it inherit
 > that.
+>
+> **Blocked on: NOTHING. Part 4 has no open blocker as of 2026-07-31.** The one dependency
+> ever recorded against it — that `is_member_of()` ignored `households.deleted_at`, so
+> membership in a soft-deleted household would satisfy the new policies — was closed by
+> **`029_household_liveness.sql`** (shipped dev + prod). The live predicate carries
+> `h.deleted_at is null`, confirmed by `pg_get_functiondef` on both projects. See the
+> corrected Follow-on bullet at the end of this spec; any older text asserting the gap is
+> still open is stale.
 
 ### Finding
 
@@ -691,6 +699,47 @@ is the one currently live and currently exposed.
 
 ### Fix
 
+> **⚠️ CORRECTED 2026-08-16 — the fix block below rests on a FALSE PREMISE and was NOT
+> built as written. See `032_rls_cycle_tables.sql` for what actually shipped.**
+>
+> This section assumed all three tables were policy-free. **They are not.** Confirmed
+> identical in dev and prod via `pg_policy`:
+>
+> | table | existing policies | state |
+> |---|---|---|
+> | `known_stores` | `known_stores_{select,insert,update}_household` | dormant (RLS off) |
+> | `shopping_sessions` | `sessions_select_household`, `sessions_insert_own`, `sessions_update_own` | dormant (RLS off) |
+> | `provision_cycles` | **none** | the only genuinely missing set |
+>
+> Those six are **not fossils.** They were deliberately authored in
+> `archive/005_provision_cycles_sessions_stores.sql` with stated rationale and
+> **repaired once already** by `014_fix_authuid_rls.sql`, which fixed the
+> `auth.uid()`-Clerk-string-vs-`uuid` debt and explicitly left them as "definitions
+> only" because RLS was off. They encode a design this section does not:
+> **`shopping_sessions` writes are per-user** ("a user can only create a session for
+> themselves — can't start a session on behalf of Helen"), and **both SELECT policies
+> carry `deleted_at is null`.**
+>
+> **Creating the uniform block below alongside them would have been actively harmful.**
+> Permissive policies on the same command are **OR'd**, so the widest wins:
+> - SELECT → `(is_member_of AND deleted_at IS NULL) OR is_member_of` = `is_member_of`,
+>   **defeating the soft-delete filter**;
+> - `shopping_sessions` UPDATE → `(user_id = me) OR is_member_of(...)`, **silently
+>   widening a deliberate per-user rule to household-wide**.
+>
+> **As built (Dan's call, 2026-08-16):** keep the existing six as the design of record;
+> create only the three missing `provision_cycles` policies; and repair two real gaps —
+> `sessions_update_own` and `known_stores_update_household` both had `USING` with **no
+> `WITH CHECK`**, leaving the UPDATE post-image unconstrained (a row could be moved to
+> another `household_id`), and `sessions_update_own` never checked membership at all.
+> Nine policies total, no DELETE policy anywhere, RLS enabled on all three.
+>
+> **The lesson generalizes: this spec's `pg_policy` reads covered `household_members`
+> and `list_items` but never the three tables Part 4 is about.** Grep the live catalog
+> before authoring policy SQL, exactly as the BUILD rules say to grep before editing code.
+
+*Superseded block, retained for the record:*
+
 ```sql
 alter table public.known_stores      enable row level security;
 alter table public.provision_cycles  enable row level security;
@@ -745,6 +794,20 @@ table — which is why no DELETE policy is created.
 policies are pre-emptive and cannot regress anything.
 
 ### `shopping_sessions` scoping — decided, with a flag
+
+> **⚠️ CORRECTED 2026-08-16 — this decision was made in ignorance of an existing one.**
+> The reasoning below concluded "household-scoped" without knowing that
+> `sessions_insert_own` / `sessions_update_own` **already scoped writes per-user**, and
+> had done since `archive/005`, with the rationale *"a user can only create a session for
+> themselves (can't start a session on behalf of Helen)."*
+>
+> **As built: SELECT is household-scoped, writes are per-user.** That is a better answer
+> than either section alone reached — the coordination UI can show the household its
+> sessions, while nobody can open or wrap up a trip in someone else's name. The
+> generalize-to-events flag below still stands, and applies to the **SELECT** policy,
+> which is the one that exposes GPS and spend.
+
+*Original reasoning, retained:*
 
 **Decision: household-scoped**, matching `list_items` and the other two tables.
 
@@ -967,12 +1030,20 @@ note the divergence in the session log.
   by signing in as them and cold-starting until the `limit 1` lands on the deleted row.
 
   Fix has two halves, and they are independent commits:
-  1. **Predicate** — join `households` and filter `h.deleted_at is null`, plus a
-     deterministic `ORDER BY` (joined_at, or role with owner first). Audit the other
-     membership-resolution sites for the same omission; `is_member_of()` has it too
-     (it checks `hm.deleted_at` only), which means **membership in a deleted household
-     currently still satisfies every RLS policy in the schema** — including the new Part 4
-     policies. Worth confirming that's intended before Part 4 ships.
+  1. **✅ Predicate — RESOLVED by `029_household_liveness.sql`.** This bullet previously
+     read that `is_member_of()` carried the same omission (checking `hm.deleted_at` only),
+     and therefore that *membership in a deleted household still satisfies every RLS policy
+     in the schema* — a claim that named Part 4 as the thing to confirm before shipping.
+     **That is stale and was already false when written.** `029` rewrote `is_member_of` to
+     join both `users` and `households` and filter `u.deleted_at is null` **and
+     `h.deleted_at is null`**; it shipped to dev and prod alongside the
+     `bootstrap_new_user` fix (see Part 0). Re-verified by reading `pg_get_functiondef` on
+     both `zxwtxjjmssykhqrghouf` (dev) and `parpauldmbetptkmdwbd` (prod) — the predicate is
+     present and the two environments are byte-identical.
+     **Part 4 therefore has no open blocker as of 2026-07-31.** Policies written against
+     `is_member_of` inherit household- and account-liveness for free. The remaining live
+     work in this bullet is the `bootstrap_new_user` `ORDER BY`/join half — also done by
+     `029` — leaving only the audit of *other* membership-resolution sites.
   2. **Backfill + cascade** — soft-delete the orphaned membership rows, and make household
      deletion cascade to `household_members` in whatever RPC owns it.
 
