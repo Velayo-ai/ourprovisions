@@ -1,6 +1,6 @@
 # SPEC — Retire a dormant user
 
-**Status:** Active — describes a procedure already run 11 times, not yet performed as a spec'd operation
+**Status:** Built — describes a procedure already run 11 times; routed to `built/` 2026-08-17
 **Scope:** OurProvisions
 **Migration:** None — this is a data operation (UPDATE statements against `users` and, in one shape, cascading soft-deletes), not a schema change
 **Date:** 2026-08-16 (written after the fact — the procedure it documents ran 2026-08-15 during the prod Clerk cutover)
