@@ -1,0 +1,108 @@
+-- 035_drop_household_members_insert.sql
+-- Authorization Part 3 — drop the permissive `household_members_insert` policy.
+--
+-- NUMBERING: follows 034 (Part 5). Independent of it — 034 touches only pg_proc.proconfig
+-- on five functions; this touches one policy on one table. Either order works.
+-- 031 remains reserved for cycle-integrity (SPEC_cycle_integrity_031).
+--
+-- THE DEFECT
+--   policy                     cmd     roles          using              with check
+--   household_members_select   SELECT  authenticated  is_member_of(hh)   —
+--   household_members_insert   INSERT  authenticated  —                  TRUE
+--
+-- `WITH CHECK (true)` means any authenticated caller can insert any row:
+--
+--   await supabase.from('household_members')
+--     .insert({ household_id: '<any>', user_id: '<own>', role: 'owner' })
+--
+-- — self-granting membership in an arbitrary household, at `role: 'owner'`, which the
+-- RPC path never grants and the check constraint permits. Requires a valid account, so
+-- it ranks below the no-credential defects (Parts 1/2) — but it is a one-line exploit.
+--
+-- WHY DROP RATHER THAN SCOPE
+-- Joining is owned entirely by SECURITY DEFINER RPCs. A scoped-but-present policy invites
+-- someone to widen it later; ABSENCE states that membership is RPC-only. Same reasoning
+-- applied to the cycle tables in 032 (no DELETE policy, deliberately).
+--
+-- =====================================================================
+-- WHY THIS CANNOT BREAK JOINING — VERIFIED, NOT ASSUMED
+-- =====================================================================
+-- The whole safety argument rests on the RPC path bypassing RLS. A SECURITY DEFINER
+-- function only bypasses RLS if its OWNER is exempt — and an owner is exempt only when
+-- it owns the table AND the table does not have FORCE ROW LEVEL SECURITY. Both halves
+-- were checked on dev and prod (2026-08-17):
+--
+--   household_members: relowner = postgres, relrowsecurity = true, relforcerowsecurity = FALSE
+--   every function that inserts into it: prosecdef = true, proowner = postgres
+--     - bootstrap_new_user(...)   - create_household(text,text)   - join_household(text)
+--
+-- Owner-owned + no FORCE => RLS is not applied to these inserts at all. Dropping a policy
+-- therefore cannot affect them. Had relforcerowsecurity been true, this migration would
+-- have locked every user out of joining a household — hence the explicit check.
+--
+-- CLIENT SURFACE: NONE. Both `household_members` references in the client are reads:
+--   useProvisions.js:514   .from("household_members").select("id, user_id, role")
+--   useProvisions.js:1456  .from("household_members").select("id, user_id, role")
+-- There is no direct .insert() anywhere in src/. The SELECT policy is untouched, so both
+-- reads are unaffected.
+--
+-- NOTE ON PART 2 (still open): the spec frames Part 3 as safe "once Parts 1 and 2 own
+-- joining". Part 2 is NOT shipped — bootstrap_new_user still trusts a client-supplied
+-- p_clerk_id. That defect is independent of this policy: bootstrap_new_user is a
+-- SECURITY DEFINER RPC that never consulted this policy in the first place. Dropping the
+-- policy neither fixes nor worsens Part 2; it removes a SECOND, direct door while the
+-- first remains open. Part 2 still needs to ship.
+--
+-- NO UPDATE OR DELETE POLICY EXISTS on this table, and none is added here. Member removal
+-- already flows through SECURITY DEFINER soft-delete, which is the correct shape. After
+-- this migration the table's entire client-facing policy surface is a single SELECT.
+
+begin;
+
+drop policy household_members_insert on public.household_members;
+
+commit;
+
+-- =====================================================================
+-- VERIFY
+-- =====================================================================
+-- (1) Policy surface is SELECT only:
+--
+-- select polname, polcmd from pg_policy
+-- where polrelid = 'public.household_members'::regclass order by polname;
+--
+-- Expect exactly ONE row: household_members_select / r.
+-- (polcmd: r = SELECT, a = INSERT, w = UPDATE, d = DELETE.)
+--
+-- (2) RLS is still ENABLED on the table — dropping the last INSERT policy must not be
+--     confused with disabling RLS:
+--
+-- select relrowsecurity, relforcerowsecurity from pg_class
+-- where oid = 'public.household_members'::regclass;
+--
+-- Expect relrowsecurity = true. With RLS on and no INSERT policy, client inserts are
+-- denied by default — that IS the fix.
+--
+-- (3) THE REAL CHECK — a direct client insert must now fail, and it must be run from
+--     OUTSIDE the database with a real user JWT. The SQL editor runs as postgres, which
+--     owns the table and bypasses RLS: it will happily insert whether the fix worked or
+--     not. Same trap as 022/033. In the deployed dev preview console, signed in:
+--
+--       await supabase.from('household_members')
+--         .insert({ household_id: '<a household you are NOT in>',
+--                   user_id: '<your own users.id>', role: 'owner' })
+--
+--     BEFORE: succeeds (this is the defect).
+--     AFTER:  fails with 42501 / "new row violates row-level security policy".
+--     Clean up the BEFORE row if run against dev — it is a real membership.
+--
+-- (4) Invite-accept still works end-to-end (proves the owner-privileged RPC path is
+--     genuinely unaffected). Walk a real `?invite=` accept on the deployed dev preview
+--     and confirm a household_members row lands. This is the regression check that
+--     matters; (1) and (2) only prove the policy is gone, not that joining survived.
+--
+-- (5) Member list still renders — confirms household_members_select was not disturbed
+--     (useProvisions.js:514 / :1456).
+--
+-- (6) Advisor: re-run get_advisors(security). This drop should not introduce anything;
+--     re-confirm `rls_disabled` stays clean (sanity check, unrelated to this change).
