@@ -341,18 +341,54 @@ create index idx_waste_events_household     on waste_events(household_id);
 -- SECTION 3: VIEWS
 -- ============================================================
 
--- category_avg_prices — average price_per_unit per category,
--- used as a fallback estimate in the UI (shown with a ~ prefix).
--- A view inherits RLS from the underlying list_items at query
--- time, so it is intentionally "unrestricted" on its own.
+-- category_avg_prices — average seed price_hint per category, used
+-- as a fallback estimate in the UI (shown with a ~ prefix).
+--
+-- CORRECTED 2026-08-17 (migration 033). This block previously
+-- defined the view over list_items and carried the comment:
+--   "A view inherits RLS from the underlying list_items at query
+--    time, so it is intentionally 'unrestricted' on its own."
+-- BOTH HALVES OF THAT WERE WRONG, and it was the source of the
+-- same error in ARCHITECTURE.md.
+--   1. A view does NOT inherit the caller's RLS by default. With
+--      no security_invoker option it runs with the VIEW OWNER's
+--      privileges. Owner is postgres, which also owns the base
+--      table, and relforcerowsecurity is false — RLS never applies
+--      to a table's owner. The view bypassed RLS completely.
+--   2. The old body aggregated list_items.price_per_unit — real
+--      per-household transaction prices. On prod those 63 priced
+--      rows belonged to a SINGLE household, so the "cross-household
+--      average" would have been one household's shopping prices
+--      served to anon. Dev was empty only by accident.
+--
+-- DELIBERATE DEVIATION from the "reproduce live schema as-is; never
+-- edit fixes back into 000" rule (see ARCHITECTURE.md "Known bugs
+-- reproduced in baseline"). That rule exists so 000 mirrors reality
+-- rather than aspiration. Here the old text was BOTH vulnerable AND
+-- no longer reality — prod has not matched it for some time — so
+-- leaving it would make a fresh rebuild reintroduce the gap. The
+-- fix is carried by migration 033 as well; this block is corrected
+-- so 000 and 033 agree instead of diverging.
+--
+-- security_invoker = on makes the view honour the CALLER's RLS.
+-- is_global = true is not redundant with that: without it, each
+-- household would see a different average once custom items get
+-- priced (their own rows blending in via catalog_items_select),
+-- turning one consistent fallback estimate into a per-household
+-- one. RLS is the backstop; the query asks for what it wants.
+-- Stays anon-readable by design — useProvisions.js:266 reads it
+-- with the anon key before any Clerk token exists.
 create or replace view category_avg_prices as
   select
-    ci.category,
-    avg(li.price_per_unit) as avg_price
-  from list_items li
-  join catalog_items ci on ci.id = li.catalog_item_id
-  where li.price_per_unit is not null
-  group by ci.category;
+    category,
+    round(avg(price_hint), 2) as avg_price
+  from catalog_items
+  where price_hint is not null
+    and deleted_at is null
+    and is_global = true
+  group by category;
+
+alter view category_avg_prices set (security_invoker = on);
 
 
 -- ============================================================
