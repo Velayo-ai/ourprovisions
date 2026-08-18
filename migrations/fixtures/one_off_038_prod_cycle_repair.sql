@@ -1,5 +1,13 @@
 -- one_off_038_prod_cycle_repair.sql
 -- ONE-OFF DATA REPAIR. PROD ONLY. NOT A MIGRATION. RUN ONCE.
+--
+-- ✅ RUN ONCE ON PROD 2026-08-18. DO NOT RUN AGAIN. Its preconditions will
+-- abort a second run (Our calendar now has 1 open cycle, not 2), so a repeat is
+-- safe but pointless. After-state confirmed independently: survivor 16 live,
+-- emptied 0 live + closed_at set, Lake house 2 in its open cycle, 0 households
+-- with >1 open cycle, 16 stranded close-orphans deliberately untouched.
+-- All four repointed rows share one updated_at — applied atomically — and
+-- rolled_from_item_id stayed NULL, so no roll-forward provenance was invented.
 -- Companion to migrations/038_cycle_integrity.sql.
 -- Per docs/specs/active/SPEC_cycle_integrity_038.md, D1 + D3.
 --

@@ -1,5 +1,16 @@
 -- ============================================================
 -- Migration 026 — Resurrect integrity (trigger) + insert_list_item
+--
+-- ✅ APPLIED TO PROD 2026-08-18 (with 025 + 038, one batch). Post-apply checks:
+-- trg_list_items_resurrect present; insert_list_item replaced at EXACTLY ONE
+-- overload (no bootstrap_new_user-style signature collision); search_path
+-- pinned; census still 0 multi-open households and 16 stranded close-orphans
+-- (unchanged by design — 026 fixes the insert path forward, it does not
+-- retroactively repair rows).
+--
+-- ⚠️ NOTE: 026 does NOT close insert_list_item's anon exposure. CREATE OR
+-- REPLACE preserves the existing ACL, and the body has no is_member_of guard
+-- either before or after. Tracked as its own NEXT item, opened 2026-08-18.
 --                 server-side cycle resolution
 -- ============================================================
 -- Ships in the SAME dev-verify + prod batch as 025. Two jobs:

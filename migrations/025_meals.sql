@@ -5,6 +5,18 @@
 --   docs/specs/active/SPEC_meals_model.md   (this migration)
 --   docs/specs/active/SPEC_meal_sharing.md  (giving — NOT built here)
 --
+-- ✅ APPLIED TO PROD 2026-08-18 (with 026 + 038, one batch). Verified shape,
+-- confirmed by name against prod — no duplicates, every policy {authenticated}
+-- only, zero anon:
+--   meals             SELECT / INSERT / UPDATE / DELETE   (4)
+--   meal_ingredients  SELECT / INSERT / UPDATE / DELETE   (4)
+--   list_item_meals   SELECT / INSERT / DELETE            (3)  <- no UPDATE,
+--     deliberately: a provenance linkage row is delete-and-reinserted, never
+--     updated. That is the right shape, not an omission.
+--   TOTAL = 11 policies. If a future reference says 10, it is wrong.
+-- add_meal_to_list: SECURITY DEFINER, search_path pinned, anon EXECUTE revoked
+-- (has_function_privilege('anon', …) = false on prod, re-confirmed post-apply).
+--
 -- SCOPE (add-path only): three tables + household-scoped RLS + the
 -- add-a-meal-to-list RPC. Deliberately OUT of this migration:
 --   * meal_shares / giving between households (own build).
