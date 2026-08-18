@@ -87,3 +87,17 @@ begin
   raise notice '038 INDEX VERIFIED: 4/4 passed. Throwaway removed.';
   raise notice '================================================';
 end $$;
+
+-- =====================================================================
+-- AFTER-STATE PROOF -- run in the SAME paste as the block above.
+-- The block's PASS notices are invisible in the SQL editor (see
+-- migrations/README.md). If the block failed, it raised an exception and you
+-- never reached this SELECT. If you see these rows, all four checks passed.
+-- Expected: true / true / 0.
+-- =====================================================================
+select
+  (select indisvalid  from pg_index
+     where indexrelid = to_regclass('public.uq_open_cycle_per_household'))  as index_valid,
+  (select indisunique from pg_index
+     where indexrelid = to_regclass('public.uq_open_cycle_per_household'))  as index_unique,
+  (select count(*) from households where name like 'ZZ_throwaway%')         as leftover_throwaway;

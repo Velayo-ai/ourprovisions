@@ -154,3 +154,29 @@ begin
 
   raise notice 'one_off_038 complete. Census clean -- 038 can now build.';
 end $$;
+
+-- =====================================================================
+-- AFTER-STATE PROOF -- run in the SAME paste as the block above.
+-- The SQL editor does not display `raise notice` (see migrations/README.md),
+-- so the notices in that block are invisible here. These rows are the evidence.
+-- Expected: survivor 16 live / emptied 0 live + closed_at set / Lake house 2 in
+-- its open cycle / multi_open_households 0 / stranded_remaining 16 (the
+-- untouched close-orphans -- that number is CORRECT, not a miss).
+-- =====================================================================
+select
+  (select count(*) from list_items
+     where cycle_id='f98089a1-1f46-4aad-8948-200f9b70c981' and deleted_at is null)  as survivor_live_items,
+  (select count(*) from list_items
+     where cycle_id='a8dd7187-60ce-4d08-bddf-d8605826a9c5' and deleted_at is null)  as emptied_live_items,
+  (select closed_at is not null from provision_cycles
+     where id='a8dd7187-60ce-4d08-bddf-d8605826a9c5')                              as emptied_is_closed,
+  (select count(*) from provision_cycles
+     where household_id='7f687474-9186-4258-8c78-fadc3955019a'
+       and closed_at is null and deleted_at is null)                               as our_calendar_open_cycles,
+  (select count(*) from list_items
+     where cycle_id='1522085c-02f3-4824-93d0-dce133c3ab3f' and deleted_at is null) as lake_house_in_open_cycle,
+  (select count(*) from (select household_id from provision_cycles
+     where closed_at is null and deleted_at is null
+     group by household_id having count(*)>1) x)                                   as multi_open_households,
+  (select count(*) from list_items li join provision_cycles pc on pc.id=li.cycle_id
+     where li.deleted_at is null and pc.closed_at is not null)                     as stranded_remaining;
