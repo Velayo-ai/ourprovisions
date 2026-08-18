@@ -308,9 +308,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
         // Use bootstrap_new_user RPC (SECURITY DEFINER — bypasses RLS).
         // Pass invite code so joining happens in one atomic transaction.
+        // Identity is NOT passed: the function derives the Clerk id from
+        // auth.jwt()->>'sub' server-side (migration 036, Authorization Part 2).
+        // Sending p_clerk_id here would not just be redundant, it would fail —
+        // no overload accepts it after 037.
         const { data: bootstrapData, error: bootstrapErr } = await db
           .rpc("bootstrap_new_user", {
-            p_clerk_id: clerkId,
             p_email: email,
             p_invite_code: pendingInviteCode || null,
             p_full_name: fullName || null,
@@ -384,8 +387,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // deliberately excludes fullName from its deps (feeding it there wedged loading).
   // So the name that arrives from Clerk *after* first bootstrap never persists.
   // This effect closes that gap: idempotent, own dep on fullName, only writes on a
-  // real change. Does NOT go through bootstrap_new_user (avoids its 4-overload
-  // ambiguity entirely).
+  // real change. Does NOT go through bootstrap_new_user — it stays a targeted
+  // name write. (This previously also avoided that function's 4-overload
+  // ambiguity; migrations 036/037 collapse it to a single 3-arg signature, so
+  // that particular hazard is gone — but the separation still stands on its
+  // own merits, per the dependency reasoning above.)
   const lastSyncedNameRef = useRef(null);
   useEffect(() => {
     const db = supabaseRef.current;
