@@ -9,7 +9,7 @@
 -- All four repointed rows share one updated_at — applied atomically — and
 -- rolled_from_item_id stayed NULL, so no roll-forward provenance was invented.
 -- Companion to migrations/038_cycle_integrity.sql.
--- Per docs/specs/active/SPEC_cycle_integrity_038.md, D1 + D3.
+-- Per docs/specs/built/SPEC_cycle_integrity_038.md, D1 + D3.
 --
 -- =====================================================================
 -- WHY THIS IS NOT A MIGRATION

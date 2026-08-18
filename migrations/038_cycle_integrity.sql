@@ -1,5 +1,5 @@
 -- 038_cycle_integrity.sql
--- Cycle integrity — the structural half. Per docs/specs/active/SPEC_cycle_integrity_038.md.
+-- Cycle integrity — the structural half. Per docs/specs/built/SPEC_cycle_integrity_038.md.
 --
 -- ✅ APPLIED: dev 2026-08-17, prod 2026-08-18. Index confirmed indisvalid +
 -- indisunique + indisready on BOTH, predicate byte-identical, and enforcement

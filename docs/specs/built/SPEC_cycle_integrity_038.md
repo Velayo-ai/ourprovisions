@@ -3,7 +3,7 @@
 **Supersedes:** the "Cycle-integrity bugs" row in `docs/ROADMAP.md` NEXT, and all
 prose references to a migration numbered **027**.
 **Date:** 2026-07-31 (renumbered 031 → 038 on 2026-08-17 at point-of-build)
-**Status:** Design-approved, unbuilt
+**Status:** ✅ BUILT + SHIPPED — dev 2026-08-17, prod 2026-08-18. Moved active → built at SESSION END 2026-08-18.
 **Scope:** SQL only. No client changes. No user-visible behaviour change.
 
 ---
