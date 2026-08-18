@@ -1,6 +1,12 @@
 # SPEC — RLS and RPC authorization (membership integrity + unprotected tables)
 
-**Status:** Active — **Parts 0 and 4a SHIPPED to dev and prod 2026-07-30. Parts 1, 2, 3, 4b, 5 outstanding.**
+**Status:** ✅ **BUILT / CLOSED 2026-08-17 — ALL SEVEN PARTS (0, 1, 2, 3, 4a, 4b, 5) SHIPPED AND VERIFIED ON DEV AND PROD.** Ship order and dates: 4a + 0 (`028`/`029`, 2026-07-31) → 1 (`030`, 2026-08-03) → 4b (`032`, 2026-08-17) → 5 (`034`), 3 (`035`), 2 (`036`+`037`) (2026-08-17). Every part verified from **outside** the SQL editor, not from the editor itself. *(Prior: "Active — Parts 0 and 4a SHIPPED to dev and prod 2026-07-30. Parts 1, 2, 3, 4b, 5 outstanding.")*
+
+> ⚠️ **This spec is closed, but it did NOT cover two defects of the same class, found while verifying it. Do not read "closed" as "the authorization surface is clean":**
+> - **`create_household(p_name, p_clerk_id)`** — `SECURITY DEFINER`, `anon`-executable, trusts a client-supplied clerk id. Identical shape to Part 2. Confirmed live on prod 2026-08-17 (it was the verification *control* for Part 2). Tracked in ROADMAP **NEXT**.
+> - **21 `anon`-executable SECURITY DEFINER functions** remain on prod, including `delete_household`, `remove_member`, `leave_household`. Tracked in ROADMAP **LATER** as one audit.
+>
+> ⚠️ **Ordering note retained:** this spec still argues fix order 1→2→3→4 in places. Measurement inverted that — severity ranks by **credential requirement first**, regression risk second. Actual ship order is recorded above.
 **Severity:** High — live production authorization gaps, no exploitation observed
 **Scope:** OurProvisions
 **Migration:** assign at build time — see Ordering. `028` and `029` are spent.
