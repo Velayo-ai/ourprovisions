@@ -2,11 +2,19 @@
 -- Authorization Part 2 — stop trusting a client-supplied p_clerk_id.
 --
 -- ############################################################################
--- ##  DRAFT — DO NOT APPLY YET.  Authored 2026-08-17 for its own session.   ##
--- ##  Part 2 is NOT SQL-only: it REQUIRES a coordinated useProvisions.js    ##
--- ##  edit in the same commit, and it has a DEPLOY-ORDERING HAZARD that     ##
--- ##  must be decided before this runs. Read "DEPLOY ORDERING" below.       ##
+-- ##  PART 1 OF 2 — ZERO-DOWNTIME SPLIT. Apply this, THEN deploy the client ##
+-- ##  3-arg change, THEN apply 037 (which drops the old 4-arg overload).    ##
+-- ##  This file is DELIBERATELY NON-BREAKING: it ADDS the hardened function ##
+-- ##  and leaves the live 4-arg overload in place, so the currently-        ##
+-- ##  deployed bundle keeps working while both exist.                       ##
+-- ##                                                                        ##
+-- ##  PART 2 IS NOT CLOSED UNTIL 037 RUNS. Until then the forgeable 4-arg   ##
+-- ##  overload is still live and still anon-executable. Do not leave 037    ##
+-- ##  dangling.                                                             ##
+-- ##                                                                        ##
 -- ##  034 and 035 must be applied and verified first.                       ##
+-- ##  Applied to BOTH environments in the same 036/037 order, so migration  ##
+-- ##  history stays symmetric across dev and prod.                          ##
 -- ############################################################################
 --
 -- THE DEFECT
@@ -58,39 +66,34 @@
 -- So the legacy (text,text,text) MUST be gone before the create. Ordering is load-bearing,
 -- not stylistic.
 --
--- ALL FOUR ARE DROPPED, INCLUDING THE CURRENTLY-LIVE 4-ARG ONE. Dropping only the three
--- dead ones would leave the vulnerable (text,text,text,text) overload in place and
--- callable — Part 2 would not actually be closed. The vulnerable overload IS the live one.
+-- THE LIVE 4-ARG OVERLOAD IS NOT DROPPED HERE — IT IS 037'S JOB. That is the entire
+-- point of the split, and it is what makes this file safe to apply ahead of the client
+-- deploy. See DEPLOY ORDERING below.
 --
 -- =====================================================================
--- ⚠️ DEPLOY ORDERING — DECIDE BEFORE APPLYING
+-- ⚠️ DEPLOY ORDERING — WHY THIS IS SPLIT (decided 2026-08-17)
 -- =====================================================================
 -- useProvisions.js:312-317 currently calls the 4-arg form and passes p_clerk_id:
 --     .rpc("bootstrap_new_user", { p_clerk_id, p_email, p_invite_code, p_full_name })
--- The moment this migration lands, that call resolves to NOTHING — PostgREST returns
--- PGRST202 "Could not find the function". Bootstrap runs on EVERY sign-in (Effect 1), so
--- until the new bundle is deployed, EVERY user's session setup fails, not just new
--- signups. Applying this to prod without the client already shipped is a full outage of
--- the auth path.
+-- If the 4-arg signature were dropped in this same migration, that call would resolve to
+-- NOTHING — PostgREST returns PGRST202 "Could not find the function". Bootstrap runs on
+-- EVERY sign-in (Effect 1), not just signup, so until the new bundle is deployed EVERY
+-- user's session setup fails. That is a full outage of the auth path, so the drop is
+-- deferred to 037.
 --
--- Two acceptable ways to sequence it. PICK ONE DELIBERATELY:
+-- THE ORDER, RUN IDENTICALLY ON DEV THEN PROD:
+--   1. Apply 036 (this file). Two overloads now coexist: the hardened 3-arg and the old
+--      4-arg. The deployed bundle keeps calling the 4-arg. NOTHING BREAKS.
+--   2. Deploy the client 3-arg change; verify sign-in and invite-accept on the preview.
+--   3. Apply 037 — drops the 4-arg. This is the step that actually closes Part 2.
 --
---   OPTION A — one migration + simultaneous client deploy (this file as written).
---   Apply, then immediately deploy the client commit. Exposure = a short window where
---   signed-in sessions cannot bootstrap. Simplest, closes the defect in one step, and
---   with a ~10-user beta a few minutes of failed bootstrap is recoverable. Do the dev
---   preview first and time the window before repeating on prod.
+-- Both environments get both migrations in this order, so dev and prod migration history
+-- stays symmetric — no environment-specific path, and no "prod did it differently" hole
+-- of the kind that produced the 024/033 record gaps.
 --
---   OPTION B — zero-downtime, split across two migrations (SAFER; recommended for prod).
---     036: drop the three DEAD overloads + CREATE the hardened 3-arg function + revoke
---          anon. LEAVE the live 4-arg in place. Nothing breaks — the deployed client
---          keeps calling the 4-arg while the hardened path exists alongside it.
---     ---> deploy the client commit, verify sign-in + invite-accept on the preview.
---     037: drop the 4-arg (text,text,text,text). THIS is the commit that actually closes
---          Part 2 — until it runs, the forgeable overload is still live and still
---          anon-executable, so 037 must not be left dangling.
---   To use Option B, delete ONLY the fourth drop statement below from this file and move
---   it into 037.
+-- ⚠️ THE INTERMEDIATE STATE IS DELIBERATE BUT NOT SAFE TO PARK IN. Between steps 1 and 3
+-- the old forgeable overload is still live and still anon-executable. 036 without 037 is
+-- a half-shipped fix that LOOKS done because the hardened function exists.
 --
 -- =====================================================================
 -- BEHAVIOUR PRESERVED
@@ -114,9 +117,9 @@ begin;
 drop function if exists public.bootstrap_new_user(text, text);
 drop function if exists public.bootstrap_new_user(text, text, boolean);
 drop function if exists public.bootstrap_new_user(text, text, text);
--- The live, VULNERABLE overload (present on both) — see DEPLOY ORDERING before running.
--- Move this line to 037 if taking Option B.
-drop function if exists public.bootstrap_new_user(text, text, text, text);
+-- NOTE: the live 4-arg overload (text,text,text,text) is deliberately NOT dropped here.
+-- It is dropped by 037, after the client is calling the 3-arg signature. Do not add it
+-- back to this file — doing so re-creates the auth-path outage the split exists to avoid.
 
 -- --- The hardened replacement. Identity comes from the JWT, never the request body. ---
 create function public.bootstrap_new_user(
@@ -292,33 +295,40 @@ commit;
 -- =====================================================================
 -- VERIFY
 -- =====================================================================
--- (1) Exactly ONE overload remains, in BOTH environments:
+-- (1) TWO overloads now coexist — this is the expected intermediate state after 036,
+--     NOT a failure. "Exactly one" is 037's check, not this file's.
 --
 -- select pg_get_function_identity_arguments(oid) as sig, proconfig, prosecdef
--- from pg_proc where pronamespace='public'::regnamespace and proname='bootstrap_new_user';
+-- from pg_proc where pronamespace='public'::regnamespace and proname='bootstrap_new_user'
+-- order by sig;
 --
--- Expect ONE row: `p_email text, p_invite_code text, p_full_name text`,
--- proconfig {search_path=public, extensions}, prosecdef true.
--- Prod goes 4 -> 1; dev goes 1 -> 1 (same end state, which is the point).
+-- Expect TWO rows in BOTH environments:
+--   `p_email text, p_invite_code text, p_full_name text`              <- new, hardened
+--   `p_clerk_id text, p_email text, p_invite_code text, p_full_name text`  <- old, to be
+--                                                                       dropped by 037
+-- The new row must show proconfig {search_path=public, extensions} and prosecdef true.
+-- Prod goes 4 -> 2; dev goes 1 -> 2. Both converge on 2 here and on 1 after 037 — that
+-- convergence is the point of running the same two files in both environments.
 --
--- (2) anon cannot execute it:
+-- (2) anon cannot execute the NEW function. Check PER SIGNATURE — a bare
+--     `where proname='bootstrap_new_user'` returns both overloads and the old one is
+--     still anon-executable at this point, which is expected, not a failure:
 --
--- select has_function_privilege('anon', p.oid, 'EXECUTE')
+-- select pg_get_function_identity_arguments(p.oid) as sig,
+--        has_function_privilege('anon', p.oid, 'EXECUTE') as anon_can_execute
 -- from pg_proc p where p.pronamespace='public'::regnamespace
---   and p.proname='bootstrap_new_user';
+--   and p.proname='bootstrap_new_user'
+-- order by sig;
 --
--- Expect FALSE. Use has_function_privilege, not a raw proacl read — it resolves PUBLIC
--- grants and role inheritance, which proacl does not (the lesson from 028).
+-- Expect the 3-arg row FALSE, the 4-arg row TRUE (037 removes the latter). Use
+-- has_function_privilege, not a raw proacl read — it resolves PUBLIC grants and role
+-- inheritance, which proacl does not (the lesson from 028).
 --
--- (3) THE REAL CHECK — identity can no longer be forged. From OUTSIDE the database, with
---     the bundled anon key only:
---
---       POST /rest/v1/rpc/bootstrap_new_user  { "p_email": "attacker@example.com" }
---
---     Expect 401/permission-denied (grant revoked). BEFORE this migration, the equivalent
---     call with a victim's p_clerk_id succeeded and overwrote their row. The SQL editor
---     CANNOT test this — it runs as postgres and bypasses the grant entirely. Same trap
---     as 022/033/035.
+-- (3) DEFERRED TO 037 — the anon-key forgery check CANNOT pass yet, by design. While the
+--     4-arg overload is still live and anon-executable, identity is still forgeable
+--     through it. Running that check now and seeing it fail is the CORRECT result at this
+--     stage; do not treat it as a broken migration and do not "fix" it by dropping the
+--     4-arg early. See 037.
 --
 -- (4) Real sign-in still bootstraps, on the deployed dev preview (not localhost):
 --     an existing user signs in and lands in their household; a NEW user signs up and
@@ -330,6 +340,9 @@ commit;
 --     up with a working account in a fresh household, NOT an error. If they get an error
 --     and cannot sign up at all, the fall-through was turned back into a raise. Revert.
 --
--- (6) Advisor: `anon_security_definer_function_executable` should drop by 1 on dev and by
---     4 on prod (three legacy overloads + the live one, all previously anon-executable).
+-- (6) Advisor, AFTER 036 ONLY: `anon_security_definer_function_executable` should be
+--     UNCHANGED on dev (23) and drop by 3 on prod (25 -> 22) — prod loses the three
+--     legacy overloads; dev had none to lose, and the newly-created 3-arg function is not
+--     anon-executable so it adds nothing. The remaining anon-executable 4-arg row on both
+--     is what 037 clears (each environment then drops by 1 more, to dev 22 / prod 21).
 --     Measured baseline 2026-08-17: dev 23, prod 25.

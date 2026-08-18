@@ -1,0 +1,91 @@
+-- 037_drop_bootstrap_new_user_4arg.sql
+-- Authorization Part 2, step 2 of 2 — drop the old, forgeable 4-arg overload.
+--
+-- ############################################################################
+-- ##  DEPENDS ON 036 HAVING SHIPPED, AND ON THE CLIENT ALREADY CALLING THE  ##
+-- ##  3-ARG SIGNATURE. Do not run this until BOTH are true in the target    ##
+-- ##  environment. Run order is identical on dev and prod:                  ##
+-- ##      036  ->  client deploy  ->  037                                   ##
+-- ############################################################################
+--
+-- THIS IS THE STEP THAT ACTUALLY CLOSES PART 2. 036 added the hardened
+-- bootstrap_new_user(p_email, p_invite_code, p_full_name) but deliberately left the old
+-- bootstrap_new_user(p_clerk_id, p_email, p_invite_code, p_full_name) in place so the
+-- then-deployed bundle kept working. Until this file runs, that old overload is still
+-- live and still anon-executable — meaning identity is still forgeable and the defect is
+-- still open. 036 alone LOOKS finished because the hardened function exists. It is not.
+--
+-- ⚠️ PRECONDITION — VERIFY BEFORE RUNNING, NOT AFTER
+-- The deployed bundle for THIS environment must already be calling the 3-arg form. If any
+-- live client still sends p_clerk_id, this drop makes its call resolve to nothing
+-- (PostgREST PGRST202 "Could not find the function") and bootstrap fails on EVERY sign-in,
+-- not just signups. Confirm in the environment's deployed app — hard-refresh first
+-- (Ctrl+Shift+R); stale JS produces a false pass — that sign-in and invite-accept both
+-- work post-036, then run this.
+--
+-- `if exists` is for portability and re-runnability only. It is NOT a safety net for the
+-- precondition above: dropping a function nothing calls is harmless, dropping one a live
+-- bundle calls is an auth-path outage, and `if exists` cannot tell the difference.
+
+begin;
+
+drop function if exists public.bootstrap_new_user(text, text, text, text);
+
+commit;
+
+-- =====================================================================
+-- VERIFY
+-- =====================================================================
+-- (1) Exactly ONE overload remains, in BOTH environments:
+--
+-- select pg_get_function_identity_arguments(oid) as sig, proconfig, prosecdef
+-- from pg_proc where pronamespace='public'::regnamespace and proname='bootstrap_new_user';
+--
+-- Expect ONE row: `p_email text, p_invite_code text, p_full_name text`,
+-- proconfig {search_path=public, extensions}, prosecdef true.
+-- Across the whole 036+037 sequence prod goes 4 -> 2 -> 1 and dev goes 1 -> 2 -> 1 —
+-- different starting points, identical end state, same two files in the same order.
+--
+-- (2) anon cannot execute what remains:
+--
+-- select pg_get_function_identity_arguments(p.oid) as sig,
+--        has_function_privilege('anon', p.oid, 'EXECUTE') as anon_can_execute
+-- from pg_proc p where p.pronamespace='public'::regnamespace
+--   and p.proname='bootstrap_new_user';
+--
+-- Expect one row, FALSE. has_function_privilege resolves PUBLIC grants and role
+-- inheritance; a raw proacl read does not (the lesson from 028).
+--
+-- (3) THE REAL CHECK — identity can no longer be forged. This is the check 036 could not
+--     pass, and the reason Part 2 exists. Run it from OUTSIDE the database with the
+--     bundled anon key only:
+--
+--       POST /rest/v1/rpc/bootstrap_new_user
+--       apikey: <anon key>            Authorization: Bearer <anon key>
+--       body:   { "p_email": "attacker@example.com" }
+--
+--     Expect 401 / 42501 permission-denied. Then repeat the PRE-fix shape to confirm the
+--     old door is gone:
+--
+--       body: { "p_clerk_id": "<any real clerk id>", "p_email": "attacker@example.com" }
+--
+--     Expect PGRST202 "Could not find the function" — no overload accepts p_clerk_id any
+--     more. Before 036/037 this call succeeded and overwrote that user's row.
+--
+--     THE SQL EDITOR CANNOT RUN THIS CHECK. It connects as postgres, which bypasses the
+--     grant entirely and will happily execute the function whether anon can or not. Same
+--     trap as 022, 033 and 035 — the check must come from outside.
+--
+-- (4) Real sign-in still works on the deployed app for this environment: an existing user
+--     signs in and lands in their household; a new user signs up and gets 'My Household';
+--     a new user on a valid `?invite=` link joins that household.
+--
+-- (5) STALE-INVITE REGRESSION — re-run it here even though 036 covered it, because this
+--     drop changes which function serves the call. A new user signing up on an EXPIRED or
+--     already-accepted invite code must still end up with a working account in a fresh
+--     household, NOT an error. If they cannot sign up at all, the fall-through was turned
+--     back into a raise somewhere. Revert rather than patch forward.
+--
+-- (6) Advisor: `anon_security_definer_function_executable` drops by 1 in each environment
+--     relative to the post-036 count — dev 23 -> 23 -> 22, prod 25 -> 22 -> 21 across the
+--     036/037 sequence. Baselines measured 2026-08-17.
