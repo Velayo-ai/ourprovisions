@@ -1,0 +1,72 @@
+-- 038_cycle_integrity.sql
+-- Cycle integrity — the structural half. Per docs/specs/active/SPEC_cycle_integrity_038.md.
+--
+-- =====================================================================
+-- WHY THIS IS 038 AND NOT 031
+-- =====================================================================
+-- The spec was written 2026-07-31 when the high-water mark was 030, and it
+-- claimed 031. It was not built that day; 032-037 shipped in the interval and
+-- 031 was never created. Per the standing rule -- migration numbers are assigned
+-- at POINT-OF-BUILD, not design time -- this takes 038. Filing it as 031 would
+-- sort it below 032 and imply an application order that never happened.
+-- 031 joins 009-012, 017, 023 and 027 as documented drift. Never reconstruct
+-- a migration.
+--
+-- =====================================================================
+-- WHAT THIS MIGRATION CONTAINS: ONE STATEMENT
+-- =====================================================================
+-- Only D2 -- the partial unique index. It is the whole portable surface.
+--
+-- The spec's D1 (Our calendar merge) and D3 (Lake house repoint) are BOTH
+-- keyed to specific prod row UUIDs and both live in the one-off script
+--   migrations/fixtures/one_off_038_prod_cycle_repair.sql
+-- D3 was originally slated for this file on the assumption it could be
+-- expressed set-wise. It cannot, given the 2026-08-17 scoping decision: a
+-- set-based repoint would touch 18 rows across 4 households, and only 2 of
+-- those were approved for repair. A statement that repairs more than was
+-- approved is not "portable", it is out of scope. See the spec's D3 callout.
+--
+-- =====================================================================
+-- PRE-REQ -- D1 MUST BE APPLIED FIRST, OR THIS FAILS
+-- =====================================================================
+-- Measured 2026-08-17 on prod (system_identifier 7606130613603586966):
+-- exactly one household -- `Our calendar` (7f687474-9186-4258-8c78-fadc3955019a)
+-- -- holds 2 open cycles. Until the one-off script merges them, this index
+-- cannot build. On dev (system_identifier 7642734024280108049) the census is
+-- already ZERO households, so dev needs no D1 and this file stands alone.
+--
+-- Per the uq_live_list_item (020) precedent: CREATE UNIQUE INDEX succeeding is
+-- ITSELF the proof that the underlying data is clean. If it fails, D1 is
+-- incomplete or another household drifted since the census -- RE-RUN THE
+-- CENSUS, DO NOT FORCE IT.
+--
+-- =====================================================================
+-- WHAT THIS BUYS
+-- =====================================================================
+-- Before: nothing structurally prevented a second open cycle. The absence of
+-- new double-opens reflected CLIENT BEHAVIOUR, not enforcement. This converts
+-- "has not recurred" into "cannot recur" -- more than one open cycle per
+-- household becomes impossible at the database level.
+--
+-- It does NOT address the close-side survivor-sweep defect in close_cycle
+-- (16 live prod rows, newest 2026-08-08). That is a separate, still-open
+-- ROADMAP item and is deliberately out of scope here.
+--
+-- CONCURRENTLY: cannot run inside a transaction block. Run this as a BARE
+-- AUTO-COMMIT STATEMENT, on its own, not wrapped in begin/commit and not
+-- pasted alongside other statements.
+--
+-- ⚠️ IF IT FAILS: CREATE INDEX CONCURRENTLY leaves an INVALID index behind on
+-- failure. Do not retry blindly -- the `if not exists` clause will then see the
+-- invalid index and silently no-op, leaving you with a broken index that
+-- enforces nothing. Check and drop before retrying:
+--     select indexrelid::regclass, indisvalid
+--       from pg_index where indexrelid = 'uq_open_cycle_per_household'::regclass;
+--     -- if indisvalid = false:
+--     drop index concurrently uq_open_cycle_per_household;
+--
+-- REVERSIBLE: drop index concurrently uq_open_cycle_per_household;
+
+create unique index concurrently if not exists uq_open_cycle_per_household
+  on public.provision_cycles (household_id)
+  where closed_at is null and deleted_at is null;

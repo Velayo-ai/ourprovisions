@@ -1,30 +1,42 @@
-# SPEC — Cycle integrity (migration 031)
+# SPEC — Cycle integrity (migration 038)
 
 **Supersedes:** the "Cycle-integrity bugs" row in `docs/ROADMAP.md` NEXT, and all
 prose references to a migration numbered **027**.
-**Date:** 2026-07-31
+**Date:** 2026-07-31 (renumbered 031 → 038 on 2026-08-17 at point-of-build)
 **Status:** Design-approved, unbuilt
 **Scope:** SQL only. No client changes. No user-visible behaviour change.
 
 ---
 
-## A. The number is 031, and 027 is retired
+## A. The number is 038 — 027 lapsed, and then 031 lapsed too
 
-The ROADMAP has referred to this work as "027" across five references —
-in sequencing notes, in DECISIONS entries, and inside forward-references
-embedded in the bodies of `025_meals.sql` and `026_resurrect_integrity.sql`.
+The ROADMAP referred to this work as "027" across five references — in sequencing
+notes, in DECISIONS entries, and inside forward-references embedded in the bodies
+of `025_meals.sql` and `026_resurrect_integrity.sql`. **No file numbered 027 has
+ever existed.**
 
-**No file numbered 027 has ever existed.** Since those references were written,
-`028`, `029` and `030` have all shipped. The high-water mark in `migrations/` is
-now **030**, so this work takes **031**.
+> **⚠️ CORRECTED 2026-08-17 — THE SAME LAPSE HAPPENED A SECOND TIME.** This spec
+> was written on 2026-07-31, when the high-water mark was `030`, and it therefore
+> claimed **031**. It was not built that day. In the interval `032`, `033`, `034`,
+> `035`, `036` and `037` all shipped. **`031` was never created either** — a number
+> claimed in prose and left unclaimed on disk, exactly the failure this section was
+> written to describe.
+>
+> The high-water mark in `migrations/` is now **037**, so at point-of-build this
+> work takes **038**. Filing it as `031` would sort it below `032` and imply an
+> application order that never happened.
+>
+> **`031` now joins `009`–`012`, `017`, `023` and `027` as documented drift.** Per
+> the standing rule, **never reconstruct a migration.**
+>
+> **The lesson is not "renumber more carefully" — it is that a design-time number
+> in a spec title is a liability.** This spec's own doctrine predicted its own
+> renumbering and was still followed a day late.
 
 Per the standing principle — *migration numbers are assigned at point-of-build,
-not design time* — this is the expected outcome of a number claimed in prose and
-left unclaimed on disk. **Do not create a 027 stub.** Instead, when merging this
-spec, correct the five prose references to read 031 and delete the ROADMAP NEXT
-item proposing a header-only 027 reservation. The gap between 026 and 028 is
-honest drift and joins 009–012 and 017 as a documented gap; per the standing
-rule, **never reconstruct a migration.**
+not design time* — **do not create a `027` or `031` stub.** When merging this spec,
+correct the prose references to read **038** and delete the ROADMAP NEXT item
+proposing a header-only `027` reservation.
 
 ---
 
@@ -50,6 +62,36 @@ both incidents. Both are single-household, minutes-apart clusters: the signature
 of rapid manual testing, not of a defect firing under normal use.
 
 **Conclusion: residue, not an active defect.**
+
+> **⚠️ OVERTURNED 2026-08-17 — THIS CONCLUSION DOES NOT HOLD. Re-measured on prod
+> (`system_identifier` 7606130613603586966) immediately before building `038`.**
+>
+> The 07-31 census reported **2** live `list_items` in a closed cycle, both `Lake
+> house`, both 2026-07-14. Today the same shape returns **18 rows across 4 live
+> households** — BVI 8, Sacandaga 7, Lake house 2, Madbury 1 — with cycle closes
+> spanning **2026-06-07 to 2026-08-08**. Most of these rows predate 07-31, so they
+> were present when the census ran; the census under-counted rather than the data
+> having grown into it. **The "48-hour window, 2026-07-14 to 07-16, nothing since"
+> claim is false.**
+>
+> Worse, the two shapes are not the same defect:
+>
+> | Shape | Test | Rows | Cause | Fixed by |
+> |---|---|---|---|---|
+> | Insert-after-close | `item.created_at > cycle.closed_at` | **2** (Lake house) | client wrote into a closed cycle | **`026`**, in this batch |
+> | **Close-orphan (Bug A)** | `item.created_at < cycle.closed_at` | **16** | `close_cycle` never sweeps unrolled survivors | **nothing — still open** |
+>
+> **The newest close-orphan is 2026-08-08 — nine days before this build.** That is
+> not testing-era residue. Confirmed structurally, not inferred: the live
+> `close_cycle(uuid, uuid[])` body closes the cycle, and when `p_roll_item_ids` is
+> empty it `return null`s immediately; unrolled live items keep `cycle_id` pointing
+> at the cycle just closed. There is no sweep on either branch.
+>
+> **What survives:** the `Our calendar` double-open finding (D1) and the case for
+> the unique index (D2) are unaffected — both re-verified today. **What does not:**
+> the residue framing in this section, the D3 row count, and the Bug A deferral in
+> §E. The close-side defect is tracked as **its own ROADMAP item**, deliberately
+> **not** folded into `038`'s scope.
 
 ### Three caveats that bound that conclusion — keep them
 
@@ -87,7 +129,7 @@ that nine of those commits are meals client code that would ship against a prod
 database with **no `meals` tables**. Applying 025+026 removes that hazard
 entirely. **The migrations are what unblocks the backlog, not what waits on it.**
 
-**Deploy decision: 025 + 026 + 031 ship to prod as one SQL batch.** No client
+**Deploy decision: 025 + 026 + 038 ship to prod as one SQL batch.** No client
 change rides along, so there is no user-visible difference — the meals *UI*
 still reaches prod only when `dev→main` merges, gated separately on create-meal
 UI landing.
@@ -141,6 +183,24 @@ rule about never splitting a transaction across SQL editor runs, this is a
 
 ### D3. The two stranded Lake house rows
 
+> **⚠️ SCOPED 2026-08-17 — 18 rows match this shape, but `038` repoints only these 2.**
+> Decision (Dan, 2026-08-17): repair only the **2 Lake house rows**. They are the
+> insert-after-close shape whose cause — the unguarded `insert_list_item` path — is
+> fixed by `026` **in this same batch**, so the repair and its structural fix land
+> together. The other **16 rows are close-orphans from a defect that is still live**;
+> repointing them would erase the primary evidence of a bug we have not yet fixed and
+> would be re-dirtied by the next `close_cycle` with unrolled items. **They are left
+> in place, untouched, on purpose.** No user-visible consequence either way —
+> `get_list_items_for_household` filters household / `deleted_at` / `status` and
+> **never reads `cycle_id`** (re-confirmed against the live function body today).
+>
+> Measured today: `Lake house` (`58ec251c-…`) holds **exactly 2 live items — both of
+> them these** — and **one** open cycle, `1522085c-02f3-4824-93d0-dce133c3ab3f`
+> (opened 2026-07-14 00:12:28, **3 minutes after** the two inserts), currently holding
+> **zero**. The branch is therefore the *has an open cycle* branch; the NULL branch
+> does not apply. Because the scope is two named rows, **D3 is not portable** — it
+> ships in the one-off UUID-keyed repair script alongside D1, not in the migration.
+
 Two live items pointing at a closed cycle, both from 2026-07-14, untouched since.
 
 **They must NOT be deleted.** They are live rows on a real household's list and
@@ -161,7 +221,7 @@ Check which branch applies before writing the statement; do not assume.
 | Item | Disposition |
 |---|---|
 | **Cycle-integrity detector** (two alarms) | **Dropped.** An alarm proving zero violations against 15-day-old residue demonstrates nothing, and D2 makes the second alarm structurally unreachable. The standing rule *never ship an alarm you haven't watched fire* argues **against** building it here, not for it. |
-| **`close_cycle` survivor sweep (Bug A)** | **Deferred, no evidence.** Query 1's rows were created *after* a close — that is insert-side, which `026` fixes. No row anywhere shows the close-side orphaning Bug A describes. Do not build a fix for a defect with no instance. |
+| **`close_cycle` survivor sweep (Bug A)** | ~~**Deferred, no evidence.** Query 1's rows were created *after* a close — that is insert-side, which `026` fixes. No row anywhere shows the close-side orphaning Bug A describes. Do not build a fix for a defect with no instance.~~ **⚠️ REVERSED 2026-08-17 — THE EVIDENCE EXISTS AND WAS MISSED.** 16 live prod rows across BVI / Sacandaga / Madbury show the close-side shape (`created_at < closed_at`), newest **2026-08-08**. The sentence *"No row anywhere shows the close-side orphaning Bug A describes"* was wrong when written. Confirmed in the live function body: `close_cycle` closes the cycle and, when `p_roll_item_ids` is empty, returns immediately — unrolled live items keep pointing at the closed cycle, on both branches. **Still deliberately NOT built in `038`** (Dan, 2026-08-17: do not design the fix tonight) — promoted to **its own ROADMAP item** so it is tracked as an open defect rather than a dropped one. |
 | **Server-side cycle resolution in `openCycle` / `updateQty` / `wrapUpTrip`** | **Deferred.** These are client-path changes; this migration is SQL-only. D2's index is the backstop that makes the client ref harmless. Revisit if a violation ever recurs. |
 | **Retire `p_cycle_id` from both RPCs + the hook** | **Deferred** — touches the client. Safe to do once D2 has held for a while. |
 | **Remove `add_meal_to_list`'s redundant provenance clear** | **Deferred** — the standing rule is to drop the redundant guard only after `026`'s trigger is watched working **in prod**, never both guards in one release. 026 reaches prod in this batch; earliest this can go is the batch after. |
@@ -193,8 +253,8 @@ Screenshot or query result, not a claim.
 ## G. Sequence
 
 1. 030 applied + §F green on dev, `dev` pushed. *(In flight.)*
-2. **031 → dev.** D1, D2, D3 in order. Verify per §F.
-3. **025 + 026 + 031 → prod as one SQL batch.** Verify §F5 against a real
+2. **038 → dev.** D1, D2, D3 in order. Verify per §F.
+3. **025 + 026 + 038 → prod as one SQL batch.** Verify §F5 against a real
    household.
 4. **Then** build create-meal UI. `dev→main` stays closed until the Meals lens
    is user-complete — a lens a user cannot populate is the failure mode the
