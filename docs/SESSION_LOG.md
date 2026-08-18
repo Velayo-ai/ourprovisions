@@ -26,6 +26,9 @@ Done when: [clear success condition]
 ## LOG
 
 ### [2026-08-17] — [OurProvisions] — Close the MCP blocker; ship Part 4b + a self-found RLS bypass; settle PLAN/Meals IA
+
+> **Addendum 2026-08-17:** This entry's Unfinished line *"**59 warnings in Security Advisor** — seen, not investigated; likely the Part 5 `search_path` gaps"* is **wrong on attribution**. Measured directly on both databases later the same day: `function_search_path_mutable` is **5 on dev and 5 on prod** — the Part 5 gaps are **5 warnings, not ~59**. The bulk is `authenticated_security_definer_function_executable` (25 dev / 26 prod) and `anon_security_definer_function_executable` (**23 dev / 25 prod**), with `rls_disabled_in_public` **0 on both**; totals are **53 dev / 56 prod**. So migration `034` (Part 5) clears **5** of them and leaves ~48/51 untouched, and **the real backlog is `anon`-executable SECURITY DEFINER functions — PART 2's surface, not Part 5's**, in the no-credential severity bracket. Also established: prod's three extra warnings in both SECURITY DEFINER categories are the three legacy `bootstrap_new_user` overloads dev no longer has (canonical intent per `000_canonical_baseline.sql:401-406`, never applied to prod). See ROADMAP NOW. *(Correction appended; original entry unchanged.)*
+
 **Goal:** Fix the three-session Supabase MCP blocker, ship Authorization Part 4b (RLS on the three cycle tables), and clear whatever else surfaced along the way.
 **Completed:**
 - **Fixed the three-session-blocking MCP connection.** Root cause: OAuth completed *after* session start, and MCP clients bind at startup — a mid-session grant is never picked up retroactively. Full restart resolved it. Both servers confirmed reaching the correct, distinct databases via `pg_control_system()` `system_identifier`, not by server label.
