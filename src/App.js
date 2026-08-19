@@ -703,12 +703,11 @@ function FlatHeader({ count, showCount = true }) {
 // ingredients into the shared list at flat quantities (servings dial deferred).
 // Create-a-meal is the next PR; until then meals are seeded via
 // migrations/fixtures/dev_meals_seed.sql on dev.
-// Feature flag — Browse Meals lens (migration 025). Shipped as code, HIDDEN in the UI
-// until the meals migrations (025/026) reach prod (RELEASE-2026-08 B6). While false there
-// is NO reachable path that renders the lens, fetches `meals`, reads `list_item_meals`,
-// or calls add_meal_to_list — so nothing touches objects that don't exist on prod. Flip
-// to true in the same PR that ships meals to prod.
-const MEALS_ENABLED = false;
+// Feature flag — Meals lens (migration 025). Was false while 025/026 had not reached
+// prod (RELEASE-2026-08 B6): nothing then rendered the lens, fetched `meals`, read
+// `list_item_meals`, or called add_meal_to_list. Both migrations shipped to prod
+// 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
+const MEALS_ENABLED = true;
 
 function MealsLens({ meals, loading, onAddAll, addingMealId }) {
   if (loading && meals.length === 0) {
@@ -833,9 +832,6 @@ function ProvisionsApp() {
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
   const [view, setView] = useState("input");
-  // Browse lens (add-path, migration 025). "ingredients" = the existing
-  // catalog browser; "meals" = read-only meal cards with "Add all".
-  const [browseLens, setBrowseLens] = useState("ingredients");
   const [meals, setMeals] = useState([]);
   const [mealsLoading, setMealsLoading] = useState(false);
   const [addingMealId, setAddingMealId] = useState(null);
@@ -876,20 +872,18 @@ function ProvisionsApp() {
     setMealProvenance(await fetchMealProvenance());
   }, [fetchMealProvenance]);
 
-  // Load the meal cards when the Meals lens opens.
+  // Load the meal cards when the Plan tab opens.
   useEffect(() => {
-    if (MEALS_ENABLED && browseLens === "meals" && household?.id) loadMeals();
-  }, [browseLens, household?.id, loadMeals]);
+    if (MEALS_ENABLED && view === "plan" && household?.id) loadMeals();
+  }, [view, household?.id, loadMeals]);
 
-  // Load provenance when a surface that shows the badge is visible. Gated by
-  // MEALS_ENABLED: fetchMealProvenance reads `list_item_meals` + `meals`, and this
-  // effect fires on the LIST view — so without the guard it would hit prod-absent
-  // tables on the core path even with the lens hidden.
+  // Load provenance when a surface that shows the badge is visible: SHOP renders the
+  // "Multiple meals" badge, and PLAN is where the meal cards live.
   useEffect(() => {
-    if (MEALS_ENABLED && household?.id && (view === "list" || (view === "input" && browseLens === "meals"))) {
+    if (MEALS_ENABLED && household?.id && (view === "list" || view === "plan")) {
       refreshProvenance();
     }
-  }, [household?.id, view, browseLens, refreshProvenance]);
+  }, [household?.id, view, refreshProvenance]);
 
   const handleAddMealToList = useCallback(async (mealId) => {
     setAddingMealId(mealId);
@@ -2840,49 +2834,16 @@ function ProvisionsApp() {
 
       <div className="container">
         {view === "plan" && (
-          <div style={{ padding: "40px 20px", textAlign: "center", minHeight: "60vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-            <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "1.3rem", color: "#8a7a60" }}>
-              Plan coming soon.
-            </p>
-            <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", color: "#C9A97A", marginTop: "8px", letterSpacing: "1px" }}>
-              Meal planning &amp; AI list builder
-            </p>
-          </div>
+          <MealsLens
+            meals={meals}
+            loading={mealsLoading}
+            onAddAll={handleAddMealToList}
+            addingMealId={addingMealId}
+          />
         )}
 
         {view === "input" && (
           <>
-            {/* ── Browse lens toggle — Ingredients ⇄ Meals (add-path, migration 025).
-                 Hidden while MEALS_ENABLED is false (RELEASE-2026-08 B6): no entry point
-                 to the Meals lens, so ingredients render directly below. ── */}
-            {MEALS_ENABLED && (
-            <div style={{ display: "flex", gap: "5px", background: "#E8D5B7", borderRadius: "11px", padding: "4px", margin: "12px 0 4px" }}>
-              {["ingredients", "meals"].map((L) => (
-                <button
-                  key={L}
-                  onClick={() => setBrowseLens(L)}
-                  style={{
-                    flex: 1, textAlign: "center", padding: "8px", borderRadius: "8px",
-                    fontFamily: "'Lato', sans-serif", fontSize: "0.78rem", letterSpacing: "1px",
-                    textTransform: "uppercase", cursor: "pointer", border: "none",
-                    background: browseLens === L ? "#FAF4EC" : "transparent",
-                    color: browseLens === L ? "#2C1A0E" : "#A0724A",
-                    fontWeight: browseLens === L ? 700 : 400,
-                    boxShadow: browseLens === L ? "0 1px 3px rgba(44,26,14,0.14)" : "none",
-                  }}
-                >{L}</button>
-              ))}
-            </div>
-            )}
-
-            {MEALS_ENABLED && browseLens === "meals" ? (
-              <MealsLens
-                meals={meals}
-                loading={mealsLoading}
-                onAddAll={handleAddMealToList}
-                addingMealId={addingMealId}
-              />
-            ) : (
             <>
             {/* ── Search bar — sticky at top ── */}
             {/* Vertical scale (4px grid): banner→search 20px = .container's 24px
@@ -3287,7 +3248,6 @@ function ProvisionsApp() {
               </>
             )}
             </>
-            )}
           </>
         )}
 
