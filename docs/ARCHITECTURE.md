@@ -1223,9 +1223,7 @@ Three layers, top to bottom: **vanity domain (`.app`)** → **app (running deplo
 - **Axis 1 — Relevance (signal vs. noise). Per person, binary. ALREADY SHIPPING — not hypothetical.** *"Hide is a lens, not an edit"* **is** this axis: one shared item exists **once**, with its integrity intact, and each person locally suppresses what is noise **to them** without touching what is still signal **for someone else.**
 - **Axis 2 — Intensity ("I care about it" vs. "I care about it *often*"). A gradient, not a toggle. NOT yet unified as a concept.** It exists today only as disconnected partial instances: **ingredient Staples** (`household_staples`, migration 016) and the **meal-cadence** discovery logged in `ROADMAP.md`'s idea log on 2026-08-19.
 
-> ⚠️ **NAMING — do not conflate this with "consumption signal."** The consumption-signal frame is **household vs. market** (intention + receipts as sensors on what a household actually consumes). **SmartList's axes are INTERPERSONAL** — inside one shared artifact, between the people using it. **Same word, different concept; keep them separate in the docs.**
->
-> *The originating capture cited `STRATEGY_consumption_signal.md` for that frame; **no such file exists in this repo** — it lives in this document under § Meals / Provisioning IA. Noted so the reference is not carried forward as though the file were here.*
+> ⚠️ **NAMING — do not conflate this with "consumption signal."** The consumption-signal frame is **household vs. market** (intention + receipts as sensors on what a household actually consumes), set out in full in **`docs/strategy/STRATEGY_consumption_signal.md`** and summarised in this document under § Meals / Provisioning IA. **SmartList's axes are INTERPERSONAL** — inside one shared artifact, between the people using it. **Same word, different concept; keep them separate in the docs.**
 
 **Named and captured 2026-08-19 — not designed, not scoped.**
 
