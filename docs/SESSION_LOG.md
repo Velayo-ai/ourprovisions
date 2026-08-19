@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-19] — [OurProvisions] — Ship PLAN tab v1: relocate the Meals lens out of Browse, verified live on dev
+**Goal:** Get meals rendering on the PLAN tab by end of session, replacing Browse's Ingredients⇄Meals toggle, per the 2026-08-17 IA decision.
+**Completed:**
+- **Built and shipped the relocation to dev as one scoped commit (`ea1c170`, 18 insertions / 58 deletions, one file).** Six diffs against `src/App.js`: `MEALS_ENABLED` `false`→`true`, `browseLens` state deleted, the `loadMeals` and `fetchMealProvenance` effects repointed to `view === "plan"`, the "Plan coming soon" placeholder swapped for `<MealsLens>`, and the Browse lens toggle stripped out. **`MealsLens` itself is unchanged — only its mount point moved.**
+- **Done as a true relocation, not a flag-flip in place** — the standing ARCHITECTURE note warned that flipping `MEALS_ENABLED` alone would leave the lens in Browse's render tree. The spec's line numbers were re-grepped against the current tree before any edit and all six sites matched.
+- **Confirmed the flag's original reason was already resolved** — `025`/`026` reached prod 2026-08-18, so the gate that existed *because the tables did not exist on prod* had nothing left to gate. Flipped without re-litigating it.
+- **Seeded dev meals for a real verification** — resolved the active dev household as **Sacandaga, not Madbury** (`select id, name from households where deleted_at is null`), filled the fixture sentinel, ran `dev_meals_seed.sql`: **3 meals** (Lemon Pasta, Sheet-pan Salmon, Taco Night) plus the CASCADE-test custom catalog item.
+- **Verified live on the deployed dev preview under real Clerk auth, against seeded data rather than the empty state.** Plan renders all 3 meals with correct ingredient counts; **the Bread item seeded from two overlapping meals shows `×4` with a single "Multiple meals" badge — the increment path, not the duplicate path, which is the harder one**; Browse renders ingredients directly with the toggle fully gone; Shop badge count (6) matches. Console shows only two pre-existing unrelated warnings (Clerk dev-keys, multiple `GoTrueClient` instances) — **nothing traceable to the `browseLens` removal**, which was the named regression risk.
+- **Caught the `browseLens` removal statically before deploying** — `CI=true` production build compiled clean (the specific failure mode of a half-removed variable under Vercel's warnings-as-errors), and a grep proved zero `browseLens`/`setBrowseLens` references left in `src/`. The deployed bundle was then confirmed by **content**, not by hash: "Plan coming soon" and the `["ingredients","meals"]` toggle array absent, the meals strings present. **The hash deliberately was not used as the signal** — Vercel's env differs from local, so a hash mismatch proves nothing either way.
+- **Incidental evidence worth keeping: household scoping on `meals` holds under the new render path** — Sacandaga showed its 3 fixture meals, Madbury correctly showed the empty state. Not what this session set out to test, but a real RLS observation under the relocated mount point.
+**Unfinished:**
+- **NOT merged to `main` — deliberate.** BUILD stops at dev by design. **Whether PLAN gets promoted to prod before Saturday's demo, or is demoed straight from the dev preview, is an open decision and Dan's call.**
+- **Wednesday's create-meal UI is still pending** — `createMeal` exists in the hook and **nothing calls it**. Tonight's meals came from a dev-only fixture, so **PLAN is currently fixture-dependent, not user-populatable.** That is the roadmap's own named failure mode ("a lens a user cannot populate").
+- **The 8–10 real seeded meals the demo plan calls for do not exist** — there are 3 fixture meals on dev only.
+- **The two pre-existing console warnings (Clerk dev-keys, multiple `GoTrueClient` instances) are filed nowhere as known debt** — noted here, not actioned.
+- **Process slip:** the first push carried a mangled commit subject (PowerShell here-string syntax used in the Bash tool, which does not parse it). Amended and force-pushed to `dev` within the minute; **the diff was never wrong, only the message.** Recorded because a force-push to a shared branch is worth seeing in the log.
+**Next session:**
+SESSION START
+Goal: Build the create-meal UI so PLAN is user-populatable rather than fixture-dependent, seed 8–10 real household meals, and make the call on prod promotion ahead of Saturday's Vegas demo.
+State: Meals lens live on PLAN and verified end-to-end on dev under real auth. Browse is clean — ingredients only, no toggle. `MEALS_ENABLED = true`. **Nothing of this is on prod**; `main` is untouched. `createMeal` exists in `useProvisions.js` with no caller. Dev has 3 fixture meals in Sacandaga. Open and non-blocking: `close_cycle` strands unrolled survivors (16 rows on prod, left as evidence); `insert_list_item` is anon-executable with no membership guard.
+Done when: a meal can be created from inside the app on dev and appears on PLAN with correct ingredient counts and a working "Add all"; the demo household holds 8–10 real meals; and the prod-promotion decision is made and recorded in the DECISIONS LOG — promoted and verified, or explicitly chosen to demo from dev.
+**Files updated:** `src/App.js` (commit `ea1c170`, dev only), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/built/SPEC_plan_tab_meals_v1.md` (routed from `handoff/`)
+**DB changes:** None — no migration, no schema/RPC/RLS change. **Dev-only data:** `dev_meals_seed.sql` run against the Sacandaga household (3 meals, 1 custom catalog item, 1 pre-seeded manual list-item collision). Never applied to prod.
+
 ### [2026-08-18] — [OurProvisions] — Ship `038` cycle integrity, promote the meals migrations to prod, and capture the meal-planning idea log
 **Goal:** Close the last database debt before Vegas-demo feature work — ship cycle integrity to dev and prod, promote `025`+`026` out of their prod gate, and capture the meal-planning ideas that opening unlocked **without letting any of them expand this week's scope.**
 **Completed:**
