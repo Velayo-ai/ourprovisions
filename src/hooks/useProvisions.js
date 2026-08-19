@@ -1775,6 +1775,101 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [reportSuccess]);
 
+  // updateMeal: rename/re-scale the meal row, then BLANKET-REPLACE its
+  // ingredients — soft-delete every live meal_ingredients row and reinsert the
+  // draft fresh. Safe because meal_ingredients.id is referenced by nothing:
+  // list_item_meals keys on meal_id, not meal_ingredient_id, so no id-matching
+  // or diffing is required. Plain writes, mirroring createMeal — deliberately
+  // NOT an RPC (see SPEC_create_meal_ui.md): edit is household-owned,
+  // RLS-protected, and carries no cross-cutting concern like the advisory lock
+  // or cycle resolution that justify add_meal_to_list's SECURITY DEFINER shape.
+  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, ingredients = [] }) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId) return false;
+    const trimmed = (name || "").trim();
+    if (!trimmed) { setError("A meal needs a name."); return false; }
+    try {
+      const { error: mErr } = await db
+        .from("meals")
+        .update({ name: trimmed, base_servings: baseServings })
+        .eq("id", mealId)
+        .eq("household_id", hh.id); // belt-and-suspenders; RLS already scopes this
+      if (mErr) throw mErr;
+
+      const { error: dErr } = await db
+        .from("meal_ingredients")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("meal_id", mealId)
+        .is("deleted_at", null);
+      if (dErr) throw dErr;
+
+      const rows = (ingredients || [])
+        .filter((i) => i.catalog_item_id && Number(i.quantity_per_serving) > 0)
+        .map((i) => ({
+          meal_id: mealId,
+          catalog_item_id: i.catalog_item_id,
+          quantity_per_serving: Number(i.quantity_per_serving),
+        }));
+      if (rows.length > 0) {
+        const { error: iErr } = await db.from("meal_ingredients").insert(rows);
+        if (iErr) throw iErr;
+      }
+      reportSuccess();
+      return true;
+    } catch (err) {
+      console.error("updateMeal error:", err.message);
+      setError(`Could not update meal: ${err.message}`);
+      return false;
+    }
+  }, [reportSuccess]);
+
+  // createCatalogItem: resolve a typed name to a catalog row, creating one if
+  // it doesn't exist — and NOTHING ELSE. The meal builder needs a catalog item
+  // staged into a draft, NOT added to the shared list; updateQty's insert path
+  // (the only other caller of insert_custom_catalog_item) writes a list_items
+  // row as well, so it cannot be reused here without putting every new meal
+  // ingredient straight onto the household's shopping list.
+  // Mirrors updateQty's resolver hardening: an exact-normalized match against
+  // the HIDDEN set resolves to the existing row rather than forking a duplicate.
+  const createCatalogItem = useCallback(async (name, categoryName) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    const trimmed = (name || "").trim();
+    if (!db || !hh || !trimmed) return null;
+    const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+    try {
+      const existing = catalogRef.current[trimmed]
+        || Object.values(catalogRef.current).find((it) => norm(it.name) === norm(trimmed));
+      if (existing) return existing;
+
+      const hiddenMatch = hiddenCatalogItemsRef.current.find((it) => norm(it.name) === norm(trimmed));
+      if (hiddenMatch) {
+        catalogRef.current = { ...catalogRef.current, [hiddenMatch.name]: hiddenMatch };
+        return hiddenMatch;
+      }
+
+      const category = categoryName || "Household";
+      const { data: insertedId, error: insertErr } = await db
+        .rpc("insert_custom_catalog_item", {
+          p_name: trimmed,
+          p_category: category,
+          p_household_id: hh.id,
+          p_created_by: internalUserIdRef.current,
+        });
+      if (insertErr) throw insertErr;
+      const item = { id: insertedId, name: trimmed, category, is_global: false, household_id: hh.id };
+      catalogRef.current = { ...catalogRef.current, [trimmed]: item };
+      setCatalogMap((prev) => ({ ...prev, [trimmed]: item }));
+      reportSuccess();
+      return item;
+    } catch (err) {
+      console.error("createCatalogItem error:", err.message);
+      setError(`Could not add "${trimmed}": ${err.message}`);
+      return null;
+    }
+  }, [reportSuccess]);
+
   const addMealToList = useCallback(async (mealId, servings = 1) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -1835,7 +1930,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
-    fetchMeals, createMeal, addMealToList, fetchMealProvenance,
+    fetchMeals, createMeal, updateMeal, createCatalogItem, addMealToList, fetchMealProvenance,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,

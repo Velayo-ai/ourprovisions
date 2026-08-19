@@ -709,7 +709,23 @@ function FlatHeader({ count, showCount = true }) {
 // 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
 const MEALS_ENABLED = true;
 
-function MealsLens({ meals, loading, onAddAll, addingMealId }) {
+function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit }) {
+  // Terminal ghost row — matches the "+ Create new place" convention (same
+  // 1.5px dashed border, same terminal position). It renders in the EMPTY
+  // state too, deliberately: it is the only entry point to meal creation, so
+  // a household with no meals could otherwise never make its first one.
+  const createRow = (
+    <button
+      onClick={onCreate}
+      style={{
+        width: "100%", background: "none", border: "1.5px dashed #A0724A",
+        borderRadius: "12px", padding: "14px", marginTop: "2px",
+        fontFamily: "'Lato', sans-serif", fontSize: "0.92rem", fontWeight: 700,
+        color: "#A0724A", cursor: "pointer", textAlign: "center", boxSizing: "border-box",
+      }}
+    >+ Create new meal</button>
+  );
+
   if (loading && meals.length === 0) {
     return (
       <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7a60",
@@ -720,13 +736,16 @@ function MealsLens({ meals, loading, onAddAll, addingMealId }) {
   }
   if (meals.length === 0) {
     return (
-      <div style={{ padding: "44px 24px", textAlign: "center" }}>
-        <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic",
-          fontSize: "1.2rem", color: "#8a7a60", margin: 0 }}>No meals yet.</p>
-        <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", color: "#C9A97A",
-          marginTop: "8px", letterSpacing: "0.5px" }}>
-          Building meals is coming soon — plan one and its ingredients fill your list.
-        </p>
+      <div style={{ padding: "44px 24px 0" }}>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic",
+            fontSize: "1.2rem", color: "#8a7a60", margin: 0 }}>No meals yet.</p>
+          <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", color: "#C9A97A",
+            marginTop: "8px", letterSpacing: "0.5px" }}>
+            Create one and its ingredients fill your list.
+          </p>
+        </div>
+        <div style={{ marginTop: "22px" }}>{createRow}</div>
       </div>
     );
   }
@@ -737,7 +756,7 @@ function MealsLens({ meals, loading, onAddAll, addingMealId }) {
         const busy = addingMealId === m.id;
         return (
           <div key={m.id} style={{
-            display: "flex", alignItems: "center", gap: "12px", padding: "12px",
+            display: "flex", alignItems: "center", gap: "10px", padding: "12px",
             border: "1px solid #E3D4BC", borderRadius: "12px", marginBottom: "9px", background: "#fff",
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -747,21 +766,269 @@ function MealsLens({ meals, loading, onAddAll, addingMealId }) {
                 {count} {count === 1 ? "ingredient" : "ingredients"}
               </div>
             </div>
+            {/* Light outlined pill — same treatment as the ingredient-search
+                "+ Add". Was solid-fill, inherited from the 2026-07-30 build;
+                reconciled here so one verb doesn't render two ways. */}
             <button
               onClick={() => { if (!busy) onAddAll(m.id); }}
               disabled={busy || count === 0}
               style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "1px",
-                textTransform: "uppercase", padding: "8px 15px", borderRadius: "6px", border: "none",
-                background: count === 0 ? "#E8D5B7" : "#A0724A",
-                color: count === 0 ? "#a8977a" : "#FAF4EC",
+                fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", letterSpacing: "1px",
+                textTransform: "uppercase", fontWeight: 700, padding: "8px 16px",
+                borderRadius: "20px",
+                border: `1.5px solid ${count === 0 ? "#E8D5B7" : "#A0724A"}`,
+                background: "#fff",
+                color: count === 0 ? "#c2b193" : "#A0724A",
                 cursor: busy || count === 0 ? "default" : "pointer",
                 opacity: busy ? 0.6 : 1, whiteSpace: "nowrap", flexShrink: 0,
               }}
-            >{busy ? "Adding…" : "Add all"}</button>
+            >{busy ? "Adding…" : "Add"}</button>
+            {/* Bare glyph, right edge, no container — the row-action pattern
+                formalized for the household row's Edit pencil. */}
+            <button
+              onClick={() => onEdit && onEdit(m)}
+              aria-label={`Edit ${m.name}`}
+              style={{
+                background: "none", border: "none", padding: "4px", cursor: "pointer",
+                display: "flex", alignItems: "center", flexShrink: 0,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A0724A"
+                strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+              </svg>
+            </button>
           </div>
         );
       })}
+      {createRow}
+    </div>
+  );
+}
+
+// One parameterized sheet for BOTH create and edit (mode: 'create' | 'edit').
+// Built as one component from the start rather than retrofitting edit onto a
+// create-only sheet later — the seam is nearly free now and expensive after.
+//
+// The whole draft lives in local state: nothing touches `meals` or
+// `meal_ingredients` until Save. The ONE exception is creating a brand-new
+// catalog item from the no-results panel, which must persist immediately so
+// the meal can reference its id — that writes `catalog_items` only, never
+// `list_items`.
+function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCommit, onCreateCatalogItem }) {
+  const isEdit = mode === "edit";
+  const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
+  const [rows, setRows] = useState(() =>
+    isEdit
+      ? (meal?.meal_ingredients || []).map((mi) => ({
+          catalog_item_id: mi.catalog_item_id,
+          name: mi.catalog_items?.name || "Unknown item",
+          quantity_per_serving: Number(mi.quantity_per_serving) || 1,
+        }))
+      : []
+  );
+  const [query, setQuery] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+
+  const trimmedQuery = query.trim();
+
+  // Empty until something is typed — the placeholder already implies typing,
+  // so showing results against an empty box contradicts its own copy.
+  const results = useMemo(() => {
+    const q = trimmedQuery.toLowerCase();
+    if (!q) return [];
+    const stagedIds = new Set(rows.map((r) => r.catalog_item_id));
+    return Object.values(catalogMap)
+      .filter((it) => it && it.id && !stagedIds.has(it.id) && (it.name || "").toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 8);
+  }, [trimmedQuery, catalogMap, rows]);
+
+  const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const exactExists = trimmedQuery
+    && Object.values(catalogMap).some((it) => norm(it.name) === norm(trimmedQuery));
+  const showNoResults = !!trimmedQuery && results.length === 0 && !exactExists;
+
+  const stageItem = (item) => {
+    if (!item || !item.id) return;
+    setRows((prev) => prev.some((r) => r.catalog_item_id === item.id)
+      ? prev
+      : [...prev, { catalog_item_id: item.id, name: item.name, quantity_per_serving: 1 }]);
+    setQuery("");
+    setPickerOpen(false);
+  };
+
+  // Tapping a category commits create-and-add in ONE motion — no separate
+  // confirm button, matching Browse's live no-results panel exactly.
+  const createAndStage = async (rawCategory) => {
+    if (adding) return;
+    setAdding(true);
+    try {
+      const item = await onCreateCatalogItem(trimmedQuery, rawCategory);
+      if (item) stageItem(item);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const setQty = (id, next) => {
+    setRows((prev) => prev.map((r) =>
+      r.catalog_item_id === id ? { ...r, quantity_per_serving: Math.max(1, next) } : r));
+  };
+  const removeRow = (id) => setRows((prev) => prev.filter((r) => r.catalog_item_id !== id));
+
+  // Create starts disabled (nothing valid yet); edit opens enabled, because an
+  // existing meal is already valid.
+  const canSave = name.trim().length > 0 && (isEdit || rows.length > 0);
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto" }}>
+        <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
+
+        <div className="modal-field">
+          <label className="modal-label">Meal Name</label>
+          <input
+            className="modal-input"
+            autoFocus={!isEdit}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Taco Night"
+          />
+        </div>
+
+        <div className="modal-field">
+          <label className="modal-label">Ingredients</label>
+
+          {rows.length > 0 && (
+            <div style={{ marginBottom: "10px" }}>
+              {rows.map((r) => (
+                <div key={r.catalog_item_id} style={{
+                  display: "flex", alignItems: "center", gap: "10px", padding: "8px 10px",
+                  border: "1px solid #E3D4BC", borderRadius: "8px", marginBottom: "6px", background: "#fff",
+                }}>
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: "'Lato', sans-serif",
+                    fontSize: "0.9rem", color: "#2C1A0E" }}>{r.name}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                    <button
+                      onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving - 1)}
+                      aria-label={`Decrease ${r.name}`}
+                      style={{ width: "26px", height: "26px", borderRadius: "50%", border: "1px solid #C9A97A",
+                        background: "#fff", color: "#A0724A", cursor: "pointer", lineHeight: 1 }}
+                    >−</button>
+                    <span style={{ minWidth: "16px", textAlign: "center", fontFamily: "'Lato', sans-serif",
+                      fontSize: "0.9rem", fontWeight: 700, color: "#2C1A0E" }}>{r.quantity_per_serving}</span>
+                    <button
+                      onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving + 1)}
+                      aria-label={`Increase ${r.name}`}
+                      style={{ width: "26px", height: "26px", borderRadius: "50%", border: "1px solid #C9A97A",
+                        background: "#fff", color: "#A0724A", cursor: "pointer", lineHeight: 1 }}
+                    >+</button>
+                  </div>
+                  <button
+                    onClick={() => removeRow(r.catalog_item_id)}
+                    aria-label={`Remove ${r.name}`}
+                    style={{ background: "none", border: "none", color: "#C9A97A", fontSize: "18px",
+                      cursor: "pointer", padding: "0 2px", flexShrink: 0, lineHeight: 1 }}
+                  >×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            className="modal-input"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setPickerOpen(false); }}
+            placeholder="Search your catalog…"
+          />
+
+          {!trimmedQuery && (
+            <div style={{ padding: "10px 2px 0", fontFamily: "'Lato', sans-serif",
+              fontSize: "0.78rem", color: "#C9A97A" }}>
+              Start typing to find an ingredient.
+            </div>
+          )}
+
+          {results.length > 0 && (
+            <div style={{ marginTop: "8px" }}>
+              {results.map((it) => (
+                <div key={it.id} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  gap: "10px", padding: "8px 2px",
+                }}>
+                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E" }}>
+                    {it.name}
+                  </span>
+                  <button className="add-btn" style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 16px" }}
+                    onClick={() => stageItem(it)}>+ Add</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* No match → inline create, matching Browse's live pattern. */}
+          {showNoResults && (
+            <div style={{ marginTop: "8px" }}>
+              <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px",
+                letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
+                No results for "{trimmedQuery}"
+              </div>
+              <div style={{ borderRadius: "10px", border: "1.5px dashed #C9A97A",
+                background: "rgba(201,169,122,0.06)", overflow: "hidden" }}>
+                {!pickerOpen ? (
+                  <div onClick={() => setPickerOpen(true)}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "12px 14px", cursor: "pointer" }}>
+                    <div>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                        Add <strong>"{trimmedQuery}"</strong> to {name.trim() || "this meal"}
+                      </div>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+                        Tap to choose a category
+                      </div>
+                    </div>
+                    <button className="add-btn" style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 16px" }}>Add</button>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="picker-sub" style={{ padding: "12px 14px 0" }}>
+                      {adding ? "Adding…" : "Pick a category and we'll file it for next time."}
+                    </div>
+                    <div style={{ padding: "10px 14px 12px" }}>
+                      <CategoryPickerGrid
+                        categories={categories.filter((cat) => cat.rawName !== "⭐ My Custom Items")}
+                        selected={null}
+                        onSelect={createAndStage}
+                        onNewCategory={() => {}}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* States the locked decision plainly rather than leaving it inferred. */}
+        {isEdit && (
+          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.76rem", color: "#8a7a60",
+            fontStyle: "italic", marginBottom: "14px" }}>
+            Changes here won't update items already on your list.
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <button className="modal-cancel" onClick={onCancel} disabled={saving}>Cancel</button>
+          <button
+            className="modal-confirm"
+            disabled={!canSave || saving}
+            style={{ opacity: (!canSave || saving) ? 0.5 : 1, cursor: (!canSave || saving) ? "default" : "pointer" }}
+            onClick={() => onCommit({ name, ingredients: rows })}
+          >{saving ? "Saving…" : "Save Meal"}</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -800,6 +1067,9 @@ function ProvisionsApp() {
     renameItem,
     refreshCatalog,
     fetchMeals,
+    createMeal,
+    updateMeal,
+    createCatalogItem,
     addMealToList,
     fetchMealProvenance,
     updateFullName,
@@ -894,6 +1164,35 @@ function ProvisionsApp() {
       setAddingMealId(null);
     }
   }, [addMealToList, refreshProvenance]);
+
+  // Create/edit sheet. `mealSheet` is null when closed, otherwise
+  // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
+  const [mealSheet, setMealSheet] = useState(null);
+  const [mealSaving, setMealSaving] = useState(false);
+
+  const commitMealSheet = useCallback(async ({ name, ingredients }) => {
+    if (!mealSheet) return;
+    setMealSaving(true);
+    try {
+      const payload = {
+        name,
+        baseServings: 1,   // flat: the servings dial is deferred
+        ingredients: ingredients.map((r) => ({
+          catalog_item_id: r.catalog_item_id,
+          quantity_per_serving: r.quantity_per_serving,
+        })),
+      };
+      const ok = mealSheet.mode === "edit"
+        ? await updateMeal(mealSheet.meal.id, payload)
+        : await createMeal(payload);
+      if (ok) {
+        setMealSheet(null);
+        await loadMeals();   // reflect the new name/count on PLAN immediately
+      }
+    } finally {
+      setMealSaving(false);
+    }
+  }, [mealSheet, updateMeal, createMeal, loadMeals]);
 
   // SHOP origin badge: which meal(s) put this item on the list. ">1 meal"
   // reads "Multiple meals"; exactly one reads "from {meal}". (Add-path only:
@@ -2839,6 +3138,8 @@ function ProvisionsApp() {
             loading={mealsLoading}
             onAddAll={handleAddMealToList}
             addingMealId={addingMealId}
+            onCreate={() => setMealSheet({ mode: "create", meal: null })}
+            onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
           />
         )}
 
@@ -3480,6 +3781,20 @@ function ProvisionsApp() {
             textTransform: "uppercase", color: "#b0a080", opacity: 0.7,
           }}>A Velayo App</div>
         </div>
+      )}
+
+      {/* Create / Edit Meal sheet — one component, both modes */}
+      {MEALS_ENABLED && mealSheet && (
+        <MealSheet
+          mode={mealSheet.mode}
+          meal={mealSheet.meal}
+          catalogMap={catalogMap}
+          categories={categories}
+          saving={mealSaving}
+          onCancel={() => { if (!mealSaving) setMealSheet(null); }}
+          onCommit={commitMealSheet}
+          onCreateCatalogItem={createCatalogItem}
+        />
       )}
 
       {/* Add Item Modal */}
