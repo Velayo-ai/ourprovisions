@@ -815,7 +815,7 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit })
 // catalog item from the no-results panel, which must persist immediately so
 // the meal can reference its id — that writes `catalog_items` only, never
 // `list_items`.
-function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCommit, onCreateCatalogItem }) {
+function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCommit, onCreateCatalogItem, onRegisterCategory }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -830,6 +830,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
   const [query, setQuery] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  // "+ New category" is the one tile in the grid that is NOT a commit — it
+  // reveals an input instead. Same two-step as Browse's live panel.
+  const [newCatOpen, setNewCatOpen] = useState(false);
+  const [newCatInput, setNewCatInput] = useState("");
 
   const trimmedQuery = query.trim();
 
@@ -857,6 +861,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
       : [...prev, { catalog_item_id: item.id, name: item.name, quantity_per_serving: 1 }]);
     setQuery("");
     setPickerOpen(false);
+    setNewCatOpen(false);
+    setNewCatInput("");
   };
 
   // Tapping a category commits create-and-add in ONE motion — no separate
@@ -870,6 +876,16 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
     } finally {
       setAdding(false);
     }
+  };
+
+  // Submitting the new-category field lands in the SAME place a category tap
+  // does — createCatalogItem with the typed string, then stage. Registering the
+  // name mirrors Browse, so the category exists even if the item write fails.
+  const commitNewCategory = () => {
+    const newCat = newCatInput.trim();
+    if (!newCat || adding) return;
+    if (onRegisterCategory) onRegisterCategory(newCat);
+    createAndStage(newCat);
   };
 
   const setQty = (id, next) => {
@@ -1001,9 +1017,45 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
                         categories={categories.filter((cat) => cat.rawName !== "⭐ My Custom Items")}
                         selected={null}
                         onSelect={createAndStage}
-                        onNewCategory={() => {}}
+                        onNewCategory={() => setNewCatOpen(true)}
                       />
                     </div>
+                    {/* ── New category inline input — revealed by the tile ── */}
+                    {newCatOpen && (
+                      <div style={{ padding: "0 14px 14px" }}>
+                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
+                          Name the new category
+                        </div>
+                        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          <input
+                            type="text"
+                            autoFocus
+                            value={newCatInput}
+                            onChange={(e) => setNewCatInput(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") commitNewCategory(); }}
+                            placeholder="e.g. Pet Supplies"
+                            style={{
+                              flex: 1, border: "1.5px solid #E8D5B7", borderRadius: "20px",
+                              padding: "6px 14px", fontFamily: "'Lato', sans-serif", fontSize: "12px",
+                              color: "#2C1A0E", background: "#F5EDE0", outline: "none",
+                            }}
+                          />
+                          <button
+                            onClick={commitNewCategory}
+                            disabled={!newCatInput.trim() || adding}
+                            aria-label="Create category and add ingredient"
+                            style={{
+                              width: "30px", height: "30px", borderRadius: "50%",
+                              background: newCatInput.trim() ? "#A0724A" : "#E8D5B7",
+                              border: "none", color: "white",
+                              fontSize: "18px", display: "flex", alignItems: "center", justifyContent: "center",
+                              cursor: newCatInput.trim() ? "pointer" : "default",
+                              flexShrink: 0, transition: "background 0.15s",
+                            }}
+                          >+</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -3794,6 +3846,7 @@ function ProvisionsApp() {
           onCancel={() => { if (!mealSaving) setMealSheet(null); }}
           onCommit={commitMealSheet}
           onCreateCatalogItem={createCatalogItem}
+          onRegisterCategory={(cat) => setHouseholdCategories((prev) => new Set([...prev, cat]))}
         />
       )}
 
