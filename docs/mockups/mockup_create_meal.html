@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Create Meal (PLAN tab entry)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; gap:28px; justify-content:center; flex-wrap:wrap; padding:24px 12px; }
+  .phone{ width:390px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .label{ text-align:center; font-family:'Lato',sans-serif; font-size:0.72rem; letter-spacing:2px;
+          text-transform:uppercase; color:#6b5a42; margin-bottom:8px; }
+  .col{ display:flex; flex-direction:column; align-items:center; }
+
+  /* header / nav — matches shipped Plan/Browse/Shop bar */
+  .header{ background:var(--espresso); color:var(--cream); padding:16px 20px 14px; }
+  .place{ display:flex; align-items:center; justify-content:center; gap:8px; }
+  .place-name{ font-family:'Lato',sans-serif; font-size:0.75rem; letter-spacing:2px; color:var(--sand); }
+  .wordmark{ font-family:'Playfair Display',serif; font-style:italic; font-size:1.5rem; text-align:center; margin-top:4px; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); padding-bottom:2px; }
+  .tab{ flex:1; padding:6px 4px 10px; text-align:center; font-size:0.68rem; letter-spacing:2px;
+        text-transform:uppercase; color:var(--sand); }
+  .tab.active{ color:var(--cream); font-weight:700; }
+
+  .body{ padding:16px 18px 26px; min-height:520px; }
+
+  /* ---- Screen 1: PLAN with entry point ---- */
+  .plan-title{ font-family:'Playfair Display',serif; font-size:1.1rem; margin-bottom:14px; }
+
+  .meal{ display:flex; align-items:center; gap:12px; padding:12px; border:1px solid var(--hairline);
+         border-radius:12px; margin-bottom:9px; background:#fff; }
+  .meal-name{ font-family:'Playfair Display',serif; font-size:1.02rem; font-weight:700; }
+  .meal-sub{ font-size:0.72rem; color:var(--muted); margin-top:2px; }
+  .add-all{ font-size:0.72rem; letter-spacing:1px; text-transform:uppercase; padding:8px 16px;
+            background:#fff; color:var(--clay); border:1.5px solid var(--clay); border-radius:20px;
+            font-weight:700; margin-left:auto; }
+
+  /* create-new ghost row — matches mockup_household_manage_FINAL3's
+     "+ Create new place" convention: dashed border, centered, terminal row */
+  .create-new-row{ border:1.5px dashed var(--clay); border-radius:12px; padding:14px;
+        text-align:center; color:var(--clay); font-size:0.92rem; font-weight:700;
+        margin-top:2px; }
+
+  /* ---- Screen 2: create-meal sheet ---- */
+  /* Header + footer now match mockup_add_item_category_picker's "Add New
+     Item" modal: plain title (no icon buttons in the header), Cancel +
+     primary action as a bottom button PAIR — not a header ×/Save split. */
+  .sheet-title{ font-family:'Playfair Display',serif; font-size:1.25rem; margin-bottom:20px; }
+
+  .sheet-footer{ display:flex; gap:10px; justify-content:flex-end; margin-top:22px; }
+  .sheet-cancel{ font-size:0.85rem; padding:11px 18px; border:1px solid var(--hairline);
+                 border-radius:8px; color:var(--espresso); background:#fff; font-weight:700; }
+  .sheet-primary{ font-size:0.85rem; padding:11px 20px; border:none; border-radius:8px;
+                  background:var(--clay); color:var(--cream); font-weight:700; }
+  .sheet-primary.disabled{ background:var(--sand-row); color:#a8977a; }
+
+  .field-label{ font-size:0.68rem; font-weight:700; letter-spacing:2px; text-transform:uppercase;
+                color:var(--clay); margin:0 2px 8px; }
+  .name-input{ width:100%; padding:12px 14px; border:1px solid var(--hairline); border-radius:10px;
+               font-family:'Playfair Display',serif; font-size:1.05rem; color:var(--espresso);
+               background:#fff; margin-bottom:20px; }
+  .name-input.placeholder{ color:#b3a488; font-style:italic; font-weight:400; }
+
+  .ing-search{ display:flex; align-items:center; gap:8px; padding:11px 14px; border:1px solid var(--hairline);
+               border-radius:10px; background:#fff; margin-bottom:12px; color:var(--muted); font-size:0.9rem; }
+
+  .section-label{ font-size:0.68rem; font-weight:700; letter-spacing:2.5px; text-transform:uppercase;
+                  color:var(--clay); margin:18px 2px 10px; }
+
+  .ing-row{ display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--hairline);
+            border-radius:10px; margin-bottom:8px; background:#fff; }
+  .ing-row-name{ flex:1; font-size:0.95rem; }
+  .ing-row-name .from-catalog{ display:block; font-size:0.68rem; color:var(--muted); margin-top:1px; }
+  .qty-stepper{ display:flex; align-items:center; border:1px solid var(--clay); border-radius:18px;
+                overflow:hidden; background:#fff; flex-shrink:0; }
+  .qs-btn{ width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+           color:var(--clay); font-size:0.95rem; }
+  .qs-val{ min-width:26px; text-align:center; font-family:'Playfair Display',serif;
+           font-size:0.92rem; font-weight:700; }
+  .ing-remove{ color:#c98a8a; font-size:1.1rem; flex-shrink:0; }
+
+  .search-result{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px;
+                  border-bottom:1px solid var(--hairline); font-size:0.92rem; }
+  .search-result:last-child{ border-bottom:none; }
+  .sr-add{ font-size:0.68rem; letter-spacing:1px; text-transform:uppercase; color:var(--clay);
+           border:1px solid var(--clay); border-radius:14px; padding:4px 10px; }
+  .search-panel{ border:1px solid var(--hairline); border-radius:10px; overflow:hidden; margin-bottom:6px; background:#fff; }
+
+  .foot-note{ font-size:0.76rem; color:var(--muted); text-align:center; margin-top:22px; line-height:1.5; }
+
+  .empty-search-hint{ font-size:0.82rem; color:var(--muted); font-style:italic; text-align:center;
+                       padding:18px 10px; }
+
+  /* new-item / no-results panel — matches Browse's real inline pattern exactly */
+  .new-item-panel{ margin-top:4px; }
+  .nir-label{ font-size:0.68rem; font-weight:700; letter-spacing:1.5px; color:var(--muted);
+              margin:0 2px 8px; }
+  .nir-box{ border:1px solid var(--hairline); border-radius:12px; padding:16px; background:#fff; }
+  .nir-title{ display:flex; justify-content:space-between; align-items:flex-start; font-size:0.92rem;
+              font-weight:700; color:var(--espresso); margin-bottom:6px; }
+  .nir-collapse{ color:var(--muted); font-size:1.1rem; line-height:1; }
+  .nip-hint{ font-size:0.82rem; color:var(--muted); margin-bottom:12px; }
+  .cat-pills{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+  .cat-pill{ padding:9px 14px; border-radius:20px; font-size:0.85rem; background:var(--sand-row);
+             color:var(--espresso); }
+  .cat-pill.ghost{ background:transparent; border:1.5px dashed var(--clay); color:var(--clay); }
+  .nip-note{ font-size:0.72rem; color:var(--muted); line-height:1.45; }
+</style>
+</head>
+<body>
+
+  <!-- SCREEN 1 — PLAN with entry point + one existing meal for context -->
+  <div class="col">
+    <div class="label">1 — Plan tab, entry point</div>
+    <div class="phone">
+      <div class="header">
+        <div class="place"><span class="place-name">SACANDAGA</span></div>
+        <div class="wordmark"><i>Our</i><b>Provisions</b></div>
+      </div>
+      <div class="tab-bar">
+        <div class="tab active">Plan</div>
+        <div class="tab">Browse</div>
+        <div class="tab">Shop</div>
+      </div>
+      <div class="body">
+        <div class="plan-title">Meals</div>
+
+        <div class="meal">
+          <div>
+            <div class="meal-name">Lemon Pasta</div>
+            <div class="meal-sub">3 ingredients</div>
+          </div>
+          <div class="add-all">Add</div>
+        </div>
+        <div class="meal">
+          <div>
+            <div class="meal-name">Sheet-pan Salmon</div>
+            <div class="meal-sub">2 ingredients</div>
+          </div>
+          <div class="add-all">Add</div>
+        </div>
+
+        <div class="create-new-row">+ Create new meal</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2 — create-meal sheet, ingredient search open -->
+  <div class="col">
+    <div class="label">2 — Create sheet, searching</div>
+    <div class="phone">
+      <div class="body" style="padding-top:22px;">
+        <div class="sheet-title">New Meal</div>
+
+        <div class="field-label">MEAL NAME</div>
+        <div class="name-input placeholder">e.g. Taco Night</div>
+
+        <div class="field-label">INGREDIENTS</div>
+        <div class="ing-search">🔍 Search your catalog…</div>
+
+        <div class="empty-search-hint">Start typing to search your household's catalog.</div>
+
+        <div class="foot-note">
+          Only items already in your catalog can be added — searching for something<br>new? Type it, then "+ New item" appears below the results.
+        </div>
+
+        <div class="sheet-footer">
+          <div class="sheet-cancel">Cancel</div>
+          <div class="sheet-primary disabled">Save Meal</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2b — actively typing, results appear -->
+  <div class="col">
+    <div class="label">2b — typing "tor", results filtered</div>
+    <div class="phone">
+      <div class="body" style="padding-top:22px;">
+        <div class="sheet-title">New Meal</div>
+
+        <div class="field-label">MEAL NAME</div>
+        <div class="name-input placeholder">e.g. Taco Night</div>
+
+        <div class="field-label">INGREDIENTS</div>
+        <div class="ing-search" style="color:var(--espresso);">🔍 tor</div>
+
+        <div class="search-panel">
+          <div class="search-result">Tortillas <span class="sr-add">+ Add</span></div>
+        </div>
+        <div class="empty-search-hint" style="margin-top:6px;">No other matches. <span style="color:var(--clay); font-weight:700;">+ New item "tor"</span></div>
+
+        <div class="sheet-footer">
+          <div class="sheet-cancel">Cancel</div>
+          <div class="sheet-primary disabled">Save Meal</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2c — "+ New item" tapped, reuses the Browse category picker -->
+  <div class="col">
+    <div class="label">2c — new item, reuses category picker</div>
+    <div class="phone">
+      <div class="body" style="padding-top:22px;">
+        <div class="sheet-title">New Meal</div>
+
+        <div class="field-label">MEAL NAME</div>
+        <div class="name-input placeholder">e.g. Taco Night</div>
+
+        <div class="field-label">INGREDIENTS</div>
+        <div class="ing-search" style="color:var(--espresso);">🔍 tortilla chips</div>
+
+        <div class="new-item-panel">
+          <div class="nir-label">NO RESULTS FOR "TORTILLA CHIPS"</div>
+          <div class="nir-box">
+            <div class="nir-title">Add "tortilla chips" to Taco Night <span class="nir-collapse">&minus;</span></div>
+            <div class="nip-hint">Pick a category and we'll file it for next time.</div>
+            <div class="cat-pills">
+              <div class="cat-pill">🥬 Produce</div>
+              <div class="cat-pill">🥩 Meat &amp; Seafood</div>
+              <div class="cat-pill">🥛 Dairy</div>
+              <div class="cat-pill">🍞 Pantry</div>
+              <div class="cat-pill">🥤 Beverages</div>
+            </div>
+            <div class="cat-pills" style="margin-top:0;">
+              <div class="cat-pill">🧹 Household</div>
+              <div class="cat-pill ghost">+ New category</div>
+            </div>
+          </div>
+        </div>
+        <div class="nip-note" style="text-align:center; margin-top:8px;">
+          Tapping a category creates the item in your catalog and adds it here — no separate confirm step, same as Browse.
+        </div>
+
+        <div class="sheet-footer">
+          <div class="sheet-cancel">Cancel</div>
+          <div class="sheet-primary disabled">Save Meal</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 3 — after tapping "Produce" on 2c, Tortilla Chips now shows up
+       here too, resolving the disconnect between the two static frames -->
+  <div class="col">
+    <div class="label">3 — ready to save (now includes 2c's result)</div>
+    <div class="phone">
+      <div class="body" style="padding-top:22px;">
+        <div class="sheet-title">New Meal</div>
+
+        <div class="field-label">MEAL NAME</div>
+        <div class="name-input">Taco Night</div>
+
+        <div class="field-label">INGREDIENTS</div>
+        <div class="ing-search">🔍 Search your catalog…</div>
+
+        <div class="section-label">Added — 4</div>
+
+        <div class="ing-row">
+          <div class="ing-row-name">Tortilla Chips
+            <span class="from-catalog" style="color:var(--clay); font-weight:700;">new · Produce</span>
+          </div>
+          <div class="qty-stepper">
+            <div class="qs-btn">&minus;</div><div class="qs-val">1</div><div class="qs-btn">+</div>
+          </div>
+          <div class="ing-remove">&times;</div>
+        </div>
+
+        <div class="ing-row">
+          <div class="ing-row-name">Tortillas
+            <span class="from-catalog">from catalog</span>
+          </div>
+          <div class="qty-stepper">
+            <div class="qs-btn">&minus;</div><div class="qs-val">1</div><div class="qs-btn">+</div>
+          </div>
+          <div class="ing-remove">&times;</div>
+        </div>
+        <div class="ing-row">
+          <div class="ing-row-name">Ground beef
+            <span class="from-catalog">from catalog</span>
+          </div>
+          <div class="qty-stepper">
+            <div class="qs-btn">&minus;</div><div class="qs-val">1</div><div class="qs-btn">+</div>
+          </div>
+          <div class="ing-remove">&times;</div>
+        </div>
+        <div class="ing-row">
+          <div class="ing-row-name">Shredded cheese
+            <span class="from-catalog">from catalog</span>
+          </div>
+          <div class="qty-stepper">
+            <div class="qs-btn">&minus;</div><div class="qs-val">2</div><div class="qs-btn">+</div>
+          </div>
+          <div class="ing-remove">&times;</div>
+        </div>
+
+        <div class="foot-note">
+          No servings dial yet — quantities are flat, per the Option 3 decision.<br>
+          Scaling is a free follow-on later; the schema already supports it.
+        </div>
+
+        <div class="sheet-footer">
+          <div class="sheet-cancel">Cancel</div>
+          <div class="sheet-primary">Save Meal</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

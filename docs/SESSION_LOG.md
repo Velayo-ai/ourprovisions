@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-19] — [OurProvisions] — Design the create-meal UI to a build-ready mockup; scope removal OUT of v1 on evidence
+**Goal:** Get the create-meal flow — Wednesday's P0, the thing keeping PLAN fixture-only — designed and mocked to build-ready, surfacing real gaps **before** Cody touches code rather than after.
+**Completed:**
+- **Mocked the flow end to end** (`mockup_create_meal.html`, 5 screens: PLAN entry point, empty search, active search, inline new-item creation, ready-to-save) and **iterated it against live screenshots of the shipped app rather than memory of it** — which caught real drift on every pass.
+- **Locked the entry point to a dashed `+ Create new meal` ghost row terminating the meal list**, matching the household "+ Create new place" pattern exactly. A header button was rejected because it would have stood up a **second competing "create new X" convention** next to one that already exists.
+- **Locked sheet conventions against the real "Add New Item" modal** — bottom Cancel + primary pair (not the header ×/Save split drawn first), small-caps eyebrow field labels.
+- **Caught a live visual inconsistency: "Add" has two unreconciled treatments.** The meal-card button inherited solid-fill styling from the original 07-30 `MealsLens`, while ingredient-search "Add" is a light outlined pill — same verb, two looks. Unified to the light pill in the mockup. ⚠️ **The shipped `MealsLens` in `App.js` still carries the old solid fill — only the mockup was fixed.**
+- **Matched the "ingredient not in catalog" flow to Browse's real live no-results pattern (screenshot-verified)** — label + inline box, tapping a category commits create-and-add in one motion. **Deleted the invented "Create & Add" confirm step** the first draft had added, and corrected a search panel that showed 4 results against an empty query, contradicting its own placeholder.
+- **Settled button copy as plain "Add"** after working through and rejecting "Add all" and "Add to Shop" — **the destination-naming problem is structural, not lexical.** It exists only because PLAN has no Day/Time/Occasion frame; once that lands the verb resolves for free ("Add to Tuesday"). Wordsmithing it now would have papered over the real gap.
+- **⚠️ Found a genuine data-model gap on meal REMOVAL and scoped removal out of v1 on the evidence.** A concrete concurrent-edit scenario — two members independently decrementing one shared ingredient that two meals both contributed to — **breaks both options `SPEC_meals_model.md`'s Open Question #1 has proposed since 2026-07-28.** Deferred deliberately, with a named reason and a test case, not by oversight.
+**Unfinished:**
+- **No spec written — `SPEC_create_meal_ui.md` does not exist.** Tonight was mockup iteration and edge-case discovery, not spec authoring. The mockup is build-ready in *shape*; nothing is build-ready in *writing*, and **Cody cannot BUILD from a mockup.**
+- **`MealsLens`'s shipped "Add" button still has the old solid-fill styling.** Must be reconciled to the light-pill convention when create-meal ships, or PLAN carries two visual eras in one tab.
+- **`remove_meal_from_list` / provenance-aware removal is genuinely unscoped** and needs its own design session, with the Dan/Helen bread scenario as the concrete case any proposal must survive.
+- **Day/Time → Occasion → Dish → Ingredient (headcount scaling) surfaced three times tonight from three independent angles** — a day-picker instinct, a guest-count stepper instinct, and the "Plan my week" framing. **Convergent signal that it is real**, still explicitly unscoped; held for the post-Vegas sorting pass.
+- **⚠️ `migrations/fixtures/dev_meals_seed.sql` is modified in the working tree and deliberately NOT committed** — its all-zeros sentinel was filled with the live Sacandaga UUID to run the seed. See DB changes.
+**Next session:**
+SESSION START
+Goal: Write `SPEC_create_meal_ui.md` from the approved mockup and hand it to Cody — **or** explicitly decide to spend the remaining runway on Vegas prep instead. **This is a scheduling call, not a design call**, and it is Dan's.
+State: Create-meal UI fully designed and mocked across 5 screens, matching every existing convention it touches. Add-only scope confirmed; removal deferred with a named reason. PLAN v1 is live on dev only (`ea1c170`), still fixture-populated. `main` untouched — prod promotion still undecided. Thursday 2026-08-20 is the dry-run gate; Saturday 2026-08-22 is immovable.
+Done when: either `SPEC_create_meal_ui.md` exists and is build-ready, **or** a decision to prioritize something else ahead of it is recorded in the DECISIONS LOG with its reason — not left to lapse by default.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/mockups/mockup_create_meal.html` (routed from `handoff/`). **None in `src/` — design-chat only, no code touched.**
+**DB changes:** None. ⚠️ **Uncommitted working-tree change:** `migrations/fixtures/dev_meals_seed.sql` has its all-zeros sentinel replaced with the live Sacandaga household UUID from last night's seed run. **Left uncommitted on purpose** — the sentinel is a deliberate guard (`all-zeros = "not set" → raises`), so committing the filled value would bake one dev household into the fixture and disarm the guard for the next runner.
+
 ### [2026-08-19] — [OurProvisions] — Ship PLAN tab v1: relocate the Meals lens out of Browse, verified live on dev
 **Goal:** Get meals rendering on the PLAN tab by end of session, replacing Browse's Ingredients⇄Meals toggle, per the 2026-08-17 IA decision.
 **Completed:**
