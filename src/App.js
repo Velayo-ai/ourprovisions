@@ -919,10 +919,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
 
           {rows.length > 0 && (
             <div style={{ marginBottom: "10px" }}>
+              {/* Row styling matches .item-row.has-qty. Applied unconditionally:
+                  every row in this list carries quantity ≥ 1 by definition, so a
+                  qty-check would be a branch with one reachable outcome. */}
               {rows.map((r) => (
                 <div key={r.catalog_item_id} style={{
                   display: "flex", alignItems: "center", gap: "10px", padding: "8px 10px",
-                  border: "1px solid #E3D4BC", borderRadius: "8px", marginBottom: "6px", background: "#fff",
+                  border: "1.5px solid #c8973a", borderRadius: "8px", marginBottom: "6px", background: "#FAF4EC",
                 }}>
                   <span style={{ flex: 1, minWidth: 0, fontFamily: "'Lato', sans-serif",
                     fontSize: "0.9rem", color: "#2C1A0E" }}>{r.name}</span>
