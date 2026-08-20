@@ -929,12 +929,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
                 }}>
                   <span style={{ flex: 1, minWidth: 0, fontFamily: "'Lato', sans-serif",
                     fontSize: "0.9rem", color: "#2C1A0E" }}>{r.name}</span>
-                  {/* .qty-btn + .qty-display, deliberately WITHOUT .qty-controls'
-                      enclosing pill: the row's own amber has-qty border is the
-                      boundary here, so a second outline inside it is redundant.
-                      This is a considered divergence from Browse's stepper, not
-                      a match to it — Browse's .qty-controls does carry the pill. */}
-                  <div style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
+                  {/* Full Browse stepper: .qty-controls is the wrapper that gives
+                      the group its geometry and containment, not just a border.
+                      Reproducing only .qty-btn/.qty-display inside a hand-rolled
+                      flex div left the dividers unbounded — .qty-display has no
+                      height, so it sits a few px taller than the 34px buttons and
+                      the pill is what reconciles them. Reuse the class; do not
+                      rebuild its rules inline. */}
+                  <div className="qty-controls">
                     <button
                       className="qty-btn"
                       onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving - 1)}
