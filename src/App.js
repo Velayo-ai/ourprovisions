@@ -147,15 +147,25 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, r
     startX.current = null;
     setSwiping(false);
     if (onEdit) {
+      // The flat 60px SWIPE_THRESHOLD was tuned when REVEAL_WIDTH was always
+      // 240 — a quarter of the travel. On a 1-action row (80px) it becomes
+      // three quarters, so any drag shorter than 60px snaps the row back OPEN
+      // and it reads as stuck. Scale the threshold to the panel: catalog rows
+      // compute min(60, 80) = 60 and are unchanged; a meal row gets ~27px,
+      // widening its close window from 20px to 54px.
+      // Deliberately scoped to this branch — the `else` below is the
+      // swipe-to-REMOVE path, where a lower threshold would make an
+      // irreversible action easier to trigger by accident.
+      const threshold = Math.min(SWIPE_THRESHOLD, REVEAL_WIDTH / 3);
       const delta = offsetX - baseOffset.current; // + = dragged right, - = dragged left
       const startedOpen = baseOffset.current <= -REVEAL_WIDTH / 2;
       if (startedOpen) {
         // open row: a right drag past threshold closes; otherwise stay open
-        if (delta > SWIPE_THRESHOLD) setOffsetX(0);
+        if (delta > threshold) setOffsetX(0);
         else setOffsetX(-REVEAL_WIDTH);
       } else {
         // closed row: a left drag past threshold opens; otherwise stay closed
-        if (delta < -SWIPE_THRESHOLD) setOffsetX(-REVEAL_WIDTH);
+        if (delta < -threshold) setOffsetX(-REVEAL_WIDTH);
         else setOffsetX(0);
       }
     } else {
