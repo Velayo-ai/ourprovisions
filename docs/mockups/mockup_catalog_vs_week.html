@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Catalog vs Plan (two surfaces)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC;
+    --teal:#0D9488; --teal-soft:#DCEFEE;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; gap:28px; justify-content:center; flex-wrap:wrap; padding:24px 12px; }
+  .phone{ width:390px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .label{ text-align:center; font-size:0.72rem; letter-spacing:2px; text-transform:uppercase;
+          color:#6b5a42; margin-bottom:8px; max-width:390px; }
+  .sublabel{ text-align:center; font-size:0.66rem; color:#7a6a50; margin-bottom:10px; max-width:390px; font-style:italic; }
+  .col{ display:flex; flex-direction:column; align-items:center; }
+
+  .header{ background:var(--espresso); color:var(--cream); padding:14px 20px 12px; }
+  .place{ text-align:center; font-size:0.72rem; letter-spacing:2px; color:var(--sand); }
+  .wordmark{ font-family:'Playfair Display',serif; font-style:italic; font-size:1.35rem; text-align:center; margin-top:3px; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:6px 4px 9px; text-align:center; font-size:0.66rem; letter-spacing:2px;
+        text-transform:uppercase; color:var(--sand); }
+  .tab.active{ color:var(--cream); font-weight:700; }
+
+  .body{ padding:14px 16px 24px; min-height:540px; }
+
+  /* Segmented control at top of PLAN: Catalog | Week */
+  .seg{ display:flex; background:var(--sand-row); border-radius:11px; padding:4px; margin-bottom:16px; }
+  .seg-opt{ flex:1; text-align:center; padding:7px 0; font-size:0.78rem; font-weight:700; letter-spacing:0.5px;
+            border-radius:8px; color:var(--clay); }
+  .seg-opt.active{ background:var(--cream); color:var(--espresso); box-shadow:0 1px 3px rgba(44,26,14,0.14); }
+
+  /* ---- Catalog: grouped by meal-type, alphabetical within ---- */
+  .type-header{ display:flex; align-items:center; gap:8px; margin:16px 0 8px; }
+  .type-header:first-of-type{ margin-top:2px; }
+  .type-name{ font-family:'Lato',sans-serif; font-size:0.68rem; font-weight:700; letter-spacing:2px;
+              text-transform:uppercase; color:var(--clay); }
+  .type-rule{ flex:1; height:1px; background:var(--hairline); }
+
+  .meal-row{ display:flex; align-items:center; gap:10px; padding:11px 12px; border:1px solid var(--hairline);
+             border-radius:11px; margin-bottom:7px; background:#fff; }
+  .meal-name{ font-family:'Playfair Display',serif; font-size:0.98rem; font-weight:700; flex:1; min-width:0; }
+  .meal-sub{ font-size:0.68rem; color:var(--muted); font-weight:400; font-family:'Lato',sans-serif; }
+  .add-pill{ font-size:0.68rem; letter-spacing:1px; text-transform:uppercase; padding:7px 14px; background:#fff;
+             color:var(--clay); border:1.5px solid var(--clay); border-radius:18px; font-weight:700; flex-shrink:0; }
+  .create-row{ border:1.5px dashed var(--clay); border-radius:11px; padding:13px; text-align:center;
+               color:var(--clay); font-size:0.9rem; font-weight:700; margin-top:8px; }
+
+  /* ---- Week: days across, meals within, time-of-day order ---- */
+  .day-tabs{ display:flex; gap:5px; margin-bottom:14px; overflow-x:auto; }
+  .day-tab{ flex-shrink:0; padding:7px 12px; border-radius:9px; font-size:0.74rem; font-weight:700;
+            background:var(--sand-row); color:var(--muted); }
+  .day-tab.active{ background:var(--espresso); color:var(--cream); }
+  .day-tab.today{ border:1.5px solid var(--teal); }
+
+  .slot{ margin-bottom:14px; }
+  .slot-label{ font-size:0.64rem; font-weight:700; letter-spacing:1.5px; text-transform:uppercase;
+               color:var(--sand); margin-bottom:6px; }
+  .plan-meal{ display:flex; align-items:center; gap:10px; padding:11px 12px; border:1px solid var(--hairline);
+              border-radius:11px; margin-bottom:6px; background:#fff; }
+  .grip{ color:var(--sand); font-size:1rem; letter-spacing:-2px; flex-shrink:0; cursor:grab; }
+  .plan-meal-name{ font-family:'Playfair Display',serif; font-size:0.95rem; font-weight:700; flex:1; }
+  .slot-empty{ border:1.5px dashed var(--hairline); border-radius:11px; padding:11px; text-align:center;
+               color:var(--sand); font-size:0.78rem; font-style:italic; }
+</style>
+</head>
+<body>
+
+  <!-- SCREEN 1 — Catalog view -->
+  <div class="col">
+    <div class="label">1 — Catalog (reference: alphabetical, grouped by type)</div>
+    <div class="sublabel">No manual ordering — sorted for lookup, like Browse's ingredient catalog</div>
+    <div class="phone">
+      <div class="header">
+        <div class="place">MADBURY</div>
+        <div class="wordmark"><i>Our</i><b>Provisions</b></div>
+      </div>
+      <div class="tab-bar">
+        <div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div>
+      </div>
+      <div class="body">
+        <div class="seg">
+          <div class="seg-opt active">Catalog</div>
+          <div class="seg-opt">Week</div>
+        </div>
+
+        <div class="type-header"><span class="type-name">Breakfast</span><span class="type-rule"></span></div>
+        <div class="meal-row"><span class="meal-name">Sunday Waffles</span><span class="add-pill">Add</span></div>
+        <div class="meal-row"><span class="meal-name">Veggie Omelette</span><span class="add-pill">Add</span></div>
+
+        <div class="type-header"><span class="type-name">Lunch</span><span class="type-rule"></span></div>
+        <div class="meal-row"><span class="meal-name">Caesar Wrap</span><span class="add-pill">Add</span></div>
+
+        <div class="type-header"><span class="type-name">Dinner</span><span class="type-rule"></span></div>
+        <div class="meal-row"><span class="meal-name">Lemon Pasta <span class="meal-sub">· 3</span></span><span class="add-pill">Add</span></div>
+        <div class="meal-row"><span class="meal-name">Sheet-pan Salmon <span class="meal-sub">· 2</span></span><span class="add-pill">Add</span></div>
+        <div class="meal-row"><span class="meal-name">Taco Night <span class="meal-sub">· 4</span></span><span class="add-pill">Add</span></div>
+
+        <div class="type-header"><span class="type-name">Dessert</span><span class="type-rule"></span></div>
+        <div class="meal-row"><span class="meal-name">Apple Crumble</span><span class="add-pill">Add</span></div>
+
+        <div class="create-row">+ Create new meal</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2 — Week view -->
+  <div class="col">
+    <div class="label">2 — Week (arrangement: drag to move & order)</div>
+    <div class="sublabel">Days across · meals within a day · ordered by time-of-day · drag between days</div>
+    <div class="phone">
+      <div class="header">
+        <div class="place">MADBURY</div>
+        <div class="wordmark"><i>Our</i><b>Provisions</b></div>
+      </div>
+      <div class="tab-bar">
+        <div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div>
+      </div>
+      <div class="body">
+        <div class="seg">
+          <div class="seg-opt">Catalog</div>
+          <div class="seg-opt active">Week</div>
+        </div>
+
+        <div class="day-tabs">
+          <div class="day-tab today active">Mon</div>
+          <div class="day-tab">Tue</div>
+          <div class="day-tab">Wed</div>
+          <div class="day-tab">Thu</div>
+          <div class="day-tab">Fri</div>
+          <div class="day-tab">Sat</div>
+          <div class="day-tab">Sun</div>
+        </div>
+
+        <div class="slot">
+          <div class="slot-label">Breakfast</div>
+          <div class="plan-meal"><span class="grip">⣿</span><span class="plan-meal-name">Veggie Omelette</span></div>
+        </div>
+        <div class="slot">
+          <div class="slot-label">Lunch</div>
+          <div class="plan-meal"><span class="grip">⣿</span><span class="plan-meal-name">Caesar Wrap</span></div>
+        </div>
+        <div class="slot">
+          <div class="slot-label">Dinner</div>
+          <div class="plan-meal"><span class="grip">⣿</span><span class="plan-meal-name">Taco Night</span></div>
+          <div class="plan-meal"><span class="grip">⣿</span><span class="plan-meal-name">Apple Crumble</span></div>
+        </div>
+        <div class="slot">
+          <div class="slot-label">Snacks</div>
+          <div class="slot-empty">Drag a meal here, or leave empty</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

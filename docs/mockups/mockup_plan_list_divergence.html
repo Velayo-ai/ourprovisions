@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Plan/List divergence (meal swapped, shop not updated)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC;
+    --teal:#0D9488; --teal-soft:#DCEFEE; --alert:#B5734A;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; gap:24px; justify-content:center; flex-wrap:wrap; padding:24px 12px; }
+  .phone{ width:390px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .label{ text-align:center; font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; color:#6b5a42; margin-bottom:6px; max-width:390px; }
+  .sublabel{ text-align:center; font-size:0.63rem; color:#7a6a50; margin-bottom:10px; max-width:370px; font-style:italic; }
+  .col{ display:flex; flex-direction:column; align-items:center; }
+
+  .header{ background:var(--espresso); color:var(--cream); padding:13px 20px 11px; }
+  .place{ text-align:center; font-size:0.7rem; letter-spacing:2px; color:var(--sand); }
+  .wordmark{ font-family:'Playfair Display',serif; font-style:italic; font-size:1.3rem; text-align:center; margin-top:3px; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:6px 4px 9px; text-align:center; font-size:0.64rem; letter-spacing:2px; text-transform:uppercase; color:var(--sand); }
+  .tab.active{ color:var(--cream); font-weight:700; }
+  .body{ padding:14px 16px 20px; }
+
+  .seg{ display:flex; background:var(--sand-row); border-radius:11px; padding:4px; margin-bottom:12px; }
+  .seg-opt{ flex:1; text-align:center; padding:7px 0; font-size:0.76rem; font-weight:700; border-radius:8px; color:var(--clay); }
+  .seg-opt.active{ background:var(--cream); color:var(--espresso); box-shadow:0 1px 3px rgba(44,26,14,0.14); }
+
+  .canvas-bar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .canvas-title{ font-family:'Playfair Display',serif; font-size:1.02rem; }
+  .days-toggle{ display:flex; align-items:center; gap:7px; font-size:0.68rem; color:var(--muted); font-weight:700; }
+  .switch{ width:38px; height:22px; border-radius:11px; padding:2px; display:flex; background:var(--sand-row); }
+  .knob{ width:18px; height:18px; border-radius:50%; background:#fff; }
+
+  /* reconcile banner */
+  .banner{ display:flex; gap:10px; align-items:flex-start; padding:12px 13px; border:1px solid var(--alert);
+           border-radius:11px; background:#F7ECE2; margin-bottom:14px; }
+  .banner-ico{ width:22px; height:22px; border-radius:50%; background:var(--alert); color:#fff; display:flex;
+               align-items:center; justify-content:center; font-size:0.8rem; flex-shrink:0; font-weight:700; }
+  .banner-body{ flex:1; }
+  .banner-title{ font-size:0.8rem; font-weight:700; color:var(--espresso); margin-bottom:2px; }
+  .banner-text{ font-size:0.72rem; color:#5a4a35; line-height:1.45; }
+  .banner-actions{ display:flex; gap:8px; margin-top:9px; }
+  .ba{ font-size:0.68rem; font-weight:700; padding:6px 12px; border-radius:16px; }
+  .ba.primary{ background:var(--alert); color:#fff; }
+  .ba.ghost{ background:#fff; border:1px solid var(--hairline); color:var(--clay); }
+
+  .canvas{ border:1.5px dashed var(--hairline); border-radius:14px; padding:14px 12px; min-height:180px; background:rgba(255,255,255,0.35); }
+  .m-card{ display:inline-flex; align-items:center; gap:6px; padding:8px 11px; border-radius:11px; margin:0 7px 8px 0;
+           box-shadow:0 1px 3px rgba(44,26,14,0.06); border:1px solid var(--hairline); background:#fff; }
+  .m-card .grip{ color:var(--sand); font-size:0.78rem; letter-spacing:-2px; }
+  .m-name{ font-family:'Playfair Display',serif; font-size:0.87rem; font-weight:700; }
+  .m-card.active{ border-color:var(--amber); background:#FBF0DE; }
+  .badge{ font-size:0.53rem; letter-spacing:0.5px; text-transform:uppercase; padding:2px 6px; border-radius:7px; font-weight:700; }
+  .badge.active{ background:var(--amber); color:#fff; }
+  .badge.toshop{ background:#fff; color:var(--teal); border:1px solid var(--teal); }
+
+  /* shop tab */
+  .cat-header{ display:flex; align-items:center; gap:8px; margin:14px 0 8px; }
+  .cat-name{ font-size:0.64rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--clay); }
+  .cat-rule{ flex:1; height:1px; background:var(--hairline); }
+  .shop-item{ display:flex; align-items:center; gap:11px; padding:9px 4px; border-bottom:1px solid var(--hairline); }
+  .si-check{ width:20px; height:20px; border-radius:50%; border:1.5px solid var(--sand); flex-shrink:0; }
+  .si-name{ font-size:0.92rem; flex:1; }
+  .si-from{ font-size:0.64rem; color:var(--teal); margin-top:1px; }
+  .si-from.orphan{ color:var(--alert); }
+  .shop-item.orphan{ background:#F7ECE2; border-radius:8px; padding:9px 8px; border-bottom:1px solid transparent; }
+  .orphan-note{ font-size:0.64rem; color:var(--alert); font-style:italic; margin:4px 0 0 31px; }
+</style>
+</head>
+<body>
+
+  <!-- SCREEN 1 — This Week after the swap, with reconcile banner -->
+  <div class="col">
+    <div class="label">1 — This Week · Salmon swapped for Pizza</div>
+    <div class="sublabel">Pizza is planned but not shopped. Salmon's gone from the plan — but its items are still on the list.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div></div>
+      <div class="body">
+        <div class="seg"><div class="seg-opt">Catalog</div><div class="seg-opt active">This Week</div></div>
+
+        <div class="canvas-bar">
+          <div class="canvas-title">This Week · 4 meals</div>
+          <div class="days-toggle">Days <div class="switch"><div class="knob"></div></div></div>
+        </div>
+
+        <div class="banner">
+          <div class="banner-ico">!</div>
+          <div class="banner-body">
+            <div class="banner-title">Your list is out of sync with your plan</div>
+            <div class="banner-text">Sheet-pan Salmon is off the plan, but its ingredients are still on your shared list. Pizza is on the plan but hasn't been shopped.</div>
+            <div class="banner-actions">
+              <span class="ba primary">Review list</span>
+              <span class="ba ghost">Leave as is</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="canvas">
+          <div>
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Meatloaf</span><span class="badge active">On list</span></span>
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Taco Night</span><span class="badge active">On list</span></span>
+          </div>
+          <div style="margin-left:14px;">
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Sunday Waffles</span><span class="badge active">On list</span></span>
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Pizza</span><span class="badge toshop">To shop</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2 — Review list: Shop tab shows orphaned salmon items flagged -->
+  <div class="col">
+    <div class="label">2 — Review list · orphaned items flagged</div>
+    <div class="sublabel">Salmon's items stay put — sacred list, never auto-yanked — but they're marked, so nobody buys fish for a meal that's off the plan.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab">Plan</div><div class="tab">Browse</div><div class="tab active">Shop</div></div>
+      <div class="body" style="padding-top:16px;">
+        <div style="font-size:0.7rem; letter-spacing:1px; color:var(--muted); margin-bottom:12px;">0 OF 7 CHECKED</div>
+
+        <div class="cat-header"><span class="cat-name">Produce</span><span class="cat-rule"></span></div>
+        <div class="shop-item"><span class="si-check"></span><div class="si-name">Bell Peppers<div class="si-from">from Taco Night</div></div></div>
+
+        <div class="cat-header"><span class="cat-name">Meat &amp; Seafood</span><span class="cat-rule"></span></div>
+        <div class="shop-item orphan"><span class="si-check"></span><div class="si-name">Salmon Fillet<div class="si-from orphan">was Sheet-pan Salmon — no longer planned</div></div><span style="color:var(--alert); font-size:1.1rem;">×</span></div>
+        <div class="orphan-note">Remove it, or keep if you still want it</div>
+        <div class="shop-item" style="margin-top:8px;"><span class="si-check"></span><div class="si-name">Ground Beef<div class="si-from">from Meatloaf</div></div></div>
+
+        <div class="cat-header"><span class="cat-name">Pantry</span><span class="cat-rule"></span></div>
+        <div class="shop-item orphan"><span class="si-check"></span><div class="si-name">Lemon<div class="si-from orphan">was Sheet-pan Salmon — no longer planned</div></div><span style="color:var(--alert); font-size:1.1rem;">×</span></div>
+        <div class="orphan-note">Remove it, or keep if you still want it</div>
+
+        <div style="margin-top:16px; padding:11px 13px; background:#F7ECE2; border:1px solid var(--alert); border-radius:10px;">
+          <div style="font-size:0.74rem; font-weight:700; color:var(--espresso); margin-bottom:6px;">2 orphaned items from Sheet-pan Salmon</div>
+          <div style="font-size:0.7rem; color:#5a4a35; margin-bottom:9px;">Pizza isn't shopped yet either — want to swap?</div>
+          <div style="display:flex; gap:8px;">
+            <span class="ba primary">Remove salmon's 2 items</span>
+            <span class="ba ghost">Shop Pizza</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

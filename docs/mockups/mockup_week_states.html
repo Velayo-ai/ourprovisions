@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — This Week: active states + leftovers + restaurant</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC;
+    --teal:#0D9488; --teal-soft:#DCEFEE;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; gap:24px; justify-content:center; flex-wrap:wrap; padding:24px 12px; }
+  .phone{ width:380px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .label{ text-align:center; font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; color:#6b5a42; margin-bottom:6px; max-width:380px; }
+  .sublabel{ text-align:center; font-size:0.63rem; color:#7a6a50; margin-bottom:10px; max-width:360px; font-style:italic; }
+  .col{ display:flex; flex-direction:column; align-items:center; }
+
+  .header{ background:var(--espresso); color:var(--cream); padding:13px 20px 11px; }
+  .place{ text-align:center; font-size:0.7rem; letter-spacing:2px; color:var(--sand); }
+  .wordmark{ font-family:'Playfair Display',serif; font-style:italic; font-size:1.3rem; text-align:center; margin-top:3px; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:6px 4px 9px; text-align:center; font-size:0.64rem; letter-spacing:2px; text-transform:uppercase; color:var(--sand); }
+  .tab.active{ color:var(--cream); font-weight:700; }
+  .body{ padding:14px 16px 20px; min-height:580px; }
+
+  .seg{ display:flex; background:var(--sand-row); border-radius:11px; padding:4px; margin-bottom:12px; }
+  .seg-opt{ flex:1; text-align:center; padding:7px 0; font-size:0.76rem; font-weight:700; border-radius:8px; color:var(--clay); }
+  .seg-opt.active{ background:var(--cream); color:var(--espresso); box-shadow:0 1px 3px rgba(44,26,14,0.14); }
+
+  .canvas-bar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .canvas-title{ font-family:'Playfair Display',serif; font-size:1.05rem; }
+  .days-toggle{ display:flex; align-items:center; gap:7px; font-size:0.68rem; color:var(--muted); font-weight:700; }
+  .switch{ width:38px; height:22px; border-radius:11px; padding:2px; display:flex; }
+  .switch.off{ background:var(--sand-row); }
+  .knob{ width:18px; height:18px; border-radius:50%; background:#fff; }
+
+  .canvas{ border:1.5px dashed var(--hairline); border-radius:14px; padding:14px 12px; min-height:270px; background:rgba(255,255,255,0.35); }
+
+  /* meal card + state variants */
+  .m-card{ display:inline-flex; align-items:center; gap:7px; padding:9px 12px; border-radius:12px; margin:0 8px 9px 0;
+           box-shadow:0 1px 3px rgba(44,26,14,0.06); border:1px solid var(--hairline); background:#fff; }
+  .m-card .grip{ color:var(--sand); font-size:0.82rem; letter-spacing:-2px; flex-shrink:0; }
+  .m-name{ font-family:'Playfair Display',serif; font-size:0.9rem; font-weight:700; }
+  .m-meta{ font-size:0.6rem; font-weight:400; color:var(--muted); font-family:'Lato',sans-serif; margin-left:2px; }
+
+  /* ACTIVE = ingredients on the shared list (shopped) */
+  .m-card.active{ border-color:var(--amber); background:#FBF0DE; }
+  .badge{ font-size:0.54rem; letter-spacing:0.5px; text-transform:uppercase; padding:2px 6px; border-radius:7px; font-weight:700; flex-shrink:0; }
+  .badge.active{ background:var(--amber); color:#fff; }
+  .badge.no-ing{ background:var(--sand-row); color:#6b5a42; }
+  .badge.dineout{ background:var(--teal); color:#fff; }
+
+  /* restaurant / dine-out card visual */
+  .m-card.dineout{ border-color:var(--teal); background:var(--teal-soft); }
+  .m-card.dineout .grip{ color:var(--teal); }
+
+  .shop-bar{ margin-top:14px; }
+  .shop-btn{ width:100%; padding:13px; border-radius:12px; border:none; font-size:0.9rem; font-weight:700; }
+  .shop-btn.go{ background:var(--teal); color:#fff; }
+  .shop-btn.done{ background:var(--sand-row); color:#6b5a42; }
+  .shop-sub{ text-align:center; font-size:0.63rem; color:var(--muted); margin-top:6px; line-height:1.45; }
+</style>
+</head>
+<body>
+
+  <!-- SCREEN 1 — 4 meals flagged, NONE active yet -->
+  <div class="col">
+    <div class="label">1 — Planned, none shopped yet</div>
+    <div class="sublabel">4 meals flagged for the week. All plain — ingredients not on the list. One button shops them all.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div></div>
+      <div class="body">
+        <div class="seg"><div class="seg-opt">Catalog</div><div class="seg-opt active">This Week</div></div>
+        <div class="canvas-bar">
+          <div class="canvas-title">This Week · 4 meals</div>
+          <div class="days-toggle">Days <div class="switch off"><div class="knob"></div></div></div>
+        </div>
+        <div class="canvas">
+          <div>
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Meatloaf</span></span>
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Taco Night</span></span>
+          </div>
+          <div style="margin-left:16px;">
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Sunday Waffles</span></span>
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Sheet-pan Salmon</span></span>
+          </div>
+        </div>
+        <div class="shop-bar">
+          <button class="shop-btn go">Shop these 4 meals</button>
+          <div class="shop-sub">Folds all their ingredients onto your shared list</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2 — after Shop: all 4 now ACTIVE -->
+  <div class="col">
+    <div class="label">2 — After Shop · all 4 active</div>
+    <div class="sublabel">Tapping Shop moves every meal to active — its ingredients now live on the shared list.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div></div>
+      <div class="body">
+        <div class="seg"><div class="seg-opt">Catalog</div><div class="seg-opt active">This Week</div></div>
+        <div class="canvas-bar">
+          <div class="canvas-title">This Week · 4 meals</div>
+          <div class="days-toggle">Days <div class="switch off"><div class="knob"></div></div></div>
+        </div>
+        <div class="canvas">
+          <div>
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Meatloaf</span><span class="badge active">On list</span></span>
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Taco Night</span><span class="badge active">On list</span></span>
+          </div>
+          <div style="margin-left:16px;">
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Sunday Waffles</span><span class="badge active">On list</span></span>
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Sheet-pan Salmon</span><span class="badge active">On list</span></span>
+          </div>
+        </div>
+        <div class="shop-bar">
+          <button class="shop-btn done">All 4 on the list ✓</button>
+          <div class="shop-sub">Nothing left to shop for this set</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 3 — add 2 more: Leftovers (no ingredients) + Oakhouse (restaurant) -->
+  <div class="col">
+    <div class="label">3 — Add two that don't get shopped</div>
+    <div class="sublabel">"Leftovers" has no ingredients. "Oakhouse" is a restaurant. Both fill a night without touching the list.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div></div>
+      <div class="body">
+        <div class="seg"><div class="seg-opt">Catalog</div><div class="seg-opt active">This Week</div></div>
+        <div class="canvas-bar">
+          <div class="canvas-title">This Week · 6 meals</div>
+          <div class="days-toggle">Days <div class="switch off"><div class="knob"></div></div></div>
+        </div>
+        <div class="canvas">
+          <div>
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Meatloaf</span><span class="badge active">On list</span></span>
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Taco Night</span><span class="badge active">On list</span></span>
+          </div>
+          <div style="margin-left:16px;">
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Sunday Waffles</span><span class="badge active">On list</span></span>
+            <span class="m-card active"><span class="grip">⣿</span><span class="m-name">Sheet-pan Salmon</span><span class="badge active">On list</span></span>
+          </div>
+          <div style="margin-top:6px; padding-top:12px; border-top:1px dashed var(--hairline);">
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Leftovers</span><span class="badge no-ing">No ingredients</span></span>
+            <span class="m-card dineout"><span class="grip">⣿</span><span class="m-name">Oakhouse</span><span class="badge dineout">Dining out</span></span>
+          </div>
+        </div>
+        <div class="shop-bar">
+          <button class="shop-btn done">All 4 on the list ✓</button>
+          <div class="shop-sub">Leftovers & Oakhouse aren't shopped — they fill a night, not the list</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

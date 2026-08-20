@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — This Week Canvas (freeform ⇄ days toggle)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC;
+    --teal:#0D9488; --teal-soft:#DCEFEE;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; gap:24px; justify-content:center; flex-wrap:wrap; padding:24px 12px; }
+  .phone{ width:380px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .label{ text-align:center; font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; color:#6b5a42; margin-bottom:6px; max-width:380px; }
+  .sublabel{ text-align:center; font-size:0.64rem; color:#7a6a50; margin-bottom:10px; max-width:360px; font-style:italic; }
+  .col{ display:flex; flex-direction:column; align-items:center; }
+
+  .header{ background:var(--espresso); color:var(--cream); padding:13px 20px 11px; }
+  .place{ text-align:center; font-size:0.7rem; letter-spacing:2px; color:var(--sand); }
+  .wordmark{ font-family:'Playfair Display',serif; font-style:italic; font-size:1.3rem; text-align:center; margin-top:3px; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:6px 4px 9px; text-align:center; font-size:0.64rem; letter-spacing:2px; text-transform:uppercase; color:var(--sand); }
+  .tab.active{ color:var(--cream); font-weight:700; }
+  .body{ padding:14px 16px 20px; min-height:560px; }
+
+  .seg{ display:flex; background:var(--sand-row); border-radius:11px; padding:4px; margin-bottom:12px; }
+  .seg-opt{ flex:1; text-align:center; padding:7px 0; font-size:0.76rem; font-weight:700; border-radius:8px; color:var(--clay); }
+  .seg-opt.active{ background:var(--cream); color:var(--espresso); box-shadow:0 1px 3px rgba(44,26,14,0.14); }
+
+  /* toolbar row: title + days toggle */
+  .canvas-bar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .canvas-title{ font-family:'Playfair Display',serif; font-size:1.05rem; }
+  .days-toggle{ display:flex; align-items:center; gap:7px; font-size:0.68rem; color:var(--muted); font-weight:700; letter-spacing:0.5px; }
+  .switch{ width:38px; height:22px; border-radius:11px; padding:2px; display:flex; }
+  .switch.off{ background:var(--sand-row); }
+  .switch.on{ background:var(--teal); justify-content:flex-end; }
+  .switch .knob{ width:18px; height:18px; border-radius:50%; background:#fff; }
+
+  /* meal cards — shared, draggable */
+  .m-card{ display:inline-flex; align-items:center; gap:7px; padding:9px 13px; border:1px solid var(--hairline);
+           border-radius:12px; background:#fff; margin:0 8px 8px 0; box-shadow:0 1px 3px rgba(44,26,14,0.06); }
+  .m-card .grip{ color:var(--sand); font-size:0.85rem; letter-spacing:-2px; }
+  .m-name{ font-family:'Playfair Display',serif; font-size:0.9rem; font-weight:700; }
+  .m-tag{ font-size:0.56rem; letter-spacing:0.5px; text-transform:uppercase; padding:2px 6px; border-radius:7px; font-weight:700; }
+  .m-tag.dinner{ background:var(--teal-soft); color:var(--teal); }
+  .m-tag.bfast{ background:#FBF0DE; color:var(--amber); }
+
+  /* freeform canvas */
+  .canvas{ border:1.5px dashed var(--hairline); border-radius:14px; padding:16px 14px; min-height:280px; background:rgba(255,255,255,0.35); }
+  .canvas-hint{ font-size:0.72rem; color:var(--sand); font-style:italic; text-align:center; margin-top:60px; }
+
+  /* day-band version */
+  .day-band{ border:1px solid var(--hairline); border-radius:11px; margin-bottom:8px; overflow:hidden; }
+  .day-band-head{ background:var(--sand-row); padding:6px 12px; font-size:0.66rem; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#5a4a35; }
+  .day-band-head.today{ background:var(--teal); color:#fff; }
+  .day-band-body{ padding:10px 12px; min-height:44px; display:flex; flex-wrap:wrap; align-items:center; }
+  .day-band-body.empty{ color:var(--sand); font-size:0.72rem; font-style:italic; }
+
+  /* shop bar */
+  .shop-bar{ margin-top:14px; }
+  .shop-btn{ width:100%; padding:13px; border-radius:12px; background:var(--teal); color:#fff; border:none; font-size:0.9rem; font-weight:700; }
+  .shop-sub{ text-align:center; font-size:0.64rem; color:var(--muted); margin-top:6px; }
+</style>
+</head>
+<body>
+
+  <!-- SCREEN 1 — Catalog, flag meals for the week -->
+  <div class="col">
+    <div class="label">1 — Catalog · flag meals for the week</div>
+    <div class="sublabel">Grouped, alphabetical, sorted for lookup. Tap the star to pull one into This Week.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div></div>
+      <div class="body">
+        <div class="seg"><div class="seg-opt active">Catalog</div><div class="seg-opt">This Week</div></div>
+
+        <div style="display:flex; align-items:center; gap:8px; margin:2px 0 8px;">
+          <span style="font-size:0.66rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--clay);">Dinner</span>
+          <span style="flex:1; height:1px; background:var(--hairline);"></span>
+        </div>
+        <div style="display:flex; align-items:center; padding:11px 12px; border:1px solid var(--teal); background:var(--teal-soft); border-radius:11px; margin-bottom:7px;">
+          <span style="font-family:'Playfair Display',serif; font-size:0.96rem; font-weight:700; flex:1;">Meatloaf</span>
+          <span style="color:var(--teal); font-size:1.05rem;">★</span>
+        </div>
+        <div style="display:flex; align-items:center; padding:11px 12px; border:1px solid var(--hairline); background:#fff; border-radius:11px; margin-bottom:7px;">
+          <span style="font-family:'Playfair Display',serif; font-size:0.96rem; font-weight:700; flex:1;">Sheet-pan Salmon</span>
+          <span style="color:var(--sand); font-size:1.05rem;">☆</span>
+        </div>
+        <div style="display:flex; align-items:center; padding:11px 12px; border:1px solid var(--teal); background:var(--teal-soft); border-radius:11px; margin-bottom:7px;">
+          <span style="font-family:'Playfair Display',serif; font-size:0.96rem; font-weight:700; flex:1;">Taco Night</span>
+          <span style="color:var(--teal); font-size:1.05rem;">★</span>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:8px; margin:14px 0 8px;">
+          <span style="font-size:0.66rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--clay);">Breakfast</span>
+          <span style="flex:1; height:1px; background:var(--hairline);"></span>
+        </div>
+        <div style="display:flex; align-items:center; padding:11px 12px; border:1px solid var(--teal); background:var(--teal-soft); border-radius:11px; margin-bottom:7px;">
+          <span style="font-family:'Playfair Display',serif; font-size:0.96rem; font-weight:700; flex:1;">Sunday Waffles</span>
+          <span style="color:var(--teal); font-size:1.05rem;">★</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2 — This Week, FREEFORM (days toggle OFF) -->
+  <div class="col">
+    <div class="label">2 — This Week · freeform (days off)</div>
+    <div class="sublabel">A shared board. Cluster them however makes sense. Positions are shared — everyone sees the same layout.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div></div>
+      <div class="body">
+        <div class="seg"><div class="seg-opt">Catalog</div><div class="seg-opt active">This Week</div></div>
+
+        <div class="canvas-bar">
+          <div class="canvas-title">This Week · 4 meals</div>
+          <div class="days-toggle">Days <div class="switch off"><div class="knob"></div></div></div>
+        </div>
+
+        <div class="canvas">
+          <div style="margin-bottom:10px;">
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Meatloaf</span></span>
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Taco Night</span></span>
+          </div>
+          <div style="margin-left:24px; margin-bottom:10px;">
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Sunday Waffles</span></span>
+          </div>
+          <div style="margin-left:8px;">
+            <span class="m-card"><span class="grip">⣿</span><span class="m-name">Sheet-pan Salmon</span></span>
+          </div>
+        </div>
+
+        <div class="shop-bar">
+          <button class="shop-btn">Shop these 4 meals</button>
+          <div class="shop-sub">Folds their ingredients onto your shared list</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 3 — This Week, DAYS ON -->
+  <div class="col">
+    <div class="label">3 — This Week · days on (same meals, day backdrop)</div>
+    <div class="sublabel">Flip the toggle: the same board gains day bands. Now position means a day. Nothing else changes.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div></div>
+      <div class="body">
+        <div class="seg"><div class="seg-opt">Catalog</div><div class="seg-opt active">This Week</div></div>
+
+        <div class="canvas-bar">
+          <div class="canvas-title">This Week · 4 meals</div>
+          <div class="days-toggle">Days <div class="switch on"><div class="knob"></div></div></div>
+        </div>
+
+        <div class="day-band">
+          <div class="day-band-head today">Mon</div>
+          <div class="day-band-body"><span class="m-card"><span class="grip">⣿</span><span class="m-name">Taco Night</span></span></div>
+        </div>
+        <div class="day-band">
+          <div class="day-band-head">Tue</div>
+          <div class="day-band-body"><span class="m-card"><span class="grip">⣿</span><span class="m-name">Meatloaf</span></span></div>
+        </div>
+        <div class="day-band">
+          <div class="day-band-head">Wed</div>
+          <div class="day-band-body empty">— nothing yet —</div>
+        </div>
+        <div class="day-band">
+          <div class="day-band-head">Thu</div>
+          <div class="day-band-body"><span class="m-card"><span class="grip">⣿</span><span class="m-name">Sheet-pan Salmon</span></span></div>
+        </div>
+        <div class="day-band">
+          <div class="day-band-head">Sun</div>
+          <div class="day-band-body"><span class="m-card"><span class="grip">⣿</span><span class="m-name">Sunday Waffles</span></span></div>
+        </div>
+
+        <div class="shop-bar">
+          <button class="shop-btn">Shop these 4 meals</button>
+          <div class="shop-sub">Day assignments are just for you to plan — shopping folds all 4 either way</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

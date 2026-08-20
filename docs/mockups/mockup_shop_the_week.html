@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Option C: Shop the Week</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC;
+    --teal:#0D9488; --teal-soft:#DCEFEE;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; gap:24px; justify-content:center; flex-wrap:wrap; padding:24px 12px; }
+  .phone{ width:380px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .label{ text-align:center; font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; color:#6b5a42; margin-bottom:6px; max-width:380px; }
+  .sublabel{ text-align:center; font-size:0.64rem; color:#7a6a50; margin-bottom:10px; max-width:360px; font-style:italic; }
+  .col{ display:flex; flex-direction:column; align-items:center; }
+
+  .header{ background:var(--espresso); color:var(--cream); padding:13px 20px 11px; }
+  .place{ text-align:center; font-size:0.7rem; letter-spacing:2px; color:var(--sand); }
+  .wordmark{ font-family:'Playfair Display',serif; font-style:italic; font-size:1.3rem; text-align:center; margin-top:3px; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:6px 4px 9px; text-align:center; font-size:0.64rem; letter-spacing:2px; text-transform:uppercase; color:var(--sand); }
+  .tab.active{ color:var(--cream); font-weight:700; }
+  .body{ padding:14px 16px 22px; min-height:540px; }
+
+  .seg{ display:flex; background:var(--sand-row); border-radius:11px; padding:4px; margin-bottom:14px; }
+  .seg-opt{ flex:1; text-align:center; padding:7px 0; font-size:0.76rem; font-weight:700; border-radius:8px; color:var(--clay); }
+  .seg-opt.active{ background:var(--cream); color:var(--espresso); box-shadow:0 1px 3px rgba(44,26,14,0.14); }
+
+  /* week range selector + shop bar */
+  .week-range{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .week-range-title{ font-family:'Playfair Display',serif; font-size:1.05rem; }
+  .week-range-dates{ font-size:0.66rem; color:var(--muted); margin-top:1px; }
+
+  .day-tabs{ display:flex; gap:5px; margin-bottom:14px; overflow-x:auto; }
+  .day-tab{ flex-shrink:0; padding:6px 10px; border-radius:9px; font-size:0.7rem; font-weight:700; background:var(--sand-row); color:var(--muted); }
+  .day-tab.active{ background:var(--espresso); color:var(--cream); }
+  .day-tab.today{ border:1.5px solid var(--teal); }
+
+  .slot{ margin-bottom:12px; }
+  .slot-label{ font-size:0.62rem; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--sand); margin-bottom:6px; }
+  .plan-meal{ display:flex; align-items:center; gap:9px; padding:11px 12px; border:1px solid var(--hairline); border-radius:11px; margin-bottom:6px; background:#fff; }
+  .grip{ color:var(--sand); font-size:0.95rem; letter-spacing:-2px; flex-shrink:0; cursor:grab; }
+  .plan-meal-name{ font-family:'Playfair Display',serif; font-size:0.92rem; font-weight:700; flex:1; }
+  .state-chip{ font-size:0.58rem; letter-spacing:1px; text-transform:uppercase; padding:3px 8px; border-radius:9px; font-weight:700; flex-shrink:0; }
+  .state-chip.shopping{ background:var(--amber); color:#fff; }
+  .state-chip.tolist{ background:#fff; color:var(--teal); border:1.5px solid var(--teal); }
+
+  /* the sticky shop-the-week bar */
+  .shop-bar{ position:sticky; bottom:0; margin:16px -16px -22px; padding:14px 16px 18px;
+             background:linear-gradient(to top, var(--cream) 70%, rgba(250,244,236,0)); }
+  .shop-btn{ width:100%; padding:14px; border-radius:12px; background:var(--teal); color:#fff; border:none;
+             font-family:'Lato',sans-serif; font-size:0.92rem; font-weight:700; letter-spacing:0.5px; }
+  .shop-btn-sub{ text-align:center; font-size:0.66rem; color:var(--muted); margin-top:7px; }
+
+  /* screen 2 — the confirm sheet */
+  .sheet-title{ font-family:'Playfair Display',serif; font-size:1.2rem; margin-bottom:6px; }
+  .sheet-intro{ font-size:0.78rem; color:var(--muted); margin-bottom:16px; line-height:1.5; }
+  .confirm-meal{ display:flex; align-items:center; gap:9px; padding:10px 12px; border:1px solid var(--hairline); border-radius:10px; margin-bottom:6px; background:#fff; }
+  .cm-check{ width:18px; height:18px; border-radius:5px; background:var(--teal); color:#fff; display:flex; align-items:center; justify-content:center; font-size:0.7rem; flex-shrink:0; }
+  .cm-name{ font-family:'Playfair Display',serif; font-size:0.9rem; font-weight:700; flex:1; }
+  .cm-count{ font-size:0.66rem; color:var(--muted); flex-shrink:0; }
+  .cm-already{ opacity:0.55; }
+  .sheet-footer{ display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
+  .sf-cancel{ padding:11px 18px; border:1px solid var(--hairline); border-radius:8px; color:var(--espresso); background:#fff; font-weight:700; font-size:0.85rem; }
+  .sf-go{ padding:11px 20px; border:none; border-radius:8px; background:var(--teal); color:#fff; font-weight:700; font-size:0.85rem; }
+
+  /* screen 3 — shop tab result */
+  .cat-header{ display:flex; align-items:center; gap:8px; margin:16px 0 8px; }
+  .cat-name{ font-size:0.66rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; color:var(--clay); }
+  .cat-rule{ flex:1; height:1px; background:var(--hairline); }
+  .shop-item{ display:flex; align-items:center; gap:11px; padding:9px 4px; border-bottom:1px solid var(--hairline); }
+  .si-check{ width:20px; height:20px; border-radius:50%; border:1.5px solid var(--sand); flex-shrink:0; }
+  .si-name{ font-size:0.94rem; flex:1; }
+  .si-from{ font-size:0.66rem; color:var(--teal); margin-top:1px; }
+</style>
+</head>
+<body>
+
+  <!-- SCREEN 1 — This Week with the sticky Shop bar -->
+  <div class="col">
+    <div class="label">1 — This Week · one action shops the batch</div>
+    <div class="sublabel">Plan freely across days. When ready, one button folds all not-yet-shopped meals onto the list.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div></div>
+      <div class="body" style="position:relative;">
+        <div class="seg"><div class="seg-opt">Catalog</div><div class="seg-opt active">This Week</div></div>
+
+        <div class="week-range">
+          <div>
+            <div class="week-range-title">This Week</div>
+            <div class="week-range-dates">Mon Aug 19 – Sun Aug 25</div>
+          </div>
+        </div>
+
+        <div class="day-tabs">
+          <div class="day-tab today active">Mon</div><div class="day-tab">Tue</div><div class="day-tab">Wed</div>
+          <div class="day-tab">Thu</div><div class="day-tab">Fri</div><div class="day-tab">Sat</div><div class="day-tab">Sun</div>
+        </div>
+
+        <div class="slot">
+          <div class="slot-label">Breakfast</div>
+          <div class="plan-meal"><span class="grip">⣿</span><span class="plan-meal-name">Veggie Omelette</span><span class="state-chip tolist">To list</span></div>
+        </div>
+        <div class="slot">
+          <div class="slot-label">Dinner</div>
+          <div class="plan-meal"><span class="grip">⣿</span><span class="plan-meal-name">Taco Night</span><span class="state-chip shopping">On list</span></div>
+          <div class="plan-meal"><span class="grip">⣿</span><span class="plan-meal-name">Apple Crumble</span><span class="state-chip tolist">To list</span></div>
+        </div>
+
+        <div class="shop-bar">
+          <button class="shop-btn">Shop this week — 2 meals</button>
+          <div class="shop-btn-sub">Folds 6 ingredients onto your list · 1 meal already added</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 2 — confirm sheet -->
+  <div class="col">
+    <div class="label">2 — Confirm before it hits the shared list</div>
+    <div class="sublabel">Shows exactly what's being added, and what's already there. The shared list is sacred — no silent dumps.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab active">Plan</div><div class="tab">Browse</div><div class="tab">Shop</div></div>
+      <div class="body" style="padding-top:22px;">
+        <div class="sheet-title">Shop this week</div>
+        <div class="sheet-intro">Adding ingredients for these meals to your shared list. You can review everything on Shop before checking anything off.</div>
+
+        <div class="confirm-meal"><span class="cm-check">✓</span><span class="cm-name">Veggie Omelette</span><span class="cm-count">3 items</span></div>
+        <div class="confirm-meal"><span class="cm-check">✓</span><span class="cm-name">Apple Crumble</span><span class="cm-count">3 items</span></div>
+        <div class="confirm-meal cm-already"><span class="cm-check" style="background:var(--sand);">–</span><span class="cm-name">Taco Night</span><span class="cm-count">already on list</span></div>
+
+        <div style="margin-top:14px; padding:11px 13px; background:var(--sand-row); border-radius:9px; font-size:0.72rem; color:#5a4a35; line-height:1.5;">
+          Shared ingredients merge, they don't duplicate — if two meals both need eggs, you get one line with the combined quantity.
+        </div>
+
+        <div class="sheet-footer">
+          <div class="sf-cancel">Cancel</div>
+          <div class="sf-go">Add 6 items</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN 3 — result on Shop -->
+  <div class="col">
+    <div class="label">3 — Lands on Shop, provenance intact</div>
+    <div class="sublabel">Same shared list as always. Each item still knows which meal it came from.</div>
+    <div class="phone">
+      <div class="header"><div class="place">MADBURY</div><div class="wordmark"><i>Our</i><b>Provisions</b></div></div>
+      <div class="tab-bar"><div class="tab">Plan</div><div class="tab">Browse</div><div class="tab active">Shop</div></div>
+      <div class="body" style="padding-top:18px;">
+        <div style="font-size:0.72rem; letter-spacing:1px; color:var(--muted); margin-bottom:14px;">0 OF 8 CHECKED</div>
+
+        <div class="cat-header"><span class="cat-name">Produce</span><span class="cat-rule"></span></div>
+        <div class="shop-item"><span class="si-check"></span><div class="si-name">Apples<div class="si-from">from Apple Crumble</div></div></div>
+        <div class="shop-item"><span class="si-check"></span><div class="si-name">Bell Peppers<div class="si-from">from Veggie Omelette</div></div></div>
+
+        <div class="cat-header"><span class="cat-name">Dairy</span><span class="cat-rule"></span></div>
+        <div class="shop-item"><span class="si-check"></span><div class="si-name">Eggs<div class="si-from">from Veggie Omelette</div></div></div>
+        <div class="shop-item"><span class="si-check"></span><div class="si-name">Shred Cheese<div class="si-from">from Taco Night</div></div></div>
+
+        <div class="cat-header"><span class="cat-name">Pantry</span><span class="cat-rule"></span></div>
+        <div class="shop-item"><span class="si-check"></span><div class="si-name">Flour<div class="si-from">from Apple Crumble</div></div></div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
