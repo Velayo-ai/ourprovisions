@@ -929,20 +929,22 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
                 }}>
                   <span style={{ flex: 1, minWidth: 0, fontFamily: "'Lato', sans-serif",
                     fontSize: "0.9rem", color: "#2C1A0E" }}>{r.name}</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+                  {/* .qty-btn + .qty-display, deliberately WITHOUT .qty-controls'
+                      enclosing pill: the row's own amber has-qty border is the
+                      boundary here, so a second outline inside it is redundant.
+                      This is a considered divergence from Browse's stepper, not
+                      a match to it — Browse's .qty-controls does carry the pill. */}
+                  <div style={{ display: "inline-flex", alignItems: "center", flexShrink: 0 }}>
                     <button
+                      className="qty-btn"
                       onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving - 1)}
                       aria-label={`Decrease ${r.name}`}
-                      style={{ width: "26px", height: "26px", borderRadius: "50%", border: "1px solid #C9A97A",
-                        background: "#fff", color: "#A0724A", cursor: "pointer", lineHeight: 1 }}
                     >−</button>
-                    <span style={{ minWidth: "16px", textAlign: "center", fontFamily: "'Lato', sans-serif",
-                      fontSize: "0.9rem", fontWeight: 700, color: "#2C1A0E" }}>{r.quantity_per_serving}</span>
+                    <span className="qty-display">{r.quantity_per_serving}</span>
                     <button
+                      className="qty-btn"
                       onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving + 1)}
                       aria-label={`Increase ${r.name}`}
-                      style={{ width: "26px", height: "26px", borderRadius: "50%", border: "1px solid #C9A97A",
-                        background: "#fff", color: "#A0724A", cursor: "pointer", lineHeight: 1 }}
                     >+</button>
                   </div>
                   <button
