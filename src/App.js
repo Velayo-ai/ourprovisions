@@ -925,9 +925,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
   };
   const removeRow = (id) => setRows((prev) => prev.filter((r) => r.catalog_item_id !== id));
 
-  // Create starts disabled (nothing valid yet); edit opens enabled, because an
-  // existing meal is already valid.
-  const canSave = name.trim().length > 0 && (isEdit || rows.length > 0);
+  // A meal needs only a name, in BOTH modes. Create previously also demanded
+  // at least one ingredient while edit did not — so an empty meal was
+  // unreachable by creating one but reachable by emptying one, which is the
+  // same end state behind two different rules. An empty meal is a legitimate
+  // workflow anyway ("name it now, fill it in as I think of them"); PLAN shows
+  // it as "0 ingredients" and its Add button stays disabled on count === 0.
+  const canSave = name.trim().length > 0;
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
