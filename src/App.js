@@ -102,7 +102,15 @@ const TEXT_STEPS = [0.9, 1.0, 1.2, 1.45, 1.75];
 const TEXT_LABELS = ["Compact", "Default", "Large", "XL", "XXL"];
 
 function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, removeLabel = "Hide", style: outerStyle, children }) {
-  const REVEAL_WIDTH = 240;
+  // Reveal width scales with the number of actions the caller actually wired,
+  // at a constant 80px per action. Counting HANDLERS (not rendered buttons) is
+  // deliberate: `canEdit` hides the Edit button on non-editable catalog rows,
+  // and counting renders would shrink those panels 240→160, changing a surface
+  // this generalization is not meant to touch. Every existing call site passes
+  // all three handlers, so they stay at exactly 240.
+  const ACTION_WIDTH = 80;
+  const actionCount = (onEdit ? 1 : 0) + (onStaple ? 1 : 0) + (onRemove ? 1 : 0);
+  const REVEAL_WIDTH = actionCount > 0 ? actionCount * ACTION_WIDTH : 240;
   const [offsetX, setOffsetX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -168,6 +176,7 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, r
   const close = () => setOffsetX(0);
 
   const handleRemove = () => {
+    if (!onRemove) return;
     setRemoving(true);
     setOffsetX(-400);
     setTimeout(() => { onRemove(); setRemoving(false); setOffsetX(0); }, 400);
@@ -193,14 +202,17 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, r
               }}
             >Edit</button>
           )}
+          {onStaple && (
           <button
-            onClick={(e) => { e.stopPropagation(); close(); onStaple && onStaple(); }}
+            onClick={(e) => { e.stopPropagation(); close(); onStaple(); }}
             style={{
               flex: 1, background: isStaple ? "#0D9488" : "#6B7E8F", border: "none", color: "white",
               fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", fontWeight: 700,
               letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer"
             }}
           >⭐ Staple</button>
+          )}
+          {onRemove && (
           <button
             onClick={(e) => { e.stopPropagation(); handleRemove(); }}
             style={{
@@ -209,6 +221,7 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, r
               letterSpacing: "1px", textTransform: "uppercase", cursor: "pointer"
             }}
           >Hide</button>
+          )}
         </div>
       ) : (
         <div style={{
@@ -755,9 +768,18 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit })
         const count = (m.meal_ingredients || []).length;
         const busy = addingMealId === m.id;
         return (
-          <div key={m.id} style={{
+          // Face-button-plus-swipe, same as catalog rows: "Add" is the primary
+          // action and stays one tap on the face; Edit lives behind the swipe.
+          // Only onEdit is wired — Staple and Hide have no meaning for a meal —
+          // so the panel reveals a single button at 80px.
+          <SwipeToRemove
+            key={m.id}
+            onEdit={() => onEdit && onEdit(m)}
+            style={{ borderRadius: "12px", marginBottom: "9px" }}
+          >
+          <div style={{
             display: "flex", alignItems: "center", gap: "10px", padding: "12px",
-            border: "1px solid #E3D4BC", borderRadius: "12px", marginBottom: "9px", background: "#fff",
+            border: "1px solid #E3D4BC", borderRadius: "12px", background: "#fff",
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.02rem",
@@ -783,22 +805,8 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit })
                 opacity: busy ? 0.6 : 1, whiteSpace: "nowrap", flexShrink: 0,
               }}
             >{busy ? "Adding…" : "Add"}</button>
-            {/* Bare glyph, right edge, no container — the row-action pattern
-                formalized for the household row's Edit pencil. */}
-            <button
-              onClick={() => onEdit && onEdit(m)}
-              aria-label={`Edit ${m.name}`}
-              style={{
-                background: "none", border: "none", padding: "4px", cursor: "pointer",
-                display: "flex", alignItems: "center", flexShrink: 0,
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A0724A"
-                strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-              </svg>
-            </button>
           </div>
+          </SwipeToRemove>
         );
       })}
       {createRow}
