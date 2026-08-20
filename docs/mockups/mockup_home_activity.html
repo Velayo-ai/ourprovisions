@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Home (activity home)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60;
+    --hairline:#E3D4BC;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; justify-content:center; padding:24px 12px; }
+  .phone{ width:390px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+
+  .header{ background:var(--espresso); color:var(--cream); padding:16px 20px 14px; }
+  .place{ display:flex; align-items:center; gap:8px; }
+  .place-name{ font-family:'Playfair Display',serif; font-size:1.05rem; }
+  .place-chev{ color:var(--sand); font-size:0.8rem; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:9px 4px 11px; text-align:center; font-size:0.7rem; letter-spacing:2px;
+        text-transform:uppercase; color:var(--sand); border-bottom:2px solid transparent; }
+  .tab.active{ color:var(--cream); border-bottom:2px solid var(--sand); }
+
+  .body{ padding:18px 18px 26px; }
+
+  .greeting{ font-family:'Playfair Display',serif; font-size:1.4rem; color:var(--espresso); line-height:1.2; }
+  .greeting-sub{ font-size:0.82rem; color:var(--muted); margin-top:3px; margin-bottom:20px; }
+
+  .section-label{ font-size:0.68rem; font-weight:700; letter-spacing:2.5px; text-transform:uppercase;
+                  color:var(--clay); margin:22px 2px 12px; }
+  .section-label:first-of-type{ margin-top:0; }
+
+  /* signature: tonight card */
+  .tonight{ border-radius:16px; overflow:hidden; position:relative; background:linear-gradient(135deg,#c98a8a,#8a4a4a);
+             min-height:150px; display:flex; align-items:flex-end; }
+  .tonight-fade{ position:absolute; inset:0; background:linear-gradient(180deg, rgba(44,26,14,0) 30%, rgba(44,26,14,0.82) 100%); }
+  .tonight-content{ position:relative; padding:16px 16px 15px; width:100%; }
+  .tonight-eyebrow{ font-size:0.65rem; letter-spacing:2px; text-transform:uppercase; color:var(--sand); font-weight:700; }
+  .tonight-title{ font-family:'Playfair Display',serif; font-size:1.35rem; color:var(--cream); margin-top:3px; line-height:1.15; }
+  .tonight-row{ display:flex; align-items:center; justify-content:space-between; margin-top:10px; }
+  .tonight-status{ font-size:0.76rem; color:rgba(250,244,236,0.85); }
+  .tonight-status b{ color:var(--cream); }
+  .tonight-cta{ font-size:0.72rem; font-weight:700; letter-spacing:0.5px; color:var(--cream);
+                background:rgba(250,244,236,0.18); border:1px solid rgba(250,244,236,0.5);
+                padding:7px 12px; border-radius:20px; }
+
+  /* quick stats row */
+  .stats{ display:flex; gap:10px; margin-top:16px; }
+  .stat-card{ flex:1; background:#fff; border:1px solid var(--hairline); border-radius:12px; padding:12px 13px; }
+  .stat-val{ font-family:'Playfair Display',serif; font-size:1.15rem; font-weight:700; color:var(--espresso); }
+  .stat-val.teal{ color:var(--teal); }
+  .stat-label{ font-size:0.66rem; letter-spacing:0.5px; color:var(--muted); margin-top:2px; }
+
+  /* activity feed */
+  .activity{ border:1px solid var(--hairline); border-radius:12px; background:#fff; overflow:hidden; }
+  .act-row{ display:flex; align-items:flex-start; gap:11px; padding:12px 14px; border-bottom:1px solid var(--hairline); }
+  .act-row:last-child{ border-bottom:none; }
+  .act-avatar{ width:28px; height:28px; border-radius:50%; flex-shrink:0; display:flex; align-items:center;
+               justify-content:center; font-family:'Playfair Display',serif; font-weight:700; font-size:0.78rem;
+               color:var(--cream); }
+  .act-text{ font-size:0.84rem; line-height:1.4; flex:1; }
+  .act-text b{ font-weight:700; }
+  .act-time{ font-size:0.68rem; color:var(--muted); flex-shrink:0; margin-top:2px; }
+
+  /* jump-to shortcuts */
+  .shortcuts{ display:flex; gap:10px; margin-top:4px; }
+  .shortcut{ flex:1; text-align:center; padding:13px 6px; background:#F3E9D8; border-radius:12px; }
+  .shortcut-label{ font-size:0.72rem; font-weight:700; letter-spacing:0.5px; color:var(--espresso); }
+  .shortcut-sub{ font-size:0.64rem; color:var(--clay); margin-top:2px; }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="header">
+      <div class="place"><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div>
+    </div>
+    <div class="tab-bar">
+      <div class="tab active">Home</div>
+      <div class="tab">Plan</div>
+      <div class="tab">Browse</div>
+      <div class="tab">Shop</div>
+    </div>
+
+    <div class="body">
+      <div class="greeting">Good evening, Elly</div>
+      <div class="greeting-sub">Thursday, August 20</div>
+
+      <div class="section-label">Tonight</div>
+      <div class="tonight">
+        <div class="tonight-fade"></div>
+        <div class="tonight-content">
+          <div class="tonight-eyebrow">From OurChef &middot; Elly's cookbook</div>
+          <div class="tonight-title">Sheet-Pan Salmon</div>
+          <div class="tonight-row">
+            <div class="tonight-status">List is <b>ready</b> &middot; 25 min to cook</div>
+            <div class="tonight-cta">View recipe</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat-card">
+          <div class="stat-val">$42</div>
+          <div class="stat-label">SPENT THIS CYCLE</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val teal">$18</div>
+          <div class="stat-label">UNDER BUDGET</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val">6</div>
+          <div class="stat-label">ITEMS LEFT</div>
+        </div>
+      </div>
+
+      <div class="section-label">Household activity</div>
+      <div class="activity">
+        <div class="act-row">
+          <div class="act-avatar" style="background:var(--clay);">H</div>
+          <div class="act-text"><b>Helen</b> added olive oil to the list</div>
+          <div class="act-time">20m</div>
+        </div>
+        <div class="act-row">
+          <div class="act-avatar" style="background:var(--teal);">E</div>
+          <div class="act-text"><b>You</b> checked off 4 items at Hannaford</div>
+          <div class="act-time">1h</div>
+        </div>
+        <div class="act-row">
+          <div class="act-avatar" style="background:var(--amber);">M</div>
+          <div class="act-text"><b>Elly's mom</b> shared a recipe &mdash; Sheet-Pan Salmon</div>
+          <div class="act-time">Yesterday</div>
+        </div>
+      </div>
+
+      <div class="section-label">Jump to</div>
+      <div class="shortcuts">
+        <div class="shortcut">
+          <div class="shortcut-label">Plan</div>
+          <div class="shortcut-sub">3 meals this week</div>
+        </div>
+        <div class="shortcut">
+          <div class="shortcut-label">Browse</div>
+          <div class="shortcut-sub">Add items</div>
+        </div>
+        <div class="shortcut">
+          <div class="shortcut-label">Shop</div>
+          <div class="shortcut-sub">6 to go</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Meal card &rarr; Recipe card</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60;
+    --hairline:#E3D4BC;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; justify-content:center; padding:36px 12px; }
+  .stage{ display:flex; align-items:flex-start; gap:0; }
+
+  .col{ display:flex; flex-direction:column; align-items:center; }
+  .label{ font-size:0.72rem; letter-spacing:2px; text-transform:uppercase; color:var(--espresso);
+          font-weight:700; margin-bottom:10px; }
+  .sub-label{ font-size:0.72rem; color:#5a4630; margin-top:8px; max-width:220px; text-align:center; line-height:1.5; }
+
+  .arrow-wrap{ display:flex; flex-direction:column; align-items:center; justify-content:center;
+               width:70px; margin-top:140px; }
+  .arrow{ font-size:1.8rem; color:var(--clay); }
+  .arrow-note{ font-size:0.68rem; color:#5a4630; text-align:center; margin-top:6px; line-height:1.4; }
+
+  .phone{ width:340px; background:var(--cream); border-radius:20px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); position:relative; }
+
+  /* header */
+  .header{ background:var(--espresso); color:var(--cream); padding:14px 18px 12px; display:flex;
+           align-items:center; gap:10px; }
+  .back{ font-size:1.05rem; color:var(--sand); }
+  .place{ display:flex; align-items:center; gap:7px; }
+  .place-name{ font-family:'Playfair Display',serif; font-size:0.95rem; }
+  .place-chev{ color:var(--sand); font-size:0.7rem; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:8px 4px 10px; text-align:center; font-size:0.65rem; letter-spacing:1.5px;
+        text-transform:uppercase; color:var(--sand); }
+  .tab.active{ color:var(--cream); border-bottom:2px solid var(--sand); }
+
+  .body{ padding:15px 16px 22px; }
+  .section-label{ font-size:0.64rem; font-weight:700; letter-spacing:2px; text-transform:uppercase;
+                  color:var(--clay); margin:2px 2px 10px; }
+
+  /* meal card w/ new tap affordance */
+  .meal{ border:1px solid var(--hairline); border-radius:12px; overflow:hidden; background:#fff; position:relative; }
+  .meal-head{ display:flex; align-items:center; gap:11px; padding:13px; background:#F3E9D8; position:relative; }
+  .meal-photo{ width:42px; height:42px; border-radius:8px; flex-shrink:0;
+               background:linear-gradient(135deg,#c98a8a,#8a4a4a); }
+  .meal-title-row{ flex:1; }
+  .meal-title{ font-family:'Playfair Display',serif; font-size:1rem; color:var(--espresso); }
+  .meal-sub{ font-size:0.68rem; color:var(--clay); letter-spacing:0.5px; text-transform:uppercase; margin-top:2px; }
+  .recipe-link{ display:flex; align-items:center; gap:3px; font-size:0.68rem; color:var(--teal);
+                font-weight:700; letter-spacing:0.5px; flex-shrink:0; padding:4px 2px; }
+  .recipe-link .chev{ font-size:0.85rem; }
+
+  .highlight-ring{ position:absolute; inset:-3px; border:2px solid var(--teal); border-radius:14px;
+                    pointer-events:none; }
+
+  .serv{ display:flex; align-items:center; justify-content:space-between; padding:11px 13px;
+         border-bottom:1px solid var(--hairline); background:var(--cream); }
+  .serv-label{ font-size:0.72rem; letter-spacing:0.5px; text-transform:uppercase; color:var(--muted); font-weight:700; }
+  .serv-note{ font-size:0.68rem; color:var(--muted); margin-top:2px; }
+  .stepper{ display:flex; align-items:center; border:1px solid var(--clay); border-radius:20px; overflow:hidden; background:#fff; }
+  .step-btn{ width:32px; height:30px; display:flex; align-items:center; justify-content:center; color:var(--clay); font-size:1rem; }
+  .step-val{ min-width:32px; text-align:center; font-family:'Playfair Display',serif; font-size:1rem; font-weight:700; color:var(--espresso); }
+
+  .ing{ display:flex; align-items:center; gap:10px; padding:10px 13px; border-bottom:1px solid var(--hairline); }
+  .ing:last-child{ border-bottom:none; }
+  .ing-name{ font-size:0.88rem; color:var(--espresso); flex:1; }
+  .ing-per{ font-size:0.66rem; color:var(--muted); margin-top:1px; }
+  .ing-qty{ font-family:'Playfair Display',serif; font-size:0.95rem; font-weight:700; color:var(--espresso); }
+
+  .add-cta{ margin-top:14px; width:100%; padding:12px; background:var(--teal); color:var(--cream);
+            border:none; border-radius:10px; font-size:0.78rem; font-weight:700; letter-spacing:1px;
+            text-transform:uppercase; text-align:center; }
+
+  /* --- right phone: recipe card (condensed) --- */
+  .hero{ height:110px; background:linear-gradient(135deg,#c98a8a,#8a4a4a); position:relative; }
+  .hero-fade{ position:absolute; inset:0; background:linear-gradient(180deg, rgba(44,26,14,0) 40%, rgba(44,26,14,0.72) 100%); }
+  .title-block{ margin-top:-40px; position:relative; padding:0 2px 12px; }
+  .r-title{ font-family:'Playfair Display',serif; font-size:1.2rem; color:var(--cream); line-height:1.15; }
+  .provenance{ display:inline-flex; align-items:center; gap:5px; margin-top:7px; padding:4px 9px 4px 7px;
+               background:rgba(250,244,236,0.92); border-radius:20px; font-size:0.66rem; color:var(--espresso); }
+  .provenance .mark{ width:14px; height:14px; border-radius:50%; background:var(--teal); color:var(--cream);
+                      display:flex; align-items:center; justify-content:center; font-size:0.55rem; font-weight:700;
+                      font-family:'Playfair Display',serif; flex-shrink:0; }
+  .provenance b{ font-weight:700; }
+  .r-meta{ display:flex; gap:14px; padding:12px 2px 2px; border-bottom:1px solid var(--hairline); margin-bottom:12px; font-size:0.66rem; color:var(--muted); }
+  .r-meta b{ display:block; font-family:'Playfair Display',serif; font-size:0.9rem; color:var(--espresso); font-weight:700; }
+  .step{ display:flex; gap:9px; padding:9px 2px; border-bottom:1px solid var(--hairline); font-size:0.82rem; line-height:1.4; }
+  .step:last-child{ border-bottom:none; }
+  .step-num{ flex-shrink:0; width:20px; height:20px; border-radius:50%; background:var(--sand-row);
+             font-family:'Playfair Display',serif; font-weight:700; font-size:0.7rem; display:flex;
+             align-items:center; justify-content:center; }
+  .r-add{ margin-top:14px; width:100%; padding:11px; background:transparent; color:var(--teal);
+          border:1.5px solid var(--teal); border-radius:10px; font-size:0.74rem; font-weight:700;
+          letter-spacing:1px; text-transform:uppercase; text-align:center; }
+</style>
+</head>
+<body>
+  <div class="stage">
+
+    <div class="col">
+      <div class="label">Plan tab &middot; today</div>
+      <div class="phone">
+        <div class="header">
+          <div class="place"><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div>
+        </div>
+        <div class="tab-bar">
+          <div class="tab">Home</div>
+          <div class="tab active">Plan</div>
+          <div class="tab">Browse</div>
+          <div class="tab">Shop</div>
+        </div>
+        <div class="body">
+          <div class="section-label">This week</div>
+
+          <div class="meal">
+            <div class="highlight-ring"></div>
+            <div class="meal-head">
+              <div class="meal-photo"></div>
+              <div class="meal-title-row">
+                <div class="meal-title">Sheet-Pan Salmon</div>
+                <div class="meal-sub">Saturday &middot; dinner party</div>
+              </div>
+              <div class="recipe-link">Recipe <span class="chev">&rsaquo;</span></div>
+            </div>
+            <div class="serv">
+              <div>
+                <div class="serv-label">Serving</div>
+                <div class="serv-note">recipe is for 3</div>
+              </div>
+              <div class="stepper">
+                <div class="step-btn">&minus;</div>
+                <div class="step-val">6</div>
+                <div class="step-btn">+</div>
+              </div>
+            </div>
+            <div class="ing">
+              <div style="flex:1;"><div class="ing-name">Salmon fillets</div><div class="ing-per">2 per serving</div></div>
+              <div class="ing-qty">6</div>
+            </div>
+            <div class="ing">
+              <div style="flex:1;"><div class="ing-name">Asparagus</div><div class="ing-per">1 bunch per 3</div></div>
+              <div class="ing-qty">2</div>
+            </div>
+          </div>
+          <div class="add-cta">Add to list</div>
+        </div>
+      </div>
+      <div class="sub-label">The meal card stays the fast path &mdash; set servings, add to list, done in one tap. No detour required.</div>
+    </div>
+
+    <div class="arrow-wrap">
+      <div class="arrow">&rarr;</div>
+      <div class="arrow-note">Tap<br>&ldquo;Recipe&rdquo;</div>
+    </div>
+
+    <div class="col">
+      <div class="label">Recipe card &middot; on demand</div>
+      <div class="phone">
+        <div class="header">
+          <div class="back">&larr;</div>
+          <div class="place"><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div>
+        </div>
+        <div class="hero"><div class="hero-fade"></div></div>
+        <div class="body" style="padding-top:0;">
+          <div class="title-block">
+            <div class="r-title">Sheet-Pan Salmon</div>
+            <div class="provenance"><span class="mark">C</span> From <b>OurChef</b> &middot; Elly's cookbook</div>
+          </div>
+          <div class="r-meta">
+            <div><b>25 min</b>Total time</div>
+            <div><b>3</b>Recipe yield</div>
+            <div><b>Easy</b>Difficulty</div>
+          </div>
+          <div class="section-label">Instructions</div>
+          <div class="step"><div class="step-num">1</div><div>Heat oven to 425&deg;F. Line a sheet pan with parchment.</div></div>
+          <div class="step"><div class="step-num">2</div><div>Toss asparagus with oil, garlic, salt and pepper.</div></div>
+          <div class="step"><div class="step-num">3</div><div>Nestle salmon in, top with lemon slices.</div></div>
+          <div class="step"><div class="step-num">4</div><div>Roast 12&ndash;14 minutes until it flakes.</div></div>
+          <div class="r-add">Back to servings &amp; list</div>
+        </div>
+      </div>
+      <div class="sub-label">The recipe card is the deep view &mdash; what you're actually making, and where it came from. Read-only; no add action here.</div>
+    </div>
+
+  </div>
+</body>
+</html>

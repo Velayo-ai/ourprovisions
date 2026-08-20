@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Recipe card (meal detail)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60;
+    --hairline:#E3D4BC;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        display:flex; justify-content:center; padding:24px 12px; }
+  .phone{ width:390px; background:var(--cream); border-radius:22px; overflow:hidden;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); position:relative; }
+
+  /* header */
+  .header{ background:var(--espresso); color:var(--cream); padding:14px 20px 12px; display:flex;
+           align-items:center; gap:12px; }
+  .back{ font-size:1.1rem; color:var(--sand); }
+  .place{ display:flex; align-items:center; gap:8px; }
+  .place-name{ font-family:'Playfair Display',serif; font-size:1rem; }
+  .place-chev{ color:var(--sand); font-size:0.75rem; }
+
+  /* hero photo */
+  .hero{ height:180px; background:linear-gradient(135deg,#c98a8a,#8a4a4a); position:relative; }
+  .hero-fade{ position:absolute; inset:0; background:linear-gradient(180deg, rgba(44,26,14,0) 45%, rgba(44,26,14,0.72) 100%); }
+
+  .body{ padding:0 18px 100px; }
+
+  /* title block, sits over hero bottom edge */
+  .title-block{ margin-top:-56px; position:relative; padding:0 2px 14px; }
+  .meal-title{ font-family:'Playfair Display',serif; font-size:1.5rem; color:var(--cream); line-height:1.15; }
+
+  /* provenance chip — the OurChef seam, understated */
+  .provenance{ display:inline-flex; align-items:center; gap:6px; margin-top:8px; padding:5px 10px 5px 8px;
+               background:rgba(250,244,236,0.92); border-radius:20px; font-size:0.72rem; color:var(--espresso); }
+  .provenance .mark{ width:16px; height:16px; border-radius:50%; background:var(--teal); color:var(--cream);
+                      display:flex; align-items:center; justify-content:center; font-size:0.6rem; font-weight:700;
+                      font-family:'Playfair Display',serif; flex-shrink:0; }
+  .provenance b{ font-weight:700; }
+  .provenance .sep{ color:var(--sand); }
+
+  .provenance.local{ background:rgba(250,244,236,0.92); }
+  .provenance.local .mark{ background:var(--clay); }
+
+  /* meta row */
+  .meta{ display:flex; gap:18px; padding:16px 2px 4px; border-bottom:1px solid var(--hairline); margin-bottom:16px; }
+  .meta-item{ text-align:left; }
+  .meta-val{ font-family:'Playfair Display',serif; font-size:1.05rem; font-weight:700; color:var(--espresso); }
+  .meta-label{ font-size:0.66rem; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-top:1px; }
+
+  .section-label{ font-size:0.68rem; font-weight:700; letter-spacing:2.5px; text-transform:uppercase;
+                  color:var(--clay); margin:18px 2px 12px; }
+
+  /* servings stepper */
+  .serv{ display:flex; align-items:center; justify-content:space-between; padding:12px 14px;
+         border:1px solid var(--hairline); border-radius:12px; background:#fff; margin-bottom:4px; }
+  .serv-label{ font-size:0.78rem; letter-spacing:1px; text-transform:uppercase; color:var(--muted); font-weight:700; }
+  .serv-note{ font-size:0.72rem; color:var(--muted); margin-top:2px; }
+  .stepper{ display:flex; align-items:center; border:1px solid var(--clay); border-radius:20px; overflow:hidden; background:#fff; }
+  .step-btn{ width:34px; height:32px; display:flex; align-items:center; justify-content:center;
+             color:var(--clay); font-size:1.05rem; }
+  .step-val{ min-width:36px; text-align:center; font-family:'Playfair Display',serif;
+             font-size:1.05rem; font-weight:700; color:var(--espresso); }
+
+  /* ingredient rows */
+  .ing-card{ border:1px solid var(--hairline); border-radius:12px; overflow:hidden; background:#fff; }
+  .ing{ display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px solid var(--hairline); }
+  .ing:last-child{ border-bottom:none; }
+  .ing-name{ font-size:0.92rem; color:var(--espresso); flex:1; }
+  .ing-qty{ font-family:'Playfair Display',serif; font-size:1rem; font-weight:700; color:var(--espresso); }
+
+  /* instructions — numbered, because this content is a real sequence */
+  .steps{ counter-reset:step; }
+  .step{ display:flex; gap:12px; padding:13px 2px; border-bottom:1px solid var(--hairline); }
+  .step:last-child{ border-bottom:none; }
+  .step-num{ counter-increment:step; flex-shrink:0; width:26px; height:26px; border-radius:50%;
+             background:var(--sand-row); color:var(--espresso); font-family:'Playfair Display',serif;
+             font-weight:700; font-size:0.85rem; display:flex; align-items:center; justify-content:center; }
+  .step-num::before{ content: counter(step); }
+  .step-text{ font-size:0.9rem; line-height:1.5; padding-top:2px; }
+
+  /* notes */
+  .notes-card{ background:#F3E9D8; border-radius:12px; padding:14px; font-size:0.85rem; line-height:1.55; color:var(--espresso); }
+  .notes-card b{ display:block; font-size:0.68rem; letter-spacing:2px; text-transform:uppercase; color:var(--clay); margin-bottom:6px; }
+
+  /* sticky footer CTA */
+  .footer{ position:absolute; left:0; right:0; bottom:0; padding:14px 18px 18px; background:linear-gradient(180deg, rgba(250,244,236,0) 0%, var(--cream) 30%); }
+  .cta{ width:100%; padding:14px; background:var(--teal); color:var(--cream); border:none; border-radius:12px;
+        font-size:0.85rem; font-weight:700; letter-spacing:1px; text-transform:uppercase; text-align:center; }
+  .cta-sub{ text-align:center; font-size:0.72rem; color:var(--muted); margin-top:6px; }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="header">
+      <div class="back">&larr;</div>
+      <div class="place"><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div>
+    </div>
+
+    <div class="hero">
+      <div class="hero-fade"></div>
+    </div>
+
+    <div class="body">
+      <div class="title-block">
+        <div class="meal-title">Sheet-Pan Salmon</div>
+        <div class="provenance">
+          <span class="mark">C</span>
+          From <b>OurChef</b> <span class="sep">&middot;</span> Elly's cookbook
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="meta-item">
+          <div class="meta-val">25 min</div>
+          <div class="meta-label">Total time</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-val">3</div>
+          <div class="meta-label">Recipe yield</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-val">Easy</div>
+          <div class="meta-label">Difficulty</div>
+        </div>
+      </div>
+
+      <div class="section-label">Servings for this household</div>
+      <div class="serv">
+        <div>
+          <div class="serv-label">Serving</div>
+          <div class="serv-note">recipe is for 3</div>
+        </div>
+        <div class="stepper">
+          <div class="step-btn">&minus;</div>
+          <div class="step-val">6</div>
+          <div class="step-btn">+</div>
+        </div>
+      </div>
+
+      <div class="section-label">Ingredients</div>
+      <div class="ing-card">
+        <div class="ing"><div class="ing-name">Salmon fillets</div><div class="ing-qty">6</div></div>
+        <div class="ing"><div class="ing-name">Asparagus, trimmed</div><div class="ing-qty">2 bunches</div></div>
+        <div class="ing"><div class="ing-name">Lemon</div><div class="ing-qty">2</div></div>
+        <div class="ing"><div class="ing-name">Olive oil</div><div class="ing-qty">3 tbsp</div></div>
+        <div class="ing"><div class="ing-name">Garlic cloves</div><div class="ing-qty">4</div></div>
+      </div>
+
+      <div class="section-label">Instructions</div>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-text">Heat oven to 425&deg;F. Line a sheet pan with parchment.</div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-text">Toss asparagus with half the oil, half the garlic, salt and pepper. Spread on the pan.</div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-text">Nestle salmon among the asparagus. Rub with remaining oil and garlic, top with lemon slices.</div>
+        </div>
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-text">Roast 12&ndash;14 minutes, until salmon flakes easily.</div>
+        </div>
+      </div>
+
+      <div class="section-label">Notes</div>
+      <div class="notes-card">
+        <b>From the original</b>
+        Swap asparagus for green beans in winter. Leftover salmon is great flaked into a salad the next day.
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="cta">Add to This Week</div>
+      <div class="cta-sub">Folds 5 ingredients into the shared list</div>
+    </div>
+  </div>
+</body>
+</html>
