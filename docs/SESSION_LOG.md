@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-20] — [Cross] — Design the recipe card + HOME tab, file the mockups, and preserve the "loop of care"
+**Goal:** Design a recipe-card view for meals (with an eye toward the future OurChef seam) and a first pass at the HOME tab, capturing the forward-looking product/strategy ideas that surfaced along the way — without touching Vegas demo scope.
+**Completed:**
+- **Designed the recipe card and locked the meal→recipe navigation pattern.** The meal card in PLAN stays the **one-click add path**; the recipe card is a separate **read-only** detail view reached via a "Recipe" link, with no add action of its own — so exactly one surface ever changes what's on the list.
+- **Designed the HOME tab v1 concept** — a "Tonight" card surfacing the planned meal plus its provenance chip, over an activity feed, quick stats and shortcuts.
+- **Reviewed three ChatGPT-drafted reference mockups** (home, recipe card, cooking mode), validated the ingredient-staple-checkbox idea against existing idea-log item (14) rather than re-inventing it, and identified full step-by-step cooking mode as **new idea (16)**.
+- **Filed every mockup and committed them as one commit (`7f5a055`)** — 3 token-accurate HTML files to `docs/mockups/`, plus the repo's first reference-quality renders to the new `docs/mockups/reference/`. The three PNGs were **compressed before commit** (1024×1536 → 800×1200, JPEG q85, ~5.2 MB → ~490 KB), so their paths are now `.jpg`.
+- **Logged HOME tab v1.0 (static, no new data) to ROADMAP NEXT**, sequenced strictly after meal-planning v1 is demo-stable and prod promotion is decided.
+- **Captured the "loop of care"** — recipe provenance as a *relationship* that can notify the giver — and placed it at **Harbour scale**, not OurChef or OurProvisions. Written into `STRATEGY_consumption_signal.md`'s meal-intelligence section this session.
+**Unfinished:**
+- **Button-colour convention undecided** — teal for foundation/utility actions vs. clay/maroon for ritual/house actions ("Add to list" vs. "Start cooking") was raised as an observation on the reference mockups, never decided. Open for whoever next does a visual pass on Home or the recipe card.
+- **Two reference images remain filed but unlinked** (`mockup_home_reference_A.jpg`, `mockup_recipe_card_reference_AB.jpg`) — deliberate per this session's instruction, recorded here so a future session doesn't read it as an oversight.
+- **The future `recipe_cards` / `meals.origin_recipe_id` shape is a sketch only.** Parked in the DECISIONS LOG rather than `ARCHITECTURE.md`, since nothing structural actually changed.
+- **Nothing from this session is built or spec'd** — recipe card and HOME tab are design threads only.
+**Next session:**
+SESSION START
+Goal: Depends on tonight's dry run — either (a) resolve any defects it surfaces ahead of Saturday's demo, or (b) if the dry run is clean, pick up "Build HOME tab v1.0 (static)" from NEXT.
+State: Meal-planning v1 designed and spec'd, not built. Create/edit meal shipped and verified on dev; **prod promotion still undecided with the demo on Saturday 2026-08-22**. Recipe card + HOME tab mocked, not spec'd or built.
+Done when: (a) dry-run defects triaged and either fixed or explicitly deferred with reasons; or (b) HOME tab renders on dev with the static Tonight card + shortcuts, no new table.
+**Files updated:** `docs/ROADMAP.md`, `docs/SESSION_LOG.md`, `docs/strategy/STRATEGY_consumption_signal.md`, `docs/mockups/mockup_recipe_card.html`, `docs/mockups/mockup_meal_to_recipe_flow.html`, `docs/mockups/mockup_home_activity.html`, `docs/mockups/reference/` (3 JPGs)
+**DB changes:** None
+
 ### [2026-08-20] — [OurProvisions] — Ship create/edit meal, then design the meal-planning model and cut it down to a buildable v1
 **Goal:** Build create-meal from spec, verify it live, then work out what "planning" actually is — and land on something small enough to build before Saturday.
 **Completed:**
