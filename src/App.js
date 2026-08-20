@@ -118,12 +118,25 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, r
   const startY = useRef(null);
   const isHoriz = useRef(false);
   const baseOffset = useRef(0);
+  // Live mirror of offsetX. The gesture logic MUST NOT read the state value:
+  // `mousemove`/`touchmove` are continuous-priority events in React 18, so
+  // their setOffsetX updates are scheduled rather than flushed synchronously.
+  // A `mouseup` (discrete) can therefore run before the last move has been
+  // committed, leaving the closure's offsetX behind the position the row was
+  // actually dragged to. The row then snaps to a spot computed from a stale
+  // value and seeds the NEXT gesture's baseOffset from there, compounding
+  // until it wedges — and any unrelated re-render flushes the backlog, which
+  // is why touching another row appeared to "fix" it.
+  // The ref is written in lockstep with every setOffsetX, so it is correct
+  // regardless of flush timing. State stays purely for rendering.
+  const offsetXRef = useRef(0);
+  const applyOffset = (v) => { offsetXRef.current = v; setOffsetX(v); };
 
   const handleStart = (clientX, clientY) => {
     startX.current = clientX;
     startY.current = clientY;
     isHoriz.current = false;
-    baseOffset.current = offsetX;
+    baseOffset.current = offsetXRef.current;
     setSwiping(true);
   };
 
@@ -137,9 +150,9 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, r
     }
     if (!isHoriz.current) return;
     if (onEdit) {
-      setOffsetX(Math.min(0, Math.max(baseOffset.current + dx, -REVEAL_WIDTH)));
+      applyOffset(Math.min(0, Math.max(baseOffset.current + dx, -REVEAL_WIDTH)));
     } else {
-      if (dx < 0) setOffsetX(Math.max(dx, -120));
+      if (dx < 0) applyOffset(Math.max(dx, -120));
     }
   };
 
@@ -157,39 +170,39 @@ function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, r
       // swipe-to-REMOVE path, where a lower threshold would make an
       // irreversible action easier to trigger by accident.
       const threshold = Math.min(SWIPE_THRESHOLD, REVEAL_WIDTH / 3);
-      const delta = offsetX - baseOffset.current; // + = dragged right, - = dragged left
+      const delta = offsetXRef.current - baseOffset.current; // + = right, - = left
       const startedOpen = baseOffset.current <= -REVEAL_WIDTH / 2;
       if (startedOpen) {
         // open row: a right drag past threshold closes; otherwise stay open
-        if (delta > threshold) setOffsetX(0);
-        else setOffsetX(-REVEAL_WIDTH);
+        if (delta > threshold) applyOffset(0);
+        else applyOffset(-REVEAL_WIDTH);
       } else {
         // closed row: a left drag past threshold opens; otherwise stay closed
-        if (delta < -threshold) setOffsetX(-REVEAL_WIDTH);
-        else setOffsetX(0);
+        if (delta < -threshold) applyOffset(-REVEAL_WIDTH);
+        else applyOffset(0);
       }
     } else {
-      if (offsetX < -SWIPE_THRESHOLD) {
+      if (offsetXRef.current < -SWIPE_THRESHOLD) {
         setRemoving(true);
-        setOffsetX(-400);
+        applyOffset(-400);
         setTimeout(() => {
           onRemove();
           setRemoving(false);
-          setOffsetX(0);
+          applyOffset(0);
         }, 400);
       } else {
-        setOffsetX(0);
+        applyOffset(0);
       }
     }
   };
 
-  const close = () => setOffsetX(0);
+  const close = () => applyOffset(0);
 
   const handleRemove = () => {
     if (!onRemove) return;
     setRemoving(true);
-    setOffsetX(-400);
-    setTimeout(() => { onRemove(); setRemoving(false); setOffsetX(0); }, 400);
+    applyOffset(-400);
+    setTimeout(() => { onRemove(); setRemoving(false); applyOffset(0); }, 400);
   };
 
   const isRevealing = offsetX < -10;
