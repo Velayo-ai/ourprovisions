@@ -1950,93 +1950,34 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
   // ─────────────────────────────────────────────────────────────
   // decrementMealBatch: undo exactly ONE add. The mirror of tapping Add
-  // again, which is why "+" is just addMealToList unchanged.
+  // again, which is why "+" is addMealToList unchanged.
   //
-  // One add's worth is computed FRESH from the current recipe rather than
-  // divided out of quantity_contributed, and that is deliberate:
-  // add_meal_to_list floors each ingredient at GREATEST(1, round(...)), so
-  // the per-add amount is not a fixed divisor and the division would not
-  // round-trip. This is also why add_count has to exist as a real column.
+  // ⚠️ THE WHOLE BODY IS AN RPC CALL, AND THAT IS THE POINT (041).
+  // The first version of this function amended the ledger from the
+  // client:
+  //     db.from("list_item_meals").update({ add_count, quantity_contributed })
+  // list_item_meals has SELECT/INSERT/DELETE policies only — NO UPDATE
+  // policy, deliberately (025_meals.sql:13, "a provenance linkage row is
+  // delete-and-reinserted, never updated"). The UPDATE therefore matched
+  // zero rows and raised NO error, because RLS filters silently. Since
+  // list_items.quantity DID update, the shopping list moved correctly
+  // while the card's count froze — and 1→0 still looked fine because
+  // that path DELETEs, which a policy does cover. Half-working, no error,
+  // shipped to dev in e9c1bf8.
   //
-  // Unlike the generic Browse stepper — which is meal-unaware by design and
-  // cannot know whose contribution it is moving — this path has enough
-  // information to keep the ledger honest, so it decrements
-  // quantity_contributed by the same amount it takes off list_items.quantity.
-  //
-  // BOUGHT items are never touched: only status='pending' rows are candidates,
-  // same sacred-list guarantee as removeMealFromList.
-  //
-  // At add_count 0 the link row is DELETED rather than left at zero, matching
-  // the resurrect-clears-provenance convention — a meal at zero must look
-  // exactly like a meal never added, with no stale link surviving.
+  // The per-ingredient loop, the meal_ingredients read and the ledger
+  // writes now all live server-side in decrement_meal_from_list, running
+  // SECURITY DEFINER exactly as add_meal_to_list's writes to this same
+  // table already do. Do NOT reintroduce a client-side write here — the
+  // fix is the trust boundary, not the syntax.
   // ─────────────────────────────────────────────────────────────
   const decrementMealBatch = useCallback(async (mealId) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
     try {
-      const { data: links, error: lErr } = await db
-        .from("list_item_meals")
-        .select("list_item_id, add_count, quantity_contributed, list_items!inner(id, catalog_item_id, quantity, status, household_id, deleted_at)")
-        .eq("meal_id", mealId)
-        .eq("list_items.household_id", hh.id)
-        .is("list_items.deleted_at", null);
-      if (lErr) throw lErr;
-
-      const { data: ingredients, error: iErr } = await db
-        .from("meal_ingredients")
-        .select("catalog_item_id, quantity_per_serving")
-        .eq("meal_id", mealId)
-        .is("deleted_at", null);
-      if (iErr) throw iErr;
-      const perServingByItem = {};
-      (ingredients || []).forEach((ing) => {
-        perServingByItem[ing.catalog_item_id] = Number(ing.quantity_per_serving) || 1;
-      });
-
-      const pending = (links || []).filter(
-        (r) => r.list_items?.status === "pending" && (r.add_count || 0) > 0
-      );
-
-      for (const row of pending) {
-        const li = row.list_items;
-        const perServing = perServingByItem[li.catalog_item_id] || 1;
-        const oneAdd = Math.max(1, Math.round(perServing)); // mirrors add_meal_to_list's own floor
-
-        const remaining = Number(li.quantity) - oneAdd;
-        if (remaining > 0) {
-          const { error: qErr } = await db
-            .from("list_items")
-            .update({ quantity: remaining, updated_at: new Date().toISOString() })
-            .eq("id", li.id)
-            .eq("household_id", hh.id);
-          if (qErr) throw qErr;
-
-          const newAddCount = Math.max(0, (row.add_count || 0) - 1);
-          const newContributed = Math.max(0, Number(row.quantity_contributed) - oneAdd);
-          if (newAddCount === 0) {
-            const { error: dErr } = await db.from("list_item_meals").delete()
-              .eq("meal_id", mealId).eq("list_item_id", row.list_item_id);
-            if (dErr) throw dErr;
-          } else {
-            const { error: uErr } = await db.from("list_item_meals")
-              .update({ add_count: newAddCount, quantity_contributed: newContributed })
-              .eq("meal_id", mealId).eq("list_item_id", row.list_item_id);
-            if (uErr) throw uErr;
-          }
-        } else {
-          // Same floor-to-removal branch removeMealFromList takes.
-          const { error: rErr } = await db.rpc("remove_list_item", {
-            p_household_id: hh.id,
-            p_catalog_item_id: li.catalog_item_id,
-          });
-          if (rErr) throw rErr;
-          const { error: dErr } = await db.from("list_item_meals").delete()
-            .eq("meal_id", mealId).eq("list_item_id", row.list_item_id);
-          if (dErr) throw dErr;
-        }
-      }
-
+      const { error } = await db.rpc("decrement_meal_from_list", { p_meal_id: mealId });
+      if (error) throw error;
       await loadListItems(db, hh.id);
       reportSuccess();
       return true;
