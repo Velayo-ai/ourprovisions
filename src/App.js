@@ -824,18 +824,20 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
                 )}
               </div>
             </div>
-            {/* Light outlined pill — same treatment as the ingredient-search
-                "+ Add". Was solid-fill, inherited from the 2026-07-30 build;
-                reconciled here so one verb doesn't render two ways. */}
+            {/* Matched one-for-one to .add-btn (App.js ~2495): transparent fill,
+                1px #C9A97A at rest, 0.9rem/0.02em, 9px 22px, fully-round. Same
+                verb, same button, one system. NOTE: .add-btn's :hover/:active
+                fill-to-solid cannot come along — these are inline styles, not
+                the class — so this button is static where the catalog one
+                reacts. Switch to className="add-btn" if that gap matters. */}
             <button
               onClick={() => { if (!busy) onAddAll(m.id); }}
               disabled={busy || count === 0}
               style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", letterSpacing: "1px",
-                textTransform: "uppercase", fontWeight: 700, padding: "8px 16px",
-                borderRadius: "20px",
-                border: `1.5px solid ${count === 0 ? "#E8D5B7" : "#A0724A"}`,
-                background: "#fff",
+                fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 700,
+                letterSpacing: "0.02em", padding: "9px 22px", borderRadius: "999px",
+                border: `1px solid ${count === 0 ? "#E8D5B7" : "#C9A97A"}`,
+                background: "transparent",
                 color: count === 0 ? "#c2b193" : "#A0724A",
                 cursor: busy || count === 0 ? "default" : "pointer",
                 opacity: busy ? 0.6 : 1, whiteSpace: "nowrap", flexShrink: 0,
