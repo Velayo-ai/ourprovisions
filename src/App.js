@@ -745,7 +745,7 @@ function FlatHeader({ count, showCount = true }) {
 // 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
 const MEALS_ENABLED = true;
 
-function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onRemoveFromList, removingMealId }) {
+function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onRemoveFromList, removingMealId, onDecrement, decrementingMealId }) {
   // Terminal ghost row — matches the "+ Create new place" convention (same
   // 1.5px dashed border, same terminal position). It renders in the EMPTY
   // state too, deliberately: it is the only entry point to meal creation, so
@@ -793,6 +793,7 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
         // Teal is the meal-on-the-list signal on SHOP; same meaning here.
         const addCount = plannedMealCounts?.[m.id] || 0;
         const isPlanned = addCount > 0;
+        const decrementBusy = decrementingMealId === m.id;
         return (
           // Face-button-plus-swipe, same as catalog rows: "Add" is the primary
           // action and stays one tap on the face; Edit lives behind the swipe.
@@ -827,43 +828,58 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.02rem",
                 fontWeight: 700, color: "#2C1A0E" }}>{m.name}</div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", color: "#8a7a60", marginTop: "2px",
-                display: "flex", alignItems: "center", gap: "8px" }}>
-                <span>{count} {count === 1 ? "ingredient" : "ingredients"}</span>
-                {isPlanned && (
-                  <span style={{ fontSize: "0.68rem", letterSpacing: "1px", textTransform: "uppercase",
-                    color: "#0D9488", fontWeight: 700 }}>
-                    Planned{addCount > 1 ? ` · Added ${addCount}×` : ""}
-                  </span>
-                )}
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", color: "#8a7a60", marginTop: "2px" }}>
+                {count} {count === 1 ? "ingredient" : "ingredients"}
               </div>
             </div>
-            {/* THE class, not a copy of it — so the :hover/:active fill-to-solid
-                comes along for free and PLAN's Add reacts to touch exactly as
-                BROWSE's does. Same verb, same button, one system.
+            {/* Add⇄stepper, obeying the invariant every catalog row already
+                follows: NEVER a stepper at zero, only Add. Here the count is
+                "how many times has this meal been added" rather than one
+                item's quantity, but the rule and the chrome are identical —
+                .qty-controls/.qty-btn/.qty-display, the same trio
+                CatalogItemRow renders, not a hand-rolled lookalike.
 
-                Inline carries only what .add-btn has no opinion on: layout, the
-                busy fade, and the zero-ingredient muted state. That muted state
-                MUST pin background as well as border/color — .add-btn:hover
-                fills solid, and a disabled button still matches :hover on
-                desktop, so without an inline background a meal with no
-                ingredients would light up under the cursor as though it were
-                live. Inline beats the pseudo-class, which is what keeps it
-                inert. */}
-            <button
-              className="add-btn"
-              onClick={() => { if (!busy) onAddAll(m.id); }}
-              disabled={busy || count === 0}
-              style={{
-                whiteSpace: "nowrap", flexShrink: 0,
-                opacity: busy ? 0.6 : 1,
-                ...(busy ? { cursor: "default" } : {}),
-                ...(count === 0 ? {
-                  background: "transparent", borderColor: "#E8D5B7",
-                  color: "#c2b193", cursor: "default",
-                } : {}),
-              }}
-            >{busy ? "Adding…" : "Add"}</button>
+                The stepper's mere presence IS the planned signal, which is why
+                the separate teal "Planned" label is gone; the teal border
+                still carries it on the card as a whole. */}
+            {addCount === 0 ? (
+              /* Inline carries only what .add-btn has no opinion on: layout,
+                 the busy fade, and the zero-ingredient muted state. That muted
+                 state MUST pin background as well as border/color —
+                 .add-btn:hover fills solid, and a disabled button still matches
+                 :hover on desktop, so without an inline background a meal with
+                 no ingredients would light up under the cursor as though it
+                 were live. Inline beats the pseudo-class, which keeps it
+                 inert. */
+              <button
+                className="add-btn"
+                onClick={() => { if (!busy) onAddAll(m.id); }}
+                disabled={busy || count === 0}
+                style={{
+                  whiteSpace: "nowrap", flexShrink: 0,
+                  opacity: busy ? 0.6 : 1,
+                  ...(busy ? { cursor: "default" } : {}),
+                  ...(count === 0 ? {
+                    background: "transparent", borderColor: "#E8D5B7",
+                    color: "#c2b193", cursor: "default",
+                  } : {}),
+                }}
+              >{busy ? "Adding…" : "Add"}</button>
+            ) : (
+              <div className="qty-controls" style={{ opacity: (busy || decrementBusy) ? 0.6 : 1 }}>
+                <button
+                  className="qty-btn"
+                  onClick={() => { if (!decrementBusy && !busy) onDecrement(m.id); }}
+                  disabled={decrementBusy || busy}
+                >−</button>
+                <span className="qty-display">{addCount}</span>
+                <button
+                  className="qty-btn"
+                  onClick={() => { if (!busy && !decrementBusy) onAddAll(m.id); }}
+                  disabled={busy || decrementBusy}
+                >+</button>
+              </div>
+            )}
           </div>
           </SwipeToRemove>
         );
@@ -1245,6 +1261,7 @@ function ProvisionsApp() {
     updateMeal,
     deleteMeal,
     removeMealFromList,
+    decrementMealBatch,
     onListChangedRef,
     createCatalogItem,
     addMealToList,
@@ -1411,6 +1428,17 @@ function ProvisionsApp() {
       setRemovingMealId(null);
     }
   }, [removeMealFromList, refreshProvenance]);
+
+  const [decrementingMealId, setDecrementingMealId] = useState(null);
+  const handleDecrementMeal = useCallback(async (mealId) => {
+    setDecrementingMealId(mealId);
+    try {
+      await decrementMealBatch(mealId);
+      await refreshProvenance();
+    } finally {
+      setDecrementingMealId(null);
+    }
+  }, [decrementMealBatch, refreshProvenance]);
 
   const handleAddMealToList = useCallback(async (mealId) => {
     setAddingMealId(mealId);
@@ -3459,6 +3487,8 @@ function ProvisionsApp() {
             plannedMealCounts={plannedMealCounts}
             onRemoveFromList={handleRemoveMealFromList}
             removingMealId={removingMealId}
+            onDecrement={handleDecrementMeal}
+            decrementingMealId={decrementingMealId}
           />
         )}
 

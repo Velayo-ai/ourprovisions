@@ -1949,6 +1949,108 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }, [reportSuccess]);
 
   // ─────────────────────────────────────────────────────────────
+  // decrementMealBatch: undo exactly ONE add. The mirror of tapping Add
+  // again, which is why "+" is just addMealToList unchanged.
+  //
+  // One add's worth is computed FRESH from the current recipe rather than
+  // divided out of quantity_contributed, and that is deliberate:
+  // add_meal_to_list floors each ingredient at GREATEST(1, round(...)), so
+  // the per-add amount is not a fixed divisor and the division would not
+  // round-trip. This is also why add_count has to exist as a real column.
+  //
+  // Unlike the generic Browse stepper — which is meal-unaware by design and
+  // cannot know whose contribution it is moving — this path has enough
+  // information to keep the ledger honest, so it decrements
+  // quantity_contributed by the same amount it takes off list_items.quantity.
+  //
+  // BOUGHT items are never touched: only status='pending' rows are candidates,
+  // same sacred-list guarantee as removeMealFromList.
+  //
+  // At add_count 0 the link row is DELETED rather than left at zero, matching
+  // the resurrect-clears-provenance convention — a meal at zero must look
+  // exactly like a meal never added, with no stale link surviving.
+  // ─────────────────────────────────────────────────────────────
+  const decrementMealBatch = useCallback(async (mealId) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId) return false;
+    try {
+      const { data: links, error: lErr } = await db
+        .from("list_item_meals")
+        .select("list_item_id, add_count, quantity_contributed, list_items!inner(id, catalog_item_id, quantity, status, household_id, deleted_at)")
+        .eq("meal_id", mealId)
+        .eq("list_items.household_id", hh.id)
+        .is("list_items.deleted_at", null);
+      if (lErr) throw lErr;
+
+      const { data: ingredients, error: iErr } = await db
+        .from("meal_ingredients")
+        .select("catalog_item_id, quantity_per_serving")
+        .eq("meal_id", mealId)
+        .is("deleted_at", null);
+      if (iErr) throw iErr;
+      const perServingByItem = {};
+      (ingredients || []).forEach((ing) => {
+        perServingByItem[ing.catalog_item_id] = Number(ing.quantity_per_serving) || 1;
+      });
+
+      const pending = (links || []).filter(
+        (r) => r.list_items?.status === "pending" && (r.add_count || 0) > 0
+      );
+
+      for (const row of pending) {
+        const li = row.list_items;
+        const perServing = perServingByItem[li.catalog_item_id] || 1;
+        const oneAdd = Math.max(1, Math.round(perServing)); // mirrors add_meal_to_list's own floor
+
+        const remaining = Number(li.quantity) - oneAdd;
+        if (remaining > 0) {
+          const { error: qErr } = await db
+            .from("list_items")
+            .update({ quantity: remaining, updated_at: new Date().toISOString() })
+            .eq("id", li.id)
+            .eq("household_id", hh.id);
+          if (qErr) throw qErr;
+
+          const newAddCount = Math.max(0, (row.add_count || 0) - 1);
+          const newContributed = Math.max(0, Number(row.quantity_contributed) - oneAdd);
+          if (newAddCount === 0) {
+            const { error: dErr } = await db.from("list_item_meals").delete()
+              .eq("meal_id", mealId).eq("list_item_id", row.list_item_id);
+            if (dErr) throw dErr;
+          } else {
+            const { error: uErr } = await db.from("list_item_meals")
+              .update({ add_count: newAddCount, quantity_contributed: newContributed })
+              .eq("meal_id", mealId).eq("list_item_id", row.list_item_id);
+            if (uErr) throw uErr;
+          }
+        } else {
+          // Same floor-to-removal branch removeMealFromList takes.
+          const { error: rErr } = await db.rpc("remove_list_item", {
+            p_household_id: hh.id,
+            p_catalog_item_id: li.catalog_item_id,
+          });
+          if (rErr) throw rErr;
+          const { error: dErr } = await db.from("list_item_meals").delete()
+            .eq("meal_id", mealId).eq("list_item_id", row.list_item_id);
+          if (dErr) throw dErr;
+        }
+      }
+
+      await loadListItems(db, hh.id);
+      reportSuccess();
+      return true;
+    } catch (err) {
+      console.error("decrementMealBatch error:", err.message);
+      setError(`Could not adjust meal: ${err.message}`);
+      return false;
+    }
+  // loadListItems is a stable hook-scope function (uses refs); matches the
+  // ref-based pattern used by addMealToList et al.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportSuccess]);
+
+  // ─────────────────────────────────────────────────────────────
   // deleteMeal: removes the RECIPE itself. SOFT-delete
   // (`meals.deleted_at`) — decided 2026-08-20: it matches the schema's
   // deleted_at contract and preserves the record of which meal put an
@@ -2099,7 +2201,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
-    fetchMeals, createMeal, updateMeal, deleteMeal, removeMealFromList, createCatalogItem, addMealToList, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, deleteMeal, removeMealFromList, decrementMealBatch, createCatalogItem, addMealToList, fetchMealProvenance, onListChangedRef,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
