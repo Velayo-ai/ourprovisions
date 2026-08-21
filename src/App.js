@@ -1208,6 +1208,7 @@ function ProvisionsApp() {
     createMeal,
     updateMeal,
     deleteMeal,
+    onListChangedRef,
     createCatalogItem,
     addMealToList,
     fetchMealProvenance,
@@ -1280,6 +1281,23 @@ function ProvisionsApp() {
   const refreshProvenance = useCallback(async () => {
     setMealProvenance(await fetchMealProvenance());
   }, [fetchMealProvenance]);
+
+  // Part 3 — the second trigger for provenance. The effect below covers a
+  // client that ARRIVES on a badge-showing surface; this covers one already
+  // sitting there while somebody else moves the list. Without it a passive
+  // viewer renders fresh quantities over a stale provenance map until they
+  // navigate (observed 2026-08-20: DH's "from Test1" badge never appeared
+  // until a tab-away) — the same defect family as the June Hide-poll bug.
+  //
+  // The poll calls this ONLY on a tick where the list actually changed, so an
+  // idle client stays quiet. Gated on the badge-showing surfaces for the same
+  // reason the navigation effect is: provenance nobody is looking at is a
+  // wasted query. Assigned during render, mirroring how the hook assigns
+  // refreshCatalogRef — a ref write is idempotent, so the double render in
+  // StrictMode is harmless.
+  onListChangedRef.current = () => {
+    if (MEALS_ENABLED && (view === "list" || view === "plan")) refreshProvenance();
+  };
 
   // Load the meal cards when the Plan tab opens.
   useEffect(() => {

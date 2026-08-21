@@ -26,6 +26,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const hiddenIdsRef = useRef(new Set());
   const deletedIdsRef = useRef(new Set());
   const refreshCatalogRef = useRef(() => {});
+  // Part 3 (passive-viewer provenance sync). The 2s poll is the only thing
+  // that knows the shared list moved, but mealProvenance lives in App.js —
+  // this ref is that hook→App channel, the same shape refreshCatalogRef
+  // already uses for the catalog poll. App assigns it; the poll calls it.
+  const onListChangedRef = useRef(() => {});
+  // Fingerprint of the list the poll last saw. "" until the first load, so
+  // the initial fetch never counts as a change — arriving on a surface
+  // already triggers its own provenance refresh, and double-firing would
+  // just be a duplicate query.
+  const listFingerprintRef = useRef("");
   const hiddenCatalogItemsRef = useRef([]);
   const internalUserIdRef = useRef(null);
   const householdMembersRef = useRef([]);
@@ -136,6 +146,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       return changed ? next : prev;
     });
 
+    // Cheap change signal for the provenance refresh: live row ids paired
+    // with their quantities. Every way a meal link can appear or disappear —
+    // an add, a removal, a quantity move — changes this string, while a quiet
+    // tick leaves it byte-identical. That's what keeps an IDLE client from
+    // re-querying provenance every 2 seconds, which is the whole reason the
+    // original code carried a "no poll" note.
+    const fingerprint = items.map(i => `${i.id}:${i.quantity}`).join(",");
+    const listChanged = listFingerprintRef.current !== "" && listFingerprintRef.current !== fingerprint;
+    listFingerprintRef.current = fingerprint;
+
     const listItemIds = items.map(i => i.id);
 
     let contributorRows = [];
@@ -217,6 +237,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
     setContributorsMap(newContributors);
+
+    // Only now, and only if something actually moved. Fired after the setters
+    // so provenance is read against the list the user is about to see.
+    if (listChanged) onListChangedRef.current();
   }
 
   async function loadActiveCycle(db, householdId) {
@@ -460,6 +484,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setLoading(true);
 
       // Reset per-household state so the previous household's rows don't flash
+      listFingerprintRef.current = "";
       setListRows([]);
       setQuantities({});
       setChecked({});
@@ -2045,7 +2070,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
-    fetchMeals, createMeal, updateMeal, deleteMeal, createCatalogItem, addMealToList, fetchMealProvenance,
+    fetchMeals, createMeal, updateMeal, deleteMeal, createCatalogItem, addMealToList, fetchMealProvenance, onListChangedRef,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
