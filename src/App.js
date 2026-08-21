@@ -745,7 +745,7 @@ function FlatHeader({ count, showCount = true }) {
 // 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
 const MEALS_ENABLED = true;
 
-function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealIds }) {
+function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts }) {
   // Terminal ghost row — matches the "+ Create new place" convention (same
   // 1.5px dashed border, same terminal position). It renders in the EMPTY
   // state too, deliberately: it is the only entry point to meal creation, so
@@ -791,7 +791,8 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
         const count = (m.meal_ingredients || []).length;
         const busy = addingMealId === m.id;
         // Teal is the meal-on-the-list signal on SHOP; same meaning here.
-        const isPlanned = !!plannedMealIds?.has(m.id);
+        const addCount = plannedMealCounts?.[m.id] || 0;
+        const isPlanned = addCount > 0;
         return (
           // Face-button-plus-swipe, same as catalog rows: "Add" is the primary
           // action and stays one tap on the face; Edit lives behind the swipe.
@@ -824,7 +825,9 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
                 <span>{count} {count === 1 ? "ingredient" : "ingredients"}</span>
                 {isPlanned && (
                   <span style={{ fontSize: "0.68rem", letterSpacing: "1px", textTransform: "uppercase",
-                    color: "#0D9488", fontWeight: 700 }}>Planned</span>
+                    color: "#0D9488", fontWeight: 700 }}>
+                    Planned{addCount > 1 ? ` · Added ${addCount}×` : ""}
+                  </span>
                 )}
               </div>
             </div>
@@ -1274,15 +1277,23 @@ function ProvisionsApp() {
   // Provenance for the teal meal facet: catalog_item_id → [{mealId,name,createdBy}].
   const [mealProvenance, setMealProvenance] = useState({});
 
-  // Which meals currently have at least one ingredient live on the list —
-  // derived straight from the provenance map, so it needs no fetch, no column
-  // and no new refresh path. mealProvenance is already refreshed on PLAN by
-  // the navigation effect and by the Part 3 poll trigger, so this set updates
-  // live when another member adds or removes a meal.
-  const plannedMealIds = useMemo(
-    () => new Set(Object.values(mealProvenance).flat().map((pr) => pr.mealId)),
-    [mealProvenance]
-  );
+  // Meal id → how many times it has been added to the current list. Derived
+  // from the provenance map, which is already refreshed on PLAN by the
+  // navigation effect and the Part 3 poll trigger, so this updates live when
+  // another member adds or removes a meal.
+  //
+  // MAX across the meal's live rows, not sum or average. A meal edited between
+  // adds can leave its rows disagreeing (an ingredient added later has fewer
+  // adds behind it); MAX reads that as "added at least this many times", which
+  // is the conservative claim. Documented tradeoff, deliberately not
+  // engineered around.
+  const plannedMealCounts = useMemo(() => {
+    const map = {};
+    Object.values(mealProvenance).flat().forEach((pr) => {
+      map[pr.mealId] = Math.max(map[pr.mealId] || 0, pr.addCount || 1);
+    });
+    return map;
+  }, [mealProvenance]);
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
   const [editModalItem, setEditModalItem] = useState(null);
@@ -3423,7 +3434,7 @@ function ProvisionsApp() {
             addingMealId={addingMealId}
             onCreate={() => setMealSheet({ mode: "create", meal: null })}
             onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
-            plannedMealIds={plannedMealIds}
+            plannedMealCounts={plannedMealCounts}
           />
         )}
 

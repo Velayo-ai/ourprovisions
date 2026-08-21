@@ -2047,7 +2047,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // list_item is gone; RLS gates via list_item membership.
     const { data, error: err } = await db
       .from("list_item_meals")
-      .select("meal_id, list_items!inner(catalog_item_id, household_id, deleted_at), meals!inner(name, deleted_at, created_by)")
+      .select("meal_id, add_count, list_items!inner(catalog_item_id, household_id, deleted_at), meals!inner(name, deleted_at, created_by)")
       .eq("list_items.household_id", hh.id)
       .is("list_items.deleted_at", null)
       // A soft-deleted meal must never surface a phantom "from [meal]" badge
@@ -2063,7 +2063,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // this schema records — list_item_meals has no user column, so "who
       // tapped Add" is genuinely not stored anywhere. The provenance line
       // attributes the meal, not the add.
-      map[ci].push({ mealId: row.meal_id, name: row.meals?.name, createdBy: row.meals?.created_by ?? null });
+      map[ci].push({ mealId: row.meal_id, name: row.meals?.name, createdBy: row.meals?.created_by ?? null, addCount: row.add_count });
     });
     return map;
   }, []);
