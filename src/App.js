@@ -1245,7 +1245,7 @@ function ProvisionsApp() {
   const [meals, setMeals] = useState([]);
   const [mealsLoading, setMealsLoading] = useState(false);
   const [addingMealId, setAddingMealId] = useState(null);
-  // Provenance for the "Multiple meals" badge: catalog_item_id → [{mealId,name}].
+  // Provenance for the teal meal facet: catalog_item_id → [{mealId,name,createdBy}].
   const [mealProvenance, setMealProvenance] = useState({});
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
@@ -1276,8 +1276,9 @@ function ProvisionsApp() {
     finally { setMealsLoading(false); }
   }, [fetchMeals]);
 
-  // Provenance powers the SHOP "Multiple meals" badge, so it's needed on the
-  // list surface too — not only the Meals lens. Cheap read; no poll.
+  // Provenance powers the SHOP provenance line's teal meal facet, so it's
+  // needed on the list surface too — not only the Meals lens. Cheap read; the
+  // poll refreshes it only when the list actually changed (Part 3).
   const refreshProvenance = useCallback(async () => {
     setMealProvenance(await fetchMealProvenance());
   }, [fetchMealProvenance]);
@@ -1305,7 +1306,7 @@ function ProvisionsApp() {
   }, [view, household?.id, loadMeals]);
 
   // Load provenance when a surface that shows the badge is visible: SHOP renders the
-  // "Multiple meals" badge, and PLAN is where the meal cards live.
+  // teal meal facet, and PLAN is where the meal cards live.
   useEffect(() => {
     if (MEALS_ENABLED && household?.id && (view === "list" || view === "plan")) {
       refreshProvenance();
@@ -1369,36 +1370,65 @@ function ProvisionsApp() {
   }, [mealSheet, deleteMeal, loadMeals]);
 
 
-  // SHOP origin badge: which meal(s) put this item on the list. ">1 meal"
-  // reads "Multiple meals"; exactly one reads "from {meal}". (Add-path only:
-  // provenance is additive — a manual tombstone doesn't prune links; pruning
-  // is the deferred remove-a-meal flow's job. A DELETED meal is a separate
-  // case: its badge disappears because fetchMealProvenance filters
-  // meals.deleted_at, not because the link was pruned.)
-  const mealOriginBadge = useCallback((catalogItemId) => {
-    const links = mealProvenance[catalogItemId];
-    if (!links || links.length === 0) return null;
-    const label = links.length > 1 ? "Multiple meals" : `from ${links[0].name || "a meal"}`;
-    return (
-      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.3px",
-        color: "#0D9488", marginTop: "3px", display: "flex", alignItems: "center", gap: "4px" }}>
-        <span style={{ fontSize: "0.62rem" }}>◆</span>{label}
-      </div>
-    );
-  }, [mealProvenance]);
 
-  // Companion to mealOriginBadge: does a meal ALSO claim this row? The
-  // contributor line needs to know, because "you added this" stops being
-  // redundant the moment a meal badge is on the row claiming origin —
-  // without this, one human + one meal renders the meal ALONE and silently
-  // erases the human (observed 2026-08-20: DH's manual Apples read as
-  // "from Test1" and nothing else). The two ledgers stay separate in data;
-  // this is the display layer reconciling them, which is the ONLY place
-  // they may be unified.
-  const hasMealOrigin = useCallback((catalogItemId) => {
-    const links = mealProvenance[catalogItemId];
-    return !!(links && links.length > 0);
-  }, [mealProvenance]);
+
+  // ── Shared-list provenance line (SPEC_provenance_line_display.md) ──
+  // Up to TWO facets, always in this order, each rendered only when it applies:
+  //   1. clay  — "Added by …"  the list_item_contributors ledger (a direct add)
+  //   2. teal  — "For … · …"   the list_item_meals ledger (a meal pulled it in)
+  // Single-origin rows stay one line; only genuinely dual-origin rows spend two.
+  //
+  // TEAL IS THE MEAL SIGNAL and nothing else in the row uses it, so its mere
+  // presence tells the eye a meal is in play. Keep it pure — never render teal
+  // for a catalog-only row.
+  //
+  // Each facet owns its own name, which is the point: on one line, "Dan & Taco
+  // Night (Elly)" lets a name bleed onto the wrong origin and reads as though
+  // Dan added the ingredient. Two lines make that misparse structurally
+  // impossible. Do not merge them.
+  const joinNames = (names) => {
+    const n = [...new Set(names.filter(Boolean))];
+    if (n.length === 0) return null;
+    if (n.length === 1) return n[0];
+    return `${n.slice(0, -1).join(", ")} & ${n[n.length - 1]}`;
+  };
+
+  // The viewer is always "you" — the viewer-dependent rule the old
+  // sole-contributor line already followed through isOwnItem.
+  const memberDisplayName = useCallback((userId) => {
+    const profile = householdMembers?.find((m) => m.user_id === userId);
+    if (profile?.users?.clerk_id && profile.users.clerk_id === user?.id) return "you";
+    return profile?.users?.full_name || null;
+  }, [householdMembers, user?.id]);
+
+  const provenanceLines = useCallback((item) => {
+    // Facet 1 — who put it on the list directly.
+    const contributorNames = (item.contributors || [])
+      .map((c) => (c.clerkId && c.clerkId === user?.id ? "you" : c.fullName))
+      .filter(Boolean);
+    const catalogLine = contributorNames.length > 0
+      ? `Added by ${joinNames(contributorNames)}`
+      : null;
+
+    // Facet 2 — which meal(s) pulled it in, and whose meals they are. Names the
+    // meals rather than collapsing to a "Multiple meals" count; that string is
+    // deliberately retired, not lost.
+    const links = mealProvenance[item.catalogItemId] || [];
+    const mealNames = joinNames(links.map((l) => l.name));
+    const mealAuthors = joinNames(links.map((l) => memberDisplayName(l.createdBy)));
+    const mealLine = mealNames
+      ? `For ${mealNames}${mealAuthors ? ` · ${mealAuthors}` : ""}`
+      : null;
+
+    if (!catalogLine && !mealLine) return null;
+    const base = { fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.3px", marginTop: "3px" };
+    return (
+      <>
+        {catalogLine && <div style={{ ...base, color: "#A0724A" }}>{catalogLine}</div>}
+        {mealLine && <div style={{ ...base, color: "#0D9488" }}>{mealLine}</div>}
+      </>
+    );
+  }, [mealProvenance, memberDisplayName, user?.id]);
 
   const [editModalName, setEditModalName] = useState("");
   const [editModalPrice, setEditModalPrice] = useState("");
@@ -3827,40 +3857,7 @@ function ProvisionsApp() {
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
-                                {mealOriginBadge(item.catalogItemId)}
-                                {item.contributors?.length > 1 && (
-                                  <div style={{ display: "flex", gap: "3px", marginTop: "4px" }}>
-                                    {item.contributors.map((c, i) => {
-                                      const initials = c.fullName
-                                        ? c.fullName.trim()[0].toUpperCase()
-                                        : "?";
-                                      const isMe = c.clerkId === user?.id;
-                                      return (
-                                        <span key={i} title={c.fullName || "Unknown"} style={{
-                                          display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                          width: "20px", height: "20px", borderRadius: "50%",
-                                          fontSize: "0.6rem", fontWeight: 600, letterSpacing: "0.02em",
-                                          background: isMe ? "#A0724A" : "#C9A97A",
-                                          color: "#FAF4EC",
-                                          border: "1.5px solid #FAF4EC",
-                                          opacity: 0.9,
-                                        }}>
-                                          {initials}
-                                        </span>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                                {/* Sole-contributor line. The !isOwnItem rule was right when a
-                                    row's only story was "you added this" — it's wrong once a MEAL
-                                    badge is also claiming the row, so a meal link re-enables it and
-                                    it reads "added by you" rather than your own name back at you.
-                                    Own items with no meal link stay quiet exactly as before. */}
-                                {item.contributors?.length === 1 && (!item.isOwnItem || hasMealOrigin(item.catalogItemId)) && (item.isOwnItem || item.contributors[0].fullName) && (
-                                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
-                                    {item.isOwnItem ? "added by you" : item.contributors[0].fullName}
-                                  </div>
-                                )}
+                                {provenanceLines(item)}
                               </div>
                               {item.qty > 1 && (
                                 <span className="li-qty">×{item.qty}</span>
@@ -3894,40 +3891,7 @@ function ProvisionsApp() {
                                 <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
                                   {item.name}
                                 </div>
-                                {mealOriginBadge(item.catalogItemId)}
-                                {item.contributors?.length > 1 && (
-                                  <div style={{ display: "flex", gap: "3px", marginTop: "4px" }}>
-                                    {item.contributors.map((c, i) => {
-                                      const initials = c.fullName
-                                        ? c.fullName.trim()[0].toUpperCase()
-                                        : "?";
-                                      const isMe = c.clerkId === user?.id;
-                                      return (
-                                        <span key={i} title={c.fullName || "Unknown"} style={{
-                                          display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                          width: "20px", height: "20px", borderRadius: "50%",
-                                          fontSize: "0.6rem", fontWeight: 600, letterSpacing: "0.02em",
-                                          background: isMe ? "#A0724A" : "#C9A97A",
-                                          color: "#FAF4EC",
-                                          border: "1.5px solid #FAF4EC",
-                                          opacity: 0.9,
-                                        }}>
-                                          {initials}
-                                        </span>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                                {/* Sole-contributor line. The !isOwnItem rule was right when a
-                                    row's only story was "you added this" — it's wrong once a MEAL
-                                    badge is also claiming the row, so a meal link re-enables it and
-                                    it reads "added by you" rather than your own name back at you.
-                                    Own items with no meal link stay quiet exactly as before. */}
-                                {item.contributors?.length === 1 && (!item.isOwnItem || hasMealOrigin(item.catalogItemId)) && (item.isOwnItem || item.contributors[0].fullName) && (
-                                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
-                                    {item.isOwnItem ? "added by you" : item.contributors[0].fullName}
-                                  </div>
-                                )}
+                                {provenanceLines(item)}
                               </div>
                               {item.qty > 1 && (
                                 <span className="li-qty">×{item.qty}</span>
