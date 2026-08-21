@@ -1393,14 +1393,6 @@ function ProvisionsApp() {
     return `${n.slice(0, -1).join(", ")} & ${n[n.length - 1]}`;
   };
 
-  // The viewer is always "you" — the viewer-dependent rule the old
-  // sole-contributor line already followed through isOwnItem.
-  const memberDisplayName = useCallback((userId) => {
-    const profile = householdMembers?.find((m) => m.user_id === userId);
-    if (profile?.users?.clerk_id && profile.users.clerk_id === user?.id) return "you";
-    return profile?.users?.full_name || null;
-  }, [householdMembers, user?.id]);
-
   const provenanceLines = useCallback((item) => {
     // Facet 1 — who put it on the list directly.
     const contributorNames = (item.contributors || [])
@@ -1410,15 +1402,20 @@ function ProvisionsApp() {
       ? `Added by ${joinNames(contributorNames)}`
       : null;
 
-    // Facet 2 — which meal(s) pulled it in, and whose meals they are. Names the
-    // meals rather than collapsing to a "Multiple meals" count; that string is
-    // deliberately retired, not lost.
+    // Facet 2 — which meal(s) pulled it in. Names the meals rather than
+    // collapsing to a "Multiple meals" count; that string is deliberately
+    // retired, not lost.
+    //
+    // NO NAME CLAUSE. This briefly read "For Pizza · Dan Holmes", naming the
+    // meal's AUTHOR — but the shared-list question is who put this on THIS
+    // WEEK's list, and that is not recorded anywhere: list_item_meals has no
+    // user column. Naming the author answers a question nobody asked and
+    // misattributes on a shared list, so the clause is off until real
+    // attribution lands (post-Vegas). mealProvenance still carries createdBy,
+    // ready for it.
     const links = mealProvenance[item.catalogItemId] || [];
     const mealNames = joinNames(links.map((l) => l.name));
-    const mealAuthors = joinNames(links.map((l) => memberDisplayName(l.createdBy)));
-    const mealLine = mealNames
-      ? `For ${mealNames}${mealAuthors ? ` · ${mealAuthors}` : ""}`
-      : null;
+    const mealLine = mealNames ? `For ${mealNames}` : null;
 
     if (!catalogLine && !mealLine) return null;
     const base = { fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.3px", marginTop: "3px" };
@@ -1428,7 +1425,7 @@ function ProvisionsApp() {
         {mealLine && <div style={{ ...base, color: "#0D9488" }}>{mealLine}</div>}
       </>
     );
-  }, [mealProvenance, memberDisplayName, user?.id]);
+  }, [mealProvenance, user?.id]);
 
   const [editModalName, setEditModalName] = useState("");
   const [editModalPrice, setEditModalPrice] = useState("");
