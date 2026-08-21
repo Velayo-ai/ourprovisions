@@ -745,7 +745,7 @@ function FlatHeader({ count, showCount = true }) {
 // 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
 const MEALS_ENABLED = true;
 
-function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onRemoveFromList, removingMealId, onDecrement, decrementingMealId }) {
+function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onDecrement, decrementingMealId }) {
   // Terminal ghost row — matches the "+ Create new place" convention (same
   // 1.5px dashed border, same terminal position). It renders in the EMPTY
   // state too, deliberately: it is the only entry point to meal creation, so
@@ -799,16 +799,13 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
           // action and stays one tap on the face; Edit lives behind the swipe.
           // Only onEdit is wired — Staple and Hide have no meaning for a meal —
           // so the panel reveals a single button at 80px.
-          // Second swipe action, revealed ONLY when the meal is actually
-          // planned — SwipeToRemove sizes its panel by handlers PASSED, so an
-          // unplanned card stays a single 80px Edit panel and a planned one
-          // widens to 160px. Un-planning belongs here rather than in the Edit
-          // sheet: it should be as fast as planning was (one tap on Add).
+          // Edit-only, as it was before the removal spec. The stepper's "−"
+          // already covers un-planning — repeated taps reach zero exactly as
+          // one swipe used to — and at add_count === 1 the swipe was doing the
+          // literally identical thing through a less discoverable gesture.
           <SwipeToRemove
             key={m.id}
             onEdit={() => onEdit && onEdit(m)}
-            onRemove={isPlanned ? () => { if (removingMealId !== m.id) onRemoveFromList(m.id); } : undefined}
-            removeLabel="Remove from list"
             style={{ borderRadius: "12px", marginBottom: "9px" }}
           >
           <div style={{
@@ -1260,7 +1257,6 @@ function ProvisionsApp() {
     createMeal,
     updateMeal,
     deleteMeal,
-    removeMealFromList,
     decrementMealBatch,
     onListChangedRef,
     createCatalogItem,
@@ -1414,20 +1410,6 @@ function ProvisionsApp() {
       refreshProvenance();
     }
   }, [household?.id, view, refreshProvenance]);
-
-  // Un-plan: reverse the meal's footprint on the list, leave the recipe alone.
-  // refreshProvenance immediately so the card's planned state and count flip on
-  // the acting client without waiting for a poll tick — same shape as add.
-  const [removingMealId, setRemovingMealId] = useState(null);
-  const handleRemoveMealFromList = useCallback(async (mealId) => {
-    setRemovingMealId(mealId);
-    try {
-      await removeMealFromList(mealId);
-      await refreshProvenance();
-    } finally {
-      setRemovingMealId(null);
-    }
-  }, [removeMealFromList, refreshProvenance]);
 
   const [decrementingMealId, setDecrementingMealId] = useState(null);
   const handleDecrementMeal = useCallback(async (mealId) => {
@@ -3485,8 +3467,6 @@ function ProvisionsApp() {
             onCreate={() => setMealSheet({ mode: "create", meal: null })}
             onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
             plannedMealCounts={plannedMealCounts}
-            onRemoveFromList={handleRemoveMealFromList}
-            removingMealId={removingMealId}
             onDecrement={handleDecrementMeal}
             decrementingMealId={decrementingMealId}
           />
