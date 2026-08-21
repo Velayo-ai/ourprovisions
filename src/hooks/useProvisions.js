@@ -1853,42 +1853,66 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
     try {
-      // This meal's LIVE list rows. Household-scoped explicitly as
-      // belt-and-suspenders alongside RLS, same as updateMeal.
+      // This meal's LIVE list rows, each carrying the amount THIS meal put
+      // there (039). Household-scoped explicitly as belt-and-suspenders
+      // alongside RLS, same as updateMeal.
       const { data: links, error: lErr } = await db
         .from("list_item_meals")
-        .select("list_item_id, list_items!inner(catalog_item_id, status, household_id, deleted_at, catalog_items(name))")
+        .select("list_item_id, quantity_contributed, list_items!inner(id, catalog_item_id, quantity, status, household_id, deleted_at)")
         .eq("meal_id", mealId)
         .eq("list_items.household_id", hh.id)
         .is("list_items.deleted_at", null);
       if (lErr) throw lErr;
 
-      // Bought rows drop out HERE and are never handed to the zeroing
-      // path below — the never-un-buy guarantee, enforced by filter
-      // rather than left to fall out of a downstream implementation.
+      // Bought rows drop out HERE and are never handed to the quantity math
+      // below — the never-un-buy guarantee, enforced by filter rather than
+      // left to fall out of a downstream implementation.
       const pending = (links || []).filter((r) => r.list_items?.status === "pending");
 
-      let shared = new Set();
-      if (pending.length > 0) {
-        const { data: others, error: oErr } = await db
-          .from("list_item_meals")
-          .select("list_item_id, meals!inner(deleted_at)")
-          .in("list_item_id", pending.map((r) => r.list_item_id))
-          .neq("meal_id", mealId)
-          .is("meals.deleted_at", null);
-        if (oErr) throw oErr;
-        shared = new Set((others || []).map((r) => r.list_item_id));
-      }
-
-      // Zero the unshared remainder through the SAME path the per-item
-      // stepper uses (updateQty's qty<=0 branch → the remove_list_item
-      // RPC), so the list has exactly one removal implementation rather
-      // than a second one written here with its own quantity math.
+      // Decrement each item by exactly what this meal contributed, then floor.
+      // This replaces the earlier binary "shared → leave alone / unshared →
+      // zero" branch: that was the best available answer when no amount was
+      // recorded, but with 039 the precise number exists, so a shared item now
+      // gives back only this meal's share instead of all-or-nothing.
       for (const row of pending) {
-        if (shared.has(row.list_item_id)) continue;
-        const name = row.list_items?.catalog_items?.name;
-        if (!name) continue;
-        await updateQty(name, 0);
+        const li = row.list_items;
+        const contributed = Number(row.quantity_contributed) || 0;
+
+        // LEGACY ROW (written before 039, never backfilled): contributed is 0,
+        // so there is no recorded basis to subtract. Drop the provenance link
+        // and leave the quantity untouched — degrading to the behavior shipped
+        // 2026-08-20 rather than zeroing an amount it cannot justify.
+        if (contributed > 0) {
+          const remaining = Number(li.quantity) - contributed;
+          if (remaining > 0) {
+            const { error: qErr } = await db
+              .from("list_items")
+              .update({ quantity: remaining, updated_at: new Date().toISOString() })
+              .eq("id", li.id)
+              .eq("household_id", hh.id);
+            if (qErr) throw qErr;
+          } else {
+            // Fully spent. Same removal path updateQty's qty<=0 branch uses,
+            // so the list keeps ONE removal implementation — it also clears
+            // any leftover list_item_contributors rows.
+            const { error: rErr } = await db.rpc("remove_list_item", {
+              p_household_id: hh.id,
+              p_catalog_item_id: li.catalog_item_id,
+            });
+            if (rErr) throw rErr;
+          }
+        }
+
+        // Drop THIS meal's link either way. remove_list_item SOFT-deletes, so
+        // the FK's ON DELETE CASCADE does not fire — the link has to go
+        // explicitly or a later resurrect of the same item would revive stale
+        // provenance.
+        const { error: uErr } = await db
+          .from("list_item_meals")
+          .delete()
+          .eq("meal_id", mealId)
+          .eq("list_item_id", row.list_item_id);
+        if (uErr) throw uErr;
       }
 
       const { error: mErr } = await db
@@ -1910,7 +1934,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // loadListItems is a stable hook-scope function (uses refs); matches the
   // ref-based pattern used by addMealToList et al.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateQty, reportSuccess]);
+  }, [reportSuccess]);
 
   // createCatalogItem: resolve a typed name to a catalog row, creating one if
   // it doesn't exist — and NOTHING ELSE. The meal builder needs a catalog item
