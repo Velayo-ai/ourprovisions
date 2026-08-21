@@ -1276,6 +1276,15 @@ function ProvisionsApp() {
     finally { setMealsLoading(false); }
   }, [fetchMeals]);
 
+  // Same read, but deliberately NEVER touches mealsLoading. MealsLens renders
+  // "Loading meals…" whenever loading is true AND the list is empty, so a
+  // spinner-toggling poll would strobe that empty state every 2s for any
+  // household that hasn't made its first meal yet. The navigation load above
+  // keeps the spinner; the poll stays invisible.
+  const refreshMeals = useCallback(async () => {
+    setMeals(await fetchMeals());
+  }, [fetchMeals]);
+
   // Provenance powers the SHOP provenance line's teal meal facet, so it's
   // needed on the list surface too — not only the Meals lens. Cheap read; the
   // poll refreshes it only when the list actually changed (Part 3).
@@ -1304,6 +1313,27 @@ function ProvisionsApp() {
   useEffect(() => {
     if (MEALS_ENABLED && view === "plan" && household?.id) loadMeals();
   }, [view, household?.id, loadMeals]);
+
+  // ...and keep them live while PLAN is the visible tab. Navigation-only meant
+  // a client sitting on PLAN while another member created, renamed or
+  // re-ingredient-ed a meal stayed frozen until they navigated away and back —
+  // the same gap Part 3 (1e81774) closed for SHOP provenance, one surface over.
+  //
+  // Scoped to the VISIBLE tab, and that scoping is the whole cost control:
+  // nothing renders the meal list off PLAN, so polling there would be a pure
+  // wasted query — the multiplier Part 3 was careful to avoid. Leaving the tab
+  // changes the view, which runs this effect's cleanup and stops the interval.
+  //
+  // A second interval rather than piggybacking the SHOP list-change signal,
+  // because that signal cannot see this: onListChangedRef fires on list_items
+  // movement, and editing a meal's name or ingredients touches meals /
+  // meal_ingredients WITHOUT touching the list at all. The ingredient-count
+  // case this fixes would never have fired it.
+  useEffect(() => {
+    if (!MEALS_ENABLED || view !== "plan" || !household?.id) return;
+    const mealsPoll = setInterval(() => { refreshMeals(); }, 2000);
+    return () => clearInterval(mealsPoll);
+  }, [view, household?.id, refreshMeals]);
 
   // Load provenance when a surface that shows the badge is visible: SHOP renders the
   // teal meal facet, and PLAN is where the meal cards live.
