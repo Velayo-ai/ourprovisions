@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-20] — [OurProvisions] — Ship deleteMeal, then close the entire meal/user two-ledger provenance seam it surfaced
+**Goal:** Build deleteMeal before Vegas so meals can eventually promote to prod, then handle whatever verification surfaced — which became closing the full meal-vs-user provenance seam across data, display and sync, plus the demo dry-run.
+**Completed:**
+- **Shipped deleteMeal (SOFT-delete) and verified it live on dev** (`5765ad4`). Fixed the `fetchMealProvenance` phantom-badge landmine in the same commit — it did not filter `meals.deleted_at`, so a soft-deleted meal would have left a "from [meal]" badge pointing at nothing. Delete zeroes a meal's pending ingredients first, then stamps `deleted_at`. Verified: delete with live items, no phantom badge, bought items untouched.
+- **Closed the two-ledger seam across four builds, all one root cause** — `list_item_meals` and `list_item_contributors` are parallel ledgers on the same `list_items` row that were never taught to reconcile. **(1) Quantity** (`f988026`, migration `039`): `list_item_meals.quantity_contributed` added, `add_meal_to_list` writes it additively, delete decrements by the recorded amount and floors — Test1/Test2 verified `×2 → ×1`. **(2) Display** (`83806c1`): a row with one human + one meal no longer erases the human. **(3) SHOP sync** (`1e81774`): the provenance badge refreshes on the poll for passive viewers. **(4) PLAN sync** (`e5d00ca`): the meals list and ingredient counts do the same.
+- **Redesigned the shared-list provenance line to read honestly to a stranger** (`58b54e8`). Five phrasings eye-tested on canvas; landed on catalog facet first (clay, "Added by you & Dan"), meal facet second (teal, "For Taco Night"), **teal appearing if and only if a meal is involved**, each facet on its own line so no name can bleed across origins. Multi-meal names the meals, retiring the "Multiple meals" count and the ◆ diamond. Verified across all six cases, two accounts.
+- **Dropped the meal-facet person name** (`c3ddf5e`) — it rendered `meals.created_by`, the meal's **author**, not who added the meal to this week's list. That distinction is not in the schema at all (`list_item_meals` has no user column), so naming the author misattributed on a shared list. "For Pizza" is the honest available answer; real attribution is deferred.
+- **Both poll fixes are scoped to the VISIBLE surface, deliberately** — the fix for a stale badge is not an unconditional re-query every 2s. SHOP refreshes provenance only on a tick where a list fingerprint (`id:quantity` pairs) actually moved; PLAN's meals interval exists only while PLAN is the open tab. An idle client issues neither query.
+- **Ran the full demo dry-run end to end on dev** — cold open, create-a-meal on camera, receipt concept-preview with its disclosure confirmed, tab sweep with a live delete, timed. Clean. Saturday's path has been walked before the room.
+- **Held prod promotion deliberately** — the demo runs on dev, so promotion is orthogonal to Vegas and carries a migration-sequencing risk not worth taking tired.
+**Unfinished:**
+- **Nothing is on prod. 8 commits on dev, `main` untouched.** Promotion is next session's first job and has a REQUIRED order (see below) — the code 400s if it lands before the column.
+- **Meal-facet attribution** — "For {meal}" carries no person. Proper attribution (who added the meal to this week's list, not who authored it) needs a new `list_item_meals.added_by` column. Small migration, deferred post-Vegas. `mealProvenance` already carries `createdBy`, so the read path is ready.
+- **PLAN vs. Meals tab name** — the fourth tab holds both a meal library and the This Week canvas, so neither label covers both children. Decide alongside app-switcher / fleet tab-grammar work, not in isolation.
+- **Meal-attribution model** — the broader "what does *who put this here* mean for meal-sourced items" question; folds into the `added_by` decision.
+- **`item.isOwnItem` is now computed but unread** — the provenance-line rewrite removed its last consumer. Left in place rather than silently deleted, per the repo's unused-vars rule.
+**Next session:**
+SESSION START
+Goal: Promote the meals feature to prod — migration first, then code — then pick up a parked question or move to new scope.
+State: The full meals/provenance seam is closed and verified live on dev across PLAN and SHOP, two accounts. deleteMeal (soft), quantity accounting, unified display, both poll-sync fixes and the honest provenance line are all green. Demo dry-run walked clean. `main` untouched.
+Done when: prod promotion is complete and verified FROM OUTSIDE THE SQL EDITOR — **required order: (1) apply migration `039` to the PROD database FIRST** (it adds `list_item_meals.quantity_contributed`; deploying code before the column exists 400s `deleteMeal` on real users), **(2) fast-forward `dev→main` + deploy, (3) verify a real delete + provenance render on prod under real auth.** Do not merge before `039` is on prod.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js` (8 commits, dev only), `migrations/039_meal_contribution_quantity.sql` (new), `docs/specs/active/SPEC_unified_meal_user_provenance.md` + `SPEC_provenance_line_display.md` (routed from airlock), `docs/specs/active/SPEC_meal_planning_v1.md` (deleteMeal section marked DECIDED)
+**DB changes:** Migration `039` — `list_item_meals.quantity_contributed` (numeric, not null, default 0) + `add_meal_to_list` `CREATE OR REPLACE` to write it additively. **Applied and verified on DEV only. NOT on prod.**
+
 ### [2026-08-20] — [Cross] — Design the recipe card + HOME tab, file the mockups, and preserve the "loop of care"
 **Goal:** Design a recipe-card view for meals (with an eye toward the future OurChef seam) and a first pass at the HOME tab, capturing the forward-looking product/strategy ideas that surfaced along the way — without touching Vegas demo scope.
 **Completed:**
