@@ -116,21 +116,30 @@ scope for removal.)
 
 ### Backend — delete a meal from the catalog
 
-**New: `deleteMeal(mealId)`** — no delete path exists anywhere today. This removes the
+**New: `deleteMeal(mealId)`** — ✅ **BUILT 2026-08-20, commit `5765ad4`** (dev only).
+No delete path existed anywhere before it. This removes the
 *recipe itself* from the household's Meals list (distinct from `removeMealFromList`,
 which only pulls a meal's ingredients off the shopping list but leaves the recipe intact).
 
-**The landmine — must be handled, not discovered later:** `fetchMealProvenance` does NOT
-filter `meals.deleted_at`. So a naive soft-delete leaves the Shop "from Taco Night"
+**The landmine — ✅ FIXED in `5765ad4`, in the same commit as the delete function.** As
+written, `fetchMealProvenance` did NOT filter `meals.deleted_at`. So a naive soft-delete leaves the Shop "from Taco Night"
 provenance badge pointing at a meal that no longer exists — the same defect family as the
 2026-07-30 phantom-meal-badge bug. Delete is therefore two coupled decisions, not one:
 
-1. **Soft vs. hard delete.** Soft (`meals.deleted_at`) preserves history and is reversible,
-   but REQUIRES fixing the read path first (`fetchMealProvenance` and any other reader must
-   filter `deleted_at IS NULL`). Hard delete cascades `meal_ingredients` and
-   `list_item_meals` away cleanly but destroys the record of which meal put an item on the
-   list. **Recommend soft-delete + fix the read path** — consistent with the rest of the
-   schema's `deleted_at` contract — but this is a real call to make at build.
+1. **Soft vs. hard delete — ✅ DECIDED: SOFT-DELETE** *(design chat 2026-08-20; BUILT
+   2026-08-20, commit `5765ad4`)*. Soft (`meals.deleted_at`) preserves history and is
+   reversible, but REQUIRED fixing the read path first — done in the same commit:
+   `fetchMealProvenance` now filters `meals.deleted_at IS NULL`. Hard delete would have
+   cascaded `meal_ingredients` and `list_item_meals` away cleanly but **destroyed the
+   record of which meal put an item on the list** — which is the thing soft-delete exists to
+   keep, and why it lost. Consistent with the rest of the schema's `deleted_at` contract.
+   **This is no longer an open call.**
+
+   Build note: `list_item_meals` rows are deliberately **left intact** on delete. The Shop
+   provenance badge stops showing because the read path filters deleted meals, NOT because
+   the link was destroyed — deleting those rows would reintroduce exactly the history loss
+   that ruled hard-delete out. A soft-deleted meal also stops counting as a "sharer" when a
+   later delete decides whether an ingredient is still needed.
 2. **What happens to an active meal's list items on delete?** If you delete a meal whose
    ingredients are currently on the shopping list, its items should be zeroed first (same
    as `removeMealFromList`), THEN the recipe deleted. Deleting shouldn't strand active
