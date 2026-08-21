@@ -810,7 +810,11 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
             // the card cannot shift size as it becomes planned.
             border: isPlanned ? "1.5px solid #0D9488" : "1.5px solid #E8D5B7",
             borderRadius: "12px",
-            background: "#F5EDE0",
+            // The same two-value lift BROWSE already uses for an in-play row
+            // (.item-row #F5EDE0 → .item-row.has-qty #FAF4EC), gated on
+            // isPlanned instead of qty > 0. Border weight is identical in both
+            // states, so becoming planned changes colour only — never size.
+            background: isPlanned ? "#FAF4EC" : "#F5EDE0",
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.02rem",
@@ -824,23 +828,30 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
                 )}
               </div>
             </div>
-            {/* Matched one-for-one to .add-btn (App.js ~2495): transparent fill,
-                1px #C9A97A at rest, 0.9rem/0.02em, 9px 22px, fully-round. Same
-                verb, same button, one system. NOTE: .add-btn's :hover/:active
-                fill-to-solid cannot come along — these are inline styles, not
-                the class — so this button is static where the catalog one
-                reacts. Switch to className="add-btn" if that gap matters. */}
+            {/* THE class, not a copy of it — so the :hover/:active fill-to-solid
+                comes along for free and PLAN's Add reacts to touch exactly as
+                BROWSE's does. Same verb, same button, one system.
+
+                Inline carries only what .add-btn has no opinion on: layout, the
+                busy fade, and the zero-ingredient muted state. That muted state
+                MUST pin background as well as border/color — .add-btn:hover
+                fills solid, and a disabled button still matches :hover on
+                desktop, so without an inline background a meal with no
+                ingredients would light up under the cursor as though it were
+                live. Inline beats the pseudo-class, which is what keeps it
+                inert. */}
             <button
+              className="add-btn"
               onClick={() => { if (!busy) onAddAll(m.id); }}
               disabled={busy || count === 0}
               style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 700,
-                letterSpacing: "0.02em", padding: "9px 22px", borderRadius: "999px",
-                border: `1px solid ${count === 0 ? "#E8D5B7" : "#C9A97A"}`,
-                background: "transparent",
-                color: count === 0 ? "#c2b193" : "#A0724A",
-                cursor: busy || count === 0 ? "default" : "pointer",
-                opacity: busy ? 0.6 : 1, whiteSpace: "nowrap", flexShrink: 0,
+                whiteSpace: "nowrap", flexShrink: 0,
+                opacity: busy ? 0.6 : 1,
+                ...(busy ? { cursor: "default" } : {}),
+                ...(count === 0 ? {
+                  background: "transparent", borderColor: "#E8D5B7",
+                  color: "#c2b193", cursor: "default",
+                } : {}),
               }}
             >{busy ? "Adding…" : "Add"}</button>
           </div>
