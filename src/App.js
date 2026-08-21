@@ -1369,6 +1369,19 @@ function ProvisionsApp() {
     );
   }, [mealProvenance]);
 
+  // Companion to mealOriginBadge: does a meal ALSO claim this row? The
+  // contributor line needs to know, because "you added this" stops being
+  // redundant the moment a meal badge is on the row claiming origin —
+  // without this, one human + one meal renders the meal ALONE and silently
+  // erases the human (observed 2026-08-20: DH's manual Apples read as
+  // "from Test1" and nothing else). The two ledgers stay separate in data;
+  // this is the display layer reconciling them, which is the ONLY place
+  // they may be unified.
+  const hasMealOrigin = useCallback((catalogItemId) => {
+    const links = mealProvenance[catalogItemId];
+    return !!(links && links.length > 0);
+  }, [mealProvenance]);
+
   const [editModalName, setEditModalName] = useState("");
   const [editModalPrice, setEditModalPrice] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -3820,9 +3833,14 @@ function ProvisionsApp() {
                                     })}
                                   </div>
                                 )}
-                                {item.contributors?.length === 1 && !item.isOwnItem && item.contributors[0].fullName && (
+                                {/* Sole-contributor line. The !isOwnItem rule was right when a
+                                    row's only story was "you added this" — it's wrong once a MEAL
+                                    badge is also claiming the row, so a meal link re-enables it and
+                                    it reads "added by you" rather than your own name back at you.
+                                    Own items with no meal link stay quiet exactly as before. */}
+                                {item.contributors?.length === 1 && (!item.isOwnItem || hasMealOrigin(item.catalogItemId)) && (item.isOwnItem || item.contributors[0].fullName) && (
                                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
-                                    {item.contributors[0].fullName}
+                                    {item.isOwnItem ? "added by you" : item.contributors[0].fullName}
                                   </div>
                                 )}
                               </div>
@@ -3882,9 +3900,14 @@ function ProvisionsApp() {
                                     })}
                                   </div>
                                 )}
-                                {item.contributors?.length === 1 && !item.isOwnItem && item.contributors[0].fullName && (
+                                {/* Sole-contributor line. The !isOwnItem rule was right when a
+                                    row's only story was "you added this" — it's wrong once a MEAL
+                                    badge is also claiming the row, so a meal link re-enables it and
+                                    it reads "added by you" rather than your own name back at you.
+                                    Own items with no meal link stay quiet exactly as before. */}
+                                {item.contributors?.length === 1 && (!item.isOwnItem || hasMealOrigin(item.catalogItemId)) && (item.isOwnItem || item.contributors[0].fullName) && (
                                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", color: "#C9A97A", opacity: 0.85, marginTop: "2px" }}>
-                                    {item.contributors[0].fullName}
+                                    {item.isOwnItem ? "added by you" : item.contributors[0].fullName}
                                   </div>
                                 )}
                               </div>
