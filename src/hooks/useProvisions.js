@@ -1824,6 +1824,94 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [reportSuccess]);
 
+  // ─────────────────────────────────────────────────────────────
+  // deleteMeal: removes the RECIPE itself from the household's Meals.
+  // SOFT-delete (`meals.deleted_at`) — decided 2026-08-20, closing the
+  // spec's open call: it matches the rest of the schema's deleted_at
+  // contract and preserves the record of which meal put an item on the
+  // list, which a hard delete destroys.
+  //
+  // The SEQUENCE is load-bearing: zero the meal's still-pending list
+  // items FIRST, then stamp deleted_at — so deleting a recipe can never
+  // strand active items whose provenance points at nothing.
+  //
+  // Three guarantees:
+  //  - SHARED ingredients STAY. An item another LIVE meal still points
+  //    at is left alone; only unshared items are zeroed. A soft-deleted
+  //    meal does NOT count as a sharer — hence the meals.deleted_at
+  //    filter on the "who else needs this" read below.
+  //  - BOUGHT items are NEVER touched. Deleting a recipe must not un-buy
+  //    what a member already purchased, so only status='pending' rows are
+  //    ever candidates. This is the sacred-list guarantee.
+  //  - list_item_meals rows are LEFT INTACT. The provenance badge stops
+  //    showing because fetchMealProvenance now filters meals.deleted_at —
+  //    NOT because the link was destroyed. Deleting those rows here would
+  //    throw away the exact history soft-delete exists to keep.
+  // ─────────────────────────────────────────────────────────────
+  const deleteMeal = useCallback(async (mealId) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId) return false;
+    try {
+      // This meal's LIVE list rows. Household-scoped explicitly as
+      // belt-and-suspenders alongside RLS, same as updateMeal.
+      const { data: links, error: lErr } = await db
+        .from("list_item_meals")
+        .select("list_item_id, list_items!inner(catalog_item_id, status, household_id, deleted_at, catalog_items(name))")
+        .eq("meal_id", mealId)
+        .eq("list_items.household_id", hh.id)
+        .is("list_items.deleted_at", null);
+      if (lErr) throw lErr;
+
+      // Bought rows drop out HERE and are never handed to the zeroing
+      // path below — the never-un-buy guarantee, enforced by filter
+      // rather than left to fall out of a downstream implementation.
+      const pending = (links || []).filter((r) => r.list_items?.status === "pending");
+
+      let shared = new Set();
+      if (pending.length > 0) {
+        const { data: others, error: oErr } = await db
+          .from("list_item_meals")
+          .select("list_item_id, meals!inner(deleted_at)")
+          .in("list_item_id", pending.map((r) => r.list_item_id))
+          .neq("meal_id", mealId)
+          .is("meals.deleted_at", null);
+        if (oErr) throw oErr;
+        shared = new Set((others || []).map((r) => r.list_item_id));
+      }
+
+      // Zero the unshared remainder through the SAME path the per-item
+      // stepper uses (updateQty's qty<=0 branch → the remove_list_item
+      // RPC), so the list has exactly one removal implementation rather
+      // than a second one written here with its own quantity math.
+      for (const row of pending) {
+        if (shared.has(row.list_item_id)) continue;
+        const name = row.list_items?.catalog_items?.name;
+        if (!name) continue;
+        await updateQty(name, 0);
+      }
+
+      const { error: mErr } = await db
+        .from("meals")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", mealId)
+        .eq("household_id", hh.id) // belt-and-suspenders; RLS already scopes this
+        .is("deleted_at", null);
+      if (mErr) throw mErr;
+
+      await loadListItems(db, hh.id);
+      reportSuccess();
+      return true;
+    } catch (err) {
+      console.error("deleteMeal error:", err.message);
+      setError(`Could not delete meal: ${err.message}`);
+      return false;
+    }
+  // loadListItems is a stable hook-scope function (uses refs); matches the
+  // ref-based pattern used by addMealToList et al.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateQty, reportSuccess]);
+
   // createCatalogItem: resolve a typed name to a catalog row, creating one if
   // it doesn't exist — and NOTHING ELSE. The meal builder needs a catalog item
   // staged into a draft, NOT added to the shared list; updateQty's insert path
@@ -1910,9 +1998,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // list_item is gone; RLS gates via list_item membership.
     const { data, error: err } = await db
       .from("list_item_meals")
-      .select("meal_id, list_items!inner(catalog_item_id, household_id, deleted_at), meals!inner(name)")
+      .select("meal_id, list_items!inner(catalog_item_id, household_id, deleted_at), meals!inner(name, deleted_at)")
       .eq("list_items.household_id", hh.id)
-      .is("list_items.deleted_at", null);
+      .is("list_items.deleted_at", null)
+      // A soft-deleted meal must never surface a phantom "from [meal]" badge
+      // on Shop (same defect family as the 2026-07-30 phantom-meal bug).
+      .is("meals.deleted_at", null);
     if (err) { console.error("fetchMealProvenance error:", err.message); return {}; }
     const map = {};
     (data || []).forEach((row) => {
@@ -1930,7 +2021,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
-    fetchMeals, createMeal, updateMeal, createCatalogItem, addMealToList, fetchMealProvenance,
+    fetchMeals, createMeal, updateMeal, deleteMeal, createCatalogItem, addMealToList, fetchMealProvenance,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,

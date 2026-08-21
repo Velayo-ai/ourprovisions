@@ -846,7 +846,7 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit })
 // catalog item from the no-results panel, which must persist immediately so
 // the meal can reference its id — that writes `catalog_items` only, never
 // `list_items`.
-function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCommit, onCreateCatalogItem, onRegisterCategory }) {
+function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -931,6 +931,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
   // same end state behind two different rules. An empty meal is a legitimate
   // workflow anyway ("name it now, fill it in as I think of them"); PLAN shows
   // it as "0 ingredients" and its Add button stays disabled on count === 0.
+  // Two-stage delete confirm, local to the sheet: resets whenever the
+  // sheet is remounted for another meal.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const canSave = name.trim().length > 0;
 
   return (
@@ -1113,8 +1117,48 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, onCancel, onCom
           </div>
         )}
 
+        {/* Delete danger zone — EDIT mode only. Deliberately NOT a bare
+            one-tap and NOT a third swipe action: deleting a recipe is
+            destructive and, unlike Hide, no lens toggle brings it back.
+            Two-stage confirm, mirroring the household delete zone. */}
+        {isEdit && onDelete && (
+          <div style={{ marginTop: "4px", marginBottom: "16px", paddingTop: "14px", borderTop: "1px solid rgba(44,26,14,0.10)" }}>
+            {!confirmDelete ? (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                disabled={saving || deleting}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: "9px", width: "100%",
+                  background: "none", border: "1.5px solid rgba(179,38,30,0.4)", borderRadius: "14px", padding: "13px",
+                  color: "#c0392b", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
+                  cursor: (saving || deleting) ? "default" : "pointer", opacity: (saving || deleting) ? 0.5 : 1,
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="1.8" strokeLinecap="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>
+                Delete meal
+              </button>
+            ) : (
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleting}
+                  style={{ flex: 1, background: "#E8D5B7", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#2C1A0E", cursor: deleting ? "default" : "pointer" }}
+                >Keep</button>
+                <button
+                  onClick={() => { if (!deleting) onDelete(); }}
+                  disabled={deleting}
+                  style={{ flex: 2, background: "#c0392b", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#fff", cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1 }}
+                >{deleting ? "Deleting…" : "Yes, delete meal"}</button>
+              </div>
+            )}
+            <div style={{ fontSize: "0.7rem", color: "#9a8a78", textAlign: "center", marginTop: "8px", lineHeight: 1.4 }}>
+              Removes this meal for everyone. Anything already bought stays on your list.
+            </div>
+          </div>
+        )}
+
         <div className="modal-actions">
-          <button className="modal-cancel" onClick={onCancel} disabled={saving}>Cancel</button>
+          <button className="modal-cancel" onClick={onCancel} disabled={saving || deleting}>Cancel</button>
           <button
             className="modal-confirm"
             disabled={!canSave || saving}
@@ -1163,6 +1207,7 @@ function ProvisionsApp() {
     fetchMeals,
     createMeal,
     updateMeal,
+    deleteMeal,
     createCatalogItem,
     addMealToList,
     fetchMealProvenance,
@@ -1263,6 +1308,7 @@ function ProvisionsApp() {
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
   const [mealSaving, setMealSaving] = useState(false);
+  const [mealDeleting, setMealDeleting] = useState(false);
 
   const commitMealSheet = useCallback(async ({ name, ingredients }) => {
     if (!mealSheet) return;
@@ -1287,11 +1333,30 @@ function ProvisionsApp() {
       setMealSaving(false);
     }
   }, [mealSheet, updateMeal, createMeal, loadMeals]);
+  // Delete the recipe itself. Zeroing of its still-pending list items
+  // happens inside deleteMeal (bought items untouched, shared ingredients
+  // left for the meals that still need them) — the sheet only drives it.
+  const commitMealDelete = useCallback(async () => {
+    if (!mealSheet || mealSheet.mode !== "edit" || !mealSheet.meal?.id) return;
+    setMealDeleting(true);
+    try {
+      const ok = await deleteMeal(mealSheet.meal.id);
+      if (ok) {
+        setMealSheet(null);
+        await loadMeals();   // the deleted meal drops off PLAN immediately
+      }
+    } finally {
+      setMealDeleting(false);
+    }
+  }, [mealSheet, deleteMeal, loadMeals]);
+
 
   // SHOP origin badge: which meal(s) put this item on the list. ">1 meal"
   // reads "Multiple meals"; exactly one reads "from {meal}". (Add-path only:
   // provenance is additive — a manual tombstone doesn't prune links; pruning
-  // is the deferred remove-a-meal flow's job.)
+  // is the deferred remove-a-meal flow's job. A DELETED meal is a separate
+  // case: its badge disappears because fetchMealProvenance filters
+  // meals.deleted_at, not because the link was pruned.)
   const mealOriginBadge = useCallback((catalogItemId) => {
     const links = mealProvenance[catalogItemId];
     if (!links || links.length === 0) return null;
@@ -3885,8 +3950,10 @@ function ProvisionsApp() {
           catalogMap={catalogMap}
           categories={categories}
           saving={mealSaving}
-          onCancel={() => { if (!mealSaving) setMealSheet(null); }}
+          deleting={mealDeleting}
+          onCancel={() => { if (!mealSaving && !mealDeleting) setMealSheet(null); }}
           onCommit={commitMealSheet}
+          onDelete={commitMealDelete}
           onCreateCatalogItem={createCatalogItem}
           onRegisterCategory={(cat) => setHouseholdCategories((prev) => new Set([...prev, cat]))}
         />
