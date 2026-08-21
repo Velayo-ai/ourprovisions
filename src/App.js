@@ -745,7 +745,7 @@ function FlatHeader({ count, showCount = true }) {
 // 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
 const MEALS_ENABLED = true;
 
-function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit }) {
+function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealIds }) {
   // Terminal ghost row — matches the "+ Create new place" convention (same
   // 1.5px dashed border, same terminal position). It renders in the EMPTY
   // state too, deliberately: it is the only entry point to meal creation, so
@@ -790,6 +790,8 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit })
       {meals.map((m) => {
         const count = (m.meal_ingredients || []).length;
         const busy = addingMealId === m.id;
+        // Teal is the meal-on-the-list signal on SHOP; same meaning here.
+        const isPlanned = !!plannedMealIds?.has(m.id);
         return (
           // Face-button-plus-swipe, same as catalog rows: "Add" is the primary
           // action and stays one tap on the face; Edit lives behind the swipe.
@@ -802,13 +804,19 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit })
           >
           <div style={{
             display: "flex", alignItems: "center", gap: "10px", padding: "12px",
-            border: "1px solid #E3D4BC", borderRadius: "12px", background: "#fff",
+            border: isPlanned ? "1.5px solid #0D9488" : "1px solid #E3D4BC",
+            borderRadius: "12px", background: "#fff",
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.02rem",
                 fontWeight: 700, color: "#2C1A0E" }}>{m.name}</div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", color: "#8a7a60", marginTop: "2px" }}>
-                {count} {count === 1 ? "ingredient" : "ingredients"}
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", color: "#8a7a60", marginTop: "2px",
+                display: "flex", alignItems: "center", gap: "8px" }}>
+                <span>{count} {count === 1 ? "ingredient" : "ingredients"}</span>
+                {isPlanned && (
+                  <span style={{ fontSize: "0.68rem", letterSpacing: "1px", textTransform: "uppercase",
+                    color: "#0D9488", fontWeight: 700 }}>Planned</span>
+                )}
               </div>
             </div>
             {/* Light outlined pill — same treatment as the ingredient-search
@@ -1247,6 +1255,16 @@ function ProvisionsApp() {
   const [addingMealId, setAddingMealId] = useState(null);
   // Provenance for the teal meal facet: catalog_item_id → [{mealId,name,createdBy}].
   const [mealProvenance, setMealProvenance] = useState({});
+
+  // Which meals currently have at least one ingredient live on the list —
+  // derived straight from the provenance map, so it needs no fetch, no column
+  // and no new refresh path. mealProvenance is already refreshed on PLAN by
+  // the navigation effect and by the Part 3 poll trigger, so this set updates
+  // live when another member adds or removes a meal.
+  const plannedMealIds = useMemo(
+    () => new Set(Object.values(mealProvenance).flat().map((pr) => pr.mealId)),
+    [mealProvenance]
+  );
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
   const [editModalItem, setEditModalItem] = useState(null);
@@ -3387,6 +3405,7 @@ function ProvisionsApp() {
             addingMealId={addingMealId}
             onCreate={() => setMealSheet({ mode: "create", meal: null })}
             onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
+            plannedMealIds={plannedMealIds}
           />
         )}
 
