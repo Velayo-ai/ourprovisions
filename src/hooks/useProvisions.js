@@ -1850,30 +1850,36 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }, [reportSuccess]);
 
   // ─────────────────────────────────────────────────────────────
-  // deleteMeal: removes the RECIPE itself from the household's Meals.
-  // SOFT-delete (`meals.deleted_at`) — decided 2026-08-20, closing the
-  // spec's open call: it matches the rest of the schema's deleted_at
-  // contract and preserves the record of which meal put an item on the
-  // list, which a hard delete destroys.
+  // removeMealFromList: reverses a meal's footprint on the CURRENT list
+  // without touching the recipe. "I planned Pizza, I want Tacos instead"
+  // — Pizza survives on PLAN, just unplanned.
   //
-  // The SEQUENCE is load-bearing: zero the meal's still-pending list
-  // items FIRST, then stamp deleted_at — so deleting a recipe can never
-  // strand active items whose provenance points at nothing.
+  // This is deleteMeal's reconciliation block, extracted verbatim so the
+  // two share ONE mechanism rather than a copy that can drift. deleteMeal
+  // is now this plus a soft-delete of the meals row.
   //
-  // Three guarantees:
-  //  - SHARED ingredients STAY. An item another LIVE meal still points
-  //    at is left alone; only unshared items are zeroed. A soft-deleted
-  //    meal does NOT count as a sharer — hence the meals.deleted_at
-  //    filter on the "who else needs this" read below.
-  //  - BOUGHT items are NEVER touched. Deleting a recipe must not un-buy
-  //    what a member already purchased, so only status='pending' rows are
-  //    ever candidates. This is the sacred-list guarantee.
-  //  - list_item_meals rows are LEFT INTACT. The provenance badge stops
-  //    showing because fetchMealProvenance now filters meals.deleted_at —
-  //    NOT because the link was destroyed. Deleting those rows here would
-  //    throw away the exact history soft-delete exists to keep.
+  // Buildable only because 039 added quantity_contributed: before it,
+  // removal could not tell "this item is here only because of Pizza" from
+  // "here because of Pizza AND Taco Night". That was the standing
+  // 2026-07-28 open question.
+  //
+  // Guarantees, all inherited unchanged:
+  //  - SHARED ingredients survive to the extent another meal needs them.
+  //    Each item is decremented by exactly THIS meal's recorded share, so
+  //    the other meal's contribution is never read and never written.
+  //  - BOUGHT items are NEVER touched — only status='pending' rows are
+  //    candidates. The sacred-list guarantee.
+  //  - The meal's list_item_meals link is dropped per removed item.
+  //    remove_list_item SOFT-deletes, so the FK's cascade does not fire
+  //    and the link must go explicitly or a later resurrect revives it.
+  //
+  // ⚠️ INHERITED EDGE CASE, not introduced here: if someone manually
+  // stepped an ingredient BELOW this meal's contribution, the subtraction
+  // goes non-positive and the item is removed outright — which can
+  // under-serve another meal that still needed it. Accepted tradeoff,
+  // already shipped and dev-verified via deleteMeal.
   // ─────────────────────────────────────────────────────────────
-  const deleteMeal = useCallback(async (mealId) => {
+  const removeMealFromList = useCallback(async (mealId) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
@@ -1894,19 +1900,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // left to fall out of a downstream implementation.
       const pending = (links || []).filter((r) => r.list_items?.status === "pending");
 
-      // Decrement each item by exactly what this meal contributed, then floor.
-      // This replaces the earlier binary "shared → leave alone / unshared →
-      // zero" branch: that was the best available answer when no amount was
-      // recorded, but with 039 the precise number exists, so a shared item now
-      // gives back only this meal's share instead of all-or-nothing.
       for (const row of pending) {
         const li = row.list_items;
         const contributed = Number(row.quantity_contributed) || 0;
 
         // LEGACY ROW (written before 039, never backfilled): contributed is 0,
         // so there is no recorded basis to subtract. Drop the provenance link
-        // and leave the quantity untouched — degrading to the behavior shipped
-        // 2026-08-20 rather than zeroing an amount it cannot justify.
+        // and leave the quantity untouched.
         if (contributed > 0) {
           const remaining = Number(li.quantity) - contributed;
           if (remaining > 0) {
@@ -1918,8 +1918,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
             if (qErr) throw qErr;
           } else {
             // Fully spent. Same removal path updateQty's qty<=0 branch uses,
-            // so the list keeps ONE removal implementation — it also clears
-            // any leftover list_item_contributors rows.
+            // so the list keeps ONE removal implementation.
             const { error: rErr } = await db.rpc("remove_list_item", {
               p_household_id: hh.id,
               p_catalog_item_id: li.catalog_item_id,
@@ -1928,10 +1927,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           }
         }
 
-        // Drop THIS meal's link either way. remove_list_item SOFT-deletes, so
-        // the FK's ON DELETE CASCADE does not fire — the link has to go
-        // explicitly or a later resurrect of the same item would revive stale
-        // provenance.
         const { error: uErr } = await db
           .from("list_item_meals")
           .delete()
@@ -1940,6 +1935,42 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         if (uErr) throw uErr;
       }
 
+      await loadListItems(db, hh.id);
+      reportSuccess();
+      return true;
+    } catch (err) {
+      console.error("removeMealFromList error:", err.message);
+      setError(`Could not remove meal from list: ${err.message}`);
+      return false;
+    }
+  // loadListItems is a stable hook-scope function (uses refs); matches the
+  // ref-based pattern used by addMealToList et al.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportSuccess]);
+
+  // ─────────────────────────────────────────────────────────────
+  // deleteMeal: removes the RECIPE itself. SOFT-delete
+  // (`meals.deleted_at`) — decided 2026-08-20: it matches the schema's
+  // deleted_at contract and preserves the record of which meal put an
+  // item on the list, which a hard delete destroys.
+  //
+  // Now a thin wrapper. The SEQUENCE remains load-bearing: reverse the
+  // meal's list footprint FIRST, then stamp deleted_at — so deleting a
+  // recipe can never strand active items whose provenance points at
+  // nothing. Every guarantee lives in removeMealFromList above; this
+  // adds exactly one write.
+  //
+  // Bails if the reconciliation failed rather than soft-deleting anyway:
+  // a deleted recipe whose items were never reversed is the stranded
+  // state the sequence exists to prevent.
+  // ─────────────────────────────────────────────────────────────
+  const deleteMeal = useCallback(async (mealId) => {
+    const removed = await removeMealFromList(mealId);
+    if (!removed) return false;
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return false;
+    try {
       const { error: mErr } = await db
         .from("meals")
         .update({ deleted_at: new Date().toISOString() })
@@ -1947,19 +1978,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .eq("household_id", hh.id) // belt-and-suspenders; RLS already scopes this
         .is("deleted_at", null);
       if (mErr) throw mErr;
-
-      await loadListItems(db, hh.id);
-      reportSuccess();
       return true;
     } catch (err) {
       console.error("deleteMeal error:", err.message);
       setError(`Could not delete meal: ${err.message}`);
       return false;
     }
-  // loadListItems is a stable hook-scope function (uses refs); matches the
-  // ref-based pattern used by addMealToList et al.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportSuccess]);
+  }, [removeMealFromList]);
 
   // createCatalogItem: resolve a typed name to a catalog row, creating one if
   // it doesn't exist — and NOTHING ELSE. The meal builder needs a catalog item
@@ -2074,7 +2099,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
-    fetchMeals, createMeal, updateMeal, deleteMeal, createCatalogItem, addMealToList, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, deleteMeal, removeMealFromList, createCatalogItem, addMealToList, fetchMealProvenance, onListChangedRef,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
