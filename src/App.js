@@ -804,8 +804,13 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
           >
           <div style={{
             display: "flex", alignItems: "center", gap: "10px", padding: "12px",
-            border: isPlanned ? "1.5px solid #0D9488" : "1px solid #E3D4BC",
-            borderRadius: "12px", background: "#fff",
+            // Resting state matches .item-row exactly (#F5EDE0 fill, 1.5px
+            // #E8D5B7) so PLAN and BROWSE read as one visual system rather than
+            // two. Planned swaps only the border colour — same 1.5px weight, so
+            // the card cannot shift size as it becomes planned.
+            border: isPlanned ? "1.5px solid #0D9488" : "1.5px solid #E8D5B7",
+            borderRadius: "12px",
+            background: "#F5EDE0",
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.02rem",
