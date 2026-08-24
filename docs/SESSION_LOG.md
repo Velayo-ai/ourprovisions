@@ -25,6 +25,57 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-23] — [OurProvisions] — Design crew-based catalog sharing for linked households (Madbury/Sacandaga)
+**Goal:** Let two households share one custom catalog — no re-adding the same item or category twice — without merging their lists, and design the delete/hide UX that falls out of it.
+**Completed:**
+- **Locked the sharing architecture onto the existing (currently inert) `crew_id` link** — opt-in per household-pair, never global, never automatic, and **never tied to shared people**. Reuses the dormant harbour-crew layer instead of inventing a parallel grouping concept.
+- **Settled that lists stay permanently household-local.** Catalog sharing never implies list sharing — stated explicitly after early conversation conflated the two.
+- **Stress-tested multi-household membership** — mismatched rosters, a person in several unrelated households, a person leaving — and confirmed sharing rides only on the household↔household link.
+- **Confirmed personal hide (`user_hidden_items`) needs no change.** Its cross-household sync, previously suspected to be a bug, is the desired behaviour (the allergy/dislike case). **No build required for hide.**
+- **Designed two-tier delete** — household-scoped remove vs. delete-everywhere — inside the Edit Item sheet's danger zone, extending the shipped household-delete (D3) and meals two-stage-confirm patterns rather than inventing a third. **Swipe stays reserved for personal hide; delete never lives on a gesture.**
+- **Identified that `insert_custom_catalog_item`'s dedup (migrations 018/019) must become crew-aware before sharing ships**, or the duplicate-row bug those migrations closed reopens at crew scale.
+- **Locked unlink behaviour:** clearing a crew link stops future sync but never strips items already present — the same principle as a person leaving a household.
+**Unfinished:**
+- **Meals-sharing model deliberately parked** — auto-pool vs. the 2026-07-28 give/accept-only lock. Needs its own session; do not assume catalog logic extends to `meals`.
+- **No code and no migrations — design only.**
+- Household-scoped exclusion table (tier-1 delete) needs its final name and shape at build time; `link_households_to_crew` needs a migration number at point-of-build.
+- Cross-household "added by" attribution edge case flagged, not resolved.
+- **Hard prerequisite still open:** the `velayo_crews`/`velayo_crew_members` RLS bug (`auth.uid()` uuid compared against Clerk's string `sub`). Catalog sharing is unreachable until it is fixed — this promotes it from standing debt to a blocker.
+**Next session:**
+SESSION START
+Goal: Decide the meals-sharing model for crew-linked households, then move `SPEC_crew_catalog_sharing.md` toward build.
+State: Catalog-sharing architecture fully designed, not built. The crew RLS bug is open and is a hard prerequisite. Hide and delete UX are settled — no further design needed there.
+Done when: the meals decision is locked and merged into ROADMAP, and `SPEC_crew_catalog_sharing.md` is either confirmed ready for Cody or has a build handoff drafted for it.
+**Files updated:** `docs/specs/active/SPEC_crew_catalog_sharing.md` (**new** — routed from the airlock), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** None — design only.
+
+---
+
+### [2026-08-21] — [OurProvisions] — Meal card Add⇄stepper, add-count ledger (040), and the decrement RPC (041)
+> **Reconstructed from commits `9331bbd`→`1dd6294` at SESSION END on 2026-08-24, not witnessed.** These nine commits shipped after the 2026-08-21 docs commit (`fab26c0`) and were never logged. Details are taken from the commit messages and the migration headers; anything not stated there is not claimed here.
+**Goal:** Make a planned meal legible and adjustable from the Meals list — mark what's planned, and give the card a real stepper instead of a one-way Add.
+**Completed:**
+- **Marked planned meals on the Meals list** (`9331bbd`) — teal border + "Planned".
+- **Aligned the meal card to the shared visual vocabulary** (`0f8251c`, `6185411`, `a458e45`) — cards match `.item-row` weight so PLAN and BROWSE read as one surface; the Add button uses the real `.add-btn` class; planned cards lighten.
+- **Added `list_item_meals.add_count` — migration `040`** (`d1c0210`). The count **cannot be derived**: per-add contribution is `GREATEST(1, round(quantity_per_serving * servings))`, and that floor makes it a non-fixed divisor, so `quantity_contributed` can't be divided back out; `list_items.quantity` is polluted by manual stepper edits and by other meals sharing the ingredient. **`040` extends `039`'s function text rather than replacing it** — doing it literally from the spec would have dropped `039`'s `quantity_contributed` increment.
+- **Built `removeMealFromList`** (`d04c2a4`) — un-plan a meal without deleting the recipe.
+- **Shipped the meal card Add⇄stepper + `decrementMealBatch`** (`e9c1bf8`).
+- **Fixed a silent RLS failure with migration `041`** (`dda9ea3`) — `decrementMealBatch` amended the provenance ledger from the **client**, but `list_item_meals` has SELECT/INSERT/DELETE policies only, by deliberate design predating the stepper (`025_meals.sql:13` — "a provenance linkage row is delete-and-reinserted, never updated"). The UPDATE matched zero rows and **raised no error**, so the shopping list moved while the card's count stayed frozen. Replaced with the SECURITY DEFINER `decrement_meal_from_list`.
+- **Dropped the redundant "Remove from list" swipe on meal cards** (`1dd6294`) — the stepper already does it.
+**Unfinished:**
+- **DEV ONLY. `040` and `041` are not recorded as reaching prod**, and `039` was already pending promotion — the promotion order matters, since shipping the client ahead of the migrations 400s real users.
+- **`SPEC_meal_card_stepper.md` and `SPEC_meal_add_count.md` are cited by migrations `040` and `041` but do not exist anywhere in the repo.** The migrations are the only surviving record of that design, and `041`'s header notes the stepper spec was **wrong as written** (it specified a client UPDATE against a table with no UPDATE policy).
+- Not verified by this scribe pass — no device check, and no DB read to confirm which environments carry `039`/`040`/`041`.
+**Next session:**
+SESSION START
+Goal: Establish which environments actually carry `039`, `040` and `041`, then decide the promotion sequence for the meals/provenance work.
+State: Meal card stepper and both migrations built and reported dev-green by their commits. Two cited specs are missing from the repo. `origin/dev` was 65 commits stale at the time of this entry.
+Done when: an observed `pg_proc`/column read confirms `039`/`040`/`041` per environment, and the migrations-before-client promotion order is written down.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js`, `migrations/040_meal_add_count.sql` (new), `migrations/041_decrement_meal_from_list.sql` (new).
+**DB changes:** **`040`** — `list_item_meals.add_count`; `add_meal_to_list` upsert extended to increment it. **`041`** — new SECURITY DEFINER `decrement_meal_from_list`. Environments unconfirmed.
+
+---
+
 ### [2026-08-20] — [OurProvisions] — Ship deleteMeal, then close the entire meal/user two-ledger provenance seam it surfaced
 **Goal:** Build deleteMeal before Vegas so meals can eventually promote to prod, then handle whatever verification surfaced — which became closing the full meal-vs-user provenance seam across data, display and sync, plus the demo dry-run.
 **Completed:**
