@@ -25,6 +25,32 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-24] — [OurProvisions] — Triage the first external-tester onboarding incident, then turn it into solo-start design decisions
+**Goal:** Triage the Prem/Cyrus onboarding incident reported live from dinner, and resolve what is defect versus design.
+**Completed:**
+- **Root-caused the join incident: there was no defect.** Both shared links were the **bare app URL with no `?invite=` code**, so code-less solo signup did exactly what it is designed to do — own household, owner role, `"My Household"` default name.
+- **Diagnosed "a solo new user sees *Our*Provisions" as a superseded-decision conflict, not a bug.** Traced to **§8 of `SPEC_splash_vessel_identity_v2.md`** — "standardize the header to always render *Our* Provisions… for the hand-off to be seamless" — which silently killed the Jun 17 **earned-Our** mechanic. ⚠️ **That spec was RETIRED on 2026-07-25 when the resolve-in-place v3 superseded it, but the header change it mandated stayed in the code** — the behaviour outlived the spec that justified it.
+- **Decided to reverse §8:** delete the wordmark travel/clone hand-off machinery, reinstate **earned-Our** driven off `householdMembers.length` per active household. Header renders **"Provisions" for everyone by default, including while membership loads** — *behaviour before label*: never claim **Our** until the data supports it.
+- **Reframed the next work from "fix invite-join" to "make solo-start a designed experience"** — first-run naming moment, an invite-code entry field, and two deliberate share verbs.
+- **Verified Clerk script CORS-transparency live on prod** — `Sec-Fetch-Mode: cors` request-side and `Access-Control-Allow-Origin: *` response-side, on **both** redirect hops. **No SDK bump needed for observability;** clerk-js stays at @5, and the major-version bump is decoupled onto its own schedule.
+- **Exonerated Clerk for the 2026-08-24 RUM error** (ErrorID `55b3c6c1`, "Script error.") — it is browser cross-origin redaction. **Turnstile captcha loader is the lead suspect** (loads only during sign-up, matching the timing). No action unless the pattern recurs.
+- **Demoted Prem's "no longer a member of" error to a low-priority curiosity** — it occurred inside his own fresh household context, after a typo-domain detour (`velayp.ai` in the first SMS).
+**Unfinished:**
+- **Solo-start experience design not started** — first-run naming, "Have an invite code?" entry, and the two share verbs. That is next session.
+- `SPEC_wordmark_earned_our.md` written and routed, **not built**.
+- Prem's exact "no longer a member of" repro still unexplained — low priority, likely stale state from the typo-domain detour.
+- **Two prod RUM errors from the earlier backlog remain uninvestigated** (avg-prices fetch, JWT-not-yet-valid).
+- **Routing note:** the handoff manifest sent the spec to "repo `docs/`". Filed to **`docs/specs/active/`** instead, per the standing rule that `SPEC_*.md` never lives at `docs/` root and a fresh unbuilt spec is always `active/`.
+**Next session:**
+SESSION START
+Goal: Design the solo-start experience — first-run naming moment, invite-code entry, and the two share verbs (**Invite aboard** vs. **Share the app**). Mockup-first.
+State: Prod live and healthy; invite-join verified working as designed; Clerk CORS transparency verified on prod; earned-Our spec routed to `active/` awaiting build; two prod RUM errors still uninvestigated.
+Done when: approved mockups exist for the first-run flow and the share-sheet verbs, plus build instructions handed to Cody. The earned-Our spec can be built the same session or before it.
+**Files updated:** `docs/specs/active/SPEC_wordmark_earned_our.md` (**new** — routed from the airlock), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** None.
+
+---
+
 ### [2026-08-23] — [OurProvisions] — Design crew-based catalog sharing for linked households (Madbury/Sacandaga)
 **Goal:** Let two households share one custom catalog — no re-adding the same item or category twice — without merging their lists, and design the delete/hide UX that falls out of it.
 **Completed:**
