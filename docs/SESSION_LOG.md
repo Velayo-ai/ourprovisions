@@ -130,6 +130,30 @@ Done when: an observed `pg_proc`/column read confirms `039`/`040`/`041` per envi
 
 ---
 
+### [2026-08-21] — [Cross] — Ship full meal-list CRUD to prod for Vegas; park two Harbour-scale threads
+**Goal:** Close full CRUD on meal-list presence — add, increment, decrement, remove, delete — and promote it to prod ahead of the Vegas trip.
+**Completed:**
+- **Shipped visual parity between PLAN and BROWSE.** Meal cards adopt `.item-row`'s exact weight (`#F5EDE0` on 1.5px `#E8D5B7`), the Add button uses the shared `.add-btn` **class** rather than a copy of its declarations — so `:hover`/`:active` fill-to-solid comes along — and the planned state lightens the fill to `#FAF4EC`, the same two-value swap `.item-row.has-qty` already uses.
+- **Built three coordinated specs in dependency order** (`d1c0210`, `d04c2a4`, `e9c1bf8`): add-count tracking (migration `040`), `removeMealFromList` extracted from `deleteMeal`, and a real Add⇄stepper on the meal card following `CatalogItemRow`'s "never a stepper at qty 0" invariant.
+- **Caught spec 1's stale premise before it broke the chain.** It quoted `add_meal_to_list` as ending in `ON CONFLICT … DO NOTHING` and directed replacing that clause; `039` had already rewritten it to increment `quantity_contributed`. Following the spec literally would have dropped that increment and broken precise decrement in every function queued behind it. `040` **extends** the clause instead — built from `039`'s text, both SETs in one statement, diffed to prove only that clause changed.
+- **Diagnosed and fixed a silent bug shipped in `e9c1bf8`** (`dda9ea3`, migration `041`). The stepper's decrement amended the ledger from the client, but `list_item_meals` has SELECT/INSERT/DELETE policies only — **no UPDATE policy**, by original `025` design. The UPDATE matched zero rows and **raised no error**: `list_items.quantity` moved correctly while the card's count froze, and `1→0` still looked fine because that path DELETEs. Replaced with the SECURITY DEFINER RPC `decrement_meal_from_list`.
+- **Verified full CRUD end-to-end on dev, two accounts** — shared-ingredient decrement through the stepper, bought-item protection, the `deleteMeal` regression after its refactor to a thin wrapper, and the governing Dan/Helen bread scenario under real concurrent edits: another account's independent Browse edit survived a later meal removal untouched.
+- **Promoted to prod.** `039`, `040`, `041` applied in order and verified by content — column checks, `pg_get_functiondef`, `proacl` — not by "success" alone. `dev → main` fast-forwarded twice (full CRUD, then the swipe removal), both confirmed on `ourprovisions.velayo.ai` by bundle content rather than hash.
+- **Removed the "Remove from list" swipe same-session** (`1dd6294`) once the stepper made it redundant — at `add_count === 1` it did the literally identical thing through a less discoverable gesture. Swipe is back to EDIT-only, matching pre-session behaviour.
+**Unfinished:**
+- **Staple / always-have-it ingredients** — olive oil and salt belong to a recipe but shouldn't auto-add to Shop. Needs `meal_ingredients.default_add` so `add_meal_to_list` can skip them. **Two open questions, deliberately not guessed:** does the Plan card's ingredient count include non-shoppable staples, and what does a flagged staple look like in the Edit Meal sheet.
+- **`remove_list_item` exists only in the live database** — no file in `migrations/`. Called from inside both `decrement_meal_from_list` and `removeMealFromList`, so the repo cannot reproduce prod from migrations alone. Flagged, not fixed; wants a stub migration.
+- **A duplicate "Pizza" meal surfaced in dev seed data** during testing. Flagged; cleanup not confirmed.
+- **Accepted cosmetic gap:** a bought item is the one `list_item_meals` row immune to decrement, so if it's a meal's last surviving link the Plan card's count can read stale until Wrap Up Trip clears it naturally.
+- **Two parked strategic threads, no design work started:** the Home tab as a Harbour-scale concierge surface (calendar, geofenced Shop-tab default, onboarding), and a "planning hierarchy" framing (Groceries→Meals→Days→Events→Insights) that sharpens `STRATEGY_consumption_signal.md`'s tiered-signal thesis rather than replacing it.
+**Next session:**
+SESSION START
+Goal: Design the staple / always-have-it ingredient toggle — spec `meal_ingredients.default_add`, the Edit Meal UI for it, and settle the two open questions above.
+State: Full meal CRUD (add / increment / decrement / remove / delete) is live and verified on **both dev and prod**, `main` and `dev` in sync at `1dd6294`. Migrations `039`, `040`, `041` live in both environments. Vegas-ready build shipped.
+Done when: the spec is written, both open questions are decided, and it is ready to hand to Cody as a `handoff/` payload file.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js` (9 commits), `migrations/040_meal_add_count.sql` + `migrations/041_decrement_meal_from_list.sql` (new), six specs routed/graduated to `docs/specs/built/`
+**DB changes:** `040` — `list_item_meals.add_count` (integer, not null, default 1) + `add_meal_to_list` extended to increment it. `041` — new SECURITY DEFINER RPC `decrement_meal_from_list(p_meal_id uuid)`. **Both applied and verified on DEV *and* PROD**, alongside `039`.
+
 ### [2026-08-20] — [OurProvisions] — Ship deleteMeal, then close the entire meal/user two-ledger provenance seam it surfaced
 **Goal:** Build deleteMeal before Vegas so meals can eventually promote to prod, then handle whatever verification surfaced — which became closing the full meal-vs-user provenance seam across data, display and sync, plus the demo dry-run.
 **Completed:**
