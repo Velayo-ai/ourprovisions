@@ -1268,6 +1268,7 @@ function ProvisionsApp() {
     createHousehold,
     refreshMembers,
     renameHousehold,
+    referralCode,
     joinHouseholdByCode,
     discardUnclaimedHousehold,
     uploadHouseholdPhoto,
@@ -2093,6 +2094,36 @@ function ProvisionsApp() {
       }
     } finally {
       setInvitePreparing(false);
+    }
+  };
+
+  // Share the app → OS share sheet (spec D6–D8). The SECOND verb, and structurally
+  // different from the first in every way that matters:
+  //   * carries ?ref=CODE, never ?invite= — it attributes, it does not enroll
+  //   * NEVER names the place, so the message itself cannot be mistaken for an
+  //     invitation to a shared list. That ambiguity is what produced the Prem incident.
+  //   * no RPC and no spinner — the referral code is stable and already in hand
+  //   * NO DB WRITE AT SEND (D10). Attribution is written when a signup arrives
+  //     carrying the code. Arrivals are facts; sends are noise.
+  // No interstitial or confirm on either verb: labels and visual hierarchy carry the
+  // distinction, and a confirm punishes the common case.
+  const handleAppShare = async () => {
+    // D8 forbids emitting a naked URL, and a missing code is the only way that could
+    // happen here. The verb hides itself in that state (see the render guard), so this
+    // is the belt to that braces — reachable only if the code vanishes between render
+    // and tap.
+    if (!referralCode) return;
+    const url = `${window.location.origin}?ref=${referralCode}`;
+    const text = `I've been using OurProvisions to keep our shopping list straight — worth a look. ${url}`;
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({ title: "OurProvisions", text });
+      } catch (e) {
+        if (e && e.name !== "AbortError") console.error("share failed:", e);
+      }
+    } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+      await navigator.clipboard.writeText(text);
+      showToast("Link copied");
     }
   };
 
@@ -3212,17 +3243,82 @@ function ProvisionsApp() {
                 })}
               </div>
 
-              {/* Invite → OS share sheet (spec D5). No in-app share UI. */}
+              {/* Two share verbs (SPEC_solo_start_experience.md D6–D8), styled per
+                  mockup_solo_start_v2.html screen 3. One link served two intents before
+                  this — "join my list" and "check out this app" — and that collapse is
+                  what made a correct solo signup read as broken. The verbs are now
+                  structurally different, not just differently worded: espresso card vs.
+                  outlined, ?invite= vs. ?ref=, names the place vs. never names it.
+                  Hierarchy carries the distinction; neither verb gets a confirm. */}
               <button
                 onClick={handleInviteShare}
                 disabled={invitePreparing}
                 style={{
-                  width: "100%", fontFamily: "'Lato', sans-serif", fontSize: "0.8rem",
-                  letterSpacing: "1px", textTransform: "uppercase", padding: "12px",
-                  background: invitePreparing ? "#6ba3a0" : "#2f7d7a", color: "#FAF4EC", border: "none",
-                  borderRadius: "8px", cursor: invitePreparing ? "default" : "pointer", marginTop: "16px",
+                  display: "flex", alignItems: "center", gap: "12px", width: "100%",
+                  background: invitePreparing ? "#4a3524" : "#2C1A0E", border: "none",
+                  borderRadius: "13px", padding: "14px 16px",
+                  cursor: invitePreparing ? "default" : "pointer",
+                  marginTop: "16px", marginBottom: "9px", textAlign: "left",
                 }}
-              >{invitePreparing ? "Preparing…" : "+ Invite someone aboard"}</button>
+              >
+                <div style={{
+                  width: "34px", height: "34px", borderRadius: "9px", flex: "none",
+                  background: "rgba(250,244,236,0.14)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#C9A97A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                    <circle cx="9" cy="7" r="4" />
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                  </svg>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14.5px", fontWeight: 900, color: "#FAF4EC" }}>
+                    {invitePreparing ? "Preparing…" : "Invite aboard"}
+                  </div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11.5px", color: "#C9A97A", marginTop: "1px" }}>
+                    Add someone to this place’s shared list
+                  </div>
+                </div>
+              </button>
+
+              {/* Hidden until the referral code is in hand. D8 says every in-app share
+                  carries invite or ref and NEVER a naked URL, so with no code there is
+                  no honest link to send — the verb withholds itself rather than
+                  degrading into the ambiguous bare link the whole spec is about. */}
+              {referralCode && (
+                <button
+                  onClick={handleAppShare}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "12px", width: "100%",
+                    background: "none", border: "1.5px solid rgba(44,26,14,0.10)",
+                    borderRadius: "13px", padding: "12px 16px", cursor: "pointer",
+                    marginBottom: "4px", textAlign: "left",
+                  }}
+                >
+                  <div style={{
+                    width: "30px", height: "30px", borderRadius: "8px", flex: "none",
+                    background: "rgba(44,26,14,0.06)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A0724A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="18" cy="5" r="3" />
+                      <circle cx="6" cy="12" r="3" />
+                      <circle cx="18" cy="19" r="3" />
+                      <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
+                    </svg>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "13px", fontWeight: 700, color: "#2C1A0E" }}>
+                      Share the app
+                    </div>
+                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px", color: "#8a7968", marginTop: "1px" }}>
+                      Recommend the app — not this place
+                    </div>
+                  </div>
+                </button>
+              )}
 
               {/* Leaving is a membership action (you removing yourself) → it lives in
                   the membership zone, for non-creators. Delete (the entity action) is
