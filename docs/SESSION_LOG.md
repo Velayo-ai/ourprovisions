@@ -107,6 +107,10 @@ Done when: the meals decision is locked and merged into ROADMAP, and `SPEC_crew_
 
 ### [2026-08-21] — [OurProvisions] — Meal card Add⇄stepper, add-count ledger (040), and the decrement RPC (041)
 > **Reconstructed from commits `9331bbd`→`1dd6294` at SESSION END on 2026-08-24, not witnessed.** These nine commits shipped after the 2026-08-21 docs commit (`fab26c0`) and were never logged. Details are taken from the commit messages and the migration headers; anything not stated there is not claimed here.
+> **Addendum 2026-08-25:** Reconfirmed via direct prod query —
+> `040`/`041` (`decrement_meal_from_list`, `list_item_meals.quantity_contributed`)
+> present on prod. The "DEV ONLY" claim above was a stale reconstruction,
+> not database-verified at time of writing.
 **Goal:** Make a planned meal legible and adjustable from the Meals list — mark what's planned, and give the card a real stepper instead of a one-way Add.
 **Completed:**
 - **Marked planned meals on the Meals list** (`9331bbd`) — teal border + "Planned".
