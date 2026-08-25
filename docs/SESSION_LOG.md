@@ -25,6 +25,34 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-25] — [OurProvisions] — Design the solo-start experience: naming sheet, invite recovery, two share verbs, referral carry
+**Goal:** Make solo-start a designed experience — first-run naming moment, invite-code recovery, and two deliberate share verbs — mockup-first, then spec.
+**Completed:**
+- **Designed + approved the first-run welcome sheet** (mockup v2, place vocabulary): arch crest, "What should we call your first place?", reassurance sub, skippable, Continue disabled-empty. Fires once for bare-URL signups only, off a `just_signed_up` durable flag **plus** the `"My Household"` sentinel check — *behavior before label, applied to a trigger.*
+- **Made the naming moment the invite-recovery moment** — "Already have an invite? Enter it here" is an inline expander on the same sheet, never a second screen. Routes through the existing `join_household(text)` path (migration `030`): **one join implementation, two entrances.** This is the structural fix for the Prem incident.
+- **Split the send intent into two verbs** — **Invite aboard** (unchanged, `?invite=CODE`, names the place) vs. **Share the app** (new, secondary weight in the household sheet, `?ref=USERCODE`, never names the place). No interstitial on either; hierarchy carries the distinction.
+- **Designed the referral carry:** `?ref=` **attributes but never enrolls** — the recipient still solo-starts and still sees the welcome sheet. One stable `referral_code` per user; `referred_by` written once at signup arrival; **no DB write at send**. The two-hop tree (Dan → Prem → Prem's friends) becomes a recursive query on a database fact.
+- **Locked the hard rule (D8):** every in-app share path carries `invite` or `ref` — never a naked URL. A bare arrival now *means* organic (`referred_by = null`), rather than being ambiguous.
+- **Decided orphan cleanup (D11, Dan-confirmed):** code-join from the sheet soft-deletes the machine-created solo place iff created-this-session ∧ sentinel-named ∧ zero items ∧ sole member. Principle: **naming is claiming** — only a place nobody claimed is ever cleaned, and only at a user-initiated pivot; **no background cleanup ever.**
+- **Routed the airlock and merged the handoff** (Claude Code): spec → `docs/specs/active/`, mockup of record → `docs/mockups/`, four DECISIONS rows + five architecture facts applied, `design_handoff.md` consumed and deleted.
+**Unfinished:**
+- **Build not started** — this was a design/decision session; the spec + mockup are the deliverable. All 10 verification items remain unrun.
+- Referral-code charset/length and mint timing (bootstrap vs. lazy) left as **builder's choice** (D9); migration number assigned at point-of-build.
+- No referral UI/reporting — data-only in v1; surfacing the tree is its own later session.
+- `SPEC_wordmark_earned_our.md` still unbuilt — named in the spec as a **sibling build, not a dependency**; shipping both together makes the solo narrative coherent.
+- Two prod RUM errors (avg-prices fetch, JWT-not-yet-valid) still uninvestigated — carried.
+- **Reconciliation left for build:** July's migration `023` row already specs `referral_code`/`referred_by` with a *trigger-set* code and a backfill. D9 loosens that to builder's choice — the two descriptions must be settled into one at point-of-build, not carried as a pair.
+- **Airlock process note:** `handoff/` is `*`-gitignored, so payload files are never tracked and `git mv` fails on them. Routing is plain `mv` + `git add` at the destination — CLAUDE.md Step 0.5's "`git mv` so history is preserved" cannot apply here; there is no history to preserve.
+**Next session:**
+SESSION START
+Goal: BUILD `SPEC_solo_start_experience.md` (Claude Code) — welcome sheet + trigger flag, code-join entrance + D11 cleanup, Share-the-app verb, referral migration + bootstrap attribution write. Consider pairing the earned-Our header build into the same session.
+State: Spec + approved mockup routed and committed. Prod live and healthy. Join path (`join_household(text)`, migration `030`) is the reused foundation — no changes to it. Referral migration number assigned at point-of-build. Remote-tracking refs are stale (last fetch 2026-08-21) — `git fetch` before trusting any ahead/behind count.
+Done when: all 10 spec verification items pass on dev (incl. the D11 control case — an item-added place SURVIVES code-join), migration applied dev-first, dev-green before any prod promotion.
+**Files updated:** `docs/specs/active/SPEC_solo_start_experience.md` (**new** — routed from the airlock), `docs/mockups/mockup_solo_start_v2.html` (**new** — mockup of record), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** None — design only. One migration authored-at-build: `users.referral_code` + `users.referred_by`.
+
+---
+
 ### [2026-08-24] — [OurProvisions] — Triage the first external-tester onboarding incident, then turn it into solo-start design decisions
 **Goal:** Triage the Prem/Cyrus onboarding incident reported live from dinner, and resolve what is defect versus design.
 **Completed:**

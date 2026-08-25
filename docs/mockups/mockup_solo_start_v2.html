@@ -1,0 +1,207 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solo-start experience — naming, invite recovery, share verbs</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --espresso:#2C1A0E; --cream:#FAF4EC; --paper:#FBF7F0;
+  --clay:#A0724A; --sand:#C9A97A; --teal:#0D9488; --danger:#B3261E;
+  --line:rgba(44,26,14,.10);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#e8e2d8;font-family:Lato,sans-serif;color:var(--espresso);
+  padding:26px 14px 60px;display:flex;flex-wrap:wrap;justify-content:center;gap:34px;}
+.col{display:flex;flex-direction:column;align-items:center;gap:10px;}
+.label{font-family:Lato;font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--clay);}
+.note{max-width:300px;font-size:12px;color:#6f5a45;line-height:1.55;text-align:center;margin-top:2px;}
+.note b{color:var(--espresso);}
+
+.device{width:320px;background:linear-gradient(160deg,#2a2a2c,#0b0b0d 42%,#000);
+  border-radius:44px;padding:11px;box-shadow:0 30px 60px -20px rgba(0,0,0,.55);}
+.phone{background:var(--espresso);border-radius:33px;overflow:hidden;position:relative;height:660px;}
+
+.behind{position:absolute;inset:0;background:var(--paper);}
+.behind .topbar{height:70px;background:var(--espresso);display:flex;align-items:center;justify-content:center;position:relative;}
+.behind .topbar .name{font-family:'Playfair Display',serif;font-style:italic;color:var(--sand);font-size:20px;}
+.behind .topbar .name b{font-weight:700;}
+.behind .body{padding:20px 16px;opacity:.45;}
+.behind .row{height:40px;border:1px solid var(--line);border-radius:12px;margin-bottom:9px;}
+.scrim{position:absolute;inset:0;background:rgba(20,12,6,.55);backdrop-filter:blur(2px);}
+
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--cream);
+  border-radius:22px 22px 0 0;padding:8px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.4);}
+.grab{width:36px;height:4px;border-radius:2px;background:rgba(44,26,14,.18);margin:0 auto 14px;}
+.sheet-inner{padding:4px 22px 26px;}
+
+.eyebrow{font-size:10px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--clay);margin-bottom:8px;}
+.headline{font-family:'Playfair Display',serif;font-weight:600;font-size:22px;line-height:1.3;color:var(--espresso);margin-bottom:6px;}
+.sub{font-size:13px;color:#6f5a45;line-height:1.5;margin-bottom:20px;}
+
+.field-label{font-size:11.5px;font-weight:700;color:var(--espresso);margin-bottom:7px;}
+input.field{width:100%;padding:13px 14px;border-radius:10px;border:1.5px solid var(--clay);
+  font-family:Lato;font-size:15px;background:#fff;color:var(--espresso);margin-bottom:4px;}
+input.field::placeholder{color:#b5a48d;}
+.hint{font-size:11px;color:#8a7968;margin-bottom:22px;}
+
+.btn-primary{width:100%;padding:14px;background:var(--espresso);border:none;border-radius:11px;
+  font-family:Lato;font-size:14.5px;font-weight:900;letter-spacing:.02em;color:var(--cream);cursor:pointer;margin-bottom:14px;}
+.btn-skip{width:100%;background:none;border:none;text-align:center;font-family:Lato;font-size:12.5px;
+  font-weight:700;color:#8a7968;cursor:pointer;padding:4px;margin-bottom:4px;}
+
+.divider{display:flex;align-items:center;gap:10px;margin:18px 0 16px;}
+.divider .line{flex:1;height:1px;background:var(--line);}
+.divider .t{font-size:10.5px;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:#b5a48d;}
+
+.code-toggle{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;
+  background:none;border:none;font-family:Lato;font-size:13px;font-weight:700;color:var(--teal);
+  cursor:pointer;padding:6px;}
+.code-toggle svg{width:13px;height:13px;stroke:var(--teal);}
+
+.code-panel{margin-top:14px;padding:16px;background:rgba(13,148,136,.06);border:1.5px dashed var(--teal);
+  border-radius:12px;}
+.code-panel .cp-label{font-size:11.5px;font-weight:700;color:var(--espresso);margin-bottom:9px;}
+.code-row{display:flex;gap:8px;}
+.code-row input{flex:1;padding:12px 13px;border-radius:9px;border:1.5px solid var(--teal);
+  font-family:Lato;font-size:14px;background:#fff;color:var(--espresso);text-transform:uppercase;letter-spacing:.06em;}
+.code-row input::placeholder{color:#b5a48d;text-transform:none;letter-spacing:0;}
+.btn-join{flex:none;padding:12px 18px;background:var(--teal);border:none;border-radius:9px;
+  font-family:Lato;font-size:13px;font-weight:900;color:#fff;cursor:pointer;}
+
+/* Screen 3 — Invite/Share sheet */
+.zone-eyebrow{font-size:10px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--clay);margin:14px 2px 10px;}
+.verb-primary{display:flex;align-items:center;gap:12px;width:100%;background:var(--espresso);
+  border:none;border-radius:13px;padding:14px 16px;cursor:pointer;margin-bottom:9px;text-align:left;}
+.verb-primary .vi{width:34px;height:34px;border-radius:9px;background:rgba(250,244,236,.14);
+  display:flex;align-items:center;justify-content:center;flex:none;}
+.verb-primary .vi svg{width:17px;height:17px;stroke:var(--sand);}
+.verb-primary .vt{flex:1;}
+.verb-primary .vt .vtitle{font-family:Lato;font-size:14.5px;font-weight:900;color:var(--cream);}
+.verb-primary .vt .vdesc{font-family:Lato;font-size:11.5px;color:var(--sand);margin-top:1px;}
+
+.verb-secondary{display:flex;align-items:center;gap:12px;width:100%;background:none;
+  border:1.5px solid var(--line);border-radius:13px;padding:12px 16px;cursor:pointer;margin-bottom:4px;text-align:left;}
+.verb-secondary .vi{width:30px;height:30px;border-radius:8px;background:rgba(44,26,14,.06);
+  display:flex;align-items:center;justify-content:center;flex:none;}
+.verb-secondary .vi svg{width:14px;height:14px;stroke:var(--clay);}
+.verb-secondary .vt{flex:1;}
+.verb-secondary .vt .vtitle{font-family:Lato;font-size:13px;font-weight:700;color:var(--espresso);}
+.verb-secondary .vt .vdesc{font-family:Lato;font-size:10.5px;color:#8a7968;margin-top:1px;}
+</style>
+</head>
+<body>
+
+<div class="col">
+  <div class="label">1 — First-run naming</div>
+  <div class="device"><div class="phone">
+    <div class="behind">
+      <div class="topbar"><span class="name">Provisions</span></div>
+      <div class="body"><div class="row"></div><div class="row"></div><div class="row"></div></div>
+    </div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="sheet-inner">
+        <div style="text-align:center;margin:4px 0 10px;">
+          <svg width="64" height="20" viewBox="0 0 64 20" fill="none">
+            <path d="M4 18 C 14 2, 50 2, 60 18" stroke="#C9A97A" stroke-width="2.4" stroke-linecap="round" opacity="0.85"/>
+          </svg>
+        </div>
+        <div class="eyebrow" style="text-align:center;">Welcome aboard</div>
+        <div class="headline" style="text-align:center;">What should we call your first place?</div>
+        <div class="sub" style="text-align:center;">Don’t worry — you can rename it or add more places later.</div>
+        <div class="field-label">Place name</div>
+        <input class="field" placeholder="Home, The Smiths, Lake house…" value="" />
+        <div class="hint">&nbsp;</div>
+        <button class="btn-primary">Continue</button>
+        <button class="btn-skip">I'll do this later</button>
+
+        <div class="divider"><div class="line"></div><div class="t">or</div><div class="line"></div></div>
+
+        <button class="code-toggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M9 12h6M9 16h6M9 8h2"/><rect x="4" y="4" width="16" height="16" rx="3"/></svg>
+          Already have an invite? Enter it here
+        </button>
+      </div>
+    </div>
+  </div></div>
+  <div class="note"><b>Trigger:</b> first load post-signup, no <code>?invite=</code> in the URL, place still on the “My Household” DB sentinel. Skip leaves the sentinel — the pencil-edit affordance is the fallback, no nagging.</div>
+</div>
+
+<div class="col">
+  <div class="label">2 — Invite-code recovery (expanded)</div>
+  <div class="device"><div class="phone">
+    <div class="behind">
+      <div class="topbar"><span class="name">Provisions</span></div>
+      <div class="body"><div class="row"></div><div class="row"></div><div class="row"></div></div>
+    </div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="sheet-inner">
+        <div style="text-align:center;margin:4px 0 10px;">
+          <svg width="64" height="20" viewBox="0 0 64 20" fill="none">
+            <path d="M4 18 C 14 2, 50 2, 60 18" stroke="#C9A97A" stroke-width="2.4" stroke-linecap="round" opacity="0.85"/>
+          </svg>
+        </div>
+        <div class="eyebrow" style="text-align:center;">Welcome aboard</div>
+        <div class="headline" style="text-align:center;">What should we call your first place?</div>
+        <div class="sub" style="text-align:center;">Don’t worry — you can rename it or add more places later.</div>
+        <div class="field-label">Place name</div>
+        <input class="field" placeholder="Home, The Smiths, Lake house…" value="" />
+
+        <div class="code-panel">
+          <div class="cp-label">Got a link or code from someone? Join their place instead:</div>
+          <div class="code-row">
+            <input placeholder="Invite code" />
+            <button class="btn-join">Join</button>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;">
+          <button class="btn-primary">Continue</button>
+          <button class="btn-skip">I'll do this later</button>
+        </div>
+      </div>
+    </div>
+  </div></div>
+  <div class="note">This is the exact recovery moment for the <b>Prem incident</b>: someone who meant to join a household but landed solo, silently, gets handed the door back — inline, no second screen to abandon.</div>
+</div>
+
+<div class="col">
+  <div class="label">3 — Two share verbs</div>
+  <div class="device"><div class="phone">
+    <div class="behind">
+      <div class="topbar"><span class="name">Provisions</span></div>
+      <div class="body"><div class="row"></div><div class="row"></div><div class="row"></div></div>
+    </div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="sheet-inner">
+        <div class="eyebrow">Madbury · Members</div>
+
+        <button class="verb-primary">
+          <div class="vi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <div class="vt">
+            <div class="vtitle">Invite aboard</div>
+            <div class="vdesc">Add someone to this place’s shared list</div>
+          </div>
+        </button>
+
+        <button class="verb-secondary">
+          <div class="vi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg></div>
+          <div class="vt">
+            <div class="vtitle">Share the app</div>
+            <div class="vdesc">Recommend the app — not this place</div>
+          </div>
+        </button>
+
+        <div class="zone-eyebrow">Madbury · Members</div>
+        <div style="height:40px;border:1px solid var(--line);border-radius:12px;"></div>
+      </div>
+    </div>
+  </div></div>
+  <div class="note"><b>Invite aboard</b> generates <code>?invite=CODE</code> — recipient inherits your household, never sees the naming sheet. <b>Share the app</b> generates the bare URL with app copy — a signup from it <i>is</i> a genuine solo-start and should hit Screen 1.</div>
+</div>
+
+</body></html>
