@@ -1267,6 +1267,9 @@ function ProvisionsApp() {
     wrapUpTrip,
     createHousehold,
     refreshMembers,
+    renameHousehold,
+    joinHouseholdByCode,
+    discardUnclaimedHousehold,
     uploadHouseholdPhoto,
     updateHouseholdBanner,
     supabase,
@@ -1952,6 +1955,118 @@ function ProvisionsApp() {
     const t = setTimeout(() => setJoinBanner(null), 5000);
     return () => clearTimeout(t);
   }, [joinBanner, household?.name]);
+
+  // ─────────────────────────────────────────────────────────────
+  // First-run welcome sheet (SPEC_solo_start_experience.md, D1–D5, D11)
+  // ─────────────────────────────────────────────────────────────
+  //
+  // THE TRIGGER IS A CONJUNCTION, NOT A FLAG. All three must hold:
+  //   1. sessionStorage.just_signed_up — bootstrap CREATED a place this session
+  //      (server-authoritative via created_household; migration 042)
+  //   2. no ?invite= in the URL — an invited arrival is already where it belongs
+  //   3. the active place is still on the "My Household" DB sentinel
+  //
+  // Condition 3 is the safety net, and it is the whole reason the flag alone is not
+  // enough: a stray surviving flag on an already-named place stays silent. Behaviour
+  // before label, applied to a trigger — we never interrupt someone whose data says
+  // they are already settled.
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [welcomeName, setWelcomeName] = useState("");
+  const [welcomeCodeOpen, setWelcomeCodeOpen] = useState(false);
+  const [welcomeCode, setWelcomeCode] = useState("");
+  const [welcomeError, setWelcomeError] = useState(null);
+  const [welcomeBusy, setWelcomeBusy] = useState(false);
+  // The place bootstrap made this session — the D11 discard candidate. Captured when the
+  // sheet opens, because by the time Join resolves the lens has begun moving elsewhere.
+  const welcomeOrphanIdRef = useRef(null);
+
+  useEffect(() => {
+    if (loading || !household || welcomeOpen) return;
+    let flag = null;
+    try { flag = sessionStorage.getItem("just_signed_up"); } catch (e) { /* storage blocked */ }
+    if (!flag) return;
+    const hasInvite = new URLSearchParams(window.location.search).get("invite");
+    if (hasInvite) return;
+    if (household.name !== "My Household") return;
+    welcomeOrphanIdRef.current = household.id;
+    setWelcomeOpen(true);
+  }, [loading, household, welcomeOpen]);
+
+  // The flag burns on ANY exit — Continue, Skip, or a successful code-join (D3).
+  // Burn FIRST, then act: if the rename or the join throws, the sheet must still not
+  // re-fire on the next load. Nagging is the failure mode this spec is avoiding, and a
+  // half-finished naming attempt is not a reason to ask again.
+  const closeWelcome = useCallback(() => {
+    try { sessionStorage.removeItem("just_signed_up"); } catch (e) { /* storage blocked */ }
+    setWelcomeOpen(false);
+    setWelcomeError(null);
+    setWelcomeCodeOpen(false);
+    setWelcomeCode("");
+  }, []);
+
+  const handleWelcomeContinue = async () => {
+    if (welcomeBusy) return;
+    const trimmed = welcomeName.trim();
+    if (!trimmed) return;                       // D4 — Continue is inert while empty
+    setWelcomeBusy(true);
+    try {
+      closeWelcome();
+      const ok = await renameHousehold(trimmed);
+      if (ok) await refreshHouseholds();        // propagate the name to the switcher
+    } finally {
+      setWelcomeBusy(false);
+    }
+  };
+
+  // Skip leaves the sentinel in place (D3). No nag, no re-fire — the pencil-edit
+  // affordance in Edit place is the standing fallback, and earned-Our carries the
+  // later nudge on its own.
+  const handleWelcomeSkip = () => {
+    if (welcomeBusy) return;
+    closeWelcome();
+  };
+
+  // The recovery path (D5). This is the Prem incident's exit door: someone who meant to
+  // join a household but landed solo gets handed the door back, inline, with no second
+  // screen to abandon.
+  const handleWelcomeJoin = async () => {
+    if (welcomeBusy) return;
+    const code = welcomeCode.trim();
+    if (!code) { setWelcomeError("Enter an invite code."); return; }
+    setWelcomeBusy(true);
+    setWelcomeError(null);
+
+    // The watchdog gap is real on this path: the D11 discard soft-deletes the household
+    // that is STILL ACTIVE for another beat, and checkPresence would read that as an
+    // external removal and post "No longer a member of…" — the precise scary-but-wrong
+    // message this spec exists to design away. Raise the guard BEFORE the RPCs.
+    beginDeliberateLoss();
+    try {
+      const result = await joinHouseholdByCode(code);
+      if (!result.ok) {
+        // Server-authored message ("Invite not found." / "…already used." / "…expired.")
+        // rendered inline. The sheet STAYS OPEN — a mistyped code must not cost the user
+        // the recovery surface.
+        setWelcomeError(result.message || "Invite not found.");
+        return;
+      }
+
+      // Joined. Discard the machine-made place they never claimed (D11). Best-effort by
+      // design — the server owns the four-condition guard, and a refusal is a normal
+      // answer, not an error. The join has already succeeded either way.
+      const orphanId = welcomeOrphanIdRef.current;
+      if (orphanId && orphanId !== result.householdId) {
+        await discardUnclaimedHousehold(orphanId);
+      }
+      await refreshHouseholds();
+      closeWelcome();
+      // The switch itself is owned by the durable-intent effect, which is already
+      // watching just_joined_household_id. Nothing to do here.
+    } finally {
+      endDeliberateLoss();
+      setWelcomeBusy(false);
+    }
+  };
 
   // Invite → OS share sheet hand-off (spec D5). Generate a fresh link for the
   // active household, then hand the pre-filled "come aboard" message to
@@ -3125,6 +3240,179 @@ function ProvisionsApp() {
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* First-run welcome sheet (SPEC_solo_start_experience.md D1–D5).
+          Structure follows mockup_solo_start_v2.html, which is the tiebreaker over the
+          spec prose: when the code panel is expanded it sits ABOVE Continue/Skip and
+          replaces the divider + toggle, rather than appearing below them.
+          No backdrop onClick — this sheet is dismissed by Continue or Skip, never by a
+          stray tap. Skip is right there and costs nothing; an accidental dismissal would
+          silently spend the one time this sheet ever fires. */}
+      {welcomeOpen && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(20,12,6,0.55)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            zIndex: 1200, animation: "fadeIn 0.2s ease",
+          }}
+        >
+          <div
+            style={{
+              background: "#FAF4EC", borderRadius: "22px 22px 0 0", padding: "8px 0 0",
+              width: "min(440px, 100vw)", maxHeight: "94vh", overflowY: "auto",
+              boxShadow: "0 -12px 40px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div style={{
+              width: "36px", height: "4px", borderRadius: "2px",
+              background: "rgba(44,26,14,0.18)", margin: "0 auto 14px",
+            }} />
+
+            <div style={{ padding: "4px 22px 26px" }}>
+              {/* Arch crest — the splash arch, quoted small. */}
+              <div style={{ textAlign: "center", margin: "4px 0 10px" }}>
+                <svg width="64" height="20" viewBox="0 0 64 20" fill="none" aria-hidden="true">
+                  <path d="M4 18 C 14 2, 50 2, 60 18" stroke="#C9A97A" strokeWidth="2.4" strokeLinecap="round" opacity="0.85" />
+                </svg>
+              </div>
+
+              <div style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "10px", fontWeight: 900,
+                letterSpacing: "0.16em", textTransform: "uppercase", color: "#A0724A",
+                marginBottom: "8px", textAlign: "center",
+              }}>Welcome aboard</div>
+
+              <div style={{
+                fontFamily: "'Playfair Display', serif", fontWeight: 600, fontSize: "22px",
+                lineHeight: 1.3, color: "#2C1A0E", marginBottom: "6px", textAlign: "center",
+              }}>What should we call your first place?</div>
+
+              {/* The reassurance is load-bearing, not decoration: it defuses naming
+                  paralysis, which is what makes a naming gate safe to put here at all. */}
+              <div style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "13px", color: "#6f5a45",
+                lineHeight: 1.5, marginBottom: "20px", textAlign: "center",
+              }}>Don’t worry — you can rename it or add more places later.</div>
+
+              <div style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "11.5px", fontWeight: 700,
+                color: "#2C1A0E", marginBottom: "7px",
+              }}>Place name</div>
+              <input
+                value={welcomeName}
+                onChange={(e) => setWelcomeName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && welcomeName.trim()) handleWelcomeContinue(); }}
+                placeholder="Home, The Smiths, Lake house…"
+                autoFocus
+                style={{
+                  width: "100%", padding: "13px 14px", borderRadius: "10px",
+                  border: "1.5px solid #A0724A", fontFamily: "'Lato', sans-serif",
+                  fontSize: "15px", background: "#fff", color: "#2C1A0E", marginBottom: "4px",
+                }}
+              />
+
+              {welcomeCodeOpen ? (
+                <div style={{
+                  marginTop: "14px", padding: "16px", background: "rgba(13,148,136,0.06)",
+                  border: "1.5px dashed #0D9488", borderRadius: "12px",
+                }}>
+                  <div style={{
+                    fontFamily: "'Lato', sans-serif", fontSize: "11.5px", fontWeight: 700,
+                    color: "#2C1A0E", marginBottom: "9px",
+                  }}>Got a link or code from someone? Join their place instead:</div>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <input
+                      value={welcomeCode}
+                      onChange={(e) => { setWelcomeCode(e.target.value); setWelcomeError(null); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleWelcomeJoin(); }}
+                      placeholder="Invite code"
+                      style={{
+                        flex: 1, minWidth: 0, padding: "12px 13px", borderRadius: "9px",
+                        border: "1.5px solid #0D9488", fontFamily: "'Lato', sans-serif",
+                        fontSize: "14px", background: "#fff", color: "#2C1A0E",
+                        textTransform: "uppercase", letterSpacing: "0.06em",
+                      }}
+                    />
+                    <button
+                      onClick={handleWelcomeJoin}
+                      disabled={welcomeBusy}
+                      style={{
+                        flex: "none", padding: "12px 18px", background: welcomeBusy ? "#6ba3a0" : "#0D9488",
+                        border: "none", borderRadius: "9px", fontFamily: "'Lato', sans-serif",
+                        fontSize: "13px", fontWeight: 900, color: "#fff",
+                        cursor: welcomeBusy ? "default" : "pointer",
+                      }}
+                    >{welcomeBusy ? "Joining…" : "Join"}</button>
+                  </div>
+                  {welcomeError && (
+                    <div style={{
+                      fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#B3261E",
+                      marginTop: "9px", lineHeight: 1.4,
+                    }}>{welcomeError}</div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#8a7968", marginBottom: "22px" }}>&nbsp;</div>
+              )}
+
+              <div style={{ marginTop: welcomeCodeOpen ? "20px" : 0 }}>
+                <button
+                  onClick={handleWelcomeContinue}
+                  disabled={!welcomeName.trim() || welcomeBusy}
+                  style={{
+                    width: "100%", padding: "14px", background: "#2C1A0E", border: "none",
+                    borderRadius: "11px", fontFamily: "'Lato', sans-serif", fontSize: "14.5px",
+                    fontWeight: 900, letterSpacing: "0.02em", color: "#FAF4EC",
+                    marginBottom: "14px",
+                    // D4 — Skip IS the no-name path. An enabled empty Continue would be a
+                    // second Skip wearing a misleading label, so it is visibly inert.
+                    opacity: welcomeName.trim() && !welcomeBusy ? 1 : 0.4,
+                    cursor: welcomeName.trim() && !welcomeBusy ? "pointer" : "default",
+                  }}
+                >Continue</button>
+                <button
+                  onClick={handleWelcomeSkip}
+                  disabled={welcomeBusy}
+                  style={{
+                    width: "100%", background: "none", border: "none", textAlign: "center",
+                    fontFamily: "'Lato', sans-serif", fontSize: "12.5px", fontWeight: 700,
+                    color: "#8a7968", cursor: welcomeBusy ? "default" : "pointer",
+                    padding: "4px", marginBottom: "4px",
+                  }}
+                >I'll do this later</button>
+              </div>
+
+              {!welcomeCodeOpen && (
+                <>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "18px 0 16px" }}>
+                    <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.10)" }} />
+                    <div style={{
+                      fontFamily: "'Lato', sans-serif", fontSize: "10.5px", fontWeight: 900,
+                      letterSpacing: "0.1em", textTransform: "uppercase", color: "#b5a48d",
+                    }}>or</div>
+                    <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.10)" }} />
+                  </div>
+                  <button
+                    onClick={() => setWelcomeCodeOpen(true)}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                      width: "100%", background: "none", border: "none",
+                      fontFamily: "'Lato', sans-serif", fontSize: "13px", fontWeight: 700,
+                      color: "#0D9488", cursor: "pointer", padding: "6px",
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0D9488" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                      <path d="M9 12h6M9 16h6M9 8h2" />
+                      <rect x="4" y="4" width="16" height="16" rx="3" />
+                    </svg>
+                    Already have an invite? Enter it here
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
