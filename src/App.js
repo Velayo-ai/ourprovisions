@@ -2081,15 +2081,21 @@ function ProvisionsApp() {
       const url = await createInvite();
       if (!url) { showToast("Couldn't prepare an invite link. Try again."); return; }
       const name = household?.name || "my place";
-      const text = `Come aboard my OurProvisions list — join ${name} and it gets smarter as we go. ${url}`;
+      // The link rides the `url` field, not the prose, so platforms that render a
+      // preview card get a clean target instead of parsing it out of the sentence.
+      // It is therefore ABSENT from `text` — including both would print it twice.
+      const text = `Come aboard my OurProvisions list — join ${name} and it gets smarter as we go.`;
       if (typeof navigator !== "undefined" && navigator.share) {
         try {
-          await navigator.share({ title: "Come aboard my OurProvisions list", text });
+          await navigator.share({ title: "Come aboard my OurProvisions list", text, url });
         } catch (e) {
           if (e && e.name !== "AbortError") console.error("share failed:", e);
         }
       } else if (typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(text);
+        // The clipboard has no `url` field to carry the link, so it must be
+        // reattached here. Copying bare `text` would put a linkless invitation on
+        // the desktop path — an invite that cannot be accepted.
+        await navigator.clipboard.writeText(`${text} ${url}`);
         showToast("Invite copied");
       }
     } finally {
@@ -2114,15 +2120,20 @@ function ProvisionsApp() {
     // and tap.
     if (!referralCode) return;
     const url = `${window.location.origin}?ref=${referralCode}`;
-    const text = `I've been using OurProvisions to keep our shopping list straight — worth a look. ${url}`;
+    // As with Invite aboard: the link rides the `url` field so the OS can render a
+    // preview card, and is deliberately absent from `text` to avoid printing twice.
+    const text = `I've been using OurProvisions to keep our shopping list straight — worth a look.`;
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
-        await navigator.share({ title: "OurProvisions", text });
+        await navigator.share({ title: "OurProvisions", text, url });
       } catch (e) {
         if (e && e.name !== "AbortError") console.error("share failed:", e);
       }
     } else if (typeof navigator !== "undefined" && navigator.clipboard) {
-      await navigator.clipboard.writeText(text);
+      // Reattach the link for the clipboard path — there is no `url` field here, and
+      // a copied recommendation with no link is D8's naked-share failure in reverse:
+      // not an ambiguous link, but no link at all.
+      await navigator.clipboard.writeText(`${text} ${url}`);
       showToast("Link copied");
     }
   };
