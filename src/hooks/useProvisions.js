@@ -14,6 +14,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [categoryAvgPrices, setCategoryAvgPrices] = useState({});
   const [household, setHousehold] = useState(null);
   const [householdMembers, setHouseholdMembers] = useState([]);
+  // Stable per-user referral code (migration 042, spec D9). Returned by bootstrap so the
+  // Share-the-app verb needs no lookup and no RPC at send time (D10). Null until bootstrap
+  // resolves, and null forever against an un-migrated database — the verb hides itself
+  // rather than composing a naked URL, which D8 forbids outright.
+  const [referralCode, setReferralCode] = useState(null);
   const [catalogMap, setCatalogMap] = useState({});
   const [listRows, setListRows] = useState([]); // raw surviving RPC rows — source of truth for the SHOP list
   const [hiddenCatalogItems, setHiddenCatalogItems] = useState([]);
@@ -330,24 +335,42 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         const urlInvite = new URLSearchParams(window.location.search).get("invite");
         const pendingInviteCode = urlInvite || sessionStorage.getItem("pending_invite_code");
 
+        // Same bridge for the referral code (spec D7). It attributes but never enrolls,
+        // so it takes no part in any branch below — it is handed to the server, written
+        // once at signup, and forgotten.
+        const urlRef = new URLSearchParams(window.location.search).get("ref");
+        const pendingRefCode = urlRef || sessionStorage.getItem("pending_ref_code");
+
         // Use bootstrap_new_user RPC (SECURITY DEFINER — bypasses RLS).
         // Pass invite code so joining happens in one atomic transaction.
         // Identity is NOT passed: the function derives the Clerk id from
         // auth.jwt()->>'sub' server-side (migration 036, Authorization Part 2).
         // Sending p_clerk_id here would not just be redundant, it would fail —
         // no overload accepts it after 037.
+        //
+        // p_ref_code is passed ONLY when a code is actually present (migration 042).
+        // That conditional is load-bearing, not tidiness: PostgREST resolves the overload
+        // from the argument names supplied, so omitting the key keeps every ordinary
+        // sign-in on the exact 3-named-arg call that works against an un-migrated
+        // database. Without it, deploying this bundle before 042 lands would PGRST202
+        // every session setup — a full auth-path outage. With it, only a ?ref= arrival
+        // depends on the migration, which is the documented regression guard.
+        const bootstrapArgs = {
+          p_email: email,
+          p_invite_code: pendingInviteCode || null,
+          p_full_name: fullName || null,
+        };
+        if (pendingRefCode) bootstrapArgs.p_ref_code = pendingRefCode;
+
         const { data: bootstrapData, error: bootstrapErr } = await db
-          .rpc("bootstrap_new_user", {
-            p_email: email,
-            p_invite_code: pendingInviteCode || null,
-            p_full_name: fullName || null,
-          });
+          .rpc("bootstrap_new_user", bootstrapArgs);
 
         if (bootstrapErr) throw new Error(`Bootstrap failed: ${bootstrapErr.message}`);
 
         // Code has been attempted — clear the persisted copy so it can't re-trigger
         // on a future visit, regardless of whether the join actually succeeded.
         sessionStorage.removeItem("pending_invite_code");
+        sessionStorage.removeItem("pending_ref_code");
 
         internalUserIdRef.current = bootstrapData.user_id;
         clerkIdRef.current = clerkId;
@@ -380,6 +403,23 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
             sessionStorage.setItem("just_joined_household", joinResult.household_name || "the place");
             sessionStorage.setItem("just_joined_household_id", joinResult.household_id);
           }
+        }
+
+        // Referral code for the Share-the-app verb (D9). Absent against an un-migrated
+        // database — see the referralCode declaration for why that degrades safely.
+        setReferralCode(bootstrapData.referral_code || null);
+
+        // The create-vs-join seam (spec §3). `created_household` is true ONLY when
+        // bootstrap minted a fresh solo place, so this is the one moment the welcome
+        // sheet may fire. Deliberately NOT inferred from the household name: an existing
+        // user who never renamed their place looks identical by name, and firing the
+        // sheet at them is verification item 10's explicit failure.
+        //
+        // Reading a key an un-migrated database does not return yields undefined, so the
+        // flag is never set and the sheet stays dormant. That is the intended degradation
+        // — dormant, never wrong.
+        if (bootstrapData.created_household === true) {
+          sessionStorage.setItem("just_signed_up", "1");
         }
 
         // Stash bootstrap's chosen household as the fallback for Effect 2
@@ -1702,6 +1742,86 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [updateHouseholdBanner]);
 
+  // ─────────────────────────────────────────────────────────────
+  // Solo-start experience (SPEC_solo_start_experience.md)
+  // ─────────────────────────────────────────────────────────────
+
+  // joinHouseholdByCode: the welcome sheet's code entrance (D5).
+  //
+  // ONE JOIN IMPLEMENTATION, TWO ENTRANCES. This is deliberately NOT a second join
+  // path — it calls the same server-validated join_household(text) (migration 030) that
+  // the ?invite= arrival calls, and hands off to the same durable-intent flags the
+  // bootstrap invite branch writes. The sheet is a new door onto the existing room.
+  //
+  // Returns a result object rather than throwing: an unrecognised code is a NORMAL
+  // outcome on this surface (the user is typing a code they half-remember), and it must
+  // render inline on the sheet rather than as a global error banner. join_household is
+  // the single source of the three distinct messages ("Invite not found." /
+  // "…already used." / "…expired.").
+  const joinHouseholdByCode = useCallback(async (code) => {
+    const db = supabaseRef.current;
+    const trimmed = (code || "").trim();
+    if (!db) return { ok: false, message: "Not connected. Try again." };
+    if (!trimmed) return { ok: false, message: "Enter an invite code." };
+
+    try {
+      // toUpperCase is belt-and-braces; the server normalizes with upper(trim(...)).
+      const { data: joinResult, error: joinErr } = await db.rpc("join_household", {
+        p_invite_code: trimmed.toUpperCase(),
+      });
+      if (joinErr) return { ok: false, message: joinErr.message };
+      if (!joinResult?.household_id) return { ok: false, message: "Invite not found." };
+
+      // Same two durable flags the bootstrap invite branch writes. The switch itself is
+      // owned by App's durable-intent effect (ADDENDUM_reopen) — which retries through a
+      // slow membership propagation — so this must not try to switch the lens itself.
+      sessionStorage.setItem("just_joined_household", joinResult.household_name || "the place");
+      sessionStorage.setItem("just_joined_household_id", joinResult.household_id);
+
+      return {
+        ok: true,
+        householdId: joinResult.household_id,
+        householdName: joinResult.household_name || "the place",
+      };
+    } catch (err) {
+      console.error("joinHouseholdByCode error:", err.message);
+      return { ok: false, message: err.message };
+    }
+  }, []);
+
+  // discardUnclaimedHousehold: the D11 cleanup (migration 042).
+  //
+  // "Naming is claiming." Soft-deletes the solo place bootstrap made seconds ago, but
+  // ONLY while nobody has claimed it — the four-condition guard lives server-side, so
+  // this call is a REQUEST, not a command, and a refusal is a normal answer.
+  //
+  // Never surfaces an error to the user and never blocks: it runs after a join that has
+  // already succeeded, and failing the user's join because we could not tidy up would be
+  // the tail wagging the dog. A missing function (un-migrated database) lands here too
+  // and is equally silent — the orphan simply persists, which is untidy, not broken.
+  //
+  // ⚠️ CALLERS MUST WRAP THIS IN beginDeliberateLoss()/endDeliberateLoss(). It soft-
+  // deletes the household that is very likely still ACTIVE, and the presence watchdog
+  // would otherwise read that as an external removal and fire the "no longer a member of"
+  // notice — the exact scary-but-wrong message this whole spec exists to design away.
+  const discardUnclaimedHousehold = useCallback(async (householdId) => {
+    const db = supabaseRef.current;
+    if (!db || !householdId) return false;
+    try {
+      const { data, error: discardErr } = await db.rpc("discard_unclaimed_household", {
+        p_household_id: householdId,
+      });
+      if (discardErr) {
+        console.error("discardUnclaimedHousehold error:", discardErr.message);
+        return false;
+      }
+      return data?.discarded === true;
+    } catch (err) {
+      console.error("discardUnclaimedHousehold error:", err.message);
+      return false;
+    }
+  }, []);
+
   const renameHousehold = useCallback(async (newName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -2142,6 +2262,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
+    referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, deleteMeal, removeMealFromList, decrementMealBatch, createCatalogItem, addMealToList, fetchMealProvenance, onListChangedRef,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,

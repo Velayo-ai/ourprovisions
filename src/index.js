@@ -9,10 +9,18 @@ import { ClerkProvider } from '@clerk/clerk-react';
 // Capture invite code before Clerk's sign-up redirect can strip the URL param.
 // Brand-new users are sent through Clerk auth, which drops ?invite=; persist it
 // here (runs before ClerkProvider mounts) so bootstrap can recover it post-auth.
+//
+// ?ref= (spec D7) rides the identical bridge for the identical reason, but the two
+// are DIFFERENT SPECIES and are deliberately not merged into one slot: invite grants
+// membership and is single-use, ref grants nothing and only attributes. Losing a ref
+// code costs attribution; losing an invite code costs access. Same mechanism, and the
+// asymmetry in what failure means is why they stay separate keys.
 try {
   const params = new URLSearchParams(window.location.search);
   const code = params.get("invite");
   if (code) sessionStorage.setItem("pending_invite_code", code);
+  const ref = params.get("ref");
+  if (ref) sessionStorage.setItem("pending_ref_code", ref);
 } catch (e) { /* sessionStorage unavailable — ignore */ }
 
 // Env-driven so the build env selects the Clerk instance:
