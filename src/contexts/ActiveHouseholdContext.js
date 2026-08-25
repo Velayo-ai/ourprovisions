@@ -1,8 +1,15 @@
 // src/contexts/ActiveHouseholdContext.js
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { trace } from "@opentelemetry/api";
 import { createSupabaseClient } from "../lib/supabaseClient";
 
 const ActiveHouseholdContext = createContext(null);
+
+// Resolves to the provider SplunkOtelWeb.init() registers in src/rum.js. Module-level is
+// safe: getTracer returns a proxy that binds to the real provider once registered, so
+// import order does not matter. With no RUM token (local dev) the API's no-op provider
+// stands in and these spans cost nothing.
+const tracer = trace.getTracer("ourprovisions-app");
 
 export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children }) {
   const [myHouseholds, setMyHouseholds] = useState([]);
@@ -19,6 +26,18 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
   // Mirrors activeHouseholdId each render; read by the presence-check interval (step 2).
   const activeHouseholdIdRef = useRef(null);
   activeHouseholdIdRef.current = activeHouseholdId;
+
+  // Wall-clock stamp of when the lens last MOVED to a different household. Instrumentation
+  // only — nothing branches on it. It answers the question the removal trace exists to
+  // settle: was the household the poll just declared gone one the user had been sitting in
+  // for an hour, or one they switched into three seconds ago? The latter is a race with
+  // membership propagation, not a removal.
+  const activeSinceRef = useRef(null);
+  const prevActiveIdRef = useRef(null);
+  if (prevActiveIdRef.current !== activeHouseholdId) {
+    prevActiveIdRef.current = activeHouseholdId;
+    activeSinceRef.current = activeHouseholdId ? Date.now() : null;
+  }
 
   // In-flight guard — true while auto-provision is running (step 3).
   const provisioningRef = useRef(false);
@@ -193,6 +212,55 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         setMyHouseholds(households);
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
         // Active household vanished from a healthy list — user was removed (or left).
+
+        // ── RUM instrumentation (2026-08-25). INSTRUMENTATION ONLY — no behaviour
+        // change, no fix. This is the ONLY code path that reaches the "No longer a
+        // member of…" notice, and it is a 30s poll, so a recurrence needs a trace to
+        // read rather than a reconstruction to argue about.
+        //
+        // The discriminator is `household.row_still_readable`. households' SELECT policy
+        // is is_member_of(id), so if the row is STILL readable here, RLS says we are a
+        // member while get_my_households said we are not — a contradiction that means
+        // false positive. Unreadable means the removal is real. Best-effort and fully
+        // guarded: telemetry must never be able to break the notice it observes.
+        const lostId = activeHouseholdIdRef.current;
+        let deletedAt = null;
+        let rowReadable = false;
+        let createdAt = null;
+        try {
+          const { data: row } = await db
+            .from("households")
+            .select("id, deleted_at, created_at")
+            .eq("id", lostId)
+            .maybeSingle();
+          if (row) {
+            rowReadable = true;
+            deletedAt = row.deleted_at;
+            createdAt = row.created_at;
+          }
+        } catch (probeErr) { /* unreadable is itself the signal — record it as false */ }
+
+        try {
+          const span = tracer.startSpan("membership.removal-detected");
+          span.setAttributes({
+            "household.id": lostId ?? "unknown",
+            "household.name": lostName ?? "unknown",
+            "household.deleted_at": deletedAt ?? "unavailable",
+            "user.clerk_id": clerkId ?? "unknown",
+            "trigger.source": "poll",
+            "household.age_seconds": activeSinceRef.current
+              ? Math.round((Date.now() - activeSinceRef.current) / 1000)
+              : -1,
+            // Supporting detail — each one separates a real removal from a race:
+            "poll.interval_ms": 30000,
+            "household.row_still_readable": rowReadable,
+            "household.created_at": createdAt ?? "unavailable",
+            "households.returned_count": households.length,
+            "resolution.path": households.length === 0 ? "provision" : "switch",
+          });
+          span.end();
+        } catch (rumErr) { /* never let telemetry break the notice */ }
+
         await resolveAfterHouseholdLoss(activeHouseholdIdRef.current, true, lostName);
       } catch (err) {
         // transient — hold position
