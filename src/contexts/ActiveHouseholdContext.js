@@ -65,7 +65,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
   // function so every request fetches a fresh token. Re-creating per call stacks GoTrueClients.
   const dbRef = useRef(null);
   const getDb = () => {
-    if (!dbRef.current) dbRef.current = createSupabaseClient(getTokenRef.current);
+    if (!dbRef.current) dbRef.current = createSupabaseClient(getTokenRef.current, "op-household");
     return dbRef.current;
   };
 

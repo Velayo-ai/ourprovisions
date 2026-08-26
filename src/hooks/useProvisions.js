@@ -325,7 +325,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       try {
         // Create Supabase client once — guard prevents stacking GoTrueClient instances on switch
         if (!supabaseRef.current) {
-          supabaseRef.current = createSupabaseClient(getTokenRef.current);
+          supabaseRef.current = createSupabaseClient(getTokenRef.current, "op-provisions");
         }
         const db = supabaseRef.current;
 
