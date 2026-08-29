@@ -25,6 +25,34 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-29] — [OurProvisions] — Reconcile the log with the unlogged solo-start build session
+**Goal:** Close out the 2026-08-25/26 build session that shipped `SPEC_solo_start_experience.md` to dev but never ran SESSION END, so the docs stop describing a design session as the newest state.
+**Completed:**
+- **Reconstructed the build from the commits, not from memory** — read `42afe32..70868e7` (10 commits, no merge) and confirmed each against the tree. The 8/25 entry's "Build not started" was true when written and has been overtaken; it stands untouched, per the append-only rule.
+- **Recorded the solo-start build as landed on dev:** migration `042` (referral columns, `created_household` seam, D11 guard), the `?ref=` bridge + create-vs-join flag + code-join + discard in `useProvisions`/`index.js`, the welcome sheet, and the two share verbs — D1–D11 all implemented across four commits.
+- **Verified deployment over the wire, not by inference:** `dev.ourprovisions.velayo.ai` serves `main.fde7870e.js` containing `just_signed_up`, `pending_ref_code`, `discard_unclaimed_household`, `p_ref_code`, both share verbs and the welcome-sheet copy. Prod serves `main.c01f4fe8.js` with **none** of them. `main` is still `1dd6294` — none of this has been promoted.
+- **Confirmed the earned-Our wordmark is still UNBUILT by reading the code**, not by scanning the log: `App.js:2981` renders unconditional "Our" + "Provisions", and the splash travel/clone hand-off (`headerTitleRef`, `SplashScreen` §6b) is fully intact. The 8/24 entry's "reinstated" is a decision, not a build.
+- **Logged the three unrelated fixes that rode the same window:** `navigator.share` now passes the link as `url` rather than inside `text` (with the clipboard fallback reattaching it explicitly); the two cached Supabase clients got distinct `storageKey`s (`op-provisions`/`op-household`); the membership-removal path gained a `membership.removal-detected` RUM span — **instrumentation, not a fix.**
+- **Rebuilt at HEAD to check the tree still compiles:** `CI=true react-scripts build` exits 0, no warnings-as-errors.
+- **Applied the reconciliation the 8/25 entry left open:** migration `023`'s trigger-set referral code is superseded by `042`'s mint-at-bootstrap (uppercase hex, 8 chars, `coalesce`-guarded so an existing code is never rotated). ARCHITECTURE and the queued-migrations row now describe one column, not two.
+**Unfinished:**
+- **All 10 of the spec's verification items remain UNRUN.** They need real Clerk signups in a browser plus DB reads; this session could not run either (`supabase-dev` / `supabase-prod-readonly` MCP servers are unauthorized in a non-interactive session). Static + over-the-wire checks are **not** a substitute — item 4's D11 control case and item 6's "no invite row" check in particular can only be settled against the database.
+- Because of that, solo-start is **BUILT, NOT DONE** — it stays in NOW/NEXT and its spec stays in `docs/specs/active/`. No DONE stamp, no `built/` move.
+- `SPEC_wordmark_earned_our.md` still unbuilt — the genuine next build item, ahead of any prod promotion.
+- Migration `042` is on **dev only**; prod's `bootstrap_new_user` is still the 3-arg signature. Promotion order stands: wordmark fix → `042` to prod → `dev→main` → live verification.
+- The "No longer a member of…" toast is still unexplained — `6891a31` only instrumented it and `04512ed` explicitly is not its fix. Nothing to read until it recurs.
+- Two prod RUM errors (avg-prices fetch, JWT-not-yet-valid) still uninvestigated — carried since 2026-08-24.
+- `handoff/PATCH_meals_instructions_column.md` left in the airlock untouched at Dan's instruction — queued for later work, not part of this task. **The airlock is therefore not clear**, deliberately.
+**Next session:**
+SESSION START
+Goal: Run the 10 verification items from `SPEC_solo_start_experience.md` against dev, then build `SPEC_wordmark_earned_our.md`.
+State: All solo-start client code + migration `042` live on dev and confirmed in the deployed bundle; prod carries none of it and `main` is unmoved at `1dd6294`. Earned-Our unbuilt, header still unconditionally "OurProvisions". Verification unrun, so nothing is known to work end-to-end — only to be present.
+Done when: each of the 10 items has a recorded PASS or FAIL (including the D11 control case — a place with one item added SURVIVES code-join — and the DB check that Share-the-app creates no invite row), and the earned-Our header is on dev.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`. (No source changes — this session was reconciliation only.)
+**DB changes:** None this session. Recorded from the build session: migration `042_solo_start_referral.sql` — `users.referral_code` + `users.referred_by`, `mint_referral_code()`, `bootstrap_new_user` 3-arg → 4-arg, `discard_unclaimed_household(uuid)`. **Applied to dev, NOT to prod.**
+
+---
+
 ### [2026-08-25] — [OurProvisions] — Design the solo-start experience: naming sheet, invite recovery, two share verbs, referral carry
 **Goal:** Make solo-start a designed experience — first-run naming moment, invite-code recovery, and two deliberate share verbs — mockup-first, then spec.
 **Completed:**
