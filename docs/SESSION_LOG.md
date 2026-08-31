@@ -25,6 +25,32 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-30] — [Cross] — Reconcile two machines, build earned-Our, and ship the whole solo narrative to prod
+**Goal:** Reconcile the desktop/Surface/origin drift accumulated while away, then finish and live-verify the solo-start + earned-Our promotion queued before the trip.
+**Completed:**
+- **Reconciled a three-way, two-machine divergence by querying ground truth at every layer** — `git log`/`git status`, direct Supabase function-signature checks on both projects *by URL* — rather than trusting continuity from memory or docs. Authorized the `supabase-dev` / `supabase-prod-readonly` connectors, which unblocked direct DB verification for the first time.
+- **Merged three independently-authored catch-up sessions into one clean record** (`a9c6e75`). SESSION_LOG kept as an append-only union — all three entries, zero overlap, two dated addenda naming the stale-remote cause. ROADMAP DECISIONS collapsed 13 rows to 11, keeping each side's unique half. Discovered the 8/29 catch-up's "all 10 items UNRUN" was wrong **only because its `origin/dev` was four days stale**; `b5f0d33` had recorded the full 8/26 pass all along.
+- **Re-verified solo-start items 4, 6 and 7 against dev with real query evidence** — D11 discard at 163 ms *and* its control surviving with one item, zero invite rows on the Share-the-app path, four-user attribution chain. All three **agreed** with the 8/26 results: independent confirmation, not a competing claim.
+- **Built the earned-Our wordmark** (`5304a4e`) — header driven off `householdMembers.length` for the active household; deleted the splash→header travel/clone hand-off entirely (`headerTitleRef`, `.op-handoff`, `@keyframes opHandoff`, `--op-dx/dy`, the `showSplash` opacity gate), zero references left by grep. **Deviated from the spec's literal "opacity fade"** — transitions `max-width` alongside `opacity`, because a phantom-width invisible "Our" would leave "Provisions" permanently off-centre in a centred band. Documented as intent-over-wording, not changed silently.
+- **Promoted to prod in the required order and live-verified it:** `042` to the **prod** database first, then `dev→main`, then a real two-account invite/join on `ourprovisions.velayo.ai` — from the app, not the SQL editor. **The header updated live, in place, on an already-open tab with no refresh.**
+- **Closed a five-week loop:** §8 of the retired `SPEC_splash_vessel_identity_v2.md` is reverted at last. That spec was retired 2026-07-25 but the header change it mandated was never reverted with it — which is why a correct solo signup still read as "a stranger is in my household" a month later.
+**Unfinished:**
+- **Stray local branch `part2-client-3arg` (`1ebe263`, "call bootstrap_new_user with the 3-arg signature") — unexplained, not investigated.** Confirmed present on desktop this session. Almost certainly stale WIP from before `042` settled the arg count, but it is **named after a signature that no longer exists on either database**, so it should be read and deleted rather than assumed harmless.
+- The live prod wordmark transition was confirmed correct on both accounts' tabs but **not isolated frame-by-frame** — accepted, since the underlying logic was already browser-verified across all four cases on dev.
+- **The AI meal-suggestion feature remains fully designed with zero code built.** Its `meals.instructions` column migration is next in line, still queued — `handoff/PATCH_meals_instructions_column.md` is deliberately left in the airlock for it.
+- **The airlock is therefore NOT clear, by instruction.** The two consumed payloads (`CATCHUP_session_log_reconciliation.md`, `BUILD_wordmark_earned_our.md`) were deleted this session; `PATCH_meals_instructions_column.md` stays.
+- Two prod RUM errors (avg-prices fetch, JWT-not-yet-valid) still uninvestigated — carried since 2026-08-24.
+- The "No longer a member of…" toast root cause is still open — instrumented only; it pays out on the next recurrence.
+**Next session:**
+SESSION START
+Goal: Resolve the stray `part2-client-3arg` branch, then start the `meals.instructions` column migration to unblock the AI meal-suggestion build.
+State: Prod is live and healthy — solo-start and earned-Our both shipped and verified on `ourprovisions.velayo.ai`. `main` and `dev` in sync at `5304a4e`; `042` applied to dev **and** prod. Desktop and Surface confirmed in sync. Airlock holds one deliberate payload (`PATCH_meals_instructions_column.md`).
+Done when: `part2-client-3arg` is read and either deleted or explained in the log, and the `meals.instructions` migration is applied to dev with the next-free number taken at build time.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/active/ → built/SPEC_wordmark_earned_our.md` (move only). Source this session: `src/App.js` (`5304a4e`).
+**DB changes:** Migration `042` applied to **PROD** (`parpauldmbetptkmdwbd`) — `users.referral_code` + `users.referred_by`, `bootstrap_new_user` rewritten to the 4-arg signature, `discard_unclaimed_household` added. Already on dev since 2026-08-26; this session closed the gap. Verified post-apply by direct query on both projects.
+
+---
+
 ### [2026-08-30] — [OurProvisions] — Verify solo-start on dev: items 4, 6, 7
 > **Addendum 2026-08-30 (post-merge):** Written against a stale `origin/dev`, without the 2026-08-26 entry below (`b5f0d33`), which had already recorded **all 10 items passed**. Items 4, 6 and 7 were therefore re-run here, and all three **agree** with that session's results — so this is independent DB re-confirmation, not a first verification. "3 of 10" describes this session's own work, not the feature's coverage.
 **Goal:** Run the three database-settleable verification items from `SPEC_solo_start_experience.md` against `supabase-dev` and record a real PASS/FAIL, closing the gap the 8/29 catch-up left open.
