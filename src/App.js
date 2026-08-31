@@ -285,9 +285,11 @@ const VELAYO_LOGO_TEAL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAbgAAAH+
 // slow gesture: a blur→sharp IN PLACE on one easing curve (~2.5s), no translation,
 // no per-element choreography, no self-drawing arch ("the word arrives into
 // itself"). The wordmark is centered on its OWN optical center; the arch is a
-// close crown at a locked 2:1 spacing above it. The measured wordmark→header
-// hand-off on exit (§6b) and the readiness gate are kept from v2 unchanged. A
-// prefers-reduced-motion variant resolves to the final static state (no blur).
+// close crown at a locked 2:1 spacing above it. The readiness gate is kept from v2
+// unchanged; the measured wordmark→header hand-off (§6b) that shipped beside it was
+// DELETED 2026-08-30 (SPEC_wordmark_earned_our.md) — the splash now fades out and the
+// header renders independently. A prefers-reduced-motion variant resolves to the
+// final static state (no blur).
 const OP_EASE = "cubic-bezier(0.16,1,0.3,1)";
 const OP_EASE_RESOLVE = "cubic-bezier(0.22,1,0.36,1)"; // §1 the resolve curve — long, slow tail
 // Timing (ms), all from mount (the scene auto-plays on cold start — no tap gate).
@@ -296,20 +298,19 @@ const OP_REVEAL_MS = 3100;   // §6: resolve (2.5s) + a short settled hold (~0.6
 const OP_FAILSAFE_MS = 5000; // §6 max: a stuck load must never trap the user (comfortably > reveal)
 const OP_REDUCED_HOLD = 400; // reduced-motion: brief settle before the gate
 const OP_FADE_MS = 700;      // reduced-motion dissolve fade duration
-const OP_SURFACE_MS = 1900;  // surfacing dissolve: scene fade + measured hand-off settle, then unmount
+const OP_SURFACE_MS = 1900;  // surfacing dissolve: scene fade, then unmount
 const OP_GROUP_CENTER = 0.46; // §3 the WORDMARK's optical center, as a fraction of the VISIBLE viewport (a hair above true middle)
-function SplashScreen({ onDone, ready, headerTitleRef }) {
+function SplashScreen({ onDone, ready }) {
   const reduced = typeof window !== "undefined" && window.matchMedia
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   // No tap gate: the scene auto-plays on cold start. 'crest' (reveal) →
-  // 'surface' (the simple surfacing dissolve + measured hand-off).
+  // 'surface' (the simple surfacing dissolve).
   const [phase, setPhase] = useState("crest");
   const [revealDone, setRevealDone] = useState(false);
   const [fading, setFading] = useState(false);
-  const [handoff, setHandoff] = useState(false); // measured hand-off armed (§6b)
   const mountRef = useRef(Date.now());
   const exitedRef = useRef(false);
-  const wmRef = useRef(null);      // splash wordmark — the thing that travels
+  const wmRef = useRef(null);      // splash wordmark — measured for its own placement
   const wmWrapRef = useRef(null);  // wordmark wrapper — transform-free box to measure
   const rootRef = useRef(null);    // splash root — carries the measured position vars
 
@@ -334,8 +335,15 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
 
   // Single dissolve path — idempotent so the readiness gate and the failsafe can
   // both point here without racing to double-fire onDone. Full motion does the
-  // simple surfacing (scene recedes, wordmark travels to the header, §6b); reduced
-  // motion falls back to a plain fade. onDone always fires on a HARD timer.
+  // simple surfacing (scene recedes, wordmark fades with it); reduced motion falls
+  // back to a plain fade. onDone always fires on a HARD timer.
+  //
+  // 2026-08-30: the measured splash→header travel/clone hand-off was DELETED here
+  // (SPEC_wordmark_earned_our.md). It existed to land the splash wordmark on a
+  // header that always read "OurProvisions"; the header is now earned — solo
+  // households read "Provisions" — so there is no longer a fixed target to travel
+  // to, and a clone landing on the wrong word is worse than no clone. The splash
+  // now simply finishes and unmounts; the header renders independently of it.
   const exit = useCallback(() => {
     if (exitedRef.current) return;
     exitedRef.current = true;
@@ -344,33 +352,9 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
       setTimeout(() => onDone(), OP_FADE_MS);
       return;
     }
-    // Measure the hand-off target NOW (§6b): the real header title is in the DOM
-    // beneath us, at its final resting place (ready === true). Compute the exact
-    // translate + scale from the two rects and arm the travel; if it isn't
-    // measurable (e.g. wordmark hidden over a photo), fall back to a clean fade —
-    // never a misaligned landing.
-    const wm = wmRef.current;
-    const target = headerTitleRef && headerTitleRef.current;
-    let ok = false;
-    if (wm && target) {
-      const wr = wm.getBoundingClientRect();
-      const tr = target.getBoundingClientRect();
-      const tf = parseFloat(getComputedStyle(target).fontSize) || 0;
-      const wf = parseFloat(getComputedStyle(wm).fontSize) || 40;
-      if (tr.width > 4 && tr.height > 4 && tf > 4) {
-        const s = tf / wf;
-        const dx = (tr.left + tr.width / 2) - (wr.left + wr.width / 2);
-        const dy = (tr.top + tr.height / 2) - (wr.top + wr.height / 2);
-        wm.style.setProperty("--op-dx", dx.toFixed(2) + "px");
-        wm.style.setProperty("--op-dy", dy.toFixed(2) + "px");
-        wm.style.setProperty("--op-s", s.toFixed(4));
-        ok = true;
-      }
-    }
-    setHandoff(ok);
-    setPhase("surface");                     // espresso recedes into the header, cream revealed below
+    setPhase("surface");                     // espresso recedes, cream revealed below
     setTimeout(() => onDone(), OP_SURFACE_MS);
-  }, [reduced, onDone, headerTitleRef]);
+  }, [reduced, onDone]);
 
   // Reduced motion: no parallax — the resolved scene shows, settles briefly, then
   // dissolves on readiness (failsafe still bounds it).
@@ -463,7 +447,7 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
 
   const crested = !reduced && (phase === "crest" || phase === "surface"); // hold reveal end-states through the surfacing
   const surfacing = !reduced && phase === "surface";
-  const rootClass = `op-splash${crested ? " op-crest" : ""}${surfacing ? " op-surface" : ""}${handoff ? " op-handoff" : ""}${reduced ? " op-reduced" : ""}`;
+  const rootClass = `op-splash${crested ? " op-crest" : ""}${surfacing ? " op-surface" : ""}${reduced ? " op-reduced" : ""}`;
 
   return (
     <div
@@ -541,10 +525,11 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         .op-wm {
           display: inline-block; font-family: 'Playfair Display', serif;
           font-style: italic; color: #FAF4EC; white-space: nowrap;
-          font-size: 40px; line-height: 1; letter-spacing: 0.02em; /* matches header for a seamless hand-off */
+          font-size: 40px; line-height: 1; letter-spacing: 0.02em;
           /* Resolves IN PLACE — no translation: from soft to sharp where it already
-             sits ("the word arriving into itself"), so the hand-off is the sequence's
-             only travel. Starts at the deepest blur (§1); satellites use a lighter one. */
+             sits ("the word arriving into itself"). Since the §6b hand-off was deleted
+             there is now NO travel in the sequence at all — the wordmark resolves, holds,
+             then fades. Starts at the deepest blur (§1); satellites use a lighter one. */
           opacity: 0; filter: blur(18px);
         }
         .op-wm .o { font-weight: 400; }
@@ -587,28 +572,16 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         .op-reduced .op-foot { opacity: 1; filter: none; }
 
         /* ── Surfacing dissolve (§6a) ── The espresso scene recedes (fades) to
-           reveal the cream app body and the espresso header beneath, while the
-           wordmark travels up to the header title. A simple surfacing — no water
-           wash, no particles (those move to Trip Complete). */
+           reveal the cream app body and the espresso header beneath. A simple
+           surfacing — no water wash, no particles (those move to Trip Complete). */
         .op-surface .op-scene { animation: opSceneFade 1.4s ${OP_EASE} 0.3s forwards; }
         @keyframes opSceneFade { to { opacity: 0; } }
-        /* Wordmark hand-off (§6b) — the name travels to the header title's measured
-           rect/size (--op-dx/dy/s set at runtime) and HOLDS there at full opacity.
-           The real header title is hidden until the splash unmounts, then revealed
-           in the same instant the clone is removed (App.js gates it on showSplash) —
-           the title BECOMES the header rather than landing on top of it, so there is
-           no double wordmark and no crossfade gap. Starts from the surfaced state so
-           there is no jump; placed AFTER the reveal rule so it wins the animation. */
-        .op-handoff .op-wm {
-          animation: opHandoff 1.5s cubic-bezier(0.5,0,0.15,1) forwards;
-        }
-        @keyframes opHandoff {
-          from { opacity: 1; transform: translate(0px,0px) scale(1); filter: blur(0); }
-          to   { opacity: 1; transform: translate(var(--op-dx,0px), var(--op-dy,0px)) scale(var(--op-s,1)); filter: blur(0); }
-        }
-        /* Fallback (§6b): if the hand-off couldn't be measured, the wordmark simply
-           fades with the surfacing — a clean dissolve, never a misaligned landing. */
-        .op-surface:not(.op-handoff) .op-wm-wrap { animation: opFadeOut 0.6s ease 1.5s forwards; }
+        /* The wordmark fades out with the surfacing. It used to travel to the header
+           title's measured rect and hold there (the §6b clone hand-off); that is
+           DELETED as of SPEC_wordmark_earned_our.md — the header wordmark is now
+           earned from member count, so there is no fixed word to land on. A clean
+           dissolve, and the header renders on its own terms underneath. */
+        .op-surface .op-wm-wrap { animation: opFadeOut 0.6s ease 1.5s forwards; }
       `}</style>
 
       {/* Scene — everything that recedes as the app surfaces. The ground carries the
@@ -628,9 +601,11 @@ function SplashScreen({ onDone, ready, headerTitleRef }) {
         </div>
       </div>
 
-      {/* Wordmark — the still point everything resolves around; on the surfacing it
-          travels to become the header title (§6b). Sits above the scene so the name
-          stays intact as the espresso recedes beneath it. */}
+      {/* Wordmark — the still point everything resolves around; it fades out with
+          the surfacing. Sits above the scene so the name stays intact as the espresso
+          recedes beneath it. Always the full "OurProvisions": the splash is a BRAND
+          surface and the app's name is not conditional — only the HEADER wordmark is
+          earned from member count (SPEC_wordmark_earned_our.md). */}
       <div className="op-wm-wrap" ref={wmWrapRef}>
         <span className="op-wm" ref={wmRef}>
           <span className="o">Our</span><span className="p">Provisions</span>
@@ -1290,8 +1265,6 @@ function ProvisionsApp() {
 
   const [showSplash, setShowSplash] = useState(true);
   const handleSplashDone = useCallback(() => setShowSplash(false), []);
-  // The real header title — the splash wordmark hands off to its measured rect (§6b).
-  const headerTitleRef = useRef(null);
   const [localPrices, setLocalPrices] = useState({});
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
@@ -2402,6 +2375,13 @@ function ProvisionsApp() {
   // proved the owner-role identity works; reuse it.
   const isHouseholdCreator = householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner');
 
+  // ── Earned "Our" (SPEC_wordmark_earned_our.md) ──
+  // The single source of truth for the header wordmark. `householdMembers` is already
+  // reloaded per active household, so switching re-evaluates this for free — no new
+  // state, no new query. Signed out or still loading both land on false, which is the
+  // point: "Provisions" is the default in every unknown state.
+  const hasEarnedOur = isSignedIn && householdMembers.length > 1;
+
   // Draft has a photo when a new file is staged OR an existing stored path survives.
   const edHasPhoto = !!edFile || !!edPhotoPath;
   // Preview source: staged file wins; else the existing signed URL.
@@ -2618,7 +2598,7 @@ function ProvisionsApp() {
       <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
-      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || !loading)} headerTitleRef={headerTitleRef} />}
+      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || !loading)} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
       {isSignedIn && loading && (
@@ -2960,25 +2940,45 @@ function ProvisionsApp() {
               fontFamily: "'Playfair Display', serif",
               fontSize: bannerWordmark === "small" ? "28px" : "42px",
               letterSpacing: "0.02em", color: "#FAF4EC", fontWeight: 400, margin: 0,
-              // Hidden (but still laid out, so the splash can measure it) while the
-              // splash is up; revealed the instant the splash unmounts — the splash
-              // clone travels here and HOLDS, then this appears in the same frame the
-              // clone is removed, so the hand-off is an invisible swap (§6b), no
-              // double wordmark. No transition → the reveal is instantaneous.
-              opacity: showSplash ? 0 : (bannerWordmark === "small" ? 0.8 : 1),
+              // No longer gated on showSplash. The splash used to hide this element
+              // and land a travelling clone on it (§6b); that machinery is deleted,
+              // so the header simply renders on its own terms.
+              opacity: bannerWordmark === "small" ? 0.8 : 1,
               textShadow: WORDMARK_SHADOW,
               transform: bannerHasPhoto ? "translateY(-5%)" : "none",
             }}>
-              {/* §8: always "OurProvisions" (tight, matching the splash wordmark and
-                  the reference) so the splash hands off to the same words — no more
-                  bare "Provisions" for single-member households. The button is the
-                  measured hand-off target (headerTitleRef). */}
+              {/* EARNED "Our" (SPEC_wordmark_earned_our.md, reversing §8's always-Our).
+                  The wordmark is brand AND diagnostic: the *Our* arrives with the
+                  second person, so a solo household reads "Provisions" and a shared
+                  one reads "OurProvisions".
+
+                  BEHAVIOUR BEFORE LABEL: the default is "Provisions" in every unknown
+                  state — signed out, membership still loading, or genuinely solo. That
+                  falls out of the data rather than needing a guard: householdMembers
+                  starts [] and fills per active household, so `> 1` is false until 2+
+                  members actually resolve. Never claim "Our" until the data says so —
+                  an always-Our header is what made a correct solo signup read as
+                  "a stranger is in my household" (2026-08-24 field incident).
+
+                  The transition is opacity + max-width on the "Our" span, not a text
+                  swap: no reflow of "Provisions", and the band stays optically centred
+                  in both end states (a phantom zero-opacity "Our" would push the solo
+                  wordmark off-centre in a textAlign:center band). */}
               <button
-                ref={headerTitleRef}
                 onClick={() => isSignedIn ? setShowHouseholdModal(true) : null}
                 style={{ background: "none", border: "none", padding: 0, cursor: isSignedIn ? "pointer" : "default", color: "inherit", font: "inherit" }}
               >
-                <span style={{ fontWeight: 400, fontStyle: "italic" }}>Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
+                <span
+                  aria-hidden={!hasEarnedOur}
+                  style={{
+                    fontWeight: 400, fontStyle: "italic",
+                    display: "inline-block", overflow: "hidden", verticalAlign: "bottom",
+                    whiteSpace: "nowrap",
+                    opacity: hasEarnedOur ? 1 : 0,
+                    maxWidth: hasEarnedOur ? "3em" : "0em",
+                    transition: "opacity 600ms ease, max-width 600ms ease",
+                  }}
+                >Our</span><span style={{ fontWeight: 700, fontStyle: "italic" }}>Provisions</span>
               </button>
             </h1>
           )}
