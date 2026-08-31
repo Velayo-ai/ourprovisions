@@ -26,6 +26,7 @@ Done when: [clear success condition]
 ## LOG
 
 ### [2026-08-30] — [OurProvisions] — Verify solo-start on dev: items 4, 6, 7
+> **Addendum 2026-08-30 (post-merge):** Written against a stale `origin/dev`, without the 2026-08-26 entry below (`b5f0d33`), which had already recorded **all 10 items passed**. Items 4, 6 and 7 were therefore re-run here, and all three **agree** with that session's results — so this is independent DB re-confirmation, not a first verification. "3 of 10" describes this session's own work, not the feature's coverage.
 **Goal:** Run the three database-settleable verification items from `SPEC_solo_start_experience.md` against `supabase-dev` and record a real PASS/FAIL, closing the gap the 8/29 catch-up left open.
 **Completed:**
 - **Proved which database before reading it** — `supabase-dev` is `zxwtxjjmssykhqrghouf`, `system_identifier` `7642734024280108049`, distinct from prod's `7606130613603586966`. The MCP servers that were unauthorized on 8/29 are connected.
@@ -49,6 +50,7 @@ Done when: Each of items 1, 2, 5 and 10 has a recorded PASS or FAIL from a real 
 ---
 
 ### [2026-08-29] — [OurProvisions] — Reconcile the log with the unlogged solo-start build session
+> **Addendum 2026-08-30:** Same stale-remote cause. This entry's "all 10 verification items remain UNRUN" was true of what this clone could see, not of the work — `b5f0d33` had recorded all 10 as passed on 2026-08-26 four days earlier. The build facts reconstructed here stand; the verification status does not, and "BUILT, NOT DONE" was resolved by fetching, not by re-deciding.
 **Goal:** Close out the 2026-08-25/26 build session that shipped `SPEC_solo_start_experience.md` to dev but never ran SESSION END, so the docs stop describing a design session as the newest state.
 **Completed:**
 - **Reconstructed the build from the commits, not from memory** — read `42afe32..70868e7` (10 commits, no merge) and confirmed each against the tree. The 8/25 entry's "Build not started" was true when written and has been overtaken; it stands untouched, per the append-only rule.
@@ -73,6 +75,33 @@ State: All solo-start client code + migration `042` live on dev and confirmed in
 Done when: each of the 10 items has a recorded PASS or FAIL (including the D11 control case — a place with one item added SURVIVES code-join — and the DB check that Share-the-app creates no invite row), and the earned-Our header is on dev.
 **Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`. (No source changes — this session was reconciliation only.)
 **DB changes:** None this session. Recorded from the build session: migration `042_solo_start_referral.sql` — `users.referral_code` + `users.referred_by`, `mint_referral_code()`, `bootstrap_new_user` 3-arg → 4-arg, `discard_unclaimed_household(uuid)`. **Applied to dev, NOT to prod.**
+
+---
+
+### [2026-08-26] — [OurProvisions] — Build and fully verify the solo-start experience on dev, then clear three defects found alongside it
+**Goal:** Build `SPEC_solo_start_experience.md` end-to-end, verify every item on dev, and resolve whatever the walk surfaced.
+**Completed:**
+- **Built the whole spec in four scoped commits** — migration `042` (`dcae2e0`: `users.referral_code`/`referred_by`, `bootstrap_new_user` gains `p_ref_code` and returns `created_household`, plus the D11 guard RPC), the data layer (`e0b27ef`), the welcome sheet (`2f3cd18`) and the two share verbs (`36595c6`). `042` applied and triple-verified on dev — signature, full source read of all three return branches, both columns present.
+- **Passed all 10 spec verification items on dev**, each confirmed by screenshot and/or DB query — including **item 4 bidirectionally**: an empty sentinel place is soft-deleted on code-join (4a) and a place with one real item **survives the identical join** (4b). Item 9 confirmed a *branching* referral tree (dan→test303→{test304, test306}), not merely a single chain. **Re-ran the originating Prem/Cyrus bare-URL incident as an unscripted regression check — passed.**
+- **Resolved the dev/origin docs conflict by observation, not judgment** (`043d866`). Both sides claimed the 2026-08-21 meals work differently; a direct prod query settled it — `039`/`040`/`041` are genuinely live on prod. Merge was otherwise **additive: zero lines dropped from either side.** Closed ROADMAP **P1** and **P2** (`a39f606`).
+- **Fixed both share verbs to pass the link as `navigator.share`'s own `url` field** (`ce8d321`), enabling native preview cards. ⚠️ **The instruction as given would have silently emptied the desktop clipboard path** — both functions reuse the same `text` for the fallback, so dropping the URL from it alone shipped a linkless invite behind an "Invite copied" toast. The link is now reattached explicitly on that branch.
+- **Traced the "No longer a member of…" toast to a single trigger and instrumented it** (`6891a31`) — a 30-second `setInterval` poll (`checkPresence`), **not realtime**; App's own delete path passes `notifyRemoval=false` and never reaches it. New `membership.removal-detected` span carries **`household.row_still_readable`** as the discriminator: `households`' SELECT policy is `is_member_of(id)`, so a still-readable row means RLS disagrees with the poll — a false positive. Declared `@opentelemetry/api` explicitly; a second hoisted copy would silently no-op every span.
+- **Cleared the "Multiple GoTrueClient instances" warning** (`04512ed`) — two cached clients shared GoTrue's default `storageKey`; each now has its own (`op-provisions`, `op-household`). **Confirmed neither the poll nor the context re-creates a client per tick** — both were already correctly cached behind refs. Deleted the fully dead `src/supabase.js` (`70868e7`), where this exact lesson was written down years-of-commits ago and never applied.
+- **Corrected `index.html`'s `<title>` and canonical `og:url`/`twitter:url`** — and **left `og:title`/`description`/`image` alone after finding the "tags describe the parent Velayo site" premise was false**; they were already OurProvisions-branded and `og-image.png` exists.
+**Unfinished:**
+- **Nothing is on prod.** `main` carries none of this and `042` is **dev-only** — the prod gate stays closed until explicitly promoted, migration first.
+- **The membership-removal toast's root cause is still open.** Instrumentation only; it pays out on the next recurrence. The console is now quiet, so that RUM span is the *only* remaining diagnostic signal.
+- **The clipboard-fallback half of the share fix is untested** — no browser without `navigator.share` was available. Accepted as low-risk (a reviewed field split), not blocking. Worth an opportunistic check.
+- `SPEC_wordmark_earned_our.md` still unbuilt — the spec names it a **sibling, not a dependency**, but shipping both together is what makes the solo narrative coherent.
+- **Two handoff details corrected against the tree:** the `storageKey` parameter landed in `04512ed` (`70868e7` is the deletion), and the referral code is 8-character uppercase **hexadecimal** (`0-9A-F`), not "alphanumeric" — hex was chosen precisely because it contains no letter O or I to collide with 0 and 1.
+- Two prod RUM errors (avg-prices fetch, JWT-not-yet-valid) still uninvestigated — carried.
+**Next session:**
+SESSION START
+Goal: Decide dev→main promotion for the whole bundle (`042`, solo-start, share fix, OG tags, GoTrueClient cleanup, RUM instrumentation) — or build `SPEC_wordmark_earned_our.md` first and promote both together.
+State: Everything above is live and **verified on dev only**; no known open defects. `main` has none of it. `042` is dev-only. `REACT_APP_RUM_TOKEN` confirmed scoped to dev on Vercel and resolving at build time.
+Done when: the decision is made and, if promoting, `042` is applied to **prod first**, then `dev→main`, then verified on `ourprovisions.velayo.ai` from outside the SQL editor.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js`, `src/contexts/ActiveHouseholdContext.js`, `src/lib/supabaseClient.js`, `src/index.js`, `public/index.html`, `package.json`/`package-lock.json`, `migrations/042_solo_start_referral.sql` (**new**); **deleted** `src/supabase.js`.
+**DB changes:** **`042`** — `users.referral_code` (text, unique, 8-char uppercase hex) + `users.referred_by` (uuid null → users.id); `bootstrap_new_user` re-created with `p_ref_code` and returning `created_household`; new SECURITY DEFINER `discard_unclaimed_household`. **Applied to dev only — NOT prod.**
 
 ---
 

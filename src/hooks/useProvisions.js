@@ -1455,22 +1455,60 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     if (!db || !hh) return;
 
-    const { data: catalog, error: catalogErr } = await db
+    // ── "JWT not yet valid" — bounded single retry ────────────────────────────
+    // Clock skew between GoTrue's token `iat` and PostgREST's validation clock:
+    // the token is genuinely fine, it is just a second or so early. It clears on
+    // its own in ~1-2s, which is well inside one 20s poll tick.
+    //
+    // This is NOT only a cold-start problem. Clerk rotates the session token
+    // periodically, so the skew window reopens MID-SESSION — which is exactly why
+    // it surfaces on this poll rather than only at sign-in, and why the boot
+    // effect's backoff (above) does not already cover it.
+    //
+    // The boot-time global-catalog read already retries-with-backoff for the same
+    // underlying class ("session/RLS not yet warm"). This keeps the poll consistent
+    // with that established pattern instead of solving one symptom two ways in one
+    // file.
+    //
+    // ⚠️ SCOPED TO THIS ONE MESSAGE, DELIBERATELY. Do not widen it to every phrase
+    // in `transientPhrases`: those are transport failures, and retrying a
+    // genuinely-down connection on a 20s tick just hammers it. This phrase is the
+    // one case where the server answered and the answer means "ask again shortly".
+    //
+    // One retry only. If it fails twice the skew is not the ordinary kind, and the
+    // existing classifyFetchError path owns it from there — now reporting
+    // 'transient', so it surfaces as the quiet pill rather than a raw JWT toast.
+    const withJwtRetry = async (runQuery) => {
+      let result = await runQuery();
+      const msg = result.error?.message;
+      if (typeof msg === "string" && msg.includes("JWT not yet valid")) {
+        await new Promise((r) => setTimeout(r, 1500));
+        if (!supabaseRef.current) return result;  // torn down mid-wait — don't re-issue
+        result = await runQuery();
+      }
+      return result;
+    };
+
+    const { data: catalog, error: catalogErr } = await withJwtRetry(() => db
       .from("catalog_items")
       .select("id, name, category, is_global, price_hint, is_staple")
       .eq("is_global", true)
-      .is("deleted_at", null);
+      .is("deleted_at", null));
     if (catalogErr) {
       if (classifyFetchError(catalogErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not refresh catalog: ${catalogErr.message}`); }
       return;
     }
 
-    const { data: customItems, error: customErr } = await db
+    // Same retry on the custom-items read. It runs after the global one, so in the
+    // ordinary skew case the wait above has already cleared the window and this
+    // never fires — but a rotation landing between the two queries would otherwise
+    // fail the poll on the second half, which looks identical to the user.
+    const { data: customItems, error: customErr } = await withJwtRetry(() => db
       .from("catalog_items")
       .select("id, name, category, is_global, price_hint, is_staple")
       .eq("household_id", hh.id)
       .eq("is_global", false)
-      .is("deleted_at", null);
+      .is("deleted_at", null));
     if (customErr) {
       if (classifyFetchError(customErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not refresh catalog: ${customErr.message}`); }
       return;
