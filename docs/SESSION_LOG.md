@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-08-30] — [OurProvisions] — Verify solo-start on dev: items 4, 6, 7
+**Goal:** Run the three database-settleable verification items from `SPEC_solo_start_experience.md` against `supabase-dev` and record a real PASS/FAIL, closing the gap the 8/29 catch-up left open.
+**Completed:**
+- **Proved which database before reading it** — `supabase-dev` is `zxwtxjjmssykhqrghouf`, `system_identifier` `7642734024280108049`, distinct from prod's `7606130613603586966`. The MCP servers that were unauthorized on 8/29 are connected.
+- **Item 4 — PASS, main case AND the D11 control.** `test305`: solo place created 06:58:45, code-join to Sacandaga 07:00:58.307, orphan soft-deleted 07:00:58.470 (163 ms later, membership cascaded). `test309`: one item added 13:51:13, **48 s before** the join at 13:52:01 — place **survived**, `deleted_at` NULL. The control's ordering was checked, not assumed.
+- **Item 6 — PASS.** Zero invite rows by the ref-share sender, zero in either ref-arrival window, zero ever for any household owned by the four ref-arrived users. `handleAppShare` (`App.js:2116-2138`) issues no Supabase call at all — D10 holds at the source, not just in the data.
+- **Item 7 — PASS.** Four `referred_by` rows resolving Dan→test300, Dan→test303, test303→test304, test303→test306. Ref attributes but never enrolls: each is `owner` of their own same-instant household and a member of nothing else. `users_referral_code_key` UNIQUE index confirmed; self-referral predicate returns 0 against each user's own code.
+- **Closed the VERIFY P1 and moved the spec** — `git mv docs/specs/active/SPEC_solo_start_experience.md docs/specs/built/`, DONE entry stamped 2026-08-30.
+**Unfinished:**
+- **Items 1, 2, 5 and 10 remain UNRUN** — sheet fires once, Skip leaves the sentinel, invalid code surfaces an inline error, and sign-in never triggers the sheet. All four are client-side; they need a browser signup, which a query cannot substitute for.
+- **Items 3, 8 and 9 were not run as tests.** The same dataset happens to support them (the invite-path signup created no solo place; four bare-URL signups carry `referred_by` null; Dan→test303→test304 is a real two-hop chain) but no recursive query was run and no fresh flow was driven. Supporting evidence, not a recorded pass.
+- **The row was closed at 3 of 10 on Dan's explicit call**, with the DB-settleable items proven. The spec's own "Done when" asked for all ten; the remaining four are logged rather than quietly absorbed.
+- **Migration `042` is still dev only.** Prod's `bootstrap_new_user` is the 3-arg signature; `main` unmoved.
+**Next session:**
+SESSION START
+Goal: Run solo-start verification items 1, 2, 5 and 10 in a browser against dev.ourprovisions.velayo.ai, then decide the prod promotion of migration `042` + the solo-start client.
+State: Solo-start is built and deployed on dev; items 4, 6, 7 have recorded DB passes and the spec is in `docs/specs/built/`. The four client-side items are unrun. Prod carries none of it.
+Done when: Each of items 1, 2, 5 and 10 has a recorded PASS or FAIL from a real Clerk signup on the dev preview, and the `042` prod-promotion decision is made either way.
+**Files updated:** `docs/ROADMAP.md`, `docs/SESSION_LOG.md`, `docs/specs/active/ → built/SPEC_solo_start_experience.md` (move only, content untouched)
+**DB changes:** None — all reads. No rows written to dev.
+
+---
+
 ### [2026-08-29] — [OurProvisions] — Reconcile the log with the unlogged solo-start build session
 **Goal:** Close out the 2026-08-25/26 build session that shipped `SPEC_solo_start_experience.md` to dev but never ran SESSION END, so the docs stop describing a design session as the newest state.
 **Completed:**
