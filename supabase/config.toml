@@ -1,0 +1,17 @@
+# supabase/config.toml — OurProvisions
+#
+# First introduced 2026-09-01 alongside the project's first Edge Function.
+# This repo does NOT use the Supabase CLI for migrations: those are applied by hand
+# in the SQL editor and committed under `migrations/` (see migrations/README.md, and
+# note there is no schema_migrations ledger on either database). This file exists for
+# Edge Function config only. Do not add a [db] section and do not run `supabase db
+# push` against dev or prod — it would fight the hand-applied migration history.
+
+project_id = "ourprovisions"
+
+[functions.meal-suggestion]
+# ⚠️ MUST stay true. The function's own checks (supabase/functions/meal-suggestion/
+# index.ts, verifyCaller) validate CLAIMS only — they do not verify the signature.
+# The platform gate is what makes them meaningful. Deploying with --no-verify-jwt
+# turns every check in that function into a forgeable string comparison.
+verify_jwt = true
