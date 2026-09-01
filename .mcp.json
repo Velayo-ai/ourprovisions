@@ -1,12 +1,37 @@
 {
+  "_comment": [
+    "WORKAROUND — DO NOT 'CLEAN UP' THE URLs BELOW. (2026-08-31)",
+    "Both Supabase entries deliberately use the BARE https://mcp.supabase.com/mcp with no query string.",
+    "They previously read '...?project_ref=<ref>&read_only=true'. That form is BROKEN right now:",
+    "Claude Code issue #34880 malforms the OAuth 'resource' parameter whenever the MCP server URL",
+    "carries query params, which fails auth with 'Resource must be a valid MCP endpoint'. Stripping",
+    "the query string is the documented workaround and is the only reason these URLs look unscoped.",
+    "",
+    "*** SECOND, UNINTENDED EFFECT — READ BEFORE TRUSTING THE SERVER NAMES. ***",
+    "The query string carried TWO things, and removing it removed both. 'read_only=true' is gone from",
+    "supabase-prod-readonly, and 'project_ref' is gone from both. The two entries are now IDENTICAL,",
+    "so 'supabase-prod-readonly' is read-only IN NAME ONLY: nothing here scopes it to prod or blocks",
+    "writes. Which database a call reaches is decided entirely by the project_id argument passed per",
+    "call, not by which server it was addressed to. Whether read-only is still enforced via the OAuth",
+    "grant has NOT been verified. Assume PROD IS WRITABLE through either server until proven otherwise.",
+    "",
+    "Project refs, for whoever restores the scoped URLs:",
+    "  supabase-dev            -> zxwtxjjmssykhqrghouf  (system_identifier 7642734024280108049)",
+    "  supabase-prod-readonly  -> parpauldmbetptkmdwbd  (system_identifier 7606130613603586966)",
+    "",
+    "TO RESTORE: first check whether #34880 is fixed in the current Claude Code. Only if it is, put",
+    "back '?project_ref=<ref>&read_only=true' on each URL and re-authenticate. Restoring them while",
+    "the bug is open re-breaks authentication for both servers.",
+    "Tracked as ROADMAP NOW P1; see docs/ARCHITECTURE.md 'Supabase MCP config is on a bug workaround'."
+  ],
   "mcpServers": {
     "supabase-dev": {
       "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=zxwtxjjmssykhqrghouf&read_only=true"
+      "url": "https://mcp.supabase.com/mcp"
     },
     "supabase-prod-readonly": {
       "type": "http",
-      "url": "https://mcp.supabase.com/mcp?project_ref=parpauldmbetptkmdwbd&read_only=true"
+      "url": "https://mcp.supabase.com/mcp"
     }
   }
 }
