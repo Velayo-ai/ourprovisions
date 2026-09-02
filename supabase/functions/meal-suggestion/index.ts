@@ -86,10 +86,26 @@ const EMIT_MEAL_TOOL = {
           type: "object",
           properties: {
             name: { type: "string", description: "Ingredient name. Never empty." },
-            quantity: { type: "number", description: "How many units to buy. Greater than zero." },
+            // `integer` is a TYPE, not a value constraint, so strict mode accepts it —
+            // unlike `minimum`. First line of defence for the whole-number rule;
+            // validateAndNormalizeDraft's Math.ceil is the guarantee behind it.
+            quantity: {
+              type: "integer",
+              description: "Whole number of units to buy, 1 or greater. Round UP, never down.",
+            },
             unit: { type: "string", enum: [...ALLOWED_UNITS] },
+            // Only used when the ingredient is NOT already in the catalog: it becomes
+            // the new custom item's category. Without it every AI-created item lands in
+            // "Household" (createCatalogItem's default), which files Cumin next to bin
+            // bags. Matched items keep their existing category and ignore this.
+            category: {
+              type: "string",
+              description:
+                "Grocery category for this ingredient. Reuse one of the categories " +
+                "shown in the household's catalog listing whenever one fits.",
+            },
           },
-          required: ["name", "quantity", "unit"],
+          required: ["name", "quantity", "unit", "category"],
           additionalProperties: false,
         },
       },
@@ -99,14 +115,38 @@ const EMIT_MEAL_TOOL = {
   },
 };
 
+const normName = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+
 /**
- * The value constraints the strict schema cannot express. Returns a reason string
- * when the draft is unusable, or null when it is good.
+ * Validate the draft, then make it TRUE — i.e. make what the client displays match
+ * what will actually be saved. Returns a reason string when unusable, or null when good.
+ * Mutates `d.ingredients` in place for the two normalisations below.
  *
- * This is the "fail loudly" half of the spec's requirement: a malformed draft must
- * surface as an error, never be quietly repaired or half-saved.
+ * This is the "fail loudly" half of the spec: a malformed draft surfaces as an error
+ * rather than being quietly half-saved. The two repairs it DOES make are deterministic
+ * corrections with exactly one right answer, not guesses at intent:
+ *
+ * 1. QUANTITIES ARE ROUNDED UP TO WHOLE NUMBERS. The app's stepper only holds whole
+ *    numbers (App.js setQty = Math.max(1, n ± 1), no text entry), and
+ *    meal_ingredients.quantity_per_serving is unconstrained `numeric` — so a 1.5 would
+ *    be the first fraction in the system and would render as "1.5", stepping to "2.5".
+ *    Up, never down: too much of an ingredient is an annoyance, too little is a ruined
+ *    dinner. The prompt asks for this too; this is the guarantee.
+ *
+ * 2. UNITS ARE FORCED TO WHAT WILL ACTUALLY PERSIST. `meal_ingredients` has no unit
+ *    column at all — unit lives only on `catalog_items`. A matched item therefore keeps
+ *    its existing catalog unit no matter what the model says, and an unmatched item gets
+ *    `catalog_items.unit`'s default 'each', because insert_custom_catalog_item takes only
+ *    (p_name, p_category, p_household_id, p_created_by) — there is no unit parameter to
+ *    pass one through. Left alone, the draft would show the person "lb" and then save
+ *    "each". Overwriting here is what stops the UI from lying.
+ *    ⚠️ FOLLOW-UP: giving new custom items a real unit needs a migration to add a unit
+ *    param to that RPC. Until then the model's unit for an unmatched item is discarded.
  */
-function validateDraft(d: Record<string, unknown>): string | null {
+function validateAndNormalizeDraft(
+  d: Record<string, unknown>,
+  catalogUnits: Map<string, string>,
+): string | null {
   const nonEmpty = (v: unknown) => typeof v === "string" && v.trim().length > 0;
 
   if (!nonEmpty(d.name)) return "name is empty";
@@ -121,11 +161,27 @@ function validateDraft(d: Record<string, unknown>): string | null {
     if (typeof raw !== "object" || raw === null) return `ingredient ${i} is not an object`;
     const ing = raw as Record<string, unknown>;
     if (!nonEmpty(ing.name)) return `ingredient ${i} has an empty name`;
-    if (typeof ing.quantity !== "number" || !(ing.quantity > 0)) {
+    if (typeof ing.quantity !== "number" || !Number.isFinite(ing.quantity) || ing.quantity <= 0) {
       return `ingredient ${i} (${String(ing.name)}) has quantity ${JSON.stringify(ing.quantity)}`;
     }
     if (!ALLOWED_UNITS.includes(ing.unit as typeof ALLOWED_UNITS[number])) {
       return `ingredient ${i} (${String(ing.name)}) has unit ${JSON.stringify(ing.unit)}`;
+    }
+
+    const rounded = Math.ceil(ing.quantity);
+    if (rounded !== ing.quantity) {
+      console.log(`normalised quantity ${ing.quantity} -> ${rounded} for ${String(ing.name)}`);
+    }
+    ing.quantity = rounded;
+
+    const catalogUnit = catalogUnits.get(normName(ing.name as string));
+    const effective = catalogUnit ?? "each";
+    if (effective !== ing.unit) {
+      console.log(
+        `normalised unit ${JSON.stringify(ing.unit)} -> ${JSON.stringify(effective)} for ` +
+          `${String(ing.name)} (${catalogUnit ? "catalog item" : "new custom item, RPC has no unit param"})`,
+      );
+      ing.unit = effective;
     }
   }
   return null;
@@ -264,19 +320,27 @@ Deno.serve(async (req: Request) => {
   }
 
   // Catalog context is optional — a brand-new household legitimately has none.
+  // The catalog carries units as well as names, because the model must reuse an
+  // existing item's established unit rather than inventing a competing one.
   const rawCatalog = Array.isArray(body.catalog) ? body.catalog : [];
+  const catalogUnits = new Map<string, string>();
   const catalog = rawCatalog
     .slice(0, MAX_CATALOG_ITEMS)
     .map((row) => {
-      const item = row as { name?: unknown; category?: unknown };
+      const item = row as { name?: unknown; category?: unknown; unit?: unknown };
       const name = typeof item.name === "string" ? item.name.trim() : "";
+      if (!name) return "";
       const category = typeof item.category === "string" ? item.category.trim() : "";
-      return name ? (category ? `${name} (${category})` : name) : "";
+      const unit = typeof item.unit === "string" && item.unit.trim() ? item.unit.trim() : "each";
+      catalogUnits.set(normName(name), unit);
+      const meta = [category, unit].filter(Boolean).join(", ");
+      return meta ? `${name} (${meta})` : name;
     })
     .filter(Boolean);
 
   const catalogBlock = catalog.length
-    ? `The household's current catalog — reuse these names verbatim wherever one fits:\n${catalog.join("\n")}`
+    ? `The household's current catalog, as "Name (category, unit)" — reuse these names ` +
+      `verbatim wherever one fits, and use the item's stated unit exactly:\n${catalog.join("\n")}`
     : `This household's catalog is empty. Name every ingredient plainly and generically.`;
 
   const client = new Anthropic({ apiKey });
@@ -343,7 +407,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: "The suggestion service returned more than one meal." }, 502);
   }
 
-  const invalid = validateDraft(draft as Record<string, unknown>);
+  const invalid = validateAndNormalizeDraft(draft as Record<string, unknown>, catalogUnits);
   if (invalid) {
     console.error("emit_meal draft failed validation:", invalid, JSON.stringify(draft).slice(0, 800));
     return json({ error: "The suggestion service returned an unusable meal." }, 502);

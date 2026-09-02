@@ -37,13 +37,25 @@ assert isinstance(d["baseServings"], int) and d["baseServings"] >= 1, "bad baseS
 assert isinstance(d["instructions"], str) and d["instructions"].strip(), "empty instructions"
 allowed = {"each", "bag", "lb", "can", "box", "dozen", "bunch"}
 for ing in d["ingredients"]:
-    assert set(ing) == {"name", "quantity", "unit"}, "bad ingredient keys: %s" % sorted(ing)
+    assert set(ing) == {"name", "quantity", "unit", "category"}, "bad ingredient keys: %s" % sorted(ing)
+    assert isinstance(ing["quantity"], int), "quantity must be a WHOLE number, got %r" % ing["quantity"]
+    assert isinstance(ing["category"], str) and ing["category"].strip(), "empty category"
     assert ing["unit"] in allowed, "illegal unit: %s" % ing["unit"]
     assert isinstance(ing["quantity"], (int, float)) and ing["quantity"] > 0, "bad quantity"
     assert isinstance(ing["name"], str) and ing["name"].strip(), "empty ingredient name"
+# Rule: a matched catalog item must carry that item's established unit, not a
+# competing one. meal_ingredients has no unit column, so a mismatch here would mean
+# the UI shows one unit and the save produces another.
+catalog_units = {"chicken thighs": "lb", "yellow onion": "each", "garlic": "bunch",
+                 "heavy cream": "box", "basmati rice": "bag"}
+for ing in d["ingredients"]:
+    want = catalog_units.get(" ".join(ing["name"].lower().split()))
+    if want:
+        assert ing["unit"] == want, ("UNIT NOT PINNED: %s came back as %r, catalog says %r"
+                                     % (ing["name"], ing["unit"], want))
 print("      %s | %d servings | %d ingredients: %s"
       % (d["name"], d["baseServings"], len(d["ingredients"]),
-         ", ".join("%s x%g %s" % (i["name"], i["quantity"], i["unit"]) for i in d["ingredients"][:6])))
+         ", ".join("%s x%g %s [%s]" % (i["name"], i["quantity"], i["unit"], i["category"]) for i in d["ingredients"][:6])))
 print("      instructions: %d chars, starts %r" % (len(d["instructions"]), d["instructions"][:60]))
 PY
 
@@ -62,11 +74,14 @@ for smell in (" and then ", "option 1", "option 2", "meal 1", "meal 2", ";", "\n
 print("      ONE meal returned: %s" % d["name"])
 PY
 
-CATALOG='[{"name":"Chicken Thighs","category":"Meat & Seafood"},
-          {"name":"Yellow Onion","category":"Produce"},
-          {"name":"Garlic","category":"Produce"},
-          {"name":"Heavy Cream","category":"Dairy"},
-          {"name":"Basmati Rice","category":"Pantry"}]'
+# Units here are deliberately specific (lb / bunch / bag) so the unit-pinning rule is
+# actually exercised: a matched item MUST come back with its catalog unit, never a
+# competing one the model preferred.
+CATALOG='[{"name":"Chicken Thighs","category":"Meat & Seafood","unit":"lb"},
+          {"name":"Yellow Onion","category":"Produce","unit":"each"},
+          {"name":"Garlic","category":"Produce","unit":"bunch"},
+          {"name":"Heavy Cream","category":"Dairy","unit":"box"},
+          {"name":"Basmati Rice","category":"Pantry","unit":"bag"}]'
 
 post() { # $1 = jwt, $2 = requestText  -> sets STATUS, writes body to $TMP/body.json
   local resp payload

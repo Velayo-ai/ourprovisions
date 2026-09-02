@@ -870,7 +870,7 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
 // catalog item from the no-results panel, which must persist immediately so
 // the meal can reference its id — that writes `catalog_items` only, never
 // `list_items`.
-function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory }) {
+function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -889,6 +889,16 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // reveals an input instead. Same two-step as Browse's live panel.
   const [newCatOpen, setNewCatOpen] = useState(false);
   const [newCatInput, setNewCatInput] = useState("");
+
+  // Instructions (migration 043). Renders ONLY when it has content, so the manual
+  // path is unchanged for anyone who never asks the AI — no empty field appears in a
+  // form that never had one. Edit mode loads whatever is already stored.
+  const [instructions, setInstructions] = useState(isEdit ? (meal?.instructions || "") : "");
+
+  // AI request state. `aiBusy` both blocks a second submit (the only cost control
+  // that exists today — see the spec's open rate-limiting item) and drives the dim.
+  const [aiText, setAiText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
 
   const trimmedQuery = query.trim();
 
@@ -959,6 +969,47 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // sheet is remounted for another meal.
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Ask AI: one request, one meal, straight into the fields the manual path uses.
+  // REPLACES name/instructions/ingredients rather than merging. Merging sounds kinder
+  // but compounds: ask twice and you accumulate two meals' worth of ingredients with
+  // no way to tell them apart. The hint under the box says so plainly, and everything
+  // stays editable afterwards, so a replace is recoverable and a silent merge is not.
+  const handleAskAI = async () => {
+    const text = aiText.trim();
+    if (!text || aiBusy || !onRequestSuggestion) return;
+    setAiBusy(true);
+    try {
+      const draft = await onRequestSuggestion(text);
+      if (!draft) return;   // the hook already surfaced the reason via setError
+      setName(draft.name || "");
+      setInstructions(draft.instructions || "");
+
+      // Every suggested ingredient goes through the SAME resolver the manual
+      // no-results panel uses: exact-normalized match, or a new custom item via
+      // insert_custom_catalog_item. No parallel matching path (spec, Decisions).
+      const staged = [];
+      for (const ing of draft.ingredients || []) {
+        const item = await onCreateCatalogItem(ing.name, ing.category);
+        if (!item) continue;   // resolver failed and said why; keep the rest
+        if (staged.some((r) => r.catalog_item_id === item.id)) continue;
+        staged.push({
+          catalog_item_id: item.id,
+          name: item.name,
+          // Whole numbers only — the stepper cannot hold anything else. The Edge
+          // Function already rounds up; this is the client-side floor, not a repeat.
+          quantity_per_serving: Math.max(1, Math.ceil(Number(ing.quantity) || 1)),
+        });
+      }
+      setRows(staged);
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  // Screen 3 of the mockup: the manual fields dim and stop accepting input while a
+  // suggestion is in flight, because they are about to be replaced by the draft.
+  const aiDim = aiBusy ? { opacity: 0.45, pointerEvents: "none" } : undefined;
+
   const canSave = name.trim().length > 0;
 
   return (
@@ -966,7 +1017,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto" }}>
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
 
-        <div className="modal-field">
+        <div className="modal-field" style={aiDim}>
           <label className="modal-label">Meal Name</label>
           <input
             className="modal-input"
@@ -977,7 +1028,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           />
         </div>
 
-        <div className="modal-field">
+        <div className="modal-field" style={aiDim}>
           <label className="modal-label">Ingredients</label>
 
           {rows.length > 0 && (
@@ -1133,6 +1184,81 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           )}
         </div>
 
+        {/* ── Instructions — renders ONLY with content (migration 043). Editable like
+            any other field. A manually-created meal can carry steps too; this is not
+            an AI-only surface, it is just usually filled by one. ── */}
+        {instructions.trim().length > 0 && (
+          <div className="modal-field" style={aiDim}>
+            <label className="modal-label">Instructions</label>
+            <textarea
+              className="modal-input"
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={7}
+              style={{ resize: "vertical", lineHeight: 1.55, fontFamily: "'Lato', sans-serif" }}
+            />
+          </div>
+        )}
+
+        {/* ── AI section. Sits BELOW the manual fields, behind an "or" divider, so the
+            proven path needs zero relearning (spec, Layout decision + mockup Screen 1).
+            No mic in this pass — typed path first; the Web Speech button lands later
+            in this same row. ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "22px 0 14px" }}>
+          <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
+          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", fontWeight: 900,
+            letterSpacing: "0.1em", textTransform: "uppercase", color: "#b5a48d" }}>or</div>
+          <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
+        </div>
+
+        <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.22)",
+          borderRadius: "14px", padding: "14px", marginBottom: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "7px", fontFamily: "'Lato', sans-serif",
+            fontSize: "10.5px", fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase",
+            color: "#A0724A", marginBottom: "10px" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A0724A" strokeWidth="1.8"
+              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
+            </svg>
+            Ask AI to build it
+          </div>
+
+          <textarea
+            value={aiText}
+            onChange={(e) => setAiText(e.target.value)}
+            disabled={aiBusy || saving}
+            rows={2}
+            placeholder="Tell me what you're in the mood for…"
+            style={{
+              width: "100%", boxSizing: "border-box", minHeight: "44px", maxHeight: "110px",
+              padding: "12px 13px", borderRadius: "10px", border: "1.5px solid #E8D5B7",
+              background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+              color: "#2C1A0E", outline: "none", resize: "vertical",
+              opacity: (aiBusy || saving) ? 0.6 : 1,
+            }}
+          />
+
+          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px", color: "#8a7968",
+            marginTop: "8px", lineHeight: 1.5 }}>
+            {aiBusy
+              ? "Building your meal…"
+              : "You'll get one meal, filled into the fields above to review and edit before saving. This replaces what's there now."}
+          </div>
+
+          <button
+            onClick={handleAskAI}
+            disabled={!aiText.trim() || aiBusy || saving}
+            style={{
+              marginTop: "12px", width: "100%", border: "none", borderRadius: "12px", padding: "12px",
+              background: (!aiText.trim() || aiBusy || saving) ? "#E8D5B7" : "#A0724A",
+              color: (!aiText.trim() || aiBusy || saving) ? "#9a8a78" : "#FFFDF9",
+              fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
+              cursor: (!aiText.trim() || aiBusy || saving) ? "default" : "pointer",
+              transition: "background 0.15s",
+            }}
+          >{aiBusy ? "Asking…" : "Ask AI"}</button>
+        </div>
+
         {/* States the locked decision plainly rather than leaving it inferred. */}
         {isEdit && (
           <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.76rem", color: "#8a7a60",
@@ -1187,7 +1313,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             className="modal-confirm"
             disabled={!canSave || saving}
             style={{ opacity: (!canSave || saving) ? 0.5 : 1, cursor: (!canSave || saving) ? "default" : "pointer" }}
-            onClick={() => onCommit({ name, ingredients: rows })}
+            onClick={() => onCommit({ name, instructions, ingredients: rows })}
           >{saving ? "Saving…" : "Save Meal"}</button>
         </div>
       </div>
@@ -1231,6 +1357,7 @@ function ProvisionsApp() {
     fetchMeals,
     createMeal,
     updateMeal,
+    requestMealSuggestion,
     deleteMeal,
     decrementMealBatch,
     onListChangedRef,
@@ -1415,13 +1542,19 @@ function ProvisionsApp() {
   const [mealSaving, setMealSaving] = useState(false);
   const [mealDeleting, setMealDeleting] = useState(false);
 
-  const commitMealSheet = useCallback(async ({ name, ingredients }) => {
+  const commitMealSheet = useCallback(async ({ name, instructions, ingredients }) => {
     if (!mealSheet) return;
     setMealSaving(true);
     try {
       const payload = {
         name,
-        baseServings: 1,   // flat: the servings dial is deferred
+        instructions,
+        // flat: the servings dial is deferred. NOTE the AI draft also reports its own
+        // baseServings and it is deliberately DISCARDED here — quantity_per_serving only
+        // reads as a flat quantity while base_servings is 1 (migration 025). Storing the
+        // model's 4 would silently reinterpret the column as a ratio and double-scale it
+        // the day the dial ships.
+        baseServings: 1,
         ingredients: ingredients.map((r) => ({
           catalog_item_id: r.catalog_item_id,
           quantity_per_serving: r.quantity_per_serving,
@@ -4465,6 +4598,7 @@ function ProvisionsApp() {
           onDelete={commitMealDelete}
           onCreateCatalogItem={createCatalogItem}
           onRegisterCategory={(cat) => setHouseholdCategories((prev) => new Set([...prev, cat]))}
+          onRequestSuggestion={requestMealSuggestion}
         />
       )}
 

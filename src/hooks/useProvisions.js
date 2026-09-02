@@ -625,7 +625,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         for (let attempt = 0; attempt < 4; attempt++) {
           ({ data: catalog, error: catalogErr } = await db
             .from("catalog_items")
-            .select("id, name, category, is_global, price_hint, is_staple")
+            .select("id, name, category, unit, is_global, price_hint, is_staple")
             .eq("is_global", true)
             .is("deleted_at", null));
           if (cancelled) return;
@@ -638,7 +638,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // Custom catalog (household-scoped)
         const { data: customItems, error: customErr } = await db
           .from("catalog_items")
-          .select("id, name, category, is_global, price_hint, is_staple, created_by")
+          .select("id, name, category, unit, is_global, price_hint, is_staple, created_by")
           .eq("household_id", hh.id)
           .eq("is_global", false)
           .is("deleted_at", null);
@@ -1491,7 +1491,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     const { data: catalog, error: catalogErr } = await withJwtRetry(() => db
       .from("catalog_items")
-      .select("id, name, category, is_global, price_hint, is_staple")
+      .select("id, name, category, unit, is_global, price_hint, is_staple")
       .eq("is_global", true)
       .is("deleted_at", null));
     if (catalogErr) {
@@ -1505,7 +1505,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // fail the poll on the second half, which looks identical to the user.
     const { data: customItems, error: customErr } = await withJwtRetry(() => db
       .from("catalog_items")
-      .select("id, name, category, is_global, price_hint, is_staple")
+      .select("id, name, category, unit, is_global, price_hint, is_staple")
       .eq("household_id", hh.id)
       .eq("is_global", false)
       .is("deleted_at", null));
@@ -1903,7 +1903,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!db || !hh) return [];
     const { data, error: err } = await db
       .from("meals")
-      .select("id, name, base_servings, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, deleted_at, catalog_items(name, category))")
+      .select("id, name, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, deleted_at, catalog_items(name, category))")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -1919,7 +1919,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }));
   }, [reportTransientFailure, reportSuccess]);
 
-  const createMeal = useCallback(async ({ name, baseServings = 1, ingredients = [] }) => {
+  // `instructions` (migration 043) is optional and defaults to null. NOT AI-only: a
+  // hand-made meal can carry steps too, and nothing in the schema records the author.
+  // Empty string is coerced to null so "no steps" is one value, not two.
+  const createMeal = useCallback(async ({ name, baseServings = 1, instructions = null, ingredients = [] }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
@@ -1932,6 +1935,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           household_id: hh.id,
           name: trimmed,
           base_servings: baseServings,
+          instructions: (instructions || "").trim() || null,
           created_by: internalUserIdRef.current,
         })
         .select("id")
@@ -1966,7 +1970,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // NOT an RPC (see SPEC_create_meal_ui.md): edit is household-owned,
   // RLS-protected, and carries no cross-cutting concern like the advisory lock
   // or cycle resolution that justify add_meal_to_list's SECURITY DEFINER shape.
-  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, ingredients = [] }) => {
+  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, instructions = null, ingredients = [] }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
@@ -1975,7 +1979,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     try {
       const { error: mErr } = await db
         .from("meals")
-        .update({ name: trimmed, base_servings: baseServings })
+        .update({ name: trimmed, base_servings: baseServings, instructions: (instructions || "").trim() || null })
         .eq("id", mealId)
         .eq("household_id", hh.id); // belt-and-suspenders; RLS already scopes this
       if (mErr) throw mErr;
@@ -2233,6 +2237,65 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [reportSuccess]);
 
+  // requestMealSuggestion: ask the meal-suggestion Edge Function for ONE meal draft.
+  // Returns { name, baseServings, instructions, ingredients:[{name, quantity, unit}] }
+  // or null, surfacing failure through the same setError path as everything else here.
+  //
+  // The catalog context is assembled from what is ALREADY IN MEMORY (catalogRef) — no
+  // extra round trip, and no service-role read on the function side. That is the whole
+  // reason the function is stateless: it can only ever see what this client already had.
+  //
+  // Units are included and matter: the function pins a matched ingredient to its
+  // existing catalog unit so the AI cannot introduce a competing one for an item the
+  // household already has.
+  //
+  // Deliberately does NOT call reportSuccess/reportTransientFailure. Those track
+  // Supabase health for the offline banner; the Anthropic API being slow or rate-limited
+  // is not evidence the database is unreachable, and folding it in would make the
+  // connection indicator lie.
+  const requestMealSuggestion = useCallback(async (promptText) => {
+    const text = (promptText || "").trim();
+    if (!text) return null;
+    const getToken = getTokenRef.current;
+    if (!getToken) { setError("You need to be signed in to ask for a suggestion."); return null; }
+    try {
+      const token = await getToken({ template: "supabase" });
+      if (!token) { setError("Could not authenticate that request. Try again."); return null; }
+
+      const catalog = Object.values(catalogRef.current || {})
+        .filter((it) => it && it.name)
+        .map((it) => ({ name: it.name, category: it.category || "", unit: it.unit || "each" }));
+
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/meal-suggestion`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ requestText: text, catalog }),
+        },
+      );
+
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(payload?.error || `Could not get a suggestion (${res.status}).`);
+        return null;
+      }
+      // The function already validates and normalises, but it is across a network
+      // boundary — a shape check here is cheap and keeps a bad payload from reaching
+      // the modal's setState. Fail loudly rather than half-populating the fields.
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)
+          || typeof payload.name !== "string" || !Array.isArray(payload.ingredients)) {
+        setError("The suggestion came back in an unexpected shape.");
+        return null;
+      }
+      return payload;
+    } catch (err) {
+      console.error("requestMealSuggestion error:", err.message);
+      setError(`Could not get a suggestion: ${err.message}`);
+      return null;
+    }
+  }, []);
+
   const addMealToList = useCallback(async (mealId, servings = 1) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -2301,7 +2364,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, deleteMeal, removeMealFromList, decrementMealBatch, createCatalogItem, addMealToList, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, addMealToList, fetchMealProvenance, onListChangedRef,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
