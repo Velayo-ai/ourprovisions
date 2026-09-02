@@ -904,26 +904,43 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
   // Empty until something is typed — the placeholder already implies typing,
   // so showing results against an empty box contradicts its own copy.
+  // Staged items REMAIN in the results, marked "Added" (2026-09-01). Filtering them
+  // out meant searching for something you had already staged returned nothing, which
+  // reads as "we don't have that" — the one message that is definitely wrong, since
+  // it is sitting in the list above. Tapping an already-staged row bumps its quantity,
+  // so the obvious gesture does the obvious thing instead of silently no-oping.
   const results = useMemo(() => {
     const q = trimmedQuery.toLowerCase();
     if (!q) return [];
-    const stagedIds = new Set(rows.map((r) => r.catalog_item_id));
     return Object.values(catalogMap)
-      .filter((it) => it && it.id && !stagedIds.has(it.id) && (it.name || "").toLowerCase().includes(q))
+      .filter((it) => it && it.id && (it.name || "").toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name))
       .slice(0, 8);
-  }, [trimmedQuery, catalogMap, rows]);
+  }, [trimmedQuery, catalogMap]);
 
   const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
   const exactExists = trimmedQuery
     && Object.values(catalogMap).some((it) => norm(it.name) === norm(trimmedQuery));
   const showNoResults = !!trimmedQuery && results.length === 0 && !exactExists;
 
-  const stageItem = (item) => {
+  // `isNew` marks an item this sheet just created (no-results panel, or an AI draft
+  // that had no catalog match) so the staged row can show which category it was filed
+  // into. Existing catalog items don't carry the tag — the person already knows where
+  // those live, and tagging every row turns a useful signal into wallpaper.
+  const stageItem = (item, { isNew = false } = {}) => {
     if (!item || !item.id) return;
     setRows((prev) => prev.some((r) => r.catalog_item_id === item.id)
-      ? prev
-      : [...prev, { catalog_item_id: item.id, name: item.name, quantity_per_serving: 1 }]);
+      // Already staged → bump, don't no-op. Same clamp as the stepper.
+      ? prev.map((r) => r.catalog_item_id === item.id
+          ? { ...r, quantity_per_serving: Math.max(1, r.quantity_per_serving + 1) }
+          : r)
+      : [...prev, {
+          catalog_item_id: item.id,
+          name: item.name,
+          quantity_per_serving: 1,
+          category: item.category || null,
+          isNew,
+        }]);
     setQuery("");
     setPickerOpen(false);
     setNewCatOpen(false);
@@ -937,7 +954,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     setAdding(true);
     try {
       const item = await onCreateCatalogItem(trimmedQuery, rawCategory);
-      if (item) stageItem(item);
+      if (item) stageItem(item, { isNew: true });
     } finally {
       setAdding(false);
     }
@@ -988,7 +1005,12 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
       // no-results panel uses: exact-normalized match, or a new custom item via
       // insert_custom_catalog_item. No parallel matching path (spec, Decisions).
       const staged = [];
+      const known = new Set(Object.values(catalogMap).map((it) => norm(it.name)));
       for (const ing of draft.ingredients || []) {
+        // Snapshot BEFORE the call: createCatalogItem returns an existing row and a
+        // freshly-created one identically, so "was it already there?" has to be asked
+        // beforehand or the answer is always "yes".
+        const wasKnown = known.has(norm(ing.name));
         const item = await onCreateCatalogItem(ing.name, ing.category);
         if (!item) continue;   // resolver failed and said why; keep the rest
         if (staged.some((r) => r.catalog_item_id === item.id)) continue;
@@ -998,6 +1020,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           // Whole numbers only — the stepper cannot hold anything else. The Edge
           // Function already rounds up; this is the client-side floor, not a repeat.
           quantity_per_serving: Math.max(1, Math.ceil(Number(ing.quantity) || 1)),
+          category: item.category || ing.category || null,
+          isNew: !wasKnown,
         });
       }
       setRows(staged);
@@ -1041,8 +1065,22 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   display: "flex", alignItems: "center", gap: "10px", padding: "8px 10px",
                   border: "1.5px solid #c8973a", borderRadius: "8px", marginBottom: "6px", background: "#FAF4EC",
                 }}>
-                  <span style={{ flex: 1, minWidth: 0, fontFamily: "'Lato', sans-serif",
-                    fontSize: "0.9rem", color: "#2C1A0E" }}>{r.name}</span>
+                  <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
+                    gap: "7px", flexWrap: "wrap" }}>
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E" }}>
+                      {r.name}
+                    </span>
+                    {/* Only on items this sheet just created — it answers "where did
+                        that go?", which is only a live question for a brand-new item. */}
+                    {r.isNew && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "3px",
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.66rem", color: "#8a7a60",
+                        background: "rgba(160,114,74,0.12)", borderRadius: "999px", padding: "2px 7px" }}>
+                        <span aria-hidden="true">{categoryGlyph(r.category)}</span>
+                        new in {CATEGORY_LABEL[r.category] || r.category || "Household"}
+                      </span>
+                    )}
+                  </span>
                   {/* Full Browse stepper: .qty-controls is the wrapper that gives
                       the group its geometry and containment, not just a border.
                       Reproducing only .qty-btn/.qty-display inside a hand-rolled
@@ -1090,18 +1128,40 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
           {results.length > 0 && (
             <div style={{ marginTop: "8px" }}>
-              {results.map((it) => (
+              {results.map((it) => {
+                const stagedRow = rows.find((r) => r.catalog_item_id === it.id);
+                return (
                 <div key={it.id} style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   gap: "10px", padding: "8px 2px",
                 }}>
-                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E" }}>
-                    {it.name}
+                  <span style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                      color: "#2C1A0E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {it.name}
+                    </span>
+                    <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: "3px",
+                      fontFamily: "'Lato', sans-serif", fontSize: "0.68rem", color: "#8a7a60",
+                      background: "rgba(201,169,122,0.16)", borderRadius: "999px", padding: "2px 8px" }}>
+                      <span aria-hidden="true">{categoryGlyph(it.category)}</span>
+                      {CATEGORY_LABEL[it.category] || it.category || "Uncategorised"}
+                    </span>
                   </span>
-                  <button className="add-btn" style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 16px" }}
-                    onClick={() => stageItem(it)}>+ Add</button>
+                  {stagedRow ? (
+                    <button
+                      className="add-btn"
+                      style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 14px",
+                        background: "#E8D5B7", color: "#6b5a45" }}
+                      onClick={() => stageItem(it)}
+                      aria-label={`${it.name} already added — add another`}
+                    >Added ×{stagedRow.quantity_per_serving}</button>
+                  ) : (
+                    <button className="add-btn" style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 16px" }}
+                      onClick={() => stageItem(it)}>+ Add</button>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

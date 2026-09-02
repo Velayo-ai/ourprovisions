@@ -2288,7 +2288,19 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         setError("The suggestion came back in an unexpected shape.");
         return null;
       }
-      return payload;
+
+      // Some drafts come back with the ESCAPE SEQUENCE "\n" as two literal characters
+      // rather than a real newline, so the steps rendered as `4. Simmer.\n5. Serve.`
+      // in the textarea (seen on the 2026-09-01 verification walk). The prompt asks for
+      // "1. ...\n2. ..." and a model can reasonably read that as text to reproduce.
+      // Normalising here — at the parse boundary, once — beats asking every consumer to
+      // remember, and beats a prompt tweak that would only make it rarer, not impossible.
+      const unescapeSteps = (v) => (typeof v === "string" ? v : "")
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, " ")
+        .trim();
+      return { ...payload, instructions: unescapeSteps(payload.instructions) };
     } catch (err) {
       console.error("requestMealSuggestion error:", err.message);
       setError(`Could not get a suggestion: ${err.message}`);

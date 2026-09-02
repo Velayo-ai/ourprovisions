@@ -76,7 +76,9 @@ const EMIT_MEAL_TOOL = {
       },
       instructions: {
         type: "string",
-        description: "Plain numbered cooking steps, '1. ...\\n2. ...'. No markdown. Never empty.",
+        description:
+          "Plain numbered cooking steps separated by REAL newline characters, never the " +
+          "literal two-character sequence backslash-n. No markdown. Never empty.",
       },
       ingredients: {
         type: "array",
@@ -120,11 +122,16 @@ const normName = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 /**
  * Validate the draft, then make it TRUE — i.e. make what the client displays match
  * what will actually be saved. Returns a reason string when unusable, or null when good.
- * Mutates `d.ingredients` in place for the two normalisations below.
+ * Mutates `d.instructions` and `d.ingredients` in place for the normalisations below.
  *
  * This is the "fail loudly" half of the spec: a malformed draft surfaces as an error
- * rather than being quietly half-saved. The two repairs it DOES make are deterministic
+ * rather than being quietly half-saved. The three repairs it DOES make are deterministic
  * corrections with exactly one right answer, not guesses at intent:
+ *
+ * 0. LITERAL BACKSLASH-N BECOMES A REAL NEWLINE. Seen on the 2026-09-01 verification
+ *    walk: one draft rendered "…\\n5. Serve" as visible junk mid-recipe. The prompt asks
+ *    for real line breaks and the client normalises too — this is the middle guarantee,
+ *    so a future consumer that skips the hook still gets clean steps.
  *
  * 1. QUANTITIES ARE ROUNDED UP TO WHOLE NUMBERS. The app's stepper only holds whole
  *    numbers (App.js setQty = Math.max(1, n ± 1), no text entry), and
@@ -151,6 +158,14 @@ function validateAndNormalizeDraft(
 
   if (!nonEmpty(d.name)) return "name is empty";
   if (!nonEmpty(d.instructions)) return "instructions are empty";
+  // Literal backslash-n -> real newlines. Seen on the 2026-09-01 walk: one draft
+  // rendered "...\\n5. Serve" as visible junk mid-recipe. The client normalises too;
+  // doing it here as well means any future consumer gets it right for free.
+  d.instructions = (d.instructions as string)
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n")
+    .replace(/\\t/g, " ")
+    .trim();
   if (typeof d.baseServings !== "number" || !Number.isInteger(d.baseServings) || d.baseServings < 1) {
     return `baseServings must be a whole number >= 1, got ${JSON.stringify(d.baseServings)}`;
   }
