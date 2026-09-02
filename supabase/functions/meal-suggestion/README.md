@@ -84,24 +84,45 @@ export CLERK_JWT="<a real end-user token — see below>"
 bash supabase/functions/meal-suggestion/test.sh
 ```
 
-### Verified on dev — 2026-09-01 (function version 5)
+### Verified on dev — 2026-09-01, function version 6. **8/8 pass.**
 
-| Check | Result | Rejected by |
-|---|---|---|
-| Genuine Clerk token, **expired** | **PASS** 401 `Token expired` | this function |
-| **Same token, one char flipped in the signature** | **PASS** 401 `Bad signature` | this function |
-| Anon key (HS256) | **PASS** 401 `Untrusted issuer` | this function |
-| Garbage token | **PASS** 401 `Unreadable JWT payload` | this function |
-| No `Authorization` header | **PASS** 401 `Missing Bearer token` | this function |
-| `OPTIONS` preflight | **PASS** 200, no auth required | — |
-| 1 — valid request returns one meal | **NOT RUN** | needs `ANTHROPIC_API_KEY` + an unexpired token |
-| 2 — plural request still returns one meal | **NOT RUN** | needs `ANTHROPIC_API_KEY` + an unexpired token |
+| Check | Result |
+|---|---|
+| 1 — valid request returns 200 | **PASS** |
+| 1 — draft shape, units, servings all valid | **PASS** — *Creamy Garlic Chicken And Rice*, 4 servings, 11 ingredients, 1033-char instructions |
+| 2 — plural request returns 200 | **PASS** |
+| 2 — **guardrail: exactly one meal** | **PASS** — *"give me three dinner ideas"* → one meal, *Creamy Garlic Chicken Thighs With Rice* |
+| 2 — guardrail draft shape valid | **PASS** — 9 ingredients, all units in the allowed set |
+| 3a — no `Authorization` header | **PASS** 401 |
+| 3b — anon key as the token | **PASS** 401 |
+| 3c — garbage token | **PASS** 401 |
 
-**The first two rows together are the proof that signature verification is real.** The
-same token, one character apart, produces two different failures — so the RS256 check
-against Clerk's JWKS is genuinely running. The expired token got *past* the issuer
-allowlist and the signature check and failed only on age, which exercises the entire
-chain up to the last step.
+**Catalog reuse works.** Test 1 was given a 5-item catalog and emitted `Chicken Thighs`,
+`Yellow Onion`, `Garlic`, `Heavy Cream`, `Basmati Rice` **verbatim** — exactly what
+`createCatalogItem`'s exact-normalized matcher needs to avoid creating duplicates. Items
+not in the catalog (`Chicken Broth`) came back plain and generic, as instructed.
+
+Also verified earlier, on version 5, and still worth keeping — these prove the RS256
+signature check is genuinely running rather than stubbed:
+
+| Check | Result |
+|---|---|
+| Genuine Clerk token, **expired** | **PASS** 401 `Token expired` |
+| **Same token, one char flipped in the signature** | **PASS** 401 `Bad signature` |
+| Anon key (HS256) | **PASS** 401 `Untrusted issuer` |
+| `OPTIONS` preflight | **PASS** 200, no auth required |
+
+The same token one character apart produces two *different* failures, and the expired
+one got past the issuer allowlist and signature check to fail only on age — the whole
+chain, exercised.
+
+### Known gap in the guardrail evidence
+
+Both test requests returned a similar chicken-and-rice dish, because the fixture catalog
+is small and chicken-centric and test 1 explicitly asks for chicken. The guardrail claim
+— *one* meal, not three — is sound either way, since the count is what is being checked.
+But a plural request over a broader catalog, with no cuisine hint shared with test 1,
+would be a stronger probe. Worth adding when there is a richer seeded household.
 
 ### Getting a test JWT
 
