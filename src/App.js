@@ -1142,9 +1142,12 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
         <div className="modal-field" style={aiDim}>
           <label className="modal-label">Meal Name</label>
+          {/* NO autoFocus. On iOS an autofocused field opens the keyboard the instant
+              the sheet mounts, which shoves the modal up and buries the fields it was
+              meant to help with (Dan, iPhone walk 2026-09-02). Every field in this sheet
+              — name, ingredient search, AI request — focuses on touch and only on touch. */}
           <input
             className="modal-input"
-            autoFocus={!isEdit}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Taco Night"
@@ -1307,9 +1310,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                           Name the new category
                         </div>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          {/* No autoFocus — same iOS keyboard problem, and this one is
+                              nested two panels deep where the jump is worse. */}
                           <input
                             type="text"
-                            autoFocus
                             value={newCatInput}
                             onChange={(e) => setNewCatInput(e.target.value)}
                             onKeyDown={(e) => { if (e.key === "Enter") commitNewCategory(); }}
@@ -1383,6 +1387,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           </div>
 
           <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+            <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
             <textarea
               value={aiText}
               onChange={(e) => {
@@ -1396,13 +1401,47 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               rows={2}
               placeholder="Tell me what you're in the mood for…"
               style={{
-                flex: 1, minWidth: 0, boxSizing: "border-box", minHeight: "44px", maxHeight: "110px",
-                padding: "12px 13px", borderRadius: "10px", border: "1.5px solid #E8D5B7",
+                width: "100%", boxSizing: "border-box", minHeight: "44px", maxHeight: "110px",
+                padding: "12px 13px", paddingRight: "34px", borderRadius: "10px",
+                border: "1.5px solid #E8D5B7",
                 background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
                 color: "#2C1A0E", outline: "none", resize: "vertical",
                 opacity: (aiBusy || saving) ? 0.6 : 1,
               }}
             />
+            {/* Clear. Append-on-mic is right for building a request up in pieces, but it
+                has no way to express "scrap that, start again" — Dan typed pancakes,
+                spoke cheeseburger and got a meal made of both (iPhone walk 2026-09-02).
+                This is that missing intent, in one tap.
+
+                Clearing STOPS listening rather than just emptying the box. Mid-burst,
+                event.results still holds every word said since the tap, so the next
+                result would re-emit the pre-clear words and undo the clear. Ending the
+                burst is what makes "start again" actually start again — the next tap
+                gets a fresh results list.
+
+                Focus is deliberately NOT returned to the textarea: on iOS that reopens
+                the keyboard, which is the thing this whole pass is removing. */}
+            {aiText.length > 0 && !aiBusy && !saving && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAiText("");
+                  aiTextBaseRef.current = "";
+                  if (listening) stopListening();
+                  if (micHint && !micBlocked) setMicHint("");
+                }}
+                aria-label="Clear request"
+                style={{
+                  position: "absolute", top: "7px", right: "7px",
+                  width: "22px", height: "22px", borderRadius: "50%",
+                  border: "none", background: "rgba(44,26,14,0.10)", color: "#6b5a45",
+                  fontSize: "14px", lineHeight: 1, cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+                }}
+              >×</button>
+            )}
+            </div>
             {/* Rendered ONLY where the browser actually supports it. On Safari/iOS the
                 button is absent entirely and this section is exactly the typed path. */}
             {SPEECH_RECOGNITION_CTOR && (
