@@ -31,3 +31,7 @@ yarn-error.log*
 qa/test_fixture.dev.json
 
 *.dump
+
+# Supabase CLI version-check cache (written by `supabase functions deploy`);
+# `.temp/linked-project.json` above it IS tracked on purpose — it names the dev project.
+supabase/.temp/cli-latest
