@@ -9,6 +9,7 @@ Spec: [`docs/specs/active/SPEC_ai_meal_suggestion.md`](../../../docs/specs/activ
 | **Returns** | `{ name, baseServings, instructions, ingredients: [{name, quantity, unit}] }` — **one object, never an array** |
 | **Model** | `claude-opus-5`, effort `low`, one `strict` tool (`emit_meal`) |
 | **State** | None. No service-role key, no database reads. |
+| **Auth** | Clerk RS256 verified **in this function** against Clerk's JWKS. `verify_jwt = false`. |
 
 ## Shape decisions worth not re-litigating
 
@@ -28,40 +29,51 @@ is a request, not a guarantee). If both somehow fail, `index.ts` returns 502 rat
 taking the first element — the spec is explicit that a mismatch must surface, not be
 repaired.
 
-## ⚠️ Never deploy with `--no-verify-jwt`
+## ⚠️ `verify_jwt = false` is correct here. Do not flip it back.
 
-`verifyCaller()` in `index.ts` checks **claims only** — it does not verify the
-signature. Supabase's platform `verify_jwt` gate does that, before this code runs.
-Without it, every check in that function is a forgeable string comparison.
+**This was wrong in the first version and the correction is the important part.** The
+function was initially written assuming the app's tokens were HS256, signed with the
+shared Supabase JWT secret (the old Clerk "supabase" JWT-template integration), so that
+Supabase's platform gate would validate them and this code need only check claims.
 
-The claim checks are still required on top of the platform gate, because `verify_jwt`
-accepts **any** token signed with the project secret — including **the anon key, which
-ships inside the public client bundle**. The platform gate alone would let anyone who
-views source spend Anthropic credit. Requiring `role != anon` and a non-empty `sub` is
-what actually closes that. Test 3b exists specifically to keep this closed.
+A real token from `getToken({ template: "supabase" })` on dev is **RS256, signed by
+Clerk** (`iss: https://<instance>.clerk.accounts.dev`, with a `kid`). Postgres accepts
+it — Supabase third-party auth validates it against Clerk's JWKS — but **the Edge
+Functions gateway does not.** It rejected a live token with `UNAUTHORIZED_ASYMMETRIC_JWT`
+**while 9 seconds of validity remained**, so this is not an expiry artifact. With
+`verify_jwt = true` this function is unreachable by every real user.
 
-These are Clerk JWT-template tokens (`getToken({ template: "supabase" })`, see
-[`src/lib/supabaseClient.js`](../../../src/lib/supabaseClient.js)). Clerk signs them
-with the shared Supabase JWT secret, which is why the platform gate accepts them
-natively and no Clerk JWKS fetch is needed.
+So the function verifies the token itself: full RS256 signature check against the
+issuer's JWKS, algorithm pinned, issuer allowlisted. **That is strictly more
+verification than the platform gate was doing, not less.**
+
+**Every check in `verifyCaller` is therefore load-bearing** — there is no gate in front
+of it. Do not "simplify" it to a decode-and-check-claims; that would accept any token
+anyone typed. The `algorithms: ["RS256"]` pin is also what makes an HS256 anon key
+unusable here.
+
+### `CLERK_ISSUER` — prod will not work without it
+
+The issuer allowlist defaults to the **dev** Clerk instance. The token's own `iss` is
+read only to *select* a trusted JWKS, never to trust one — a forged `iss` matches
+nothing. Prod runs a different Clerk instance, so a prod deploy **must** set
+`CLERK_ISSUER` or it will reject every real token with `Untrusted issuer`.
 
 ## Deploy (dev first, always)
-
-Requires the Supabase CLI (`npx supabase`) authenticated as someone with access to the
-dev project.
 
 ```bash
 npx supabase login                       # or export SUPABASE_ACCESS_TOKEN
 npx supabase link --project-ref zxwtxjjmssykhqrghouf
 
-# The key is set ON THE PROJECT, not in this repo. Never commit it.
+# Secrets are set ON THE PROJECT, never committed.
 npx supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
 
-npx supabase functions deploy meal-suggestion   # verify_jwt stays on (config.toml)
+npx supabase functions deploy meal-suggestion --no-verify-jwt
 ```
 
-Prod (`parpauldmbetptkmdwbd`) is a **separate deploy and a separate secret**, and is
-gated behind dev verification exactly like a migration.
+Prod (`parpauldmbetptkmdwbd`) is a separate deploy with **two** secrets —
+`ANTHROPIC_API_KEY` *and* `CLERK_ISSUER` — and is gated behind dev verification exactly
+like a migration.
 
 ## Test standalone — before any client wiring
 
@@ -72,43 +84,44 @@ export CLERK_JWT="<a real end-user token — see below>"
 bash supabase/functions/meal-suggestion/test.sh
 ```
 
-Six checks: a valid request returns 200, the draft's shape/units validate, a plural
-request (*"give me three dinner ideas"*) still returns exactly one meal, and all three
-rejection paths (no token / anon key / garbage) return 401.
-
-### Verified on dev — 2026-09-01 (function version 1)
+### Verified on dev — 2026-09-01 (function version 5)
 
 | Check | Result | Rejected by |
 |---|---|---|
-| 3a — no `Authorization` header | **PASS** 401 `UNAUTHORIZED_NO_AUTH_HEADER` | platform gate |
-| 3b — **anon key as the bearer token** | **PASS** 401 `Unauthorized: Not an end-user token` | **this function** |
-| 3c — garbage token | **PASS** 401 `UNAUTHORIZED_INVALID_JWT_FORMAT` | platform gate |
+| Genuine Clerk token, **expired** | **PASS** 401 `Token expired` | this function |
+| **Same token, one char flipped in the signature** | **PASS** 401 `Bad signature` | this function |
+| Anon key (HS256) | **PASS** 401 `Untrusted issuer` | this function |
+| Garbage token | **PASS** 401 `Unreadable JWT payload` | this function |
+| No `Authorization` header | **PASS** 401 `Missing Bearer token` | this function |
 | `OPTIONS` preflight | **PASS** 200, no auth required | — |
-| 1 — valid request returns one meal | **NOT RUN** | needs the secret + a real JWT |
-| 2 — plural request still returns one meal | **NOT RUN** | needs the secret + a real JWT |
+| 1 — valid request returns one meal | **NOT RUN** | needs `ANTHROPIC_API_KEY` + an unexpired token |
+| 2 — plural request still returns one meal | **NOT RUN** | needs `ANTHROPIC_API_KEY` + an unexpired token |
 
-**Read row 3b carefully — it is the whole argument for the claim checks.** The platform
-gate *accepted* the anon key (it is correctly signed), and this function's own check is
-what rejected it. Note the error shapes differ: 3a/3c return the platform's
-`{code, message}`, 3b returns this function's `{error}`. If 3b ever starts returning a
-platform-shaped body, the claim checks stopped running and the hole is open again.
+**The first two rows together are the proof that signature verification is real.** The
+same token, one character apart, produces two different failures — so the RS256 check
+against Clerk's JWKS is genuinely running. The expired token got *past* the issuer
+allowlist and the signature check and failed only on age, which exercises the entire
+chain up to the last step.
 
 ### Getting a test JWT
 
-The token must be a real end-user one — it cannot be minted from this repo, and the
-anon key deliberately will not work. On `dev.ourprovisions.velayo.ai`, signed in, in
-the devtools console:
+The token must be a real end-user one — it cannot be minted from this repo, and the anon
+key deliberately will not work. On `dev.ourprovisions.velayo.ai`, signed in, in the
+devtools console:
 
 ```js
 await window.Clerk.session.getToken({ template: "supabase" })
 ```
 
-Short-lived (~60s by default), so grab it immediately before running the script.
+**These live ~60 seconds.** Set the `ANTHROPIC_API_KEY` secret *first*, then grab the
+token and run `test.sh` immediately — a round trip through a chat window will outlive it.
 
 ## Follow-ups this function does not solve
 
-- **No rate limiting.** Nothing stops repeated calls; `MAX_REQUEST_CHARS` and
-  `MAX_CATALOG_ITEMS` bound the size of each call, not the number of them. A
-  per-household daily cap is the spec's open item.
-- **`npm:@anthropic-ai/sdk@0.123.0` is pinned** — bump deliberately, and re-run
-  `test.sh` after, since the tool-use response shape is what the parsing depends on.
+- **No rate limiting.** `MAX_REQUEST_CHARS` and `MAX_CATALOG_ITEMS` bound the size of
+  each call, not the number of them. A per-household daily cap is the spec's open item.
+- **Pins:** `npm:@anthropic-ai/sdk@0.123.0`, `npm:jose@6.2.10`. Bump deliberately and
+  re-run `test.sh` — the tool-use response shape is what the parsing depends on.
+- **`verify_jwt = false` means the endpoint is publicly reachable**; the `apikey` header
+  is no longer required by the gateway. All rejection now happens in `verifyCaller`,
+  which is why the table above tests it directly rather than trusting the platform.

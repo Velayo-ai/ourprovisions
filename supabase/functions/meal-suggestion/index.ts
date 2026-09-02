@@ -17,6 +17,7 @@
 // See verifyCaller() for why the platform's JWT gate alone is NOT sufficient for that.
 
 import Anthropic from "npm:@anthropic-ai/sdk@0.123.0";
+import { createRemoteJWKSet, errors as joseErrors, jwtVerify } from "npm:jose@6.2.10";
 import { ALLOWED_UNITS, SYSTEM_PROMPT } from "./prompt.ts";
 
 // ---------------------------------------------------------------------------
@@ -83,50 +84,100 @@ const EMIT_MEAL_TOOL = {
 };
 
 // ---------------------------------------------------------------------------
-// Caller verification
+// Caller verification — THIS FUNCTION DOES THE SIGNATURE CHECK ITSELF
 // ---------------------------------------------------------------------------
-// SIGNATURE is verified by the platform, not here. Supabase's `verify_jwt` gate runs
-// before this code and rejects anything not signed with the project JWT secret. These
-// tokens are Clerk JWT-template tokens ("supabase" template, see
-// src/lib/supabaseClient.js) — Clerk signs them with that same shared secret, which is
-// why the platform gate accepts them natively and no Clerk JWKS fetch is needed.
+// ⚠️ CORRECTED 2026-09-01, and the correction matters. This function was first written
+// assuming these were HS256 tokens signed with the shared Supabase JWT secret (the old
+// Clerk "supabase" JWT-template integration), so that Supabase's platform `verify_jwt`
+// gate would validate them and this code need only check claims. THAT IS WRONG.
 //
-// ⚠️ DO NOT DEPLOY WITH --no-verify-jwt. The claim checks below are NOT a signature
-// check; without the platform gate in front of them, every one of them is forgeable.
+// A real token from `getToken({ template: "supabase" })` on dev is **RS256, signed by
+// Clerk**, with `iss: https://<instance>.clerk.accounts.dev` and a `kid`. Postgres
+// accepts it (Supabase third-party auth validates it against Clerk's JWKS), but the
+// **Edge Functions gateway does not** — it rejected a live, unexpired token with
+// `UNAUTHORIZED_ASYMMETRIC_JWT`. Proven by test, not assumed: the token still had 9
+// seconds of life when the gateway refused it.
 //
-// WHY CLAIM CHECKS ARE STILL REQUIRED: `verify_jwt` accepts ANY token signed with the
-// project secret — and the anon key is exactly that. It is a valid JWT, and it ships
-// inside the public client bundle. So the platform gate alone would let anyone who
-// views source spend Anthropic credit, which is the one thing this gate exists to
-// stop. Requiring a real end-user token (`role` = authenticated, `sub` present) is
-// what actually closes that hole.
-function verifyCaller(req: Request): { ok: true; sub: string } | { ok: false; reason: string } {
+// So this function is deployed with `verify_jwt: false` and verifies the token itself,
+// against Clerk's JWKS. That is not a weakening — it is strictly more verification
+// than before, and it no longer depends on a platform gate whose semantics were guessed.
+//
+// ⚠️ BECAUSE THERE IS NO PLATFORM GATE IN FRONT, EVERY CHECK BELOW IS LOad-BEARING.
+// `jwtVerify` pinned to RS256 against a trusted issuer's JWKS is the whole security
+// boundary. Do not "simplify" it to a decode-and-check-claims — that would accept any
+// token anyone typed. The `algorithms` pin also single-handedly rejects the Supabase
+// anon key, which is HS256.
+
+// Issuer allowlist. The token's own `iss` cannot be trusted to name its own JWKS —
+// that would let anyone point us at a JWKS they control. Set CLERK_ISSUER (comma
+// separated) to override; the default is the dev Clerk instance, which is public
+// information (it appears in every token and in the client bundle).
+// ⚠️ PROD MUST SET CLERK_ISSUER — the prod Clerk instance is a different issuer, and
+// this default would reject every prod token.
+const ALLOWED_ISSUERS = (Deno.env.get("CLERK_ISSUER") ??
+  "https://many-puma-34.clerk.accounts.dev")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// jose caches fetched keys internally, so this is one JWKS fetch per issuer per cold
+// start, not one per request.
+const JWKS_BY_ISSUER = new Map(
+  ALLOWED_ISSUERS.map((iss) => [
+    iss,
+    createRemoteJWKSet(new URL(`${iss.replace(/\/$/, "")}/.well-known/jwks.json`)),
+  ]),
+);
+
+async function verifyCaller(
+  req: Request,
+): Promise<{ ok: true; sub: string } | { ok: false; reason: string }> {
   const header = req.headers.get("Authorization") ?? "";
   const match = header.match(/^Bearer\s+(.+)$/i);
   if (!match) return { ok: false, reason: "Missing Bearer token" };
+  const token = match[1].trim();
 
-  const parts = match[1].split(".");
-  if (parts.length !== 3) return { ok: false, reason: "Malformed JWT" };
-
-  let claims: Record<string, unknown>;
+  // Read `iss` unverified ONLY to select which trusted JWKS to check against. The
+  // choice is constrained to the allowlist, so a forged `iss` selects nothing.
+  let unverifiedIss: string | undefined;
   try {
-    // base64url -> JSON. Deno's atob needs standard base64 and no padding gaps.
+    const parts = token.split(".");
+    if (parts.length !== 3) return { ok: false, reason: "Malformed JWT" };
     const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
-    claims = JSON.parse(atob(padded));
+    const payload = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+    unverifiedIss = typeof payload.iss === "string" ? payload.iss : undefined;
   } catch {
     return { ok: false, reason: "Unreadable JWT payload" };
   }
 
-  const exp = claims.exp;
-  if (typeof exp !== "number" || exp * 1000 <= Date.now()) {
-    return { ok: false, reason: "Token expired" };
+  const jwks = unverifiedIss ? JWKS_BY_ISSUER.get(unverifiedIss) : undefined;
+  if (!jwks || !unverifiedIss) return { ok: false, reason: "Untrusted issuer" };
+
+  let claims: Record<string, unknown>;
+  try {
+    const verified = await jwtVerify(token, jwks, {
+      issuer: unverifiedIss, // re-checked against the verified payload by jose
+      algorithms: ["RS256"], // pins out HS256 — this is what rejects the anon key
+    });
+    claims = verified.payload as Record<string, unknown>;
+  } catch (err) {
+    if (err instanceof joseErrors.JWTExpired) return { ok: false, reason: "Token expired" };
+    if (err instanceof joseErrors.JWTClaimValidationFailed) {
+      return { ok: false, reason: "Token claims rejected" };
+    }
+    if (err instanceof joseErrors.JOSEAlgNotAllowed) {
+      return { ok: false, reason: "Unsupported token algorithm" };
+    }
+    if (err instanceof joseErrors.JWSSignatureVerificationFailed) {
+      return { ok: false, reason: "Bad signature" };
+    }
+    console.error("jwt verification error", err);
+    return { ok: false, reason: "Token could not be verified" };
   }
 
-  // The anon key carries role "anon" and no sub. Both checks matter independently.
-  if (claims.role === "anon" || claims.role === "service_role") {
-    return { ok: false, reason: "Not an end-user token" };
-  }
+  // Claim checks on top of the signature: a correctly signed token still must be a
+  // real end user, not a machine identity.
+  if (claims.role !== "authenticated") return { ok: false, reason: "Not an end-user token" };
   const sub = claims.sub;
   if (typeof sub !== "string" || sub.length === 0) {
     return { ok: false, reason: "Not an end-user token" };
@@ -142,7 +193,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  const caller = verifyCaller(req);
+  const caller = await verifyCaller(req);
   if (!caller.ok) return json({ error: `Unauthorized: ${caller.reason}` }, 401);
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");

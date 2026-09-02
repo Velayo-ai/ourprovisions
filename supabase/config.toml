@@ -10,8 +10,15 @@
 project_id = "ourprovisions"
 
 [functions.meal-suggestion]
-# ⚠️ MUST stay true. The function's own checks (supabase/functions/meal-suggestion/
-# index.ts, verifyCaller) validate CLAIMS only — they do not verify the signature.
-# The platform gate is what makes them meaningful. Deploying with --no-verify-jwt
-# turns every check in that function into a forgeable string comparison.
-verify_jwt = true
+# ⚠️ FALSE ON PURPOSE — corrected 2026-09-01 after testing, do not flip it back.
+#
+# The app's Clerk tokens are RS256, signed by Clerk (iss: <instance>.clerk.accounts.dev).
+# Postgres accepts them via Supabase third-party auth, but the Edge Functions gateway
+# does NOT: it rejected a live, unexpired token with UNAUTHORIZED_ASYMMETRIC_JWT, with
+# 9 seconds still on the clock. Leaving verify_jwt = true makes this function
+# unreachable by every real user, which is exactly what the first deploy did.
+#
+# The function verifies the token ITSELF instead — full RS256 signature check against
+# the issuer's JWKS, pinned algorithm, issuer allowlist (see verifyCaller in index.ts).
+# That is strictly MORE verification than the platform gate performed, not less.
+verify_jwt = false
