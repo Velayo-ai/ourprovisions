@@ -313,7 +313,14 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   const caller = await verifyCaller(req);
-  if (!caller.ok) return json({ error: `Unauthorized: ${caller.reason}` }, 401);
+  if (!caller.ok) {
+    // The reason travels in the response body, which the logs never see — so a rejection
+    // reads as a bare 401 in `function_edge_logs` and the actual cause is unrecoverable
+    // after the fact. Cost a full forensics pass on 2026-09-02. Logged here, at the ONE
+    // place every verifyCaller failure funnels through, rather than at each return.
+    console.warn(`meal-suggestion 401: ${caller.reason}`);
+    return json({ error: `Unauthorized: ${caller.reason}` }, 401);
+  }
 
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) {
