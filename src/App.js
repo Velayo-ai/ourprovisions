@@ -36,6 +36,16 @@ const CATEGORY_GLYPH = {
   "bakery & bread": "🍞",
   "household": "🧹",
 };
+// Web Speech API, resolved ONCE at module load. Support is genuinely uneven (Safari and
+// most iOS browsers have none), so this is a real branch, not defensive padding: when it
+// is null the mic button is never rendered at all and the typed path is exactly what it
+// was before this feature existed. A disabled mic that silently does nothing would be
+// worse than no mic — it promises something the browser cannot deliver.
+const SPEECH_RECOGNITION_CTOR =
+  typeof window !== "undefined"
+    ? (window.SpeechRecognition || window.webkitSpeechRecognition || null)
+    : null;
+
 const CATEGORY_GLYPH_FALLBACK = "📦";
 const categoryGlyph = (value) =>
   CATEGORY_GLYPH[String(value ?? "").trim().toLowerCase()] || CATEGORY_GLYPH_FALLBACK;
@@ -900,6 +910,19 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
 
+  // Voice. `micBlocked` is sticky for the life of the sheet: a denied permission does
+  // not resolve itself, so re-offering the button would just reproduce the same refusal.
+  // `micHint` overrides the hint line — errors surface THERE, never as a toast and never
+  // with a raw error code, because "no-speech" means nothing to the person holding it.
+  const [listening, setListening] = useState(false);
+  const [micBlocked, setMicBlocked] = useState(false);
+  const [micHint, setMicHint] = useState("");
+  const recognitionRef = useRef(null);
+  // The field's contents at the moment listening started. Re-read on every result rather
+  // than appending incrementally: interim results REPLACE earlier interim text, so
+  // concatenating as they arrive would stack half-heard fragments on top of each other.
+  const aiTextBaseRef = useRef("");
+
   const trimmedQuery = query.trim();
 
   // Empty until something is typed — the placeholder already implies typing,
@@ -986,6 +1009,79 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // sheet is remounted for another meal.
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const stopListening = () => {
+    const rec = recognitionRef.current;
+    if (rec) { try { rec.stop(); } catch { /* already stopped */ } }
+    // onend normally clears this; setting it here too means a browser that never fires
+    // onend cannot strand the button in a permanent "listening" state.
+    setListening(false);
+  };
+
+  const startListening = () => {
+    if (!SPEECH_RECOGNITION_CTOR || micBlocked || listening) return;
+    let rec;
+    try {
+      rec = new SPEECH_RECOGNITION_CTOR();
+    } catch {
+      setMicHint("Didn't catch that — try again or type.");
+      return;
+    }
+    rec.continuous = false;      // one burst; the browser ends it on a natural pause
+    rec.interimResults = true;   // so words appear as they are spoken, per mockup Screen 2
+    rec.lang = (typeof navigator !== "undefined" && navigator.language) || "en-US";
+
+    aiTextBaseRef.current = aiText;
+
+    rec.onresult = (event) => {
+      let transcript = "";
+      for (let i = 0; i < event.results.length; i += 1) transcript += event.results[i][0].transcript;
+      const base = aiTextBaseRef.current.trim();
+      const heard = transcript.trim();
+      // APPEND, never replace — someone may have typed half a request before speaking
+      // the rest, and eating that would be the worst possible surprise here.
+      setAiText(base && heard ? `${base} ${heard}` : (heard || base));
+    };
+
+    rec.onerror = (event) => {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setMicBlocked(true);
+        setMicHint("Mic access is blocked — type your request instead.");
+      } else {
+        // no-speech / network / aborted / audio-capture all land here. One message: the
+        // person's next move is identical in every case, so distinguishing them would be
+        // detail without a decision attached.
+        setMicHint("Didn't catch that — try again or type.");
+      }
+    };
+
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    setMicHint("");
+    try {
+      rec.start();
+    } catch {
+      setMicHint("Didn't catch that — try again or type.");
+      return;
+    }
+    recognitionRef.current = rec;
+    setListening(true);
+  };
+
+  const toggleMic = () => (listening ? stopListening() : startListening());
+
+  // Detach handlers BEFORE aborting: abort() fires onerror('aborted'), and a setState
+  // from a handler on an unmounting component is a React warning for no benefit.
+  useEffect(() => () => {
+    const rec = recognitionRef.current;
+    if (rec) {
+      rec.onresult = null; rec.onerror = null; rec.onend = null;
+      try { rec.abort(); } catch { /* nothing to abort */ }
+    }
+  }, []);
+
   // Ask AI: one request, one meal, straight into the fields the manual path uses.
   // REPLACES name/instructions/ingredients rather than merging. Merging sounds kinder
   // but compounds: ask twice and you accumulate two meals' worth of ingredients with
@@ -994,6 +1090,9 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const handleAskAI = async () => {
     const text = aiText.trim();
     if (!text || aiBusy || !onRequestSuggestion) return;
+    // Sending is an unambiguous "I'm done talking" — leaving the mic live would keep
+    // appending words to a field whose contents have already been sent.
+    if (listening) stopListening();
     setAiBusy(true);
     try {
       const draft = await onRequestSuggestion(text);
@@ -1283,26 +1382,55 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             Ask AI to build it
           </div>
 
-          <textarea
-            value={aiText}
-            onChange={(e) => setAiText(e.target.value)}
-            disabled={aiBusy || saving}
-            rows={2}
-            placeholder="Tell me what you're in the mood for…"
-            style={{
-              width: "100%", boxSizing: "border-box", minHeight: "44px", maxHeight: "110px",
-              padding: "12px 13px", borderRadius: "10px", border: "1.5px solid #E8D5B7",
-              background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
-              color: "#2C1A0E", outline: "none", resize: "vertical",
-              opacity: (aiBusy || saving) ? 0.6 : 1,
-            }}
-          />
+          <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+            <textarea
+              value={aiText}
+              onChange={(e) => {
+                setAiText(e.target.value);
+                // Typing is "I've moved on" — clear a stale "didn't catch that". The
+                // BLOCKED message deliberately survives: it explains why the mic button
+                // is greyed out, and that stays true for the life of the sheet.
+                if (micHint && !micBlocked) setMicHint("");
+              }}
+              disabled={aiBusy || saving}
+              rows={2}
+              placeholder="Tell me what you're in the mood for…"
+              style={{
+                flex: 1, minWidth: 0, boxSizing: "border-box", minHeight: "44px", maxHeight: "110px",
+                padding: "12px 13px", borderRadius: "10px", border: "1.5px solid #E8D5B7",
+                background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                color: "#2C1A0E", outline: "none", resize: "vertical",
+                opacity: (aiBusy || saving) ? 0.6 : 1,
+              }}
+            />
+            {/* Rendered ONLY where the browser actually supports it. On Safari/iOS the
+                button is absent entirely and this section is exactly the typed path. */}
+            {SPEECH_RECOGNITION_CTOR && (
+              <button
+                type="button"
+                className={`op-mic-btn${listening ? " listening" : ""}`}
+                onClick={toggleMic}
+                disabled={micBlocked || aiBusy || saving}
+                aria-pressed={listening}
+                aria-label={listening ? "Stop listening" : "Speak your request"}
+              >
+                <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="9" y="2" width="6" height="11" rx="3" />
+                  <path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4M8 22h8" />
+                </svg>
+              </button>
+            )}
+          </div>
 
-          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px", color: "#8a7968",
-            marginTop: "8px", lineHeight: 1.5 }}>
+          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px",
+            color: micHint ? "#b3261e" : "#8a7968", marginTop: "8px", lineHeight: 1.5 }}>
             {aiBusy
               ? "Building your meal…"
-              : "You'll get one meal, filled into the fields above to review and edit before saving. This replaces what's there now."}
+              : micHint
+                ? micHint
+                : listening
+                  ? "Listening… tap the mic again to stop, or just keep talking."
+                  : "You'll get one meal, filled into the fields above to review and edit before saving. This replaces what's there now."}
           </div>
 
           <button
@@ -2873,6 +3001,12 @@ function ProvisionsApp() {
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
         .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-list-scale)); color: #2C1A0E; flex: 1; }
+        .op-mic-btn { flex: none; width: 44px; height: 44px; border-radius: 10px; background: #2C1A0E; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
+        .op-mic-btn svg { width: 19px; height: 19px; stroke: #FFFDF9; fill: none; }
+        .op-mic-btn:disabled { opacity: .45; cursor: default; }
+        .op-mic-btn.listening { background: #c0392b; animation: opMicPulse 1.2s ease-in-out infinite; }
+        @keyframes opMicPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(192,57,43,0.55); } 50% { box-shadow: 0 0 0 8px rgba(192,57,43,0); } }
+        @media (prefers-reduced-motion: reduce) { .op-mic-btn.listening { animation: none; } }
         .qty-controls { display: inline-flex; align-items: center; background: transparent; border: 1px solid #C9A97A; border-radius: 999px; overflow: hidden; flex-shrink: 0; }
         .qty-btn { width: 38px; height: 34px; border: 0; background: transparent; color: #A0724A; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; line-height: 1; transition: background 0.12s; }
         .qty-btn:active { background: #F5EDE0; }
