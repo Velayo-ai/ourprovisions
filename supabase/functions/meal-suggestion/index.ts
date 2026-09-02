@@ -45,6 +45,20 @@ function json(body: unknown, status = 200): Response {
 // so the single-meal rule is enforced STRUCTURALLY (an object, never an array) as
 // well as in the prompt. Two independent guarantees, because the prompt alone is a
 // request and the schema alone cannot express "pick the best one".
+//
+// ⚠️ NO VALUE-CONSTRAINT KEYWORDS HERE — learned the hard way 2026-09-01. A strict
+// tool schema accepts only a STRUCTURAL subset of JSON Schema. `minimum` on an
+// integer is rejected outright:
+//   400 invalid_request_error
+//   "tools.0.custom: For 'integer' type, property 'minimum' is not supported"
+// `minLength`, `minItems` and `exclusiveMinimum` are the same class of keyword, and
+// the API reports only the FIRST violation it hits — so removing them one at a time
+// costs a full deploy-and-test cycle each. They are all gone.
+//
+// What survives: type, properties, required, additionalProperties, enum, description.
+// The value constraints moved to `validateDraft()` below, which is the better home
+// anyway — it fails loudly on a real violation instead of trusting the model to have
+// honoured a keyword the API silently never enforced.
 // ---------------------------------------------------------------------------
 const EMIT_MEAL_TOOL = {
   name: "emit_meal",
@@ -55,22 +69,24 @@ const EMIT_MEAL_TOOL = {
   input_schema: {
     type: "object" as const,
     properties: {
-      name: { type: "string", minLength: 1, description: "Meal name, title case, no article." },
-      baseServings: { type: "integer", minimum: 1, description: "Whole number of servings." },
+      name: { type: "string", description: "Meal name, title case, no article. Never empty." },
+      baseServings: {
+        type: "integer",
+        description: "Whole number of servings, 1 or greater. Default 4 if unstated.",
+      },
       instructions: {
         type: "string",
-        minLength: 1,
-        description: "Plain numbered cooking steps, '1. ...\\n2. ...'. No markdown.",
+        description: "Plain numbered cooking steps, '1. ...\\n2. ...'. No markdown. Never empty.",
       },
       ingredients: {
         type: "array",
-        minItems: 1,
-        description: "Everything to shop for. Reuse catalog names verbatim where they fit.",
+        description:
+          "Everything to shop for; at least one item. Reuse catalog names verbatim where they fit.",
         items: {
           type: "object",
           properties: {
-            name: { type: "string", minLength: 1 },
-            quantity: { type: "number", exclusiveMinimum: 0 },
+            name: { type: "string", description: "Ingredient name. Never empty." },
+            quantity: { type: "number", description: "How many units to buy. Greater than zero." },
             unit: { type: "string", enum: [...ALLOWED_UNITS] },
           },
           required: ["name", "quantity", "unit"],
@@ -82,6 +98,38 @@ const EMIT_MEAL_TOOL = {
     additionalProperties: false,
   },
 };
+
+/**
+ * The value constraints the strict schema cannot express. Returns a reason string
+ * when the draft is unusable, or null when it is good.
+ *
+ * This is the "fail loudly" half of the spec's requirement: a malformed draft must
+ * surface as an error, never be quietly repaired or half-saved.
+ */
+function validateDraft(d: Record<string, unknown>): string | null {
+  const nonEmpty = (v: unknown) => typeof v === "string" && v.trim().length > 0;
+
+  if (!nonEmpty(d.name)) return "name is empty";
+  if (!nonEmpty(d.instructions)) return "instructions are empty";
+  if (typeof d.baseServings !== "number" || !Number.isInteger(d.baseServings) || d.baseServings < 1) {
+    return `baseServings must be a whole number >= 1, got ${JSON.stringify(d.baseServings)}`;
+  }
+  if (!Array.isArray(d.ingredients) || d.ingredients.length === 0) {
+    return "ingredients must be a non-empty list";
+  }
+  for (const [i, raw] of d.ingredients.entries()) {
+    if (typeof raw !== "object" || raw === null) return `ingredient ${i} is not an object`;
+    const ing = raw as Record<string, unknown>;
+    if (!nonEmpty(ing.name)) return `ingredient ${i} has an empty name`;
+    if (typeof ing.quantity !== "number" || !(ing.quantity > 0)) {
+      return `ingredient ${i} (${String(ing.name)}) has quantity ${JSON.stringify(ing.quantity)}`;
+    }
+    if (!ALLOWED_UNITS.includes(ing.unit as typeof ALLOWED_UNITS[number])) {
+      return `ingredient ${i} (${String(ing.name)}) has unit ${JSON.stringify(ing.unit)}`;
+    }
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Caller verification — THIS FUNCTION DOES THE SIGNATURE CHECK ITSELF
@@ -293,6 +341,12 @@ Deno.serve(async (req: Request) => {
   if (Array.isArray(draft) || typeof draft !== "object" || draft === null) {
     console.error("emit_meal input was not a single object", JSON.stringify(draft).slice(0, 800));
     return json({ error: "The suggestion service returned more than one meal." }, 502);
+  }
+
+  const invalid = validateDraft(draft as Record<string, unknown>);
+  if (invalid) {
+    console.error("emit_meal draft failed validation:", invalid, JSON.stringify(draft).slice(0, 800));
+    return json({ error: "The suggestion service returned an unusable meal." }, 502);
   }
 
   console.log(
