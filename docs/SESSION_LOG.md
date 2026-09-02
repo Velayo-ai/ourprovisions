@@ -25,6 +25,34 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-09-02] — [OurProvisions] — AI meal suggestion: Edge Function through voice, built and verified end to end
+**Goal:** Confirm the system prompt, decide the Edge Function context-fetch shape, and build the Edge Function tested standalone before client wiring. **Exceeded — the whole feature shipped and was verified in one session.**
+**Completed:**
+- **Built and deployed the project's FIRST Edge Function** (`meal-suggestion`, dev v9) with the system prompt **written fresh** — the "already drafted" prompt of prior notes never existed in any file, any commit in `git log --all`, or the airlock. 8/8 standalone checks passed, including the multi-meal guardrail ("give me three dinner ideas" → one meal) and the full auth rejection matrix. Context-fetch shape decided: **client passes the catalog in the payload; the function is stateless** — no service-role key, no DB reads, so a forged `household_id` buys nothing.
+- **Corrected a wrong auth assumption that had shipped a dead function.** The first deploy used the platform JWT gate, which only validates HS256 project-secret tokens; Clerk issues **RS256**. A live token was rejected with `UNAUTHORIZED_ASYMMETRIC_JWT` **with 9 seconds of validity left** — so the function was unreachable by every real user, and four "passing" rejection tests had hidden it. Now verified in-function via `jose`: RS256 against Clerk's JWKS, algorithm pinned, issuer allowlisted.
+- **Wired the typed path** — `requestMealSuggestion`, the modal AI section per the approved mockup, and the Instructions field with a `meals.instructions` round-trip. **Verified 5/5 in Dan's hands on dev**, including a plural probe against the real catalog.
+- **Shipped a 4-fix UX batch from the first walk:** `\n` normalisation (three layers), staged items now stay in search as "Added ×N" and tap-to-bump, category tags on search rows plus "new in <category>" on freshly created items, and off-topic requests contractually read as meal requests — *"how should I invest $30"* returned a sensible $30 grocery-budget meal, observed in the wild before hardening.
+- **Shipped the mic pass** — Web Speech burst transcription, append-not-replace semantics, plain-language errors in the hint line. **Verified on desktop Chrome and live iOS Safari**, including the real permission-blocked → recovery path. iOS Safari turns out to have working Web Speech, better than the spec assumed.
+- **Shipped and verified the two mobile fixes — 4/4 on Dan's iPhone:** no autofocus keyboard ambush (including the nested new-category input), the × clear works, and **the clear-while-listening path holds — no ghost words re-emerge.** That last one is why clearing stops the burst: mid-burst `event.results` still holds every word since the tap, so emptying the box alone would have let the next result silently undo it.
+- **Locked the quantity rules** — whole numbers only, rounded **up**; matched catalog items pinned to their existing catalog unit. Enforced in the prompt, the Edge Function (`Math.ceil`) and the client.
+**Unfinished:**
+- **`insert_custom_catalog_item` has no unit parameter**, so every AI-created item defaults to `'each'` regardless of what the model suggests. Needs an additive migration (`p_unit`, defaulting `'each'`). **This is the top item next session.**
+- **No rate limiting or cost control on the AI call.** `MAX_REQUEST_CHARS`/`MAX_CATALOG_ITEMS` bound each call's size, not the number of them. Needed before or shortly after wide use.
+- **Prod promotion untouched, and its prerequisites are accumulating:** `CLERK_ISSUER` **and** `ANTHROPIC_API_KEY` secrets on prod, plus the unit-parameter migration, all before this feature can promote.
+- **Desktop Safari unverified.** iOS Safari was walked and passed; desktop Safari's mic feature-detect behaviour is unknown.
+- **One unreproduced anomaly:** a lone "x" appeared once in the Instructions field mid-request on iOS. Watch, don't chase.
+- **Test debris on DH's household** from the verification walks — duplicate Taco Nights, test meals, SHOP badge at 11. Needs a manual sweep.
+- The `.mcp.json` prod read-only guard is still open, and now demonstrably real: the "read-only" server exposes `deploy_edge_function` and **can push executable code to prod** (confirmed live this session).
+**Next session:**
+SESSION START
+Goal: Sweep the test debris, then harden what shipped — the `insert_custom_catalog_item` unit-parameter migration (migration-first) and a rate-limit/cost-control decision on the AI call — before any prod-promotion talk.
+State: **AI meal suggestion is complete and fully verified on dev** — Edge Function (v9), typed path, voice, and the mobile fixes, all walked by Dan on desktop and iOS. `SPEC_ai_meal_suggestion.md` is in `docs/specs/built/`. code through `5b0ee35`, with this SESSION END docs commit as the tip of `dev` and `origin/dev`; `main` unmoved at `eaa4e52` and carries none of it.
+Done when: test meals are swept, the unit-parameter migration is applied and verified on dev, and a rate-limiting approach is decided and recorded (building it optional).
+**Files updated:** `supabase/functions/meal-suggestion/` (**new** — `index.ts`, `prompt.ts`, `README.md`, `test.sh`), `supabase/config.toml` (**new**), `src/App.js`, `src/hooks/useProvisions.js`, `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/active/ → built/SPEC_ai_meal_suggestion.md` (move only). Commits `72763fc` → `5b0ee35`.
+**DB changes:** **None.** `043` was already live on both environments; every database call this session was a read. The one schema change this feature wants — a `p_unit` parameter on `insert_custom_catalog_item` — is deliberately **not** written yet.
+
+---
+
 ### [2026-08-31] — [Cross] — Fix Supabase MCP OAuth, close the stray-branch loop, reconcile migration `043`, and spec the AI meal-suggestion feature
 **Goal:** Unblock direct DB access by fixing the Supabase MCP OAuth failure, close `part2-client-3arg`, get migration `043` onto disk where it belonged, then design and spec the voice-first AI meal-suggestion feature that `043` was groundwork for.
 **Completed:**
