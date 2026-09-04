@@ -730,12 +730,19 @@ function FlatHeader({ count, showCount = true }) {
 // 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
 const MEALS_ENABLED = true;
 
-function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onDecrement, decrementingMealId }) {
+function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onDecrement, decrementingMealId, isSignedIn }) {
   // Terminal ghost row — matches the "+ Create new place" convention (same
   // 1.5px dashed border, same terminal position). It renders in the EMPTY
   // state too, deliberately: it is the only entry point to meal creation, so
   // a household with no meals could otherwise never make its first one.
-  const createRow = (
+  // Signed out, this row becomes a sign-in prompt rather than a live control.
+  // Creating a meal is an identity-requiring write, and every such write silently
+  // no-ops when signed out (no Supabase client is ever built without a Clerk token),
+  // so a clickable row here promises something the app cannot deliver. It is NOT
+  // hidden: an absent control with no explanation is the same "state is invisible"
+  // defect in a smaller costume. Same box, same dashed border, same terminal slot —
+  // only the affordance and the words change, so there is no layout shift.
+  const createRow = isSignedIn ? (
     <button
       onClick={onCreate}
       style={{
@@ -745,6 +752,20 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
         color: "#A0724A", cursor: "pointer", textAlign: "center", boxSizing: "border-box",
       }}
     >+ Create new meal</button>
+  ) : (
+    <div
+      style={{
+        width: "100%", background: "none", border: "1.5px dashed #C9A97A",
+        borderRadius: "12px", padding: "14px", marginTop: "2px",
+        fontFamily: "'Lato', sans-serif", fontSize: "0.92rem", fontWeight: 700,
+        color: "#9a8a78", cursor: "default", textAlign: "center", boxSizing: "border-box",
+      }}
+    >
+      Sign in to create meals
+      <div style={{ fontWeight: 400, fontSize: "0.78rem", marginTop: "4px", fontStyle: "italic" }}>
+        Meals are saved to your place, so they need your account.
+      </div>
+    </div>
   );
 
   if (loading && meals.length === 0) {
@@ -880,7 +901,7 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
 // catalog item from the no-results panel, which must persist immediately so
 // the meal can reference its id — that writes `catalog_items` only, never
 // `list_items`.
-function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion }) {
+function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, isSignedIn }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -1090,6 +1111,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const handleAskAI = async () => {
     const text = aiText.trim();
     if (!text || aiBusy || !onRequestSuggestion) return;
+    if (!isSignedIn) return;   // belt-and-braces: the button is already inert below
     // Sending is an unambiguous "I'm done talking" — leaving the mic live would keep
     // appending words to a field whose contents have already been sent.
     if (listening) stopListening();
@@ -1132,6 +1154,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // Screen 3 of the mockup: the manual fields dim and stop accepting input while a
   // suggestion is in flight, because they are about to be replaced by the draft.
   const aiDim = aiBusy ? { opacity: 0.45, pointerEvents: "none" } : undefined;
+  // Ask AI needs a real Clerk identity: the Edge Function verifies the token
+  // against Clerk JWKS, so signed out it can only ever fail. Gate the control
+  // rather than letting the attempt through to a generic error.
+  const aiInert = !isSignedIn || !aiText.trim() || aiBusy || saving;
 
   const canSave = name.trim().length > 0;
 
@@ -1463,7 +1489,9 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
           <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px",
             color: micHint ? "#b3261e" : "#8a7968", marginTop: "8px", lineHeight: 1.5 }}>
-            {aiBusy
+            {!isSignedIn
+              ? "Sign in to use Ask AI — it builds the meal against your account."
+              : aiBusy
               ? "Building your meal…"
               : micHint
                 ? micHint
@@ -1474,13 +1502,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
           <button
             onClick={handleAskAI}
-            disabled={!aiText.trim() || aiBusy || saving}
+            disabled={aiInert}
             style={{
               marginTop: "12px", width: "100%", border: "none", borderRadius: "12px", padding: "12px",
-              background: (!aiText.trim() || aiBusy || saving) ? "#E8D5B7" : "#A0724A",
-              color: (!aiText.trim() || aiBusy || saving) ? "#9a8a78" : "#FFFDF9",
+              background: aiInert ? "#E8D5B7" : "#A0724A",
+              color: aiInert ? "#9a8a78" : "#FFFDF9",
               fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
-              cursor: (!aiText.trim() || aiBusy || saving) ? "default" : "pointer",
+              cursor: aiInert ? "default" : "pointer",
               transition: "background 0.15s",
             }}
           >{aiBusy ? "Asking…" : "Ask AI"}</button>
@@ -4226,6 +4254,7 @@ function ProvisionsApp() {
             onAddAll={handleAddMealToList}
             addingMealId={addingMealId}
             onCreate={() => setMealSheet({ mode: "create", meal: null })}
+            isSignedIn={isSignedIn}
             onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
             plannedMealCounts={plannedMealCounts}
             onDecrement={handleDecrementMeal}
@@ -4832,6 +4861,7 @@ function ProvisionsApp() {
           onCreateCatalogItem={createCatalogItem}
           onRegisterCategory={(cat) => setHouseholdCategories((prev) => new Set([...prev, cat]))}
           onRequestSuggestion={requestMealSuggestion}
+          isSignedIn={isSignedIn}
         />
       )}
 

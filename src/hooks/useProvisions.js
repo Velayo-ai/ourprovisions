@@ -2260,7 +2260,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!getToken) { setError("You need to be signed in to ask for a suggestion."); return null; }
     try {
       const token = await getToken({ template: "supabase" });
-      if (!token) { setError("Could not authenticate that request. Try again."); return null; }
+      // Clerk was asked and came back empty: the session is gone, not the network.
+      // "Try again" was the wrong instruction — retrying a dead session never works,
+      // and it read as a transient glitch to the one beta tester who hit it.
+      if (!token) { setError("Your session has expired. Please sign in again."); return null; }
 
       const catalog = Object.values(catalogRef.current || {})
         .filter((it) => it && it.name)
