@@ -2256,6 +2256,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const requestMealSuggestion = useCallback(async (promptText) => {
     const text = (promptText || "").trim();
     if (!text) return null;
+    // A new attempt clears the previous attempt's error. Without this, a failure toast
+    // ("Could not get a suggestion: Failed to fetch") survives into the next request and
+    // sits underneath a successful draft — the surface then shows a working result and an
+    // error at the same time, which reads as "it worked but something is still wrong".
+    // Cleared here rather than in the caller: this hook owns `error`, MealSheet never
+    // receives `dismissError`, and doing it here covers every caller for free.
+    setError(null);
     const getToken = getTokenRef.current;
     if (!getToken) { setError("You need to be signed in to ask for a suggestion."); return null; }
     try {
@@ -2303,6 +2310,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .replace(/\\n/g, "\n")
         .replace(/\\t/g, " ")
         .trim();
+      // Belt and braces: an older request must never leave its error sitting over a
+      // newer success. `aiBusy` already blocks concurrent submits, so this should be
+      // unreachable — one call is a cheap price for keeping it that way.
+      setError(null);
       return { ...payload, instructions: unescapeSteps(payload.instructions) };
     } catch (err) {
       console.error("requestMealSuggestion error:", err.message);
