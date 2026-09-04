@@ -3002,25 +3002,68 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {/* Connectivity pill */}
-      <ConnectivityPill />
+      {/* ── Bottom status stack ──────────────────────────────────────────────
+          One anchor, one order, for every bottom-centred status surface.
 
-      {/* Error toast */}
-      {error && (
-        <div style={{
-          position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
-          background: "#2C1A0E", color: "#FAF4EC", borderRadius: "8px",
-          padding: "12px 20px", display: "flex", alignItems: "center", gap: "14px",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.25)", zIndex: 200,
-          fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", maxWidth: "90vw",
-        }}>
-          <span>⚠ {error}</span>
-          <button onClick={dismissError} style={{
-            background: "none", border: "1px solid rgba(255,255,255,0.3)", color: "#FAF4EC",
-            borderRadius: "4px", padding: "3px 10px", cursor: "pointer", fontSize: "0.75rem",
-          }}>Dismiss</button>
-        </div>
-      )}
+          Before this, three elements anchored themselves independently to the
+          same place: the connectivity pill and the success toast were BOTH at
+          `bottom: 28px, z-index: 2000` (an exact overlap), and the error toast
+          sat 4px off at 24px. Any two active at once produced illegible stacked
+          text — two accurate messages, neither readable, which is the same
+          "surfaces must self-identify state" failure as a missing message.
+
+          Deliberately NOT coupled: no element knows whether the others are
+          showing. They stay independently owned and independently conditional;
+          the flex column does the arranging. Order is fixed and top-to-bottom:
+          persistent status first, then transient notifications, with the one
+          carrying an action (Dismiss) nearest the thumb.
+
+          Adding another bottom-centred surface? Put it in here. Do not give it
+          its own `position: fixed; bottom: …` — that is exactly how this bug
+          got in. */}
+      <div style={{
+        position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
+        zIndex: 2000, display: "flex", flexDirection: "column", alignItems: "center",
+        gap: "10px", maxWidth: "90vw",
+        // The stack itself must never eat taps meant for the app behind it;
+        // children that need interaction opt back in individually.
+        pointerEvents: "none",
+      }}>
+        <ConnectivityPill />
+
+        {/* Error toast — carries a Dismiss button, so it opts into pointer events */}
+        {error && (
+          <div style={{
+            background: "#2C1A0E", color: "#FAF4EC", borderRadius: "8px",
+            padding: "12px 20px", display: "flex", alignItems: "center", gap: "14px",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
+            fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", maxWidth: "90vw",
+            pointerEvents: "auto",
+          }}>
+            <span>⚠ {error}</span>
+            <button onClick={dismissError} style={{
+              background: "none", border: "1px solid rgba(255,255,255,0.3)", color: "#FAF4EC",
+              borderRadius: "4px", padding: "3px 10px", cursor: "pointer", fontSize: "0.75rem",
+            }}>Dismiss</button>
+          </div>
+        )}
+
+        {/* Success toast — relocated here from further down the tree; it was the
+            element sharing the pill's exact anchor. Purely presentational, so it
+            stays pointer-transparent. */}
+        {toastMessage && (
+          <div style={{
+            background: "rgba(44,26,14,0.92)", color: "#FAF4EC",
+            fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
+            padding: "10px 22px", borderRadius: "999px",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+            whiteSpace: "nowrap", maxWidth: "90vw",
+            animation: "fadeIn 0.18s ease",
+          }}>
+            {toastMessage}
+          </div>
+        )}
+      </div>
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
@@ -4113,20 +4156,7 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {/* Toast notification */}
-      {toastMessage && (
-        <div style={{
-          position: "fixed", bottom: "28px", left: "50%", transform: "translateX(-50%)",
-          background: "rgba(44,26,14,0.92)", color: "#FAF4EC",
-          fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
-          padding: "10px 22px", borderRadius: "999px",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
-          zIndex: 2000, whiteSpace: "nowrap",
-          animation: "fadeIn 0.18s ease",
-        }}>
-          {toastMessage}
-        </div>
-      )}
+      {/* Toast notification — now rendered in the bottom status stack above. */}
 
       {/* Join success banner */}
       {joinBanner && (

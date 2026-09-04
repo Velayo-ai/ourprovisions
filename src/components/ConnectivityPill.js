@@ -27,12 +27,14 @@ const CONFIGS = {
   },
 };
 
+// NOT self-anchored. The pill is one item in the bottom status stack owned by
+// App.js — see "bottom status stack" there. It used to be `position: fixed;
+// bottom: 28px; left: 50%`, which collided with two toasts anchored to the same
+// spot: the success toast matched it exactly (28px, z-index 2000) and the error
+// toast sat 4px away. Three elements, three independent anchors, no awareness of
+// each other. Position belongs to the stack now; this object keeps only how the
+// pill LOOKS. Re-adding a `position` here re-creates the collision.
 const pillStyle = {
-  position: "fixed",
-  bottom: "28px",
-  left: "50%",
-  transform: "translateX(-50%)",
-  zIndex: 2000,
   display: "inline-flex",
   alignItems: "center",
   gap: "8px",
