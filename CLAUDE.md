@@ -144,6 +144,10 @@ home and cleared out.
   is `docs/specs/active/` — a fresh spec hasn't shipped yet, so it is always
   `active/` (it graduates to `built/` on ship; see Step 4).
   Moving = `git mv handoff/<file> docs/specs/active/<file>` so history is preserved.
+- **Only `SPEC_*.md` has a lifecycle.** `PATCH_*.md` and `OBSERVATION_*.md` have no
+  `active/`/`built/` equivalent — once merged into the docs and verified, they are simply
+  DELETED from the airlock, exactly like the old `CATCHUP_*.md` handoffs. Their content
+  lives on in SESSION_LOG / ROADMAP / ARCHITECTURE, not in `docs/specs/`.
 - Before `git mv`, ensure the destination folder exists — if the manifest names a
   destination path that isn't present yet, `mkdir -p` it first, then move. A
   `git mv` into a missing directory fails; don't let a new bucket (or a typo'd

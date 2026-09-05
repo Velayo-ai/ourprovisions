@@ -25,6 +25,33 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-09-05] — [OurProvisions] — Close three field-reported defects: auth gating, stale toasts, and a bottom-anchor collision
+**Goal:** Fix what Andrew's session surfaced — identity-requiring actions failing invisibly — and follow the thread wherever the same "surfaces must self-identify state" principle was being broken. **All three findings verified live on the dev preview by real testing, not bundle inspection alone.**
+**Completed:**
+- **Gated identity-requiring meal actions on `isSignedIn`** (`fb4f6ee`, spec `SPEC_auth_state_ui_gating.md` → `built/`). Andrew's two separate-looking failures were one cause: signed out, with nothing saying so, because catalog reads degrade to anon silently. **Grep corrected the spec's scope in three ways** — "+ Create new place" needed no change (both entry points to the place modal already check `isSignedIn`), a second `create_household` caller exists in `ActiveHouseholdContext` but is automatic loss-recovery behind a `clerkId` guard rather than a UI control, and the generic error phrase existed in exactly ONE place, not several. **The real route was PLAN**: the tab bar is ungated and `MealsLens`'s create row renders in the empty state too, so signed-out → PLAN → "+ Create new meal" → sheet → Ask AI. Gated the create row as well as the Ask AI button, since saving the meal is equally identity-requiring — gating only the button would have left the same defect one step further in.
+- **Made the Ask AI failure message honest** — `getToken` resolving null means the session is gone, not the network, so "Could not authenticate that request. **Try again**" pointed at a retry that can never succeed. Now "Your session has expired. Please sign in again."
+- **Cleared the stale Ask AI toast** (`4f1a848`). A failed request left its toast on screen through the next one, so a successful draft rendered with "Could not get a suggestion: Failed to fetch" still underneath it. Cleared at attempt start and on success. Put in the hook, not `handleAskAI` as the patch suggested: the hook owns `error`, `App.js` holds only `dismissError`, and `MealSheet` never receives it.
+- **Replaced three independent bottom anchors with one ordered stack** (`8a6c8a9`). The reported collision was pill + error toast (28px vs 24px), but grep found a **third and worse one: the success toast sat at `bottom: 28px, z-index: 2000`, character-for-character the pill's anchor** — so "Offline — showing last saved" and a `"X" created` confirmation overlapped exactly, a pairing made *likely* by the pill appearing precisely when writes are failing. All three now render in one fixed flex column, deliberately uncoupled: no element checks whether the others are showing. **Net −69 B.**
+- **Fixed the catalog-poll stale toast with owner-tagged errors** (`cab4297`). "Could not refresh catalog: JWT expired" had no path to clear, so it sat looking like a live failure while 200s streamed past. **Doing this as a plain `setError(null)` on success would have been destructive, not merely imprecise**: the list and meals polls each run every **2 seconds**, so an unscoped clear would wipe a user's "Could not create meal" toast within two seconds of it appearing. Added `failWith(source, msg)` / `clearErrorFrom(source)` so a poller heals only its own message.
+- **Scoped the pattern deliberately rather than mechanically** — applied to the three repeating paths (list 2s, catalog 20s, meals 2s) and re-scoped the Ask AI clears, which **removed the cross-wiping tradeoff `4f1a848` had to document as accepted**. Left ~40 one-shot user actions on plain `setError`: they have a reader present and a Dismiss button, so they cannot strand a message the way an unattended poll can.
+- **Recorded the airlock routing rule in CLAUDE.md** — only `SPEC_*.md` has an `active/`→`built/` lifecycle; `PATCH_*.md` and `OBSERVATION_*.md` are merged, verified, then deleted, like the old `CATCHUP_*.md`.
+**Unfinished:**
+- **RUM session-replay masking is still unverified in Splunk and still dev-only** — carried from 2026-09-03. `isProd` folds at build time, so prod needs its own bundle checked after promotion.
+- **The observation's PLAN-click explanation is unaccounted for.** `fetchMeals` does not clear `error` (only `reportSuccess()`), and `setupSession` keys on `[userId, clerkId, email]`, so switching tabs cannot clear a toast. Its root cause was right; that mechanism is not in this code. Hypothesis, untestable now that the stack is in: finding 2 was live, and the *pill* vanishing out of an overlapping pile read as the toast clearing.
+- **Four ROADMAP rows still carry stale "DEV ONLY — not on prod" labels** (solo-start, create-meal, Meals lens) — flagged 2026-09-03, still not corrected.
+- **`SPEC_rum_unmask.md` may be a lifecycle miss** — its `type`→`rule` fix appears shipped but it sits in `active/`.
+- **The `createSupabaseClient` silent anon-fallback is still undecided** — the systemic version of tonight's gating work. Every write silently no-ops signed out; the two doors are gated, the building still has the property.
+- **Nothing tonight is on prod.** All four commits are dev-only.
+**Next session:**
+SESSION START
+Goal: Promote tonight's four fixes to prod, and verify RUM masking in a real Splunk replay before it rides along.
+State: `dev` at `cab4297` with auth gating, both toast fixes and the bottom stack all verified live on the preview. Prod has none of it, and no RUM replay verification has happened on either environment.
+Done when: a dev replay confirms Clerk exclusion and unmasked inputs; `dev→main` is promoted; a prod bundle confirms `maskAllInputs`/`maskAllText` true with Clerk still excluded; and the gated states are re-checked once on prod signed out.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js`, `src/components/ConnectivityPill.js`, `CLAUDE.md`, `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/built/SPEC_auth_state_ui_gating.md` (routed)
+**DB changes:** None. No schema touched; no migration written or applied.
+
+---
+
 ### [2026-09-03] — [Cross] — Harden AWS access, audit the OTel collector, resolve the MCP OAuth P1, fix RUM masking, and correct a correction
 **Goal:** Started as "how do we watch Supabase with Splunk" and expanded into an AWS security-hardening pass, an audit of a previously-untracked observability box, resolution of the standing MCP OAuth P1, a RUM session-replay masking fix, and a correction to a correction found along the way.
 **Completed:**
