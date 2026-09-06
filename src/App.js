@@ -795,6 +795,13 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
     <div style={{ paddingTop: "6px" }}>
       {meals.map((m) => {
         const count = (m.meal_ingredients || []).length;
+        // SPEC open question 1: does the count mean "in the recipe" or "will land on
+        // the list"? Once on_hand exists these diverge. Answered by showing BOTH rather
+        // than picking one and being wrong half the time: "6 ingredients · 2 on hand".
+        // Showing only the recipe total over-promises what Add will do; showing only the
+        // add-count quietly hides part of the recipe. The suffix appears ONLY when a meal
+        // actually has on-hand rows, so every meal without them reads exactly as before.
+        const onHandCount = (m.meal_ingredients || []).filter((mi) => mi.on_hand).length;
         const busy = addingMealId === m.id;
         // Teal is the meal-on-the-list signal on SHOP; same meaning here.
         const addCount = plannedMealCounts?.[m.id] || 0;
@@ -833,6 +840,7 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
                 fontWeight: 700, color: "#2C1A0E" }}>{m.name}</div>
               <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", color: "#8a7a60", marginTop: "2px" }}>
                 {count} {count === 1 ? "ingredient" : "ingredients"}
+                {onHandCount > 0 && ` · ${onHandCount} on hand`}
               </div>
             </div>
             {/* Add⇄stepper, obeying the invariant every catalog row already
@@ -910,6 +918,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           catalog_item_id: mi.catalog_item_id,
           name: mi.catalog_items?.name || "Unknown item",
           quantity_per_serving: Number(mi.quantity_per_serving) || 1,
+          on_hand: !!mi.on_hand,
         }))
       : []
   );
@@ -1018,6 +1027,27 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     setRows((prev) => prev.map((r) =>
       r.catalog_item_id === id ? { ...r, quantity_per_serving: Math.max(1, next) } : r));
   };
+
+  // ── Three states, three gestures (SPEC_meal_ondhand_ingredients.md) ─────────
+  //   normal   → on-hand : "−" at quantity 1
+  //   on-hand  → normal  : "Need it"
+  //   either   → removed : ×
+  //
+  // The stepper floor USED to be a dead end — "−" at 1 did nothing (Math.max(1)).
+  // That dead end is the gesture we now spend, which is why this needs no fourth
+  // control. ⚠️ The quantity is deliberately NOT zeroed on the way in: it is the
+  // recipe's real number, and it is the only reason coming back is one tap rather
+  // than re-entering a value the user already gave once.
+  const decrementOrShelve = (id, current) => {
+    if (current > 1) { setQty(id, current - 1); return; }
+    setRows((prev) => prev.map((r) =>
+      r.catalog_item_id === id ? { ...r, on_hand: true } : r));
+  };
+  const needAgain = (id) => {
+    setRows((prev) => prev.map((r) =>
+      r.catalog_item_id === id ? { ...r, on_hand: false } : r));
+  };
+
   const removeRow = (id) => setRows((prev) => prev.filter((r) => r.catalog_item_id !== id));
 
   // A meal needs only a name, in BOTH modes. Create previously also demanded
@@ -1191,13 +1221,26 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               {rows.map((r) => (
                 <div key={r.catalog_item_id} style={{
                   display: "flex", alignItems: "center", gap: "10px", padding: "8px 10px",
-                  border: "1.5px solid #c8973a", borderRadius: "8px", marginBottom: "6px", background: "#FAF4EC",
+                  // Dashed + faded says "still part of the recipe, just not being bought".
+                  // Deleting is the solid absence; this is a softer state and reads as one.
+                  border: r.on_hand ? "1.5px dashed #C9A97A" : "1.5px solid #c8973a",
+                  borderRadius: "8px", marginBottom: "6px",
+                  background: r.on_hand ? "rgba(250,244,236,0.55)" : "#FAF4EC",
                 }}>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
                     gap: "7px", flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E" }}>
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                      color: r.on_hand ? "#8a7a60" : "#2C1A0E" }}>
                       {r.name}
                     </span>
+                    {r.on_hand && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "4px",
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.66rem", fontWeight: 700,
+                        letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B4E1F",
+                        background: "rgba(201,169,122,0.22)", borderRadius: "999px", padding: "2px 8px" }}>
+                        On hand · {r.quantity_per_serving}
+                      </span>
+                    )}
                     {/* Only on items this sheet just created — it answers "where did
                         that go?", which is only a live question for a brand-new item. */}
                     {r.isNew && (
@@ -1216,19 +1259,39 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       height, so it sits a few px taller than the 34px buttons and
                       the pill is what reconciles them. Reuse the class; do not
                       rebuild its rules inline. */}
-                  <div className="qty-controls">
+                  {r.on_hand ? (
+                    // Cosmetic treatment was left OPEN by the spec; decided here.
+                    // Muted, not hidden, and the row keeps its slot and height so
+                    // shelving an ingredient never reflows the list under the thumb.
+                    // "Need it" rather than "+" because + reads as "more of it" next
+                    // to a stepper, and this is a state change, not an increment.
                     <button
-                      className="qty-btn"
-                      onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving - 1)}
-                      aria-label={`Decrease ${r.name}`}
-                    >−</button>
-                    <span className="qty-display">{r.quantity_per_serving}</span>
-                    <button
-                      className="qty-btn"
-                      onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving + 1)}
-                      aria-label={`Increase ${r.name}`}
-                    >+</button>
-                  </div>
+                      onClick={() => needAgain(r.catalog_item_id)}
+                      aria-label={`Need ${r.name} again`}
+                      style={{
+                        background: "none", border: "1.5px solid #C9A97A", borderRadius: "999px",
+                        padding: "6px 13px", fontFamily: "'Lato', sans-serif", fontSize: "0.74rem",
+                        fontWeight: 700, color: "#A0724A", cursor: "pointer", flexShrink: 0,
+                        whiteSpace: "nowrap",
+                      }}
+                    >Need it</button>
+                  ) : (
+                    <div className="qty-controls">
+                      <button
+                        className="qty-btn"
+                        onClick={() => decrementOrShelve(r.catalog_item_id, r.quantity_per_serving)}
+                        aria-label={r.quantity_per_serving > 1
+                          ? `Decrease ${r.name}`
+                          : `Mark ${r.name} as already on hand`}
+                      >−</button>
+                      <span className="qty-display">{r.quantity_per_serving}</span>
+                      <button
+                        className="qty-btn"
+                        onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving + 1)}
+                        aria-label={`Increase ${r.name}`}
+                      >+</button>
+                    </div>
+                  )}
                   <button
                     onClick={() => removeRow(r.catalog_item_id)}
                     aria-label={`Remove ${r.name}`}
@@ -1813,6 +1876,7 @@ function ProvisionsApp() {
         ingredients: ingredients.map((r) => ({
           catalog_item_id: r.catalog_item_id,
           quantity_per_serving: r.quantity_per_serving,
+          on_hand: !!r.on_hand,   // 044
         })),
       };
       const ok = mealSheet.mode === "edit"
