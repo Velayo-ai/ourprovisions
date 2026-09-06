@@ -25,6 +25,34 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-09-06] — [OurProvisions] — On-hand ingredients built and dev-verified; "Ask the Galley"; the path to prod turns out to be four phases, not one merge
+**Goal:** Verify RUM masking in a Splunk replay, then build the on-hand-ingredients enhancement Dan raised while testing with Laddy. Both halves moved: the Splunk check hit a genuine external blocker, and the promotion question underneath turned out to be much larger than a merge. *(Session ran 2026-09-05 into 2026-09-06.)*
+**Completed:**
+- **Shipped on-hand ingredients end to end, dev-verified by a real walk** — migration `044` (`meal_ingredients.on_hand`), migration `045` (`add_meal_to_list`'s three-case logic), the meal-sheet three-state interaction, the "already on hand" Add prompt, and a restyle. **Dan walked the core guarantee on dev**: quantity preserved through shelve → include → still-on-hand. The override is one-time by construction — the RPC never writes `on_hand`, so "include this time" cannot become "include from now on".
+- **Found and fixed a bug that every automated check had passed** (`8287832`). Shelving was triggered by "−" at quantity 1. The floor *looked* free because it was already a dead end, but **reaching** it was not: an ingredient at quantity 2 could only be shelved by first decrementing 2→1, and that decrement is a real edit, so the row shelved at 1. **The column and the RPC were correct throughout — the interaction path was the only thing destroying the number the feature exists to protect.** Replaced with a direct "I have this" control that captures whatever is showing at the moment of the tap.
+- **Caught a silent privilege widening on `045`.** `CREATE OR REPLACE` cannot change an argument list, so the new parameter needed `DROP` + `CREATE` — which re-granted `EXECUTE` to `PUBLIC` and `anon` under Supabase's defaults, where the pre-drop ACL had neither. Found by reading `proacl` back rather than trusting the `GRANT`s written. Revoked by name, re-granted, ACL restored byte-for-byte. ⚠️ **This check must be repeated when 045 reaches prod, not assumed safe.**
+- **Renamed "Ask AI" → "Ask the Galley"** on the button, busy state and signed-out gate, while the "ASK AI TO BUILD IT" eyebrow stays as explicit disclosure — warmth on the action, transparency on the mechanism. Verified on dev by screenshot. "OurChef" deliberately not spent here.
+- **Diagnosed the Splunk "blank replay" failure as a genuine Splunk-side CSP bug**, NOT the known 2026-07-09 wait-and-reload latency pattern: `lab0.signalfx.com` is uncovered by their own `default-src` allowlist. Reproduced identically across three independent browser identities, ruling out extensions and local config. Filed with Splunk support; pursued outside this repo.
+- **Promotion recon: 0 of 3 prerequisites pass, plus THREE further blockers the checklist never named.** `CLERK_ISSUER` and `ANTHROPIC_API_KEY` are both absent from prod (prod's entire secret list is `SUPABASE_DB_URL`). **Prod has zero deployed Edge Functions at all.** **`044`/`045` are absent from prod**, so promoting the on-hand client as-is would break meal loading for every prod user rather than degrade a feature. And the unit-parameter fix **does not exist as a migration file anywhere, dev or prod** — it must be *built*, not applied; dev's `insert_custom_catalog_item` is still 4-arg too.
+- **Replaced ad-hoc promotion guessing with a four-phase path-to-prod backlog** (ROADMAP NOW), and logged a process rule: **interactive modals need a mockup pass before build**, even when the spec covers behaviour fully — caught live when the prompt shipped with undefined button classes and a too-casual "Remove".
+**Unfinished:**
+- **Nothing reached `main`.** `origin/main` is still at `eaa4e52` (2026-08-30); `dev` is 32 commits ahead. The backlog is planned, not executed.
+- **RUM masking remains unverified in an actual replay** — blocked externally on Splunk's CSP fix, not on us. Config-only verification stands as the fallback.
+- **`SPEC_defer_catalog_write.md`** — scoped in conversation (the AI builder writes catalog rows before a draft is ever saved), never drafted.
+- **AI-usage "resting galley" budget** — hospitality-toned graceful degrade agreed in direction; no number chosen, no spec.
+- **Partial-include quantities** on the prompt ("I have 1 of the 2 called for") — LATER, not built.
+- **On-hand-link density at scale** — many "I have this" links may read as noise on long recipes. A watch-item pending real usage, not a decision.
+- **Four ROADMAP rows still carry stale "DEV ONLY — not on prod" labels** — flagged 2026-09-03, still uncorrected.
+**Next session:**
+SESSION START
+Goal: Execute **Phase 0** — promote the three field-reported fixes plus RUM masking to `main`, verified live on prod.
+State: `dev` and `origin/dev` in sync at `b38746c`; `main` untouched at `eaa4e52`, 32 commits behind. On-hand ingredients built and dev-verified but **its migrations are not on prod** — Phase 1, not Phase 0. Splunk replay bug filed externally, unresolved.
+Done when: Phase 0's commits are live on `ourprovisions.velayo.ai` and re-walked there — auth-gated states while signed out, both toast-clearing fixes, and RUM masking confirmed by a real replay if Splunk has resolved the CSP gap, or by config-only verification if not.
+**Files updated:** `migrations/044_meal_ingredients_on_hand.sql` (new), `migrations/045_add_meal_to_list_on_hand.sql` (new), `src/App.js`, `src/hooks/useProvisions.js`, `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/built/SPEC_meal_ondhand_ingredients.md` (routed)
+**DB changes:** **DEV ONLY** — `044` (`meal_ingredients.on_hand boolean not null default false`; 172 existing rows verified `false`) and `045` (`add_meal_to_list` gains `p_include_on_hand_ids uuid[]`; 3-arg calls still resolve via the default). **Neither is on prod.** No prod schema was touched; every prod call this session was a read.
+
+---
+
 ### [2026-09-05] — [OurProvisions] — Close three field-reported defects: auth gating, stale toasts, and a bottom-anchor collision
 **Goal:** Fix what Andrew's session surfaced — identity-requiring actions failing invisibly — and follow the thread wherever the same "surfaces must self-identify state" principle was being broken. **All three findings verified live on the dev preview by real testing, not bundle inspection alone.**
 **Completed:**
