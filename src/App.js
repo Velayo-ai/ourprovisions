@@ -1118,7 +1118,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       which is the entire bug this replaced. Quiet by default: shelving is
                       occasional, editing quantity is not. */}
                   {!r.on_hand && (
-                    <div style={{ marginTop: "6px" }}>
+                    // 1px here, not 6: the link belongs to the row above it and should
+                    // read as attached to it. The card-to-card gap is the row's own
+                    // marginBottom (6px) and is deliberately left alone — that contrast
+                    // is what makes the pairing legible rather than just tight.
+                    // The button keeps its 2px vertical padding, so the visible gap is
+                    // ~3px and the tap target is unchanged.
+                    <div style={{ marginTop: "1px" }}>
                       <button
                         onClick={() => shelve(r.catalog_item_id)}
                         aria-label={`I already have ${r.name} — keep it in the meal but do not add it`}
