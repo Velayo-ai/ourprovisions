@@ -5015,39 +5015,59 @@ function ProvisionsApp() {
 
             {onHandPrompt.items.map((it) => {
               const choice = onHandPrompt.choices[it.catalog_item_id];
+              // Include and Skip only. Remove is NOT a third member of this row:
+              // it is permanent where these two are reversible, and rendering all
+              // three at equal size and weight made the destructive one look as
+              // casual as the two that undo themselves. It sits below instead, as a
+              // small text link — still one tap (no confirmation, decided in-spec),
+              // but a deliberate reach rather than the third thing under your thumb.
               const opts = [
                 { key: "include", label: `Include (${it.quantity_per_serving})` },
                 { key: "skip", label: "Skip" },
-                { key: "remove", label: "Remove" },
               ];
+              const removing = choice === "remove";
+              const setChoice = (key) => setOnHandPrompt((prev) => prev && ({
+                ...prev,
+                choices: { ...prev.choices, [it.catalog_item_id]: key },
+              }));
               return (
-                <div key={it.catalog_item_id} style={{ marginBottom: "14px" }}>
+                <div key={it.catalog_item_id} style={{ marginBottom: "16px" }}>
                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.88rem",
                     fontWeight: 700, color: "#2C1A0E", marginBottom: "6px" }}>{it.name}</div>
-                  <div style={{ display: "flex", gap: "6px" }}>
+                  <div style={{ display: "flex", gap: "6px", opacity: removing ? 0.4 : 1 }}>
                     {opts.map((o) => {
                       const on = choice === o.key;
-                      const danger = o.key === "remove";
                       return (
                         <button
                           key={o.key}
-                          onClick={() => setOnHandPrompt((prev) => prev && ({
-                            ...prev,
-                            choices: { ...prev.choices, [it.catalog_item_id]: o.key },
-                          }))}
+                          onClick={() => setChoice(o.key)}
                           aria-pressed={on}
                           style={{
-                            flex: 1, padding: "8px 4px", borderRadius: "8px", cursor: "pointer",
+                            flex: 1, padding: "8px 4px", borderRadius: "999px", cursor: "pointer",
                             fontFamily: "'Lato', sans-serif", fontSize: "0.74rem", fontWeight: 700,
-                            border: on
-                              ? `1.5px solid ${danger ? "#b3261e" : "#A0724A"}`
-                              : "1.5px solid #E8D5B7",
-                            background: on ? (danger ? "#b3261e" : "#A0724A") : "transparent",
-                            color: on ? "#FAF4EC" : (danger ? "#b3261e" : "#8a7a60"),
+                            border: on ? "1.5px solid #A0724A" : "1.5px solid #E8D5B7",
+                            background: on ? "#A0724A" : "transparent",
+                            color: on ? "#FAF4EC" : "#8a7a60",
+                            transition: "all 0.2s",
                           }}
                         >{o.label}</button>
                       );
                     })}
+                  </div>
+                  {/* Armed state is its own affordance: once removing, the link says so
+                      and the same tap undoes it. One tap in, one tap out, no dialog. */}
+                  <div style={{ textAlign: "right", marginTop: "5px" }}>
+                    <button
+                      onClick={() => setChoice(removing ? "skip" : "remove")}
+                      aria-pressed={removing}
+                      style={{
+                        background: "none", border: "none", padding: "2px 0", cursor: "pointer",
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.68rem",
+                        fontWeight: removing ? 700 : 400,
+                        color: removing ? "#b3261e" : "#9a8a78",
+                        textDecoration: "underline", textUnderlineOffset: "2px",
+                      }}
+                    >{removing ? "Will be removed from this meal · undo" : "Remove from this meal"}</button>
                   </div>
                 </div>
               );
@@ -5059,11 +5079,14 @@ function ProvisionsApp() {
               Removing takes it out of the meal for good.
             </div>
 
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button className="modal-btn-secondary" style={{ flex: 1 }}
-                onClick={() => setOnHandPrompt(null)}>Cancel</button>
-              <button className="modal-btn-primary" style={{ flex: 2 }}
-                onClick={confirmOnHandPrompt}>Add to list</button>
+            {/* .modal-actions / .modal-cancel / .modal-confirm — the same classes the
+                Edit Meal sheet's own Cancel/Save footer uses. The previous
+                modal-btn-secondary / modal-btn-primary were invented here and defined
+                NOWHERE, so these rendered as unstyled browser buttons rather than
+                merely mismatched ones. Reuse the classes; do not restyle inline. */}
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setOnHandPrompt(null)}>Cancel</button>
+              <button className="modal-confirm" onClick={confirmOnHandPrompt}>Add to list</button>
             </div>
           </div>
         </div>
