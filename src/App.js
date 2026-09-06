@@ -1583,7 +1583,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px",
             color: micHint ? "#b3261e" : "#8a7968", marginTop: "8px", lineHeight: 1.5 }}>
             {!isSignedIn
-              ? "Sign in to use Ask AI — it builds the meal against your account."
+              ? "Sign in to use Ask the Galley — it builds the meal against your account."
               : aiBusy
               ? "Building your meal…"
               : micHint
@@ -1604,7 +1604,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               cursor: aiInert ? "default" : "pointer",
               transition: "background 0.15s",
             }}
-          >{aiBusy ? "Asking…" : "Ask AI"}</button>
+          >{aiBusy ? "Asking the galley…" : "Ask the Galley"}</button>
         </div>
 
         {/* States the locked decision plainly rather than leaving it inferred. */}
