@@ -1944,7 +1944,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!db || !hh) return [];
     const { data, error: err } = await db
       .from("meals")
-      .select("id, name, base_servings, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, deleted_at, catalog_items(name, category))")
+      .select("id, name, base_servings, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -1986,6 +1986,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           meal_id: meal.id,
           catalog_item_id: i.catalog_item_id,
           quantity_per_serving: Number(i.quantity_per_serving),
+          // 044. Note the filter above keeps quantity > 0: an on-hand row carries its
+          // REAL recipe quantity, never 0, which is exactly what makes it addable later
+          // without asking for the number again.
+          on_hand: !!i.on_hand,
         }));
       if (rows.length > 0) {
         const { error: iErr } = await db.from("meal_ingredients").insert(rows);
@@ -2035,6 +2039,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           meal_id: mealId,
           catalog_item_id: i.catalog_item_id,
           quantity_per_serving: Number(i.quantity_per_serving),
+          on_hand: !!i.on_hand,   // 044 — survives the delete-and-reinsert rewrite
         }));
       if (rows.length > 0) {
         const { error: iErr } = await db.from("meal_ingredients").insert(rows);
