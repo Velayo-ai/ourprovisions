@@ -1324,6 +1324,7 @@ function ProvisionsApp() {
     onListChangedRef,
     createCatalogItem,
     addMealToList,
+    removeMealIngredients,
     fetchMealProvenance,
     updateFullName,
     activeCycle,
@@ -1487,15 +1488,41 @@ function ProvisionsApp() {
     }
   }, [decrementMealBatch, refreshProvenance]);
 
+  // On-hand prompt state. null = closed. Only ever set for a meal that actually
+  // HAS on-hand ingredients, so the common case never sees it.
+  //   { mealId, mealName, items: [...], choices: { [catalogItemId]: 'include'|'skip'|'remove' } }
+  const [onHandPrompt, setOnHandPrompt] = useState(null);
+
   const handleAddMealToList = useCallback(async (mealId) => {
-    setAddingMealId(mealId);
-    try {
-      await addMealToList(mealId, 1);   // flat: servings = 1 (dial deferred)
-      await refreshProvenance();        // reflect the badge immediately
-    } finally {
-      setAddingMealId(null);
+    // The ingredients are already in memory from loadMeals — no fetch, so the
+    // no-on-hand path costs nothing and behaves exactly as it did before.
+    const meal = (meals || []).find((m) => m.id === mealId);
+    const onHand = (meal?.meal_ingredients || []).filter((mi) => mi.on_hand);
+
+    if (onHand.length === 0) {
+      setAddingMealId(mealId);
+      try {
+        await addMealToList(mealId, 1);   // flat: servings = 1 (dial deferred)
+        await refreshProvenance();        // reflect the badge immediately
+      } finally {
+        setAddingMealId(null);
+      }
+      return;
     }
-  }, [addMealToList, refreshProvenance]);
+
+    // Default every choice to 'skip' — on-hand already MEANS "skip by default",
+    // so the prompt opens showing what would happen if you just confirmed.
+    setOnHandPrompt({
+      mealId,
+      mealName: meal?.name || "this meal",
+      items: onHand.map((mi) => ({
+        catalog_item_id: mi.catalog_item_id,
+        name: mi.catalog_items?.name || "Unknown item",
+        quantity_per_serving: Number(mi.quantity_per_serving) || 1,
+      })),
+      choices: Object.fromEntries(onHand.map((mi) => [mi.catalog_item_id, "skip"])),
+    });
+  }, [meals, addMealToList, refreshProvenance]);
 
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
@@ -1708,6 +1735,38 @@ function ProvisionsApp() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToastMessage(null), 2500);
   }, []);
+
+  // Defined here, below showToast, rather than beside handleAddMealToList where it
+  // logically belongs: it needs showToast, and CI=true turns no-use-before-define
+  // into a build failure. Only the confirm half moved — opening the prompt still
+  // lives with the add handler.
+  const confirmOnHandPrompt = useCallback(async () => {
+    if (!onHandPrompt) return;
+    const { mealId, choices } = onHandPrompt;
+    const pick = (want) => Object.entries(choices).filter(([, v]) => v === want).map(([k]) => k);
+    const includeIds = pick("include");
+    const removeIds = pick("remove");
+
+    setOnHandPrompt(null);
+    setAddingMealId(mealId);
+    try {
+      // Removals first: the RPC reads meal_ingredients, so a row removed here must
+      // already be gone before the add runs, or it would be evaluated as on-hand
+      // and could still be included by a stale id in the include list.
+      if (removeIds.length > 0) await removeMealIngredients(mealId, removeIds);
+      const count = await addMealToList(mealId, 1, includeIds);
+      await refreshProvenance();
+      // A removal changes the recipe itself, so PLAN's count is now stale.
+      if (removeIds.length > 0) await loadMeals();
+      // SPEC open question 3, answered rather than left to accident: a meal whose
+      // ingredients are all on hand and all skipped adds nothing. Silence would read
+      // as a broken button, so say what happened.
+      if (!count) showToast("Nothing added — you have it all on hand");
+    } finally {
+      setAddingMealId(null);
+    }
+  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast]);
+
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
 
@@ -4568,6 +4627,76 @@ function ProvisionsApp() {
             fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2px",
             textTransform: "uppercase", color: "#b0a080", opacity: 0.7,
           }}>A Velayo App</div>
+        </div>
+      )}
+
+      {/* On-hand prompt — only for meals that have on-hand ingredients.
+          Three choices per ingredient, no confirmation on Remove: the prompt is
+          already a deliberate choice among three, and a second confirm would be
+          friction without a safety benefit (decided in-spec). */}
+      {onHandPrompt && (
+        <div className="modal-overlay" onClick={() => setOnHandPrompt(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Already on hand</h2>
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
+              color: "#5c4a36", lineHeight: 1.5, marginBottom: "14px" }}>
+              <strong>{onHandPrompt.mealName}</strong> has ingredients you marked as on hand.
+              Include any of them this time?
+            </div>
+
+            {onHandPrompt.items.map((it) => {
+              const choice = onHandPrompt.choices[it.catalog_item_id];
+              const opts = [
+                { key: "include", label: `Include (${it.quantity_per_serving})` },
+                { key: "skip", label: "Skip" },
+                { key: "remove", label: "Remove" },
+              ];
+              return (
+                <div key={it.catalog_item_id} style={{ marginBottom: "14px" }}>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.88rem",
+                    fontWeight: 700, color: "#2C1A0E", marginBottom: "6px" }}>{it.name}</div>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    {opts.map((o) => {
+                      const on = choice === o.key;
+                      const danger = o.key === "remove";
+                      return (
+                        <button
+                          key={o.key}
+                          onClick={() => setOnHandPrompt((prev) => prev && ({
+                            ...prev,
+                            choices: { ...prev.choices, [it.catalog_item_id]: o.key },
+                          }))}
+                          aria-pressed={on}
+                          style={{
+                            flex: 1, padding: "8px 4px", borderRadius: "8px", cursor: "pointer",
+                            fontFamily: "'Lato', sans-serif", fontSize: "0.74rem", fontWeight: 700,
+                            border: on
+                              ? `1.5px solid ${danger ? "#b3261e" : "#A0724A"}`
+                              : "1.5px solid #E8D5B7",
+                            background: on ? (danger ? "#b3261e" : "#A0724A") : "transparent",
+                            color: on ? "#FAF4EC" : (danger ? "#b3261e" : "#8a7a60"),
+                          }}
+                        >{o.label}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem",
+              color: "#8a7a60", fontStyle: "italic", marginBottom: "12px", lineHeight: 1.5 }}>
+              Including is just for this time — the ingredient stays on hand for next time.
+              Removing takes it out of the meal for good.
+            </div>
+
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button className="modal-btn-secondary" style={{ flex: 1 }}
+                onClick={() => setOnHandPrompt(null)}>Cancel</button>
+              <button className="modal-btn-primary" style={{ flex: 2 }}
+                onClick={confirmOnHandPrompt}>Add to list</button>
+            </div>
+          </div>
         </div>
       )}
 

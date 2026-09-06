@@ -2280,7 +2280,37 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [reportSuccess]);
 
-  const addMealToList = useCallback(async (mealId, servings = 1) => {
+  // includeOnHandIds: CATALOG_ITEM_IDs of on-hand ingredients to add THIS TIME
+  // only (045). Deliberately a call argument rather than a stored flag — the RPC
+  // does not touch meal_ingredients.on_hand, so "include this time" never quietly
+  // becomes "include from now on".
+  // "Remove from this meal" in the Add prompt. Not new logic — the same
+  // soft-delete updateMeal performs on its rows before reinserting, narrowed to
+  // named catalog items. Soft, not hard: meal_ingredients rows are referenced by
+  // nothing, but deleted_at is what every read path already filters on, and a hard
+  // delete here would be the one place in this table that behaves differently.
+  const removeMealIngredients = useCallback(async (mealId, catalogItemIds) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId || !catalogItemIds?.length) return false;
+    try {
+      const { error: err } = await db
+        .from("meal_ingredients")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("meal_id", mealId)
+        .in("catalog_item_id", catalogItemIds)
+        .is("deleted_at", null);
+      if (err) throw err;
+      reportSuccess();
+      return true;
+    } catch (err) {
+      console.error("removeMealIngredients error:", err.message);
+      failWith("meals", `Could not remove ingredient: ${err.message}`);
+      return false;
+    }
+  }, [reportSuccess, failWith]);
+
+  const addMealToList = useCallback(async (mealId, servings = 1, includeOnHandIds = []) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return 0;
@@ -2293,6 +2323,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         p_meal_id: mealId,
         p_servings: servings,
         p_cycle_id: activeCycleRef.current?.id || null,
+        p_include_on_hand_ids: includeOnHandIds || [],
       });
       if (err) throw err;
       // Re-sync the active cycle (the RPC may have opened one) + refresh the
@@ -2348,7 +2379,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, deleteMeal, removeMealFromList, decrementMealBatch, createCatalogItem, addMealToList, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, deleteMeal, removeMealFromList, decrementMealBatch, createCatalogItem, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,
