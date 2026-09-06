@@ -1028,18 +1028,24 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
       r.catalog_item_id === id ? { ...r, quantity_per_serving: Math.max(1, next) } : r));
   };
 
-  // ── Three states, three gestures (SPEC_meal_ondhand_ingredients.md) ─────────
-  //   normal   → on-hand : "−" at quantity 1
+  // ── Three states, three controls (SPEC_meal_ondhand_ingredients.md) ────────
+  //   normal   → on-hand : "I have this"
   //   on-hand  → normal  : "Need it"
   //   either   → removed : ×
   //
-  // The stepper floor USED to be a dead end — "−" at 1 did nothing (Math.max(1)).
-  // That dead end is the gesture we now spend, which is why this needs no fourth
-  // control. ⚠️ The quantity is deliberately NOT zeroed on the way in: it is the
-  // recipe's real number, and it is the only reason coming back is one tap rather
-  // than re-entering a value the user already gave once.
-  const decrementOrShelve = (id, current) => {
-    if (current > 1) { setQty(id, current - 1); return; }
+  // ⚠️ DO NOT reattach shelving to the stepper's "−" at quantity 1. That was the
+  // original build and it was WRONG — found in live testing 2026-09-06. The floor
+  // looked like a free gesture (at 1, "−" previously did nothing), but reaching the
+  // floor is not free: an ingredient at quantity 2 could only be shelved by first
+  // decrementing 2→1, and that decrement is a REAL edit. The row then shelved at 1,
+  // and the spec's whole point — preserve the real recipe quantity so coming back is
+  // one tap and not a re-entry — was silently destroyed by the only path to the
+  // trigger. The column and the RPC were right the entire time; the interaction was
+  // what lost the number.
+  //
+  // Shelving therefore captures whatever is showing AT THE MOMENT OF THE TAP, and
+  // the stepper is plain arithmetic again at every value, 1 included.
+  const shelve = (id) => {
     setRows((prev) => prev.map((r) =>
       r.catalog_item_id === id ? { ...r, on_hand: true } : r));
   };
@@ -1220,13 +1226,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   qty-check would be a branch with one reachable outcome. */}
               {rows.map((r) => (
                 <div key={r.catalog_item_id} style={{
-                  display: "flex", alignItems: "center", gap: "10px", padding: "8px 10px",
+                  padding: "8px 10px",
                   // Dashed + faded says "still part of the recipe, just not being bought".
                   // Deleting is the solid absence; this is a softer state and reads as one.
                   border: r.on_hand ? "1.5px dashed #C9A97A" : "1.5px solid #c8973a",
                   borderRadius: "8px", marginBottom: "6px",
                   background: r.on_hand ? "rgba(250,244,236,0.55)" : "#FAF4EC",
                 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
                     gap: "7px", flexWrap: "wrap" }}>
                     <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
@@ -1279,10 +1286,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     <div className="qty-controls">
                       <button
                         className="qty-btn"
-                        onClick={() => decrementOrShelve(r.catalog_item_id, r.quantity_per_serving)}
-                        aria-label={r.quantity_per_serving > 1
-                          ? `Decrease ${r.name}`
-                          : `Mark ${r.name} as already on hand`}
+                        onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving - 1)}
+                        aria-label={`Decrease ${r.name}`}
                       >−</button>
                       <span className="qty-display">{r.quantity_per_serving}</span>
                       <button
@@ -1298,6 +1303,25 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     style={{ background: "none", border: "none", color: "#C9A97A", fontSize: "18px",
                       cursor: "pointer", padding: "0 2px", flexShrink: 0, lineHeight: 1 }}
                   >×</button>
+                  </div>
+                  {/* Its own control, deliberately NOT folded into the stepper. Sits on
+                      its own line so the stepper keeps its geometry and the shelve action
+                      is reachable at ANY quantity without first editing the number —
+                      which is the entire bug this replaced. Quiet by default: shelving is
+                      occasional, editing quantity is not. */}
+                  {!r.on_hand && (
+                    <div style={{ marginTop: "6px" }}>
+                      <button
+                        onClick={() => shelve(r.catalog_item_id)}
+                        aria-label={`I already have ${r.name} — keep it in the meal but do not add it`}
+                        style={{
+                          background: "none", border: "none", padding: "2px 0", cursor: "pointer",
+                          fontFamily: "'Lato', sans-serif", fontSize: "0.68rem", fontWeight: 400,
+                          color: "#9a8a78", textDecoration: "underline", textUnderlineOffset: "2px",
+                        }}
+                      >I have this</button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
