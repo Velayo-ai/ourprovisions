@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-09-07] — [OurProvisions] — Phase 0 promoted to prod by partial cherry-pick; main and dev now deliberately divergent
+**Goal:** Get the Phase 0 defect fixes onto `main` without dragging the AI meal-suggestion feature, migrations `044`/`045`, or the on-hand-ingredients UI along with them.
+**Completed:**
+- **Promoted Phase 0 to prod: `origin/main` moved `eaa4e52` → `8f115c2`**, its first movement since 2026-08-30. Vercel Production deploy `dpl_GvUUcUa9` reached READY on `ourprovisions.velayo.ai` from commit `8f115c2`.
+- **Found that 3 of the 5 nominated commits patch code `main` does not have.** `main` had no AI meal-suggestion feature at all, so the conflicts were not textual drift — git was offering to import the whole feature (Edge Function client, Web Speech voice input, the migration-043 instructions field) as incoming content. A straight cherry-pick would have shipped an unreachable feature to prod.
+- **Split the set by what actually applies.** `8a6c8a9` (bottom status stack) cherry-picked verbatim. `fb4f6ee` hand-resolved to its 3 AI-free hunks of 9 — the MealsLens create-row gating only. `cab4297` hand-resolved to its 8 poll-scoping hunks of 12 — the four `failWith("ai", …)` hunks live inside `requestMealSuggestion` and stayed on dev. `4f1a848` dropped entirely: it is wholly inside `requestMealSuggestion`, so it had nothing to attach to. `d29adb0` (RUM masking) deliberately held back this round.
+- **Verified the promotion carried nothing it shouldn't** — three source files touched, zero references to `044`, `045`, `on_hand`, `Ask the Galley` or `requestMealSuggestion` in the diff, and `src/rum.js` byte-identical to old `main`. Build clean under `CI=true`.
+- **Walked prod live in a signed-out headless session** (CDP against Chrome, no installs). PLAN shows the gated "Sign in to create meals" row — a `DIV`, dashed `#C9A97A`, `cursor: default` — and the clickable "+ Create new meal" button is genuinely absent, not merely disabled.
+- **Proved the bottom-stack overlap fix structurally, not just visually.** The deployed prod bundle contains exactly ONE `bottom:"24px"` anchor and ZERO `bottom:"28px"`; `pillStyle` no longer carries `position`/`zIndex`. Injecting three stand-ins into the live container produced zero overlapping pairs, exact 10px gaps, all centred at the same x. Overlap is now impossible by construction rather than absent by luck.
+- **Confirmed the scoped-error machinery survived minification** — `failWith` as `(e,t)=>{D.current=e,M(t)}`, `clearErrorFrom` as `e=>{D.current===e&&(D.current=null,M(null))}` with its ownership guard intact, and the catalog poll's success path calling `reportSuccess(), clearErrorFrom("catalog")`.
+**Unfinished:**
+- ⚠️ **`fb4f6ee` and `cab4297` are now PARTIAL on `main` and full on `dev`. They WILL conflict at the Phase 1 `dev`→`main` merge. Resolve by taking DEV'S SIDE in both — the partial patch was always the interim state, never a divergent design.** The partial commits on main are `5d2f675` (fb4f6ee) and `8f115c2` (cab4297); both say so in their commit messages too.
+- **The catalog-poll JWT-expiry recovery was verified as mechanism, not as behaviour.** The clear-on-next-successful-poll path is confirmed present in the deployed prod bundle, but walking it needs a signed-in prod session whose JWT actually expires. Not done.
+- **"Ask the Galley" gating and its stale-toast clear are not testable on prod this round** — the feature is not there. Expected, not a gap; they ride along at Phase 1 with `fb4f6ee`/`4f1a848` in full.
+- **`d29adb0` (RUM masking) still dev-only.** Prod keeps its previous RUM config.
+- ⚠️ **New finding on `d29adb0`, unresolved:** `{ rule: 'unmask', selector: 'body' }` is unconditional, and per our own `SPEC_rum_unmask.md` that makes ALL rendered text visible. It therefore defeats `maskAllText: isProd`, so prod replays would still show rendered list/meal/household text — contradicting `SPEC_rum_session_replay_masking.md`, which says prod inputs AND text stay masked. `maskAllInputs` still holds. Pre-existing on dev; decide before promoting it.
+- Everything from the 2026-09-06 entry's Unfinished list that Phase 0 did not touch still stands.
+**Next session:**
+SESSION START
+Goal: Settle the RUM unmask-body question, then promote Phase 1 (AI meal suggestion + on-hand ingredients) to prod.
+State: Prod is live at `8f115c2` with the Phase 0 fixes: create-meal auth gating, the single bottom status stack, and scoped poll-error clearing. Prod still has zero deployed Edge Functions, no `CLERK_ISSUER` or `ANTHROPIC_API_KEY`, and no `044`/`045`. `dev` is the full tree and remains the source of truth.
+Done when: The unmask-body rule is either fixed or consciously accepted with the reason logged; and the Phase 1 prerequisites (secrets, Edge Function deploy, `044`/`045` applied to prod with the `045` `proacl` re-check) are each verified present before any merge is attempted.
+**Files updated:** `src/App.js`, `src/hooks/useProvisions.js`, `src/components/ConnectivityPill.js` (all on `main` only, via cherry-pick); `docs/SESSION_LOG.md`
+**DB changes:** None
+
 ### [2026-09-06] — [OurProvisions] — On-hand ingredients built and dev-verified; "Ask the Galley"; the path to prod turns out to be four phases, not one merge
 **Goal:** Verify RUM masking in a Splunk replay, then build the on-hand-ingredients enhancement Dan raised while testing with Laddy. Both halves moved: the Splunk check hit a genuine external blocker, and the promotion question underneath turned out to be much larger than a merge. *(Session ran 2026-09-05 into 2026-09-06.)*
 **Completed:**
