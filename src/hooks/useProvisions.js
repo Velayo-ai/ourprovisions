@@ -24,6 +24,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [hiddenCatalogItems, setHiddenCatalogItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
+  const errorSourceRef = useRef(null);
   const { reportTransientFailure, reportSuccess } = useConnectivity();
   const supabaseRef = useRef(null);
   const householdRef = useRef(null);   // mirrors household for use inside callbacks
@@ -104,7 +106,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
     if (listErr) {
-      if (classifyFetchError(listErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not load list: ${listErr.message}`); }
+      if (classifyFetchError(listErr) === 'transient') { reportTransientFailure(); } else { failWith("list", `Could not load list: ${listErr.message}`); }
       return;
     }
 
@@ -118,6 +120,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setQuantities((prev) => { hadItems = Object.keys(prev).length > 0; return prev; });
       if (hadItems) { reportTransientFailure(); return; }
     }
+
+    // The read succeeded (an empty list here is a real empty list, not a dropped
+    // connection — the guard above already returned in that case), so retire any
+    // stale "Could not load list" left behind by an earlier failed tick.
+    clearErrorFrom("list");
 
     // Names/categories/staple flags now arrive inline from the list RPC join.
     const catalogNameMap = {};
@@ -1157,7 +1164,36 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, []);
 
-  const dismissError = useCallback(() => setError(null), []);
+  // ── Scoped error ownership ─────────────────────────────────────────────────
+  // `error` is ONE state behind ONE toast, shared by every subsystem. That makes a
+  // blunt "clear on my success" actively dangerous here: the list poll runs every
+  // 2s and the catalog poll every 20s, so an unscoped clear would wipe a user's
+  // "Could not create meal" toast within two seconds of it appearing — the toast
+  // would become unreadable rather than merely stale.
+  //
+  // So a message records who set it, and a clear only fires when the clearer still
+  // owns what is showing. A poller heals its OWN stale toast — the actual bug, where
+  // a background retry succeeds silently and the message has no path to clear — while
+  // leaving everyone else's message alone.
+  //
+  // Setting an error through plain setError is still fine for one-shot user actions:
+  // those are read and dismissed by the person who triggered them. Use failWith when
+  // the same code path can also SUCCEED later and should tidy up after itself.
+  const failWith = useCallback((source, message) => {
+    errorSourceRef.current = source;
+    setError(message);
+  }, []);
+
+  const clearErrorFrom = useCallback((source) => {
+    if (errorSourceRef.current !== source) return;   // someone else owns the toast
+    errorSourceRef.current = null;
+    setError(null);
+  }, []);
+
+  const dismissError = useCallback(() => {
+    errorSourceRef.current = null;
+    setError(null);
+  }, []);
 
   // ─────────────────────────────────────────────────────────────
   // createInvite: generates a 6-char code, writes to
@@ -1495,7 +1531,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .eq("is_global", true)
       .is("deleted_at", null));
     if (catalogErr) {
-      if (classifyFetchError(catalogErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not refresh catalog: ${catalogErr.message}`); }
+      if (classifyFetchError(catalogErr) === 'transient') { reportTransientFailure(); } else { failWith("catalog", `Could not refresh catalog: ${catalogErr.message}`); }
       return;
     }
 
@@ -1510,11 +1546,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .eq("is_global", false)
       .is("deleted_at", null));
     if (customErr) {
-      if (classifyFetchError(customErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not refresh catalog: ${customErr.message}`); }
+      if (classifyFetchError(customErr) === 'transient') { reportTransientFailure(); } else { failWith("catalog", `Could not refresh catalog: ${customErr.message}`); }
       return;
     }
 
     reportSuccess();
+    // Both catalog reads came back clean. THIS is the fix for the observed bug:
+    // the poll set "Could not refresh catalog: JWT expired", then quietly started
+    // succeeding again, and the toast had no path to clear itself — it sat there
+    // looking like a live failure while 200s streamed past in the Network tab.
+    clearErrorFrom("catalog");
 
     // Per-household staples (row-presence, migration 016). Reading this here —
     // instead of the shared catalog_items.is_staple column — is what makes a
@@ -1550,7 +1591,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       catalogRef.current = next;
       setCatalogMap(next);
     }
-  }, [reportTransientFailure, reportSuccess]);
+  }, [reportTransientFailure, reportSuccess, failWith, clearErrorFrom]);
 
   // Keep the ref pointing at the latest refreshCatalog so the boot-effect
   // catalog poll can call it without taking it as an effect dependency.
@@ -1908,16 +1949,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (err) {
-      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not load meals: ${err.message}`); }
+      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { failWith("meals", `Could not load meals: ${err.message}`); }
       return [];
     }
     reportSuccess();
+    clearErrorFrom("meals");
     // The embed doesn't filter soft-deleted ingredients — drop them here.
     return (data || []).map((m) => ({
       ...m,
       meal_ingredients: (m.meal_ingredients || []).filter((mi) => mi.deleted_at == null),
     }));
-  }, [reportTransientFailure, reportSuccess]);
+  }, [reportTransientFailure, reportSuccess, failWith, clearErrorFrom]);
 
   const createMeal = useCallback(async ({ name, baseServings = 1, ingredients = [] }) => {
     const db = supabaseRef.current;
