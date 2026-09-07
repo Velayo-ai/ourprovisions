@@ -720,12 +720,19 @@ function FlatHeader({ count, showCount = true }) {
 // 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
 const MEALS_ENABLED = true;
 
-function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onDecrement, decrementingMealId }) {
+function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onDecrement, decrementingMealId, isSignedIn }) {
   // Terminal ghost row — matches the "+ Create new place" convention (same
   // 1.5px dashed border, same terminal position). It renders in the EMPTY
   // state too, deliberately: it is the only entry point to meal creation, so
   // a household with no meals could otherwise never make its first one.
-  const createRow = (
+  // Signed out, this row becomes a sign-in prompt rather than a live control.
+  // Creating a meal is an identity-requiring write, and every such write silently
+  // no-ops when signed out (no Supabase client is ever built without a Clerk token),
+  // so a clickable row here promises something the app cannot deliver. It is NOT
+  // hidden: an absent control with no explanation is the same "state is invisible"
+  // defect in a smaller costume. Same box, same dashed border, same terminal slot —
+  // only the affordance and the words change, so there is no layout shift.
+  const createRow = isSignedIn ? (
     <button
       onClick={onCreate}
       style={{
@@ -735,6 +742,20 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
         color: "#A0724A", cursor: "pointer", textAlign: "center", boxSizing: "border-box",
       }}
     >+ Create new meal</button>
+  ) : (
+    <div
+      style={{
+        width: "100%", background: "none", border: "1.5px dashed #C9A97A",
+        borderRadius: "12px", padding: "14px", marginTop: "2px",
+        fontFamily: "'Lato', sans-serif", fontSize: "0.92rem", fontWeight: 700,
+        color: "#9a8a78", cursor: "default", textAlign: "center", boxSizing: "border-box",
+      }}
+    >
+      Sign in to create meals
+      <div style={{ fontWeight: 400, fontSize: "0.78rem", marginTop: "4px", fontStyle: "italic" }}>
+        Meals are saved to your place, so they need your account.
+      </div>
+    </div>
   );
 
   if (loading && meals.length === 0) {
@@ -3890,6 +3911,7 @@ function ProvisionsApp() {
             onAddAll={handleAddMealToList}
             addingMealId={addingMealId}
             onCreate={() => setMealSheet({ mode: "create", meal: null })}
+            isSignedIn={isSignedIn}
             onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
             plannedMealCounts={plannedMealCounts}
             onDecrement={handleDecrementMeal}
