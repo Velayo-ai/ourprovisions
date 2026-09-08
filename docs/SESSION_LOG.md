@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-09-08] — [Cross] — Phase 0 live on prod; the Phase 1 database landed and verified on prod; desktop reconciled; RUM masking actually masks
+**Goal:** Execute the path-to-prod promotion — ship Phase 0, then land and verify the Phase 1 on-hand database work on prod — while bringing the desktop back into sync after a week-plus of drift.
+**Completed:**
+- **Promoted Phase 0 to prod by partial cherry-pick** (`main` `eaa4e52` → `8f115c2`), its first movement since 2026-08-30: `8a6c8a9` verbatim, `fb4f6ee` and `cab4297` hand-resolved to their non-AI hunks only, `4f1a848` dropped, `d29adb0` held. Verified live on prod — create-meal gating (button **absent**, not disabled), bottom-stack ordering (overlap impossible by construction), catalog JWT-clear mechanism present in the bundle.
+- **Landed the Phase 1 on-hand database on prod, migration-first, in the SQL Editor.** Confirmed `043` was **already on prod** by direct query — settling a recon disagreement in the database's favour, not the doc's. Applied `044` (`meal_ingredients.on_hand`; verified `boolean` / `NO` / `false`, zero true rows), then `045`, and **re-read `proacl` against a captured pre-drop baseline** — one row, 4-arg signature, ACL identical, no `anon` and no `PUBLIC`. The 2026-09-06 warning was honoured, not assumed.
+- **Proved the `045` loop predicate against real prod schema, all three cases:** an empty include list skips the on-hand row; the row's own `catalog_item_id` includes it; a bogus id does **not** — confirming a real membership test rather than a non-empty-array test. Test meal restored to clean state afterward.
+- **Reconciled the desktop after 8+ days of drift.** Two orphaned local commits (`main` `3620c98`, `dev` `fdd0ccd`) were proven by diff to be the superseded side of the 2026-08-30/31 reconciliation; preserved under `backup-desktop-stale-2026-08-30`, then both branches hard-reset to origin. Deleted the stale merged `part2-client-3arg` branch.
+- **Corrected the RUM masking bug on dev (`c2f98f7`).** `d29adb0`'s unconditional `{ rule: 'unmask', selector: 'body' }` was overriding `maskAllText: isProd`, so prod would have recorded every rendered string in the clear — the environment split existed in config and did nothing at record time. The rule is now **absent** on prod, not merely weaker. Bundle-verified by the `isProd` constant-fold, not by string grep.
+- **Retired `SPEC_rum_unmask.md`** — its `type:` → `rule:` fix shipped, but its `mask: input` / `mask: textarea` strategy was replaced by `d29adb0`'s `maskAll*` environment split. Moved to `docs/specs/retired/`; `SPEC_rum_session_replay_masking.md` stays in `active/` as the strategy of record (dev-only, unpromoted).
+**Unfinished:**
+- **Phase 1 client is NOT promoted.** Route decided — hand-author the on-hand-only promotion, **not** a full `dev→main` merge. The merge is clean but would ship "Ask the Galley" to a prod with no Edge Function, `ANTHROPIC_API_KEY` or `CLERK_ISSUER`. The build is pending.
+- **Phase 1 live walkthrough not run** — needs the client deployed first: quantity 2 → "I have this" without touching the stepper → pill reads "ON HAND · 2".
+- **Phase 0's catalog JWT-expiry recovery is verified by mechanism only**; a real signed-in expiry event on prod is still owed.
+- **The RUM masking fix (`c2f98f7`) is dev-only** and its own prod-replay confirmation is pending — deliberately parked. Session replay also has an unrelated platform-side CSP blank-canvas bug Dan is taking to Splunk separately.
+- The two promotion tracks (`c2f98f7` and Phase 1) are **independent**; neither gates the other.
+- ⚠️ Still standing from 2026-09-07: `fb4f6ee` and `cab4297` are **partial on `main`, full on `dev`**, and will conflict at any future merge. Resolve by taking **dev's side** in both.
+**Next session:**
+SESSION START
+Goal: Complete Phase 1 — hand-author the on-hand-only client promotion to `main`, deploy, and run the live "ON HAND · 2" walkthrough on prod.
+State: Phase 0 live on prod (`main` `8f115c2`). The Phase 1 database is fully landed and verified on prod (`043` confirmed present, `044` + `045` applied, ACL re-read clean). `dev`/`origin/dev` in sync; desktop reconciled and clean. RUM masking fix `c2f98f7` is on dev, not promoted.
+Done when: The on-hand feature is live on prod, the pill reads "ON HAND · 2" in a real authenticated walkthrough, and the promoted client carries no AI meal-suggestion surface — "Ask the Galley" absent from the prod bundle.
+**Files updated:** `src/rum.js` (`c2f98f7`, dev); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; `docs/specs/active/SPEC_rum_unmask.md` → `docs/specs/retired/`
+**DB changes:** **PROD** — `044` (`meal_ingredients.on_hand`) and `045` (`add_meal_to_list` 4-arg + ACL restore) applied and verified. `043` confirmed already present (not re-applied). No dev DB changes.
+
 ### [2026-09-07] — [OurProvisions] — Phase 0 promoted to prod by partial cherry-pick; main and dev now deliberately divergent
 **Goal:** Get the Phase 0 defect fixes onto `main` without dragging the AI meal-suggestion feature, migrations `044`/`045`, or the on-hand-ingredients UI along with them.
 **Completed:**
