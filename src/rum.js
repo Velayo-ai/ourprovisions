@@ -31,7 +31,9 @@ if (rumToken) {
     maskAllInputs: isProd,
     maskAllText: isProd,
     sensitivityRules: [
-      { rule: 'unmask', selector: 'body' },
+      // An unmask rule BEATS maskAllInputs/maskAllText, so on prod it must not
+      // be in the array at all — not merely set to something weaker.
+      ...(isProd ? [] : [{ rule: 'unmask', selector: 'body' }]),
       { rule: 'exclude', selector: '[class*="cl-"]' },
       { rule: 'exclude', selector: '#clerk-components' },
     ],
