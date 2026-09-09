@@ -2352,7 +2352,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Supabase health for the offline banner; the Anthropic API being slow or rate-limited
   // is not evidence the database is unreachable, and folding it in would make the
   // connection indicator lie.
-  const requestMealSuggestion = useCallback(async (promptText) => {
+  //
+  // `signal` (optional AbortSignal) lets the sheet's "Never mind" cancel a request in
+  // flight. An abort is the user's own decision, not a failure — it returns null with
+  // NO toast, so the caller sees exactly what it sees for any other null and the
+  // person sees nothing at all.
+  const requestMealSuggestion = useCallback(async (promptText, { signal } = {}) => {
     const text = (promptText || "").trim();
     if (!text) return null;
     // A new attempt clears the previous attempt's error. Without this, a failure toast
@@ -2384,6 +2389,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ requestText: text, catalog }),
+          signal,
         },
       );
 
@@ -2418,6 +2424,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       clearErrorFrom("ai");
       return { ...payload, instructions: unescapeSteps(payload.instructions) };
     } catch (err) {
+      // Never mind. Swallowed on purpose — see the note above the function. Checked by
+      // name rather than `signal?.aborted` so a request that was aborted after the
+      // fetch settled (in res.json()) is still recognised as the user's own cancel.
+      if (err?.name === "AbortError") return null;
       console.error("requestMealSuggestion error:", err.message);
       failWith("ai", `Could not get a suggestion: ${err.message}`);
       return null;

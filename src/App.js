@@ -900,6 +900,44 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
   );
 }
 
+// Steps read-mode parser. `meals.instructions` stays free text (043); this is a
+// pure render over it, never a data change. A step begins at a line starting
+// "N." — continuation lines fold into the step above, blank lines are dropped.
+// Text with no numbered line at all (someone typed a paragraph) comes back as one
+// unnumbered step so the card always has something to show. Never throws.
+function parseSteps(text) {
+  const src = String(text || "").replace(/\r\n?/g, "\n").trim();
+  if (!src) return { steps: [], numbered: false };
+  const steps = [];
+  let current = null;
+  let numbered = false;
+  for (const raw of src.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = line.match(/^\d+\.\s*(.*)$/);
+    if (m) {
+      numbered = true;
+      if (current) steps.push(current);
+      current = m[1].trim();
+    } else if (current !== null) {
+      current = `${current} ${line}`.trim();
+    } else {
+      current = line;
+    }
+  }
+  if (current) steps.push(current);
+  if (!numbered) return { steps: [src], numbered: false };
+  return { steps: steps.filter(Boolean), numbered: true };
+}
+
+// Galley glyph — the eyebrow on the recipe card and the header of the ask block.
+const GalleyGlyph = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+    strokeLinecap="round" aria-hidden="true">
+    <path d="M12 3v3M12 18v3M4.2 6.2l2.1 2.1M17.7 15.7l2.1 2.1M3 12h3M18 12h3M4.2 17.8l2.1-2.1M17.7 8.3l2.1-2.1" />
+  </svg>
+);
+
 // One parameterized sheet for BOTH create and edit (mode: 'create' | 'edit').
 // Built as one component from the start rather than retrofitting edit onto a
 // create-only sheet later — the seam is nearly free now and expensive after.
@@ -933,15 +971,38 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const [newCatOpen, setNewCatOpen] = useState(false);
   const [newCatInput, setNewCatInput] = useState("");
 
-  // Instructions (migration 043). Renders ONLY when it has content, so the manual
-  // path is unchanged for anyone who never asks the AI — no empty field appears in a
-  // form that never had one. Edit mode loads whatever is already stored.
+  // Steps (migration 043 — the column is still `instructions`; only the label
+  // changed). ALWAYS rendered now: 043 said the column was never AI-only, but
+  // until 2026-09-09 the field only appeared once it had content, so a manual meal
+  // had no way to get steps at all. Edit mode loads whatever is already stored.
   const [instructions, setInstructions] = useState(isEdit ? (meal?.instructions || "") : "");
+  // Read renders the recipe card (or, with nothing stored, the empty chip that
+  // points at both paths); edit is the textarea + Done. Opens in read — the card
+  // for a meal that has steps, the chip for one that does not — and returns to
+  // read after a Galley result lands. The mockup's state 1 is the chip WITH the
+  // Galley live, which is why "empty" is not "edit": edit dims the Galley, and a
+  // brand-new meal must be able to ask it.
+  const [stepsMode, setStepsMode] = useState("read");
+  // "From the galley" provenance. Session-only, not persisted (Phase B question):
+  // set when a Galley draft fills the sheet, cleared on Never mind or when every
+  // field is emptied. A hand-edit of the steps does NOT clear it — provenance is
+  // per meal, not per edit.
+  const [fromGalley, setFromGalley] = useState(false);
+  // Once a draft lands the ask block collapses to one link; the "or" divider
+  // between a finished recipe and "ask AI to build it" made no sense. The link
+  // re-expands it with the request text intact.
+  const [galleyCollapsed, setGalleyCollapsed] = useState(false);
 
   // AI request state. `aiBusy` both blocks a second submit (the only cost control
   // that exists today — see the spec's open rate-limiting item) and drives the dim.
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  // The in-flight request's controller (Never mind aborts it) and the field values
+  // from before it started, restored on abort. Nothing is written before the draft
+  // arrives, so the snapshot is defence against the narrow window where the fetch
+  // has settled and the ingredient loop is still running when abort is pressed.
+  const aiAbortRef = useRef(null);
+  const aiSnapshotRef = useRef(null);
 
   // Voice. `micBlocked` is sticky for the life of the sheet: a denied permission does
   // not resolve itself, so re-offering the button would just reproduce the same refusal.
@@ -1161,9 +1222,15 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     // Sending is an unambiguous "I'm done talking" — leaving the mic live would keep
     // appending words to a field whose contents have already been sent.
     if (listening) stopListening();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    aiSnapshotRef.current = { name, instructions, rows };
     setAiBusy(true);
     try {
-      const draft = await onRequestSuggestion(text);
+      const draft = await onRequestSuggestion(text, { signal: controller.signal });
+      // Never mind already restored the fields and cleared busy; do not overwrite
+      // that with a draft that arrived a beat after the person gave up on it.
+      if (controller.signal.aborted) return;
       if (!draft) return;   // the hook already surfaced the reason via setError
       setName(draft.name || "");
       setInstructions(draft.instructions || "");
@@ -1193,19 +1260,54 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           isNew: !wasKnown,
         });
       }
+      if (controller.signal.aborted) return;
       setRows(staged);
+      setFromGalley(true);
+      setGalleyCollapsed(true);
+      setStepsMode("read");
     } finally {
-      setAiBusy(false);
+      if (aiAbortRef.current === controller) {
+        aiAbortRef.current = null;
+        setAiBusy(false);
+      }
     }
   };
+
+  // Never mind: abort the fetch, put the fields back exactly as they were, return
+  // to idle with the request text intact. No toast — the hook swallows AbortError.
+  const cancelAskAI = () => {
+    const controller = aiAbortRef.current;
+    if (!controller) return;
+    controller.abort();
+    aiAbortRef.current = null;
+    const snap = aiSnapshotRef.current;
+    if (snap) { setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows); }
+    aiSnapshotRef.current = null;
+    setFromGalley(false);
+    setAiBusy(false);
+  };
+
+  // "When the user clears all fields" — with nothing left in the sheet there is
+  // nothing for the eyebrow to be the provenance of.
+  useEffect(() => {
+    if (fromGalley && !name.trim() && !instructions.trim() && rows.length === 0) setFromGalley(false);
+  }, [fromGalley, name, instructions, rows]);
 
   // Screen 3 of the mockup: the manual fields dim and stop accepting input while a
   // suggestion is in flight, because they are about to be replaced by the draft.
   const aiDim = aiBusy ? { opacity: 0.45, pointerEvents: "none" } : undefined;
+  // The ask block dims while the steps are being hand-edited: a draft would
+  // replace what is being typed. Same shape as aiDim, different trigger.
+  const galleyDim = stepsMode === "edit" ? { opacity: 0.55, pointerEvents: "none" } : undefined;
   // Ask AI needs a real Clerk identity: the Edge Function verifies the token
   // against Clerk JWKS, so signed out it can only ever fail. Gate the control
   // rather than letting the attempt through to a generic error.
   const aiInert = !isSignedIn || !aiText.trim() || aiBusy || saving;
+
+  const parsedSteps = useMemo(() => parseSteps(instructions), [instructions]);
+  const hasSteps = parsedSteps.steps.length > 0;
+  const onHandCount = rows.filter((r) => r.on_hand).length;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   const canSave = name.trim().length > 0;
 
@@ -1228,10 +1330,24 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           />
         </div>
 
-        <div className="modal-field" style={aiDim}>
+        <div className="modal-field" style={aiBusy ? undefined : aiDim}>
           <label className="modal-label">Ingredients</label>
 
-          {rows.length > 0 && (
+          {/* Thinking: skeleton rows sit where the ingredients will land, so arrival
+              is a fill rather than a layout jump. Search and results step aside —
+              nothing typed now would survive the replace anyway. */}
+          {aiBusy && (
+            <div aria-busy="true" aria-label="Building ingredients">
+              {[60, 45, 55].map((w) => (
+                <div key={w} className="op-skel-step op-skel-row">
+                  <div className="op-skel-badge square" />
+                  <div className="op-skel-lines"><div className="op-skel" style={{ width: `${w}%` }} /></div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!aiBusy && rows.length > 0 && (
             <div style={{ marginBottom: "10px" }}>
               {/* Row styling matches .item-row.has-qty. Applied unconditionally:
                   every row in this list carries quantity ≥ 1 by definition, so a
@@ -1345,21 +1461,23 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             </div>
           )}
 
-          <input
-            className="modal-input"
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setPickerOpen(false); }}
-            placeholder="Search your catalog…"
-          />
+          {!aiBusy && (
+            <input
+              className="modal-input"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setPickerOpen(false); }}
+              placeholder="Search your catalog…"
+            />
+          )}
 
-          {!trimmedQuery && (
+          {!aiBusy && !trimmedQuery && (
             <div style={{ padding: "10px 2px 0", fontFamily: "'Lato', sans-serif",
               fontSize: "0.78rem", color: "#C9A97A" }}>
               Start typing to find an ingredient.
             </div>
           )}
 
-          {results.length > 0 && (
+          {!aiBusy && results.length > 0 && (
             <div style={{ marginTop: "8px" }}>
               {results.map((it) => {
                 const stagedRow = rows.find((r) => r.catalog_item_id === it.id);
@@ -1399,7 +1517,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           )}
 
           {/* No match → inline create, matching Browse's live pattern. */}
-          {showNoResults && (
+          {!aiBusy && showNoResults && (
             <div style={{ marginTop: "8px" }}>
               <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px",
                 letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
@@ -1478,35 +1596,125 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           )}
         </div>
 
-        {/* ── Instructions — renders ONLY with content (migration 043). Editable like
-            any other field. A manually-created meal can carry steps too; this is not
-            an AI-only surface, it is just usually filled by one. ── */}
-        {instructions.trim().length > 0 && (
-          <div className="modal-field" style={aiDim}>
-            <label className="modal-label">Instructions</label>
-            <textarea
-              className="modal-input"
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              rows={7}
-              style={{ resize: "vertical", lineHeight: 1.55, fontFamily: "'Lato', sans-serif" }}
-            />
-          </div>
-        )}
+        {/* ── Steps (column: `instructions`, migration 043). Always present; a
+            manually-created meal can carry steps too — this is not an AI-only
+            surface, it is just usually filled by one. Read mode is the recipe card,
+            edit mode is the same textarea + Done, thinking is skeletons. ── */}
+        <div className="modal-field">
+          <label className="modal-label" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span>Steps</span>
+            {stepsMode === "read" && hasSteps && !aiBusy && (
+              <button type="button" className="op-steps-action" onClick={() => setStepsMode("edit")}>Edit steps</button>
+            )}
+          </label>
+
+          {aiBusy ? (
+            <div aria-busy="true" aria-label="Building steps">
+              {[[100, 80], [100, 65], [90]].map((ws, i) => (
+                <div key={i} className="op-skel-step">
+                  <div className="op-skel-badge" />
+                  <div className="op-skel-lines">
+                    {ws.map((w) => <div key={w} className="op-skel" style={{ width: `${w}%` }} />)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : stepsMode === "edit" ? (
+            <div>
+              <textarea
+                className="modal-input"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                rows={hasSteps ? 8 : 4}
+                placeholder={"1. Whisk the dry ingredients.\n2. Fold in the wet."}
+                style={{ resize: "vertical", lineHeight: 1.55, fontFamily: "'Lato', sans-serif" }}
+              />
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px", color: "#8a7968",
+                marginTop: "7px", lineHeight: 1.5 }}>
+                One step per line, numbered. Blank lines are ignored.
+              </div>
+              <button type="button" className="op-steps-done" onClick={() => setStepsMode("read")}>Done</button>
+            </div>
+          ) : hasSteps ? (
+            <div className={`op-recipe${fromGalley ? " galley" : ""}`}>
+              {fromGalley && (
+                <div className="op-recipe-eyebrow"><GalleyGlyph />From the galley</div>
+              )}
+              {/* Mirrors the Meal Name field above; absent rather than "Untitled" when
+                  the name is still empty, because the field is right there. */}
+              {name.trim() && <div className="op-recipe-title">{name.trim()}</div>}
+              <div className="op-recipe-meta">
+                {plural(rows.length, "ingredient")} · {onHandCount} on hand · {plural(parsedSteps.steps.length, "step")}
+              </div>
+              <ol className="op-steps">
+                {parsedSteps.steps.map((s, i) => (
+                  <li key={i}>
+                    {parsedSteps.numbered && <span className="op-step-badge">{i + 1}</span>}
+                    <p>{s}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : (
+            // Mockup state 1: the empty state points at both paths, and the Galley
+            // below stays live — which is why empty is not edit mode.
+            <button type="button" className="op-steps-empty" onClick={() => setStepsMode("edit")}>
+              No steps yet — write them, or ask the galley.
+            </button>
+          )}
+
+          {/* Once a draft has landed the ask block is folded away; this is its handle. */}
+          {galleyCollapsed && !aiBusy && (
+            <button type="button" className="op-steps-action op-ask-again"
+              onClick={() => setGalleyCollapsed(false)}>
+              Not quite it? Ask the galley again
+            </button>
+          )}
+        </div>
 
         {/* ── AI section. Sits BELOW the manual fields, behind an "or" divider, so the
             proven path needs zero relearning (spec, Layout decision + mockup Screen 1).
             No mic in this pass — typed path first; the Web Speech button lands later
             in this same row. ── */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "22px 0 14px" }}>
-          <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
-          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", fontWeight: 900,
-            letterSpacing: "0.1em", textTransform: "uppercase", color: "#b5a48d" }}>or</div>
-          <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
-        </div>
+        {/* Divider only makes sense between two live paths — gone while the galley is
+            thinking (the manual fields are skeletons) and once its block has collapsed. */}
+        {!aiBusy && !galleyCollapsed && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "22px 0 14px" }}>
+            <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", fontWeight: 900,
+              letterSpacing: "0.1em", textTransform: "uppercase", color: "#b5a48d" }}>or</div>
+            <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
+          </div>
+        )}
 
+        {/* Thinking. Single ember, no spinner; the request is echoed back so the wait
+            has a subject. Never mind aborts and puts everything back. */}
+        {aiBusy && (
+          <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.35)",
+            borderRadius: "14px", padding: "16px", marginBottom: "16px" }} aria-live="polite">
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+              <div className="op-ember" />
+              <div>
+                <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "15px", color: "#2C1A0E" }}>
+                  The galley's working on it…
+                </div>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#8a7968", marginTop: "2px" }}>
+                  Usually a few seconds.
+                </div>
+              </div>
+            </div>
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#6f5a45", fontStyle: "italic",
+              background: "#FFFDF9", border: "1.5px solid rgba(44,26,14,0.10)", borderRadius: "9px",
+              padding: "9px 11px", marginBottom: "14px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              "{aiText.trim()}"
+            </div>
+            <button type="button" onClick={cancelAskAI} className="op-never-mind">Never mind</button>
+          </div>
+        )}
+
+        {!aiBusy && !galleyCollapsed && (
         <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.22)",
-          borderRadius: "14px", padding: "14px", marginBottom: "16px" }}>
+          borderRadius: "14px", padding: "14px", marginBottom: "16px", ...galleyDim }}>
           <div style={{ display: "flex", alignItems: "center", gap: "7px", fontFamily: "'Lato', sans-serif",
             fontSize: "10.5px", fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase",
             color: "#A0724A", marginBottom: "10px" }}>
@@ -1618,6 +1826,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             }}
           >{aiBusy ? "Asking the galley…" : "Ask the Galley"}</button>
         </div>
+        )}
 
         {/* States the locked decision plainly rather than leaving it inferred. */}
         {isEdit && (
@@ -3290,6 +3499,34 @@ function ProvisionsApp() {
         .op-mic-btn.listening { background: #c0392b; animation: opMicPulse 1.2s ease-in-out infinite; }
         @keyframes opMicPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(192,57,43,0.55); } 50% { box-shadow: 0 0 0 8px rgba(192,57,43,0); } }
         @media (prefers-reduced-motion: reduce) { .op-mic-btn.listening { animation: none; } }
+        /* Galley recipe card — Phase A. Tokens from handoff/mockup_galley_recipe_card.html. */
+        .op-skel { height: 10px; border-radius: 5px; background: linear-gradient(90deg, rgba(160,114,74,.10), rgba(160,114,74,.22), rgba(160,114,74,.10)); background-size: 200% 100%; animation: opShimmer 1.4s linear infinite; margin-bottom: 8px; }
+        .op-skel:last-child { margin-bottom: 0; }
+        @keyframes opShimmer { to { background-position: -200% 0; } }
+        .op-skel-step { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; }
+        .op-skel-row { align-items: center; min-height: 52px; padding: 8px 10px; border: 1.5px solid rgba(44,26,14,.08); border-radius: 8px; margin-bottom: 6px; }
+        .op-skel-badge { width: 22px; height: 22px; border-radius: 50%; background: rgba(160,114,74,.15); flex: none; }
+        .op-skel-badge.square { border-radius: 6px; }
+        .op-skel-lines { flex: 1; padding-top: 4px; }
+        .op-skel-row .op-skel-lines { padding-top: 0; }
+        .op-ember { width: 10px; height: 10px; border-radius: 50%; background: #A0724A; flex: none; animation: opEmber 1.6s ease-in-out infinite; }
+        @keyframes opEmber { 0%, 100% { opacity: .35; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
+        @media (prefers-reduced-motion: reduce) { .op-skel, .op-ember { animation: none; } .op-ember { opacity: .8; } }
+        .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; color: #6f5a45; cursor: pointer; }
+        .op-recipe { background: #fff; border: 1.5px solid rgba(44,26,14,.10); border-radius: 14px; padding: 16px 16px 14px; }
+        .op-recipe.galley { border-color: rgba(160,114,74,.3); }
+        .op-recipe-eyebrow { display: flex; align-items: center; gap: 6px; font-family: 'Lato', sans-serif; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #A0724A; margin-bottom: 8px; }
+        .op-recipe-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 21px; line-height: 1.15; color: #2C1A0E; margin-bottom: 4px; }
+        .op-recipe-meta { font-family: 'Lato', sans-serif; font-size: 11.5px; color: #8a7968; margin-bottom: 14px; }
+        .op-steps { list-style: none; margin: 0; padding: 0; }
+        .op-steps li { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 12px; }
+        .op-steps li:last-child { margin-bottom: 0; }
+        .op-step-badge { flex: none; width: 24px; height: 24px; border-radius: 50%; background: rgba(160,114,74,.13); color: #A0724A; font-family: 'Lato', sans-serif; font-size: 11.5px; font-weight: 900; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+        .op-steps p { margin: 0; font-family: 'Lato', sans-serif; font-size: 13px; line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; }
+        .op-steps-action { background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-weight: 700; font-size: 12px; letter-spacing: 0; text-transform: none; color: #A0724A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; }
+        .op-ask-again { display: block; width: 100%; text-align: center; margin-top: 12px; }
+        .op-steps-done { width: 100%; margin-top: 10px; padding: 11px; background: #A0724A; border: none; border-radius: 10px; font-family: 'Lato', sans-serif; font-size: 13px; font-weight: 900; color: #fff; cursor: pointer; }
+        .op-steps-empty { width: 100%; padding: 12px 11px; background: none; border: 1.5px dashed #C9A97A; border-radius: 9px; font-family: 'Lato', sans-serif; font-size: 12px; color: #8a7968; cursor: pointer; text-align: center; }
         .qty-controls { display: inline-flex; align-items: center; background: transparent; border: 1px solid #C9A97A; border-radius: 999px; overflow: hidden; flex-shrink: 0; }
         .qty-btn { width: 38px; height: 34px; border: 0; background: transparent; color: #A0724A; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; line-height: 1; transition: background 0.12s; }
         .qty-btn:active { background: #F5EDE0; }
