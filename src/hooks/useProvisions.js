@@ -5,6 +5,17 @@ import { classifyFetchError } from "../lib/classifyFetchError";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 
+// A catalog item the meal builder has staged but NOT yet written. The id is a
+// client-only placeholder, deterministic on the normalised name so that staging
+// the same unmatched name twice resolves to the same row (and bumps it, exactly
+// as re-tapping an existing item does) instead of forking a second placeholder.
+// materializePendingIngredients swaps these for real ids at Save; nothing with
+// a pending id may ever reach meal_ingredients.
+const normCatalogName = (str) => (str || "").trim().toLowerCase().replace(/\s+/g, " ");
+const PENDING_CATALOG_PREFIX = "pending:";
+export const isPendingCatalogId = (id) =>
+  typeof id === "string" && id.startsWith(PENDING_CATALOG_PREFIX);
+
 export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
   const [quantities, setQuantities] = useState({});
   const [checked, setChecked] = useState({});
@@ -2238,51 +2249,92 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [removeMealFromList]);
 
-  // createCatalogItem: resolve a typed name to a catalog row, creating one if
-  // it doesn't exist — and NOTHING ELSE. The meal builder needs a catalog item
-  // staged into a draft, NOT added to the shared list; updateQty's insert path
-  // (the only other caller of insert_custom_catalog_item) writes a list_items
-  // row as well, so it cannot be reused here without putting every new meal
-  // ingredient straight onto the household's shopping list.
-  // Mirrors updateQty's resolver hardening: an exact-normalized match against
-  // the HIDDEN set resolves to the existing row rather than forking a duplicate.
+  // findCatalogMatch: the existing-row short-circuit shared by the resolver and
+  // the Save-time materializer. Exact-normalised match against the live catalog,
+  // then against the HIDDEN set — a hidden match resolves to the existing row
+  // rather than forking a duplicate (mirrors updateQty's resolver hardening).
+  const findCatalogMatch = useCallback((trimmed) => {
+    const existing = catalogRef.current[trimmed]
+      || Object.values(catalogRef.current).find((it) => normCatalogName(it.name) === normCatalogName(trimmed));
+    if (existing) return existing;
+    const hiddenMatch = hiddenCatalogItemsRef.current.find((it) => normCatalogName(it.name) === normCatalogName(trimmed));
+    if (hiddenMatch) {
+      catalogRef.current = { ...catalogRef.current, [hiddenMatch.name]: hiddenMatch };
+      return hiddenMatch;
+    }
+    return null;
+  }, []);
+
+  // createCatalogItem: resolve a typed name to a catalog row — an existing one
+  // if there is a match, otherwise a client-only PENDING placeholder. It no
+  // longer writes anything. The meal builder stages the result into a draft that
+  // lives entirely in local state until Save, and a catalog row minted the moment
+  // a category pill was tapped outlived every Cancel as an orphan nobody had
+  // claimed (SPEC_defer_catalog_write). The write moved to
+  // materializePendingIngredients, which runs only when the meal is committed.
+  // Still NOTHING ELSE: updateQty's insert path (the other caller of
+  // insert_custom_catalog_item) also writes a list_items row, so it cannot be
+  // reused here without putting every new meal ingredient onto the shopping list.
   const createCatalogItem = useCallback(async (name, categoryName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     const trimmed = (name || "").trim();
     if (!db || !hh || !trimmed) return null;
-    const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
-    try {
-      const existing = catalogRef.current[trimmed]
-        || Object.values(catalogRef.current).find((it) => norm(it.name) === norm(trimmed));
-      if (existing) return existing;
+    const match = findCatalogMatch(trimmed);
+    if (match) return match;
+    return {
+      id: PENDING_CATALOG_PREFIX + normCatalogName(trimmed),
+      name: trimmed,
+      category: categoryName || "Household",
+      is_global: false,
+    };
+  }, [findCatalogMatch]);
 
-      const hiddenMatch = hiddenCatalogItemsRef.current.find((it) => norm(it.name) === norm(trimmed));
-      if (hiddenMatch) {
-        catalogRef.current = { ...catalogRef.current, [hiddenMatch.name]: hiddenMatch };
-        return hiddenMatch;
+  // materializePendingIngredients: the deferred write. Walks a draft's staged
+  // rows and, for each one still carrying a pending placeholder, mints the real
+  // catalog row via insert_custom_catalog_item and substitutes its id. Returns the
+  // resolved rows, or null if any insert failed — the caller must NOT commit the
+  // meal on null, so the sheet stays open for a retry.
+  //
+  // Match-first, deliberately: a retry after a mid-loop failure finds the rows
+  // the failed attempt already created and reuses them instead of minting
+  // duplicates. That contains the spec's known residual risk (rows created by a
+  // Save that then fails, orphaned only if the user cancels afterwards) rather
+  // than solving it with a transactional RPC — accepted at build, per the spec.
+  const materializePendingIngredients = useCallback(async (ingredients) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const resolved = [];
+    for (const ing of ingredients || []) {
+      if (!isPendingCatalogId(ing.catalog_item_id)) { resolved.push(ing); continue; }
+      const trimmed = (ing.name || "").trim();
+      let item = findCatalogMatch(trimmed);
+      if (!item) {
+        const category = ing.category || "Household";
+        try {
+          const { data: insertedId, error: insertErr } = await db
+            .rpc("insert_custom_catalog_item", {
+              p_name: trimmed,
+              p_category: category,
+              p_household_id: hh.id,
+              p_created_by: internalUserIdRef.current,
+            });
+          if (insertErr) throw insertErr;
+          item = { id: insertedId, name: trimmed, category, is_global: false, household_id: hh.id };
+          catalogRef.current = { ...catalogRef.current, [trimmed]: item };
+          setCatalogMap((prev) => ({ ...prev, [trimmed]: item }));
+          reportSuccess();
+        } catch (err) {
+          console.error("materializePendingIngredients error:", err.message);
+          setError(`Could not add "${trimmed}": ${err.message}`);
+          return null;
+        }
       }
-
-      const category = categoryName || "Household";
-      const { data: insertedId, error: insertErr } = await db
-        .rpc("insert_custom_catalog_item", {
-          p_name: trimmed,
-          p_category: category,
-          p_household_id: hh.id,
-          p_created_by: internalUserIdRef.current,
-        });
-      if (insertErr) throw insertErr;
-      const item = { id: insertedId, name: trimmed, category, is_global: false, household_id: hh.id };
-      catalogRef.current = { ...catalogRef.current, [trimmed]: item };
-      setCatalogMap((prev) => ({ ...prev, [trimmed]: item }));
-      reportSuccess();
-      return item;
-    } catch (err) {
-      console.error("createCatalogItem error:", err.message);
-      setError(`Could not add "${trimmed}": ${err.message}`);
-      return null;
+      resolved.push({ ...ing, catalog_item_id: item.id });
     }
-  }, [reportSuccess]);
+    return resolved;
+  }, [findCatalogMatch, reportSuccess]);
 
   // requestMealSuggestion: ask the meal-suggestion Edge Function for ONE meal draft.
   // Returns { name, baseServings, instructions, ingredients:[{name, quantity, unit}] }
@@ -2471,7 +2523,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,

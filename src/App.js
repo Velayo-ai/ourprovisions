@@ -1,6 +1,6 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { useProvisions } from './hooks/useProvisions';
+import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
@@ -904,11 +904,14 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
 // Built as one component from the start rather than retrofitting edit onto a
 // create-only sheet later — the seam is nearly free now and expensive after.
 //
-// The whole draft lives in local state: nothing touches `meals` or
-// `meal_ingredients` until Save. The ONE exception is creating a brand-new
-// catalog item from the no-results panel, which must persist immediately so
-// the meal can reference its id — that writes `catalog_items` only, never
-// `list_items`.
+// The whole draft lives in local state: nothing touches `meals`,
+// `meal_ingredients` OR `catalog_items` until Save — no exceptions. A brand-new
+// ingredient (no-results panel, or an AI draft with no catalog match) is staged
+// under a client-only pending id and only becomes a real catalog row when the
+// meal is committed. Until 2026-09-08 that was the one exception: the row was
+// written the moment a category pill was tapped so the draft could hold a real
+// id, and every Cancel left it behind as an orphan. Staged rows can now carry a
+// placeholder, so the write waits for Save (SPEC_defer_catalog_write).
 function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, isSignedIn }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
@@ -962,18 +965,24 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // reads as "we don't have that" — the one message that is definitely wrong, since
   // it is sitting in the list above. Tapping an already-staged row bumps its quantity,
   // so the obvious gesture does the obvious thing instead of silently no-oping.
+  // Pending rows (staged, not yet written) are not in catalogMap, so they are
+  // folded in here — otherwise re-typing a name you just staged would fall through
+  // to the no-results panel, the exact wrong message the note above rules out.
+  const pendingStaged = useMemo(() => rows
+    .filter((r) => isPendingCatalogId(r.catalog_item_id))
+    .map((r) => ({ id: r.catalog_item_id, name: r.name, category: r.category })), [rows]);
   const results = useMemo(() => {
     const q = trimmedQuery.toLowerCase();
     if (!q) return [];
-    return Object.values(catalogMap)
+    return [...Object.values(catalogMap), ...pendingStaged]
       .filter((it) => it && it.id && (it.name || "").toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name))
       .slice(0, 8);
-  }, [trimmedQuery, catalogMap]);
+  }, [trimmedQuery, catalogMap, pendingStaged]);
 
   const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
   const exactExists = trimmedQuery
-    && Object.values(catalogMap).some((it) => norm(it.name) === norm(trimmedQuery));
+    && [...Object.values(catalogMap), ...pendingStaged].some((it) => norm(it.name) === norm(trimmedQuery));
   const showNoResults = !!trimmedQuery && results.length === 0 && !exactExists;
 
   // `isNew` marks an item this sheet just created (no-results panel, or an AI draft
@@ -1015,7 +1024,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
   // Submitting the new-category field lands in the SAME place a category tap
   // does — createCatalogItem with the typed string, then stage. Registering the
-  // name mirrors Browse, so the category exists even if the item write fails.
+  // name mirrors Browse; it is local state only (no DB write), so a cancelled
+  // draft leaves nothing behind but a category name in this session's picker.
   const commitNewCategory = () => {
     const newCat = newCatInput.trim();
     if (!newCat || adding) return;
@@ -1159,14 +1169,16 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
       setInstructions(draft.instructions || "");
 
       // Every suggested ingredient goes through the SAME resolver the manual
-      // no-results panel uses: exact-normalized match, or a new custom item via
-      // insert_custom_catalog_item. No parallel matching path (spec, Decisions).
+      // no-results panel uses: exact-normalized match, or a pending placeholder
+      // that Save turns into a real row. No parallel matching path (spec,
+      // Decisions) — and no catalog write until the meal is committed.
       const staged = [];
       const known = new Set(Object.values(catalogMap).map((it) => norm(it.name)));
       for (const ing of draft.ingredients || []) {
-        // Snapshot BEFORE the call: createCatalogItem returns an existing row and a
-        // freshly-created one identically, so "was it already there?" has to be asked
-        // beforehand or the answer is always "yes".
+        // Snapshot BEFORE the call: "was it already there?" is a property of the
+        // catalog, not of what the resolver hands back — a hidden-set match returns
+        // an existing row that was never in catalogMap, and the badge should still
+        // say where it went. Asked beforehand or the answer drifts.
         const wasKnown = known.has(norm(ing.name));
         const item = await onCreateCatalogItem(ing.name, ing.category);
         if (!item) continue;   // resolver failed and said why; keep the rest
@@ -1710,6 +1722,7 @@ function ProvisionsApp() {
     decrementMealBatch,
     onListChangedRef,
     createCatalogItem,
+    materializePendingIngredients,
     addMealToList,
     removeMealIngredients,
     fetchMealProvenance,
@@ -1921,6 +1934,13 @@ function ProvisionsApp() {
     if (!mealSheet) return;
     setMealSaving(true);
     try {
+      // The deferred catalog write. Pending placeholders become real rows HERE,
+      // and only here — a draft that is cancelled never reaches this line, so it
+      // never mints anything. null means an insert failed and the hook has said
+      // why; leave the sheet open so the person can retry rather than commit a
+      // meal that references ids which do not exist.
+      const resolved = await materializePendingIngredients(ingredients);
+      if (!resolved) return;
       const payload = {
         name,
         instructions,
@@ -1930,7 +1950,7 @@ function ProvisionsApp() {
         // model's 4 would silently reinterpret the column as a ratio and double-scale it
         // the day the dial ships.
         baseServings: 1,
-        ingredients: ingredients.map((r) => ({
+        ingredients: resolved.map((r) => ({
           catalog_item_id: r.catalog_item_id,
           quantity_per_serving: r.quantity_per_serving,
           on_hand: !!r.on_hand,   // 044
@@ -1946,7 +1966,7 @@ function ProvisionsApp() {
     } finally {
       setMealSaving(false);
     }
-  }, [mealSheet, updateMeal, createMeal, loadMeals]);
+  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals]);
   // Delete the recipe itself. Zeroing of its still-pending list items
   // happens inside deleteMeal (bought items untouched, shared ingredients
   // left for the meals that still need them) — the sheet only drives it.
