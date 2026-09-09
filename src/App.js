@@ -976,6 +976,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // until 2026-09-09 the field only appeared once it had content, so a manual meal
   // had no way to get steps at all. Edit mode loads whatever is already stored.
   const [instructions, setInstructions] = useState(isEdit ? (meal?.instructions || "") : "");
+  // What the sheet opened with — the baseline `isDirty` compares against. Lazy
+  // initialiser: captured on the first render, when the three states above still
+  // hold their initial values, and never updated afterwards.
+  const [openedWith] = useState(() => ({ name, instructions, rows }));
   // Read renders the recipe card (or, with nothing stored, the empty chip that
   // points at both paths); edit is the textarea + Done. Opens in read — the card
   // for a meal that has steps, the chip for one that does not — and returns to
@@ -1311,9 +1315,35 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
   const canSave = name.trim().length > 0;
 
+  // Unsaved changes: anything that differs from what the sheet opened with, or a
+  // Galley draft in the fields (fromGalley), or a request still in flight. Rows
+  // compare by identity + quantity + on-hand, not by object reference.
+  const rowsKey = (rs) => rs.map((r) => `${r.catalog_item_id}|${r.quantity_per_serving}|${r.on_hand ? 1 : 0}`).join(",");
+  const isDirty = name !== openedWith.name
+    || instructions !== openedWith.instructions
+    || rowsKey(rows) !== rowsKey(openedWith.rows)
+    || fromGalley
+    || aiBusy;
+
+  // Escape closes a CLEAN sheet only. A dirty one ignores the key rather than
+  // asking "discard?" — with no tap-outside path left, the only way to lose work
+  // is to press Cancel, and that button says what it does.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape" || isDirty || saving || deleting) return;
+      onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isDirty, saving, deleting, onCancel]);
+
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto" }}>
+    // No backdrop onClick — this sheet is dismissed by Cancel, Save or Delete, never
+    // by a stray tap. A drag-select in the Steps textarea that ends outside the modal
+    // lands on the overlay as a click, and one of those used to throw away the whole
+    // draft with no confirmation. The overlay is scenery now.
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxHeight: "88vh", overflowY: "auto" }}>
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
 
         <div className="modal-field" style={aiDim}>
