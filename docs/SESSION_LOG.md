@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-09-09] — [OurProvisions] — Galley recipe card Phase A on dev: Steps read/edit, thinking skeletons, Never mind; and the meal sheet stops closing on a stray tap
+**Goal:** Turn the meal sheet's Steps from a scrolling textarea into a designed read/edit surface with a proper Galley thinking state and arrival — using only data the schema already holds — then close the backdrop-dismiss data-loss trap the new surface made expensive. (Design-chat context merged from `handoff/design_handoff.md`.)
+**Completed:**
+- **Audited the target mockup against the schema** (design chat): of six card elements, three are real — title, numbered steps, counts. Serves / time / difficulty, step titles and a hero photo are not; deferred to Phase B, the photo explicitly refused as a placeholder (*behaviour before label*). Designed `mockup_galley_recipe_card.html` — four states (Galley idle, thinking, arrived/read, edit steps) — approved by Dan; wrote `PATCH_galley_recipe_card.md` with the mockup as the contract.
+- **Built Phase A on `dev` (`c067742`).** Steps field always visible (043 said the column was never AI-only; until now a manual meal could not get steps at all); `parseSteps` read mode — split on lines beginning `N.`, continuation lines fold into the step above, plain paragraph renders as one unnumbered step, never throws; edit mode is the same textarea + Done; "Edit steps" in the field label; meta line of real counts only. Galley block by state: skeletons + ember + echoed request + **Never mind** while thinking, collapses to "Not quite it? Ask the galley again" once a draft lands, dims while editing. "From the galley" eyebrow is session state. `requestMealSuggestion(text, { signal })` threads a real `AbortSignal` to the fetch; `AbortError` swallowed with no toast; `signal.aborted` re-checked after every await so a late draft cannot overwrite the restored snapshot.
+- **Made two judgement calls in the mockup's favour where the patch contradicted it, both ratified:** empty steps render the mockup's state-1 chip with the Galley **live**, not edit mode (edit dims the Galley, so "default edit when empty" would have made it inert on every new meal); CSS lives in `App.js`'s inline style block beside `.op-mic-btn`, not `index.css`.
+- **Closed a pre-existing data-loss trap (`d37504c`):** the meal sheet's overlay `onClick={onCancel}` meant a drag-select in the Steps textarea released outside the modal threw away the whole draft. Backdrop dismiss removed — same rule and comment as the welcome sheet. Escape closes only a **clean** sheet: `openedWith` baseline via lazy `useState`, `isDirty` = name / steps / rows (`id|qty|on_hand`) differ, or `fromGalley`, or `aiBusy` (the last a Claude Code addition, ratified — an in-flight request is unsaved work). No "Discard?" prompt.
+- **Verified in the served bundles, mechanism not string:** `signal:t` on the `meal-suggestion` fetch, `"AbortError"===err?.name` before `console.error`, `"Steps"` label present / `"Instructions"` gone, exactly one `modal-overlay` without `onClick` (the other 7 untouched), Escape guard compiled as `"Escape"!==e.key||isDirty||saving||deleting||onCancel()`. `CI=true` clean both times; `parseSteps` exercised against 9 edge cases.
+- **Dan walked all 7 verification cases live on the dev preview — all pass**, including abort mid-request with no late-draft overwrite, and the pancake meal's meta line reading exactly `10 ingredients · 1 on hand · 7 steps` (count pre-computed from the live row).
+- **Pushed `b5598f0`** (last night's SESSION END docs commit, left local for review) with the build — Dan chose "push both" when warned it would ride the `dev` push.
+**Unfinished:**
+- **Phase A is dev-only.** Ask the Galley has no prod Edge Function or secrets, so this rides with the AI feature's own promotion (Phase 2/3 of the path to prod), hand-authored like Phase 1.
+- **Card title duplicates the Meal Name field on the manual path** (fine on the Galley path, where the title is the galley's answer). Check on phone width; if it stutters, drop the card title when `!fromGalley`.
+- **Galley returns 11–14 ingredients for "tacos" vs. 7 hand-built.** Prompt-contract question, not UI — but it pushes the recipe below the fold and makes "on hand" a number nobody taps fourteen times.
+- **Chip density:** ~100px per ingredient row is fine at 4, a scroll at 14. Compact row variant — future pass.
+- **Phase B not yet spec'd.** `CLAUDE.md`'s FK one-liner still uncorrected (carried from 2026-09-08).
+**Next session:**
+SESSION START
+Goal: Spec Phase B of the Galley recipe card — persist provenance (`meals.source`), add `serves` / `prep_minutes` / `difficulty`, update the Galley prompt contract to emit them, and decide whether step titles ride along.
+State: Phase A live and verified on the dev preview (`d37504c`). Prod unchanged (`main` `8ca6da2`); Ask the Galley still absent from prod. Airlock clean. `supabase-prod-readonly` still unauthenticated.
+Done when: `SPEC_galley_recipe_card_phase_b.md` is in the airlock with the migration shape, the prompt diff, and the ingredient-count question answered; a mockup for the meta line with real fields; and `CLAUDE.md`'s FK rule corrected (one line).
+**Files updated:** `src/App.js` (MealSheet, `parseSteps`, `GalleyGlyph`, inline CSS), `src/hooks/useProvisions.js` (`requestMealSuggestion` abort); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; `handoff/mockup_galley_recipe_card.html` → `docs/mockups/`; `handoff/PATCH_galley_recipe_card.md` consumed and deleted
+**DB changes:** None
+
 ### [2026-09-08] — [OurProvisions] — Defer the catalog write until Save: spec'd, built, live-verified on dev, test residue swept — and a false FK rule caught
 **Goal:** Spec, build and verify the fix for orphaned `catalog_items` rows minted by the meal builder's manual and AI ingredient paths writing on tap instead of on Save; then sweep the test data the verification produced. (Design-chat context merged from `handoff/design_handoff.md`; the handoff dated itself 2026-09-09 in UTC — this is the same evening.)
 **Completed:**
