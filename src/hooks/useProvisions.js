@@ -5,6 +5,17 @@ import { classifyFetchError } from "../lib/classifyFetchError";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 
+// A catalog item the meal builder has staged but NOT yet written. The id is a
+// client-only placeholder, deterministic on the normalised name so that staging
+// the same unmatched name twice resolves to the same row (and bumps it, exactly
+// as re-tapping an existing item does) instead of forking a second placeholder.
+// materializePendingIngredients swaps these for real ids at Save; nothing with
+// a pending id may ever reach meal_ingredients.
+const normCatalogName = (str) => (str || "").trim().toLowerCase().replace(/\s+/g, " ");
+const PENDING_CATALOG_PREFIX = "pending:";
+export const isPendingCatalogId = (id) =>
+  typeof id === "string" && id.startsWith(PENDING_CATALOG_PREFIX);
+
 export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
   const [quantities, setQuantities] = useState({});
   const [checked, setChecked] = useState({});
@@ -632,7 +643,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         for (let attempt = 0; attempt < 4; attempt++) {
           ({ data: catalog, error: catalogErr } = await db
             .from("catalog_items")
-            .select("id, name, category, is_global, price_hint, is_staple")
+            .select("id, name, category, unit, is_global, price_hint, is_staple")
             .eq("is_global", true)
             .is("deleted_at", null));
           if (cancelled) return;
@@ -645,7 +656,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // Custom catalog (household-scoped)
         const { data: customItems, error: customErr } = await db
           .from("catalog_items")
-          .select("id, name, category, is_global, price_hint, is_staple, created_by")
+          .select("id, name, category, unit, is_global, price_hint, is_staple, created_by")
           .eq("household_id", hh.id)
           .eq("is_global", false)
           .is("deleted_at", null);
@@ -1527,7 +1538,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     const { data: catalog, error: catalogErr } = await withJwtRetry(() => db
       .from("catalog_items")
-      .select("id, name, category, is_global, price_hint, is_staple")
+      .select("id, name, category, unit, is_global, price_hint, is_staple")
       .eq("is_global", true)
       .is("deleted_at", null));
     if (catalogErr) {
@@ -1541,7 +1552,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // fail the poll on the second half, which looks identical to the user.
     const { data: customItems, error: customErr } = await withJwtRetry(() => db
       .from("catalog_items")
-      .select("id, name, category, is_global, price_hint, is_staple")
+      .select("id, name, category, unit, is_global, price_hint, is_staple")
       .eq("household_id", hh.id)
       .eq("is_global", false)
       .is("deleted_at", null));
@@ -1944,7 +1955,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!db || !hh) return [];
     const { data, error: err } = await db
       .from("meals")
-      .select("id, name, base_servings, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
+      .select("id, name, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -1961,7 +1972,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }));
   }, [reportTransientFailure, reportSuccess, failWith, clearErrorFrom]);
 
-  const createMeal = useCallback(async ({ name, baseServings = 1, ingredients = [] }) => {
+  // `instructions` (migration 043) is optional and defaults to null. NOT AI-only: a
+  // hand-made meal can carry steps too, and nothing in the schema records the author.
+  // Empty string is coerced to null so "no steps" is one value, not two.
+  const createMeal = useCallback(async ({ name, baseServings = 1, instructions = null, ingredients = [] }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
@@ -1974,6 +1988,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           household_id: hh.id,
           name: trimmed,
           base_servings: baseServings,
+          instructions: (instructions || "").trim() || null,
           created_by: internalUserIdRef.current,
         })
         .select("id")
@@ -2012,7 +2027,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // NOT an RPC (see SPEC_create_meal_ui.md): edit is household-owned,
   // RLS-protected, and carries no cross-cutting concern like the advisory lock
   // or cycle resolution that justify add_meal_to_list's SECURITY DEFINER shape.
-  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, ingredients = [] }) => {
+  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, instructions = null, ingredients = [] }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
@@ -2021,7 +2036,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     try {
       const { error: mErr } = await db
         .from("meals")
-        .update({ name: trimmed, base_servings: baseServings })
+        .update({ name: trimmed, base_servings: baseServings, instructions: (instructions || "").trim() || null })
         .eq("id", mealId)
         .eq("household_id", hh.id); // belt-and-suspenders; RLS already scopes this
       if (mErr) throw mErr;
@@ -2234,51 +2249,190 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [removeMealFromList]);
 
-  // createCatalogItem: resolve a typed name to a catalog row, creating one if
-  // it doesn't exist — and NOTHING ELSE. The meal builder needs a catalog item
-  // staged into a draft, NOT added to the shared list; updateQty's insert path
-  // (the only other caller of insert_custom_catalog_item) writes a list_items
-  // row as well, so it cannot be reused here without putting every new meal
-  // ingredient straight onto the household's shopping list.
-  // Mirrors updateQty's resolver hardening: an exact-normalized match against
-  // the HIDDEN set resolves to the existing row rather than forking a duplicate.
+  // findCatalogMatch: the existing-row short-circuit shared by the resolver and
+  // the Save-time materializer. Exact-normalised match against the live catalog,
+  // then against the HIDDEN set — a hidden match resolves to the existing row
+  // rather than forking a duplicate (mirrors updateQty's resolver hardening).
+  const findCatalogMatch = useCallback((trimmed) => {
+    const existing = catalogRef.current[trimmed]
+      || Object.values(catalogRef.current).find((it) => normCatalogName(it.name) === normCatalogName(trimmed));
+    if (existing) return existing;
+    const hiddenMatch = hiddenCatalogItemsRef.current.find((it) => normCatalogName(it.name) === normCatalogName(trimmed));
+    if (hiddenMatch) {
+      catalogRef.current = { ...catalogRef.current, [hiddenMatch.name]: hiddenMatch };
+      return hiddenMatch;
+    }
+    return null;
+  }, []);
+
+  // createCatalogItem: resolve a typed name to a catalog row — an existing one
+  // if there is a match, otherwise a client-only PENDING placeholder. It no
+  // longer writes anything. The meal builder stages the result into a draft that
+  // lives entirely in local state until Save, and a catalog row minted the moment
+  // a category pill was tapped outlived every Cancel as an orphan nobody had
+  // claimed (SPEC_defer_catalog_write). The write moved to
+  // materializePendingIngredients, which runs only when the meal is committed.
+  // Still NOTHING ELSE: updateQty's insert path (the other caller of
+  // insert_custom_catalog_item) also writes a list_items row, so it cannot be
+  // reused here without putting every new meal ingredient onto the shopping list.
   const createCatalogItem = useCallback(async (name, categoryName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     const trimmed = (name || "").trim();
     if (!db || !hh || !trimmed) return null;
-    const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
-    try {
-      const existing = catalogRef.current[trimmed]
-        || Object.values(catalogRef.current).find((it) => norm(it.name) === norm(trimmed));
-      if (existing) return existing;
+    const match = findCatalogMatch(trimmed);
+    if (match) return match;
+    return {
+      id: PENDING_CATALOG_PREFIX + normCatalogName(trimmed),
+      name: trimmed,
+      category: categoryName || "Household",
+      is_global: false,
+    };
+  }, [findCatalogMatch]);
 
-      const hiddenMatch = hiddenCatalogItemsRef.current.find((it) => norm(it.name) === norm(trimmed));
-      if (hiddenMatch) {
-        catalogRef.current = { ...catalogRef.current, [hiddenMatch.name]: hiddenMatch };
-        return hiddenMatch;
+  // materializePendingIngredients: the deferred write. Walks a draft's staged
+  // rows and, for each one still carrying a pending placeholder, mints the real
+  // catalog row via insert_custom_catalog_item and substitutes its id. Returns the
+  // resolved rows, or null if any insert failed — the caller must NOT commit the
+  // meal on null, so the sheet stays open for a retry.
+  //
+  // Match-first, deliberately: a retry after a mid-loop failure finds the rows
+  // the failed attempt already created and reuses them instead of minting
+  // duplicates. That contains the spec's known residual risk (rows created by a
+  // Save that then fails, orphaned only if the user cancels afterwards) rather
+  // than solving it with a transactional RPC — accepted at build, per the spec.
+  const materializePendingIngredients = useCallback(async (ingredients) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const resolved = [];
+    for (const ing of ingredients || []) {
+      if (!isPendingCatalogId(ing.catalog_item_id)) { resolved.push(ing); continue; }
+      const trimmed = (ing.name || "").trim();
+      let item = findCatalogMatch(trimmed);
+      if (!item) {
+        const category = ing.category || "Household";
+        try {
+          const { data: insertedId, error: insertErr } = await db
+            .rpc("insert_custom_catalog_item", {
+              p_name: trimmed,
+              p_category: category,
+              p_household_id: hh.id,
+              p_created_by: internalUserIdRef.current,
+            });
+          if (insertErr) throw insertErr;
+          item = { id: insertedId, name: trimmed, category, is_global: false, household_id: hh.id };
+          catalogRef.current = { ...catalogRef.current, [trimmed]: item };
+          setCatalogMap((prev) => ({ ...prev, [trimmed]: item }));
+          reportSuccess();
+        } catch (err) {
+          console.error("materializePendingIngredients error:", err.message);
+          setError(`Could not add "${trimmed}": ${err.message}`);
+          return null;
+        }
+      }
+      resolved.push({ ...ing, catalog_item_id: item.id });
+    }
+    return resolved;
+  }, [findCatalogMatch, reportSuccess]);
+
+  // requestMealSuggestion: ask the meal-suggestion Edge Function for ONE meal draft.
+  // Returns { name, baseServings, instructions, ingredients:[{name, quantity, unit}] }
+  // or null, surfacing failure through the same setError path as everything else here.
+  //
+  // The catalog context is assembled from what is ALREADY IN MEMORY (catalogRef) — no
+  // extra round trip, and no service-role read on the function side. That is the whole
+  // reason the function is stateless: it can only ever see what this client already had.
+  //
+  // Units are included and matter: the function pins a matched ingredient to its
+  // existing catalog unit so the AI cannot introduce a competing one for an item the
+  // household already has.
+  //
+  // Deliberately does NOT call reportSuccess/reportTransientFailure. Those track
+  // Supabase health for the offline banner; the Anthropic API being slow or rate-limited
+  // is not evidence the database is unreachable, and folding it in would make the
+  // connection indicator lie.
+  //
+  // `signal` (optional AbortSignal) lets the sheet's "Never mind" cancel a request in
+  // flight. An abort is the user's own decision, not a failure — it returns null with
+  // NO toast, so the caller sees exactly what it sees for any other null and the
+  // person sees nothing at all.
+  const requestMealSuggestion = useCallback(async (promptText, { signal } = {}) => {
+    const text = (promptText || "").trim();
+    if (!text) return null;
+    // A new attempt clears the previous attempt's error. Without this, a failure toast
+    // ("Could not get a suggestion: Failed to fetch") survives into the next request and
+    // sits underneath a successful draft — the surface then shows a working result and an
+    // error at the same time, which reads as "it worked but something is still wrong".
+    // Cleared here rather than in the caller: this hook owns `error`, MealSheet never
+    // receives `dismissError`, and doing it here covers every caller for free.
+    // Scoped as of the error-ownership work: this clears a previous Ask AI failure,
+    // not an unrelated poll error that happens to be showing. The earlier unscoped
+    // version was a documented tradeoff; ownership makes the tradeoff unnecessary.
+    clearErrorFrom("ai");
+    const getToken = getTokenRef.current;
+    if (!getToken) { failWith("ai", "You need to be signed in to ask for a suggestion."); return null; }
+    try {
+      const token = await getToken({ template: "supabase" });
+      // Clerk was asked and came back empty: the session is gone, not the network.
+      // "Try again" was the wrong instruction — retrying a dead session never works,
+      // and it read as a transient glitch to the one beta tester who hit it.
+      if (!token) { failWith("ai", "Your session has expired. Please sign in again."); return null; }
+
+      const catalog = Object.values(catalogRef.current || {})
+        .filter((it) => it && it.name)
+        .map((it) => ({ name: it.name, category: it.category || "", unit: it.unit || "each" }));
+
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/meal-suggestion`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ requestText: text, catalog }),
+          signal,
+        },
+      );
+
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        failWith("ai", payload?.error || `Could not get a suggestion (${res.status}).`);
+        return null;
+      }
+      // The function already validates and normalises, but it is across a network
+      // boundary — a shape check here is cheap and keeps a bad payload from reaching
+      // the modal's setState. Fail loudly rather than half-populating the fields.
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)
+          || typeof payload.name !== "string" || !Array.isArray(payload.ingredients)) {
+        failWith("ai", "The suggestion came back in an unexpected shape.");
+        return null;
       }
 
-      const category = categoryName || "Household";
-      const { data: insertedId, error: insertErr } = await db
-        .rpc("insert_custom_catalog_item", {
-          p_name: trimmed,
-          p_category: category,
-          p_household_id: hh.id,
-          p_created_by: internalUserIdRef.current,
-        });
-      if (insertErr) throw insertErr;
-      const item = { id: insertedId, name: trimmed, category, is_global: false, household_id: hh.id };
-      catalogRef.current = { ...catalogRef.current, [trimmed]: item };
-      setCatalogMap((prev) => ({ ...prev, [trimmed]: item }));
-      reportSuccess();
-      return item;
+      // Some drafts come back with the ESCAPE SEQUENCE "\n" as two literal characters
+      // rather than a real newline, so the steps rendered as `4. Simmer.\n5. Serve.`
+      // in the textarea (seen on the 2026-09-01 verification walk). The prompt asks for
+      // "1. ...\n2. ..." and a model can reasonably read that as text to reproduce.
+      // Normalising here — at the parse boundary, once — beats asking every consumer to
+      // remember, and beats a prompt tweak that would only make it rarer, not impossible.
+      const unescapeSteps = (v) => (typeof v === "string" ? v : "")
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, " ")
+        .trim();
+      // Belt and braces: an older request must never leave its error sitting over a
+      // newer success. `aiBusy` already blocks concurrent submits, so this should be
+      // unreachable — one call is a cheap price for keeping it that way.
+      clearErrorFrom("ai");
+      return { ...payload, instructions: unescapeSteps(payload.instructions) };
     } catch (err) {
-      console.error("createCatalogItem error:", err.message);
-      setError(`Could not add "${trimmed}": ${err.message}`);
+      // Never mind. Swallowed on purpose — see the note above the function. Checked by
+      // name rather than `signal?.aborted` so a request that was aborted after the
+      // fetch settled (in res.json()) is still recognised as the user's own cancel.
+      if (err?.name === "AbortError") return null;
+      console.error("requestMealSuggestion error:", err.message);
+      failWith("ai", `Could not get a suggestion: ${err.message}`);
       return null;
     }
-  }, [reportSuccess]);
+  }, [failWith, clearErrorFrom]);
 
   // includeOnHandIds: CATALOG_ITEM_IDs of on-hand ingredients to add THIS TIME
   // only (045). Deliberately a call argument rather than a stored flag — the RPC
@@ -2379,7 +2533,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, deleteMeal, removeMealFromList, decrementMealBatch, createCatalogItem, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     supabase: supabaseRef.current,

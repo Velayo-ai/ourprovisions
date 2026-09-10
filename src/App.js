@@ -1,6 +1,6 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { useProvisions } from './hooks/useProvisions';
+import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
@@ -36,6 +36,16 @@ const CATEGORY_GLYPH = {
   "bakery & bread": "🍞",
   "household": "🧹",
 };
+// Web Speech API, resolved ONCE at module load. Support is genuinely uneven (Safari and
+// most iOS browsers have none), so this is a real branch, not defensive padding: when it
+// is null the mic button is never rendered at all and the typed path is exactly what it
+// was before this feature existed. A disabled mic that silently does nothing would be
+// worse than no mic — it promises something the browser cannot deliver.
+const SPEECH_RECOGNITION_CTOR =
+  typeof window !== "undefined"
+    ? (window.SpeechRecognition || window.webkitSpeechRecognition || null)
+    : null;
+
 const CATEGORY_GLYPH_FALLBACK = "📦";
 const categoryGlyph = (value) =>
   CATEGORY_GLYPH[String(value ?? "").trim().toLowerCase()] || CATEGORY_GLYPH_FALLBACK;
@@ -890,16 +900,57 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
   );
 }
 
+// Steps read-mode parser. `meals.instructions` stays free text (043); this is a
+// pure render over it, never a data change. A step begins at a line starting
+// "N." — continuation lines fold into the step above, blank lines are dropped.
+// Text with no numbered line at all (someone typed a paragraph) comes back as one
+// unnumbered step so the card always has something to show. Never throws.
+function parseSteps(text) {
+  const src = String(text || "").replace(/\r\n?/g, "\n").trim();
+  if (!src) return { steps: [], numbered: false };
+  const steps = [];
+  let current = null;
+  let numbered = false;
+  for (const raw of src.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = line.match(/^\d+\.\s*(.*)$/);
+    if (m) {
+      numbered = true;
+      if (current) steps.push(current);
+      current = m[1].trim();
+    } else if (current !== null) {
+      current = `${current} ${line}`.trim();
+    } else {
+      current = line;
+    }
+  }
+  if (current) steps.push(current);
+  if (!numbered) return { steps: [src], numbered: false };
+  return { steps: steps.filter(Boolean), numbered: true };
+}
+
+// Galley glyph — the eyebrow on the recipe card and the header of the ask block.
+const GalleyGlyph = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+    strokeLinecap="round" aria-hidden="true">
+    <path d="M12 3v3M12 18v3M4.2 6.2l2.1 2.1M17.7 15.7l2.1 2.1M3 12h3M18 12h3M4.2 17.8l2.1-2.1M17.7 8.3l2.1-2.1" />
+  </svg>
+);
+
 // One parameterized sheet for BOTH create and edit (mode: 'create' | 'edit').
 // Built as one component from the start rather than retrofitting edit onto a
 // create-only sheet later — the seam is nearly free now and expensive after.
 //
-// The whole draft lives in local state: nothing touches `meals` or
-// `meal_ingredients` until Save. The ONE exception is creating a brand-new
-// catalog item from the no-results panel, which must persist immediately so
-// the meal can reference its id — that writes `catalog_items` only, never
-// `list_items`.
-function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory }) {
+// The whole draft lives in local state: nothing touches `meals`,
+// `meal_ingredients` OR `catalog_items` until Save — no exceptions. A brand-new
+// ingredient (no-results panel, or an AI draft with no catalog match) is staged
+// under a client-only pending id and only becomes a real catalog row when the
+// meal is committed. Until 2026-09-08 that was the one exception: the row was
+// written the moment a category pill was tapped so the draft could hold a real
+// id, and every Cancel left it behind as an orphan. Staged rows can now carry a
+// placeholder, so the write waits for Save (SPEC_defer_catalog_write).
+function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, isSignedIn }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -920,30 +971,103 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const [newCatOpen, setNewCatOpen] = useState(false);
   const [newCatInput, setNewCatInput] = useState("");
 
+  // Steps (migration 043 — the column is still `instructions`; only the label
+  // changed). ALWAYS rendered now: 043 said the column was never AI-only, but
+  // until 2026-09-09 the field only appeared once it had content, so a manual meal
+  // had no way to get steps at all. Edit mode loads whatever is already stored.
+  const [instructions, setInstructions] = useState(isEdit ? (meal?.instructions || "") : "");
+  // What the sheet opened with — the baseline `isDirty` compares against. Lazy
+  // initialiser: captured on the first render, when the three states above still
+  // hold their initial values, and never updated afterwards.
+  const [openedWith] = useState(() => ({ name, instructions, rows }));
+  // Read renders the recipe card (or, with nothing stored, the empty chip that
+  // points at both paths); edit is the textarea + Done. Opens in read — the card
+  // for a meal that has steps, the chip for one that does not — and returns to
+  // read after a Galley result lands. The mockup's state 1 is the chip WITH the
+  // Galley live, which is why "empty" is not "edit": edit dims the Galley, and a
+  // brand-new meal must be able to ask it.
+  const [stepsMode, setStepsMode] = useState("read");
+  // "From the galley" provenance. Session-only, not persisted (Phase B question):
+  // set when a Galley draft fills the sheet, cleared on Never mind or when every
+  // field is emptied. A hand-edit of the steps does NOT clear it — provenance is
+  // per meal, not per edit.
+  const [fromGalley, setFromGalley] = useState(false);
+  // Once a draft lands the ask block collapses to one link; the "or" divider
+  // between a finished recipe and "ask AI to build it" made no sense. The link
+  // re-expands it with the request text intact.
+  const [galleyCollapsed, setGalleyCollapsed] = useState(false);
+
+  // AI request state. `aiBusy` both blocks a second submit (the only cost control
+  // that exists today — see the spec's open rate-limiting item) and drives the dim.
+  const [aiText, setAiText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  // The in-flight request's controller (Never mind aborts it) and the field values
+  // from before it started, restored on abort. Nothing is written before the draft
+  // arrives, so the snapshot is defence against the narrow window where the fetch
+  // has settled and the ingredient loop is still running when abort is pressed.
+  const aiAbortRef = useRef(null);
+  const aiSnapshotRef = useRef(null);
+
+  // Voice. `micBlocked` is sticky for the life of the sheet: a denied permission does
+  // not resolve itself, so re-offering the button would just reproduce the same refusal.
+  // `micHint` overrides the hint line — errors surface THERE, never as a toast and never
+  // with a raw error code, because "no-speech" means nothing to the person holding it.
+  const [listening, setListening] = useState(false);
+  const [micBlocked, setMicBlocked] = useState(false);
+  const [micHint, setMicHint] = useState("");
+  const recognitionRef = useRef(null);
+  // The field's contents at the moment listening started. Re-read on every result rather
+  // than appending incrementally: interim results REPLACE earlier interim text, so
+  // concatenating as they arrive would stack half-heard fragments on top of each other.
+  const aiTextBaseRef = useRef("");
+
   const trimmedQuery = query.trim();
 
   // Empty until something is typed — the placeholder already implies typing,
   // so showing results against an empty box contradicts its own copy.
+  // Staged items REMAIN in the results, marked "Added" (2026-09-01). Filtering them
+  // out meant searching for something you had already staged returned nothing, which
+  // reads as "we don't have that" — the one message that is definitely wrong, since
+  // it is sitting in the list above. Tapping an already-staged row bumps its quantity,
+  // so the obvious gesture does the obvious thing instead of silently no-oping.
+  // Pending rows (staged, not yet written) are not in catalogMap, so they are
+  // folded in here — otherwise re-typing a name you just staged would fall through
+  // to the no-results panel, the exact wrong message the note above rules out.
+  const pendingStaged = useMemo(() => rows
+    .filter((r) => isPendingCatalogId(r.catalog_item_id))
+    .map((r) => ({ id: r.catalog_item_id, name: r.name, category: r.category })), [rows]);
   const results = useMemo(() => {
     const q = trimmedQuery.toLowerCase();
     if (!q) return [];
-    const stagedIds = new Set(rows.map((r) => r.catalog_item_id));
-    return Object.values(catalogMap)
-      .filter((it) => it && it.id && !stagedIds.has(it.id) && (it.name || "").toLowerCase().includes(q))
+    return [...Object.values(catalogMap), ...pendingStaged]
+      .filter((it) => it && it.id && (it.name || "").toLowerCase().includes(q))
       .sort((a, b) => a.name.localeCompare(b.name))
       .slice(0, 8);
-  }, [trimmedQuery, catalogMap, rows]);
+  }, [trimmedQuery, catalogMap, pendingStaged]);
 
   const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
   const exactExists = trimmedQuery
-    && Object.values(catalogMap).some((it) => norm(it.name) === norm(trimmedQuery));
+    && [...Object.values(catalogMap), ...pendingStaged].some((it) => norm(it.name) === norm(trimmedQuery));
   const showNoResults = !!trimmedQuery && results.length === 0 && !exactExists;
 
-  const stageItem = (item) => {
+  // `isNew` marks an item this sheet just created (no-results panel, or an AI draft
+  // that had no catalog match) so the staged row can show which category it was filed
+  // into. Existing catalog items don't carry the tag — the person already knows where
+  // those live, and tagging every row turns a useful signal into wallpaper.
+  const stageItem = (item, { isNew = false } = {}) => {
     if (!item || !item.id) return;
     setRows((prev) => prev.some((r) => r.catalog_item_id === item.id)
-      ? prev
-      : [...prev, { catalog_item_id: item.id, name: item.name, quantity_per_serving: 1 }]);
+      // Already staged → bump, don't no-op. Same clamp as the stepper.
+      ? prev.map((r) => r.catalog_item_id === item.id
+          ? { ...r, quantity_per_serving: Math.max(1, r.quantity_per_serving + 1) }
+          : r)
+      : [...prev, {
+          catalog_item_id: item.id,
+          name: item.name,
+          quantity_per_serving: 1,
+          category: item.category || null,
+          isNew,
+        }]);
     setQuery("");
     setPickerOpen(false);
     setNewCatOpen(false);
@@ -957,7 +1081,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     setAdding(true);
     try {
       const item = await onCreateCatalogItem(trimmedQuery, rawCategory);
-      if (item) stageItem(item);
+      if (item) stageItem(item, { isNew: true });
     } finally {
       setAdding(false);
     }
@@ -965,7 +1089,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
   // Submitting the new-category field lands in the SAME place a category tap
   // does — createCatalogItem with the typed string, then stage. Registering the
-  // name mirrors Browse, so the category exists even if the item write fails.
+  // name mirrors Browse; it is local state only (no DB write), so a cancelled
+  // draft leaves nothing behind but a category name in this session's picker.
   const commitNewCategory = () => {
     const newCat = newCatInput.trim();
     if (!newCat || adding) return;
@@ -1016,28 +1141,243 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // sheet is remounted for another meal.
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const stopListening = () => {
+    const rec = recognitionRef.current;
+    if (rec) { try { rec.stop(); } catch { /* already stopped */ } }
+    // onend normally clears this; setting it here too means a browser that never fires
+    // onend cannot strand the button in a permanent "listening" state.
+    setListening(false);
+  };
+
+  const startListening = () => {
+    if (!SPEECH_RECOGNITION_CTOR || micBlocked || listening) return;
+    let rec;
+    try {
+      rec = new SPEECH_RECOGNITION_CTOR();
+    } catch {
+      setMicHint("Didn't catch that — try again or type.");
+      return;
+    }
+    rec.continuous = false;      // one burst; the browser ends it on a natural pause
+    rec.interimResults = true;   // so words appear as they are spoken, per mockup Screen 2
+    rec.lang = (typeof navigator !== "undefined" && navigator.language) || "en-US";
+
+    aiTextBaseRef.current = aiText;
+
+    rec.onresult = (event) => {
+      let transcript = "";
+      for (let i = 0; i < event.results.length; i += 1) transcript += event.results[i][0].transcript;
+      const base = aiTextBaseRef.current.trim();
+      const heard = transcript.trim();
+      // APPEND, never replace — someone may have typed half a request before speaking
+      // the rest, and eating that would be the worst possible surprise here.
+      setAiText(base && heard ? `${base} ${heard}` : (heard || base));
+    };
+
+    rec.onerror = (event) => {
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setMicBlocked(true);
+        setMicHint("Mic access is blocked — type your request instead.");
+      } else {
+        // no-speech / network / aborted / audio-capture all land here. One message: the
+        // person's next move is identical in every case, so distinguishing them would be
+        // detail without a decision attached.
+        setMicHint("Didn't catch that — try again or type.");
+      }
+    };
+
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    setMicHint("");
+    try {
+      rec.start();
+    } catch {
+      setMicHint("Didn't catch that — try again or type.");
+      return;
+    }
+    recognitionRef.current = rec;
+    setListening(true);
+  };
+
+  const toggleMic = () => (listening ? stopListening() : startListening());
+
+  // Detach handlers BEFORE aborting: abort() fires onerror('aborted'), and a setState
+  // from a handler on an unmounting component is a React warning for no benefit.
+  useEffect(() => () => {
+    const rec = recognitionRef.current;
+    if (rec) {
+      rec.onresult = null; rec.onerror = null; rec.onend = null;
+      try { rec.abort(); } catch { /* nothing to abort */ }
+    }
+  }, []);
+
+  // Ask AI: one request, one meal, straight into the fields the manual path uses.
+  // REPLACES name/instructions/ingredients rather than merging. Merging sounds kinder
+  // but compounds: ask twice and you accumulate two meals' worth of ingredients with
+  // no way to tell them apart. The hint under the box says so plainly, and everything
+  // stays editable afterwards, so a replace is recoverable and a silent merge is not.
+  const handleAskAI = async () => {
+    const text = aiText.trim();
+    if (!text || aiBusy || !onRequestSuggestion) return;
+    if (!isSignedIn) return;   // belt-and-braces: the button is already inert below
+    // Sending is an unambiguous "I'm done talking" — leaving the mic live would keep
+    // appending words to a field whose contents have already been sent.
+    if (listening) stopListening();
+    const controller = new AbortController();
+    aiAbortRef.current = controller;
+    aiSnapshotRef.current = { name, instructions, rows };
+    setAiBusy(true);
+    try {
+      const draft = await onRequestSuggestion(text, { signal: controller.signal });
+      // Never mind already restored the fields and cleared busy; do not overwrite
+      // that with a draft that arrived a beat after the person gave up on it.
+      if (controller.signal.aborted) return;
+      if (!draft) return;   // the hook already surfaced the reason via setError
+      setName(draft.name || "");
+      setInstructions(draft.instructions || "");
+
+      // Every suggested ingredient goes through the SAME resolver the manual
+      // no-results panel uses: exact-normalized match, or a pending placeholder
+      // that Save turns into a real row. No parallel matching path (spec,
+      // Decisions) — and no catalog write until the meal is committed.
+      const staged = [];
+      const known = new Set(Object.values(catalogMap).map((it) => norm(it.name)));
+      for (const ing of draft.ingredients || []) {
+        // Snapshot BEFORE the call: "was it already there?" is a property of the
+        // catalog, not of what the resolver hands back — a hidden-set match returns
+        // an existing row that was never in catalogMap, and the badge should still
+        // say where it went. Asked beforehand or the answer drifts.
+        const wasKnown = known.has(norm(ing.name));
+        const item = await onCreateCatalogItem(ing.name, ing.category);
+        if (!item) continue;   // resolver failed and said why; keep the rest
+        if (staged.some((r) => r.catalog_item_id === item.id)) continue;
+        staged.push({
+          catalog_item_id: item.id,
+          name: item.name,
+          // Whole numbers only — the stepper cannot hold anything else. The Edge
+          // Function already rounds up; this is the client-side floor, not a repeat.
+          quantity_per_serving: Math.max(1, Math.ceil(Number(ing.quantity) || 1)),
+          category: item.category || ing.category || null,
+          isNew: !wasKnown,
+        });
+      }
+      if (controller.signal.aborted) return;
+      setRows(staged);
+      setFromGalley(true);
+      setGalleyCollapsed(true);
+      setStepsMode("read");
+    } finally {
+      if (aiAbortRef.current === controller) {
+        aiAbortRef.current = null;
+        setAiBusy(false);
+      }
+    }
+  };
+
+  // Never mind: abort the fetch, put the fields back exactly as they were, return
+  // to idle with the request text intact. No toast — the hook swallows AbortError.
+  const cancelAskAI = () => {
+    const controller = aiAbortRef.current;
+    if (!controller) return;
+    controller.abort();
+    aiAbortRef.current = null;
+    const snap = aiSnapshotRef.current;
+    if (snap) { setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows); }
+    aiSnapshotRef.current = null;
+    setFromGalley(false);
+    setAiBusy(false);
+  };
+
+  // "When the user clears all fields" — with nothing left in the sheet there is
+  // nothing for the eyebrow to be the provenance of.
+  useEffect(() => {
+    if (fromGalley && !name.trim() && !instructions.trim() && rows.length === 0) setFromGalley(false);
+  }, [fromGalley, name, instructions, rows]);
+
+  // Screen 3 of the mockup: the manual fields dim and stop accepting input while a
+  // suggestion is in flight, because they are about to be replaced by the draft.
+  const aiDim = aiBusy ? { opacity: 0.45, pointerEvents: "none" } : undefined;
+  // The ask block dims while the steps are being hand-edited: a draft would
+  // replace what is being typed. Same shape as aiDim, different trigger.
+  const galleyDim = stepsMode === "edit" ? { opacity: 0.55, pointerEvents: "none" } : undefined;
+  // Ask AI needs a real Clerk identity: the Edge Function verifies the token
+  // against Clerk JWKS, so signed out it can only ever fail. Gate the control
+  // rather than letting the attempt through to a generic error.
+  const aiInert = !isSignedIn || !aiText.trim() || aiBusy || saving;
+
+  const parsedSteps = useMemo(() => parseSteps(instructions), [instructions]);
+  const hasSteps = parsedSteps.steps.length > 0;
+  const onHandCount = rows.filter((r) => r.on_hand).length;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
   const canSave = name.trim().length > 0;
 
+  // Unsaved changes: anything that differs from what the sheet opened with, or a
+  // Galley draft in the fields (fromGalley), or a request still in flight. Rows
+  // compare by identity + quantity + on-hand, not by object reference.
+  const rowsKey = (rs) => rs.map((r) => `${r.catalog_item_id}|${r.quantity_per_serving}|${r.on_hand ? 1 : 0}`).join(",");
+  const isDirty = name !== openedWith.name
+    || instructions !== openedWith.instructions
+    || rowsKey(rows) !== rowsKey(openedWith.rows)
+    || fromGalley
+    || aiBusy;
+
+  // Escape closes a CLEAN sheet only. A dirty one ignores the key rather than
+  // asking "discard?" — with no tap-outside path left, the only way to lose work
+  // is to press Cancel, and that button says what it does.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape" || isDirty || saving || deleting) return;
+      onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isDirty, saving, deleting, onCancel]);
+
   return (
-    <div className="modal-overlay" onClick={onCancel}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxHeight: "88vh", overflowY: "auto" }}>
+    // No backdrop onClick — this sheet is dismissed by Cancel, Save or Delete, never
+    // by a stray tap. A drag-select in the Steps textarea that ends outside the modal
+    // lands on the overlay as a click, and one of those used to throw away the whole
+    // draft with no confirmation. The overlay is scenery now.
+    <div className="modal-overlay">
+      <div className="modal" style={{ maxHeight: "88vh", overflowY: "auto" }}>
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
 
-        <div className="modal-field">
+        <div className="modal-field" style={aiDim}>
           <label className="modal-label">Meal Name</label>
+          {/* NO autoFocus. On iOS an autofocused field opens the keyboard the instant
+              the sheet mounts, which shoves the modal up and buries the fields it was
+              meant to help with (Dan, iPhone walk 2026-09-02). Every field in this sheet
+              — name, ingredient search, AI request — focuses on touch and only on touch. */}
           <input
             className="modal-input"
-            autoFocus={!isEdit}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Taco Night"
           />
         </div>
 
-        <div className="modal-field">
+        <div className="modal-field" style={aiBusy ? undefined : aiDim}>
           <label className="modal-label">Ingredients</label>
 
-          {rows.length > 0 && (
+          {/* Thinking: skeleton rows sit where the ingredients will land, so arrival
+              is a fill rather than a layout jump. Search and results step aside —
+              nothing typed now would survive the replace anyway. */}
+          {aiBusy && (
+            <div aria-busy="true" aria-label="Building ingredients">
+              {[60, 45, 55].map((w) => (
+                <div key={w} className="op-skel-step op-skel-row">
+                  <div className="op-skel-badge square" />
+                  <div className="op-skel-lines"><div className="op-skel" style={{ width: `${w}%` }} /></div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!aiBusy && rows.length > 0 && (
             <div style={{ marginBottom: "10px" }}>
               {/* Row styling matches .item-row.has-qty. Applied unconditionally:
                   every row in this list carries quantity ≥ 1 by definition, so a
@@ -1064,6 +1404,16 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                         letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B4E1F",
                         background: "rgba(201,169,122,0.22)", borderRadius: "999px", padding: "2px 8px" }}>
                         On hand · {r.quantity_per_serving}
+                      </span>
+                    )}
+                    {/* Only on items this sheet just created — it answers "where did
+                        that go?", which is only a live question for a brand-new item. */}
+                    {r.isNew && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "3px",
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.66rem", color: "#8a7a60",
+                        background: "rgba(160,114,74,0.12)", borderRadius: "999px", padding: "2px 7px" }}>
+                        <span aria-hidden="true">{categoryGlyph(r.category)}</span>
+                        new in {CATEGORY_LABEL[r.category] || r.category || "Household"}
                       </span>
                     )}
                   </span>
@@ -1141,39 +1491,63 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             </div>
           )}
 
-          <input
-            className="modal-input"
-            value={query}
-            onChange={(e) => { setQuery(e.target.value); setPickerOpen(false); }}
-            placeholder="Search your catalog…"
-          />
+          {!aiBusy && (
+            <input
+              className="modal-input"
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setPickerOpen(false); }}
+              placeholder="Search your catalog…"
+            />
+          )}
 
-          {!trimmedQuery && (
+          {!aiBusy && !trimmedQuery && (
             <div style={{ padding: "10px 2px 0", fontFamily: "'Lato', sans-serif",
               fontSize: "0.78rem", color: "#C9A97A" }}>
               Start typing to find an ingredient.
             </div>
           )}
 
-          {results.length > 0 && (
+          {!aiBusy && results.length > 0 && (
             <div style={{ marginTop: "8px" }}>
-              {results.map((it) => (
+              {results.map((it) => {
+                const stagedRow = rows.find((r) => r.catalog_item_id === it.id);
+                return (
                 <div key={it.id} style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   gap: "10px", padding: "8px 2px",
                 }}>
-                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E" }}>
-                    {it.name}
+                  <span style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                      color: "#2C1A0E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {it.name}
+                    </span>
+                    <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: "3px",
+                      fontFamily: "'Lato', sans-serif", fontSize: "0.68rem", color: "#8a7a60",
+                      background: "rgba(201,169,122,0.16)", borderRadius: "999px", padding: "2px 8px" }}>
+                      <span aria-hidden="true">{categoryGlyph(it.category)}</span>
+                      {CATEGORY_LABEL[it.category] || it.category || "Uncategorised"}
+                    </span>
                   </span>
-                  <button className="add-btn" style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 16px" }}
-                    onClick={() => stageItem(it)}>+ Add</button>
+                  {stagedRow ? (
+                    <button
+                      className="add-btn"
+                      style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 14px",
+                        background: "#E8D5B7", color: "#6b5a45" }}
+                      onClick={() => stageItem(it)}
+                      aria-label={`${it.name} already added — add another`}
+                    >Added ×{stagedRow.quantity_per_serving}</button>
+                  ) : (
+                    <button className="add-btn" style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 16px" }}
+                      onClick={() => stageItem(it)}>+ Add</button>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
           {/* No match → inline create, matching Browse's live pattern. */}
-          {showNoResults && (
+          {!aiBusy && showNoResults && (
             <div style={{ marginTop: "8px" }}>
               <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px",
                 letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
@@ -1215,9 +1589,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                           Name the new category
                         </div>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                          {/* No autoFocus — same iOS keyboard problem, and this one is
+                              nested two panels deep where the jump is worse. */}
                           <input
                             type="text"
-                            autoFocus
                             value={newCatInput}
                             onChange={(e) => setNewCatInput(e.target.value)}
                             onKeyDown={(e) => { if (e.key === "Enter") commitNewCategory(); }}
@@ -1250,6 +1625,238 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             </div>
           )}
         </div>
+
+        {/* ── Steps (column: `instructions`, migration 043). Always present; a
+            manually-created meal can carry steps too — this is not an AI-only
+            surface, it is just usually filled by one. Read mode is the recipe card,
+            edit mode is the same textarea + Done, thinking is skeletons. ── */}
+        <div className="modal-field">
+          <label className="modal-label" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span>Steps</span>
+            {stepsMode === "read" && hasSteps && !aiBusy && (
+              <button type="button" className="op-steps-action" onClick={() => setStepsMode("edit")}>Edit steps</button>
+            )}
+          </label>
+
+          {aiBusy ? (
+            <div aria-busy="true" aria-label="Building steps">
+              {[[100, 80], [100, 65], [90]].map((ws, i) => (
+                <div key={i} className="op-skel-step">
+                  <div className="op-skel-badge" />
+                  <div className="op-skel-lines">
+                    {ws.map((w) => <div key={w} className="op-skel" style={{ width: `${w}%` }} />)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : stepsMode === "edit" ? (
+            <div>
+              <textarea
+                className="modal-input"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                rows={hasSteps ? 8 : 4}
+                placeholder={"1. Whisk the dry ingredients.\n2. Fold in the wet."}
+                style={{ resize: "vertical", lineHeight: 1.55, fontFamily: "'Lato', sans-serif" }}
+              />
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px", color: "#8a7968",
+                marginTop: "7px", lineHeight: 1.5 }}>
+                One step per line, numbered. Blank lines are ignored.
+              </div>
+              <button type="button" className="op-steps-done" onClick={() => setStepsMode("read")}>Done</button>
+            </div>
+          ) : hasSteps ? (
+            <div className={`op-recipe${fromGalley ? " galley" : ""}`}>
+              {fromGalley && (
+                <div className="op-recipe-eyebrow"><GalleyGlyph />From the galley</div>
+              )}
+              {/* Mirrors the Meal Name field above; absent rather than "Untitled" when
+                  the name is still empty, because the field is right there. */}
+              {name.trim() && <div className="op-recipe-title">{name.trim()}</div>}
+              <div className="op-recipe-meta">
+                {plural(rows.length, "ingredient")} · {onHandCount} on hand · {plural(parsedSteps.steps.length, "step")}
+              </div>
+              <ol className="op-steps">
+                {parsedSteps.steps.map((s, i) => (
+                  <li key={i}>
+                    {parsedSteps.numbered && <span className="op-step-badge">{i + 1}</span>}
+                    <p>{s}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : (
+            // Mockup state 1: the empty state points at both paths, and the Galley
+            // below stays live — which is why empty is not edit mode.
+            <button type="button" className="op-steps-empty" onClick={() => setStepsMode("edit")}>
+              No steps yet — write them, or ask the galley.
+            </button>
+          )}
+
+          {/* Once a draft has landed the ask block is folded away; this is its handle. */}
+          {galleyCollapsed && !aiBusy && (
+            <button type="button" className="op-steps-action op-ask-again"
+              onClick={() => setGalleyCollapsed(false)}>
+              Not quite it? Ask the galley again
+            </button>
+          )}
+        </div>
+
+        {/* ── AI section. Sits BELOW the manual fields, behind an "or" divider, so the
+            proven path needs zero relearning (spec, Layout decision + mockup Screen 1).
+            No mic in this pass — typed path first; the Web Speech button lands later
+            in this same row. ── */}
+        {/* Divider only makes sense between two live paths — gone while the galley is
+            thinking (the manual fields are skeletons) and once its block has collapsed. */}
+        {!aiBusy && !galleyCollapsed && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "22px 0 14px" }}>
+            <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", fontWeight: 900,
+              letterSpacing: "0.1em", textTransform: "uppercase", color: "#b5a48d" }}>or</div>
+            <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
+          </div>
+        )}
+
+        {/* Thinking. Single ember, no spinner; the request is echoed back so the wait
+            has a subject. Never mind aborts and puts everything back. */}
+        {aiBusy && (
+          <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.35)",
+            borderRadius: "14px", padding: "16px", marginBottom: "16px" }} aria-live="polite">
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+              <div className="op-ember" />
+              <div>
+                <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "15px", color: "#2C1A0E" }}>
+                  The galley's working on it…
+                </div>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#8a7968", marginTop: "2px" }}>
+                  Usually a few seconds.
+                </div>
+              </div>
+            </div>
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#6f5a45", fontStyle: "italic",
+              background: "#FFFDF9", border: "1.5px solid rgba(44,26,14,0.10)", borderRadius: "9px",
+              padding: "9px 11px", marginBottom: "14px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+              "{aiText.trim()}"
+            </div>
+            <button type="button" onClick={cancelAskAI} className="op-never-mind">Never mind</button>
+          </div>
+        )}
+
+        {!aiBusy && !galleyCollapsed && (
+        <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.22)",
+          borderRadius: "14px", padding: "14px", marginBottom: "16px", ...galleyDim }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "7px", fontFamily: "'Lato', sans-serif",
+            fontSize: "10.5px", fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase",
+            color: "#A0724A", marginBottom: "10px" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A0724A" strokeWidth="1.8"
+              strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
+            </svg>
+            Ask AI to build it
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+            <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+            <textarea
+              value={aiText}
+              onChange={(e) => {
+                setAiText(e.target.value);
+                // Typing is "I've moved on" — clear a stale "didn't catch that". The
+                // BLOCKED message deliberately survives: it explains why the mic button
+                // is greyed out, and that stays true for the life of the sheet.
+                if (micHint && !micBlocked) setMicHint("");
+              }}
+              disabled={aiBusy || saving}
+              rows={2}
+              placeholder="Tell me what you're in the mood for…"
+              style={{
+                width: "100%", boxSizing: "border-box", minHeight: "44px", maxHeight: "110px",
+                padding: "12px 13px", paddingRight: "34px", borderRadius: "10px",
+                border: "1.5px solid #E8D5B7",
+                background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                color: "#2C1A0E", outline: "none", resize: "vertical",
+                opacity: (aiBusy || saving) ? 0.6 : 1,
+              }}
+            />
+            {/* Clear. Append-on-mic is right for building a request up in pieces, but it
+                has no way to express "scrap that, start again" — Dan typed pancakes,
+                spoke cheeseburger and got a meal made of both (iPhone walk 2026-09-02).
+                This is that missing intent, in one tap.
+
+                Clearing STOPS listening rather than just emptying the box. Mid-burst,
+                event.results still holds every word said since the tap, so the next
+                result would re-emit the pre-clear words and undo the clear. Ending the
+                burst is what makes "start again" actually start again — the next tap
+                gets a fresh results list.
+
+                Focus is deliberately NOT returned to the textarea: on iOS that reopens
+                the keyboard, which is the thing this whole pass is removing. */}
+            {aiText.length > 0 && !aiBusy && !saving && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAiText("");
+                  aiTextBaseRef.current = "";
+                  if (listening) stopListening();
+                  if (micHint && !micBlocked) setMicHint("");
+                }}
+                aria-label="Clear request"
+                style={{
+                  position: "absolute", top: "7px", right: "7px",
+                  width: "22px", height: "22px", borderRadius: "50%",
+                  border: "none", background: "rgba(44,26,14,0.10)", color: "#6b5a45",
+                  fontSize: "14px", lineHeight: 1, cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+                }}
+              >×</button>
+            )}
+            </div>
+            {/* Rendered ONLY where the browser actually supports it. On Safari/iOS the
+                button is absent entirely and this section is exactly the typed path. */}
+            {SPEECH_RECOGNITION_CTOR && (
+              <button
+                type="button"
+                className={`op-mic-btn${listening ? " listening" : ""}`}
+                onClick={toggleMic}
+                disabled={micBlocked || aiBusy || saving}
+                aria-pressed={listening}
+                aria-label={listening ? "Stop listening" : "Speak your request"}
+              >
+                <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="9" y="2" width="6" height="11" rx="3" />
+                  <path d="M5 10v1a7 7 0 0 0 14 0v-1M12 18v4M8 22h8" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px",
+            color: micHint ? "#b3261e" : "#8a7968", marginTop: "8px", lineHeight: 1.5 }}>
+            {!isSignedIn
+              ? "Sign in to use Ask the Galley — it builds the meal against your account."
+              : aiBusy
+              ? "Building your meal…"
+              : micHint
+                ? micHint
+                : listening
+                  ? "Listening… tap the mic again to stop, or just keep talking."
+                  : "You'll get one meal, filled into the fields above to review and edit before saving. This replaces what's there now."}
+          </div>
+
+          <button
+            onClick={handleAskAI}
+            disabled={aiInert}
+            style={{
+              marginTop: "12px", width: "100%", border: "none", borderRadius: "12px", padding: "12px",
+              background: aiInert ? "#E8D5B7" : "#A0724A",
+              color: aiInert ? "#9a8a78" : "#FFFDF9",
+              fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
+              cursor: aiInert ? "default" : "pointer",
+              transition: "background 0.15s",
+            }}
+          >{aiBusy ? "Asking the galley…" : "Ask the Galley"}</button>
+        </div>
+        )}
 
         {/* States the locked decision plainly rather than leaving it inferred. */}
         {isEdit && (
@@ -1305,7 +1912,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             className="modal-confirm"
             disabled={!canSave || saving}
             style={{ opacity: (!canSave || saving) ? 0.5 : 1, cursor: (!canSave || saving) ? "default" : "pointer" }}
-            onClick={() => onCommit({ name, ingredients: rows })}
+            onClick={() => onCommit({ name, instructions, ingredients: rows })}
           >{saving ? "Saving…" : "Save Meal"}</button>
         </div>
       </div>
@@ -1349,10 +1956,12 @@ function ProvisionsApp() {
     fetchMeals,
     createMeal,
     updateMeal,
+    requestMealSuggestion,
     deleteMeal,
     decrementMealBatch,
     onListChangedRef,
     createCatalogItem,
+    materializePendingIngredients,
     addMealToList,
     removeMealIngredients,
     fetchMealProvenance,
@@ -1560,14 +2169,27 @@ function ProvisionsApp() {
   const [mealSaving, setMealSaving] = useState(false);
   const [mealDeleting, setMealDeleting] = useState(false);
 
-  const commitMealSheet = useCallback(async ({ name, ingredients }) => {
+  const commitMealSheet = useCallback(async ({ name, instructions, ingredients }) => {
     if (!mealSheet) return;
     setMealSaving(true);
     try {
+      // The deferred catalog write. Pending placeholders become real rows HERE,
+      // and only here — a draft that is cancelled never reaches this line, so it
+      // never mints anything. null means an insert failed and the hook has said
+      // why; leave the sheet open so the person can retry rather than commit a
+      // meal that references ids which do not exist.
+      const resolved = await materializePendingIngredients(ingredients);
+      if (!resolved) return;
       const payload = {
         name,
-        baseServings: 1,   // flat: the servings dial is deferred
-        ingredients: ingredients.map((r) => ({
+        instructions,
+        // flat: the servings dial is deferred. NOTE the AI draft also reports its own
+        // baseServings and it is deliberately DISCARDED here — quantity_per_serving only
+        // reads as a flat quantity while base_servings is 1 (migration 025). Storing the
+        // model's 4 would silently reinterpret the column as a ratio and double-scale it
+        // the day the dial ships.
+        baseServings: 1,
+        ingredients: resolved.map((r) => ({
           catalog_item_id: r.catalog_item_id,
           quantity_per_serving: r.quantity_per_serving,
           on_hand: !!r.on_hand,   // 044
@@ -1583,7 +2205,7 @@ function ProvisionsApp() {
     } finally {
       setMealSaving(false);
     }
-  }, [mealSheet, updateMeal, createMeal, loadMeals]);
+  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals]);
   // Delete the recipe itself. Zeroing of its still-pending list items
   // happens inside deleteMeal (bought items untouched, shared ingredients
   // left for the meals that still need them) — the sheet only drives it.
@@ -2901,6 +3523,40 @@ function ProvisionsApp() {
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
         .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-list-scale)); color: #2C1A0E; flex: 1; }
+        .op-mic-btn { flex: none; width: 44px; height: 44px; border-radius: 10px; background: #2C1A0E; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
+        .op-mic-btn svg { width: 19px; height: 19px; stroke: #FFFDF9; fill: none; }
+        .op-mic-btn:disabled { opacity: .45; cursor: default; }
+        .op-mic-btn.listening { background: #c0392b; animation: opMicPulse 1.2s ease-in-out infinite; }
+        @keyframes opMicPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(192,57,43,0.55); } 50% { box-shadow: 0 0 0 8px rgba(192,57,43,0); } }
+        @media (prefers-reduced-motion: reduce) { .op-mic-btn.listening { animation: none; } }
+        /* Galley recipe card — Phase A. Tokens from handoff/mockup_galley_recipe_card.html. */
+        .op-skel { height: 10px; border-radius: 5px; background: linear-gradient(90deg, rgba(160,114,74,.10), rgba(160,114,74,.22), rgba(160,114,74,.10)); background-size: 200% 100%; animation: opShimmer 1.4s linear infinite; margin-bottom: 8px; }
+        .op-skel:last-child { margin-bottom: 0; }
+        @keyframes opShimmer { to { background-position: -200% 0; } }
+        .op-skel-step { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; }
+        .op-skel-row { align-items: center; min-height: 52px; padding: 8px 10px; border: 1.5px solid rgba(44,26,14,.08); border-radius: 8px; margin-bottom: 6px; }
+        .op-skel-badge { width: 22px; height: 22px; border-radius: 50%; background: rgba(160,114,74,.15); flex: none; }
+        .op-skel-badge.square { border-radius: 6px; }
+        .op-skel-lines { flex: 1; padding-top: 4px; }
+        .op-skel-row .op-skel-lines { padding-top: 0; }
+        .op-ember { width: 10px; height: 10px; border-radius: 50%; background: #A0724A; flex: none; animation: opEmber 1.6s ease-in-out infinite; }
+        @keyframes opEmber { 0%, 100% { opacity: .35; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
+        @media (prefers-reduced-motion: reduce) { .op-skel, .op-ember { animation: none; } .op-ember { opacity: .8; } }
+        .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; color: #6f5a45; cursor: pointer; }
+        .op-recipe { background: #fff; border: 1.5px solid rgba(44,26,14,.10); border-radius: 14px; padding: 16px 16px 14px; }
+        .op-recipe.galley { border-color: rgba(160,114,74,.3); }
+        .op-recipe-eyebrow { display: flex; align-items: center; gap: 6px; font-family: 'Lato', sans-serif; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #A0724A; margin-bottom: 8px; }
+        .op-recipe-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 21px; line-height: 1.15; color: #2C1A0E; margin-bottom: 4px; }
+        .op-recipe-meta { font-family: 'Lato', sans-serif; font-size: 11.5px; color: #8a7968; margin-bottom: 14px; }
+        .op-steps { list-style: none; margin: 0; padding: 0; }
+        .op-steps li { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 12px; }
+        .op-steps li:last-child { margin-bottom: 0; }
+        .op-step-badge { flex: none; width: 24px; height: 24px; border-radius: 50%; background: rgba(160,114,74,.13); color: #A0724A; font-family: 'Lato', sans-serif; font-size: 11.5px; font-weight: 900; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+        .op-steps p { margin: 0; font-family: 'Lato', sans-serif; font-size: 13px; line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; }
+        .op-steps-action { background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-weight: 700; font-size: 12px; letter-spacing: 0; text-transform: none; color: #A0724A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; }
+        .op-ask-again { display: block; width: 100%; text-align: center; margin-top: 12px; }
+        .op-steps-done { width: 100%; margin-top: 10px; padding: 11px; background: #A0724A; border: none; border-radius: 10px; font-family: 'Lato', sans-serif; font-size: 13px; font-weight: 900; color: #fff; cursor: pointer; }
+        .op-steps-empty { width: 100%; padding: 12px 11px; background: none; border: 1.5px dashed #C9A97A; border-radius: 9px; font-family: 'Lato', sans-serif; font-size: 12px; color: #8a7968; cursor: pointer; text-align: center; }
         .qty-controls { display: inline-flex; align-items: center; background: transparent; border: 1px solid #C9A97A; border-radius: 999px; overflow: hidden; flex-shrink: 0; }
         .qty-btn { width: 38px; height: 34px; border: 0; background: transparent; color: #A0724A; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; line-height: 1; transition: background 0.12s; }
         .qty-btn:active { background: #F5EDE0; }
@@ -4767,6 +5423,8 @@ function ProvisionsApp() {
           onDelete={commitMealDelete}
           onCreateCatalogItem={createCatalogItem}
           onRegisterCategory={(cat) => setHouseholdCategories((prev) => new Set([...prev, cat]))}
+          onRequestSuggestion={requestMealSuggestion}
+          isSignedIn={isSignedIn}
         />
       )}
 
