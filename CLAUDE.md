@@ -43,10 +43,13 @@ Vercel hosting, Anthropic Claude API.
 - **`catalog_items.is_global`** is the ownership discriminator. `true` = seed item
   (system-owned; members can Hide but never Delete). `false` = custom item
   (household-owned; any member can add/Delete; can also Hide).
-- **All foreign keys referencing `catalog_items` are `NO ACTION`** — Postgres blocks
-  deletion of any referenced row. Deletes that touch referenced catalog rows must be
-  multi-step SECURITY DEFINER RPCs (or soft-delete via `deleted_at`), never a plain
-  `delete`.
+- **Foreign keys referencing `catalog_items` are `NO ACTION` with exactly three
+  deliberate exceptions** — `household_staples` (CASCADE, 016), `meal_ingredients`
+  (CASCADE, 025) and `list_item_events` (SET NULL, 046; *events release, never
+  block*). Everywhere else Postgres blocks deletion of a referenced row, so
+  deletes that touch referenced catalog rows must be multi-step SECURITY DEFINER
+  RPCs (or soft-delete via `deleted_at`), never a plain `delete`. Do not
+  "normalize" the exceptions back; see ARCHITECTURE's FK section.
 - **The shared list is sacred** — no per-user view preference (Hide, filter) ever
   suppresses what's on the shared list. Hide lives in the browse layer only.
 - **SHOP list renders from the RPC**, not from `catalogMap` (the `listRows` pattern).
