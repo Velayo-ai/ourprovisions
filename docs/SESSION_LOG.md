@@ -26,6 +26,7 @@ Done when: [clear success condition]
 ## LOG
 
 ### [2026-09-10] — [OurProvisions] — In-store shopping experience designed: Shop lens, in-store Add, session wiring, and the first smart-ordering capture
+> **Addendum 2026-09-10 (later the same session, after Dan re-authenticated both Supabase MCP servers):** The Unfinished line below about `store_name_raw` is **resolved** — the column exists (`text`) on **dev AND prod**, confirmed by direct query against two distinct databases (`pg_control_system` identifiers `7642734024280108049` dev, `7606130613603586966` prod). Both hold **0** `shopping_sessions` rows — the "never written to" claim is now measured, not inferred. `list_item_events` is absent from both; the five `list_items.checked_*` columns are present in both. ROADMAP and ARCHITECTURE corrected in place; the build-time check is withdrawn. Original text left intact.
 **Goal:** Replace the confusing three-phase Shop cycle with legible controls, add items from the aisle, and start recording the data Phase 2 smart ordering needs — designed and spec'd tonight for a ~5h build. (Design-chat context merged from `handoff/design_handoff.md`; Claude Code ran the Scribe only — no app code touched this session.)
 **Completed:**
 - Redirected the session from the 2026-09-09 two-week prioritization to the in-store experience; the planner / recipe-giving decision is left open, not lost.
