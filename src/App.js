@@ -636,14 +636,23 @@ function HouseholdDebugLog() {
 
 // ── Shared catalog search — Browse AND the Shop Add sheet ──
 // The search box and the results list are one component pair consumed by both
-// surfaces, so the add path — searchResults → hiddenLiveMatch → addSearchedItem
-// — cannot fork (SPEC_shop_lens_instore_capture.md). The hidden-item reveal rule
-// (F1b) is load-bearing: a hidden item that is LIVE on the shared list surfaces
-// as a reveal card, never as a false "add as new" — the shared component owns
-// that precedence, the callers cannot skip it. What differs per surface is
-// presentation only: how a result row renders (`renderRow`) and what the
-// no-match slot offers (`noMatch` — Browse's category picker, Shop's one-tap
-// "add as a new item" under `Other`).
+// surfaces, so the add path — searchResults → hiddenMatch → addSearchedItem
+// — cannot fork (SPEC_shop_lens_instore_capture.md). Two rules live HERE, so no
+// caller can skip them:
+//   1. The hidden-item reveal (F1b). A hidden item whose name is an exact
+//      normalized match for the query surfaces as a reveal card — whether it is
+//      live on the shared list (un-hide only) or not (un-hide and add at 1) —
+//      never as a false "add as new" that would fork the catalog row.
+//   2. Exact-match-wins. "Add '<query>' as a new item" is offered whenever the
+//      query is NOT an exact normalized match of any result or hidden item,
+//      partial results or not; never when an exact match exists. (Partial
+//      matches used to suppress create entirely — "Test" against Test33/Test4
+//      had no create row.) insert_custom_catalog_item (018) dedups by the same
+//      normalization against seed AND household rows, so this is the UI-side
+//      guard in front of the DB-side one, not the only one.
+// What differs per surface is presentation only: how a result row renders
+// (`renderRow`) and what the create slot offers (`createSlot` — Browse's
+// category picker, Shop's one-tap "add as a new item" under `Other`).
 function CatalogSearchBox({ value, onChange, onClear, placeholder = "Search your catalog…", inputRef }) {
   return (
     <div style={{
@@ -681,53 +690,63 @@ function CatalogSearchBox({ value, onChange, onClear, placeholder = "Search your
 
 const SEARCH_EYEBROW_STYLE = { padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" };
 
-function SearchResultsList({ query, results, hiddenLiveMatch, onReveal, renderRow, noMatch, listClassName, showCount = true }) {
-  if (results.length > 0) {
-    return (
-      <>
-        {showCount && (
-          <div style={SEARCH_EYEBROW_STYLE}>
-            {results.length} result{results.length !== 1 ? "s" : ""} for "{query}"
-          </div>
-        )}
-        <div className={listClassName}>
-          {results.map(renderRow)}
-        </div>
-      </>
-    );
-  }
-  if (hiddenLiveMatch) {
-    /* ── HIDDEN-BUT-LIVE: reveal only, never touch the shared quantity ── */
-    return (
-      <>
-        <div style={SEARCH_EYEBROW_STYLE}>On your list — hidden from your view</div>
-        <div
-          onClick={() => onReveal(hiddenLiveMatch.item.id)}
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            borderRadius: "10px", border: "1.5px solid #C9A97A",
-            background: "rgba(201,169,122,0.06)", padding: "12px 14px",
-            marginBottom: "6px", cursor: "pointer",
-          }}
-        >
-          <div>
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
-              <strong>{hiddenLiveMatch.item.name}</strong> ×{hiddenLiveMatch.qty}
-            </div>
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
-              Hidden from your view — tap to reveal
-            </div>
-          </div>
-          <span style={{ color: "#A0724A", fontSize: "18px" }}>↺</span>
-        </div>
-      </>
-    );
-  }
-  /* ── NO MATCH: the surface decides what "add as new" looks like ── */
+const normalizeSearchName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+
+function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, createSlot, listClassName, showCount = true }) {
+  const normQuery = normalizeSearchName(query);
+  const exactInResults = results.some(r => normalizeSearchName(r.name) === normQuery);
+  // Exact-match-wins: create is offered only when NOTHING matches exactly.
+  const offerCreate = !hiddenMatch && !exactInResults;
   return (
     <>
-      <div style={SEARCH_EYEBROW_STYLE}>No results for "{query}"</div>
-      {noMatch}
+      {hiddenMatch && (
+        /* ── HIDDEN exact match: reveal card. Live → un-hide only (never write
+              quantity across the person boundary); not live → un-hide and add. ── */
+        <>
+          <div style={SEARCH_EYEBROW_STYLE}>
+            {hiddenMatch.live ? "On your list — hidden from your view" : "In your catalog — hidden from your view"}
+          </div>
+          <div
+            onClick={() => onReveal(hiddenMatch)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter") onReveal(hiddenMatch); }}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              borderRadius: "10px", border: "1.5px solid #C9A97A",
+              background: "rgba(201,169,122,0.06)", padding: "12px 14px",
+              marginBottom: "6px", cursor: "pointer",
+            }}
+          >
+            <div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                <strong>{hiddenMatch.item.name}</strong>{hiddenMatch.live ? ` ×${hiddenMatch.qty}` : ""}
+              </div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+                {hiddenMatch.live ? "Hidden from your view — tap to reveal" : "Hidden from your view — tap to reveal and add"}
+              </div>
+            </div>
+            <span style={{ color: "#A0724A", fontSize: "18px" }}>↺</span>
+          </div>
+        </>
+      )}
+      {results.length > 0 && (
+        <>
+          {showCount && (
+            <div style={SEARCH_EYEBROW_STYLE}>
+              {results.length} result{results.length !== 1 ? "s" : ""} for "{query}"
+            </div>
+          )}
+          <div className={listClassName}>
+            {results.map(renderRow)}
+          </div>
+        </>
+      )}
+      {results.length === 0 && !hiddenMatch && (
+        <div style={SEARCH_EYEBROW_STYLE}>No results for "{query}"</div>
+      )}
+      {/* ── CREATE: the surface decides what "add as new" looks like ── */}
+      {offerCreate && createSlot}
     </>
   );
 }
@@ -2816,18 +2835,21 @@ function ProvisionsApp() {
   // NEVER fuzzy — this gates a household-wide un-hide, so it must match exactly.
   const normalizeName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
 
-  // A hidden-but-live item whose name exactly matches the current query. `searchResults`
-  // is built from the catalog map, which EXCLUDES hidden items — so such an item shows
-  // as "No results" even though it is on the shared list. Surface it as a reveal card
-  // instead of the false "add as new" (F1b Layer 1, the honest UX on top of the floor).
-  const hiddenLiveMatch = useMemo(() => {
+  // A HIDDEN item whose name exactly matches the current query, live on the list
+  // or not. `searchResults` is built from the catalog map, which EXCLUDES hidden
+  // items — so such an item would show as "No results" and fall through to the
+  // false "add as new" that forks the catalog row. The shared results component
+  // renders it as a reveal card instead (F1b Layer 1, the honest UX on top of
+  // the floor): live → un-hide only; not live → un-hide and add at 1, the same
+  // branch addSearchedItem takes.
+  const hiddenMatch = useMemo(() => {
     const typed = searchQuery.trim();
     if (!typed) return null;
     const norm = normalizeName(typed);
     const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
     if (!hidden) return null;
     const liveRow = listRows.find(r => r.catalogItemId === hidden.id && (r.quantity || 0) > 0);
-    return liveRow ? { item: hidden, qty: liveRow.quantity } : null;
+    return { item: hidden, qty: liveRow ? liveRow.quantity : 0, live: !!liveRow };
   }, [searchQuery, hiddenCatalogItems, listRows]);
 
   // Search "add to your list" handler (F1b Layer 1 — the floor). Re-adding a HIDDEN
@@ -3367,10 +3389,11 @@ function ProvisionsApp() {
     const res = await updateQty(item.name, (quantities[item.name] || 0) + 1, item.rawCategory);
     noteAddedHere(res);
   };
-  // No match — Browse's addSearchedItem, unchanged, with the category fixed to
-  // `Other` (D7). It resolves hidden items before anything else (F1b).
-  const handleShopAddNew = async () => {
-    const res = await addSearchedItem("Other");
+  // Create / reveal-add — Browse's addSearchedItem, unchanged, with the category
+  // fixed to `Other` for a genuinely new item (D7). It resolves hidden items
+  // before anything else (F1b), which is also the reveal card's not-live path.
+  const handleShopAddNew = async (category = "Other") => {
+    const res = await addSearchedItem(category);
     setAddSheetOpen(false);
     noteAddedHere(res);
   };
@@ -3905,6 +3928,7 @@ function ProvisionsApp() {
         .store-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: -6px 2px 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
         .store-line b { color: #2C1A0E; font-weight: 700; }
         .store-line .chev { font-size: 0.7rem; color: #A0724A; }
+        .store-line .store-set { color: #A0724A; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
         .az-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin: 2px 0 6px; }
         /* A–Z is a different MODE, not the same rows minus headers: one flat list, small circle, no provenance, no prices.
            Padding is set so a single-line row lands at roughly an Aisles row's tap height. */
@@ -5233,8 +5257,11 @@ function ProvisionsApp() {
                 <SearchResultsList
                   query={searchQuery}
                   results={searchResults}
-                  hiddenLiveMatch={hiddenLiveMatch}
-                  onReveal={(id) => { unhideItem(id); setSearchQuery(""); }}
+                  hiddenMatch={hiddenMatch}
+                  onReveal={(m) => {
+                    if (m.live) { unhideItem(m.item.id); setSearchQuery(""); }
+                    else addSearchedItem(m.item.category);   // un-hide + add at 1 — the F1b branch
+                  }}
                   listClassName="items-grid"
                   renderRow={(item) => {
                         const qty = quantities[item.name] || 0;
@@ -5264,8 +5291,8 @@ function ProvisionsApp() {
                           </SwipeToRemove>
                         );
                   }}
-                  noMatch={
-                  /* ── NO MATCH on Browse: inline add with category picker ── */
+                  createSlot={
+                  /* ── CREATE on Browse: inline add with category picker ── */
                   <>
                     <div style={{
                       borderRadius: "10px",
@@ -5477,10 +5504,15 @@ function ProvisionsApp() {
             {storePromptVisible && (
               <StorePrompt chips={storeChips} onPick={handleStorePick} onSkip={handleStoreSkip} busy={storeSaving} />
             )}
-            {!storePromptVisible && activeSession?.store_name_raw && (
+            {/* Rendered for the null store too ("Set store") — Skip must leave a
+                way back to the prompt. Setting writes store_name_raw on the
+                EXISTING open session, never a new row. */}
+            {!storePromptVisible && activeSession && (
               <div className="store-line" onClick={() => setStorePromptOpen(true)} role="button" tabIndex={0}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setStorePromptOpen(true); }}>
-                Shopping at <b>{activeSession.store_name_raw}</b> <span className="chev">▾</span>
+                Shopping at {activeSession.store_name_raw
+                  ? <b>{activeSession.store_name_raw}</b>
+                  : <span className="store-set">Set store</span>} <span className="chev">▾</span>
               </div>
             )}
             {totalItems === 0 ? (
@@ -6135,8 +6167,11 @@ function ProvisionsApp() {
                 <SearchResultsList
                   query={searchQuery}
                   results={searchResults}
-                  hiddenLiveMatch={hiddenLiveMatch}
-                  onReveal={(id) => { unhideItem(id); closeAddSheet(); }}
+                  hiddenMatch={hiddenMatch}
+                  onReveal={(m) => {
+                    if (m.live) { unhideItem(m.item.id); closeAddSheet(); }
+                    else handleShopAddNew(m.item.category);   // un-hide + add at 1, recorded as added_in_store
+                  }}
                   showCount={false}
                   renderRow={(item) => (
                     <div key={item.name} className="add-result" onClick={() => handleShopAddResult(item)} role="button" tabIndex={0}
@@ -6148,8 +6183,8 @@ function ProvisionsApp() {
                       <span className="ar-go">Add</span>
                     </div>
                   )}
-                  noMatch={
-                    <div className="add-result create" onClick={handleShopAddNew} role="button" tabIndex={0}
+                  createSlot={
+                    <div className="add-result create" onClick={() => handleShopAddNew()} role="button" tabIndex={0}
                       onKeyDown={(e) => { if (e.key === "Enter") handleShopAddNew(); }}>
                       <div className="ar-main">
                         <div className="ar-name">Add <b>“{searchQuery.trim()}”</b> as a new item…</div>
