@@ -21,9 +21,18 @@
 --     written by the client tonight.
 --   * created_at (server now()) is the ordering truth. sequence is a client-side
 --     per-session counter used only to break ties in bursts / offline retries.
---   * list_item_id is nullable — the row may be soft-deleted later and the event
---     must outlive it. session_id is nullable — an add can precede session
---     resolution. Neither FK cascades: an event is history.
+--   * EVENTS RELEASE, NEVER BLOCK. list_item_id and catalog_item_id are both
+--     nullable and ON DELETE SET NULL: an event is history and must outlive
+--     the row it describes, and it must never make that row undeletable.
+--     Found on dev 2026-09-11: delete_custom_catalog_item (a hard DELETE of the
+--     list_items row and the catalog_items row) failed with an FK violation on
+--     list_item_events_list_item_id_fkey for any item that had ever been
+--     checked. Corrected on dev by ALTER; this file carries the corrected shape
+--     so prod never sees the NO ACTION version. session_id is nullable — an add
+--     can precede session resolution. The other four FKs (household, user,
+--     session, cycle) stay NO ACTION: none of those rows is hard-deleted by any
+--     app path (delete_household soft-deletes; close_cycle / wrapUpTrip only
+--     stamp closed_at / ended_at; users are retired, not deleted).
 --
 -- RLS — the 032 idiom
 --   * SELECT  — is_member_of(household_id)
@@ -51,15 +60,17 @@
 --   row, rls_on = true, sel = 1, ins = 1, upd = 0, del = 0, anon_privs = 0,
 --   authenticated_privs = EXACTLY "INSERT,SELECT" (anything more means a
 --   default-privilege grant survived — revoke and re-run the SELECT),
---   check_present = true, idx_count = 3 (pkey + the two indexes below).
+--   check_present = true, idx_count = 3 (pkey + the two indexes below),
+--   list_item_fk = "SET NULL", catalog_item_fk = "SET NULL",
+--   catalog_item_nullable = true.
 
 begin;
 
 create table public.list_item_events (
   id               uuid primary key default gen_random_uuid(),
   household_id     uuid not null references public.households(id),
-  list_item_id     uuid references public.list_items(id),          -- nullable: row may be soft-deleted later
-  catalog_item_id  uuid not null references public.catalog_items(id),
+  list_item_id     uuid references public.list_items(id) on delete set null,     -- nullable: events release, never block
+  catalog_item_id  uuid references public.catalog_items(id) on delete set null,  -- nullable: same rule (was NOT NULL / NO ACTION — see header)
   user_id          uuid not null references public.users(id),
   session_id       uuid references public.shopping_sessions(id),   -- nullable: an add can precede session resolution
   cycle_id         uuid references public.provision_cycles(id),
@@ -105,6 +116,9 @@ commit;
 -- authenticated_privs must read EXACTLY INSERT,SELECT and anon_privs 0; any
 -- extra privilege on authenticated is a surviving default grant, not a policy
 -- question — fix it with revoke/grant, then re-run this SELECT.
+-- list_item_fk and catalog_item_fk must BOTH read SET NULL and
+-- catalog_item_nullable true — NO ACTION here makes every checked item
+-- undeletable (the dev finding above).
 -- =====================================================================
 select
   c.relname,
@@ -124,7 +138,21 @@ select
             where k.conrelid = c.oid and k.contype = 'c'
               and pg_get_constraintdef(k.oid) like '%event_type%')          as check_present,
   (select count(*) from pg_indexes i
-     where i.schemaname = 'public' and i.tablename = 'list_item_events')    as idx_count
+     where i.schemaname = 'public' and i.tablename = 'list_item_events')    as idx_count,
+  (select case k.confdeltype when 'n' then 'SET NULL' when 'c' then 'CASCADE'
+                             when 'a' then 'NO ACTION' else k.confdeltype::text end
+     from pg_constraint k
+     where k.conrelid = c.oid and k.contype = 'f'
+       and k.conkey = array[(select attnum from pg_attribute
+                              where attrelid = c.oid and attname = 'list_item_id')]) as list_item_fk,
+  (select case k.confdeltype when 'n' then 'SET NULL' when 'c' then 'CASCADE'
+                             when 'a' then 'NO ACTION' else k.confdeltype::text end
+     from pg_constraint k
+     where k.conrelid = c.oid and k.contype = 'f'
+       and k.conkey = array[(select attnum from pg_attribute
+                              where attrelid = c.oid and attname = 'catalog_item_id')]) as catalog_item_fk,
+  (select not a.attnotnull from pg_attribute a
+     where a.attrelid = c.oid and a.attname = 'catalog_item_id')             as catalog_item_nullable
 from pg_class c
 left join pg_policy p on p.polrelid = c.oid
 where c.oid = 'public.list_item_events'::regclass
