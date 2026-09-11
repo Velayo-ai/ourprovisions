@@ -25,6 +25,30 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-09-10] — [OurProvisions] — In-store shopping experience designed: Shop lens, in-store Add, session wiring, and the first smart-ordering capture
+**Goal:** Replace the confusing three-phase Shop cycle with legible controls, add items from the aisle, and start recording the data Phase 2 smart ordering needs — designed and spec'd tonight for a ~5h build. (Design-chat context merged from `handoff/design_handoff.md`; Claude Code ran the Scribe only — no app code touched this session.)
+**Completed:**
+- Redirected the session from the 2026-09-09 two-week prioritization to the in-store experience; the planner / recipe-giving decision is left open, not lost.
+- Diagnosed the tri-state `CycleIcon` as two independent axes (grouping, checked-visibility) fused into one cycle; retired it on Shop in favour of an **Aisles | A–Z** two-segment lens plus a collapsed **In cart** tray for checked items — hide/show is no longer a control. Browse keeps its own icon.
+- Designed **Add-from-the-aisle** as a floating + opening a search sheet that reuses Browse's exact `addSearchedItem` path (hidden-item reveal included) via a shared component; unknown items create under `Other`; unchecked on add; an "added here" tag for the trip.
+- Found `startSession()` written but **never called** (defined and exported in `useProvisions.js`, no caller in `App.js` — confirmed by grep) and the `list_items.checked_*` columns **never written**; designed the fix as an append-only `list_item_events` table (`046`) recording `added_in_store` / `checked` / `unchecked` with session and sequence — because `list_items` rows are reused across cycles, so row columns cannot hold history.
+- Settled the session rules: the first in-store action starts one; a skippable store prompt writes `store_name_raw` (partner's current store offered first, never prefilled); 8h client-side expiry; sessions are **per person**, so split-store shopping on one list works.
+- Designed the Phase 2 learning query (median normalized check position per category per (household, store), applied at ≥3 sessions, `CATEGORY_ORDER` fallback) and voice in the Add sheet (reuses the Galley mic + listening state) — **both designed, neither built**. Produced `SPEC_shop_lens_instore_capture.md` (11 verification items) and `mockup_shop_lens_instore.html`.
+- Corrected ARCHITECTURE's `shopping_sessions` entry in place while filing the design: it still read "RLS DISABLED / UNCONFIRMED on prod / `closed_at`" — `032` enabled RLS on it in both environments 2026-08-17, and the hook writes `user_id` / `gps_lat` / `gps_lng` / `ended_at`.
+**Unfinished:**
+- **Nothing built; no schema touched.** `046` exists only inside the spec. The build session is next.
+- **Two-week plan decision** (planner + recipe giving vs. receipt reader) still open — resume after this ships.
+- **Correction to the 2026-09-09 chat summary:** the weekly planner IS spec'd (`docs/specs/active/SPEC_meal_planning_v1.md`, approved 2026-08-20 — This-Week board, days deferred to v2). Confirm with Dan whether "assign meals to days" is actually wanted before any planner build.
+- `store_name_raw` on `shopping_sessions` is asserted by the spec as an existing column; it is not written anywhere in the hook today and could not be checked against the live schema this session (both Supabase MCP servers unauthenticated). **Confirm the column exists at build time before wiring the store prompt.**
+- Home page still undefined; the unit/quantity design doc still unwritten. Carried from 2026-09-09: beta depth metric, the two idle-signup nudges, `promote-galley` branch deletion, `CLAUDE.md`'s FK one-liner.
+**Next session:**
+SESSION START
+Goal: Build `SPEC_shop_lens_instore_capture.md` on dev — migration `046` first, then lens + tray + Add sheet + `startSession()` wiring + event writes; the store prompt is the first cut if the 5h box slips.
+State: Ask the Galley live on prod; meals CRUD, on-hand and solo-start all live; Shop tab unchanged from prod; `shopping_sessions` never written to; its `032` session RLS verified by inspection only — this build is its first live traffic (named risk).
+Done when: all 11 verification items in the spec pass on dev, including the two-account split-store case (#5) and the read-the-table-back event checks (#6, #7 — a 2xx is not evidence, the `041` lesson). Prod promote is a separate gate, timed to land before Dan's next real grocery run.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`; `handoff/SPEC_shop_lens_instore_capture.md` → `docs/specs/active/`; `handoff/mockup_shop_lens_instore.html` → `docs/mockups/`; `handoff/design_handoff.md` consumed and deleted. No source files.
+**DB changes:** None. Migration `046` (`list_item_events`) authored in the spec, not applied to any environment.
+
 ### [2026-09-09] — [OurProvisions] — Ask the Galley LIVE ON PROD: secrets and Edge Function first, then a hand-authored client promotion proven by bundle identity; plus the gray-replay diagnosis
 **Goal:** Get Ask the Galley (AI meal suggestion, with the recipe-card Phase A built on it) live on prod in the load-bearing order — secrets and Edge Function before any client — and, earlier the same evening, diagnose the gray Splunk session replay without changing anything. (Design-chat context merged from `handoff/design_handoff.md`; the session ran 2026-09-09 into 2026-09-10 UTC.)
 **Completed:**
