@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
-import { Fragment, useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
@@ -780,32 +780,43 @@ function InCartTray({ items, open, onToggle, onUncheck, initialFor }) {
 // D10: ask the store, don't guess it. Chips are the partner's currently-open
 // session store first (if any), then the household's recent stores. Never
 // prefilled. Skip is honest — GPS was still captured at session start.
+// With no real store chips (a household's first trip) the name field shows
+// directly under a plain label; "Somewhere else…" exists only as the trailing
+// chip after at least one real store chip.
 function StorePrompt({ chips, onPick, onSkip, busy }) {
+  const hasChips = chips.length > 0;
   const [otherOpen, setOtherOpen] = useState(false);
   const [other, setOther] = useState("");
   const submitOther = () => { if (other.trim()) onPick(other.trim()); };
+  const fieldOpen = !hasChips || otherOpen;
   return (
     <div className="store-prompt">
       <div className="store-prompt-q">Where are you shopping?</div>
-      <div className="store-chips">
-        {chips.map((name) => (
-          <button type="button" key={name} className="store-chip" disabled={busy} onClick={() => onPick(name)}>{name}</button>
-        ))}
-        {!otherOpen && (
-          <button type="button" className="store-chip other" disabled={busy} onClick={() => setOtherOpen(true)}>Somewhere else…</button>
-        )}
-      </div>
-      {otherOpen && (
-        <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "10px" }}>
-          <input
-            type="text"
-            className="store-input"
-            value={other}
-            onChange={e => setOther(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") submitOther(); }}
-            placeholder="Store name"
-          />
-          <button type="button" className="store-chip" disabled={busy || !other.trim()} onClick={submitOther}>Save</button>
+      {hasChips && (
+        <div className="store-chips">
+          {chips.map((name) => (
+            <button type="button" key={name} className="store-chip" disabled={busy} onClick={() => onPick(name)}>{name}</button>
+          ))}
+          {!otherOpen && (
+            <button type="button" className="store-chip other" disabled={busy} onClick={() => setOtherOpen(true)}>Somewhere else…</button>
+          )}
+        </div>
+      )}
+      {fieldOpen && (
+        <div style={{ marginTop: hasChips ? "10px" : 0 }}>
+          {!hasChips && <div className="store-field-label">Store name</div>}
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <input
+              type="text"
+              className="store-input"
+              value={other}
+              onChange={e => setOther(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") submitOther(); }}
+              placeholder={hasChips ? "Store name" : "e.g. Market Basket"}
+              aria-label="Store name"
+            />
+            <button type="button" className="store-chip" disabled={busy || !other.trim()} onClick={submitOther}>Save</button>
+          </div>
         </div>
       )}
       <button type="button" className="store-skip" onClick={onSkip}>Skip — you can set it later from the list.</button>
@@ -3895,9 +3906,9 @@ function ProvisionsApp() {
         .store-line b { color: #2C1A0E; font-weight: 700; }
         .store-line .chev { font-size: 0.7rem; color: #A0724A; }
         .az-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin: 2px 0 6px; }
-        .az-letter { font-family: 'Playfair Display', serif; font-size: 1.1rem; color: #A0724A; margin-top: 14px; padding: 0 2px 3px; border-bottom: 1px solid #E3D4BC; }
-        /* A–Z is a different MODE, not the same rows minus headers: half-height rows, small circle, no provenance, no prices. */
-        .list-item.az { padding: 8px 4px; gap: 12px; border-bottom: 1px solid #F0E6D6; }
+        /* A–Z is a different MODE, not the same rows minus headers: one flat list, small circle, no provenance, no prices.
+           Padding is set so a single-line row lands at roughly an Aisles row's tap height. */
+        .list-item.az { padding: 13px 4px; gap: 12px; border-bottom: 1px solid #F0E6D6; }
         .list-item.az .checkbox { width: 18px; height: 18px; }
         .list-item.az .li-name { font-size: calc(0.9rem * var(--op-list-scale)); }
         .added-here-tag { display: inline-block; margin-left: 6px; font-family: 'Lato', sans-serif; font-size: 0.62rem; font-weight: 700; color: #0D9488; border: 1px solid #0D9488; border-radius: 4px; padding: 1px 5px; vertical-align: middle; letter-spacing: .3px; }
@@ -3907,7 +3918,9 @@ function ProvisionsApp() {
         .tray-title { flex: 1; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; color: #2C1A0E; }
         .tray-sub { font-size: 0.72rem; color: #8a7a60; font-weight: 400; margin-left: 6px; }
         .tray-chev { color: #8a7a60; font-size: 0.8rem; }
-        .tray-body { border-top: 1px solid #E3D4BC; padding: 0 14px 4px; }
+        .tray-body { border-top: 1px solid #E3D4BC; padding: 0 14px 12px; }
+        /* The tray is the last thing on the list when prices are off — keep its last row clear of the floating +. */
+        .in-cart-tray { margin-bottom: 8px; }
         .tray-body .list-item { padding: 11px 0; opacity: 0.55; }
         .tray-body .list-item:last-child { border-bottom: none; }
         .tray-body .li-name { text-decoration: line-through; color: #a89878; font-size: calc(0.88rem * var(--op-list-scale)); }
@@ -3924,8 +3937,9 @@ function ProvisionsApp() {
            in the right corner, and it hides whenever a sheet or the Wrap-up
            modal is open. z-index sits under the sheets (1000) and the stack (2000). */
         .shop-fab { position: fixed; right: 18px; bottom: 24px; width: 56px; height: 56px; border-radius: 50%; background: #2C1A0E; color: #FAF4EC; border: none; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 2rem; font-weight: 300; line-height: 1; padding: 0 0 3px; box-shadow: 0 8px 22px rgba(44,26,14,0.32); cursor: pointer; z-index: 900; }
-        /* One row-height of clearance at the very end of the list so the tray chevron is never under the +. */
-        .shop-list-tail { height: 52px; }
+        /* Clearance at the very end of the list so the last row / tray chevron is never under the +
+           (56px button + 24px bottom offset + slack). */
+        .shop-list-tail { height: 88px; }
         .store-prompt { margin: 0 0 22px; padding: 14px 14px 12px; background: #fff; border: 1px solid #E3D4BC; border-radius: 12px; }
         .store-prompt-q { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: #2C1A0E; margin-bottom: 10px; }
         .store-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -3933,6 +3947,7 @@ function ProvisionsApp() {
         .store-chip:disabled { opacity: .5; cursor: default; }
         .store-chip.other { color: #A0724A; border-style: dashed; font-weight: 400; }
         .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 10px; cursor: pointer; text-decoration: underline; }
+        .store-field-label { font-family: 'Lato', sans-serif; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #C9A97A; margin-bottom: 7px; }
         .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: 0.85rem; color: #2C1A0E; background: #F5EDE0; outline: none; }
         .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; }
         .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; }
@@ -5555,30 +5570,23 @@ function ProvisionsApp() {
                     </div>
                   ))
                 ) : (
-                  /* ── A–Z — a different mode: half-height rows, letter dividers, no provenance, no per-row prices. ── */
+                  /* ── A–Z — a different mode: one flat alphabetical list, no provenance, no per-row prices. ── */
                   <div>
                     <div className="az-eyebrow">{shopFlatItems.length} to find</div>
-                    {shopFlatItems.map((item, idx) => {
-                      const letter = (item.name[0] || "").toUpperCase();
-                      const prevLetter = idx > 0 ? (shopFlatItems[idx - 1].name[0] || "").toUpperCase() : null;
-                      return (
-                        <Fragment key={item.name}>
-                          {letter !== prevLetter && <div className="az-letter">{letter}</div>}
-                          <SwipeToRemove onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                            <div className="list-item az shop-row-in">
-                              <div className="checkbox" onClick={() => handleShopToggle(item)} />
-                              <div className="li-name" onClick={() => handleShopToggle(item)}>
-                                {item.name}
-                                {addedHereIds.has(item.catalogItemId) && <span className="added-here-tag">added here</span>}
-                              </div>
-                              {item.qty > 1 && (
-                                <span className="li-qty">×{item.qty}</span>
-                              )}
-                            </div>
-                          </SwipeToRemove>
-                        </Fragment>
-                      );
-                    })}
+                    {shopFlatItems.map((item) => (
+                      <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
+                        <div className="list-item az shop-row-in">
+                          <div className="checkbox" onClick={() => handleShopToggle(item)} />
+                          <div className="li-name" onClick={() => handleShopToggle(item)}>
+                            {item.name}
+                            {addedHereIds.has(item.catalogItemId) && <span className="added-here-tag">added here</span>}
+                          </div>
+                          {item.qty > 1 && (
+                            <span className="li-qty">×{item.qty}</span>
+                          )}
+                        </div>
+                      </SwipeToRemove>
+                    ))}
                   </div>
                 )}
                 <InCartTray
