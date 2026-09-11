@@ -81,6 +81,25 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [activeSession, setActiveSession] = useState(null);
   const activeCycleRef = useRef(null);
   const activeSessionRef = useRef(null);
+  // In-store capture (SPEC_shop_lens_instore_capture.md, migration 046).
+  // partnerSession — another member's currently-open session, which feeds the
+  //   store prompt's FIRST chip (D10: ask, don't guess; sessions are per person).
+  // storeSuggestions — the household's distinct store_name_raw values, most
+  //   recent first, for the remaining chips.
+  // checkedByMap — listItemId → internal user id of the last `checked` event,
+  //   read from list_item_events (D8: history lives in events; the never-written
+  //   list_items.checked_by column is dead). Drives the tray's initials.
+  // eventSeqRef — per-session client counter written as `sequence`. Tiebreaker
+  //   only; created_at (server now()) is the ordering truth.
+  // sessionStartingRef — in-flight startSession promise, so two quick taps on
+  //   the first check of a trip cannot open two sessions during the GPS wait.
+  const [partnerSession, setPartnerSession] = useState(null);
+  const [storeSuggestions, setStoreSuggestions] = useState([]);
+  const [checkedByMap, setCheckedByMap] = useState({});
+  const eventSeqRef = useRef(0);
+  const sessionStartingRef = useRef(null);
+  const boughtFingerprintRef = useRef("");
+  const checkedByRetryRef = useRef(0);
   const myHouseholdsRef = useRef(myHouseholds || []);
   myHouseholdsRef.current = myHouseholds || [];
   const bootstrapHouseholdIdRef = useRef(null);
@@ -99,6 +118,41 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .select("catalog_item_id")
       .eq("household_id", householdId);
     return new Set((data || []).map((r) => r.catalog_item_id));
+  }
+
+  // Tray attribution — who last checked each bought row, read back from the
+  // event log, never from list_items.checked_by (D8). Best-effort by design:
+  // against a database where 046 is not applied the select errors, is logged,
+  // and the tray simply shows no initials. Latest event per row wins; only a
+  // `checked` counts (an `unchecked` that follows it clears the attribution).
+  // A partner's event lands a beat AFTER their status update (their client
+  // writes the event once the primary write commits), so the poll can see the
+  // row bought before its event exists — bounded retries cover that gap
+  // without turning this into a query on every 2s tick.
+  async function refreshCheckedBy(db, householdId, boughtIds) {
+    if (boughtIds.length === 0) { setCheckedByMap({}); return; }
+    const { data, error: evErr } = await db
+      .from("list_item_events")
+      .select("list_item_id, user_id, event_type, created_at, sequence")
+      .eq("household_id", householdId)
+      .in("list_item_id", boughtIds)
+      .in("event_type", ["checked", "unchecked"])
+      .order("created_at", { ascending: false })
+      .order("sequence", { ascending: false })
+      .limit(500);
+    if (evErr) { console.warn("refreshCheckedBy:", evErr.message); return; }
+    const map = {};
+    const seen = new Set();
+    (data || []).forEach(e => {
+      if (seen.has(e.list_item_id)) return;
+      seen.add(e.list_item_id);
+      if (e.event_type === "checked") map[e.list_item_id] = e.user_id;
+    });
+    setCheckedByMap(map);
+    // Retry a few ticks while a bought row has no event yet; then let it rest
+    // until the bought set changes again.
+    const missing = boughtIds.some(id => !map[id]);
+    checkedByRetryRef.current = missing ? Math.max(0, checkedByRetryRef.current - 1) : 0;
   }
 
   async function loadListItems(db, householdId) {
@@ -238,6 +292,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     });
     Object.assign(mergedPrices, newPrices);
     setListRows(newListRows);
+    // Bought-set fingerprint for the tray attribution (status is NOT in the
+    // provenance fingerprint above — a check changes no quantity).
+    const boughtIds = items.filter(i => i.status === "bought").map(i => i.id).sort();
+    const boughtFingerprint = boughtIds.join(",");
+    if (boughtFingerprint !== boughtFingerprintRef.current) {
+      boughtFingerprintRef.current = boughtFingerprint;
+      checkedByRetryRef.current = 5;
+      refreshCheckedBy(db, householdId, boughtIds);
+    } else if (checkedByRetryRef.current > 0) {
+      refreshCheckedBy(db, householdId, boughtIds);
+    }
     // Preserve optimistic values for items with an in-flight write; commit the
     // rest from the server. Prevents the poll from clobbering a not-yet-
     // committed local edit.
@@ -550,6 +615,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setContributorsMap({});
       setActiveCycle(null);
       activeCycleRef.current = null;
+      setActiveSession(null);
+      activeSessionRef.current = null;
+      setPartnerSession(null);
+      setStoreSuggestions([]);
+      setCheckedByMap({});
+      boughtFingerprintRef.current = "";
 
       try {
         // Fetch the household record. Banner columns (migration 024) are read
@@ -616,6 +687,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         }));
         setHouseholdMembers(membersWithProfiles);
         householdMembersRef.current = membersWithProfiles;
+
+        // Open shopping sessions — mine adopted (or expired), partner's noted.
+        await loadSessions(db, hh.id);
+        if (cancelled) return;
 
         // Hidden items (per-user; reload on switch to pick up any hides from the other household view)
         const { data: hiddenRows } = await db
@@ -741,6 +816,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // poll won't clobber it before the write confirms.
     pendingQtyRef.current.add(itemName);
     setQuantities((prev) => ({ ...prev, [itemName]: Math.max(0, qty) }));
+    // Resolved ids of the row this write touched — returned so an in-store add
+    // can record its `added_in_store` event after the write commits (D12).
+    // Null for removals and on failure.
+    let touched = null;
 
     try {
       // Look up in current catalogRef (includes custom items added this session)
@@ -825,6 +904,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
             });
           if (insertErr) throw insertErr;
           const newItem = { id: newItemId };
+          touched = { listItemId: newItemId, catalogItemId: catalogItem.id };
 
           // Record this user as the first contributor
           if (newItem && internalUserIdRef.current) {
@@ -838,6 +918,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           }
         } else {
           // Row already exists — update this user's contributor quantity
+          touched = { listItemId: updateData[0].id, catalogItemId: catalogItem.id };
           if (internalUserIdRef.current && updateData?.[0]?.id) {
             await db
               .from("list_item_contributors")
@@ -852,6 +933,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       }
       pendingQtyRef.current.delete(itemName);
       reportSuccess();
+      return touched;
     } catch (err) {
       pendingQtyRef.current.delete(itemName);
       console.error("updateQty error:", err.message, err);
@@ -866,6 +948,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
         setError(`Could not update quantity: ${err.message}`);
       }
+      return null;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
@@ -898,11 +981,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       if (updateErr) throw updateErr;
       pendingCheckRef.current.delete(itemName);
       reportSuccess();
+      // Resolves to the committed status so the Shop tab can write the matching
+      // list_item_events row AFTER the primary write (D12), or nothing on failure.
+      return newStatus;
     } catch (err) {
       pendingCheckRef.current.delete(itemName);
       console.error("toggleChecked error:", err.message);
       setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
       if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
+      return null;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checked]);
@@ -958,7 +1045,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return newCycle;
   }, []);
 
-  const startSession = useCallback(async () => {
+  // `silent` — the in-store event path (recordListEvent) starts the session as
+  // a side effect of a check that already succeeded; a failure there is logged,
+  // never toasted (D12: telemetry may not slow or interrupt shopping).
+  const startSession = useCallback(async ({ silent = false } = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return null;
@@ -998,11 +1088,167 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .select()
       .single();
 
-    if (sessionErr) { setError(`Could not start session: ${sessionErr.message}`); return null; }
+    if (sessionErr) {
+      if (silent) console.warn("startSession:", sessionErr.message);
+      else setError(`Could not start session: ${sessionErr.message}`);
+      return null;
+    }
     setActiveSession(newSession);
     activeSessionRef.current = newSession;
+    eventSeqRef.current = 0;
     return newSession;
   }, [openCycle]);
+
+  // ── In-store session lifecycle (SPEC_shop_lens_instore_capture.md) ──
+  // Sessions are PER PERSON (D10). Expiry is 8h without Wrap up, checked
+  // client-side on Shop mount and on each in-store action (D11) — there is no
+  // cron. Only the caller's own session is ever ended here: a partner's stale
+  // row is theirs (and 032's sessions_update_own would reject the write anyway).
+  const SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+  const isStaleSession = (s) => !!s && (Date.now() - new Date(s.started_at).getTime()) > SESSION_MAX_AGE_MS;
+
+  async function endSessionRow(db, sessionId) {
+    const { error: endErr } = await db
+      .from("shopping_sessions")
+      .update({ ended_at: new Date().toISOString() })
+      .eq("id", sessionId);
+    if (endErr) console.warn("endSession:", endErr.message);
+  }
+
+  // Reads the household's OPEN sessions: mine (adopted as activeSession, or
+  // ended if stale) and the first non-stale partner's (its store becomes the
+  // prompt's first chip). Also refreshes the store-name suggestions. This is the
+  // first code path that ever READS shopping_sessions from a client — the 032
+  // policies were verified by inspection only until this shipped.
+  async function loadSessions(db, householdId, { withStores = true } = {}) {
+    const me = internalUserIdRef.current;
+    const { data: open, error: openErr } = await db
+      .from("shopping_sessions")
+      .select("id, household_id, cycle_id, user_id, store_id, store_name_raw, started_at, ended_at")
+      .eq("household_id", householdId)
+      .is("ended_at", null)
+      .order("started_at", { ascending: false });
+    if (openErr) { console.warn("loadSessions:", openErr.message); return; }
+    let mine = null;
+    let partner = null;
+    for (const s of open || []) {
+      if (s.user_id === me) {
+        if (isStaleSession(s)) { await endSessionRow(db, s.id); continue; }
+        if (!mine) mine = s;
+      } else if (!partner && !isStaleSession(s)) {
+        partner = s;
+      }
+    }
+    setActiveSession(mine);
+    activeSessionRef.current = mine;
+    setPartnerSession(partner);
+    if (!withStores) return;
+
+    const { data: named, error: namedErr } = await db
+      .from("shopping_sessions")
+      .select("store_name_raw, started_at")
+      .eq("household_id", householdId)
+      .not("store_name_raw", "is", null)
+      .order("started_at", { ascending: false })
+      .limit(50);
+    if (namedErr) { console.warn("loadSessions stores:", namedErr.message); return; }
+    const seen = new Set();
+    const names = [];
+    (named || []).forEach(r => {
+      const n = (r.store_name_raw || "").trim();
+      if (n && !seen.has(n.toLowerCase())) { seen.add(n.toLowerCase()); names.push(n); }
+    });
+    setStoreSuggestions(names);
+  }
+
+  const refreshSessions = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !internalUserIdRef.current) return;
+    await loadSessions(db, hh.id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The session for the current in-store action. Re-reads the household's
+  // OPEN sessions on every action (one indexed select per tap): the D11 expiry
+  // check then runs against started_at as the database holds it, not a cached
+  // copy; a session this person opened on another device is adopted rather
+  // than duplicated; and the partner's CURRENT store lands in the prompt.
+  // loadSessions ends a stale own session itself, so what remains is either a
+  // fresh session or none. Serialized through sessionStartingRef so two quick
+  // taps cannot open two sessions during the GPS wait.
+  const ensureSession = useCallback(async ({ silent = false } = {}) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    if (sessionStartingRef.current) return sessionStartingRef.current;
+    sessionStartingRef.current = (async () => {
+      await loadSessions(db, hh.id, { withStores: false });
+      const cur = activeSessionRef.current;
+      if (cur) return cur;
+      return startSession({ silent });
+    })();
+    try {
+      return await sessionStartingRef.current;
+    } finally {
+      sessionStartingRef.current = null;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startSession]);
+
+  // Writes store_name_raw on the caller's OWN open session (032:
+  // sessions_update_own). Reads the row back rather than trusting the 2xx —
+  // a write no policy admits matches zero rows and raises no error (041).
+  const setSessionStore = useCallback(async (name) => {
+    const db = supabaseRef.current;
+    const cur = activeSessionRef.current;
+    const clean = (name || "").trim();
+    if (!db || !cur || !clean) return false;
+    const { data, error: storeErr } = await db
+      .from("shopping_sessions")
+      .update({ store_name_raw: clean })
+      .eq("id", cur.id)
+      .select("id, household_id, cycle_id, user_id, store_id, store_name_raw, started_at, ended_at")
+      .maybeSingle();
+    if (storeErr || !data) {
+      console.warn("setSessionStore:", storeErr?.message || "no row updated");
+      return false;
+    }
+    setActiveSession(data);
+    activeSessionRef.current = data;
+    setStoreSuggestions(prev => [clean, ...prev.filter(n => n.toLowerCase() !== clean.toLowerCase())]);
+    return true;
+  }, []);
+
+  // Best-effort event write (D12). Called AFTER the primary write has
+  // committed; never awaited by the tap; never toasts. Starts the session on
+  // the first in-store action of a trip (silently — a session failure must not
+  // surface as a check failure). Against a database without 046 the insert
+  // errors and is logged, nothing more.
+  const recordListEvent = useCallback(async (eventType, { listItemId = null, catalogItemId } = {}) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !catalogItemId || !internalUserIdRef.current) return;
+    try {
+      const session = await ensureSession({ silent: true });
+      eventSeqRef.current += 1;
+      const { error: evErr } = await db
+        .from("list_item_events")
+        .insert({
+          household_id: hh.id,
+          list_item_id: listItemId,
+          catalog_item_id: catalogItemId,
+          user_id: internalUserIdRef.current,
+          session_id: session?.id || null,
+          cycle_id: activeCycleRef.current?.id || session?.cycle_id || null,
+          event_type: eventType,
+          sequence: eventSeqRef.current,
+        });
+      if (evErr) console.warn(`list_item_events ${eventType}:`, evErr.message);
+    } catch (err) {
+      console.warn(`list_item_events ${eventType}:`, err?.message || err);
+    }
+  }, [ensureSession]);
 
   const wrapUpTrip = useCallback(async (rollItemNames = []) => {
     const db = supabaseRef.current;
@@ -2536,6 +2782,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
+    partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,
     _household: householdRef,

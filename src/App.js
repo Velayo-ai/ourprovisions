@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
-import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { Fragment, useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
@@ -632,6 +632,185 @@ function HouseholdDebugLog() {
     }
   }, [loadingHouseholds, activeHouseholdId, myHouseholds]);
   return null;
+}
+
+// ── Shared catalog search — Browse AND the Shop Add sheet ──
+// The search box and the results list are one component pair consumed by both
+// surfaces, so the add path — searchResults → hiddenLiveMatch → addSearchedItem
+// — cannot fork (SPEC_shop_lens_instore_capture.md). The hidden-item reveal rule
+// (F1b) is load-bearing: a hidden item that is LIVE on the shared list surfaces
+// as a reveal card, never as a false "add as new" — the shared component owns
+// that precedence, the callers cannot skip it. What differs per surface is
+// presentation only: how a result row renders (`renderRow`) and what the
+// no-match slot offers (`noMatch` — Browse's category picker, Shop's one-tap
+// "add as a new item" under `Other`).
+function CatalogSearchBox({ value, onChange, onClear, placeholder = "Search your catalog…", inputRef }) {
+  return (
+    <div style={{
+      flex: 1, minWidth: 0,
+      display: "flex", alignItems: "center",
+      background: "#F5EDE0",
+      border: `1.5px solid ${value ? "#A0724A" : "#E8D5B7"}`,
+      borderRadius: "12px",
+      padding: "0 12px", gap: "8px", height: "46px",
+      boxShadow: value ? "0 0 0 3px rgba(160,114,74,0.12)" : "none",
+      transition: "border-color 0.2s, box-shadow 0.2s",
+    }}>
+      <span style={{ color: "#C9A97A", fontSize: "15px", flexShrink: 0 }}>🔍</span>
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          flex: 1, minWidth: 0, border: "none", background: "none",
+          fontFamily: "'Lato', sans-serif", fontSize: "15px",
+          color: "#2C1A0E", outline: "none",
+        }}
+      />
+      {value && (
+        <span
+          onClick={onClear}
+          style={{ color: "#C9A97A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
+        >✕</span>
+      )}
+    </div>
+  );
+}
+
+const SEARCH_EYEBROW_STYLE = { padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" };
+
+function SearchResultsList({ query, results, hiddenLiveMatch, onReveal, renderRow, noMatch, listClassName, showCount = true }) {
+  if (results.length > 0) {
+    return (
+      <>
+        {showCount && (
+          <div style={SEARCH_EYEBROW_STYLE}>
+            {results.length} result{results.length !== 1 ? "s" : ""} for "{query}"
+          </div>
+        )}
+        <div className={listClassName}>
+          {results.map(renderRow)}
+        </div>
+      </>
+    );
+  }
+  if (hiddenLiveMatch) {
+    /* ── HIDDEN-BUT-LIVE: reveal only, never touch the shared quantity ── */
+    return (
+      <>
+        <div style={SEARCH_EYEBROW_STYLE}>On your list — hidden from your view</div>
+        <div
+          onClick={() => onReveal(hiddenLiveMatch.item.id)}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            borderRadius: "10px", border: "1.5px solid #C9A97A",
+            background: "rgba(201,169,122,0.06)", padding: "12px 14px",
+            marginBottom: "6px", cursor: "pointer",
+          }}
+        >
+          <div>
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+              <strong>{hiddenLiveMatch.item.name}</strong> ×{hiddenLiveMatch.qty}
+            </div>
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+              Hidden from your view — tap to reveal
+            </div>
+          </div>
+          <span style={{ color: "#A0724A", fontSize: "18px" }}>↺</span>
+        </div>
+      </>
+    );
+  }
+  /* ── NO MATCH: the surface decides what "add as new" looks like ── */
+  return (
+    <>
+      <div style={SEARCH_EYEBROW_STYLE}>No results for "{query}"</div>
+      {noMatch}
+    </>
+  );
+}
+
+// ── Shop tab: lens, In cart tray, store prompt (SPEC_shop_lens_instore_capture.md) ──
+// D3: a control shows its STATE, never its next state — both words visible,
+// the active one filled. Replaces the tri-state CycleIcon on Shop only.
+function ShopLensSegment({ lens, onChange }) {
+  return (
+    <div className="shop-seg" role="group" aria-label="List view">
+      <button type="button" className={lens === "aisles" ? "on" : ""} aria-pressed={lens === "aisles"} onClick={() => onChange("aisles")}>Aisles</button>
+      <button type="button" className={lens === "az" ? "on" : ""} aria-pressed={lens === "az"} onClick={() => onChange("az")}>A–Z</button>
+    </div>
+  );
+}
+
+// D2: checked items get a PLACE, not a toggle. Collapsed by default, hidden
+// entirely at 0. Rows un-check from inside the tray. `initialFor` returns a
+// small initial for rows the current user did not check (partner's check).
+function InCartTray({ items, open, onToggle, onUncheck, initialFor }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="in-cart-tray">
+      <button type="button" className="tray-head" onClick={onToggle} aria-expanded={open}>
+        <span className="tray-cb">✓</span>
+        <span className="tray-title">In cart<span className="tray-sub">{items.length} {items.length === 1 ? "item" : "items"}</span></span>
+        <span className="tray-chev">{open ? "▴" : "▾"}</span>
+      </button>
+      {open && (
+        <div className="tray-body">
+          {items.map((item) => {
+            const initial = initialFor(item.listItemId);
+            return (
+              <div key={item.name} className="list-item shop-row-in">
+                <div className="checkbox checked" onClick={() => onUncheck(item)}>
+                  <span className="checkmark">✓</span>
+                </div>
+                <div className="li-name" style={{ cursor: "pointer" }} onClick={() => onUncheck(item)}>{item.name}</div>
+                {item.qty > 1 && <span className="li-qty">×{item.qty}</span>}
+                {initial && <span className="tray-initial" title="Checked by another member">{initial}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// D10: ask the store, don't guess it. Chips are the partner's currently-open
+// session store first (if any), then the household's recent stores. Never
+// prefilled. Skip is honest — GPS was still captured at session start.
+function StorePrompt({ chips, onPick, onSkip, busy }) {
+  const [otherOpen, setOtherOpen] = useState(false);
+  const [other, setOther] = useState("");
+  const submitOther = () => { if (other.trim()) onPick(other.trim()); };
+  return (
+    <div className="store-prompt">
+      <div className="store-prompt-q">Where are you shopping?</div>
+      <div className="store-chips">
+        {chips.map((name) => (
+          <button type="button" key={name} className="store-chip" disabled={busy} onClick={() => onPick(name)}>{name}</button>
+        ))}
+        {!otherOpen && (
+          <button type="button" className="store-chip other" disabled={busy} onClick={() => setOtherOpen(true)}>Somewhere else…</button>
+        )}
+      </div>
+      {otherOpen && (
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "10px" }}>
+          <input
+            type="text"
+            className="store-input"
+            value={other}
+            onChange={e => setOther(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") submitOther(); }}
+            placeholder="Store name"
+          />
+          <button type="button" className="store-chip" disabled={busy || !other.trim()} onClick={submitOther}>Save</button>
+        </div>
+      )}
+      <button type="button" className="store-skip" onClick={onSkip}>Skip — you can set it later from the list.</button>
+    </div>
+  );
 }
 
 // Shared catalog row body (the inner .item-row, NOT the SwipeToRemove wrapper).
@@ -1967,6 +2146,13 @@ function ProvisionsApp() {
     fetchMealProvenance,
     updateFullName,
     activeCycle,
+    activeSession,
+    partnerSession,
+    storeSuggestions,
+    checkedByMap,
+    refreshSessions,
+    setSessionStore,
+    recordListEvent,
     wrapUpTrip,
     createHousehold,
     refreshMembers,
@@ -2334,16 +2520,34 @@ function ProvisionsApp() {
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
   const [wrappingUp, setWrappingUp] = useState(false);
-  // Shop declutter cycle: 0 default (grouped, all shown) · 1 tidied (grouped, checked hidden) · 2 flat (A–Z, checked hidden).
-  // Ephemeral UI state — resets to 0 on tab/household switch (see effect below). Supersedes the old op_showCategories toggle.
-  const [shopPhase, setShopPhase] = useState(0);
+  // Shop lens (SPEC_shop_lens_instore_capture.md): "aisles" (grouped) or "az"
+  // (flat). Replaces the three-phase cycle on Shop — checked items are no longer
+  // a filter state, they live in the In cart tray. Per-device, survives a reload
+  // (the old phase index never persisted, so this is a fresh localStorage slot).
+  const [shopLens, setShopLens] = useState(() => {
+    try { return localStorage.getItem("op_shop_lens") === "az" ? "az" : "aisles"; } catch { return "aisles"; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("op_shop_lens", shopLens); } catch { /* storage unavailable — lens stays in memory */ }
+  }, [shopLens]);
+  // Per-trip Shop state (component state, not DB): the tray's expanded flag, the
+  // catalog ids added from the aisle this trip ("added here" tag — the visible
+  // face of the added_in_store event, not a permanent badge), the Add sheet, and
+  // the store prompt (explicitly re-opened from the eyebrow / skipped for a
+  // session id). Reset on household switch and on Wrap up.
+  const [trayOpen, setTrayOpen] = useState(false);
+  const [addedHereIds, setAddedHereIds] = useState(() => new Set());
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  const [storePromptOpen, setStorePromptOpen] = useState(false);
+  const [storePromptSkippedFor, setStorePromptSkippedFor] = useState(null);
+  const [storeSaving, setStoreSaving] = useState(false);
+  const addSheetInputRef = useRef(null);
   // Browse declutter cycle: 0 default (pills shown, grouped) · 1 tidied (pills hidden, grouped) · 2 flat (A–Z).
   const [browsePhase, setBrowsePhase] = useState(0);
   // Declutter phase + Browse filters are per-view/per-household ephemeral state:
   // reset on tab or household switch so a stale filter can't shrink the new
   // household's list (phase 1 hides the pills that would otherwise explain it).
   useEffect(() => {
-    setShopPhase(0);
     setBrowsePhase(0);
     setSelectedCategories(new Set());
     setStapleFilter(false);
@@ -2618,30 +2822,31 @@ function ProvisionsApp() {
   // Search "add to your list" handler (F1b Layer 1 — the floor). Re-adding a HIDDEN
   // item must never write quantity across the person boundary: hide is a lens, not an
   // edit. Resolve the typed name against the hidden set first.
-  const addSearchedItem = (rawCategory) => {
+  // Resolves to updateQty's `{ listItemId, catalogItemId }` when a quantity was
+  // written, null otherwise (reveal-only, or nothing typed) — the Shop Add sheet
+  // records its added_in_store event from that. Browse ignores the value.
+  const addSearchedItem = async (rawCategory) => {
     const typed = searchQuery.trim();
-    if (typed) {
-      const norm = normalizeName(typed);
-      const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
-      if (hidden) {
-        const liveRow = listRows.find(r => r.catalogItemId === hidden.id && (r.quantity || 0) > 0);
-        if (liveRow) {
-          // Live shared row exists → un-hide ONLY. No quantity write; reveal it as-is.
-          unhideItem(hidden.id);
-        } else {
-          // Hidden while at qty 0 (not on the list) → un-hide, then add at typed qty.
-          unhideItem(hidden.id);
-          updateQty(typed, 1, rawCategory);
-        }
-      } else {
-        // No hidden match → today's behavior: add as a (possibly new) item.
-        updateQty(typed, 1, rawCategory);
-      }
-    }
     setSearchQuery("");
     setSearchPickerOpen(false);
     setSearchNewCatOpen(false);
     setNewCategoryInput("");
+    if (!typed) return null;
+    const norm = normalizeName(typed);
+    const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
+    if (hidden) {
+      const liveRow = listRows.find(r => r.catalogItemId === hidden.id && (r.quantity || 0) > 0);
+      if (liveRow) {
+        // Live shared row exists → un-hide ONLY. No quantity write; reveal it as-is.
+        unhideItem(hidden.id);
+        return null;
+      }
+      // Hidden while at qty 0 (not on the list) → un-hide, then add at typed qty.
+      unhideItem(hidden.id);
+      return updateQty(typed, 1, rawCategory);
+    }
+    // No hidden match → today's behavior: add as a (possibly new) item.
+    return updateQty(typed, 1, rawCategory);
   };
 
   // Show the join banner once the lens has landed on the joined household.
@@ -3112,7 +3317,99 @@ function ProvisionsApp() {
     setWrappingUp(false);
     setShowWrapUpModal(false);
     setWrapUpRollItems(new Set());
+    // The trip is over: the tray, the "added here" tags and the prompt state
+    // were all scoped to it.
+    setTrayOpen(false);
+    setAddedHereIds(new Set());
+    setStorePromptOpen(false);
+    setStorePromptSkippedFor(null);
   };
+
+  // ── Shop tab: in-store actions (SPEC_shop_lens_instore_capture.md) ──
+  // Every handler here does the PRIMARY write first through the existing path,
+  // then records the event best-effort (D12) — never awaited by the tap, never
+  // a toast. The first event of a trip starts the session (and so the store
+  // prompt) as a side effect inside recordListEvent.
+  const handleShopToggle = async (item) => {
+    const status = await toggleChecked(item.name, item.listItemId);
+    if (!status) return;
+    recordListEvent(status === "bought" ? "checked" : "unchecked", { listItemId: item.listItemId, catalogItemId: item.catalogItemId });
+  };
+  const openAddSheet = () => {
+    setSearchQuery("");
+    setSearchPickerOpen(false);
+    setAddSheetOpen(true);
+  };
+  const closeAddSheet = () => {
+    setAddSheetOpen(false);
+    setSearchQuery("");
+  };
+  const noteAddedHere = (res) => {
+    if (!res) return;
+    setAddedHereIds(prev => { const n = new Set(prev); n.add(res.catalogItemId); return n; });
+    recordListEvent("added_in_store", res);
+  };
+  // A catalog hit — the same write Browse's row makes (+1 through updateQty,
+  // which sets status back to pending: D6, adds land unchecked).
+  const handleShopAddResult = async (item) => {
+    closeAddSheet();
+    const res = await updateQty(item.name, (quantities[item.name] || 0) + 1, item.rawCategory);
+    noteAddedHere(res);
+  };
+  // No match — Browse's addSearchedItem, unchanged, with the category fixed to
+  // `Other` (D7). It resolves hidden items before anything else (F1b).
+  const handleShopAddNew = async () => {
+    const res = await addSearchedItem("Other");
+    setAddSheetOpen(false);
+    noteAddedHere(res);
+  };
+  const handleStorePick = async (name) => {
+    setStoreSaving(true);
+    const ok = await setSessionStore(name);
+    setStoreSaving(false);
+    if (ok) setStorePromptOpen(false);
+  };
+  const handleStoreSkip = () => {
+    setStorePromptSkippedFor(activeSession?.id || null);
+    setStorePromptOpen(false);
+  };
+  // The tray's initial: who last CHECKED the row, from the event log — only for
+  // rows the current user did not check themselves.
+  const initialFor = (listItemId) => {
+    const uid = checkedByMap[listItemId];
+    if (!uid || uid === _internalUserId?.current) return null;
+    const member = householdMembers.find(m => m.user_id === uid);
+    const parts = (member?.users?.full_name || "").trim().split(/\s+/).filter(Boolean);
+    return parts.length > 0 ? parts.slice(0, 2).map(p => p[0].toUpperCase()).join("") : "?";
+  };
+  const storeChips = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    [partnerSession?.store_name_raw, ...storeSuggestions].forEach((n) => {
+      const clean = (n || "").trim();
+      if (clean && !seen.has(clean.toLowerCase())) { seen.add(clean.toLowerCase()); out.push(clean); }
+    });
+    return out;
+  }, [partnerSession, storeSuggestions]);
+  const storePromptVisible = view === "list" && !!activeSession && (
+    storePromptOpen || (!activeSession.store_name_raw && storePromptSkippedFor !== activeSession.id)
+  );
+
+  // Shop mount: re-read open sessions (D11 expiry check, partner's store).
+  useEffect(() => {
+    if (view === "list") refreshSessions();
+  }, [view, refreshSessions]);
+  // Per-trip Shop state does not survive a household switch.
+  useEffect(() => {
+    setTrayOpen(false);
+    setAddedHereIds(new Set());
+    setAddSheetOpen(false);
+    setStorePromptOpen(false);
+    setStorePromptSkippedFor(null);
+  }, [activeHouseholdId]);
+  useEffect(() => {
+    if (addSheetOpen) addSheetInputRef.current?.focus();
+  }, [addSheetOpen]);
 
   const handleRemoveMember = async (m) => {
     const name = m.users?.full_name || (m.users?.email ? m.users.email.split("@")[0] : "this member");
@@ -3354,12 +3651,19 @@ function ProvisionsApp() {
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.name] ? i.subtotal : 0), 0), 0);
 
-  // Shop declutter phase 2 — flat A–Z of unchecked items (checked are always hidden once decluttered).
+  // Shop A–Z lens — flat, alphabetical, unchecked only (checked items live in the In cart tray).
   const shopFlatItems = useMemo(() =>
     shoppingList
       .flatMap(c => c.items)
       .filter(i => !checked[i.name])
       .sort((a, b) => a.name.localeCompare(b.name)),
+    [shoppingList, checked]);
+  // Shop Aisles lens — today's grouping minus the checked rows; an aisle that
+  // empties out disappears (its items are all in the tray).
+  const shopAisles = useMemo(() =>
+    shoppingList
+      .map(cat => ({ ...cat, items: cat.items.filter(i => !checked[i.name]) }))
+      .filter(cat => cat.items.length > 0),
     [shoppingList, checked]);
 
  
@@ -3583,6 +3887,68 @@ function ProvisionsApp() {
         .cyc-ico svg { width: 22px; height: 22px; display: block; }
         .wrapup { flex: none; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; border-radius: 11px; height: 48px; padding: 0 18px; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; letter-spacing: 0.2px; color: #2C1A0E; cursor: pointer; white-space: nowrap; transition: border-color 0.2s; }
         .wrapup:hover { border-color: #A0724A; }
+        /* ── Shop tab: lens · In cart tray · in-store Add · store prompt (SPEC_shop_lens_instore_capture.md) ── */
+        .shop-seg { flex: none; height: 46px; border-radius: 11px; border: 1px solid #E8D5B7; background: #fff; display: flex; overflow: hidden; }
+        .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #A0724A; cursor: pointer; transition: background .15s, color .15s; }
+        .shop-seg button.on { background: #A0724A; color: #fff; }
+        .store-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: -6px 2px 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+        .store-line b { color: #2C1A0E; font-weight: 700; }
+        .store-line .chev { font-size: 0.7rem; color: #A0724A; }
+        .az-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin: 2px 0 6px; }
+        .az-letter { font-family: 'Playfair Display', serif; font-size: 1.1rem; color: #A0724A; margin-top: 14px; padding: 0 2px 3px; border-bottom: 1px solid #E3D4BC; }
+        /* A–Z is a different MODE, not the same rows minus headers: half-height rows, small circle, no provenance, no prices. */
+        .list-item.az { padding: 8px 4px; gap: 12px; border-bottom: 1px solid #F0E6D6; }
+        .list-item.az .checkbox { width: 18px; height: 18px; }
+        .list-item.az .li-name { font-size: calc(0.9rem * var(--op-list-scale)); }
+        .added-here-tag { display: inline-block; margin-left: 6px; font-family: 'Lato', sans-serif; font-size: 0.62rem; font-weight: 700; color: #0D9488; border: 1px solid #0D9488; border-radius: 4px; padding: 1px 5px; vertical-align: middle; letter-spacing: .3px; }
+        .in-cart-tray { margin-top: 26px; border-radius: 12px; background: #fff; border: 1px solid #E3D4BC; overflow: hidden; }
+        .tray-head { display: flex; align-items: center; gap: 10px; padding: 13px 14px; cursor: pointer; background: none; border: none; width: 100%; text-align: left; }
+        .tray-cb { width: 22px; height: 22px; border-radius: 50%; background: #c8973a; color: #fff; font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .tray-title { flex: 1; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; color: #2C1A0E; }
+        .tray-sub { font-size: 0.72rem; color: #8a7a60; font-weight: 400; margin-left: 6px; }
+        .tray-chev { color: #8a7a60; font-size: 0.8rem; }
+        .tray-body { border-top: 1px solid #E3D4BC; padding: 0 14px 4px; }
+        .tray-body .list-item { padding: 11px 0; opacity: 0.55; }
+        .tray-body .list-item:last-child { border-bottom: none; }
+        .tray-body .li-name { text-decoration: line-through; color: #a89878; font-size: calc(0.88rem * var(--op-list-scale)); }
+        .tray-initial { width: 20px; height: 20px; border-radius: 50%; background: #E8D5B7; color: #2C1A0E; font-family: 'Lato', sans-serif; font-size: 0.6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        /* Rows animate INTO wherever they land — down into the tray, back up into an aisle — so the person sees where the item went. */
+        @keyframes opRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+        @keyframes opRowInDown { from { opacity: 0; transform: translateY(6px); } to { opacity: 0.55; transform: none; } }
+        .shop-row-in { animation: opRowIn .22s ease; }
+        .tray-body .shop-row-in { animation-name: opRowInDown; }
+        @media (prefers-reduced-motion: reduce) { .shop-row-in { animation: none; } }
+        /* The floating + (D5). position: fixed in the thumb corner, floats OVER
+           the list and reserves no space. NOT a bottom-centred status surface,
+           so it lives outside the bottom status stack by design: it is an action
+           in the right corner, and it hides whenever a sheet or the Wrap-up
+           modal is open. z-index sits under the sheets (1000) and the stack (2000). */
+        .shop-fab { position: fixed; right: 18px; bottom: 24px; width: 56px; height: 56px; border-radius: 50%; background: #2C1A0E; color: #FAF4EC; border: none; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 2rem; font-weight: 300; line-height: 1; padding: 0 0 3px; box-shadow: 0 8px 22px rgba(44,26,14,0.32); cursor: pointer; z-index: 900; }
+        /* One row-height of clearance at the very end of the list so the tray chevron is never under the +. */
+        .shop-list-tail { height: 52px; }
+        .store-prompt { margin: 0 0 22px; padding: 14px 14px 12px; background: #fff; border: 1px solid #E3D4BC; border-radius: 12px; }
+        .store-prompt-q { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: #2C1A0E; margin-bottom: 10px; }
+        .store-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .store-chip { font-family: 'Lato', sans-serif; font-size: 0.8rem; font-weight: 700; padding: 8px 13px; border-radius: 20px; border: 1px solid #E8D5B7; background: #FAF4EC; color: #2C1A0E; cursor: pointer; }
+        .store-chip:disabled { opacity: .5; cursor: default; }
+        .store-chip.other { color: #A0724A; border-style: dashed; font-weight: 400; }
+        .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 10px; cursor: pointer; text-decoration: underline; }
+        .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: 0.85rem; color: #2C1A0E; background: #F5EDE0; outline: none; }
+        .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; }
+        .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; }
+        .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; }
+        .add-sheet-title { font-family: 'Playfair Display', serif; font-size: 1.15rem; color: #2C1A0E; margin-bottom: 12px; }
+        .add-sheet-results { overflow-y: auto; margin-top: 10px; min-height: 0; }
+        .add-result { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #E8D5B7; cursor: pointer; }
+        .add-result .ar-main { flex: 1; min-width: 0; }
+        .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: 0.92rem; color: #2C1A0E; }
+        .add-result .ar-cat { font-family: 'Lato', sans-serif; font-size: 0.7rem; color: #8a7a60; margin-top: 2px; }
+        .add-result .ar-go { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #A0724A; }
+        .add-result.create { border-bottom: none; }
+        .add-result.create .ar-name { color: #A0724A; }
+        .add-result.create .ar-name b { color: #2C1A0E; }
+        .add-sheet-hint { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 12px; line-height: 1.45; }
+        .op-later-badge { position: absolute; top: -8px; right: -8px; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 700; letter-spacing: .5px; background: #0D9488; color: #fff; padding: 2px 6px; border-radius: 8px; }
         .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
         /* Names in the filter descriptor read as content, not as voice. */
         .declutter-desc b { font-style: normal; font-weight: 700; color: #A0724A; }
@@ -4751,35 +5117,11 @@ function ProvisionsApp() {
               marginBottom: "12px",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{
-                  flex: 1, minWidth: 0,
-                  display: "flex", alignItems: "center",
-                  background: "#F5EDE0",
-                  border: `1.5px solid ${searchQuery ? "#A0724A" : "#E8D5B7"}`,
-                  borderRadius: "12px",
-                  padding: "0 12px", gap: "8px", height: "46px",
-                  boxShadow: searchQuery ? "0 0 0 3px rgba(160,114,74,0.12)" : "none",
-                  transition: "border-color 0.2s, box-shadow 0.2s",
-                }}>
-                  <span style={{ color: "#C9A97A", fontSize: "15px", flexShrink: 0 }}>🔍</span>
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => { setSearchQuery(e.target.value); setSearchPickerOpen(false); }}
-                    placeholder="Search your catalog…"
-                    style={{
-                      flex: 1, minWidth: 0, border: "none", background: "none",
-                      fontFamily: "'Lato', sans-serif", fontSize: "15px",
-                      color: "#2C1A0E", outline: "none",
-                    }}
-                  />
-                  {searchQuery && (
-                    <span
-                      onClick={() => { setSearchQuery(""); setSearchPickerOpen(false); }}
-                      style={{ color: "#C9A97A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
-                    >✕</span>
-                  )}
-                </div>
+                <CatalogSearchBox
+                  value={searchQuery}
+                  onChange={(v) => { setSearchQuery(v); setSearchPickerOpen(false); }}
+                  onClear={() => { setSearchQuery(""); setSearchPickerOpen(false); }}
+                />
                 <CycleIcon phase={browsePhase} onAdvance={() => setBrowsePhase((browsePhase + 1) % 3)} />
               </div>
             </div>
@@ -4871,15 +5213,15 @@ function ProvisionsApp() {
                 Loading your catalog…
               </div>
             ) : searchResults !== null ? (
-              /* ── SEARCH MODE ── */
+              /* ── SEARCH MODE — shared with the Shop Add sheet (CatalogSearchBox / SearchResultsList) ── */
               <div>
-                {searchResults.length > 0 ? (
-                  <>
-                    <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
-                      {searchResults.length} result{searchResults.length !== 1 ? "s" : ""} for "{searchQuery}"
-                    </div>
-                    <div className="items-grid">
-                      {searchResults.map(item => {
+                <SearchResultsList
+                  query={searchQuery}
+                  results={searchResults}
+                  hiddenLiveMatch={hiddenLiveMatch}
+                  onReveal={(id) => { unhideItem(id); setSearchQuery(""); }}
+                  listClassName="items-grid"
+                  renderRow={(item) => {
                         const qty = quantities[item.name] || 0;
                         const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
                         const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
@@ -4906,41 +5248,10 @@ function ProvisionsApp() {
                             />
                           </SwipeToRemove>
                         );
-                      })}
-                    </div>
-                  </>
-                ) : hiddenLiveMatch ? (
-                  /* ── HIDDEN-BUT-LIVE: reveal only, never touch the shared quantity ── */
+                  }}
+                  noMatch={
+                  /* ── NO MATCH on Browse: inline add with category picker ── */
                   <>
-                    <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
-                      On your list — hidden from your view
-                    </div>
-                    <div
-                      onClick={() => { unhideItem(hiddenLiveMatch.item.id); setSearchQuery(""); }}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        borderRadius: "10px", border: "1.5px solid #C9A97A",
-                        background: "rgba(201,169,122,0.06)", padding: "12px 14px",
-                        marginBottom: "6px", cursor: "pointer",
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
-                          <strong>{hiddenLiveMatch.item.name}</strong> ×{hiddenLiveMatch.qty}
-                        </div>
-                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
-                          Hidden from your view — tap to reveal
-                        </div>
-                      </div>
-                      <span style={{ color: "#A0724A", fontSize: "18px" }}>↺</span>
-                    </div>
-                  </>
-                ) : (
-                  /* ── NO MATCH: inline add with category picker ── */
-                  <>
-                    <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
-                      No results for "{searchQuery}"
-                    </div>
                     <div style={{
                       borderRadius: "10px",
                       border: "1.5px dashed #C9A97A",
@@ -5035,7 +5346,8 @@ function ProvisionsApp() {
                       )}
                     </div>
                   </>
-                )}
+                  }
+                />
               </div>
             ) : (
               /* ── NORMAL BROWSE MODE ── */
@@ -5143,6 +5455,19 @@ function ProvisionsApp() {
 
         {view === "list" && (
           <>
+            {/* Store prompt (mockup frame D) — once per session, only while no
+                store is set, or re-opened from the eyebrow. Eyebrow renders only
+                while a session is open AND has a store: the session is a
+                sentence, not a widget. */}
+            {storePromptVisible && (
+              <StorePrompt chips={storeChips} onPick={handleStorePick} onSkip={handleStoreSkip} busy={storeSaving} />
+            )}
+            {!storePromptVisible && activeSession?.store_name_raw && (
+              <div className="store-line" onClick={() => setStorePromptOpen(true)} role="button" tabIndex={0}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setStorePromptOpen(true); }}>
+                Shopping at <b>{activeSession.store_name_raw}</b> <span className="chev">▾</span>
+              </div>
+            )}
             {totalItems === 0 ? (
               <div className="list-empty">
                 <h2>Your list is empty</h2>
@@ -5151,9 +5476,9 @@ function ProvisionsApp() {
             ) : (
               <>
                 <div className="list-header">
-                  <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} checked</span>
+                  <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} in cart</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
-                  <CycleIcon phase={shopPhase} onAdvance={() => setShopPhase((shopPhase + 1) % 3)} />
+                  <ShopLensSegment lens={shopLens} onChange={setShopLens} />
                   <button
                     className="wrapup"
                     onClick={() => {
@@ -5170,13 +5495,6 @@ function ProvisionsApp() {
                     Wrap up
                   </button>
                 </div>
-                {shopPhase !== 0 && (
-                  <div className="declutter-desc">
-                    {checkedCount > 0
-                      ? `${checkedCount} checked ${checkedCount === 1 ? "item" : "items"} hidden`
-                      : "no checked items yet"}
-                  </div>
-                )}
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
                 </div>
@@ -5206,77 +5524,70 @@ function ProvisionsApp() {
                     </button>
                   </div>
                 )}
-                {shopPhase !== 2 ? (
-                  shoppingList.map((cat) => {
-                    // Phase 1 hides checked items; skip a category that empties out.
-                    const catItems = shopPhase === 1 ? cat.items.filter(i => !checked[i.name]) : cat.items;
-                    if (catItems.length === 0) return null;
-                    return (
+                {shopLens === "aisles" ? (
+                  /* ── AISLES — today's grouped render, minus the phase machinery. Checked rows are in the tray. ── */
+                  shopAisles.map((cat) => (
                     <div key={cat.category}>
                       <div className="list-cat-title">{cat.category}</div>
-                      {catItems.map((item) => {
-                        const isDone = checked[item.name];
-                        return (
-                          <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                            <div className={`list-item ${isDone ? "done" : ""}`}>
-                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.listItemId)}>
-                                {isDone && <span className="checkmark">✓</span>}
+                      {cat.items.map((item) => (
+                        <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
+                          <div className="list-item shop-row-in">
+                            <div className="checkbox" onClick={() => handleShopToggle(item)} />
+                            <div style={{ flex: 1, cursor: "pointer" }} onClick={() => handleShopToggle(item)}>
+                              <div className="li-name">
+                                {item.name}
+                                {addedHereIds.has(item.catalogItemId) && <span className="added-here-tag">added here</span>}
                               </div>
-                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name, item.listItemId)}>
-                                <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
-                                  {item.name}
-                                </div>
-                                {provenanceLines(item)}
-                              </div>
-                              {item.qty > 1 && (
-                                <span className="li-qty">×{item.qty}</span>
-                              )}
-                              {showPrices && item.price > 0 && (
-                                <div className="li-right">
-                                  <span className="li-qty">@ ${item.price.toFixed(2)}</span>
-                                  <span className={`li-subtotal ${isDone ? "done" : ""}`}>${item.subtotal.toFixed(2)}</span>
-                                </div>
-                              )}
+                              {provenanceLines(item)}
                             </div>
-                          </SwipeToRemove>
-                        );
-                      })}
+                            {item.qty > 1 && (
+                              <span className="li-qty">×{item.qty}</span>
+                            )}
+                            {showPrices && item.price > 0 && (
+                              <div className="li-right">
+                                <span className="li-qty">@ ${item.price.toFixed(2)}</span>
+                                <span className="li-subtotal">${item.subtotal.toFixed(2)}</span>
+                              </div>
+                            )}
+                          </div>
+                        </SwipeToRemove>
+                      ))}
                     </div>
-                    );
-                  })
+                  ))
                 ) : (
+                  /* ── A–Z — a different mode: half-height rows, letter dividers, no provenance, no per-row prices. ── */
                   <div>
-                    <FlatHeader count={shopFlatItems.length} />
-                    {shopFlatItems
-                      .map((item) => {
-                        const isDone = checked[item.name];
-                        return (
-                          <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                            <div className={`list-item ${isDone ? "done" : ""}`}>
-                              <div className={`checkbox ${isDone ? "checked" : ""}`} onClick={() => toggleChecked(item.name, item.listItemId)}>
-                                {isDone && <span className="checkmark">✓</span>}
-                              </div>
-                              <div style={{ flex: 1, cursor: "pointer" }} onClick={() => toggleChecked(item.name, item.listItemId)}>
-                                <div className="li-name" style={{ textDecoration: checked[item.name] ? "line-through" : "none" }}>
-                                  {item.name}
-                                </div>
-                                {provenanceLines(item)}
+                    <div className="az-eyebrow">{shopFlatItems.length} to find</div>
+                    {shopFlatItems.map((item, idx) => {
+                      const letter = (item.name[0] || "").toUpperCase();
+                      const prevLetter = idx > 0 ? (shopFlatItems[idx - 1].name[0] || "").toUpperCase() : null;
+                      return (
+                        <Fragment key={item.name}>
+                          {letter !== prevLetter && <div className="az-letter">{letter}</div>}
+                          <SwipeToRemove onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
+                            <div className="list-item az shop-row-in">
+                              <div className="checkbox" onClick={() => handleShopToggle(item)} />
+                              <div className="li-name" onClick={() => handleShopToggle(item)}>
+                                {item.name}
+                                {addedHereIds.has(item.catalogItemId) && <span className="added-here-tag">added here</span>}
                               </div>
                               {item.qty > 1 && (
                                 <span className="li-qty">×{item.qty}</span>
                               )}
-                              {showPrices && item.price > 0 && (
-                                <div className="li-right">
-                                  <span className="li-qty">@ ${item.price.toFixed(2)}</span>
-                                  <span className={`li-subtotal ${isDone ? "done" : ""}`}>${item.subtotal.toFixed(2)}</span>
-                                </div>
-                              )}
                             </div>
                           </SwipeToRemove>
-                        );
-                      })}
+                        </Fragment>
+                      );
+                    })}
                   </div>
                 )}
+                <InCartTray
+                  items={boughtItems}
+                  open={trayOpen}
+                  onToggle={() => setTrayOpen(o => !o)}
+                  onUncheck={handleShopToggle}
+                  initialFor={initialFor}
+                />
                 {showPrices && (
                 <div className={`list-total ${overBudget ? "over" : ""}`}>
                   <div className="lt-left">
@@ -5295,7 +5606,12 @@ function ProvisionsApp() {
                   <div className={`lt-amount ${overBudget ? "over" : ""}`}>{hasEstimatedPrices ? "~" : ""}${totalCost.toFixed(2)}</div>
                 </div>
                 )}
+                <div className="shop-list-tail" aria-hidden="true" />
               </>
+            )}
+            {/* Floating + (D5). Hidden while the Wrap-up modal or the Add sheet is open. */}
+            {!showWrapUpModal && !addSheetOpen && (
+              <button type="button" className="shop-fab" aria-label="Add something" onClick={openAddSheet}>+</button>
             )}
           </>
         )}
@@ -5773,6 +6089,71 @@ function ProvisionsApp() {
 
             <div className="modal-actions">
               <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setShowResetConfirm(false); }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Shop Add sheet (mockup frame C) — transactional, so the scrim closes it.
+          Same search path Browse has, through the shared components: catalog hit
+          adds at one tap, hidden-live item surfaces as the reveal card, no match
+          creates under `Other`. The mic is designed in and NOT wired (LATER). ── */}
+      {addSheetOpen && (
+        <div className="add-sheet-scrim" onClick={closeAddSheet}>
+          <div className="add-sheet" onClick={e => e.stopPropagation()}>
+            <div className="add-sheet-grab" />
+            <div className="add-sheet-title">Add something</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <CatalogSearchBox
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onClear={() => setSearchQuery("")}
+                placeholder="Search your catalog…"
+                inputRef={addSheetInputRef}
+              />
+              <span style={{ position: "relative", flex: "none" }}>
+                <button type="button" className="op-mic-btn" disabled aria-label="Voice add — coming later" title="Voice add — coming later">
+                  <svg viewBox="0 0 24 24" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="3" width="6" height="11" rx="3" />
+                    <path d="M5 11a7 7 0 0 0 14 0" />
+                    <line x1="12" y1="18" x2="12" y2="21" />
+                  </svg>
+                </button>
+                <span className="op-later-badge">LATER</span>
+              </span>
+            </div>
+            <div className="add-sheet-results">
+              {searchResults !== null && (
+                <SearchResultsList
+                  query={searchQuery}
+                  results={searchResults}
+                  hiddenLiveMatch={hiddenLiveMatch}
+                  onReveal={(id) => { unhideItem(id); closeAddSheet(); }}
+                  showCount={false}
+                  renderRow={(item) => (
+                    <div key={item.name} className="add-result" onClick={() => handleShopAddResult(item)} role="button" tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleShopAddResult(item); }}>
+                      <div className="ar-main">
+                        <div className="ar-name">{item.name}</div>
+                        <div className="ar-cat">{item.category}</div>
+                      </div>
+                      <span className="ar-go">Add</span>
+                    </div>
+                  )}
+                  noMatch={
+                    <div className="add-result create" onClick={handleShopAddNew} role="button" tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleShopAddNew(); }}>
+                      <div className="ar-main">
+                        <div className="ar-name">Add <b>“{searchQuery.trim()}”</b> as a new item…</div>
+                      </div>
+                    </div>
+                  }
+                />
+              )}
+            </div>
+            <div className="add-sheet-hint">
+              Added items land in their aisle, unchecked
+              {activeSession?.store_name_raw ? `, and are remembered as picked up at ${activeSession.store_name_raw}` : ""}.
             </div>
           </div>
         </div>
