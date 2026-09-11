@@ -293,3 +293,13 @@ everything else passes through and is cleared each SESSION END.
   multi-client fix — stale JS produces false negatives.
 - When catalog rows are soft-deleted (`deleted_at`), every catalog read path must
   filter `deleted_at IS NULL` (list RPC, browse load, catalogMap build).
+- **Every new-table migration revokes from `public`, `anon` AND `authenticated`
+  before granting, then reads `information_schema.role_table_grants` back.**
+  Supabase's schema default privileges give a new table ALL to `authenticated`,
+  and RLS does not cover all of it — `TRUNCATE` bypasses RLS outright, and
+  "no UPDATE/DELETE policy" only holds while the role has no privilege that
+  sidesteps policy evaluation. Revoking from `public` alone removes none of the
+  explicit role grants. The apply script's closing SELECT must show the
+  granted set EXACTLY (e.g. `INSERT,SELECT`), never "no anon row" alone.
+  (Caught on dev 2026-09-10: 046's first apply left `authenticated` with
+  DELETE…TRUNCATE…UPDATE on an append-only table.)

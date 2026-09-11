@@ -33,13 +33,24 @@
 --     list_item_meals. Remember 041: a client write that no policy admits matches
 --     ZERO rows and raises NO error. That is the intended behaviour here, which is
 --     why verification reads the table back and never trusts a 2xx.
---   * revoke all from anon — no anon path. Re-read the grants after applying.
+--   * GRANTS ARE LOAD-BEARING, NOT BELT-AND-BRACES. Supabase's schema default
+--     privileges hand every new table ALL privileges to authenticated (and
+--     anon), and RLS does not cover all of them: TRUNCATE bypasses RLS entirely,
+--     and the "no UPDATE/DELETE policy" guarantee only holds while the role has
+--     no privilege that sidesteps policy evaluation. So this script REVOKES ALL
+--     from public, anon AND authenticated before granting back exactly
+--     select, insert. Found on dev 2026-09-10: the first apply skipped the
+--     authenticated revoke and the read-back showed
+--     DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE — corrected by
+--     hand on dev, and this file amended before it reaches prod.
 --   Role is `authenticated`, the direction of travel for new policies (032 §2).
 --
 -- APPLY
 --   Paste the whole file into the dev SQL editor. It ends in a row-returning
 --   SELECT because the editor never surfaces `raise notice`. Expected result: one
 --   row, rls_on = true, sel = 1, ins = 1, upd = 0, del = 0, anon_privs = 0,
+--   authenticated_privs = EXACTLY "INSERT,SELECT" (anything more means a
+--   default-privilege grant survived — revoke and re-run the SELECT),
 --   check_present = true, idx_count = 3 (pkey + the two indexes below).
 
 begin;
@@ -77,10 +88,13 @@ create policy list_item_events_insert on public.list_item_events
 
 -- No UPDATE policy. No DELETE policy. Append-only.
 
--- No anon path, no exceptions. Revoking from PUBLIC does not remove an explicit
--- anon grant (the 045 lesson), so anon is revoked by name as well.
+-- Revoke from ALL THREE before granting. Revoking from PUBLIC does not remove
+-- an explicit role grant (the 045 lesson), so anon and authenticated are each
+-- revoked by name. The authenticated revoke is what strips the schema-default
+-- ALL (incl. TRUNCATE, which RLS cannot stop) down to exactly select, insert.
 revoke all on table public.list_item_events from public;
 revoke all on table public.list_item_events from anon;
+revoke all on table public.list_item_events from authenticated;
 grant select, insert on table public.list_item_events to authenticated;
 grant all on table public.list_item_events to service_role;
 
@@ -88,6 +102,9 @@ commit;
 
 -- =====================================================================
 -- VERIFY — row-returning, so the SQL editor shows it. Paste the result back.
+-- authenticated_privs must read EXACTLY INSERT,SELECT and anon_privs 0; any
+-- extra privilege on authenticated is a surviving default grant, not a policy
+-- question — fix it with revoke/grant, then re-run this SELECT.
 -- =====================================================================
 select
   c.relname,
