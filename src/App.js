@@ -1,7 +1,7 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
-import { NAV_DOORS } from './nav';
+import { NAV_DOORS, useMediaQuery, WIDE_QUERY } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
@@ -837,6 +837,56 @@ function HomePlaceholder({ firstName, householdName }) {
         Tonight's meal and what's happening in {householdName || "your place"} will live here.
       </p>
     </div>
+  );
+}
+
+// D5 — past 700px the pill unmounts and the SAME doors stand in a left rail:
+// width is cheap there and thumb reach doesn't apply. Same NAV_DOORS, same
+// icons, same order, same active treatment (shared .helm-door). The context
+// slot (D9) is honoured here too — on Shop the + and Wrap up stack above the
+// avatar — so a laptop is never left without the trip's two actions once the
+// header button and the floating + are gone.
+function Rail({ view, onChange, badgeCount, initials, onAvatar, posture = "nav", onAdd, onWrapUp, canWrapUp = false, wrapUpEmphasized = false }) {
+  return (
+    <nav className="rail" aria-label="Main">
+      <div className="rail-mark" aria-hidden="true">P</div>
+      {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
+        const active = view === v;
+        return (
+          <button
+            key={key}
+            type="button"
+            className={`helm-door ${active ? "active" : ""}`}
+            aria-current={active ? "page" : undefined}
+            onClick={() => onChange(v)}
+          >
+            <Icon size={20} />
+            <span className="helm-label">{label}</span>
+            {badge && badgeCount > 0 && <span className="badge helm-badge">{badgeCount}</span>}
+          </button>
+        );
+      })}
+      <div className="rail-spacer" />
+      {posture === "session" && (
+        <div className="rail-context">
+          <button type="button" className="helm-plus" aria-label="Add something" onClick={onAdd}>+</button>
+          {canWrapUp && (
+            <button
+              type="button"
+              className={`helm-wrapup ${wrapUpEmphasized ? "full" : "muted"}`}
+              onClick={onWrapUp}
+            >
+              Wrap up
+            </button>
+          )}
+        </div>
+      )}
+      {initials ? (
+        <button type="button" className="rail-avatar" aria-label="Open profile" onClick={onAvatar}>{initials}</button>
+      ) : (
+        <div className="rail-avatar" aria-hidden="true" />
+      )}
+    </nav>
   );
 }
 
@@ -2299,6 +2349,8 @@ function ProvisionsApp() {
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
   const [view, setView] = useState("input");
+  // D5: ≥700px mounts <Rail />, below it <Helm /> — exactly one at any width.
+  const isWide = useMediaQuery(WIDE_QUERY);
   // Landing tab until a Home tab exists: Shop if the list has items, else Browse.
   // Runs once per app load after the first successful list load — never
   // reactive, so adding a first item from Browse doesn't yank the user to Shop.
@@ -3933,16 +3985,31 @@ function ProvisionsApp() {
           scrolling content, z-index 900: over content, under sheets (1000) and
           the bottom status stack (2000). Not a bottom-centred STATUS surface, so
           it is deliberately not inside the stack; the stack sits above it. */}
-      <Helm
-        view={view}
-        onChange={setView}
-        badgeCount={totalItems}
-        posture={view === "list" ? "session" : "nav"}
-        onAdd={openAddSheet}
-        onWrapUp={openWrapUp}
-        canWrapUp={totalItems > 0}
-        wrapUpEmphasized={checkedCount > 0}
-      />
+      {isWide ? (
+        <Rail
+          view={view}
+          onChange={setView}
+          badgeCount={totalItems}
+          initials={isSignedIn ? `${user?.firstName?.[0] || ""}${user?.lastName?.[0] || ""}` : ""}
+          onAvatar={() => setShowProfileSheet(true)}
+          posture={view === "list" ? "session" : "nav"}
+          onAdd={openAddSheet}
+          onWrapUp={openWrapUp}
+          canWrapUp={totalItems > 0}
+          wrapUpEmphasized={checkedCount > 0}
+        />
+      ) : (
+        <Helm
+          view={view}
+          onChange={setView}
+          badgeCount={totalItems}
+          posture={view === "list" ? "session" : "nav"}
+          onAdd={openAddSheet}
+          onWrapUp={openWrapUp}
+          canWrapUp={totalItems > 0}
+          wrapUpEmphasized={checkedCount > 0}
+        />
+      )}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
@@ -4000,7 +4067,17 @@ function ProvisionsApp() {
         .app-root { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
         .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(110px + env(safe-area-inset-bottom)); pointer-events: none; z-index: 899;
                      background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
-        @media (min-width: 700px) { .app-root { padding-bottom: 0; } }
+        @media (min-width: 700px) { .app-root { padding-bottom: 0; padding-left: 84px; } }
+        /* ── The Rail (D5) — the same doors as an 84px espresso column on wide. ── */
+        .rail { position: fixed; left: 0; top: 0; bottom: 0; width: 84px; z-index: 900; background: #2C1A0E;
+                display: flex; flex-direction: column; align-items: center; padding: calc(18px + env(safe-area-inset-top)) 0 16px; }
+        .rail-mark { font-family: 'Playfair Display', serif; color: #FAF4EC; font-size: 1.4rem; margin-bottom: 26px; }
+        .rail .helm-door { flex: 0 0 auto; width: 64px; height: 60px; margin: 4px 0; border-radius: 14px; }
+        .rail-spacer { flex: 1; }
+        .rail-context { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 18px; }
+        .rail-context .helm-wrapup { margin: 0; padding: 8px 10px; font-size: 0.62rem; letter-spacing: 0.8px; }
+        .rail-avatar { width: 34px; height: 34px; border-radius: 50%; border: none; background: #A0724A; color: #FAF4EC; cursor: pointer;
+                       font-family: 'Playfair Display', serif; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; }
         /* Bottom status stack rides above the pill on phone; back to the edge on wide where the pill is gone. */
         .bottom-stack { bottom: calc(100px + env(safe-area-inset-bottom)); }
         @media (min-width: 700px) { .bottom-stack { bottom: 24px; } }
