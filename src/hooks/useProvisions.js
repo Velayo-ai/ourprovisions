@@ -358,6 +358,69 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return data || null;
   }
 
+  // Poll-tick refresh of the open cycle (2026-09-12). Two devices on one
+  // household: the first action on device A opens the cycle; device B still
+  // holds cycle_id = null until something re-reads it, and every event B
+  // writes meanwhile is unattributed. Reads one indexed row per tick and only
+  // touches state when the id actually changed. Skipped while wrap-up is
+  // transitioning the cycle itself.
+  const cyclePollBusyRef = useRef(false);
+  async function pollActiveCycle(db, householdId) {
+    if (wrappingUpRef.current || cyclePollBusyRef.current) return;
+    cyclePollBusyRef.current = true;
+    try {
+      const { data, error: cycleErr } = await db
+        .from("provision_cycles")
+        .select("id, cycle_type, label, started_at, seeded_from")
+        .eq("household_id", householdId)
+        .is("closed_at", null)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cycleErr) return;
+      const next = data || null;
+      if ((next?.id || null) !== (activeCycleRef.current?.id || null)) {
+        activeCycleRef.current = next;
+        setActiveCycle(next);
+      }
+    } finally {
+      cyclePollBusyRef.current = false;
+    }
+  }
+
+  // The ONE open-cycle path. `uq_open_cycle_per_household` is correct: when two
+  // devices race, exactly one insert wins. The loser gets 23505 — that is not
+  // an error to show, it is the answer: select the household's open cycle,
+  // adopt its id, and carry on with the action. Any other failure returns null
+  // and the caller decides whether it is worth a toast.
+  const ensureOpenCycle = useCallback(async (type = "planned") => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!hh || !db) return null;
+    if (activeCycleRef.current) return activeCycleRef.current;
+    const { data: newCycle, error: cycleErr } = await db
+      .from("provision_cycles")
+      .insert({
+        household_id: hh.id,
+        cycle_type: type,
+        created_by: internalUserIdRef.current,
+      })
+      .select()
+      .single();
+    if (!cycleErr && newCycle) {
+      activeCycleRef.current = newCycle;
+      setActiveCycle(newCycle);
+      return newCycle;
+    }
+    if (cycleErr?.code === "23505") {
+      const adopted = await loadActiveCycle(db, hh.id);
+      if (adopted) return adopted;
+    }
+    console.warn("ensureOpenCycle:", cycleErr?.message || "no cycle returned");
+    return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Effect 1 — session setup (keyed on user identity).
   // Creates the Supabase client once and runs bootstrap_new_user.
   // Does NOT fetch any household-scoped data — that belongs to Effect 2.
@@ -787,7 +850,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         await loadActiveCycle(db, hh.id);
         if (cancelled) return;
 
-        pollInterval = setInterval(() => { loadListItems(db, hh.id); }, 2000);
+        pollInterval = setInterval(() => { loadListItems(db, hh.id); pollActiveCycle(db, hh.id); }, 2000);
         catalogPollInterval = setInterval(() => { refreshCatalogRef.current(); }, 20000);
 
         reportSuccess();
@@ -898,22 +961,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
         if (!updateData || updateData.length === 0) {
           // Truly no row exists — insert fresh
-          // Auto-open a planned cycle if none is active yet
-          if (!activeCycleRef.current) {
-            const { data: newCycle } = await db
-              .from("provision_cycles")
-              .insert({
-                household_id: hh.id,
-                cycle_type: "planned",
-                created_by: internalUserIdRef.current,
-              })
-              .select()
-              .single();
-            if (newCycle) {
-              activeCycleRef.current = newCycle;
-              setActiveCycle(newCycle);
-            }
-          }
+          // Auto-open a planned cycle if none is active yet (adopts on a lost race)
+          if (!activeCycleRef.current) await ensureOpenCycle("planned");
 
           const { data: newItemId, error: insertErr } = await db
             .rpc("insert_list_item", {
@@ -1057,21 +1106,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // Don't open a second cycle if one is already active
     if (activeCycleRef.current) return activeCycleRef.current;
 
-    const { data: newCycle, error: cycleErr } = await db
-      .from("provision_cycles")
-      .insert({
-        household_id: hh.id,
-        cycle_type: type,
-        created_by: internalUserIdRef.current,
-      })
-      .select()
-      .single();
-
-    if (cycleErr) { setError(`Could not open cycle: ${cycleErr.message}`); return null; }
-    setActiveCycle(newCycle);
-    activeCycleRef.current = newCycle;
-    return newCycle;
-  }, []);
+    const cycle = await ensureOpenCycle(type);
+    if (!cycle) { setError("Could not open cycle"); return null; }
+    return cycle;
+  }, [ensureOpenCycle]);
 
   // `silent` — the in-store event path (recordListEvent) starts the session as
   // a side effect of a check that already succeeded; a failure there is logged,
@@ -1285,22 +1323,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     wrappingUpRef.current = true;
     try {
-      // If no active cycle, create one now so we have something to close
+      // If no active cycle, open (or adopt) one now so we have something to close
       let cycle = activeCycleRef.current;
       if (!cycle) {
-        const { data: newCycle } = await db
-          .from("provision_cycles")
-          .insert({
-            household_id: hh.id,
-            cycle_type: "planned",
-            created_by: internalUserIdRef.current,
-          })
-          .select()
-          .single();
-        if (!newCycle) { setError("Could not create cycle"); return; }
-        cycle = newCycle;
-        activeCycleRef.current = newCycle;
-        setActiveCycle(newCycle);
+        cycle = await ensureOpenCycle("planned");
+        if (!cycle) { setError("Could not create cycle"); return; }
       }
 
       // Close active session if one is open
