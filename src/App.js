@@ -765,12 +765,12 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 // D8 — motion answers a tap: transitions are armed on the first pointer/key
 // interaction, never on mount. A landing-effect view change on a cold load
 // therefore paints the final posture with no animation.
-// D3/D9 — two postures. The left side (four doors) is constant; the right side
-// is the context slot, capped at two actions. In the SESSION posture (Shop) the
-// pill slims to icons and the trip's two actions ride on it: + (add from the
-// aisle) and Wrap up. D10 — Wrap up answers the trip: muted (outlined sand)
-// while nothing is in the cart, amber once something is; tappable in BOTH states.
-function Helm({ view, onChange, badgeCount, posture = "nav", onAdd, onWrapUp, canWrapUp = false, wrapUpEmphasized = false }) {
+// D3′ (v2, 2026-09-12) — the pill is IDENTICAL on every door. No posture change
+// on navigation, ever; a tab tap is the most ordinary act in the app. The v1
+// session posture (slim on Shop, + and Wrap up riding in the pill) is retired —
+// the trip's controls are part of the list (Shop header row, D4′), the pill is
+// chrome.
+function Helm({ view, onChange, badgeCount }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (armed) return undefined;
@@ -786,7 +786,7 @@ function Helm({ view, onChange, badgeCount, posture = "nav", onAdd, onWrapUp, ca
     <>
       {/* Cream fade above the pill so the last row stays legible as it scrolls under (§6). */}
       <div className="helm-fade" aria-hidden="true" />
-    <nav className={`helm ${posture === "session" ? "session" : ""} ${armed ? "" : "no-anim"}`} aria-label="Main">
+    <nav className={`helm ${armed ? "" : "no-anim"}`} aria-label="Main">
       {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
         const active = view === v;
         return (
@@ -803,21 +803,6 @@ function Helm({ view, onChange, badgeCount, posture = "nav", onAdd, onWrapUp, ca
           </button>
         );
       })}
-      {posture === "session" && (
-        <>
-          <span className="helm-divider" aria-hidden="true" />
-          <button type="button" className="helm-plus" aria-label="Add something" onClick={onAdd}>+</button>
-          {canWrapUp && (
-            <button
-              type="button"
-              className={`helm-wrapup ${wrapUpEmphasized ? "full" : "muted"}`}
-              onClick={onWrapUp}
-            >
-              Wrap up
-            </button>
-          )}
-        </>
-      )}
     </nav>
     </>
   );
@@ -842,11 +827,11 @@ function HomePlaceholder({ firstName, householdName }) {
 
 // D5 — past 700px the pill unmounts and the SAME doors stand in a left rail:
 // width is cheap there and thumb reach doesn't apply. Same NAV_DOORS, same
-// icons, same order, same active treatment (shared .helm-door). The context
-// slot (D9) is honoured here too — on Shop the + and Wrap up stack above the
-// avatar — so a laptop is never left without the trip's two actions once the
-// header button and the floating + are gone.
-function Rail({ view, onChange, badgeCount, initials, onAvatar, posture = "nav", onAdd, onWrapUp, canWrapUp = false, wrapUpEmphasized = false }) {
+// icons, same order, same active treatment (shared .helm-door). No compact
+// state and no + (v2): the Shop header row [count] [Aisles | A–Z] [+] [Wrap up]
+// sits at the top of the body column on wide and is reachable, so the rail
+// carries no trip controls — one + on the screen, not two.
+function Rail({ view, onChange, badgeCount, initials, onAvatar }) {
   return (
     <nav className="rail" aria-label="Main">
       <div className="rail-mark" aria-hidden="true">P</div>
@@ -867,20 +852,6 @@ function Rail({ view, onChange, badgeCount, initials, onAvatar, posture = "nav",
         );
       })}
       <div className="rail-spacer" />
-      {posture === "session" && (
-        <div className="rail-context">
-          <button type="button" className="helm-plus" aria-label="Add something" onClick={onAdd}>+</button>
-          {canWrapUp && (
-            <button
-              type="button"
-              className={`helm-wrapup ${wrapUpEmphasized ? "full" : "muted"}`}
-              onClick={onWrapUp}
-            >
-              Wrap up
-            </button>
-          )}
-        </div>
-      )}
       {initials ? (
         <button type="button" className="rail-avatar" aria-label="Open profile" onClick={onAvatar}>{initials}</button>
       ) : (
@@ -3992,22 +3963,12 @@ function ProvisionsApp() {
           badgeCount={totalItems}
           initials={isSignedIn ? `${user?.firstName?.[0] || ""}${user?.lastName?.[0] || ""}` : ""}
           onAvatar={() => setShowProfileSheet(true)}
-          posture={view === "list" ? "session" : "nav"}
-          onAdd={openAddSheet}
-          onWrapUp={openWrapUp}
-          canWrapUp={totalItems > 0}
-          wrapUpEmphasized={checkedCount > 0}
         />
       ) : (
         <Helm
           view={view}
           onChange={setView}
           badgeCount={totalItems}
-          posture={view === "list" ? "session" : "nav"}
-          onAdd={openAddSheet}
-          onWrapUp={openWrapUp}
-          canWrapUp={totalItems > 0}
-          wrapUpEmphasized={checkedCount > 0}
         />
       )}
 
@@ -4036,21 +3997,6 @@ function ProvisionsApp() {
         .helm-door.active { color: #FAF4EC; background: rgba(201,169,122,0.10); }
         .helm-label { line-height: 1; white-space: nowrap; transition: opacity .2s ease; }
         .helm-badge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; font-size: 0.6rem; padding: 0 5px; line-height: 15px; }
-        /* Session posture (Shop): slim icon strip; labels stay in the DOM for screen readers. */
-        .helm.session { height: 48px; border-radius: 24px; }
-        .helm.session .helm-door { margin: 5px 0; gap: 0; }
-        .helm.session .helm-door svg { width: 18px; height: 18px; }
-        .helm.session .helm-label { font-size: 0; opacity: 0; }
-        .helm.session .helm-badge { top: 0; }
-        .helm-divider { flex: 0 0 1px; align-self: center; height: 22px; background: rgba(201,169,122,0.18); margin: 0 4px 0 8px; }
-        .helm-plus { flex: 0 0 auto; align-self: center; width: 36px; height: 36px; border-radius: 50%; border: none; background: #FAF4EC; color: #2C1A0E;
-                     display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 1.5rem; font-weight: 300; line-height: 1; padding: 0 0 2px; cursor: pointer; }
-        .helm-wrapup { flex: 0 0 auto; align-self: center; margin: 0 4px 0 6px; padding: 9px 14px; border-radius: 20px; border: none; cursor: pointer;
-                       font-family: 'Lato', sans-serif; font-weight: 700; font-size: 0.72rem; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap;
-                       animation: helmSlideIn .2s ease; transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
-        .helm-wrapup.muted { background: transparent; color: #C9A97A; box-shadow: inset 0 0 0 1px #C9A97A; }
-        .helm-wrapup.full { background: #c8973a; color: #2C1A0E; box-shadow: none; }
-        @keyframes helmSlideIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
         .helm.no-anim, .helm.no-anim * { transition: none !important; animation: none !important; }
         @media (prefers-reduced-motion: reduce) { .helm, .helm * { transition: none !important; } }
         /* Home placeholder (D7) — the door exists before its content; this names the promise. */
@@ -4069,8 +4015,6 @@ function ProvisionsApp() {
         .rail-mark { font-family: 'Playfair Display', serif; color: #FAF4EC; font-size: 1.4rem; margin-bottom: 26px; }
         .rail .helm-door { flex: 0 0 auto; width: 64px; height: 60px; margin: 4px 0; border-radius: 14px; }
         .rail-spacer { flex: 1; }
-        .rail-context { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 18px; }
-        .rail-context .helm-wrapup { margin: 0; padding: 8px 10px; font-size: 0.62rem; letter-spacing: 0.8px; }
         .rail-avatar { width: 34px; height: 34px; border-radius: 50%; border: none; background: #A0724A; color: #FAF4EC; cursor: pointer;
                        font-family: 'Playfair Display', serif; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; }
         /* Bottom status stack rides above the pill on phone; back to the edge on wide where the pill is gone. */
@@ -4159,7 +4103,14 @@ function ProvisionsApp() {
         .list-empty { text-align: center; padding: 60px 20px; }
         .list-empty h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: #8a7a60; }
         .list-empty p { font-family: 'Lato', sans-serif; color: #a89878; margin-top: 8px; font-size: 0.9rem; }
-        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px; }
+        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 8px; }
+        .hdr-plus { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid #C9A97A; background: transparent; color: #A0724A; cursor: pointer;
+                    display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 1.3rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
+        .wrapup { flex: none; border: none; cursor: pointer; padding: 9px 12px; border-radius: 18px; white-space: nowrap;
+                  font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
+                  transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
+        .wrapup.muted { background: transparent; color: #A0724A; box-shadow: inset 0 0 0 1.5px #C9A97A; }
+        .wrapup.full { background: #c8973a; color: #2C1A0E; box-shadow: none; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
@@ -5718,7 +5669,12 @@ function ProvisionsApp() {
                   <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} in cart</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
                   <ShopLensSegment lens={shopLens} onChange={setShopLens} />
-                  {/* Wrap up lives in the helm now (D4) — one home, not two. */}
+                  {/* D4′ (v2): the trip's controls are part of the list — this row
+                      scrolls away with it; the pill is chrome. Header + opens the
+                      Add sheet (add-from-the-aisle). Wrap up is muted at 0 in cart and
+                      amber once one item is checked; tappable in both states (D10). */}
+                  <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
+                  <button type="button" className={`wrapup ${checkedCount > 0 ? "full" : "muted"}`} onClick={openWrapUp}>Wrap up</button>
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
