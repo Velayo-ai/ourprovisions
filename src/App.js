@@ -4011,22 +4011,25 @@ function ProvisionsApp() {
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
         .header h1 { font-size: 42px; letter-spacing: 0.02em; }
         .badge { display: inline-block; background: #E8A838; color: white; font-weight: 700; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
-        /* ── The Helm — floating nav pill (SPEC_nav_helm.md; mockup_nav_helm.html is the visual authority) ── */
-        .helm { position: fixed; left: 16px; right: 16px; bottom: calc(18px + env(safe-area-inset-bottom)); height: 64px; border-radius: 32px; z-index: 900;
+        /* ── The Helm — floating nav pill (SPEC_nav_helm.md v2; mockup_nav_helm_v2.html is the visual authority) ── */
+        .helm { position: fixed; left: 24px; right: 24px; bottom: calc(18px + env(safe-area-inset-bottom)); height: 56px; border-radius: 28px; z-index: 900;
                 background: #2C1A0E; display: flex; align-items: stretch; padding: 0 6px;
-                box-shadow: 0 10px 28px rgba(44,26,14,0.35), inset 0 0 0 1px rgba(201,169,122,0.18);
-                transition: height .2s ease, border-radius .2s ease; }
+                box-shadow: 0 8px 24px rgba(44,26,14,0.32), inset 0 0 0 1px rgba(201,169,122,0.16);
+                transition: height .2s ease, left .2s ease, right .2s ease, border-radius .2s ease; }
+        .helm.compact { left: 52px; right: 52px; height: 44px; border-radius: 22px; }
         @supports ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
           .helm { background: rgba(44,26,14,0.94); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
         }
-        .helm-door { position: relative; flex: 1; min-width: 0; margin: 6px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-                     background: none; border: none; padding: 0; cursor: pointer; color: #C9A97A; border-radius: 26px;
-                     font-family: 'Lato', sans-serif; font-size: 0.62rem; letter-spacing: 1.2px; text-transform: uppercase;
+        .helm-door { position: relative; flex: 1; min-width: 0; margin: 5px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+                     background: none; border: none; padding: 0; cursor: pointer; color: #C9A97A; border-radius: 22px;
+                     font-family: 'Lato', sans-serif; font-size: 0.58rem; letter-spacing: 1.2px; text-transform: uppercase;
                      transition: color .2s ease, background .2s ease, margin .2s ease; -webkit-tap-highlight-color: transparent; }
-        .helm-door svg { width: 20px; height: 20px; display: block; transition: width .2s ease, height .2s ease; }
+        .helm-door svg { width: 18px; height: 18px; display: block; transition: width .2s ease, height .2s ease; }
+        .helm.compact .helm-door { margin: 4px 0; }
+        .helm.compact .helm-door svg { width: 17px; height: 17px; }
         .helm-door.active { color: #FAF4EC; background: rgba(201,169,122,0.10); }
         .helm-label { line-height: 1; white-space: nowrap; transition: opacity .2s ease; }
-        .helm-badge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; font-size: 0.6rem; padding: 0 5px; line-height: 15px; }
+        .helm-badge { position: absolute; top: 1px; left: calc(50% + 5px); margin: 0; font-size: 0.58rem; padding: 0 4px; line-height: 15px; }
         /* Compact (D9′): icons only, pulled in from the sides; labels stay in the DOM at font-size 0. */
         .helm.compact .helm-door { gap: 0; }
         .helm.compact .helm-label { font-size: 0; opacity: 0; }
@@ -4044,8 +4047,8 @@ function ProvisionsApp() {
         .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
         .home-promise { font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.5; color: #5c4a36; margin-top: 22px; max-width: 34ch; }
         /* §6 — every scrolling root clears the pill; the document is the scroll root here. Off on wide (rail). */
-        .app-root { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
-        .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(110px + env(safe-area-inset-bottom)); pointer-events: none; z-index: 899;
+        .app-root { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+        .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(90px + env(safe-area-inset-bottom)); pointer-events: none; z-index: 899;
                      background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
         @media (min-width: 700px) { .app-root { padding-bottom: 0; padding-left: 84px; } }
         /* ── The Rail (D5) — the same doors as an 84px espresso column on wide. ── */
@@ -4057,7 +4060,7 @@ function ProvisionsApp() {
         .rail-avatar { width: 34px; height: 34px; border-radius: 50%; border: none; background: #A0724A; color: #FAF4EC; cursor: pointer;
                        font-family: 'Playfair Display', serif; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; }
         /* Bottom status stack rides above the pill on phone; back to the edge on wide where the pill is gone. */
-        .bottom-stack { bottom: calc(100px + env(safe-area-inset-bottom)); }
+        .bottom-stack { bottom: calc(92px + env(safe-area-inset-bottom)); }
         @media (min-width: 700px) { .bottom-stack { bottom: 24px; } }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
