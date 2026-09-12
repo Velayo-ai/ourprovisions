@@ -4401,10 +4401,6 @@ function ProvisionsApp() {
         .li-subtotal.done { color: #a89878; }
         .clear-btn { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 16px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
         .clear-btn:hover { border-color: #e05c5c; color: #e05c5c; }
-        /* Velayo footer — every door, phone and wide. Sand monogram, muted letterspaced wordmark, 56px above. */
-        .velayo-footer { margin-top: 56px; padding: 0 20px 28px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
-        .velayo-mono { display: block; width: 24px; height: 24px; }
-        .velayo-footer-text { font-family: 'Lato', sans-serif; font-size: 0.6rem; letter-spacing: 2px; text-transform: uppercase; color: #8a7a60; }
         /* All done card (mockup_shop_all_done.html) — the arc is the ONLY ornament: one 1.6px teal stroke. */
         .all-done { text-align: center; padding: 8px 12px 26px; }
         .all-done-arc { width: 150px; height: 12px; margin: 0 auto 14px; display: block; }
@@ -5975,15 +5971,6 @@ function ProvisionsApp() {
         )}
       </div>
 
-      {/* Velayo footer — on every door, phone and wide. The V monogram in sand
-          (no fill tile — the teal PNG tile is retired here so the All done card's
-          button is the only teal on the Shop screen) over "A VELAYO APP". */}
-      <div className="velayo-footer" aria-label="A Velayo app">
-        <svg className="velayo-mono" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-          <path d="M3 4.5 L12 20 L21 4.5" fill="none" stroke="#C9A97A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <div className="velayo-footer-text">A Velayo App</div>
-      </div>
 
       {/* On-hand prompt — only for meals that have on-hand ingredients.
           Three choices per ingredient, no confirmation on Remove: the prompt is
@@ -6632,6 +6619,11 @@ function ProvisionsApp() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#c0392b" }}>Sign out</span>
             </button>
+            {/* Attribution lives here now, not in a footer on every door — the doors
+                carry no brand chrome; the mark stays on the landing page and sign-in. */}
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.5px", color: "#8a7a60", padding: "6px 20px 16px" }}>
+              A Velayo app
+            </div>
           </div>
         </div>
       )}
