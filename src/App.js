@@ -765,7 +765,12 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 // D8 — motion answers a tap: transitions are armed on the first pointer/key
 // interaction, never on mount. A landing-effect view change on a cold load
 // therefore paints the final posture with no animation.
-function Helm({ view, onChange, badgeCount }) {
+// D3/D9 — two postures. The left side (four doors) is constant; the right side
+// is the context slot, capped at two actions. In the SESSION posture (Shop) the
+// pill slims to icons and the trip's two actions ride on it: + (add from the
+// aisle) and Wrap up. D10 — Wrap up answers the trip: muted (outlined sand)
+// while nothing is in the cart, amber once something is; tappable in BOTH states.
+function Helm({ view, onChange, badgeCount, posture = "nav", onAdd, onWrapUp, canWrapUp = false, wrapUpEmphasized = false }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (armed) return undefined;
@@ -778,7 +783,7 @@ function Helm({ view, onChange, badgeCount }) {
     };
   }, [armed]);
   return (
-    <nav className={`helm ${armed ? "" : "no-anim"}`} aria-label="Main">
+    <nav className={`helm ${posture === "session" ? "session" : ""} ${armed ? "" : "no-anim"}`} aria-label="Main">
       {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
         const active = view === v;
         return (
@@ -795,6 +800,21 @@ function Helm({ view, onChange, badgeCount }) {
           </button>
         );
       })}
+      {posture === "session" && (
+        <>
+          <span className="helm-divider" aria-hidden="true" />
+          <button type="button" className="helm-plus" aria-label="Add something" onClick={onAdd}>+</button>
+          {canWrapUp && (
+            <button
+              type="button"
+              className={`helm-wrapup ${wrapUpEmphasized ? "full" : "muted"}`}
+              onClick={onWrapUp}
+            >
+              Wrap up
+            </button>
+          )}
+        </>
+      )}
     </nav>
   );
 }
@@ -3444,6 +3464,19 @@ function ProvisionsApp() {
     if (!status) return;
     recordListEvent(status === "bought" ? "checked" : "unchecked", { listItemId: item.listItemId, catalogItemId: item.catalogItemId });
   };
+  // Wrap up (D4): one home for the pre-select logic — called by the helm's
+  // Wrap up chip and by the all-done "Wrap Up Trip →" button. Pending (unchecked)
+  // items are pre-selected to roll forward; at 100% that set is simply empty.
+  const openWrapUp = () => {
+    const pending = new Set(
+      shoppingList.flatMap(cat =>
+        cat.items.filter(i => !checked[i.name]).map(i => i.name)
+      )
+    );
+    setWrapUpRollItems(pending);
+    setShowWrapUpModal(true);
+  };
+
   const openAddSheet = () => {
     setSearchQuery("");
     setSearchPickerOpen(false);
@@ -3896,7 +3929,16 @@ function ProvisionsApp() {
           scrolling content, z-index 900: over content, under sheets (1000) and
           the bottom status stack (2000). Not a bottom-centred STATUS surface, so
           it is deliberately not inside the stack; the stack sits above it. */}
-      <Helm view={view} onChange={setView} badgeCount={totalItems} />
+      <Helm
+        view={view}
+        onChange={setView}
+        badgeCount={totalItems}
+        posture={view === "list" ? "session" : "nav"}
+        onAdd={openAddSheet}
+        onWrapUp={openWrapUp}
+        canWrapUp={totalItems > 0}
+        wrapUpEmphasized={checkedCount > 0}
+      />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
@@ -3928,7 +3970,22 @@ function ProvisionsApp() {
         .helm-door.active { color: #FAF4EC; background: rgba(201,169,122,0.10); }
         .helm-label { line-height: 1; white-space: nowrap; transition: opacity .2s ease; }
         .helm-badge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; font-size: 0.6rem; padding: 0 5px; line-height: 15px; }
-        .helm.no-anim, .helm.no-anim * { transition: none !important; }
+        /* Session posture (Shop): slim icon strip; labels stay in the DOM for screen readers. */
+        .helm.session { height: 48px; border-radius: 24px; }
+        .helm.session .helm-door { margin: 5px 0; gap: 0; }
+        .helm.session .helm-door svg { width: 18px; height: 18px; }
+        .helm.session .helm-label { font-size: 0; opacity: 0; }
+        .helm.session .helm-badge { top: 0; }
+        .helm-divider { flex: 0 0 1px; align-self: center; height: 22px; background: rgba(201,169,122,0.18); margin: 0 4px 0 8px; }
+        .helm-plus { flex: 0 0 auto; align-self: center; width: 36px; height: 36px; border-radius: 50%; border: none; background: #FAF4EC; color: #2C1A0E;
+                     display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 1.5rem; font-weight: 300; line-height: 1; padding: 0 0 2px; cursor: pointer; }
+        .helm-wrapup { flex: 0 0 auto; align-self: center; margin: 0 4px 0 6px; padding: 9px 14px; border-radius: 20px; border: none; cursor: pointer;
+                       font-family: 'Lato', sans-serif; font-weight: 700; font-size: 0.72rem; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap;
+                       animation: helmSlideIn .2s ease; transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
+        .helm-wrapup.muted { background: transparent; color: #C9A97A; box-shadow: inset 0 0 0 1px #C9A97A; }
+        .helm-wrapup.full { background: #c8973a; color: #2C1A0E; box-shadow: none; }
+        @keyframes helmSlideIn { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+        .helm.no-anim, .helm.no-anim * { transition: none !important; animation: none !important; }
         @media (prefers-reduced-motion: reduce) { .helm, .helm * { transition: none !important; } }
         /* Home placeholder (D7) — the door exists before its content; this names the promise. */
         .home-placeholder { padding: 12px 2px 0; }
@@ -4028,8 +4085,6 @@ function ProvisionsApp() {
         .cyc-ico { flex: none; width: 46px; height: 46px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; color: #A0724A; cursor: pointer; padding: 0; transition: background 0.18s, border-color 0.18s, color 0.18s; }
         .cyc-ico.on { background: #A0724A; border-color: #A0724A; color: #fff; }
         .cyc-ico svg { width: 22px; height: 22px; display: block; }
-        .wrapup { flex: none; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; border-radius: 11px; height: 48px; padding: 0 18px; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; letter-spacing: 0.2px; color: #2C1A0E; cursor: pointer; white-space: nowrap; transition: border-color 0.2s; }
-        .wrapup:hover { border-color: #A0724A; }
         /* ── Shop tab: lens · In cart tray · in-store Add · store prompt (SPEC_shop_lens_instore_capture.md) ── */
         .shop-seg { flex: none; height: 46px; border-radius: 11px; border: 1px solid #E8D5B7; background: #fff; display: flex; overflow: hidden; }
         .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #A0724A; cursor: pointer; transition: background .15s, color .15s; }
@@ -5639,21 +5694,7 @@ function ProvisionsApp() {
                   <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} in cart</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
                   <ShopLensSegment lens={shopLens} onChange={setShopLens} />
-                  <button
-                    className="wrapup"
-                    onClick={() => {
-                      // Pre-select all pending items for roll-forward
-                      const pending = new Set(
-                        shoppingList.flatMap(cat =>
-                          cat.items.filter(i => !checked[i.name]).map(i => i.name)
-                        )
-                      );
-                      setWrapUpRollItems(pending);
-                      setShowWrapUpModal(true);
-                    }}
-                  >
-                    Wrap up
-                  </button>
+                  {/* Wrap up lives in the helm now (D4) — one home, not two. */}
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
@@ -5662,10 +5703,7 @@ function ProvisionsApp() {
                   <div className="all-done" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
                     <p style={{ margin: 0 }}>🎉 All done!</p>
                     <button
-                      onClick={() => {
-                        setWrapUpRollItems(new Set()); // nothing to roll — all bought
-                        setShowWrapUpModal(true);
-                      }}
+                      onClick={openWrapUp}
                       style={{
                         fontFamily: "'Lato', sans-serif",
                         fontSize: "0.7rem",
