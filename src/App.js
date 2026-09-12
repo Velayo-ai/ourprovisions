@@ -2213,6 +2213,17 @@ function ProvisionsApp() {
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
   const [view, setView] = useState("input");
+  // Landing tab until a Home tab exists: Shop if the list has items, else Browse.
+  // Runs once per app load after the first successful list load — never
+  // reactive, so adding a first item from Browse doesn't yank the user to Shop.
+  // Remove when Home ships.
+  const landedRef = useRef(false);
+  useEffect(() => {
+    if (landedRef.current) return;
+    if (loading) return;
+    landedRef.current = true;
+    if (listRows.some(r => (r.quantity || 0) > 0)) setView("list");
+  }, [loading, listRows]);
   const [meals, setMeals] = useState([]);
   const [mealsLoading, setMealsLoading] = useState(false);
   const [addingMealId, setAddingMealId] = useState(null);
