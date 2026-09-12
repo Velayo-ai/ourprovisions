@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — All done (Shop)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Lato:wght@300;400;700;900&display=swap');
+  :root{ --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A; --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso); padding:28px 16px 48px; }
+  h1{ font-family:'Playfair Display',serif; font-weight:400; font-size:1.5rem; margin:0 0 4px; text-align:center; }
+  .lede{ text-align:center; color:#5a4633; font-size:0.9rem; margin:0 auto 26px; max-width:640px; line-height:1.5; }
+  .stage{ display:flex; flex-wrap:wrap; gap:30px; justify-content:center; align-items:flex-start; }
+  .col{ display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .caption{ font-size:0.78rem; color:#5a4633; max-width:360px; text-align:center; line-height:1.45; }
+  .caption b{ color:var(--espresso); }
+
+  .phone{ width:390px; height:640px; background:var(--cream); border-radius:28px; overflow:hidden; position:relative; box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .header{ background:var(--espresso); color:var(--cream); padding:16px 20px 14px; display:flex; align-items:center; justify-content:center; gap:8px; }
+  .place-name{ font-size:0.8rem; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
+  .anchor{ color:var(--sand); font-size:0.7rem; }
+  .body{ padding:14px 18px 90px; }
+  .storeline{ font-size:0.78rem; color:var(--muted); margin-bottom:10px; }
+  .storeline b{ color:var(--clay); font-weight:700; border-bottom:1px dotted var(--sand); }
+  .shoprow{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .count{ font-size:0.72rem; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); flex:1; }
+  .lens{ display:flex; background:var(--sand-row); border-radius:20px; padding:3px; }
+  .seg{ font-size:0.68rem; letter-spacing:1px; text-transform:uppercase; padding:5px 11px; border-radius:17px; color:var(--clay); }
+  .seg.active{ background:var(--clay); color:var(--cream); }
+  .plus-hdr{ width:34px; height:34px; border-radius:50%; border:1.5px solid var(--sand); color:var(--clay); display:flex; align-items:center; justify-content:center; font-size:1.3rem; font-weight:300; line-height:1; padding-bottom:2px; }
+  .wrapup{ font-size:0.66rem; letter-spacing:1.2px; text-transform:uppercase; font-weight:900; padding:9px 12px; border-radius:18px; color:var(--clay); box-shadow:inset 0 0 0 1.5px var(--sand); }
+  .progress{ height:4px; background:var(--sand-row); border-radius:2px; margin:6px 0 22px; overflow:hidden; }
+  .progress i{ display:block; height:100%; background:var(--clay); width:100%; }
+
+  /* the card */
+  .done{ text-align:center; padding:8px 12px 26px; }
+  .done .arc{ width:150px; height:12px; margin:0 auto 14px; display:block; }
+  .done .arc path{ fill:none; stroke:var(--teal); stroke-width:1.6; stroke-linecap:round; }
+  .done h2{ font-family:'Playfair Display',serif; font-weight:400; font-size:2.1rem; margin:0 0 6px; letter-spacing:-0.01em; }
+  .done .sub{ font-family:'Playfair Display',serif; font-style:italic; font-size:1rem; color:var(--muted); margin:0 0 16px; }
+  .done .meta{ font-size:0.78rem; color:var(--muted); letter-spacing:0.5px; }
+  .done .meta b{ color:var(--espresso); font-weight:700; }
+  .done .learn{ font-size:0.74rem; color:var(--clay); margin-top:6px; }
+  .done .learn.learned{ color:var(--teal); }
+  .done .btn{ display:inline-block; margin-top:20px; background:var(--teal); color:#fff; font-size:0.72rem; letter-spacing:1.6px; text-transform:uppercase; font-weight:900; padding:13px 26px; border-radius:24px; box-shadow:0 6px 16px rgba(13,148,136,0.28); }
+  .tray{ margin:8px 0 0; border:1px solid var(--hairline); background:#fff; border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:10px; font-size:0.9rem; }
+  .tray .chk{ width:22px; height:22px; border-radius:50%; background:var(--amber); color:var(--espresso); display:flex; align-items:center; justify-content:center; font-size:0.8rem; font-weight:900; }
+  .tray .n{ color:var(--muted); font-size:0.78rem; }
+  .tray .car{ margin-left:auto; color:var(--muted); font-size:0.7rem; }
+
+  .helm{ position:absolute; left:24px; right:24px; bottom:18px; height:56px; border-radius:28px; background:rgba(44,26,14,0.94); display:flex; padding:0 6px; box-shadow:0 8px 24px rgba(44,26,14,0.32); }
+  .helm-tab{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:var(--sand); font-size:0.58rem; letter-spacing:1.2px; text-transform:uppercase; border-radius:22px; }
+  .helm-tab i{ width:18px; height:18px; border:1.6px solid currentColor; border-radius:5px; display:block; }
+  .helm-tab.active{ color:var(--cream); background:rgba(201,169,122,0.10); margin:5px 0; }
+
+  .note{ width:100%; max-width:820px; margin:34px auto 0; font-size:0.82rem; color:#5a4633; background:#efe4d2; border-radius:10px; padding:14px 18px; line-height:1.55; }
+  .note b{ color:var(--espresso); }
+</style>
+</head>
+<body>
+
+<h1>All done.</h1>
+<p class="lede">The one earned moment on Shop. Typography does the celebrating; the emoji is gone. Three states of the same card, decided by what the trip actually knows.</p>
+
+<div class="stage">
+
+  <!-- 1. full -->
+  <div class="col">
+    <div class="phone">
+      <div class="header"><span class="anchor">&#9875;</span><span class="place-name">B2 – Test House</span><span class="anchor">&#9875;</span></div>
+      <div class="body">
+        <div class="storeline">Shopping at <b>Market Basket – Lee</b> ▾</div>
+        <div class="shoprow"><div class="count">12 of 12 in cart</div><div class="lens"><div class="seg">Aisles</div><div class="seg active">A–Z</div></div><div class="plus-hdr">+</div><div class="wrapup">Wrap up</div></div>
+        <div class="progress"><i></i></div>
+        <div class="done">
+          <svg class="arc" viewBox="0 0 150 12"><path d="M4 10 Q75 -6 146 10"/></svg>
+          <h2>All done.</h2>
+          <p class="sub">Everything on your list is in the cart.</p>
+          <div class="meta"><b>12</b> items &nbsp;·&nbsp; <b>22</b> minutes</div>
+          <div class="learn">We're learning how you shop this store.</div>
+          <div class="btn">Wrap up trip →</div>
+        </div>
+        <div class="tray"><span class="chk">✓</span>In cart <span class="n">12 items</span><span class="car">▾</span></div>
+      </div>
+      <nav class="helm"><div class="helm-tab"><i></i>Home</div><div class="helm-tab"><i></i>Plan</div><div class="helm-tab"><i></i>Browse</div><div class="helm-tab active"><i></i>Shop</div></nav>
+    </div>
+    <div class="caption"><b>1 · Store set, session open.</b> Full card: arc, headline, subline, items · minutes, the learning line, the button. This is the advisor's version, in the brand's type.</div>
+  </div>
+
+  <!-- 2. store skipped -->
+  <div class="col">
+    <div class="phone">
+      <div class="header"><span class="anchor">&#9875;</span><span class="place-name">Madbury</span><span class="anchor">&#9875;</span></div>
+      <div class="body">
+        <div class="storeline">Shopping at <b>Set store</b> ▾</div>
+        <div class="shoprow"><div class="count">9 of 9 in cart</div><div class="lens"><div class="seg active">Aisles</div><div class="seg">A–Z</div></div><div class="plus-hdr">+</div><div class="wrapup">Wrap up</div></div>
+        <div class="progress"><i></i></div>
+        <div class="done">
+          <svg class="arc" viewBox="0 0 150 12"><path d="M4 10 Q75 -6 146 10"/></svg>
+          <h2>All done.</h2>
+          <p class="sub">Everything on your list is in the cart.</p>
+          <div class="meta"><b>9</b> items &nbsp;·&nbsp; <b>31</b> minutes</div>
+          <div class="btn">Wrap up trip →</div>
+        </div>
+        <div class="tray"><span class="chk">✓</span>In cart <span class="n">9 items</span><span class="car">▾</span></div>
+      </div>
+      <nav class="helm"><div class="helm-tab"><i></i>Home</div><div class="helm-tab"><i></i>Plan</div><div class="helm-tab"><i></i>Browse</div><div class="helm-tab active"><i></i>Shop</div></nav>
+    </div>
+    <div class="caption"><b>2 · Store skipped.</b> Session exists so the minutes show, but there's nothing to learn from an unnamed store — the learning line is omitted, not reworded. Nothing nags about the store; "Set store" already does that.</div>
+  </div>
+
+  <!-- 3. learned -->
+  <div class="col">
+    <div class="phone">
+      <div class="header"><span class="anchor">&#9875;</span><span class="place-name">Sacandaga</span><span class="anchor">&#9875;</span></div>
+      <div class="body">
+        <div class="storeline">Shopping at <b>Hannaford – Dover</b> ▾</div>
+        <div class="shoprow"><div class="count">16 of 16 in cart</div><div class="lens"><div class="seg active">Aisles</div><div class="seg">A–Z</div></div><div class="plus-hdr">+</div><div class="wrapup">Wrap up</div></div>
+        <div class="progress"><i></i></div>
+        <div class="done">
+          <svg class="arc" viewBox="0 0 150 12"><path d="M4 10 Q75 -6 146 10"/></svg>
+          <h2>All done.</h2>
+          <p class="sub">Everything on your list is in the cart.</p>
+          <div class="meta"><b>16</b> items &nbsp;·&nbsp; <b>18</b> minutes</div>
+          <div class="learn learned">Your Hannaford list is arranged around your usual route.</div>
+          <div class="btn">Wrap up trip →</div>
+        </div>
+        <div class="tray"><span class="chk">✓</span>In cart <span class="n">16 items</span><span class="car">▾</span></div>
+      </div>
+      <nav class="helm"><div class="helm-tab"><i></i>Home</div><div class="helm-tab"><i></i>Plan</div><div class="helm-tab"><i></i>Browse</div><div class="helm-tab active"><i></i>Shop</div></nav>
+    </div>
+    <div class="caption"><b>3 · Learned order in use (future).</b> Same slot, the other state. Teal instead of clay: the app is no longer promising, it's delivering. Not built until the Phase 2 query exists — shown so the slot is designed once.</div>
+  </div>
+
+</div>
+
+<div class="note">
+  <b>Rules the card carries.</b> The arc is the only ornament — one 1.6px teal stroke, never a second flourish. Headline in Playfair regular at ~2.1rem, subline Playfair italic in muted, meta in Lato with the numbers in espresso. <b>Minutes</b> = now − session.started_at, rounded; omitted with no session (a delivery-style check-off shows "9 items" alone). <b>Learning line</b> shows only when the session has <code>store_name_raw</code>; the same slot later carries the learned-order message once the Phase 2 query is applying for that (household, store) — one slot, two states, never both, and neither when the store is unset. Button is teal filled, 24px radius, the existing "Wrap Up Trip →" handler. <b>At 100% the header's Wrap up chip returns to its muted state</b> — the card's button is the one exit with emphasis; the chip stays tappable. So the chip has three states: muted at 0 in cart, amber while anything is still to find, muted again when everything is. The header row and In cart tray are unchanged. Emoji removed.
+</div>
+
+</body>
+</html>
