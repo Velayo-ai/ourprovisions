@@ -903,7 +903,7 @@ function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUn
           {items.map((item) => {
             const initial = initialFor(item.listItemId);
             return (
-              <div key={item.name} className={`list-item shop-row-in${motionClass(item.name)}`}>
+              <div key={item.name} className={`list-item shop-row-in${motionClass(item.listItemId)}`}>
                 <div className="checkbox checked" onClick={() => onUncheck(item)}>
                   <span className="checkmark">✓</span>
                 </div>
@@ -2715,7 +2715,10 @@ function ProvisionsApp() {
   const [addedHereIds, setAddedHereIds] = useState(() => new Set());
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   // Check motion (presentation only — the database write happens on the tap).
-  // name → { dir: "out" (aisle → tray) | "in" (tray → aisle), phase: "mark" | "collapse" }.
+  // list_item.id → { dir: "out" (aisle → tray) | "in" (tray → aisle), phase: "mark" | "collapse" }.
+  // Keyed by the ROW's id, not its name: names are not unique (a custom "Milk"
+  // beside the catalog "Milk", a reused cycle row), and two rows must never
+  // share a phase.
   // out: beat 1 marks the row (teal check, name dims + strikes, 120ms), hold
   // ~250ms; beat 2 collapses it (200ms) while the tray count picks it up; then
   // the row unmounts. in (uncheck from the tray) is the reverse with no hold —
@@ -3521,7 +3524,8 @@ function ProvisionsApp() {
   // prompt) as a side effect inside recordListEvent.
   const handleShopToggle = async (item) => {
     const name = item.name;
-    if (rowMotion[name]) return;                       // already in motion — ignore the tap
+    const id = item.listItemId;
+    if (rowMotion[id]) return;                         // already in motion — ignore the tap
     const reduced = typeof window !== "undefined" && window.matchMedia
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!reduced) {
@@ -3530,12 +3534,12 @@ function ProvisionsApp() {
       const collapseMs = 200;                          // beat 2
       // Mark BEFORE the write: toggleChecked flips `checked` synchronously and
       // the row would otherwise leave the aisle on this very render.
-      setRowMotion(prev => ({ ...prev, [name]: { dir, phase: "mark" } }));
-      rowMotionTimers.current[name] = setTimeout(() => {
-        setRowMotion(prev => prev[name] ? { ...prev, [name]: { dir, phase: "collapse" } } : prev);
-        rowMotionTimers.current[name] = setTimeout(() => {
-          setRowMotion(prev => { const n = { ...prev }; delete n[name]; return n; });
-          delete rowMotionTimers.current[name];
+      setRowMotion(prev => ({ ...prev, [id]: { dir, phase: "mark" } }));
+      rowMotionTimers.current[id] = setTimeout(() => {
+        setRowMotion(prev => prev[id] ? { ...prev, [id]: { dir, phase: "collapse" } } : prev);
+        rowMotionTimers.current[id] = setTimeout(() => {
+          setRowMotion(prev => { const n = { ...prev }; delete n[id]; return n; });
+          delete rowMotionTimers.current[id];
         }, collapseMs);
       }, markMs);
     }
@@ -3543,8 +3547,8 @@ function ProvisionsApp() {
     if (!status) return;
     recordListEvent(status === "bought" ? "checked" : "unchecked", { listItemId: item.listItemId, catalogItemId: item.catalogItemId });
   };
-  const rowMotionClass = (name) => {
-    const m = rowMotion[name];
+  const rowMotionClass = (listItemId) => {
+    const m = rowMotion[listItemId];
     if (!m) return "";
     if (m.phase === "collapse") return " collapsing";
     return m.dir === "out" ? " checking" : " unchecking";
@@ -3895,12 +3899,12 @@ function ProvisionsApp() {
   // the person is looking. The write already happened; this is only where the
   // row is drawn.
   const inAisle = (i) => {
-    const m = rowMotion[i.name];
+    const m = rowMotion[i.listItemId];
     if (m) return m.dir === "out";
     return !checked[i.name];
   };
   const inTray = (i) => {
-    const m = rowMotion[i.name];
+    const m = rowMotion[i.listItemId];
     if (m) return m.dir === "in";
     return !!checked[i.name];
   };
@@ -3923,7 +3927,7 @@ function ProvisionsApp() {
   // being counted once it starts collapsing out of the tray.
   const trayItems = shoppingList.flatMap(cat => cat.items.filter(inTray));
   const trayCount = shoppingList.flatMap(cat => cat.items).filter(i => {
-    const m = rowMotion[i.name];
+    const m = rowMotion[i.listItemId];
     if (m?.dir === "out") return m.phase === "collapse";
     if (m?.dir === "in") return m.phase === "mark";
     return !!checked[i.name];
@@ -5855,7 +5859,7 @@ function ProvisionsApp() {
                       <div className="list-cat-title">{cat.category}</div>
                       {cat.items.map((item) => (
                         <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                          <div className={`list-item shop-row-in${rowMotionClass(item.name)}`}>
+                          <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}`}>
                             <div className="checkbox" onClick={() => handleShopToggle(item)} />
                             <div style={{ flex: 1, cursor: "pointer" }} onClick={() => handleShopToggle(item)}>
                               <div className="li-name">
@@ -5884,7 +5888,7 @@ function ProvisionsApp() {
                     <div className="az-eyebrow">{shopFlatItems.length} to find</div>
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                        <div className={`list-item az shop-row-in${rowMotionClass(item.name)}`}>
+                        <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}`}>
                           <div className="checkbox" onClick={() => handleShopToggle(item)} />
                           <div className="li-name" onClick={() => handleShopToggle(item)}>
                             {item.name}
