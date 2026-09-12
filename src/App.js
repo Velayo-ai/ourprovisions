@@ -2269,6 +2269,7 @@ function ProvisionsApp() {
     setCatalogMap,
     listRows,
     loading,
+    householdReady,
     error,
     dismissError,
     updateQty,
@@ -2346,19 +2347,24 @@ function ProvisionsApp() {
   const controlRowRef = useCallback((el) => setControlRow(el), []);
   const scrollCompact = useScrollCompact(controlRow);
   // Landing tab until a Home tab exists: Shop if the list has items, else Browse.
-  // Runs once per app load after the first successful list load — never
+  // Runs once per app load after the first SUCCESSFUL list read — never
   // reactive, so adding a first item from Browse doesn't yank the user to Shop.
   // Remove when Home ships.
-  // Gated on household because the anon-catalog path in useProvisions Effect 1
-  // clears loading before Clerk has loaded, with listRows still empty — keying
-  // on loading alone burns the guard on Browse every cold start.
+  // Gated on householdReady (useProvisions), not on loading/household: loading
+  // clears on the anon-catalog pass, and it clears at the end of the household
+  // load even when the first list tick failed transiently and set no rows — a
+  // slow cold load on prod (2026-09-12) landed on Browse with 18 items. The
+  // hook flips householdReady only where the list RPC actually returned rows.
   const landedRef = useRef(false);
   useEffect(() => {
+    const hasItems = listRows.some(r => (r.quantity || 0) > 0);
+    const decided = landedRef.current ? "already" : (!householdReady ? "waiting" : (hasItems ? "list" : "input"));
+    console.debug("[landing]", { householdId: household?.id, householdReady, rows: listRows.length, decided });
     if (landedRef.current) return;
-    if (loading || !household) return;
+    if (!householdReady) return;
     landedRef.current = true;
-    if (listRows.some(r => (r.quantity || 0) > 0)) setView("list");
-  }, [loading, household, listRows]);
+    if (hasItems) setView("list");
+  }, [householdReady, listRows]); // eslint-disable-line react-hooks/exhaustive-deps
   const [meals, setMeals] = useState([]);
   const [mealsLoading, setMealsLoading] = useState(false);
   const [addingMealId, setAddingMealId] = useState(null);
@@ -3981,8 +3987,8 @@ function ProvisionsApp() {
       <div className="app-root" style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
-      {/* Gated on household for the same reason as the landing effect — loading clears on the anon-catalog pass before the household list has arrived. Ensures the landing tab is settled before the splash dissolves; the 5s failsafe still bounds it. */}
-      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || (!loading && !!household))} />}
+      {/* Gated on householdReady for the same reason as the landing effect — the list must have actually arrived, not merely stopped loading — so the landing tab is settled before the splash dissolves and there is no flash of Browse before Shop; the 5s failsafe still bounds it. */}
+      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || householdReady)} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
       {isSignedIn && loading && (
@@ -4069,7 +4075,7 @@ function ProvisionsApp() {
         <Rail
           view={view}
           onChange={setView}
-          badgeCount={totalItems}
+          badgeCount={totalItems - checkedCount}
           initials={isSignedIn ? `${user?.firstName?.[0] || ""}${user?.lastName?.[0] || ""}` : ""}
           onAvatar={() => setShowProfileSheet(true)}
         />
@@ -4077,7 +4083,7 @@ function ProvisionsApp() {
         <Helm
           view={view}
           onChange={setView}
-          badgeCount={totalItems}
+          badgeCount={totalItems - checkedCount}
           compact={scrollCompact && view !== "home"}
           onPlus={doorAdd[view] || null}
         />
@@ -4234,7 +4240,8 @@ function ProvisionsApp() {
                   font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
                   transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
         .wrapup.muted { background: transparent; color: #A0724A; box-shadow: inset 0 0 0 1.5px #C9A97A; }
-        .wrapup.full { background: #c8973a; color: #2C1A0E; box-shadow: none; }
+        /* Emphasized = teal fill, white text — the same colour as the All done card's "Wrap up trip →" button, because it is the same action. Amber is the badge's alone. */
+        .wrapup.full { background: #0D9488; color: #fff; box-shadow: none; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
@@ -4394,8 +4401,18 @@ function ProvisionsApp() {
         .li-subtotal.done { color: #a89878; }
         .clear-btn { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 16px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
         .clear-btn:hover { border-color: #e05c5c; color: #e05c5c; }
-        .all-done { text-align: center; padding: 20px; }
-        .all-done p { font-family: 'Playfair Display', serif; font-size: 1.2rem; color: #c8973a; }
+        /* All done card (mockup_shop_all_done.html) — the arc is the ONLY ornament: one 1.6px teal stroke. */
+        .all-done { text-align: center; padding: 8px 12px 26px; }
+        .all-done-arc { width: 150px; height: 12px; margin: 0 auto 14px; display: block; }
+        .all-done-arc path { fill: none; stroke: #0D9488; stroke-width: 1.6; stroke-linecap: round; }
+        .all-done h2 { font-family: 'Playfair Display', serif; font-weight: 400; font-size: 2.1rem; margin: 0 0 6px; letter-spacing: -0.01em; color: #2C1A0E; }
+        .all-done-sub { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1rem; color: #8a7a60; margin: 0 0 16px; }
+        .all-done-meta { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; letter-spacing: 0.5px; }
+        .all-done-meta b { color: #2C1A0E; font-weight: 700; }
+        .all-done-learn { font-family: 'Lato', sans-serif; font-size: 0.74rem; color: #A0724A; margin-top: 6px; }
+        .all-done-btn { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
+                        font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
+                        padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
         .list-total { background: #F5EDE0; border: 2px solid #c8973a; border-radius: 10px; padding: 16px 18px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
         .list-total.over { border-color: #e05c5c; }
         .lt-left .lt-label { font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
@@ -5836,34 +5853,41 @@ function ProvisionsApp() {
                       Add sheet (add-from-the-aisle). Wrap up is muted at 0 in cart and
                       amber once one item is checked; tappable in both states (D10). */}
                   <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
-                  <button type="button" className={`wrapup ${checkedCount > 0 ? "full" : "muted"}`} onClick={openWrapUp}>Wrap up</button>
+                  {/* D10 (amended 2026-09-12): three states — muted at 0 in cart, teal while
+                      anything remains to find, muted again at 100%. At 100% the All done card's
+                      teal button carries the emphasis; two emphasized exits on one screen is
+                      what D9 guards against. Tappable in every state. */}
+                  <button type="button" className={`wrapup ${checkedCount > 0 && checkedCount < totalItems ? "full" : "muted"}`} onClick={openWrapUp}>Wrap up</button>
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
                 </div>
-                {checkedCount === totalItems && totalItems > 0 && (
-                  <div className="all-done" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-                    <p style={{ margin: 0 }}>🎉 All done!</p>
-                    <button
-                      onClick={openWrapUp}
-                      style={{
-                        fontFamily: "'Lato', sans-serif",
-                        fontSize: "0.7rem",
-                        letterSpacing: "1px",
-                        textTransform: "uppercase",
-                        padding: "5px 12px",
-                        border: "1px solid #0D9488",
-                        background: "#0D9488",
-                        color: "white",
-                        cursor: "pointer",
-                        borderRadius: "4px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Wrap Up Trip →
-                    </button>
-                  </div>
-                )}
+                {checkedCount === totalItems && totalItems > 0 && (() => {
+                  /* All done (mockup_shop_all_done.html) — the one earned moment on
+                     Shop; typography does the celebrating. States 1 and 2 built:
+                     minutes = now − session.started_at (rounded), omitted with no
+                     open session (a delivery-style check-off reads "N items" alone);
+                     the learning line only when the session has store_name_raw —
+                     omitted otherwise, never reworded. State 3 (learned order in
+                     use, teal) is the same slot later, once the Phase 2 query
+                     applies for this (household, store) — reserved, not built. */
+                  const startedAt = activeSession?.started_at ? new Date(activeSession.started_at).getTime() : null;
+                  const minutes = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null;
+                  const learning = !!activeSession?.store_name_raw;
+                  return (
+                    <div className="all-done">
+                      <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
+                      <h2>All done.</h2>
+                      <p className="all-done-sub">Everything on your list is in the cart.</p>
+                      <div className="all-done-meta">
+                        <b>{totalItems}</b> {totalItems === 1 ? "item" : "items"}
+                        {minutes !== null && <>&nbsp;&nbsp;·&nbsp;&nbsp;<b>{minutes}</b> {minutes === 1 ? "minute" : "minutes"}</>}
+                      </div>
+                      {learning && <div className="all-done-learn">We're learning how you shop this store.</div>}
+                      <button type="button" className="all-done-btn" onClick={openWrapUp}>Wrap up trip →</button>
+                    </div>
+                  );
+                })()}
                 {shopLens === "aisles" ? (
                   /* ── AISLES — today's grouped render, minus the phase machinery. Checked rows are in the tray. ── */
                   shopAisles.map((cat) => (
@@ -5897,7 +5921,7 @@ function ProvisionsApp() {
                 ) : (
                   /* ── A–Z — a different mode: one flat alphabetical list, no provenance, no per-row prices. ── */
                   <div>
-                    <div className="az-eyebrow">{shopFlatItems.length} to find</div>
+                    {shopFlatItems.length > 0 && <div className="az-eyebrow">{shopFlatItems.length} to find</div>}
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
                         <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}`}>
@@ -5947,20 +5971,6 @@ function ProvisionsApp() {
         )}
       </div>
 
-      {/* Velayo footer — only shown when there are items */}
-      {totalItems > 0 && (
-        <div style={{
-          textAlign: "center", padding: "28px 20px 36px",
-          borderTop: "1px solid #E8D5B7", marginTop: "12px",
-          display: "flex", flexDirection: "column", alignItems: "center", gap: "10px",
-        }}>
-          <img src={VELAYO_LOGO_TEAL} alt="Velayo" style={{ width: "72px", height: "auto", opacity: 0.55 }} />
-          <div style={{
-            fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2px",
-            textTransform: "uppercase", color: "#b0a080", opacity: 0.7,
-          }}>A Velayo App</div>
-        </div>
-      )}
 
       {/* On-hand prompt — only for meals that have on-hand ingredients.
           Three choices per ingredient, no confirmation on Remove: the prompt is
@@ -6609,6 +6619,11 @@ function ProvisionsApp() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#c0392b" }}>Sign out</span>
             </button>
+            {/* Attribution lives here now, not in a footer on every door — the doors
+                carry no brand chrome; the mark stays on the landing page and sign-in. */}
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.5px", color: "#8a7a60", padding: "6px 20px 16px" }}>
+              A Velayo app
+            </div>
           </div>
         </div>
       )}
