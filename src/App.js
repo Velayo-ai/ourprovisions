@@ -2217,13 +2217,16 @@ function ProvisionsApp() {
   // Runs once per app load after the first successful list load — never
   // reactive, so adding a first item from Browse doesn't yank the user to Shop.
   // Remove when Home ships.
+  // Gated on household because the anon-catalog path in useProvisions Effect 1
+  // clears loading before Clerk has loaded, with listRows still empty — keying
+  // on loading alone burns the guard on Browse every cold start.
   const landedRef = useRef(false);
   useEffect(() => {
     if (landedRef.current) return;
-    if (loading) return;
+    if (loading || !household) return;
     landedRef.current = true;
     if (listRows.some(r => (r.quantity || 0) > 0)) setView("list");
-  }, [loading, listRows]);
+  }, [loading, household, listRows]);
   const [meals, setMeals] = useState([]);
   const [mealsLoading, setMealsLoading] = useState(false);
   const [addingMealId, setAddingMealId] = useState(null);
