@@ -5718,10 +5718,19 @@ function ProvisionsApp() {
               </div>
             )}
             {totalItems === 0 ? (
-              <div className="list-empty">
-                <h2>Your list is empty</h2>
-                <p>Go to "Add Items" and set quantities for what you need.</p>
-              </div>
+              <>
+                {/* Empty form of the header row: count text and the same round +
+                    (Add sheet, in-store paths) — no lens, no Wrap up. Still the
+                    compact sentinel (ref), though the page is too short to scroll. */}
+                <div className="list-header" ref={controlRowRef}>
+                  <span className="list-progress" style={{ flex: 1 }}>Nothing in the cart yet</span>
+                  <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
+                </div>
+                <div className="list-empty">
+                  <h2>Your list is empty</h2>
+                  <p>Go to "Add Items" and set quantities for what you need.</p>
+                </div>
+              </>
             ) : (
               <>
                 <div className="list-header" ref={controlRowRef}>
