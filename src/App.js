@@ -4401,6 +4401,10 @@ function ProvisionsApp() {
         .li-subtotal.done { color: #a89878; }
         .clear-btn { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 16px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
         .clear-btn:hover { border-color: #e05c5c; color: #e05c5c; }
+        /* Velayo footer — every door, phone and wide. Sand monogram, muted letterspaced wordmark, 56px above. */
+        .velayo-footer { margin-top: 56px; padding: 0 20px 28px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+        .velayo-mono { display: block; width: 24px; height: 24px; }
+        .velayo-footer-text { font-family: 'Lato', sans-serif; font-size: 0.6rem; letter-spacing: 2px; text-transform: uppercase; color: #8a7a60; }
         /* All done card (mockup_shop_all_done.html) — the arc is the ONLY ornament: one 1.6px teal stroke. */
         .all-done { text-align: center; padding: 8px 12px 26px; }
         .all-done-arc { width: 150px; height: 12px; margin: 0 auto 14px; display: block; }
@@ -5971,20 +5975,15 @@ function ProvisionsApp() {
         )}
       </div>
 
-      {/* Velayo footer — only shown when there are items */}
-      {totalItems > 0 && (
-        <div style={{
-          textAlign: "center", padding: "28px 20px 36px",
-          borderTop: "1px solid #E8D5B7", marginTop: "12px",
-          display: "flex", flexDirection: "column", alignItems: "center", gap: "10px",
-        }}>
-          <img src={VELAYO_LOGO_TEAL} alt="Velayo" style={{ width: "72px", height: "auto", opacity: 0.55 }} />
-          <div style={{
-            fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2px",
-            textTransform: "uppercase", color: "#b0a080", opacity: 0.7,
-          }}>A Velayo App</div>
-        </div>
-      )}
+      {/* Velayo footer — on every door, phone and wide. The V monogram in sand
+          (no fill tile — the teal PNG tile is retired here so the All done card's
+          button is the only teal on the Shop screen) over "A VELAYO APP". */}
+      <div className="velayo-footer" aria-label="A Velayo app">
+        <svg className="velayo-mono" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+          <path d="M3 4.5 L12 20 L21 4.5" fill="none" stroke="#C9A97A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <div className="velayo-footer-text">A Velayo App</div>
+      </div>
 
       {/* On-hand prompt — only for meals that have on-hand ingredients.
           Three choices per ingredient, no confirmation on Remove: the prompt is
