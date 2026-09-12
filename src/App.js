@@ -3529,7 +3529,7 @@ function ProvisionsApp() {
     const reduced = typeof window !== "undefined" && window.matchMedia
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!reduced) {
-      const dir = checked[name] ? "in" : "out";
+      const dir = checked[id] ? "in" : "out";
       const markMs = dir === "out" ? 120 + 250 : 120; // beat 1 (+ hold on check only)
       const collapseMs = 200;                          // beat 2
       // Mark BEFORE the write: toggleChecked flips `checked` synchronously and
@@ -3559,7 +3559,7 @@ function ProvisionsApp() {
   const openWrapUp = () => {
     const pending = new Set(
       shoppingList.flatMap(cat =>
-        cat.items.filter(i => !checked[i.name]).map(i => i.name)
+        cat.items.filter(i => !checked[i.listItemId]).map(i => i.name)
       )
     );
     setWrapUpRollItems(pending);
@@ -3595,7 +3595,7 @@ function ProvisionsApp() {
   // which sets status back to pending: D6, adds land unchecked).
   const handleShopAddResult = async (item) => {
     closeAddSheet();
-    const res = await updateQty(item.name, (quantities[item.name] || 0) + 1, item.rawCategory);
+    const res = await updateQty(item.name, qtyFor(item) + 1, item.rawCategory);
     noteAddedHere(res);
   };
   // Create / reveal-add — Browse's addSearchedItem, unchanged, with the category
@@ -3877,11 +3877,23 @@ function ProvisionsApp() {
     }));
   }, [listRows, prices, supabasePrices, localPrices, contributorsMap, user?.id]);
 
+  // INVARIANT: list-row state (`quantities`, `checked`) is keyed by list_item.id;
+  // the name is a label, never an identity. Browse rows are CATALOG items, so a
+  // stepper resolves catalog id → live list row → quantity; a row still being
+  // inserted reads the hook's pre:<catalog id> placeholder.
+  const qtyFor = (item) => {
+    const cid = item.catalogItemId || item.id || catalogMap[item.name]?.id;
+    if (!cid) return 0;
+    const row = listRows.find(r => r.catalogItemId === cid);
+    if (row && quantities[row.id] != null) return quantities[row.id];
+    const pre = quantities[`pre:${cid}`];
+    return pre != null ? pre : 0;
+  };
   const pendingItems = shoppingList.flatMap(cat =>
-    cat.items.filter(item => !checked[item.name])
+    cat.items.filter(item => !checked[item.listItemId])
   );
   const boughtItems = shoppingList.flatMap(cat =>
-    cat.items.filter(item => checked[item.name])
+    cat.items.filter(item => checked[item.listItemId])
   );
 
   // Loading state for catalog — only true while fetch is in flight, not based on result size
@@ -3892,7 +3904,7 @@ function ProvisionsApp() {
   const hasEstimatedPrices = shoppingList.some(c => c.items.some(i => !prices[i.name]));
   const checkedCount = Object.values(checked).filter(Boolean).length;
   const checkedCost = shoppingList.reduce((acc, c) =>
-    acc + c.items.reduce((a, i) => a + (checked[i.name] ? i.subtotal : 0), 0), 0);
+    acc + c.items.reduce((a, i) => a + (checked[i.listItemId] ? i.subtotal : 0), 0), 0);
 
   // A row stays in its aisle while it is leaving ("out"), and stays out of it
   // while it is returning from the tray ("in"), so the motion can play where
@@ -3901,12 +3913,12 @@ function ProvisionsApp() {
   const inAisle = (i) => {
     const m = rowMotion[i.listItemId];
     if (m) return m.dir === "out";
-    return !checked[i.name];
+    return !checked[i.listItemId];
   };
   const inTray = (i) => {
     const m = rowMotion[i.listItemId];
     if (m) return m.dir === "in";
-    return !!checked[i.name];
+    return !!checked[i.listItemId];
   };
   // Shop A–Z lens — flat, alphabetical, unchecked only (checked items live in the In cart tray).
   const shopFlatItems = useMemo(() =>
@@ -3930,7 +3942,7 @@ function ProvisionsApp() {
     const m = rowMotion[i.listItemId];
     if (m?.dir === "out") return m.phase === "collapse";
     if (m?.dir === "in") return m.phase === "mark";
-    return !!checked[i.name];
+    return !!checked[i.listItemId];
   }).length;
 
  
@@ -5548,7 +5560,7 @@ function ProvisionsApp() {
                   }}
                   listClassName="items-grid"
                   renderRow={(item) => {
-                        const qty = quantities[item.name] || 0;
+                        const qty = qtyFor(item);
                         const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
                         const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
                         const isEditing = editingPrice === item.name;
@@ -5684,7 +5696,7 @@ function ProvisionsApp() {
                     <FlatHeader count={browseFlatItems.length} showCount={!browseFilterDescriptor} />
                     <div className="items-grid">
                       {browseFlatItems.map((item) => {
-                        const qty = quantities[item.name] || 0;
+                        const qty = qtyFor(item);
                         const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
                         const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
                         const isEditing = editingPrice === item.name;
@@ -5732,7 +5744,7 @@ function ProvisionsApp() {
                     </div>
                     <div className="items-grid">
                       {cat.items.map((item) => {
-                        const qty = quantities[item.name] || 0;
+                        const qty = qtyFor(item);
                         const rawFallback = categoryAvgPrices[cat.rawName] || 3.00;
                         const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
                         const isEditing = editingPrice === item.name;

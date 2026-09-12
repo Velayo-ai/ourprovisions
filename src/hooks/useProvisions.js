@@ -17,8 +17,19 @@ export const isPendingCatalogId = (id) =>
   typeof id === "string" && id.startsWith(PENDING_CATALOG_PREFIX);
 
 export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
+  // INVARIANT (2026-09-12): client state for list rows is keyed by list_item.id.
+  // The name is a label, never an identity — two live rows can share one
+  // ("Milk" custom beside "Milk" catalog; a reused cycle row). `quantities` and
+  // `checked` are maps of list_item.id → value. The one exception is a row that
+  // does not exist yet: while an add is in flight the optimistic quantity sits
+  // under `pre:<catalog_item_id>` and the reader falls back to it until the
+  // poll delivers the real row.
   const [quantities, setQuantities] = useState({});
   const [checked, setChecked] = useState({});
+  const listRowsRef = useRef([]);
+  const preKey = (catalogItemId) => `pre:${catalogItemId}`;
+  const liveRowIdFor = (catalogItemId) =>
+    listRowsRef.current.find(r => r.catalogItemId === catalogItemId)?.id || null;
   const [prices, setPrices] = useState({});
   const [addedByMap, setAddedByMap] = useState({});
   const [contributorsMap, setContributorsMap] = useState({});
@@ -265,8 +276,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         pricePerUnit: item.price_per_unit != null ? parseFloat(item.price_per_unit) : null,
         addedBy: item.added_by ?? null,
       });
-      newQty[name] = item.quantity;
-      newChecked[name] = item.status === "bought";
+      newQty[item.id] = item.quantity;
+      newChecked[item.id] = item.status === "bought";
       if (item.price_per_unit != null) newPrices[name] = parseFloat(item.price_per_unit);
       if (item.added_by != null) newAddedBy[name] = item.added_by;
 
@@ -291,6 +302,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       if (item.price_hint != null) mergedPrices[item.name] = parseFloat(item.price_hint);
     });
     Object.assign(mergedPrices, newPrices);
+    listRowsRef.current = newListRows;
     setListRows(newListRows);
     // Bought-set fingerprint for the tray attribution (status is NOT in the
     // provenance fingerprint above — a check changes no quantity).
@@ -812,18 +824,25 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     if (!hh || !db) return;
 
-    // Optimistic update + mark this item as having an in-flight write so the
-    // poll won't clobber it before the write confirms.
-    pendingQtyRef.current.add(itemName);
-    setQuantities((prev) => ({ ...prev, [itemName]: Math.max(0, qty) }));
     // Resolved ids of the row this write touched — returned so an in-store add
     // can record its `added_in_store` event after the write commits (D12).
     // Null for removals and on failure.
     let touched = null;
+    // Optimistic key: the live row's id when one exists, else pre:<catalog id>
+    // until the insert lands. A brand-new NAME has no catalog id yet, so it
+    // gets no optimistic value — nothing renders it before catalogMap updates.
+    let optKey = null;
+    const setOpt = (key, value) => {
+      if (!key) return;
+      pendingQtyRef.current.add(key);
+      setQuantities((prev) => ({ ...prev, [key]: Math.max(0, value) }));
+    };
+    const clearPending = () => { if (optKey) pendingQtyRef.current.delete(optKey); };
 
     try {
       // Look up in current catalogRef (includes custom items added this session)
       let catalogItem = catalogRef.current[itemName];
+      if (catalogItem) { optKey = liveRowIdFor(catalogItem.id) || preKey(catalogItem.id); setOpt(optKey, qty); }
 
       // If not found, this is a brand-new custom item — insert it into catalog_items
       if (!catalogItem) {
@@ -853,6 +872,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
         }
       }
+      if (!optKey) { optKey = liveRowIdFor(catalogItem.id) || preKey(catalogItem.id); setOpt(optKey, qty); }
 
       if (qty <= 0) {
         // Atomic remove: soft-delete the list_items row AND clear its
@@ -864,6 +884,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           p_catalog_item_id: catalogItem.id,
         });
         if (delErr) throw delErr;
+        // The row is gone: drop its entry (and any pre-row placeholder) now rather
+        // than waiting for the poll.
+        setQuantities((prev) => { const n = { ...prev }; delete n[optKey]; delete n[preKey(catalogItem.id)]; return n; });
       } else {
         const { data: updateData, error: updateErr } = await db
           .from("list_items")
@@ -905,6 +928,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           if (insertErr) throw insertErr;
           const newItem = { id: newItemId };
           touched = { listItemId: newItemId, catalogItemId: catalogItem.id };
+          // Real row now exists: mirror the value under its id. The pre:<cid>
+          // placeholder stays until the poll delivers the row (the reader falls
+          // back to it meanwhile), then the rebuild drops it.
+          setQuantities((prev) => ({ ...prev, [newItemId]: qty }));
 
           // Record this user as the first contributor
           if (newItem && internalUserIdRef.current) {
@@ -919,6 +946,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         } else {
           // Row already exists — update this user's contributor quantity
           touched = { listItemId: updateData[0].id, catalogItemId: catalogItem.id };
+          setQuantities((prev) => ({ ...prev, [updateData[0].id]: qty }));
           if (internalUserIdRef.current && updateData?.[0]?.id) {
             await db
               .from("list_item_contributors")
@@ -931,11 +959,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         }
 
       }
-      pendingQtyRef.current.delete(itemName);
+      clearPending();
       reportSuccess();
       return touched;
     } catch (err) {
-      pendingQtyRef.current.delete(itemName);
+      clearPending();
       console.error("updateQty error:", err.message, err);
       console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
       // Classify FIRST. On a transient (offline) failure, keep the optimistic
@@ -945,7 +973,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       if (classifyFetchError(err) === 'transient') {
         reportTransientFailure();
       } else {
-        setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
+        setQuantities((prev) => { const n = { ...prev }; if (optKey) delete n[optKey]; return n; });
         setError(`Could not update quantity: ${err.message}`);
       }
       return null;
@@ -964,12 +992,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // this can only ever touch the tapped row.
     if (!listItemId) { setError(`"${itemName}" is not on the list`); return; }
 
-    const newStatus = checked[itemName] ? "pending" : "bought";
-    // F3: mark this item as having an in-flight write so the 2s poll won't
+    const newStatus = checked[listItemId] ? "pending" : "bought";
+    // F3: mark this row as having an in-flight write so the 2s poll won't
     // snap the optimistic value back to the stale server status before the
     // update commits (Bug 3: toggle bounces / needs ~3 taps to stick).
-    pendingCheckRef.current.add(itemName);
-    setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
+    pendingCheckRef.current.add(listItemId);
+    setChecked((prev) => ({ ...prev, [listItemId]: !prev[listItemId] }));
 
     try {
       const { error: updateErr } = await db
@@ -979,15 +1007,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .eq("household_id", hh.id)
         .is("deleted_at", null);
       if (updateErr) throw updateErr;
-      pendingCheckRef.current.delete(itemName);
+      pendingCheckRef.current.delete(listItemId);
       reportSuccess();
       // Resolves to the committed status so the Shop tab can write the matching
       // list_item_events row AFTER the primary write (D12), or nothing on failure.
       return newStatus;
     } catch (err) {
-      pendingCheckRef.current.delete(itemName);
+      pendingCheckRef.current.delete(listItemId);
       console.error("toggleChecked error:", err.message);
-      setChecked((prev) => ({ ...prev, [itemName]: !prev[itemName] }));
+      setChecked((prev) => ({ ...prev, [listItemId]: !prev[listItemId] }));
       if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
       return null;
     }
@@ -1610,7 +1638,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!catalogItem) return;
 
     // Optimistically remove from this user's browse view
-    setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
+    setQuantities((prev) => { const n = { ...prev }; const rid = liveRowIdFor(catalogItem.id); if (rid) delete n[rid]; delete n[preKey(catalogItem.id)]; return n; });
     setCatalogMap((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
     const newRef = { ...catalogRef.current };
     delete newRef[itemName];
@@ -1658,7 +1686,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     // Snapshot for rollback, then optimistically remove from UI
     const prevCatalogRef = catalogRef.current;
-    setQuantities((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
+    setQuantities((prev) => { const n = { ...prev }; const rid = liveRowIdFor(catalogItem.id); if (rid) delete n[rid]; delete n[preKey(catalogItem.id)]; return n; });
     setCatalogMap((prev) => { const n = { ...prev }; delete n[itemName]; return n; });
     const newRef = { ...catalogRef.current };
     delete newRef[itemName];
