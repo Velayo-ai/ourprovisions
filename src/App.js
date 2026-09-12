@@ -4240,7 +4240,8 @@ function ProvisionsApp() {
                   font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
                   transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
         .wrapup.muted { background: transparent; color: #A0724A; box-shadow: inset 0 0 0 1.5px #C9A97A; }
-        .wrapup.full { background: #c8973a; color: #2C1A0E; box-shadow: none; }
+        /* Emphasized = teal fill, white text — the same colour as the All done card's "Wrap up trip →" button, because it is the same action. Amber is the badge's alone. */
+        .wrapup.full { background: #0D9488; color: #fff; box-shadow: none; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
@@ -5852,7 +5853,7 @@ function ProvisionsApp() {
                       Add sheet (add-from-the-aisle). Wrap up is muted at 0 in cart and
                       amber once one item is checked; tappable in both states (D10). */}
                   <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
-                  {/* D10 (amended 2026-09-12): three states — muted at 0 in cart, amber while
+                  {/* D10 (amended 2026-09-12): three states — muted at 0 in cart, teal while
                       anything remains to find, muted again at 100%. At 100% the All done card's
                       teal button carries the emphasis; two emphasized exits on one screen is
                       what D9 guards against. Tappable in every state. */}
