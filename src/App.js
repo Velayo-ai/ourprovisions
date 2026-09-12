@@ -2269,6 +2269,7 @@ function ProvisionsApp() {
     setCatalogMap,
     listRows,
     loading,
+    householdReady,
     error,
     dismissError,
     updateQty,
@@ -2346,19 +2347,21 @@ function ProvisionsApp() {
   const controlRowRef = useCallback((el) => setControlRow(el), []);
   const scrollCompact = useScrollCompact(controlRow);
   // Landing tab until a Home tab exists: Shop if the list has items, else Browse.
-  // Runs once per app load after the first successful list load — never
+  // Runs once per app load after the first SUCCESSFUL list read — never
   // reactive, so adding a first item from Browse doesn't yank the user to Shop.
   // Remove when Home ships.
-  // Gated on household because the anon-catalog path in useProvisions Effect 1
-  // clears loading before Clerk has loaded, with listRows still empty — keying
-  // on loading alone burns the guard on Browse every cold start.
+  // Gated on householdReady (useProvisions), not on loading/household: loading
+  // clears on the anon-catalog pass, and it clears at the end of the household
+  // load even when the first list tick failed transiently and set no rows — a
+  // slow cold load on prod (2026-09-12) landed on Browse with 18 items. The
+  // hook flips householdReady only where the list RPC actually returned rows.
   const landedRef = useRef(false);
   useEffect(() => {
     if (landedRef.current) return;
-    if (loading || !household) return;
+    if (!householdReady) return;
     landedRef.current = true;
     if (listRows.some(r => (r.quantity || 0) > 0)) setView("list");
-  }, [loading, household, listRows]);
+  }, [householdReady, listRows]);
   const [meals, setMeals] = useState([]);
   const [mealsLoading, setMealsLoading] = useState(false);
   const [addingMealId, setAddingMealId] = useState(null);
@@ -3981,8 +3984,8 @@ function ProvisionsApp() {
       <div className="app-root" style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
-      {/* Gated on household for the same reason as the landing effect — loading clears on the anon-catalog pass before the household list has arrived. Ensures the landing tab is settled before the splash dissolves; the 5s failsafe still bounds it. */}
-      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || (!loading && !!household))} />}
+      {/* Gated on householdReady for the same reason as the landing effect — the list must have actually arrived, not merely stopped loading — so the landing tab is settled before the splash dissolves and there is no flash of Browse before Shop; the 5s failsafe still bounds it. */}
+      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || householdReady)} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
       {isSignedIn && loading && (

@@ -45,6 +45,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [listRows, setListRows] = useState([]); // raw surviving RPC rows — source of truth for the SHOP list
   const [hiddenCatalogItems, setHiddenCatalogItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  // householdReady — true once THIS household's list has been read successfully
+  // at least once. `loading` cannot carry that meaning: it clears on the anon
+  // catalog pass, and it clears at the end of loadForHousehold even when the
+  // first list tick returned a transient error or a suspect-empty response and
+  // set no rows (seen on prod 2026-09-12: a slow cold load landed on Browse
+  // with 18 items on the list). The splash gate and the landing decision wait
+  // on this, not on loading. Reset on every household load.
+  const [householdReady, setHouseholdReady] = useState(false);
   const [error, setError] = useState(null);
   // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
   const errorSourceRef = useRef(null);
@@ -201,6 +209,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // connection — the guard above already returned in that case), so retire any
     // stale "Could not load list" left behind by an earlier failed tick.
     clearErrorFrom("list");
+    // …and this is the one place the household's list is known to have arrived.
+    // Guarded on the household so a late tick from a previous household (during
+    // a switch) can't declare the new one ready with the old one's rows.
+    if (householdRef.current?.id === householdId) setHouseholdReady(true);
 
     // Names/categories/staple flags now arrive inline from the list RPC join.
     const catalogNameMap = {};
@@ -680,6 +692,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     async function loadForHousehold(householdId) {
       setLoading(true);
+      setHouseholdReady(false);
 
       // Reset per-household state so the previous household's rows don't flash
       listFingerprintRef.current = "";
@@ -2829,7 +2842,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
   return {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
-    hiddenCatalogItems, loading, error, dismissError,
+    hiddenCatalogItems, loading, householdReady, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
