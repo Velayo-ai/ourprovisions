@@ -95,3 +95,44 @@ export function useMediaQuery(query) {
   }, [query]);
   return matches;
 }
+
+// D9′ (v2) — the pill compacts when you scroll INTO content and returns when you
+// scroll up. Binary, not continuous: past `threshold` px scrolling down adds
+// compact; scrolling up, or being within `threshold` of the top, removes it.
+// One trigger the person controls with their own hand — never navigation.
+//
+// `scrollRootRef.current` is the scrolling element; null/undefined means the
+// document (window) scrolls, which is OurProvisions' case. rAF-throttled;
+// negative offsets (iOS rubber-band at the top) are ignored so the pill never
+// flickers on overscroll. A small direction deadband keeps 1px jitter from
+// toggling it. On mount the state is whatever the offset implies (a hard
+// refresh mid-list renders compact, with no animation — the Helm's arming
+// guard owns that).
+export function useScrollCompact(scrollRootRef, { threshold = 40, deadband = 4 } = {}) {
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const el = scrollRootRef && scrollRootRef.current ? scrollRootRef.current : null;
+    const target = el || window;
+    const getY = () => (el ? el.scrollTop : (window.scrollY || document.documentElement.scrollTop || 0));
+    let last = getY();
+    let compactNow = getY() > threshold;
+    let ticking = false;
+    setCompact(compactNow);
+    const set = (v) => { if (v !== compactNow) { compactNow = v; setCompact(v); } };
+    const update = () => {
+      ticking = false;
+      const y = getY();
+      if (y < 0) return;                       // iOS overscroll: not a scroll
+      const dy = y - last;
+      if (y <= threshold) set(false);          // near the top: always full
+      else if (dy > deadband) set(true);       // scrolling down into content
+      else if (dy < -deadband) set(false);     // scrolling up: return
+      last = y;
+    };
+    const onScroll = () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } };
+    target.addEventListener("scroll", onScroll, { passive: true });
+    return () => target.removeEventListener("scroll", onScroll);
+  }, [scrollRootRef, threshold, deadband]);
+  return compact;
+}
