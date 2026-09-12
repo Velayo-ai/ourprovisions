@@ -1,6 +1,7 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
+import { NAV_DOORS, useMediaQuery, WIDE_QUERY, useScrollCompact } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
@@ -754,6 +755,128 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 // ── Shop tab: lens, In cart tray, store prompt (SPEC_shop_lens_instore_capture.md) ──
 // D3: a control shows its STATE, never its next state — both words visible,
 // the active one filled. Replaces the tri-state CycleIcon on Shop only.
+// ── The Helm (SPEC_nav_helm.md) ─────────────────────────────────────────────
+// Nav lives in a floating pill at the bottom edge (D1) — the thumb is at the
+// bottom, the header keeps one job (household identity). Doors come from
+// NAV_DOORS (src/nav.js) so the pill and the wide rail can never drift (D6).
+// Icon + label always in the navigational posture (D2): Plan/Browse/Shop are
+// not universal glyphs.
+//
+// D8 — motion answers a tap: transitions are armed on the first pointer/key
+// interaction, never on mount. A landing-effect view change on a cold load
+// therefore paints the final posture with no animation.
+// D3′ (v2, 2026-09-12) — the pill is IDENTICAL on every door. No posture change
+// on navigation, ever; a tab tap is the most ordinary act in the app. The v1
+// session posture (slim on Shop, + and Wrap up riding in the pill) is retired —
+// the trip's controls are part of the list (Shop header row, D4′), the pill is
+// chrome.
+// D9′/D11 (v2, amended) — `compact` is true exactly when the current door's
+// control row is off-screen (useScrollCompact, position-based), never by the door
+// itself. In the compact state a cream + appears at the right end
+// and does the CURRENT door's add (`onPlus`, from the doorAdd map); when the
+// door has no add (Home), no + renders. At rest, no + on the pill.
+function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (armed) return undefined;
+    const arm = () => setArmed(true);
+    const opts = { once: true, passive: true };
+    window.addEventListener("pointerdown", arm, opts);
+    window.addEventListener("touchstart", arm, opts);
+    window.addEventListener("wheel", arm, opts);
+    window.addEventListener("keydown", arm, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("touchstart", arm);
+      window.removeEventListener("wheel", arm);
+      window.removeEventListener("keydown", arm);
+    };
+  }, [armed]);
+  return (
+    <>
+      {/* Cream fade above the pill so the last row stays legible as it scrolls under (§6). */}
+      <div className="helm-fade" aria-hidden="true" />
+    <nav className={`helm ${compact ? "compact" : ""} ${armed ? "" : "no-anim"}`} aria-label="Main">
+      {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
+        const active = view === v;
+        return (
+          <button
+            key={key}
+            type="button"
+            className={`helm-door ${active ? "active" : ""}`}
+            aria-current={active ? "page" : undefined}
+            onClick={() => onChange(v)}
+          >
+            <Icon size={20} />
+            <span className="helm-label">{label}</span>
+            {badge && badgeCount > 0 && <span className="badge helm-badge">{badgeCount}</span>}
+          </button>
+        );
+      })}
+      {compact && onPlus && (
+        <>
+          <span className="helm-divider" aria-hidden="true" />
+          <button type="button" className="helm-plus" aria-label={onPlus.label} onClick={onPlus.run}>+</button>
+        </>
+      )}
+    </nav>
+    </>
+  );
+}
+
+// D7: the Home door exists from day one; this is the promise, not the design.
+// HOME v1 builds into `view === "home"` — replace this component, keep the door.
+function HomePlaceholder({ firstName, householdName }) {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  const dateLine = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  return (
+    <div className="home-placeholder">
+      <div className="home-greeting">Good {part}{firstName ? `, ${firstName}` : ""}</div>
+      <div className="home-date">{dateLine}</div>
+      <p className="home-promise">
+        Tonight's meal and what's happening in {householdName || "your place"} will live here.
+      </p>
+    </div>
+  );
+}
+
+// D5 — past 700px the pill unmounts and the SAME doors stand in a left rail:
+// width is cheap there and thumb reach doesn't apply. Same NAV_DOORS, same
+// icons, same order, same active treatment (shared .helm-door). No compact
+// state and no + (v2): the Shop header row [count] [Aisles | A–Z] [+] [Wrap up]
+// sits at the top of the body column on wide and is reachable, so the rail
+// carries no trip controls — one + on the screen, not two.
+function Rail({ view, onChange, badgeCount, initials, onAvatar }) {
+  return (
+    <nav className="rail" aria-label="Main">
+      <div className="rail-mark" aria-hidden="true">P</div>
+      {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
+        const active = view === v;
+        return (
+          <button
+            key={key}
+            type="button"
+            className={`helm-door ${active ? "active" : ""}`}
+            aria-current={active ? "page" : undefined}
+            onClick={() => onChange(v)}
+          >
+            <Icon size={20} />
+            <span className="helm-label">{label}</span>
+            {badge && badgeCount > 0 && <span className="badge helm-badge">{badgeCount}</span>}
+          </button>
+        );
+      })}
+      <div className="rail-spacer" />
+      {initials ? (
+        <button type="button" className="rail-avatar" aria-label="Open profile" onClick={onAvatar}>{initials}</button>
+      ) : (
+        <div className="rail-avatar" aria-hidden="true" />
+      )}
+    </nav>
+  );
+}
+
 function ShopLensSegment({ lens, onChange }) {
   return (
     <div className="shop-seg" role="group" aria-label="List view">
@@ -766,13 +889,13 @@ function ShopLensSegment({ lens, onChange }) {
 // D2: checked items get a PLACE, not a toggle. Collapsed by default, hidden
 // entirely at 0. Rows un-check from inside the tray. `initialFor` returns a
 // small initial for rows the current user did not check (partner's check).
-function InCartTray({ items, open, onToggle, onUncheck, initialFor }) {
-  if (items.length === 0) return null;
+function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor }) {
+  if (items.length === 0 && count === 0) return null;
   return (
     <div className="in-cart-tray">
       <button type="button" className="tray-head" onClick={onToggle} aria-expanded={open}>
         <span className="tray-cb">✓</span>
-        <span className="tray-title">In cart<span className="tray-sub">{items.length} {items.length === 1 ? "item" : "items"}</span></span>
+        <span className="tray-title">In cart<span className="tray-sub">{count} {count === 1 ? "item" : "items"}</span></span>
         <span className="tray-chev">{open ? "▴" : "▾"}</span>
       </button>
       {open && (
@@ -780,7 +903,7 @@ function InCartTray({ items, open, onToggle, onUncheck, initialFor }) {
           {items.map((item) => {
             const initial = initialFor(item.listItemId);
             return (
-              <div key={item.name} className="list-item shop-row-in">
+              <div key={item.name} className={`list-item shop-row-in${motionClass(item.listItemId)}`}>
                 <div className="checkbox checked" onClick={() => onUncheck(item)}>
                   <span className="checkmark">✓</span>
                 </div>
@@ -2213,6 +2336,15 @@ function ProvisionsApp() {
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
   const [view, setView] = useState("input");
+  // D5: ≥700px mounts <Rail />, below it <Helm /> — exactly one at any width.
+  const isWide = useMediaQuery(WIDE_QUERY);
+  // D9′ (amended 2026-09-12): compact exactly when the current door's control
+  // row is off-screen. Each door hands its row (or a sentinel at the block's
+  // bottom) to `controlRowRef`; only the active door renders one, so at most one
+  // element is live. Home passes nothing and never compacts (D12).
+  const [controlRow, setControlRow] = useState(null);
+  const controlRowRef = useCallback((el) => setControlRow(el), []);
+  const scrollCompact = useScrollCompact(controlRow);
   // Landing tab until a Home tab exists: Shop if the list has items, else Browse.
   // Runs once per app load after the first successful list load — never
   // reactive, so adding a first item from Browse doesn't yank the user to Shop.
@@ -2582,6 +2714,19 @@ function ProvisionsApp() {
   const [trayOpen, setTrayOpen] = useState(false);
   const [addedHereIds, setAddedHereIds] = useState(() => new Set());
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // Check motion (presentation only — the database write happens on the tap).
+  // list_item.id → { dir: "out" (aisle → tray) | "in" (tray → aisle), phase: "mark" | "collapse" }.
+  // Keyed by the ROW's id, not its name: names are not unique (a custom "Milk"
+  // beside the catalog "Milk", a reused cycle row), and two rows must never
+  // share a phase.
+  // out: beat 1 marks the row (teal check, name dims + strikes, 120ms), hold
+  // ~250ms; beat 2 collapses it (200ms) while the tray count picks it up; then
+  // the row unmounts. in (uncheck from the tray) is the reverse with no hold —
+  // it's a correction. A row in motion ignores further taps, so a fast double
+  // check of two adjacent rows can't stack or jump.
+  const [rowMotion, setRowMotion] = useState({});
+  const rowMotionTimers = useRef({});
+  useEffect(() => () => { Object.values(rowMotionTimers.current).forEach(clearTimeout); }, []);
   const [storePromptOpen, setStorePromptOpen] = useState(false);
   const [storePromptSkippedFor, setStorePromptSkippedFor] = useState(null);
   const [storeSaving, setStoreSaving] = useState(false);
@@ -3378,10 +3523,49 @@ function ProvisionsApp() {
   // a toast. The first event of a trip starts the session (and so the store
   // prompt) as a side effect inside recordListEvent.
   const handleShopToggle = async (item) => {
-    const status = await toggleChecked(item.name, item.listItemId);
+    const name = item.name;
+    const id = item.listItemId;
+    if (rowMotion[id]) return;                         // already in motion — ignore the tap
+    const reduced = typeof window !== "undefined" && window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduced) {
+      const dir = checked[id] ? "in" : "out";
+      const markMs = dir === "out" ? 120 + 250 : 120; // beat 1 (+ hold on check only)
+      const collapseMs = 200;                          // beat 2
+      // Mark BEFORE the write: toggleChecked flips `checked` synchronously and
+      // the row would otherwise leave the aisle on this very render.
+      setRowMotion(prev => ({ ...prev, [id]: { dir, phase: "mark" } }));
+      rowMotionTimers.current[id] = setTimeout(() => {
+        setRowMotion(prev => prev[id] ? { ...prev, [id]: { dir, phase: "collapse" } } : prev);
+        rowMotionTimers.current[id] = setTimeout(() => {
+          setRowMotion(prev => { const n = { ...prev }; delete n[id]; return n; });
+          delete rowMotionTimers.current[id];
+        }, collapseMs);
+      }, markMs);
+    }
+    const status = await toggleChecked(name, item.listItemId);
     if (!status) return;
     recordListEvent(status === "bought" ? "checked" : "unchecked", { listItemId: item.listItemId, catalogItemId: item.catalogItemId });
   };
+  const rowMotionClass = (listItemId) => {
+    const m = rowMotion[listItemId];
+    if (!m) return "";
+    if (m.phase === "collapse") return " collapsing";
+    return m.dir === "out" ? " checking" : " unchecking";
+  };
+  // Wrap up (D4): one home for the pre-select logic — called by the helm's
+  // Wrap up chip and by the all-done "Wrap Up Trip →" button. Pending (unchecked)
+  // items are pre-selected to roll forward; at 100% that set is simply empty.
+  const openWrapUp = () => {
+    const pending = new Set(
+      shoppingList.flatMap(cat =>
+        cat.items.filter(i => !checked[i.listItemId]).map(i => i.name)
+      )
+    );
+    setWrapUpRollItems(pending);
+    setShowWrapUpModal(true);
+  };
+
   const openAddSheet = () => {
     setSearchQuery("");
     setSearchPickerOpen(false);
@@ -3391,8 +3575,19 @@ function ProvisionsApp() {
     setAddSheetOpen(false);
     setSearchQuery("");
   };
+  // D11 — the + does the DOOR's add. Shop → the Add sheet (add-from-the-aisle,
+  // "added here"); Browse → the same sheet, plain; Plan → New meal (the create
+  // sheet exists, and like its library row it needs an account); Home → absent,
+  // so no + ever renders there (D12). The + never becomes a menu.
+  const doorAdd = {
+    list:  { label: "Add something", run: openAddSheet },
+    input: { label: "Add to your list", run: openAddSheet },
+    ...(MEALS_ENABLED && isSignedIn ? { plan: { label: "New meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {}),
+  };
+  // "added here" and the added_in_store event are Shop semantics: the same sheet
+  // opened from Browse's + adds plainly (no tag, no event, no session start).
   const noteAddedHere = (res) => {
-    if (!res) return;
+    if (!res || view !== "list") return;
     setAddedHereIds(prev => { const n = new Set(prev); n.add(res.catalogItemId); return n; });
     recordListEvent("added_in_store", res);
   };
@@ -3400,7 +3595,7 @@ function ProvisionsApp() {
   // which sets status back to pending: D6, adds land unchecked).
   const handleShopAddResult = async (item) => {
     closeAddSheet();
-    const res = await updateQty(item.name, (quantities[item.name] || 0) + 1, item.rawCategory);
+    const res = await updateQty(item.name, qtyFor(item) + 1, item.rawCategory);
     noteAddedHere(res);
   };
   // Create / reveal-add — Browse's addSearchedItem, unchanged, with the category
@@ -3682,11 +3877,23 @@ function ProvisionsApp() {
     }));
   }, [listRows, prices, supabasePrices, localPrices, contributorsMap, user?.id]);
 
+  // INVARIANT: list-row state (`quantities`, `checked`) is keyed by list_item.id;
+  // the name is a label, never an identity. Browse rows are CATALOG items, so a
+  // stepper resolves catalog id → live list row → quantity; a row still being
+  // inserted reads the hook's pre:<catalog id> placeholder.
+  const qtyFor = (item) => {
+    const cid = item.catalogItemId || item.id || catalogMap[item.name]?.id;
+    if (!cid) return 0;
+    const row = listRows.find(r => r.catalogItemId === cid);
+    if (row && quantities[row.id] != null) return quantities[row.id];
+    const pre = quantities[`pre:${cid}`];
+    return pre != null ? pre : 0;
+  };
   const pendingItems = shoppingList.flatMap(cat =>
-    cat.items.filter(item => !checked[item.name])
+    cat.items.filter(item => !checked[item.listItemId])
   );
   const boughtItems = shoppingList.flatMap(cat =>
-    cat.items.filter(item => checked[item.name])
+    cat.items.filter(item => checked[item.listItemId])
   );
 
   // Loading state for catalog — only true while fetch is in flight, not based on result size
@@ -3697,22 +3904,46 @@ function ProvisionsApp() {
   const hasEstimatedPrices = shoppingList.some(c => c.items.some(i => !prices[i.name]));
   const checkedCount = Object.values(checked).filter(Boolean).length;
   const checkedCost = shoppingList.reduce((acc, c) =>
-    acc + c.items.reduce((a, i) => a + (checked[i.name] ? i.subtotal : 0), 0), 0);
+    acc + c.items.reduce((a, i) => a + (checked[i.listItemId] ? i.subtotal : 0), 0), 0);
 
+  // A row stays in its aisle while it is leaving ("out"), and stays out of it
+  // while it is returning from the tray ("in"), so the motion can play where
+  // the person is looking. The write already happened; this is only where the
+  // row is drawn.
+  const inAisle = (i) => {
+    const m = rowMotion[i.listItemId];
+    if (m) return m.dir === "out";
+    return !checked[i.listItemId];
+  };
+  const inTray = (i) => {
+    const m = rowMotion[i.listItemId];
+    if (m) return m.dir === "in";
+    return !!checked[i.listItemId];
+  };
   // Shop A–Z lens — flat, alphabetical, unchecked only (checked items live in the In cart tray).
   const shopFlatItems = useMemo(() =>
     shoppingList
       .flatMap(c => c.items)
-      .filter(i => !checked[i.name])
+      .filter(inAisle)
       .sort((a, b) => a.name.localeCompare(b.name)),
-    [shoppingList, checked]);
+    [shoppingList, checked, rowMotion]); // eslint-disable-line react-hooks/exhaustive-deps
   // Shop Aisles lens — today's grouping minus the checked rows; an aisle that
   // empties out disappears (its items are all in the tray).
   const shopAisles = useMemo(() =>
     shoppingList
-      .map(cat => ({ ...cat, items: cat.items.filter(i => !checked[i.name]) }))
+      .map(cat => ({ ...cat, items: cat.items.filter(inAisle) }))
       .filter(cat => cat.items.length > 0),
-    [shoppingList, checked]);
+    [shoppingList, checked, rowMotion]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tray rows and the tray COUNT move at different beats: a checked row is
+  // counted once it starts collapsing out of the aisle; an unchecked row stops
+  // being counted once it starts collapsing out of the tray.
+  const trayItems = shoppingList.flatMap(cat => cat.items.filter(inTray));
+  const trayCount = shoppingList.flatMap(cat => cat.items).filter(i => {
+    const m = rowMotion[i.listItemId];
+    if (m?.dir === "out") return m.phase === "collapse";
+    if (m?.dir === "in") return m.phase === "mark";
+    return !!checked[i.listItemId];
+  }).length;
 
  
   const budgetRemaining = budgetNum !== null ? budgetNum - totalCost : null;
@@ -3747,7 +3978,7 @@ function ProvisionsApp() {
   const WORDMARK_SHADOW = bannerHasPhoto ? "0 2px 14px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.7)" : "none";
 
   return (
-      <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
+      <div className="app-root" style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
       {/* Gated on household for the same reason as the landing effect — loading clears on the anon-catalog pass before the household list has arrived. Ensures the landing tab is settled before the splash dissolves; the 5s failsafe still bounds it. */}
@@ -3786,8 +4017,8 @@ function ProvisionsApp() {
           Adding another bottom-centred surface? Put it in here. Do not give it
           its own `position: fixed; bottom: …` — that is exactly how this bug
           got in. */}
-      <div style={{
-        position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
+      <div className="bottom-stack" style={{
+        position: "fixed", left: "50%", transform: "translateX(-50%)",
         zIndex: 2000, display: "flex", flexDirection: "column", alignItems: "center",
         gap: "10px", maxWidth: "90vw",
         // The stack itself must never eat taps meant for the app behind it;
@@ -3830,6 +4061,28 @@ function ProvisionsApp() {
         )}
       </div>
 
+      {/* The Helm — floating nav pill (SPEC_nav_helm.md). Fixed, outside the
+          scrolling content, z-index 900: over content, under sheets (1000) and
+          the bottom status stack (2000). Not a bottom-centred STATUS surface, so
+          it is deliberately not inside the stack; the stack sits above it. */}
+      {isWide ? (
+        <Rail
+          view={view}
+          onChange={setView}
+          badgeCount={totalItems}
+          initials={isSignedIn ? `${user?.firstName?.[0] || ""}${user?.lastName?.[0] || ""}` : ""}
+          onAvatar={() => setShowProfileSheet(true)}
+        />
+      ) : (
+        <Helm
+          view={view}
+          onChange={setView}
+          badgeCount={totalItems}
+          compact={scrollCompact && view !== "home"}
+          onPlus={doorAdd[view] || null}
+        />
+      )}
+
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -3838,12 +4091,59 @@ function ProvisionsApp() {
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
         .header h1 { font-size: 42px; letter-spacing: 0.02em; }
-        .tab-bar { display: flex; background: #2C1A0E; border-bottom: 3px solid #c8973a; }
-        .tab { flex: 1; padding: 8px 4px 6px; text-align: center; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2px; text-transform: uppercase; background: none; border: none; color: #C9A97A; border-bottom: 2px solid transparent; display: flex; flex-direction: column; align-items: center; gap: 4px; transition: opacity 0.2s; }
-        .tab.active { border-bottom: 2px solid #C9A97A; }
-        .tab-content { display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: 0.5; transition: opacity 0.2s; }
-        .tab.active .tab-content { opacity: 1; }
         .badge { display: inline-block; background: #E8A838; color: white; font-weight: 700; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
+        /* ── The Helm — floating nav pill (SPEC_nav_helm.md v2; mockup_nav_helm_v2.html is the visual authority) ── */
+        .helm { position: fixed; left: 24px; right: 24px; bottom: calc(18px + env(safe-area-inset-bottom)); height: 56px; border-radius: 28px; z-index: 900;
+                background: #2C1A0E; display: flex; align-items: stretch; padding: 0 6px;
+                box-shadow: 0 8px 24px rgba(44,26,14,0.32), inset 0 0 0 1px rgba(201,169,122,0.16);
+                transition: height .2s ease, left .2s ease, right .2s ease, border-radius .2s ease; }
+        .helm.compact { left: 52px; right: 52px; height: 44px; border-radius: 22px; }
+        @supports ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+          .helm { background: rgba(44,26,14,0.94); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+        }
+        .helm-door { position: relative; flex: 1; min-width: 0; margin: 5px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+                     background: none; border: none; padding: 0; cursor: pointer; color: #C9A97A; border-radius: 22px;
+                     font-family: 'Lato', sans-serif; font-size: 0.58rem; letter-spacing: 1.2px; text-transform: uppercase;
+                     transition: color .2s ease, background .2s ease, margin .2s ease; -webkit-tap-highlight-color: transparent; }
+        .helm-door svg { width: 18px; height: 18px; display: block; transition: width .2s ease, height .2s ease; }
+        .helm.compact .helm-door { margin: 4px 0; }
+        .helm.compact .helm-door svg { width: 17px; height: 17px; }
+        .helm-door.active { color: #FAF4EC; background: rgba(201,169,122,0.10); }
+        .helm-label { line-height: 1; white-space: nowrap; transition: opacity .2s ease; }
+        .helm-badge { position: absolute; top: 1px; left: calc(50% + 5px); margin: 0; font-size: 0.58rem; padding: 0 4px; line-height: 15px; }
+        .control-row-end { height: 0; margin: 0; padding: 0; }
+        /* Compact (D9′): icons only, pulled in from the sides; labels stay in the DOM at font-size 0. */
+        .helm.compact .helm-door { gap: 0; }
+        .helm.compact .helm-label { font-size: 0; opacity: 0; }
+        .helm.compact .helm-badge { top: 0; }
+        .helm-divider { flex: 0 0 1px; align-self: center; height: 18px; background: rgba(201,169,122,0.22); margin-left: 4px; }
+        .helm-plus { flex: 0 0 auto; align-self: center; width: 32px; height: 32px; margin: 0 2px 0 6px; border-radius: 50%; border: none; background: #FAF4EC; color: #2C1A0E; cursor: pointer;
+                     display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 1.35rem; font-weight: 300; line-height: 1; padding: 0 0 2px;
+                     box-shadow: 0 2px 8px rgba(0,0,0,.25); animation: helmPlusIn .2s ease; }
+        @keyframes helmPlusIn { from { opacity: 0; } to { opacity: 1; } }
+        .helm.no-anim, .helm.no-anim * { transition: none !important; animation: none !important; }
+        @media (prefers-reduced-motion: reduce) { .helm, .helm * { transition: none !important; } }
+        /* Home placeholder (D7) — the door exists before its content; this names the promise. */
+        .home-placeholder { padding: 12px 2px 0; }
+        .home-greeting { font-family: 'Playfair Display', serif; font-size: 1.4rem; line-height: 1.2; color: #2C1A0E; }
+        .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
+        .home-promise { font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.5; color: #5c4a36; margin-top: 22px; max-width: 34ch; }
+        /* §6 — every scrolling root clears the pill; the document is the scroll root here. Off on wide (rail). */
+        .app-root { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+        .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(90px + env(safe-area-inset-bottom)); pointer-events: none; z-index: 899;
+                     background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
+        @media (min-width: 700px) { .app-root { padding-bottom: 0; padding-left: 84px; } }
+        /* ── The Rail (D5) — the same doors as an 84px espresso column on wide. ── */
+        .rail { position: fixed; left: 0; top: 0; bottom: 0; width: 84px; z-index: 900; background: #2C1A0E;
+                display: flex; flex-direction: column; align-items: center; padding: calc(18px + env(safe-area-inset-top)) 0 16px; }
+        .rail-mark { font-family: 'Playfair Display', serif; color: #FAF4EC; font-size: 1.4rem; margin-bottom: 26px; }
+        .rail .helm-door { flex: 0 0 auto; width: 64px; height: 60px; margin: 4px 0; border-radius: 14px; }
+        .rail-spacer { flex: 1; }
+        .rail-avatar { width: 34px; height: 34px; border-radius: 50%; border: none; background: #A0724A; color: #FAF4EC; cursor: pointer;
+                       font-family: 'Playfair Display', serif; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; }
+        /* Bottom status stack rides above the pill on phone; back to the edge on wide where the pill is gone. */
+        .bottom-stack { bottom: calc(92px + env(safe-area-inset-bottom)); }
+        @media (min-width: 700px) { .bottom-stack { bottom: 24px; } }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
         /* Budget banner */
@@ -3927,15 +4227,20 @@ function ProvisionsApp() {
         .list-empty { text-align: center; padding: 60px 20px; }
         .list-empty h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: #8a7a60; }
         .list-empty p { font-family: 'Lato', sans-serif; color: #a89878; margin-top: 8px; font-size: 0.9rem; }
-        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px; }
+        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 8px; }
+        .hdr-plus { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid #C9A97A; background: transparent; color: #A0724A; cursor: pointer;
+                    display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 1.3rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
+        .wrapup { flex: none; border: none; cursor: pointer; padding: 9px 12px; border-radius: 18px; white-space: nowrap;
+                  font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
+                  transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
+        .wrapup.muted { background: transparent; color: #A0724A; box-shadow: inset 0 0 0 1.5px #C9A97A; }
+        .wrapup.full { background: #c8973a; color: #2C1A0E; box-shadow: none; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
         .cyc-ico { flex: none; width: 46px; height: 46px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; color: #A0724A; cursor: pointer; padding: 0; transition: background 0.18s, border-color 0.18s, color 0.18s; }
         .cyc-ico.on { background: #A0724A; border-color: #A0724A; color: #fff; }
         .cyc-ico svg { width: 22px; height: 22px; display: block; }
-        .wrapup { flex: none; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; border-radius: 11px; height: 48px; padding: 0 18px; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; letter-spacing: 0.2px; color: #2C1A0E; cursor: pointer; white-space: nowrap; transition: border-color 0.2s; }
-        .wrapup:hover { border-color: #A0724A; }
         /* ── Shop tab: lens · In cart tray · in-store Add · store prompt (SPEC_shop_lens_instore_capture.md) ── */
         .shop-seg { flex: none; height: 46px; border-radius: 11px; border: 1px solid #E8D5B7; background: #fff; display: flex; overflow: hidden; }
         .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #A0724A; cursor: pointer; transition: background .15s, color .15s; }
@@ -3958,7 +4263,6 @@ function ProvisionsApp() {
         .tray-sub { font-size: 0.72rem; color: #8a7a60; font-weight: 400; margin-left: 6px; }
         .tray-chev { color: #8a7a60; font-size: 0.8rem; }
         .tray-body { border-top: 1px solid #E3D4BC; padding: 0 14px 12px; }
-        /* The tray is the last thing on the list when prices are off — keep its last row clear of the floating +. */
         .in-cart-tray { margin-bottom: 8px; }
         .tray-body .list-item { padding: 11px 0; opacity: 0.55; }
         .tray-body .list-item:last-child { border-bottom: none; }
@@ -3970,15 +4274,25 @@ function ProvisionsApp() {
         .shop-row-in { animation: opRowIn .22s ease; }
         .tray-body .shop-row-in { animation-name: opRowInDown; }
         @media (prefers-reduced-motion: reduce) { .shop-row-in { animation: none; } }
-        /* The floating + (D5). position: fixed in the thumb corner, floats OVER
-           the list and reserves no space. NOT a bottom-centred status surface,
-           so it lives outside the bottom status stack by design: it is an action
-           in the right corner, and it hides whenever a sheet or the Wrap-up
-           modal is open. z-index sits under the sheets (1000) and the stack (2000). */
-        .shop-fab { position: fixed; right: 18px; bottom: 24px; width: 56px; height: 56px; border-radius: 50%; background: #2C1A0E; color: #FAF4EC; border: none; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 2rem; font-weight: 300; line-height: 1; padding: 0 0 3px; box-shadow: 0 8px 22px rgba(44,26,14,0.32); cursor: pointer; z-index: 900; }
-        /* Clearance at the very end of the list so the last row / tray chevron is never under the +
-           (56px button + 24px bottom offset + slack). */
-        .shop-list-tail { height: 88px; }
+        /* Check motion — presentation only, the write is on the tap.
+           Beat 1 (.checking, 120ms): circle fills teal with the check, name dims + strikes. Hold ~250ms.
+           Beat 2 (.collapsing, 200ms): height + opacity to zero, then the row unmounts.
+           Uncheck from the tray (.unchecking) is the reverse with no hold. */
+        .list-item .checkbox { transition: background .12s ease, border-color .12s ease; }
+        .list-item .li-name { transition: color .12s ease; }
+        .list-item.checking .checkbox { background: #0D9488; border-color: #0D9488; }
+        .list-item.checking .checkbox::after { content: "✓"; color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 1; }
+        .list-item.checking .li-name { color: #a89878; text-decoration: line-through; }
+        .list-item.checking, .list-item.unchecking, .list-item.collapsing { pointer-events: none; }
+        .tray-body .list-item.unchecking .checkbox.checked { background: transparent; border-color: #c8b89a; }
+        .tray-body .list-item.unchecking .checkmark { opacity: 0; transition: opacity .12s ease; }
+        .tray-body .list-item.unchecking .li-name { text-decoration: none; color: #2C1A0E; }
+        .tray-body .list-item.unchecking { opacity: 1; transition: opacity .12s ease; }
+        @keyframes opRowOut { from { opacity: 1; max-height: 140px; } to { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-width: 0; } }
+        @keyframes opRowOutTray { from { opacity: 0.55; max-height: 140px; } to { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-width: 0; } }
+        .list-item.collapsing { overflow: hidden; animation: opRowOut .2s ease forwards; }
+        .tray-body .list-item.collapsing { animation-name: opRowOutTray; }
+        @media (prefers-reduced-motion: reduce) { .list-item.collapsing { animation: none; } }
         .store-prompt { margin: 0 0 22px; padding: 14px 14px 12px; background: #fff; border: 1px solid #E3D4BC; border-radius: 12px; }
         .store-prompt-q { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: #2C1A0E; margin-bottom: 10px; }
         .store-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -4117,12 +4431,12 @@ function ProvisionsApp() {
         .modal-remove:hover { background: #fff0f0; border-color: #e05c5c; }
       `}</style>
 
-      {/* OurBanner region — when a photo exists, the header AND the nav strip share
-          ONE continuous photo+gradient background (this wrapper), so the image
-          dissolves into the tabs with no hard seam. Photo-less: this wrapper is an
-          inert relative box and the header + nav keep their solid espresso, exactly
-          as before. The layer spans the wrapper's flow height = header + nav (the
-          modals in between are position:fixed and contribute no height). */}
+      {/* OurBanner region — household identity only. Nav lives in the Helm
+          (floating pill / wide rail, SPEC_nav_helm.md); the strip that used to sit
+          under the header is gone. When a photo exists, this wrapper carries the
+          photo+gradient behind the header. Photo-less: an inert relative box and the
+          header keeps its solid espresso. The layer spans the wrapper's flow height =
+          the header (the modals in between are position:fixed and add no height). */}
       <div style={{ position: "relative" }}>
         {bannerHasPhoto && (
           <>
@@ -4170,7 +4484,10 @@ function ProvisionsApp() {
             </button>
           )}
           <div>
-            {isSignedIn ? (
+            {/* On wide the rail's foot avatar opens the same Profile sheet, so the
+                header trigger steps aside — one DH, not two. Phone keeps it. The
+                wrapping div stays so the row's space-between geometry is unchanged. */}
+            {isSignedIn ? (isWide ? null : (
               <button
                 onClick={() => setShowProfileSheet(true)}
                 style={{
@@ -4185,7 +4502,7 @@ function ProvisionsApp() {
               >
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </button>
-            ) : !isLoaded ? (
+            )) : !isLoaded ? (
               // Clerk not loaded yet: render the buttons immediately (no layout
               // shift) but DISABLED, so a click can't hit a not-yet-wired modal
               // trigger. On a cold load the SignInButton/SignUpButton modal handlers
@@ -5036,56 +5353,6 @@ function ProvisionsApp() {
       {/* Invite is a system-share hand-off (handleInviteShare) — no in-app share
           UI. The old self-rendered panel + "Copy link instead" are removed. */}
 
-      {/* Nav strip. Over a photo its solid #2C1A0E is dropped so the wrapper's
-          gradient (which ends at solid espresso here) carries the background — no
-          separate opaque block, no seam. Tab colors are unchanged; text-shadows
-          become load-bearing where the strip is still translucent. */}
-      <div className="tab-bar" style={bannerHasPhoto ? { position: "relative", zIndex: 1, background: "transparent" } : undefined}>
-
-        {/* Plan tab — horizon icon */}
-        <button className={`tab ${view === "plan" ? "active" : ""}`} onClick={() => setView("plan")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "plan" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "plan" ? 700 : undefined } : {}) }}>
-          <span className="tab-content" style={bannerHasPhoto ? { opacity: view === "plan" ? 1 : 0.85 } : undefined}>
-          <svg width="18" height="14" viewBox="0 0 18 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="9" cy="5" r="2" fill="currentColor"/>
-            <line x1="9" y1="1" x2="9" y2="0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="12.5" y1="2.5" x2="13.5" y2="1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="5.5" y1="2.5" x2="4.5" y2="1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="14" y1="5" x2="15.5" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            <line x1="4" y1="5" x2="2.5" y2="5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            <path d="M1 9 Q9 4 17 9" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-            <line x1="0" y1="11" x2="18" y2="11" stroke="currentColor" strokeWidth="0.75" strokeLinecap="round" opacity="0.5"/>
-          </svg>
-          Plan
-          </span>
-        </button>
-
-        {/* Browse tab — grid icon */}
-        <button className={`tab ${view === "input" ? "active" : ""}`} onClick={() => setView("input")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "input" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "input" ? 700 : undefined } : {}) }}>
-          <span className="tab-content" style={bannerHasPhoto ? { opacity: view === "input" ? 1 : 0.85 } : undefined}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
-            <rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
-            <rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
-            <rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
-          </svg>
-          Browse
-          </span>
-        </button>
-
-        {/* Shop tab — basket icon */}
-        <button className={`tab ${view === "list" ? "active" : ""}`} onClick={() => setView("list")} style={{ textShadow: CHROME_SHADOW, ...(bannerHasPhoto ? { color: view === "list" ? "#FAF4EC" : "#C9A97A", fontWeight: view === "list" ? 700 : undefined } : {}) }}>
-          <span className="tab-content" style={bannerHasPhoto ? { opacity: view === "list" ? 1 : 0.85 } : undefined}>
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M6 7 Q6 3 9 3 Q12 3 12 7" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
-            <path d="M2 7 L3.5 15 Q5 16.5 9 16.5 Q13 16.5 14.5 15 L16 7 Z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
-            <line x1="2.5" y1="10.5" x2="15.5" y2="10.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/>
-          </svg>
-          Shop
-          </span>
-          {totalItems > 0 && <span className="badge">{totalItems}</span>}
-        </button>
-
-      </div>
       </div>{/* /OurBanner region wrapper */}
 
       {showPrices && totalItems > 0 && (
@@ -5137,7 +5404,16 @@ function ProvisionsApp() {
       )}
 
       <div className="container">
+        {view === "home" && (
+          <HomePlaceholder firstName={user?.firstName} householdName={household?.name} />
+        )}
+
         {view === "plan" && (
+          <>
+            {/* D9′ — Plan's control row. The single-surface Plan lens row is not
+                built yet (mockup only); until it is, this sentinel at the top of the
+                Plan content is the edge. When the lens row lands, move the ref onto it. */}
+            <div ref={controlRowRef} className="control-row-end" aria-hidden="true" />
           <MealsLens
             meals={meals}
             loading={mealsLoading}
@@ -5150,6 +5426,7 @@ function ProvisionsApp() {
             onDecrement={handleDecrementMeal}
             decrementingMealId={decrementingMealId}
           />
+          </>
         )}
 
         {view === "input" && (
@@ -5231,6 +5508,10 @@ function ProvisionsApp() {
             {/* ── Descriptor — ONE slot, shared with the declutter cycle.
                  When categories are filtering, the filter line REPLACES the cycle
                  line entirely; otherwise the cycle line is untouched. Never both. */}
+            {/* D9′ — the bottom edge of Browse's search + chips block. The search
+                bar above is sticky and never leaves; this sentinel scrolls with the
+                rail, so the pill compacts exactly when the chips have gone. */}
+            <div ref={controlRowRef} className="control-row-end" aria-hidden="true" />
             {browseFilterDescriptor ? (
               <div className="declutter-desc" style={{ margin: "0 0 28px" }}>
                 {/* ONE verb in every phase. "Filtering Produce" was backwards —
@@ -5279,7 +5560,7 @@ function ProvisionsApp() {
                   }}
                   listClassName="items-grid"
                   renderRow={(item) => {
-                        const qty = quantities[item.name] || 0;
+                        const qty = qtyFor(item);
                         const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
                         const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
                         const isEditing = editingPrice === item.name;
@@ -5415,7 +5696,7 @@ function ProvisionsApp() {
                     <FlatHeader count={browseFlatItems.length} showCount={!browseFilterDescriptor} />
                     <div className="items-grid">
                       {browseFlatItems.map((item) => {
-                        const qty = quantities[item.name] || 0;
+                        const qty = qtyFor(item);
                         const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
                         const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
                         const isEditing = editingPrice === item.name;
@@ -5463,7 +5744,7 @@ function ProvisionsApp() {
                     </div>
                     <div className="items-grid">
                       {cat.items.map((item) => {
-                        const qty = quantities[item.name] || 0;
+                        const qty = qtyFor(item);
                         const rawFallback = categoryAvgPrices[cat.rawName] || 3.00;
                         const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
                         const isEditing = editingPrice === item.name;
@@ -5531,31 +5812,31 @@ function ProvisionsApp() {
               </div>
             )}
             {totalItems === 0 ? (
-              <div className="list-empty">
-                <h2>Your list is empty</h2>
-                <p>Go to "Add Items" and set quantities for what you need.</p>
-              </div>
+              <>
+                {/* Empty form of the header row: count text and the same round +
+                    (Add sheet, in-store paths) — no lens, no Wrap up. Still the
+                    compact sentinel (ref), though the page is too short to scroll. */}
+                <div className="list-header" ref={controlRowRef}>
+                  <span className="list-progress" style={{ flex: 1 }}>Nothing in the cart yet</span>
+                  <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
+                </div>
+                <div className="list-empty">
+                  <h2>Your list is empty</h2>
+                  <p>Go to "Add Items" and set quantities for what you need.</p>
+                </div>
+              </>
             ) : (
               <>
-                <div className="list-header">
+                <div className="list-header" ref={controlRowRef}>
                   <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} in cart</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
                   <ShopLensSegment lens={shopLens} onChange={setShopLens} />
-                  <button
-                    className="wrapup"
-                    onClick={() => {
-                      // Pre-select all pending items for roll-forward
-                      const pending = new Set(
-                        shoppingList.flatMap(cat =>
-                          cat.items.filter(i => !checked[i.name]).map(i => i.name)
-                        )
-                      );
-                      setWrapUpRollItems(pending);
-                      setShowWrapUpModal(true);
-                    }}
-                  >
-                    Wrap up
-                  </button>
+                  {/* D4′ (v2): the trip's controls are part of the list — this row
+                      scrolls away with it; the pill is chrome. Header + opens the
+                      Add sheet (add-from-the-aisle). Wrap up is muted at 0 in cart and
+                      amber once one item is checked; tappable in both states (D10). */}
+                  <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
+                  <button type="button" className={`wrapup ${checkedCount > 0 ? "full" : "muted"}`} onClick={openWrapUp}>Wrap up</button>
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
@@ -5564,10 +5845,7 @@ function ProvisionsApp() {
                   <div className="all-done" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
                     <p style={{ margin: 0 }}>🎉 All done!</p>
                     <button
-                      onClick={() => {
-                        setWrapUpRollItems(new Set()); // nothing to roll — all bought
-                        setShowWrapUpModal(true);
-                      }}
+                      onClick={openWrapUp}
                       style={{
                         fontFamily: "'Lato', sans-serif",
                         fontSize: "0.7rem",
@@ -5593,7 +5871,7 @@ function ProvisionsApp() {
                       <div className="list-cat-title">{cat.category}</div>
                       {cat.items.map((item) => (
                         <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                          <div className="list-item shop-row-in">
+                          <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}`}>
                             <div className="checkbox" onClick={() => handleShopToggle(item)} />
                             <div style={{ flex: 1, cursor: "pointer" }} onClick={() => handleShopToggle(item)}>
                               <div className="li-name">
@@ -5622,7 +5900,7 @@ function ProvisionsApp() {
                     <div className="az-eyebrow">{shopFlatItems.length} to find</div>
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                        <div className="list-item az shop-row-in">
+                        <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}`}>
                           <div className="checkbox" onClick={() => handleShopToggle(item)} />
                           <div className="li-name" onClick={() => handleShopToggle(item)}>
                             {item.name}
@@ -5637,7 +5915,9 @@ function ProvisionsApp() {
                   </div>
                 )}
                 <InCartTray
-                  items={boughtItems}
+                  items={trayItems}
+                  count={trayCount}
+                  motionClass={rowMotionClass}
                   open={trayOpen}
                   onToggle={() => setTrayOpen(o => !o)}
                   onUncheck={handleShopToggle}
@@ -5661,12 +5941,7 @@ function ProvisionsApp() {
                   <div className={`lt-amount ${overBudget ? "over" : ""}`}>{hasEstimatedPrices ? "~" : ""}${totalCost.toFixed(2)}</div>
                 </div>
                 )}
-                <div className="shop-list-tail" aria-hidden="true" />
               </>
-            )}
-            {/* Floating + (D5). Hidden while the Wrap-up modal or the Add sheet is open. */}
-            {!showWrapUpModal && !addSheetOpen && (
-              <button type="button" className="shop-fab" aria-label="Add something" onClick={openAddSheet}>+</button>
             )}
           </>
         )}
