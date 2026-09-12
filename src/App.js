@@ -1,6 +1,7 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
+import { NAV_DOORS } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
@@ -754,6 +755,67 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 // ── Shop tab: lens, In cart tray, store prompt (SPEC_shop_lens_instore_capture.md) ──
 // D3: a control shows its STATE, never its next state — both words visible,
 // the active one filled. Replaces the tri-state CycleIcon on Shop only.
+// ── The Helm (SPEC_nav_helm.md) ─────────────────────────────────────────────
+// Nav lives in a floating pill at the bottom edge (D1) — the thumb is at the
+// bottom, the header keeps one job (household identity). Doors come from
+// NAV_DOORS (src/nav.js) so the pill and the wide rail can never drift (D6).
+// Icon + label always in the navigational posture (D2): Plan/Browse/Shop are
+// not universal glyphs.
+//
+// D8 — motion answers a tap: transitions are armed on the first pointer/key
+// interaction, never on mount. A landing-effect view change on a cold load
+// therefore paints the final posture with no animation.
+function Helm({ view, onChange, badgeCount }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (armed) return undefined;
+    const arm = () => setArmed(true);
+    window.addEventListener("pointerdown", arm, { once: true, passive: true });
+    window.addEventListener("keydown", arm, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("keydown", arm);
+    };
+  }, [armed]);
+  return (
+    <nav className={`helm ${armed ? "" : "no-anim"}`} aria-label="Main">
+      {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
+        const active = view === v;
+        return (
+          <button
+            key={key}
+            type="button"
+            className={`helm-door ${active ? "active" : ""}`}
+            aria-current={active ? "page" : undefined}
+            onClick={() => onChange(v)}
+          >
+            <Icon size={20} />
+            <span className="helm-label">{label}</span>
+            {badge && badgeCount > 0 && <span className="badge helm-badge">{badgeCount}</span>}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+// D7: the Home door exists from day one; this is the promise, not the design.
+// HOME v1 builds into `view === "home"` — replace this component, keep the door.
+function HomePlaceholder({ firstName, householdName }) {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
+  const dateLine = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  return (
+    <div className="home-placeholder">
+      <div className="home-greeting">Good {part}{firstName ? `, ${firstName}` : ""}</div>
+      <div className="home-date">{dateLine}</div>
+      <p className="home-promise">
+        Tonight's meal and what's happening in {householdName || "your place"} will live here.
+      </p>
+    </div>
+  );
+}
+
 function ShopLensSegment({ lens, onChange }) {
   return (
     <div className="shop-seg" role="group" aria-label="List view">
@@ -3786,8 +3848,8 @@ function ProvisionsApp() {
           Adding another bottom-centred surface? Put it in here. Do not give it
           its own `position: fixed; bottom: …` — that is exactly how this bug
           got in. */}
-      <div style={{
-        position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)",
+      <div className="bottom-stack" style={{
+        position: "fixed", left: "50%", transform: "translateX(-50%)",
         zIndex: 2000, display: "flex", flexDirection: "column", alignItems: "center",
         gap: "10px", maxWidth: "90vw",
         // The stack itself must never eat taps meant for the app behind it;
@@ -3830,6 +3892,12 @@ function ProvisionsApp() {
         )}
       </div>
 
+      {/* The Helm — floating nav pill (SPEC_nav_helm.md). Fixed, outside the
+          scrolling content, z-index 900: over content, under sheets (1000) and
+          the bottom status stack (2000). Not a bottom-centred STATUS surface, so
+          it is deliberately not inside the stack; the stack sits above it. */}
+      <Helm view={view} onChange={setView} badgeCount={totalItems} />
+
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -3844,6 +3912,32 @@ function ProvisionsApp() {
         .tab-content { display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: 0.5; transition: opacity 0.2s; }
         .tab.active .tab-content { opacity: 1; }
         .badge { display: inline-block; background: #E8A838; color: white; font-weight: 700; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
+        /* ── The Helm — floating nav pill (SPEC_nav_helm.md; mockup_nav_helm.html is the visual authority) ── */
+        .helm { position: fixed; left: 16px; right: 16px; bottom: calc(18px + env(safe-area-inset-bottom)); height: 64px; border-radius: 32px; z-index: 900;
+                background: #2C1A0E; display: flex; align-items: stretch; padding: 0 6px;
+                box-shadow: 0 10px 28px rgba(44,26,14,0.35), inset 0 0 0 1px rgba(201,169,122,0.18);
+                transition: height .2s ease, border-radius .2s ease; }
+        @supports ((backdrop-filter: blur(10px)) or (-webkit-backdrop-filter: blur(10px))) {
+          .helm { background: rgba(44,26,14,0.94); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+        }
+        .helm-door { position: relative; flex: 1; min-width: 0; margin: 6px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+                     background: none; border: none; padding: 0; cursor: pointer; color: #C9A97A; border-radius: 26px;
+                     font-family: 'Lato', sans-serif; font-size: 0.62rem; letter-spacing: 1.2px; text-transform: uppercase;
+                     transition: color .2s ease, background .2s ease, margin .2s ease; -webkit-tap-highlight-color: transparent; }
+        .helm-door svg { width: 20px; height: 20px; display: block; transition: width .2s ease, height .2s ease; }
+        .helm-door.active { color: #FAF4EC; background: rgba(201,169,122,0.10); }
+        .helm-label { line-height: 1; white-space: nowrap; transition: opacity .2s ease; }
+        .helm-badge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; font-size: 0.6rem; padding: 0 5px; line-height: 15px; }
+        .helm.no-anim, .helm.no-anim * { transition: none !important; }
+        @media (prefers-reduced-motion: reduce) { .helm, .helm * { transition: none !important; } }
+        /* Home placeholder (D7) — the door exists before its content; this names the promise. */
+        .home-placeholder { padding: 12px 2px 0; }
+        .home-greeting { font-family: 'Playfair Display', serif; font-size: 1.4rem; line-height: 1.2; color: #2C1A0E; }
+        .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
+        .home-promise { font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.5; color: #5c4a36; margin-top: 22px; max-width: 34ch; }
+        /* Bottom status stack rides above the pill on phone; back to the edge on wide where the pill is gone. */
+        .bottom-stack { bottom: calc(100px + env(safe-area-inset-bottom)); }
+        @media (min-width: 700px) { .bottom-stack { bottom: 24px; } }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
         /* Budget banner */
@@ -5137,6 +5231,10 @@ function ProvisionsApp() {
       )}
 
       <div className="container">
+        {view === "home" && (
+          <HomePlaceholder firstName={user?.firstName} householdName={household?.name} />
+        )}
+
         {view === "plan" && (
           <MealsLens
             meals={meals}
