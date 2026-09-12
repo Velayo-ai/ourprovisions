@@ -783,6 +783,9 @@ function Helm({ view, onChange, badgeCount, posture = "nav", onAdd, onWrapUp, ca
     };
   }, [armed]);
   return (
+    <>
+      {/* Cream fade above the pill so the last row stays legible as it scrolls under (§6). */}
+      <div className="helm-fade" aria-hidden="true" />
     <nav className={`helm ${posture === "session" ? "session" : ""} ${armed ? "" : "no-anim"}`} aria-label="Main">
       {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
         const active = view === v;
@@ -816,6 +819,7 @@ function Helm({ view, onChange, badgeCount, posture = "nav", onAdd, onWrapUp, ca
         </>
       )}
     </nav>
+    </>
   );
 }
 
@@ -3842,7 +3846,7 @@ function ProvisionsApp() {
   const WORDMARK_SHADOW = bannerHasPhoto ? "0 2px 14px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.7)" : "none";
 
   return (
-      <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
+      <div className="app-root" style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
       {/* Gated on household for the same reason as the landing effect — loading clears on the anon-catalog pass before the household list has arrived. Ensures the landing tab is settled before the splash dissolves; the 5s failsafe still bounds it. */}
@@ -3992,6 +3996,11 @@ function ProvisionsApp() {
         .home-greeting { font-family: 'Playfair Display', serif; font-size: 1.4rem; line-height: 1.2; color: #2C1A0E; }
         .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
         .home-promise { font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.5; color: #5c4a36; margin-top: 22px; max-width: 34ch; }
+        /* §6 — every scrolling root clears the pill; the document is the scroll root here. Off on wide (rail). */
+        .app-root { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+        .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(110px + env(safe-area-inset-bottom)); pointer-events: none; z-index: 899;
+                     background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
+        @media (min-width: 700px) { .app-root { padding-bottom: 0; } }
         /* Bottom status stack rides above the pill on phone; back to the edge on wide where the pill is gone. */
         .bottom-stack { bottom: calc(100px + env(safe-area-inset-bottom)); }
         @media (min-width: 700px) { .bottom-stack { bottom: 24px; } }
@@ -4107,7 +4116,6 @@ function ProvisionsApp() {
         .tray-sub { font-size: 0.72rem; color: #8a7a60; font-weight: 400; margin-left: 6px; }
         .tray-chev { color: #8a7a60; font-size: 0.8rem; }
         .tray-body { border-top: 1px solid #E3D4BC; padding: 0 14px 12px; }
-        /* The tray is the last thing on the list when prices are off — keep its last row clear of the floating +. */
         .in-cart-tray { margin-bottom: 8px; }
         .tray-body .list-item { padding: 11px 0; opacity: 0.55; }
         .tray-body .list-item:last-child { border-bottom: none; }
@@ -4119,15 +4127,6 @@ function ProvisionsApp() {
         .shop-row-in { animation: opRowIn .22s ease; }
         .tray-body .shop-row-in { animation-name: opRowInDown; }
         @media (prefers-reduced-motion: reduce) { .shop-row-in { animation: none; } }
-        /* The floating + (D5). position: fixed in the thumb corner, floats OVER
-           the list and reserves no space. NOT a bottom-centred status surface,
-           so it lives outside the bottom status stack by design: it is an action
-           in the right corner, and it hides whenever a sheet or the Wrap-up
-           modal is open. z-index sits under the sheets (1000) and the stack (2000). */
-        .shop-fab { position: fixed; right: 18px; bottom: 24px; width: 56px; height: 56px; border-radius: 50%; background: #2C1A0E; color: #FAF4EC; border: none; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 2rem; font-weight: 300; line-height: 1; padding: 0 0 3px; box-shadow: 0 8px 22px rgba(44,26,14,0.32); cursor: pointer; z-index: 900; }
-        /* Clearance at the very end of the list so the last row / tray chevron is never under the +
-           (56px button + 24px bottom offset + slack). */
-        .shop-list-tail { height: 88px; }
         .store-prompt { margin: 0 0 22px; padding: 14px 14px 12px; background: #fff; border: 1px solid #E3D4BC; border-radius: 12px; }
         .store-prompt-q { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: #2C1A0E; margin-bottom: 10px; }
         .store-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -5797,12 +5796,7 @@ function ProvisionsApp() {
                   <div className={`lt-amount ${overBudget ? "over" : ""}`}>{hasEstimatedPrices ? "~" : ""}${totalCost.toFixed(2)}</div>
                 </div>
                 )}
-                <div className="shop-list-tail" aria-hidden="true" />
               </>
-            )}
-            {/* Floating + (D5). Hidden while the Wrap-up modal or the Add sheet is open. */}
-            {!showWrapUpModal && !addSheetOpen && (
-              <button type="button" className="shop-fab" aria-label="Add something" onClick={openAddSheet}>+</button>
             )}
           </>
         )}
