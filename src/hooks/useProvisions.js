@@ -209,10 +209,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // connection — the guard above already returned in that case), so retire any
     // stale "Could not load list" left behind by an earlier failed tick.
     clearErrorFrom("list");
-    // …and this is the one place the household's list is known to have arrived.
-    // Guarded on the household so a late tick from a previous household (during
-    // a switch) can't declare the new one ready with the old one's rows.
-    if (householdRef.current?.id === householdId) setHouseholdReady(true);
 
     // Names/categories/staple flags now arrive inline from the list RPC join.
     const catalogNameMap = {};
@@ -316,6 +312,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     Object.assign(mergedPrices, newPrices);
     listRowsRef.current = newListRows;
     setListRows(newListRows);
+    // The household's list has ARRIVED — and only here, in the same synchronous
+    // block as setListRows so the two batch into one render. Setting the flag
+    // earlier in this function (before the awaited contributors fetch) rendered
+    // ready = true with listRows still [] and spent the once-only landing effect
+    // on Browse (dev, 2026-09-12). Guarded on the household so a late tick from
+    // a previous household (during a switch) can't declare the new one ready.
+    const readyFor = householdRef.current?.id;
+    console.debug("[householdReady] set attempt", { householdId, current: readyFor, rows: newListRows.length, willSet: readyFor === householdId });
+    if (readyFor === householdId) setHouseholdReady(true);
     // Bought-set fingerprint for the tray attribution (status is NOT in the
     // provenance fingerprint above — a check changes no quantity).
     const boughtIds = items.filter(i => i.status === "bought").map(i => i.id).sort();

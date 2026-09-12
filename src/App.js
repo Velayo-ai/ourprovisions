@@ -2357,11 +2357,14 @@ function ProvisionsApp() {
   // hook flips householdReady only where the list RPC actually returned rows.
   const landedRef = useRef(false);
   useEffect(() => {
+    const hasItems = listRows.some(r => (r.quantity || 0) > 0);
+    const decided = landedRef.current ? "already" : (!householdReady ? "waiting" : (hasItems ? "list" : "input"));
+    console.debug("[landing]", { householdId: household?.id, householdReady, rows: listRows.length, decided });
     if (landedRef.current) return;
     if (!householdReady) return;
     landedRef.current = true;
-    if (listRows.some(r => (r.quantity || 0) > 0)) setView("list");
-  }, [householdReady, listRows]);
+    if (hasItems) setView("list");
+  }, [householdReady, listRows]); // eslint-disable-line react-hooks/exhaustive-deps
   const [meals, setMeals] = useState([]);
   const [mealsLoading, setMealsLoading] = useState(false);
   const [addingMealId, setAddingMealId] = useState(null);
