@@ -4390,7 +4390,10 @@ function ProvisionsApp() {
             </button>
           )}
           <div>
-            {isSignedIn ? (
+            {/* On wide the rail's foot avatar opens the same Profile sheet, so the
+                header trigger steps aside — one DH, not two. Phone keeps it. The
+                wrapping div stays so the row's space-between geometry is unchanged. */}
+            {isSignedIn ? (isWide ? null : (
               <button
                 onClick={() => setShowProfileSheet(true)}
                 style={{
@@ -4405,7 +4408,7 @@ function ProvisionsApp() {
               >
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </button>
-            ) : !isLoaded ? (
+            )) : !isLoaded ? (
               // Clerk not loaded yet: render the buttons immediately (no layout
               // shift) but DISABLED, so a click can't hit a not-yet-wired modal
               // trigger. On a cold load the SignInButton/SignUpButton modal handlers
