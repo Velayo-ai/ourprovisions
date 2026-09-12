@@ -4400,8 +4400,18 @@ function ProvisionsApp() {
         .li-subtotal.done { color: #a89878; }
         .clear-btn { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 16px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
         .clear-btn:hover { border-color: #e05c5c; color: #e05c5c; }
-        .all-done { text-align: center; padding: 20px; }
-        .all-done p { font-family: 'Playfair Display', serif; font-size: 1.2rem; color: #c8973a; }
+        /* All done card (mockup_shop_all_done.html) — the arc is the ONLY ornament: one 1.6px teal stroke. */
+        .all-done { text-align: center; padding: 8px 12px 26px; }
+        .all-done-arc { width: 150px; height: 12px; margin: 0 auto 14px; display: block; }
+        .all-done-arc path { fill: none; stroke: #0D9488; stroke-width: 1.6; stroke-linecap: round; }
+        .all-done h2 { font-family: 'Playfair Display', serif; font-weight: 400; font-size: 2.1rem; margin: 0 0 6px; letter-spacing: -0.01em; color: #2C1A0E; }
+        .all-done-sub { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1rem; color: #8a7a60; margin: 0 0 16px; }
+        .all-done-meta { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; letter-spacing: 0.5px; }
+        .all-done-meta b { color: #2C1A0E; font-weight: 700; }
+        .all-done-learn { font-family: 'Lato', sans-serif; font-size: 0.74rem; color: #A0724A; margin-top: 6px; }
+        .all-done-btn { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
+                        font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
+                        padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
         .list-total { background: #F5EDE0; border: 2px solid #c8973a; border-radius: 10px; padding: 16px 18px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
         .list-total.over { border-color: #e05c5c; }
         .lt-left .lt-label { font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
@@ -5847,29 +5857,32 @@ function ProvisionsApp() {
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
                 </div>
-                {checkedCount === totalItems && totalItems > 0 && (
-                  <div className="all-done" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-                    <p style={{ margin: 0 }}>🎉 All done!</p>
-                    <button
-                      onClick={openWrapUp}
-                      style={{
-                        fontFamily: "'Lato', sans-serif",
-                        fontSize: "0.7rem",
-                        letterSpacing: "1px",
-                        textTransform: "uppercase",
-                        padding: "5px 12px",
-                        border: "1px solid #0D9488",
-                        background: "#0D9488",
-                        color: "white",
-                        cursor: "pointer",
-                        borderRadius: "4px",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      Wrap Up Trip →
-                    </button>
-                  </div>
-                )}
+                {checkedCount === totalItems && totalItems > 0 && (() => {
+                  /* All done (mockup_shop_all_done.html) — the one earned moment on
+                     Shop; typography does the celebrating. States 1 and 2 built:
+                     minutes = now − session.started_at (rounded), omitted with no
+                     open session (a delivery-style check-off reads "N items" alone);
+                     the learning line only when the session has store_name_raw —
+                     omitted otherwise, never reworded. State 3 (learned order in
+                     use, teal) is the same slot later, once the Phase 2 query
+                     applies for this (household, store) — reserved, not built. */
+                  const startedAt = activeSession?.started_at ? new Date(activeSession.started_at).getTime() : null;
+                  const minutes = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null;
+                  const learning = !!activeSession?.store_name_raw;
+                  return (
+                    <div className="all-done">
+                      <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
+                      <h2>All done.</h2>
+                      <p className="all-done-sub">Everything on your list is in the cart.</p>
+                      <div className="all-done-meta">
+                        <b>{totalItems}</b> {totalItems === 1 ? "item" : "items"}
+                        {minutes !== null && <>&nbsp;&nbsp;·&nbsp;&nbsp;<b>{minutes}</b> {minutes === 1 ? "minute" : "minutes"}</>}
+                      </div>
+                      {learning && <div className="all-done-learn">We're learning how you shop this store.</div>}
+                      <button type="button" className="all-done-btn" onClick={openWrapUp}>Wrap up trip →</button>
+                    </div>
+                  );
+                })()}
                 {shopLens === "aisles" ? (
                   /* ── AISLES — today's grouped render, minus the phase machinery. Checked rows are in the tray. ── */
                   shopAisles.map((cat) => (
