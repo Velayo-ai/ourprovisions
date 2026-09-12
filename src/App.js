@@ -4075,7 +4075,7 @@ function ProvisionsApp() {
         <Rail
           view={view}
           onChange={setView}
-          badgeCount={totalItems}
+          badgeCount={totalItems - checkedCount}
           initials={isSignedIn ? `${user?.firstName?.[0] || ""}${user?.lastName?.[0] || ""}` : ""}
           onAvatar={() => setShowProfileSheet(true)}
         />
@@ -4083,7 +4083,7 @@ function ProvisionsApp() {
         <Helm
           view={view}
           onChange={setView}
-          badgeCount={totalItems}
+          badgeCount={totalItems - checkedCount}
           compact={scrollCompact && view !== "home"}
           onPlus={doorAdd[view] || null}
         />
@@ -5852,7 +5852,11 @@ function ProvisionsApp() {
                       Add sheet (add-from-the-aisle). Wrap up is muted at 0 in cart and
                       amber once one item is checked; tappable in both states (D10). */}
                   <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
-                  <button type="button" className={`wrapup ${checkedCount > 0 ? "full" : "muted"}`} onClick={openWrapUp}>Wrap up</button>
+                  {/* D10 (amended 2026-09-12): three states — muted at 0 in cart, amber while
+                      anything remains to find, muted again at 100%. At 100% the All done card's
+                      teal button carries the emphasis; two emphasized exits on one screen is
+                      what D9 guards against. Tappable in every state. */}
+                  <button type="button" className={`wrapup ${checkedCount > 0 && checkedCount < totalItems ? "full" : "muted"}`} onClick={openWrapUp}>Wrap up</button>
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
@@ -5916,7 +5920,7 @@ function ProvisionsApp() {
                 ) : (
                   /* ── A–Z — a different mode: one flat alphabetical list, no provenance, no per-row prices. ── */
                   <div>
-                    <div className="az-eyebrow">{shopFlatItems.length} to find</div>
+                    {shopFlatItems.length > 0 && <div className="az-eyebrow">{shopFlatItems.length} to find</div>}
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
                         <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}`}>
