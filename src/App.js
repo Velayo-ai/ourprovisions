@@ -889,13 +889,13 @@ function ShopLensSegment({ lens, onChange }) {
 // D2: checked items get a PLACE, not a toggle. Collapsed by default, hidden
 // entirely at 0. Rows un-check from inside the tray. `initialFor` returns a
 // small initial for rows the current user did not check (partner's check).
-function InCartTray({ items, open, onToggle, onUncheck, initialFor }) {
-  if (items.length === 0) return null;
+function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor }) {
+  if (items.length === 0 && count === 0) return null;
   return (
     <div className="in-cart-tray">
       <button type="button" className="tray-head" onClick={onToggle} aria-expanded={open}>
         <span className="tray-cb">✓</span>
-        <span className="tray-title">In cart<span className="tray-sub">{items.length} {items.length === 1 ? "item" : "items"}</span></span>
+        <span className="tray-title">In cart<span className="tray-sub">{count} {count === 1 ? "item" : "items"}</span></span>
         <span className="tray-chev">{open ? "▴" : "▾"}</span>
       </button>
       {open && (
@@ -903,7 +903,7 @@ function InCartTray({ items, open, onToggle, onUncheck, initialFor }) {
           {items.map((item) => {
             const initial = initialFor(item.listItemId);
             return (
-              <div key={item.name} className="list-item shop-row-in">
+              <div key={item.name} className={`list-item shop-row-in${motionClass(item.name)}`}>
                 <div className="checkbox checked" onClick={() => onUncheck(item)}>
                   <span className="checkmark">✓</span>
                 </div>
@@ -2714,6 +2714,16 @@ function ProvisionsApp() {
   const [trayOpen, setTrayOpen] = useState(false);
   const [addedHereIds, setAddedHereIds] = useState(() => new Set());
   const [addSheetOpen, setAddSheetOpen] = useState(false);
+  // Check motion (presentation only — the database write happens on the tap).
+  // name → { dir: "out" (aisle → tray) | "in" (tray → aisle), phase: "mark" | "collapse" }.
+  // out: beat 1 marks the row (teal check, name dims + strikes, 120ms), hold
+  // ~250ms; beat 2 collapses it (200ms) while the tray count picks it up; then
+  // the row unmounts. in (uncheck from the tray) is the reverse with no hold —
+  // it's a correction. A row in motion ignores further taps, so a fast double
+  // check of two adjacent rows can't stack or jump.
+  const [rowMotion, setRowMotion] = useState({});
+  const rowMotionTimers = useRef({});
+  useEffect(() => () => { Object.values(rowMotionTimers.current).forEach(clearTimeout); }, []);
   const [storePromptOpen, setStorePromptOpen] = useState(false);
   const [storePromptSkippedFor, setStorePromptSkippedFor] = useState(null);
   const [storeSaving, setStoreSaving] = useState(false);
@@ -3510,9 +3520,34 @@ function ProvisionsApp() {
   // a toast. The first event of a trip starts the session (and so the store
   // prompt) as a side effect inside recordListEvent.
   const handleShopToggle = async (item) => {
-    const status = await toggleChecked(item.name, item.listItemId);
+    const name = item.name;
+    if (rowMotion[name]) return;                       // already in motion — ignore the tap
+    const reduced = typeof window !== "undefined" && window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduced) {
+      const dir = checked[name] ? "in" : "out";
+      const markMs = dir === "out" ? 120 + 250 : 120; // beat 1 (+ hold on check only)
+      const collapseMs = 200;                          // beat 2
+      // Mark BEFORE the write: toggleChecked flips `checked` synchronously and
+      // the row would otherwise leave the aisle on this very render.
+      setRowMotion(prev => ({ ...prev, [name]: { dir, phase: "mark" } }));
+      rowMotionTimers.current[name] = setTimeout(() => {
+        setRowMotion(prev => prev[name] ? { ...prev, [name]: { dir, phase: "collapse" } } : prev);
+        rowMotionTimers.current[name] = setTimeout(() => {
+          setRowMotion(prev => { const n = { ...prev }; delete n[name]; return n; });
+          delete rowMotionTimers.current[name];
+        }, collapseMs);
+      }, markMs);
+    }
+    const status = await toggleChecked(name, item.listItemId);
     if (!status) return;
     recordListEvent(status === "bought" ? "checked" : "unchecked", { listItemId: item.listItemId, catalogItemId: item.catalogItemId });
+  };
+  const rowMotionClass = (name) => {
+    const m = rowMotion[name];
+    if (!m) return "";
+    if (m.phase === "collapse") return " collapsing";
+    return m.dir === "out" ? " checking" : " unchecking";
   };
   // Wrap up (D4): one home for the pre-select logic — called by the helm's
   // Wrap up chip and by the all-done "Wrap Up Trip →" button. Pending (unchecked)
@@ -3855,20 +3890,44 @@ function ProvisionsApp() {
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.name] ? i.subtotal : 0), 0), 0);
 
+  // A row stays in its aisle while it is leaving ("out"), and stays out of it
+  // while it is returning from the tray ("in"), so the motion can play where
+  // the person is looking. The write already happened; this is only where the
+  // row is drawn.
+  const inAisle = (i) => {
+    const m = rowMotion[i.name];
+    if (m) return m.dir === "out";
+    return !checked[i.name];
+  };
+  const inTray = (i) => {
+    const m = rowMotion[i.name];
+    if (m) return m.dir === "in";
+    return !!checked[i.name];
+  };
   // Shop A–Z lens — flat, alphabetical, unchecked only (checked items live in the In cart tray).
   const shopFlatItems = useMemo(() =>
     shoppingList
       .flatMap(c => c.items)
-      .filter(i => !checked[i.name])
+      .filter(inAisle)
       .sort((a, b) => a.name.localeCompare(b.name)),
-    [shoppingList, checked]);
+    [shoppingList, checked, rowMotion]); // eslint-disable-line react-hooks/exhaustive-deps
   // Shop Aisles lens — today's grouping minus the checked rows; an aisle that
   // empties out disappears (its items are all in the tray).
   const shopAisles = useMemo(() =>
     shoppingList
-      .map(cat => ({ ...cat, items: cat.items.filter(i => !checked[i.name]) }))
+      .map(cat => ({ ...cat, items: cat.items.filter(inAisle) }))
       .filter(cat => cat.items.length > 0),
-    [shoppingList, checked]);
+    [shoppingList, checked, rowMotion]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Tray rows and the tray COUNT move at different beats: a checked row is
+  // counted once it starts collapsing out of the aisle; an unchecked row stops
+  // being counted once it starts collapsing out of the tray.
+  const trayItems = shoppingList.flatMap(cat => cat.items.filter(inTray));
+  const trayCount = shoppingList.flatMap(cat => cat.items).filter(i => {
+    const m = rowMotion[i.name];
+    if (m?.dir === "out") return m.phase === "collapse";
+    if (m?.dir === "in") return m.phase === "mark";
+    return !!checked[i.name];
+  }).length;
 
  
   const budgetRemaining = budgetNum !== null ? budgetNum - totalCost : null;
@@ -4199,6 +4258,25 @@ function ProvisionsApp() {
         .shop-row-in { animation: opRowIn .22s ease; }
         .tray-body .shop-row-in { animation-name: opRowInDown; }
         @media (prefers-reduced-motion: reduce) { .shop-row-in { animation: none; } }
+        /* Check motion — presentation only, the write is on the tap.
+           Beat 1 (.checking, 120ms): circle fills teal with the check, name dims + strikes. Hold ~250ms.
+           Beat 2 (.collapsing, 200ms): height + opacity to zero, then the row unmounts.
+           Uncheck from the tray (.unchecking) is the reverse with no hold. */
+        .list-item .checkbox { transition: background .12s ease, border-color .12s ease; }
+        .list-item .li-name { transition: color .12s ease; }
+        .list-item.checking .checkbox { background: #0D9488; border-color: #0D9488; }
+        .list-item.checking .checkbox::after { content: "✓"; color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 1; }
+        .list-item.checking .li-name { color: #a89878; text-decoration: line-through; }
+        .list-item.checking, .list-item.unchecking, .list-item.collapsing { pointer-events: none; }
+        .tray-body .list-item.unchecking .checkbox.checked { background: transparent; border-color: #c8b89a; }
+        .tray-body .list-item.unchecking .checkmark { opacity: 0; transition: opacity .12s ease; }
+        .tray-body .list-item.unchecking .li-name { text-decoration: none; color: #2C1A0E; }
+        .tray-body .list-item.unchecking { opacity: 1; transition: opacity .12s ease; }
+        @keyframes opRowOut { from { opacity: 1; max-height: 140px; } to { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-width: 0; } }
+        @keyframes opRowOutTray { from { opacity: 0.55; max-height: 140px; } to { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-width: 0; } }
+        .list-item.collapsing { overflow: hidden; animation: opRowOut .2s ease forwards; }
+        .tray-body .list-item.collapsing { animation-name: opRowOutTray; }
+        @media (prefers-reduced-motion: reduce) { .list-item.collapsing { animation: none; } }
         .store-prompt { margin: 0 0 22px; padding: 14px 14px 12px; background: #fff; border: 1px solid #E3D4BC; border-radius: 12px; }
         .store-prompt-q { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: #2C1A0E; margin-bottom: 10px; }
         .store-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -5777,7 +5855,7 @@ function ProvisionsApp() {
                       <div className="list-cat-title">{cat.category}</div>
                       {cat.items.map((item) => (
                         <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                          <div className="list-item shop-row-in">
+                          <div className={`list-item shop-row-in${rowMotionClass(item.name)}`}>
                             <div className="checkbox" onClick={() => handleShopToggle(item)} />
                             <div style={{ flex: 1, cursor: "pointer" }} onClick={() => handleShopToggle(item)}>
                               <div className="li-name">
@@ -5806,7 +5884,7 @@ function ProvisionsApp() {
                     <div className="az-eyebrow">{shopFlatItems.length} to find</div>
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                        <div className="list-item az shop-row-in">
+                        <div className={`list-item az shop-row-in${rowMotionClass(item.name)}`}>
                           <div className="checkbox" onClick={() => handleShopToggle(item)} />
                           <div className="li-name" onClick={() => handleShopToggle(item)}>
                             {item.name}
@@ -5821,7 +5899,9 @@ function ProvisionsApp() {
                   </div>
                 )}
                 <InCartTray
-                  items={boughtItems}
+                  items={trayItems}
+                  count={trayCount}
+                  motionClass={rowMotionClass}
                   open={trayOpen}
                   onToggle={() => setTrayOpen(o => !o)}
                   onUncheck={handleShopToggle}
