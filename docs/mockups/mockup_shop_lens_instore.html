@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Shop tab: one lens, in-cart tray, in-store Add</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60;
+    --hairline:#E3D4BC; --check:#c8b89a;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso); padding:28px 16px 48px; }
+
+  .intro{ max-width:960px; margin:0 auto 22px; }
+  .intro h1{ font-family:'Playfair Display',serif; font-weight:400; font-size:1.5rem; margin:0 0 6px; }
+  .intro p{ font-size:0.86rem; line-height:1.5; color:#5c4a36; margin:0; max-width:70ch; }
+
+  .frames{ display:flex; gap:22px; flex-wrap:wrap; justify-content:center; align-items:flex-start; }
+  .frame{ width:390px; }
+  .frame-label{ font-size:0.78rem; color:#5c4a36; margin:0 4px 8px; line-height:1.45; }
+  .frame-label b{ font-weight:700; color:var(--espresso); }
+
+  .phone{ background:var(--cream); border-radius:22px; overflow:hidden; position:relative;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); min-height:760px; }
+
+  .header{ background:var(--espresso); color:var(--cream); padding:16px 20px 14px; }
+  .place{ display:flex; align-items:center; gap:8px; }
+  .place-name{ font-family:'Playfair Display',serif; font-size:1.05rem; }
+  .place-chev{ color:var(--sand); font-size:0.8rem; }
+  .tab-bar{ display:flex; background:var(--espresso); border-bottom:3px solid var(--amber); }
+  .tab{ flex:1; padding:9px 4px 11px; text-align:center; font-size:0.7rem; letter-spacing:2px;
+        text-transform:uppercase; color:var(--sand); border-bottom:2px solid transparent; }
+  .tab.active{ color:var(--cream); border-bottom:2px solid var(--sand); }
+
+  .body{ padding:16px 18px 24px; }
+
+  /* store eyebrow — the session indicator, a sentence not a widget */
+  .store-line{ font-size:0.82rem; color:var(--muted); margin:2px 2px 12px; display:flex; align-items:center; gap:5px; }
+  .store-line b{ color:var(--espresso); font-weight:700; }
+  .store-line .chev{ font-size:0.7rem; color:var(--clay); }
+
+  .list-header{ display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .list-progress{ flex:1; font-size:0.8rem; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+  .seg{ flex:none; height:40px; border-radius:11px; border:1px solid var(--sand-row); background:#fff; display:flex; overflow:hidden; }
+  .seg span{ display:flex; align-items:center; padding:0 12px; font-size:0.78rem; font-weight:700; color:var(--clay); }
+  .seg span.on{ background:var(--clay); color:#fff; }
+  .wrapup{ flex:none; height:40px; border-radius:11px; border:1px solid var(--sand-row); background:#fff;
+           padding:0 14px; font-size:0.85rem; font-weight:700; color:var(--espresso); display:flex; align-items:center; }
+  .progress-bar{ height:4px; background:var(--sand-row); border-radius:2px; margin-bottom:22px; overflow:hidden; }
+  .progress-fill{ height:100%; background:var(--clay); border-radius:2px; }
+
+  .cat{ font-size:0.7rem; letter-spacing:2.5px; text-transform:uppercase; color:var(--amber);
+        margin-top:24px; padding-bottom:6px; border-bottom:2px solid var(--amber); }
+  .cat:first-of-type{ margin-top:4px; }
+  .row{ display:flex; align-items:center; gap:14px; padding:14px 4px; border-bottom:1px solid var(--sand-row); }
+  .cb{ width:22px; height:22px; border-radius:50%; border:2px solid var(--check); flex-shrink:0; }
+  .cb.on{ background:var(--amber); border-color:var(--amber); position:relative; }
+  .cb.on::after{ content:"✓"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+                 color:#fff; font-size:0.78rem; font-weight:700; }
+  .name{ flex:1; font-size:0.95rem; }
+  .prov{ font-size:0.68rem; color:var(--muted); margin-top:2px; }
+  .qty{ font-size:0.75rem; color:var(--muted); }
+  .new-tag{ font-size:0.62rem; font-weight:700; color:var(--teal); border:1px solid var(--teal); border-radius:4px; padding:1px 5px; }
+
+  /* the in-cart tray — the place checked items go */
+  .tray{ margin-top:26px; border-radius:12px; background:#fff; border:1px solid var(--hairline); overflow:hidden; }
+  .tray-head{ display:flex; align-items:center; gap:10px; padding:13px 14px; }
+  .tray-cb{ width:22px; height:22px; border-radius:50%; background:var(--amber); flex-shrink:0; position:relative; }
+  .tray-cb::after{ content:"✓"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:0.78rem; font-weight:700; }
+  .tray-title{ flex:1; font-size:0.9rem; font-weight:700; }
+  .tray-sub{ font-size:0.72rem; color:var(--muted); font-weight:400; margin-left:6px; }
+  .tray-chev{ color:var(--muted); font-size:0.8rem; }
+  .tray-body{ border-top:1px solid var(--hairline); padding:0 14px 4px; }
+  .tray-body .row{ padding:11px 0; opacity:0.55; }
+  .tray-body .row:last-child{ border-bottom:none; }
+  .tray-body .name{ text-decoration:line-through; color:#a89878; font-size:0.88rem; }
+
+  /* Add — a floating + in the thumb corner */
+  .fab{ position:absolute; right:18px; bottom:22px; width:56px; height:56px; border-radius:50%;
+        background:var(--espresso); color:var(--cream); display:flex; align-items:center; justify-content:center;
+        font-size:2rem; font-weight:300; line-height:1; box-shadow:0 8px 22px rgba(44,26,14,0.32); }
+
+  /* flat view */
+  .flat-head{ font-size:0.7rem; letter-spacing:2.5px; text-transform:uppercase; color:var(--muted); margin:2px 0 6px; }
+  .letter{ font-family:'Playfair Display',serif; font-size:1.1rem; color:var(--clay); margin-top:14px; padding:0 2px 3px;
+           border-bottom:1px solid var(--hairline); }
+  .frow{ display:flex; align-items:center; gap:12px; padding:8px 4px; border-bottom:1px solid #F0E6D6; }
+  .frow .cb{ width:18px; height:18px; }
+  .frow .name{ font-size:0.9rem; }
+  .frow .qty{ font-size:0.72rem; }
+
+  /* add sheet */
+  .scrim{ position:absolute; inset:0; background:rgba(44,26,14,0.42); }
+  .sheet{ position:absolute; left:0; right:0; bottom:0; background:var(--cream); border-radius:20px 20px 0 0;
+          padding:12px 18px 26px; box-shadow:0 -10px 30px rgba(44,26,14,0.25); }
+  .grab{ width:36px; height:4px; border-radius:2px; background:var(--sand); margin:0 auto 14px; }
+  .sheet-title{ font-family:'Playfair Display',serif; font-size:1.15rem; margin-bottom:12px; }
+  .search{ display:flex; align-items:center; gap:10px; }
+  .search-box{ flex:1; height:48px; border-radius:12px; border:1.5px solid var(--clay); background:#fff;
+               display:flex; align-items:center; padding:0 14px; font-size:0.95rem; box-shadow:0 0 0 3px rgba(160,114,74,0.12); }
+  .caret{ width:1.5px; height:20px; background:var(--espresso); margin-left:1px; animation:blink 1s step-end infinite; }
+  @keyframes blink{ 50%{ opacity:0; } }
+  @media (prefers-reduced-motion:reduce){ .caret{ animation:none; } }
+  .mic{ width:48px; height:48px; border-radius:12px; background:var(--espresso); display:flex; align-items:center;
+        justify-content:center; flex:none; position:relative; }
+  .mic svg{ width:20px; height:20px; stroke:#FFFDF9; fill:none; stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
+  .later{ position:absolute; top:-9px; right:-9px; font-size:0.56rem; font-weight:700; letter-spacing:0.5px; background:var(--teal);
+          color:#fff; padding:2px 6px; border-radius:8px; }
+  .result{ display:flex; align-items:center; gap:12px; padding:12px 4px; border-bottom:1px solid var(--sand-row); }
+  .result .name{ font-size:0.92rem; }
+  .result .cat-tag{ font-size:0.7rem; color:var(--muted); }
+  .result .go{ font-size:0.78rem; font-weight:700; color:var(--clay); }
+  .result.create{ border-bottom:none; }
+  .result.create .name{ color:var(--clay); }
+  .result.create .name b{ color:var(--espresso); }
+  .hint{ font-size:0.72rem; color:var(--muted); margin-top:12px; line-height:1.45; }
+
+  /* store prompt */
+  .prompt{ margin:6px 0 22px; padding:14px 14px 12px; background:#fff; border:1px solid var(--hairline); border-radius:12px; }
+  .prompt-q{ font-family:'Playfair Display',serif; font-size:1.05rem; margin-bottom:10px; }
+  .chips{ display:flex; flex-wrap:wrap; gap:8px; }
+  .chip{ font-size:0.8rem; font-weight:700; padding:8px 13px; border-radius:20px; border:1px solid var(--sand-row); background:var(--cream); color:var(--espresso); }
+  .chip.sel{ background:var(--espresso); color:var(--cream); border-color:var(--espresso); }
+  .chip.other{ color:var(--clay); border-style:dashed; font-weight:400; }
+  .prompt-skip{ font-size:0.72rem; color:var(--muted); margin-top:10px; }
+
+  .notes{ max-width:960px; margin:34px auto 0; background:rgba(250,244,236,0.7); border-radius:14px; padding:18px 22px; }
+  .notes h2{ font-family:'Playfair Display',serif; font-weight:400; font-size:1.15rem; margin:0 0 10px; }
+  .notes ul{ margin:0; padding-left:18px; font-size:0.84rem; line-height:1.55; color:#5c4a36; }
+  .notes li{ margin-bottom:5px; }
+  .notes b{ color:var(--espresso); }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>Shop tab — one lens, an in-cart tray, and Add from the aisle</h1>
+  <p>Replaces the three-phase cycle icon. Checked items stop being a filter state and become a place at the bottom of the list. Adding mid-trip is a single + in the corner; voice lives in the same sheet later. The store name is the session, written as a sentence.</p>
+</div>
+
+<div class="frames">
+
+  <!-- ───────────── A. Grouped, mid-trip ───────────── -->
+  <div class="frame">
+    <div class="frame-label"><b>A · Grouped, mid-trip.</b> Three things in the header: count, an Aisles | A–Z switch, Wrap up. Checked items have sunk into the tray. A floating + sits in the thumb corner.</div>
+    <div class="phone">
+      <div class="header">
+        <div class="place"><span class="place-name">The Boat</span><span class="place-chev">▾</span></div>
+      </div>
+      <div class="tab-bar"><div class="tab">Home</div><div class="tab">Browse</div><div class="tab">Plan</div><div class="tab active">Shop</div></div>
+      <div class="body">
+        <div class="store-line">Shopping at <b>Market Basket</b> <span class="chev">▾</span></div>
+        <div class="list-header">
+          <div class="list-progress">4 of 12 in cart</div>
+          <div class="seg"><span class="on">Aisles</span><span>A–Z</span></div>
+          <div class="wrapup">Wrap up</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:33%"></div></div>
+
+        <div class="cat">Dairy</div>
+        <div class="row"><div class="cb"></div><div class="name">Whole milk</div><div class="qty">×2</div></div>
+        <div class="row"><div class="cb"></div><div class="name">Greek yogurt<div class="prov">for Shakshuka</div></div></div>
+
+        <div class="cat">Deli</div>
+        <div class="row"><div class="cb"></div><div class="name">Sliced turkey</div></div>
+        <div class="row"><div class="cb"></div><div class="name">Provolone</div><div class="qty">×1</div></div>
+
+        <div class="cat">Pantry</div>
+        <div class="row"><div class="cb"></div><div class="name">Crushed tomatoes<div class="prov">for Shakshuka</div></div><div class="qty">×2</div></div>
+        <div class="row"><div class="cb"></div><div class="name">Olive oil</div></div>
+
+        <div class="cat">Produce</div>
+        <div class="row"><div class="cb"></div><div class="name">Limes <span class="new-tag">added here</span></div><div class="qty">×4</div></div>
+        <div class="row"><div class="cb"></div><div class="name">Red peppers<div class="prov">for Shakshuka</div></div><div class="qty">×3</div></div>
+
+        <div class="tray">
+          <div class="tray-head"><div class="tray-cb"></div><div class="tray-title">In cart<span class="tray-sub">4 items</span></div><div class="tray-chev">▾</div></div>
+        </div>
+      </div>
+      <div class="fab">+</div>
+    </div>
+  </div>
+
+  <!-- ───────────── B. Flat A–Z, tray expanded ───────────── -->
+  <div class="frame">
+    <div class="frame-label"><b>B · Flat A–Z, tray open.</b> Flat is a different mode, not the same rows minus headers: half-height rows, no provenance, no prices, letters to scan by. The tray works the same here — tap to open, tap a row to put it back.</div>
+    <div class="phone">
+      <div class="header">
+        <div class="place"><span class="place-name">The Boat</span><span class="place-chev">▾</span></div>
+      </div>
+      <div class="tab-bar"><div class="tab">Home</div><div class="tab">Browse</div><div class="tab">Plan</div><div class="tab active">Shop</div></div>
+      <div class="body">
+        <div class="store-line">Shopping at <b>Market Basket</b> <span class="chev">▾</span></div>
+        <div class="list-header">
+          <div class="list-progress">4 of 12 in cart</div>
+          <div class="seg"><span>Aisles</span><span class="on">A–Z</span></div>
+          <div class="wrapup">Wrap up</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:33%"></div></div>
+
+        <div class="flat-head">8 to find</div>
+        <div class="letter">C</div>
+        <div class="frow"><div class="cb"></div><div class="name">Crushed tomatoes</div><div class="qty">×2</div></div>
+        <div class="letter">G</div>
+        <div class="frow"><div class="cb"></div><div class="name">Greek yogurt</div></div>
+        <div class="letter">L</div>
+        <div class="frow"><div class="cb"></div><div class="name">Limes</div><div class="qty">×4</div></div>
+        <div class="letter">O</div>
+        <div class="frow"><div class="cb"></div><div class="name">Olive oil</div></div>
+        <div class="letter">P</div>
+        <div class="frow"><div class="cb"></div><div class="name">Provolone</div></div>
+        <div class="letter">R</div>
+        <div class="frow"><div class="cb"></div><div class="name">Red peppers</div><div class="qty">×3</div></div>
+        <div class="letter">S</div>
+        <div class="frow"><div class="cb"></div><div class="name">Sliced turkey</div></div>
+        <div class="letter">W</div>
+        <div class="frow"><div class="cb"></div><div class="name">Whole milk</div><div class="qty">×2</div></div>
+
+        <div class="tray">
+          <div class="tray-head"><div class="tray-cb"></div><div class="tray-title">In cart<span class="tray-sub">4 items</span></div><div class="tray-chev">▴</div></div>
+          <div class="tray-body">
+            <div class="row"><div class="cb on"></div><div class="name">Eggs</div><div class="qty">×12</div></div>
+            <div class="row"><div class="cb on"></div><div class="name">Butter</div></div>
+            <div class="row"><div class="cb on"></div><div class="name">Feta</div></div>
+            <div class="row"><div class="cb on"></div><div class="name">Sourdough</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="fab">+</div>
+    </div>
+  </div>
+
+  <!-- ───────────── C. Add sheet ───────────── -->
+  <div class="frame">
+    <div class="frame-label"><b>C · The Add sheet.</b> Same search path Browse already has (hidden-item reveal included). Result rows add at one tap, unchecked, and land in their category. The mic is designed into this sheet — not built tonight.</div>
+    <div class="phone">
+      <div class="header">
+        <div class="place"><span class="place-name">The Boat</span><span class="place-chev">▾</span></div>
+      </div>
+      <div class="tab-bar"><div class="tab">Home</div><div class="tab">Browse</div><div class="tab">Plan</div><div class="tab active">Shop</div></div>
+      <div class="body">
+        <div class="store-line">Shopping at <b>Market Basket</b> <span class="chev">▾</span></div>
+        <div class="list-header">
+          <div class="list-progress">4 of 12 in cart</div>
+          <div class="seg"><span class="on">Aisles</span><span>A–Z</span></div>
+          <div class="wrapup">Wrap up</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:33%"></div></div>
+        <div class="cat">Dairy</div>
+        <div class="row"><div class="cb"></div><div class="name">Whole milk</div><div class="qty">×2</div></div>
+        <div class="row"><div class="cb"></div><div class="name">Greek yogurt</div></div>
+        <div class="cat">Deli</div>
+        <div class="row"><div class="cb"></div><div class="name">Sliced turkey</div></div>
+      </div>
+
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div class="sheet-title">Add something</div>
+        <div class="search">
+          <div class="search-box">cilan<span class="caret"></span></div>
+          <div class="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><line x1="12" y1="18" x2="12" y2="21"/></svg><span class="later">LATER</span></div>
+        </div>
+        <div class="result"><div class="name">Cilantro<div class="cat-tag">Produce</div></div><div class="go">Add</div></div>
+        <div class="result"><div class="name">Cilantro lime rice<div class="cat-tag">Pantry</div></div><div class="go">Add</div></div>
+        <div class="result create"><div class="name">Add <b>“cilan”</b> as a new item…</div></div>
+        <div class="hint">Added items land in their aisle, unchecked, and are remembered as picked up at Market Basket.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────── D. Session start — store prompt ───────────── -->
+  <div class="frame">
+    <div class="frame-label"><b>D · First tap of the trip.</b> The session starts on the first check or add. One question, chips of recent stores, skippable. Answer it and it collapses into the eyebrow line above. This is what makes the learned aisle order readable before GPS store recognition exists.</div>
+    <div class="phone">
+      <div class="header">
+        <div class="place"><span class="place-name">The Boat</span><span class="place-chev">▾</span></div>
+      </div>
+      <div class="tab-bar"><div class="tab">Home</div><div class="tab">Browse</div><div class="tab">Plan</div><div class="tab active">Shop</div></div>
+      <div class="body">
+        <div class="prompt">
+          <div class="prompt-q">Where are you shopping?</div>
+          <div class="chips">
+            <div class="chip sel">Market Basket</div>
+            <div class="chip">Hannaford</div>
+            <div class="chip">Trader Joe’s</div>
+            <div class="chip other">Somewhere else…</div>
+          </div>
+          <div class="prompt-skip">Skip — you can set it later from the list.</div>
+        </div>
+        <div class="list-header">
+          <div class="list-progress">1 of 12 in cart</div>
+          <div class="seg"><span class="on">Aisles</span><span>A–Z</span></div>
+          <div class="wrapup">Wrap up</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" style="width:8%"></div></div>
+        <div class="cat">Dairy</div>
+        <div class="row"><div class="cb"></div><div class="name">Whole milk</div><div class="qty">×2</div></div>
+        <div class="row"><div class="cb"></div><div class="name">Greek yogurt<div class="prov">for Shakshuka</div></div></div>
+        <div class="row"><div class="cb"></div><div class="name">Butter</div></div>
+        <div class="cat">Deli</div>
+        <div class="row"><div class="cb"></div><div class="name">Sliced turkey</div></div>
+        <div class="row"><div class="cb"></div><div class="name">Provolone</div></div>
+        <div class="tray">
+          <div class="tray-head"><div class="tray-cb"></div><div class="tray-title">In cart<span class="tray-sub">1 item</span></div><div class="tray-chev">▾</div></div>
+        </div>
+      </div>
+      <div class="fab">+</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="notes">
+  <h2>Design notes for the spec</h2>
+  <ul>
+    <li><b>Lens is a two-segment control</b> — <em>Aisles | A–Z</em>, active segment filled. Both states visible at once, so nothing has to be decoded (a single button that named its destination read as the current state, which is the tri-state problem again). "Aisles" rather than "Categories" because once store ordering learns the layout, that's literally what the grouping becomes.</li>
+    <li><b>The tray is the only home for checked items</b> in both views. No toggle, no descriptor line. Collapsed by default; expanded state persists for the trip. A checked item animates down into it so the person sees where it went.</li>
+    <li><b>Count copy changes</b> from "4 of 12 checked" to "4 of 12 in cart" and flat's eyebrow becomes "8 to find" — the words the tray uses, so the vocabulary is one set.</li>
+    <li><b>Add button</b> is a 56px floating + fixed to the viewport bottom-right, above the footer. It floats <em>over</em> the list and reserves no space: content scrolls beneath it, and only when the list is scrolled to its very end does the last row need a small clearance (one row-height of bottom padding) so the tray chevron isn't covered. It hides while the Wrap-up modal or Add sheet is open. No label — the sheet title "Add something" does the explaining on first tap.</li>
+    <li><b>"added here" tag</b> on an in-store add is the visible face of the <code>added_in_store</code> event, for this trip only — it's not a permanent badge.</li>
+    <li><b>Store prompt</b> appears once per session, only when no store is set; chips are the household's distinct <code>store_name_raw</code> values, most recent first. "Somewhere else…" opens a text field. Skip is honest — GPS still gets captured.</li>
+    <li><b>Mic (later)</b>: reuses the Galley mic button and listening state; the transcript fills the search box and runs the same add path. Multi-item utterances split on commas and "and" before anything smarter is considered.</li>
+  </ul>
+</div>
+
+</body>
+</html>

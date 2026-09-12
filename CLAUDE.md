@@ -43,10 +43,13 @@ Vercel hosting, Anthropic Claude API.
 - **`catalog_items.is_global`** is the ownership discriminator. `true` = seed item
   (system-owned; members can Hide but never Delete). `false` = custom item
   (household-owned; any member can add/Delete; can also Hide).
-- **All foreign keys referencing `catalog_items` are `NO ACTION`** — Postgres blocks
-  deletion of any referenced row. Deletes that touch referenced catalog rows must be
-  multi-step SECURITY DEFINER RPCs (or soft-delete via `deleted_at`), never a plain
-  `delete`.
+- **Foreign keys referencing `catalog_items` are `NO ACTION` with exactly three
+  deliberate exceptions** — `household_staples` (CASCADE, 016), `meal_ingredients`
+  (CASCADE, 025) and `list_item_events` (SET NULL, 046; *events release, never
+  block*). Everywhere else Postgres blocks deletion of a referenced row, so
+  deletes that touch referenced catalog rows must be multi-step SECURITY DEFINER
+  RPCs (or soft-delete via `deleted_at`), never a plain `delete`. Do not
+  "normalize" the exceptions back; see ARCHITECTURE's FK section.
 - **The shared list is sacred** — no per-user view preference (Hide, filter) ever
   suppresses what's on the shared list. Hide lives in the browse layer only.
 - **SHOP list renders from the RPC**, not from `catalogMap` (the `listRows` pattern).
@@ -144,6 +147,10 @@ home and cleared out.
   is `docs/specs/active/` — a fresh spec hasn't shipped yet, so it is always
   `active/` (it graduates to `built/` on ship; see Step 4).
   Moving = `git mv handoff/<file> docs/specs/active/<file>` so history is preserved.
+- **Only `SPEC_*.md` has a lifecycle.** `PATCH_*.md` and `OBSERVATION_*.md` have no
+  `active/`/`built/` equivalent — once merged into the docs and verified, they are simply
+  DELETED from the airlock, exactly like the old `CATCHUP_*.md` handoffs. Their content
+  lives on in SESSION_LOG / ROADMAP / ARCHITECTURE, not in `docs/specs/`.
 - Before `git mv`, ensure the destination folder exists — if the manifest names a
   destination path that isn't present yet, `mkdir -p` it first, then move. A
   `git mv` into a missing directory fails; don't let a new bucket (or a typo'd
@@ -289,3 +296,13 @@ everything else passes through and is cleared each SESSION END.
   multi-client fix — stale JS produces false negatives.
 - When catalog rows are soft-deleted (`deleted_at`), every catalog read path must
   filter `deleted_at IS NULL` (list RPC, browse load, catalogMap build).
+- **Every new-table migration revokes from `public`, `anon` AND `authenticated`
+  before granting, then reads `information_schema.role_table_grants` back.**
+  Supabase's schema default privileges give a new table ALL to `authenticated`,
+  and RLS does not cover all of it — `TRUNCATE` bypasses RLS outright, and
+  "no UPDATE/DELETE policy" only holds while the role has no privilege that
+  sidesteps policy evaluation. Revoking from `public` alone removes none of the
+  explicit role grants. The apply script's closing SELECT must show the
+  granted set EXACTLY (e.g. `INSERT,SELECT`), never "no anon row" alone.
+  (Caught on dev 2026-09-10: 046's first apply left `authenticated` with
+  DELETE…TRUNCATE…UPDATE on an append-only table.)
