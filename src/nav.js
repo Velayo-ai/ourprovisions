@@ -96,43 +96,43 @@ export function useMediaQuery(query) {
   return matches;
 }
 
-// D9′ (v2) — the pill compacts when you scroll INTO content and returns when you
-// scroll up. Binary, not continuous: past `threshold` px scrolling down adds
-// compact; scrolling up, or being within `threshold` of the top, removes it.
-// One trigger the person controls with their own hand — never navigation.
+// D9′ (v2, amended 2026-09-12) — the pill is compact EXACTLY when the door's
+// header controls are off-screen. Position-based, not direction-based: the
+// v2 direction rule let a small upward scroll restore the full pill mid-list,
+// leaving no + on screen while the header row was still out of sight.
 //
-// `scrollRootRef.current` is the scrolling element; null/undefined means the
-// document (window) scrolls, which is OurProvisions' case. rAF-throttled;
-// negative offsets (iOS rubber-band at the top) are ignored so the pill never
-// flickers on overscroll. A small direction deadband keeps 1px jitter from
-// toggling it. On mount the state is whatever the offset implies (a hard
-// refresh mid-list renders compact, with no animation — the Helm's arming
-// guard owns that).
-export function useScrollCompact(scrollRootRef, { threshold = 40, deadband = 4 } = {}) {
+// `controlRow` is the door's control row element (Shop: the [count] [lens] [+]
+// [Wrap up] row; Browse: a sentinel at the bottom of the search + chips block —
+// the search bar itself is sticky and never leaves; Plan: a sentinel where the
+// lens row will sit), or null when the door has none (Home never compacts).
+// Compact once the row's bottom is `margin` px above the viewport top; full
+// again once it is `margin` px back inside — an 8px band of hysteresis, no
+// direction tracking, no deadband. rAF-throttled; recomputed on scroll, on
+// resize and whenever the row element changes (door switch). Negative offsets
+// (iOS rubber-band) only ever move the row DOWN, so they can't compact it.
+export function useScrollCompact(controlRow, { margin = 8 } = {}) {
   const [compact, setCompact] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
-    const el = scrollRootRef && scrollRootRef.current ? scrollRootRef.current : null;
-    const target = el || window;
-    const getY = () => (el ? el.scrollTop : (window.scrollY || document.documentElement.scrollTop || 0));
-    let last = getY();
-    let compactNow = getY() > threshold;
+    if (!controlRow) { setCompact(false); return undefined; }
     let ticking = false;
-    setCompact(compactNow);
+    let compactNow = null;
     const set = (v) => { if (v !== compactNow) { compactNow = v; setCompact(v); } };
     const update = () => {
       ticking = false;
-      const y = getY();
-      if (y < 0) return;                       // iOS overscroll: not a scroll
-      const dy = y - last;
-      if (y <= threshold) set(false);          // near the top: always full
-      else if (dy > deadband) set(true);       // scrolling down into content
-      else if (dy < -deadband) set(false);     // scrolling up: return
-      last = y;
+      const bottom = controlRow.getBoundingClientRect().bottom;
+      if (bottom < -margin) set(true);
+      else if (bottom > margin) set(false);
+      else if (compactNow === null) set(false);   // first read inside the band: full
     };
     const onScroll = () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } };
-    target.addEventListener("scroll", onScroll, { passive: true });
-    return () => target.removeEventListener("scroll", onScroll);
-  }, [scrollRootRef, threshold, deadband]);
+    update();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [controlRow, margin]);
   return compact;
 }

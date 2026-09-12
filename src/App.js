@@ -770,8 +770,9 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 // session posture (slim on Shop, + and Wrap up riding in the pill) is retired —
 // the trip's controls are part of the list (Shop header row, D4′), the pill is
 // chrome.
-// D9′/D11 (v2) — `compact` is driven by the person's scroll (useScrollCompact),
-// never by the door. In the compact state a cream + appears at the right end
+// D9′/D11 (v2, amended) — `compact` is true exactly when the current door's
+// control row is off-screen (useScrollCompact, position-based), never by the door
+// itself. In the compact state a cream + appears at the right end
 // and does the CURRENT door's add (`onPlus`, from the doorAdd map); when the
 // door has no add (Home), no + renders. At rest, no + on the pill.
 function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
@@ -2337,8 +2338,13 @@ function ProvisionsApp() {
   const [view, setView] = useState("input");
   // D5: ≥700px mounts <Rail />, below it <Helm /> — exactly one at any width.
   const isWide = useMediaQuery(WIDE_QUERY);
-  // D9′: the document is the scroll root, so no ref — the hook listens on window.
-  const scrollCompact = useScrollCompact(null);
+  // D9′ (amended 2026-09-12): compact exactly when the current door's control
+  // row is off-screen. Each door hands its row (or a sentinel at the block's
+  // bottom) to `controlRowRef`; only the active door renders one, so at most one
+  // element is live. Home passes nothing and never compacts (D12).
+  const [controlRow, setControlRow] = useState(null);
+  const controlRowRef = useCallback((el) => setControlRow(el), []);
+  const scrollCompact = useScrollCompact(controlRow);
   // Landing tab until a Home tab exists: Shop if the list has items, else Browse.
   // Runs once per app load after the first successful list load — never
   // reactive, so adding a first item from Browse doesn't yank the user to Shop.
@@ -4030,6 +4036,7 @@ function ProvisionsApp() {
         .helm-door.active { color: #FAF4EC; background: rgba(201,169,122,0.10); }
         .helm-label { line-height: 1; white-space: nowrap; transition: opacity .2s ease; }
         .helm-badge { position: absolute; top: 1px; left: calc(50% + 5px); margin: 0; font-size: 0.58rem; padding: 0 4px; line-height: 15px; }
+        .control-row-end { height: 0; margin: 0; padding: 0; }
         /* Compact (D9′): icons only, pulled in from the sides; labels stay in the DOM at font-size 0. */
         .helm.compact .helm-door { gap: 0; }
         .helm.compact .helm-label { font-size: 0; opacity: 0; }
@@ -5308,6 +5315,11 @@ function ProvisionsApp() {
         )}
 
         {view === "plan" && (
+          <>
+            {/* D9′ — Plan's control row. The single-surface Plan lens row is not
+                built yet (mockup only); until it is, this sentinel at the top of the
+                Plan content is the edge. When the lens row lands, move the ref onto it. */}
+            <div ref={controlRowRef} className="control-row-end" aria-hidden="true" />
           <MealsLens
             meals={meals}
             loading={mealsLoading}
@@ -5320,6 +5332,7 @@ function ProvisionsApp() {
             onDecrement={handleDecrementMeal}
             decrementingMealId={decrementingMealId}
           />
+          </>
         )}
 
         {view === "input" && (
@@ -5401,6 +5414,10 @@ function ProvisionsApp() {
             {/* ── Descriptor — ONE slot, shared with the declutter cycle.
                  When categories are filtering, the filter line REPLACES the cycle
                  line entirely; otherwise the cycle line is untouched. Never both. */}
+            {/* D9′ — the bottom edge of Browse's search + chips block. The search
+                bar above is sticky and never leaves; this sentinel scrolls with the
+                rail, so the pill compacts exactly when the chips have gone. */}
+            <div ref={controlRowRef} className="control-row-end" aria-hidden="true" />
             {browseFilterDescriptor ? (
               <div className="declutter-desc" style={{ margin: "0 0 28px" }}>
                 {/* ONE verb in every phase. "Filtering Produce" was backwards —
@@ -5707,7 +5724,7 @@ function ProvisionsApp() {
               </div>
             ) : (
               <>
-                <div className="list-header">
+                <div className="list-header" ref={controlRowRef}>
                   <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} in cart</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
                   <ShopLensSegment lens={shopLens} onChange={setShopLens} />
