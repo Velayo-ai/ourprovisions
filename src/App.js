@@ -1,7 +1,7 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
-import { NAV_DOORS, useMediaQuery, WIDE_QUERY } from './nav';
+import { NAV_DOORS, useMediaQuery, WIDE_QUERY, useScrollCompact } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
@@ -770,15 +770,24 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 // session posture (slim on Shop, + and Wrap up riding in the pill) is retired —
 // the trip's controls are part of the list (Shop header row, D4′), the pill is
 // chrome.
-function Helm({ view, onChange, badgeCount }) {
+// D9′/D11 (v2) — `compact` is driven by the person's scroll (useScrollCompact),
+// never by the door. In the compact state a cream + appears at the right end
+// and does the CURRENT door's add (`onPlus`, from the doorAdd map); when the
+// door has no add (Home), no + renders. At rest, no + on the pill.
+function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (armed) return undefined;
     const arm = () => setArmed(true);
-    window.addEventListener("pointerdown", arm, { once: true, passive: true });
+    const opts = { once: true, passive: true };
+    window.addEventListener("pointerdown", arm, opts);
+    window.addEventListener("touchstart", arm, opts);
+    window.addEventListener("wheel", arm, opts);
     window.addEventListener("keydown", arm, { once: true });
     return () => {
       window.removeEventListener("pointerdown", arm);
+      window.removeEventListener("touchstart", arm);
+      window.removeEventListener("wheel", arm);
       window.removeEventListener("keydown", arm);
     };
   }, [armed]);
@@ -786,7 +795,7 @@ function Helm({ view, onChange, badgeCount }) {
     <>
       {/* Cream fade above the pill so the last row stays legible as it scrolls under (§6). */}
       <div className="helm-fade" aria-hidden="true" />
-    <nav className={`helm ${armed ? "" : "no-anim"}`} aria-label="Main">
+    <nav className={`helm ${compact ? "compact" : ""} ${armed ? "" : "no-anim"}`} aria-label="Main">
       {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
         const active = view === v;
         return (
@@ -803,6 +812,12 @@ function Helm({ view, onChange, badgeCount }) {
           </button>
         );
       })}
+      {compact && onPlus && (
+        <>
+          <span className="helm-divider" aria-hidden="true" />
+          <button type="button" className="helm-plus" aria-label={onPlus.label} onClick={onPlus.run}>+</button>
+        </>
+      )}
     </nav>
     </>
   );
@@ -2322,6 +2337,8 @@ function ProvisionsApp() {
   const [view, setView] = useState("input");
   // D5: ≥700px mounts <Rail />, below it <Helm /> — exactly one at any width.
   const isWide = useMediaQuery(WIDE_QUERY);
+  // D9′: the document is the scroll root, so no ref — the hook listens on window.
+  const scrollCompact = useScrollCompact(null);
   // Landing tab until a Home tab exists: Shop if the list has items, else Browse.
   // Runs once per app load after the first successful list load — never
   // reactive, so adding a first item from Browse doesn't yank the user to Shop.
@@ -3513,8 +3530,19 @@ function ProvisionsApp() {
     setAddSheetOpen(false);
     setSearchQuery("");
   };
+  // D11 — the + does the DOOR's add. Shop → the Add sheet (add-from-the-aisle,
+  // "added here"); Browse → the same sheet, plain; Plan → New meal (the create
+  // sheet exists, and like its library row it needs an account); Home → absent,
+  // so no + ever renders there (D12). The + never becomes a menu.
+  const doorAdd = {
+    list:  { label: "Add something", run: openAddSheet },
+    input: { label: "Add to your list", run: openAddSheet },
+    ...(MEALS_ENABLED && isSignedIn ? { plan: { label: "New meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {}),
+  };
+  // "added here" and the added_in_store event are Shop semantics: the same sheet
+  // opened from Browse's + adds plainly (no tag, no event, no session start).
   const noteAddedHere = (res) => {
-    if (!res) return;
+    if (!res || view !== "list") return;
     setAddedHereIds(prev => { const n = new Set(prev); n.add(res.catalogItemId); return n; });
     recordListEvent("added_in_store", res);
   };
@@ -3969,6 +3997,8 @@ function ProvisionsApp() {
           view={view}
           onChange={setView}
           badgeCount={totalItems}
+          compact={scrollCompact && view !== "home"}
+          onPlus={doorAdd[view] || null}
         />
       )}
 
@@ -3997,6 +4027,15 @@ function ProvisionsApp() {
         .helm-door.active { color: #FAF4EC; background: rgba(201,169,122,0.10); }
         .helm-label { line-height: 1; white-space: nowrap; transition: opacity .2s ease; }
         .helm-badge { position: absolute; top: 2px; left: calc(50% + 6px); margin: 0; font-size: 0.6rem; padding: 0 5px; line-height: 15px; }
+        /* Compact (D9′): icons only, pulled in from the sides; labels stay in the DOM at font-size 0. */
+        .helm.compact .helm-door { gap: 0; }
+        .helm.compact .helm-label { font-size: 0; opacity: 0; }
+        .helm.compact .helm-badge { top: 0; }
+        .helm-divider { flex: 0 0 1px; align-self: center; height: 18px; background: rgba(201,169,122,0.22); margin-left: 4px; }
+        .helm-plus { flex: 0 0 auto; align-self: center; width: 32px; height: 32px; margin: 0 2px 0 6px; border-radius: 50%; border: none; background: #FAF4EC; color: #2C1A0E; cursor: pointer;
+                     display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 1.35rem; font-weight: 300; line-height: 1; padding: 0 0 2px;
+                     box-shadow: 0 2px 8px rgba(0,0,0,.25); animation: helmPlusIn .2s ease; }
+        @keyframes helmPlusIn { from { opacity: 0; } to { opacity: 1; } }
         .helm.no-anim, .helm.no-anim * { transition: none !important; animation: none !important; }
         @media (prefers-reduced-motion: reduce) { .helm, .helm * { transition: none !important; } }
         /* Home placeholder (D7) — the door exists before its content; this names the promise. */
