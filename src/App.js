@@ -3750,7 +3750,8 @@ function ProvisionsApp() {
       <div style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
-      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || !loading)} />}
+      {/* Gated on household for the same reason as the landing effect — loading clears on the anon-catalog pass before the household list has arrived. Ensures the landing tab is settled before the splash dissolves; the 5s failsafe still bounds it. */}
+      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || (!loading && !!household))} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
       {isSignedIn && loading && (
