@@ -1074,24 +1074,132 @@ const MEALS_ENABLED = true;
 // making a section appear. Tap opens the meal; × calls removeMealFromList.
 // No lens toggle, no day columns, no "Any day" row — those are v2 and the
 // mockup of record draws them; this is the Board half only.
-function PlanBoard({ meals, counts, onOpen, onRemove, removingMealId }) {
+//
+// DRAG TO REORDER — long-press (350ms) lifts, a tap opens. Long-press is never
+// the door to anything else. Kept boring on purpose: pointer events, translateY
+// on the lifted card, the cards it passes slide out of its way, reorder on
+// drop. No dependency, and none of SwipeToRemove's horizontal machinery — the
+// board is vertical. Order is SHARED (per household): drop calls onReorder
+// with the full id list and the hook renumbers 0..n-1.
+//
+// Scroll vs drag: touch-action pan-y lets a plain swipe scroll the page; a
+// finger that moves more than a few px before the timer fires cancels the
+// press. Once lifted, a document-level non-passive touchmove listener eats the
+// browser's scroll for the rest of the gesture, and contextmenu is suppressed
+// so the OS long-press menu never opens over a card. The click that follows
+// a lift is swallowed, so dropping a card never opens it.
+//
+// While lifted the board renders a SNAPSHOT of the order taken at lift time:
+// the 2s poll (or the other member) cannot re-sort the cards under a moving
+// finger. Reduced-motion: drag still works; the slide transitions are off.
+const BOARD_PRESS_MS = 350;
+const BOARD_SLOP_PX = 8;
+function PlanBoard({ meals, counts, onOpen, onRemove, onReorder, removingMealId }) {
+  const [drag, setDrag] = useState(null);   // { id, from, to, dy, snapshot, slots }
+  const pressRef = useRef(null);            // { id, index, pointerId, x, y, timer, el }
+  const dragRef = useRef(null);             // mirrors drag for the pointer handlers
+  const swallowClickRef = useRef(false);
+  dragRef.current = drag;
+
+  const clearPress = useCallback(() => {
+    const pr = pressRef.current;
+    if (pr?.timer) clearTimeout(pr.timer);
+    pressRef.current = null;
+  }, []);
+
+  // Eat the browser's scroll while a card is lifted. Non-passive by necessity —
+  // React's synthetic touch handlers are passive, so this has to be a raw listener.
+  useEffect(() => {
+    if (!drag) return undefined;
+    const block = (e) => { e.preventDefault(); };
+    document.addEventListener("touchmove", block, { passive: false });
+    return () => document.removeEventListener("touchmove", block);
+  }, [drag]);
+
+  const lift = useCallback((pr) => {
+    const board = pr.el.parentElement;
+    const cards = Array.from(board.querySelectorAll(".board-card"));
+    const slots = cards.map((c) => { const r = c.getBoundingClientRect(); return { top: r.top, height: r.height }; });
+    try { pr.el.setPointerCapture(pr.pointerId); } catch (_e) { /* capture is best-effort */ }
+    swallowClickRef.current = true;
+    setDrag({ id: pr.id, from: pr.index, to: pr.index, dy: 0, snapshot: meals, slots });
+  }, [meals]);
+
+  const onPointerDown = (e, m, index) => {
+    if (e.button != null && e.button !== 0) return;
+    if (e.target.closest(".board-x")) return;
+    if (meals.length < 2) return;             // nothing to reorder
+    clearPress();
+    const pr = { id: m.id, index, pointerId: e.pointerId, x: e.clientX, y: e.clientY, el: e.currentTarget, timer: null };
+    pr.timer = setTimeout(() => { if (pressRef.current === pr) lift(pr); }, BOARD_PRESS_MS);
+    pressRef.current = pr;
+  };
+
+  const onPointerMove = (e) => {
+    const d = dragRef.current;
+    if (!d) {
+      const pr = pressRef.current;
+      if (pr && (Math.abs(e.clientX - pr.x) > BOARD_SLOP_PX || Math.abs(e.clientY - pr.y) > BOARD_SLOP_PX)) clearPress();
+      return;
+    }
+    const pr = pressRef.current;
+    if (!pr) return;
+    const dy = e.clientY - pr.y;
+    // Where does the lifted card's centre now fall among the others?
+    const centre = d.slots[d.from].top + d.slots[d.from].height / 2 + dy;
+    let to = 0;
+    d.slots.forEach((sl, i) => { if (i !== d.from && sl.top + sl.height / 2 < centre) to += 1; });
+    if (dy !== d.dy || to !== d.to) setDrag({ ...d, dy, to });
+  };
+
+  const onPointerEnd = () => {
+    const d = dragRef.current;
+    clearPress();
+    if (!d) return;
+    setDrag(null);
+    if (d.to !== d.from) {
+      const ids = d.snapshot.map((m) => m.id);
+      const [moved] = ids.splice(d.from, 1);
+      ids.splice(d.to, 0, moved);
+      onReorder(ids);
+    }
+  };
+
   if (meals.length === 0) {
     return <div className="board board-empty">Nothing planned yet</div>;
   }
+  const list = drag ? drag.snapshot : meals;
+  const gap = 8;
   return (
     <div className="board">
       <div className="board-label" aria-hidden="true">This week</div>
-      {meals.map((m) => {
+      {list.map((m, i) => {
         const busy = removingMealId === m.id;
+        const lifted = drag && drag.id === m.id;
+        let transform;
+        if (drag) {
+          if (lifted) {
+            transform = `translateY(${drag.dy}px)`;
+          } else {
+            const h = drag.slots[drag.from].height + gap;
+            if (drag.from < drag.to && i > drag.from && i <= drag.to) transform = `translateY(${-h}px)`;
+            else if (drag.to < drag.from && i >= drag.to && i < drag.from) transform = `translateY(${h}px)`;
+          }
+        }
         return (
           <div
             key={m.id}
-            className="board-card"
+            className={`board-card${lifted ? " lifted" : ""}`}
             role="button"
             tabIndex={0}
-            onClick={() => onOpen(m)}
+            onClick={() => { if (swallowClickRef.current) { swallowClickRef.current = false; return; } onOpen(m); }}
             onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(m); } }}
-            style={busy ? { opacity: 0.5 } : undefined}
+            onPointerDown={(e) => onPointerDown(e, m, i)}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerEnd}
+            onPointerCancel={onPointerEnd}
+            onContextMenu={(e) => e.preventDefault()}
+            style={{ ...(busy ? { opacity: 0.5 } : null), ...(transform ? { transform } : null) }}
           >
             <div className="board-card-body">
               <span className="board-card-title">{m.name}</span>
@@ -2350,6 +2458,7 @@ function ProvisionsApp() {
     removeMealFromList,
     placements,
     refreshPlacements,
+    reorderBoard,
     updateFullName,
     activeCycle,
     activeSession,
@@ -4219,7 +4328,12 @@ function ProvisionsApp() {
         .board-empty { height: 52px; padding: 0; display: flex; align-items: center; justify-content: center; background: transparent; border: 1.5px dashed #C9A97A;
                        font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; }
         .board-card { display: flex; align-items: center; gap: 8px; background: #fff; border-radius: 11px; padding: 9px 6px 9px 12px; box-shadow: 0 3px 10px rgba(44,26,14,0.13);
-                      cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+                      cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-y; position: relative;
+                      transition: transform .15s ease, box-shadow .15s ease; }
+        /* Lifted (mockup frame 4): amber hairline, deeper shadow, a touch larger. The lifted card
+           follows the pointer with no transition; the cards it passes slide out of its way. */
+        .board-card.lifted { z-index: 3; border: 1.5px solid #c8973a; padding: 7.5px 4.5px 7.5px 10.5px; box-shadow: 0 14px 26px rgba(44,26,14,0.3); transition: none; }
+        @media (prefers-reduced-motion: reduce) { .board-card { transition: none; } }
         .board-card + .board-card { margin-top: 8px; }
         .board-card-body { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
         .board-card-title { font-family: 'Playfair Display', serif; font-size: 0.92rem; font-weight: 700; color: #2C1A0E; line-height: 1.15; min-width: 0; }
@@ -5554,6 +5668,7 @@ function ProvisionsApp() {
               counts={plannedMealCounts}
               onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
               onRemove={handleRemoveFromBoard}
+              onReorder={reorderBoard}
               removingMealId={removingMealId}
             />
           <MealsLens
