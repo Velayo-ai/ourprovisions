@@ -1094,7 +1094,13 @@ const MEALS_ENABLED = true;
 // finger. Reduced-motion: drag still works; the slide transitions are off.
 const BOARD_PRESS_MS = 350;
 const BOARD_SLOP_PX = 8;
-function PlanBoard({ meals, counts, onOpen, onRemove, onReorder, removingMealId }) {
+// CARD STATE. `pending` is per-meal count of PENDING list rows. Zero means every
+// ingredient is bought: the card reads "Ready to cook" and offers no ×, because
+// removeMealFromList only ever zeroes pending rows and there are none — the
+// affordance would do nothing. The meal stays on the board (the stepper still
+// counts it; the board must match the stepper). Remove shows only while ≥1
+// pending row exists.
+function PlanBoard({ meals, counts, pending, onOpen, onRemove, onReorder, removingMealId }) {
   const [drag, setDrag] = useState(null);   // { id, from, to, dy, snapshot, slots }
   const pressRef = useRef(null);            // { id, index, pointerId, x, y, timer, el }
   const dragRef = useRef(null);             // mirrors drag for the pointer handlers
@@ -1175,6 +1181,7 @@ function PlanBoard({ meals, counts, onOpen, onRemove, onReorder, removingMealId 
       <div className="board-label" aria-hidden="true">This week</div>
       {list.map((m, i) => {
         const busy = removingMealId === m.id;
+        const ready = (pending?.[m.id] || 0) === 0;
         const lifted = drag && drag.id === m.id;
         let transform;
         if (drag) {
@@ -1189,7 +1196,7 @@ function PlanBoard({ meals, counts, onOpen, onRemove, onReorder, removingMealId 
         return (
           <div
             key={m.id}
-            className={`board-card${lifted ? " lifted" : ""}`}
+            className={`board-card${lifted ? " lifted" : ""}${ready ? " ready" : ""}`}
             role="button"
             tabIndex={0}
             onClick={() => { if (swallowClickRef.current) { swallowClickRef.current = false; return; } onOpen(m); }}
@@ -1204,14 +1211,17 @@ function PlanBoard({ meals, counts, onOpen, onRemove, onReorder, removingMealId 
             <div className="board-card-body">
               <span className="board-card-title">{m.name}</span>
               <span className="board-card-count">×{counts?.[m.id] || 0}</span>
+              {ready && <span className="board-card-ready">Ready to cook</span>}
             </div>
-            <button
-              type="button"
-              className="board-x"
-              aria-label={`Remove ${m.name} from this week`}
-              disabled={busy}
-              onClick={(e) => { e.stopPropagation(); if (!busy) onRemove(m.id); }}
-            >×</button>
+            {!ready && (
+              <button
+                type="button"
+                className="board-x"
+                aria-label={`Remove ${m.name} from this week`}
+                disabled={busy}
+                onClick={(e) => { e.stopPropagation(); if (!busy) onRemove(m.id); }}
+              >×</button>
+            )}
           </div>
         );
       })}
@@ -2568,6 +2578,17 @@ function ProvisionsApp() {
         return byCreated(a, b);
       });
   }, [meals, plannedMealCounts, placements]);
+
+  // Per-meal count of PENDING list rows, from the same provenance map as the
+  // count above — no new query. Zero for an active meal = every ingredient is
+  // bought = the card reads "Ready to cook" and offers no remove.
+  const mealPendingCounts = useMemo(() => {
+    const map = {};
+    Object.values(mealProvenance).flat().forEach((pr) => {
+      if (pr.status === "pending") map[pr.mealId] = (map[pr.mealId] || 0) + 1;
+    });
+    return map;
+  }, [mealProvenance]);
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
   const [editModalItem, setEditModalItem] = useState(null);
@@ -4338,6 +4359,10 @@ function ProvisionsApp() {
         .board-card-body { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
         .board-card-title { font-family: 'Playfair Display', serif; font-size: 0.92rem; font-weight: 700; color: #2C1A0E; line-height: 1.15; min-width: 0; }
         .board-card-count { flex: none; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; }
+        /* Ready to cook (mockup frame 2, .card-sub.ready): teal is the meal signal. No × on a ready card — nothing left to zero. */
+        .board-card-ready { flex: none; margin-left: auto; font-family: 'Lato', sans-serif; font-size: 0.64rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #0D9488; }
+        .board-card.ready { padding-right: 12px; }
+        .board-card.lifted.ready { padding-right: 10.5px; }
         .board-x { flex: none; width: 32px; height: 32px; border-radius: 50%; border: none; background: transparent; color: #C9A97A; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: 1.15rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
         .board-x:hover { color: #A0724A; }
@@ -5666,6 +5691,7 @@ function ProvisionsApp() {
             <PlanBoard
               meals={boardMeals}
               counts={plannedMealCounts}
+              pending={mealPendingCounts}
               onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
               onRemove={handleRemoveFromBoard}
               onReorder={reorderBoard}
