@@ -115,6 +115,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [partnerSession, setPartnerSession] = useState(null);
   const [storeSuggestions, setStoreSuggestions] = useState([]);
   const [checkedByMap, setCheckedByMap] = useState({});
+  // Plan board placements (SPEC_meal_planning_v1_board.md, migration 047):
+  // meal_id → sort_order for the active household. The board itself is
+  // DERIVED (a meal is on it iff active — plannedMealCounts in App.js); this
+  // only says where each active meal sits. Loaded and polled by App.js ONLY
+  // while Plan is visible, the same scoping as the meals poll, so an idle
+  // client queries nothing new. placementsRef mirrors the state for use inside
+  // callbacks; reorderPendingRef holds the poll off while a reorder write is
+  // in flight so a stale read cannot snap the optimistic order back (the
+  // 5→4→5 flicker family, one surface over).
+  const [placements, setPlacements] = useState({});
+  const placementsRef = useRef({});
+  const reorderPendingRef = useRef(0);
   const eventSeqRef = useRef(0);
   const sessionStartingRef = useRef(null);
   const boughtFingerprintRef = useRef("");
@@ -714,6 +726,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setStoreSuggestions([]);
       setCheckedByMap({});
       boughtFingerprintRef.current = "";
+      setPlacements({});
+      placementsRef.current = {};
 
       try {
         // Fetch the household record. Banner columns (migration 024) are read
@@ -2783,7 +2797,120 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [reportSuccess, failWith]);
 
-  const addMealToList = useCallback(async (mealId, servings = 1, includeOnHandIds = []) => {
+  // ─────────────────────────────────────────────────────────────
+  // Plan board placements (migration 047). Three pieces:
+  //
+  // loadPlacements / refreshPlacements — the household's rows as a
+  //   meal_id → sort_order map. Only sets state when the map actually changed,
+  //   so the 2s Plan poll does not re-render the board on every tick.
+  //   refreshPlacements is the polled entry point and skips while a reorder
+  //   write is in flight.
+  // appendPlacement — the add-path write: max+1 for the household, upserted so
+  //   a stale row (an inactive meal re-added weeks later) is OVERWRITTEN with
+  //   the new end-of-board position rather than reviving its old slot.
+  //   Non-fatal by design: the meal is on the list whether or not this row
+  //   lands, and a missing row just renders last.
+  // reorderBoard — renumber the board 0..n-1 in one upsert batch. Optimistic;
+  //   on failure the rows are reloaded and the board snaps back.
+  //
+  // No cleanup anywhere. Remove / delete / wrap-up never touch this table;
+  // rows for inactive meals are inert. There is no DELETE policy, so a client
+  // delete would match zero rows and raise nothing (041) — don't write one.
+  // ─────────────────────────────────────────────────────────────
+  async function loadPlacements(db, hh) {
+    const { data, error: err } = await db
+      .from("meal_placements")
+      .select("meal_id, sort_order")
+      .eq("household_id", hh.id);
+    if (err) { console.error("loadPlacements error:", err.message); return; }
+    const next = {};
+    (data || []).forEach((r) => { next[r.meal_id] = r.sort_order; });
+    const prev = placementsRef.current;
+    const prevKeys = Object.keys(prev);
+    const same = prevKeys.length === Object.keys(next).length
+      && prevKeys.every((k) => next[k] === prev[k]);
+    if (same) return;
+    placementsRef.current = next;
+    setPlacements(next);
+  }
+
+  const refreshPlacements = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return;
+    if (reorderPendingRef.current > 0) return;
+    await loadPlacements(db, hh);
+  // loadPlacements is a stable hook-scope function (uses refs).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function appendPlacement(db, hh, mealId) {
+    const { data: top, error: mErr } = await db
+      .from("meal_placements")
+      .select("sort_order")
+      .eq("household_id", hh.id)
+      .order("sort_order", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (mErr) throw mErr;
+    const sortOrder = (top?.sort_order ?? -1) + 1;
+    const { error: uErr } = await db
+      .from("meal_placements")
+      .upsert({
+        household_id: hh.id,
+        meal_id: mealId,
+        sort_order: sortOrder,
+        updated_at: new Date().toISOString(),
+        updated_by: internalUserIdRef.current,
+      }, { onConflict: "household_id,meal_id" });
+    if (uErr) throw uErr;
+    const next = { ...placementsRef.current, [mealId]: sortOrder };
+    placementsRef.current = next;
+    setPlacements(next);
+  }
+
+  const reorderBoard = useCallback(async (orderedMealIds) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !orderedMealIds?.length) return false;
+    const next = {};
+    orderedMealIds.forEach((id, i) => { next[id] = i; });
+    // Optimistic: the board re-sorts on this render. A meal that had no row
+    // (legacy data, a race) is in orderedMealIds too, so it gets one here.
+    placementsRef.current = next;
+    setPlacements(next);
+    reorderPendingRef.current += 1;
+    let ok = false;
+    try {
+      const now = new Date().toISOString();
+      const rows = orderedMealIds.map((id, i) => ({
+        household_id: hh.id,
+        meal_id: id,
+        sort_order: i,
+        updated_at: now,
+        updated_by: internalUserIdRef.current,
+      }));
+      const { error: err } = await db
+        .from("meal_placements")
+        .upsert(rows, { onConflict: "household_id,meal_id" });
+      if (err) throw err;
+      reportSuccess();
+      ok = true;
+    } catch (err) {
+      console.error("reorderBoard error:", err.message);
+    }
+    reorderPendingRef.current -= 1;
+    if (!ok) await loadPlacements(db, hh);
+    return ok;
+  // loadPlacements is a stable hook-scope function (uses refs).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportSuccess]);
+
+  // alreadyActive: the caller's knowledge (plannedMealCounts) of whether this
+  // meal is on the board right now. A second tap on an active meal's stepper
+  // bumps its count and must NOT move its card to the end — that is a servings
+  // change, not a re-add. An active meal with no row still gets one.
+  const addMealToList = useCallback(async (mealId, servings = 1, includeOnHandIds = [], { alreadyActive = false } = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return 0;
@@ -2799,6 +2926,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         p_include_on_hand_ids: includeOnHandIds || [],
       });
       if (err) throw err;
+      // The placement is written in the SAME action as the add so the card has
+      // a slot the moment it appears (047). Non-fatal: log, never toast.
+      if (!alreadyActive || placementsRef.current[mealId] == null) {
+        try { await appendPlacement(db, hh, mealId); }
+        catch (pErr) { console.warn("appendPlacement (non-fatal):", pErr.message); }
+      }
       // Re-sync the active cycle (the RPC may have opened one) + refresh the
       // list so quantities and provenance reflect immediately.
       await loadActiveCycle(db, hh.id);
@@ -2853,6 +2986,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
+    placements, refreshPlacements, reorderBoard,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
