@@ -1062,6 +1062,55 @@ function FlatHeader({ count, showCount = true }) {
 // 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
 const MEALS_ENABLED = true;
 
+// ── Plan board (SPEC_meal_planning_v1_board.md — v1, Board only) ──────────
+// The meals that are on the list this cycle, in the household's shared order.
+// `meals` arrives already derived and sorted (boardMeals in App): a meal is
+// here iff it is active, so a card leaves because the meal stopped being
+// active — never because a flag was cleared. The count is the same
+// plannedMealCounts number the library's stepper shows.
+//
+// ALWAYS PRESENT. Empty, it is a dashed strip with one line of copy, so the
+// page's shape is stable and a first Add lands somewhere visible rather than
+// making a section appear. Tap opens the meal; × calls removeMealFromList.
+// No lens toggle, no day columns, no "Any day" row — those are v2 and the
+// mockup of record draws them; this is the Board half only.
+function PlanBoard({ meals, counts, onOpen, onRemove, removingMealId }) {
+  if (meals.length === 0) {
+    return <div className="board board-empty">Nothing planned yet</div>;
+  }
+  return (
+    <div className="board">
+      <div className="board-label" aria-hidden="true">This week</div>
+      {meals.map((m) => {
+        const busy = removingMealId === m.id;
+        return (
+          <div
+            key={m.id}
+            className="board-card"
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen(m)}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(m); } }}
+            style={busy ? { opacity: 0.5 } : undefined}
+          >
+            <div className="board-card-body">
+              <span className="board-card-title">{m.name}</span>
+              <span className="board-card-count">×{counts?.[m.id] || 0}</span>
+            </div>
+            <button
+              type="button"
+              className="board-x"
+              aria-label={`Remove ${m.name} from this week`}
+              disabled={busy}
+              onClick={(e) => { e.stopPropagation(); if (!busy) onRemove(m.id); }}
+            >×</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onDecrement, decrementingMealId, isSignedIn }) {
   // Terminal ghost row — matches the "+ Create new place" convention (same
   // 1.5px dashed border, same terminal position). It renders in the EMPTY
@@ -2298,6 +2347,9 @@ function ProvisionsApp() {
     addMealToList,
     removeMealIngredients,
     fetchMealProvenance,
+    removeMealFromList,
+    placements,
+    refreshPlacements,
     updateFullName,
     activeCycle,
     activeSession,
@@ -2388,6 +2440,25 @@ function ProvisionsApp() {
     });
     return map;
   }, [mealProvenance]);
+
+  // The Plan board (SPEC_meal_planning_v1_board.md): the ACTIVE meals — read
+  // from the same plannedMealCounts the library's stepper shows, so the card's
+  // ×n and the stepper can never disagree, and no new query decides "active" —
+  // sorted by their 047 placement. A meal with no placement row (legacy data,
+  // a race) renders LAST in created_at order and gets a row on its next add or
+  // reorder; it is never an error.
+  const boardMeals = useMemo(() => {
+    const byCreated = (a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0);
+    return (meals || [])
+      .filter((m) => (plannedMealCounts[m.id] || 0) > 0)
+      .sort((a, b) => {
+        const pa = placements[a.id], pb = placements[b.id];
+        if (pa != null && pb != null) return (pa - pb) || byCreated(a, b);
+        if (pa != null) return -1;
+        if (pb != null) return 1;
+        return byCreated(a, b);
+      });
+  }, [meals, plannedMealCounts, placements]);
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
   const [editModalItem, setEditModalItem] = useState(null);
@@ -2411,11 +2482,17 @@ function ProvisionsApp() {
   };
 
   // ── Meals (add-path, migration 025) ──────────────────────────
+  // Placements ride along with both reads below. Both are Plan-only already
+  // (the navigation effect and the 2s poll are gated on view === "plan"), so
+  // the board's rows cost nothing on any other door.
   const loadMeals = useCallback(async () => {
     setMealsLoading(true);
-    try { setMeals(await fetchMeals()); }
+    try {
+      const [ms] = await Promise.all([fetchMeals(), refreshPlacements()]);
+      setMeals(ms);
+    }
     finally { setMealsLoading(false); }
-  }, [fetchMeals]);
+  }, [fetchMeals, refreshPlacements]);
 
   // Same read, but deliberately NEVER touches mealsLoading. MealsLens renders
   // "Loading meals…" whenever loading is true AND the list is empty, so a
@@ -2423,8 +2500,9 @@ function ProvisionsApp() {
   // household that hasn't made its first meal yet. The navigation load above
   // keeps the spinner; the poll stays invisible.
   const refreshMeals = useCallback(async () => {
-    setMeals(await fetchMeals());
-  }, [fetchMeals]);
+    const [ms] = await Promise.all([fetchMeals(), refreshPlacements()]);
+    setMeals(ms);
+  }, [fetchMeals, refreshPlacements]);
 
   // Provenance powers the SHOP provenance line's teal meal facet, so it's
   // needed on the list surface too — not only the Meals lens. Cheap read; the
@@ -2484,6 +2562,21 @@ function ProvisionsApp() {
     }
   }, [household?.id, view, refreshProvenance]);
 
+  // Board card ×. The existing removeMealFromList (08-20 backend): zeroes only
+  // this meal's pending share, never un-buys, leaves shared ingredients to the
+  // extent another meal needs them. The card leaves because the meal is no
+  // longer active — the provenance refresh is what makes that visible.
+  const [removingMealId, setRemovingMealId] = useState(null);
+  const handleRemoveFromBoard = useCallback(async (mealId) => {
+    setRemovingMealId(mealId);
+    try {
+      await removeMealFromList(mealId);
+      await refreshProvenance();
+    } finally {
+      setRemovingMealId(null);
+    }
+  }, [removeMealFromList, refreshProvenance]);
+
   const [decrementingMealId, setDecrementingMealId] = useState(null);
   const handleDecrementMeal = useCallback(async (mealId) => {
     setDecrementingMealId(mealId);
@@ -2509,7 +2602,9 @@ function ProvisionsApp() {
     if (onHand.length === 0) {
       setAddingMealId(mealId);
       try {
-        await addMealToList(mealId, 1);   // flat: servings = 1 (dial deferred)
+        // flat: servings = 1 (dial deferred). alreadyActive: a stepper "+" on a
+        // meal already on the board bumps its count and must not move its card.
+        await addMealToList(mealId, 1, [], { alreadyActive: (plannedMealCounts[mealId] || 0) > 0 });
         await refreshProvenance();        // reflect the badge immediately
       } finally {
         setAddingMealId(null);
@@ -2529,7 +2624,7 @@ function ProvisionsApp() {
       })),
       choices: Object.fromEntries(onHand.map((mi) => [mi.catalog_item_id, "skip"])),
     });
-  }, [meals, addMealToList, refreshProvenance]);
+  }, [meals, addMealToList, refreshProvenance, plannedMealCounts]);
 
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
@@ -2805,7 +2900,7 @@ function ProvisionsApp() {
       // already be gone before the add runs, or it would be evaluated as on-hand
       // and could still be included by a stale id in the include list.
       if (removeIds.length > 0) await removeMealIngredients(mealId, removeIds);
-      const count = await addMealToList(mealId, 1, includeIds);
+      const count = await addMealToList(mealId, 1, includeIds, { alreadyActive: (plannedMealCounts[mealId] || 0) > 0 });
       await refreshProvenance();
       // A removal changes the recipe itself, so PLAN's count is now stale.
       if (removeIds.length > 0) await loadMeals();
@@ -2816,7 +2911,7 @@ function ProvisionsApp() {
     } finally {
       setAddingMealId(null);
     }
-  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast]);
+  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast, plannedMealCounts]);
 
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
@@ -4118,6 +4213,21 @@ function ProvisionsApp() {
         .helm-label { line-height: 1; white-space: nowrap; transition: opacity .2s ease; }
         .helm-badge { position: absolute; top: 1px; left: calc(50% + 5px); margin: 0; font-size: 0.58rem; padding: 0 4px; line-height: 15px; }
         .control-row-end { height: 0; margin: 0; padding: 0; }
+        /* ── Plan board (SPEC_meal_planning_v1_board.md v1; mockup_plan_single_surface.html frame 2 is the visual authority, minus the lens) ── */
+        .board { position: relative; background: #F3E9D8; border-radius: 14px; padding: 30px 10px 10px; margin-bottom: 18px; }
+        .board-label { position: absolute; top: 10px; left: 14px; font-family: 'Lato', sans-serif; font-size: 0.66rem; letter-spacing: 1.5px; text-transform: uppercase; color: #A0724A; }
+        .board-empty { height: 52px; padding: 0; display: flex; align-items: center; justify-content: center; background: transparent; border: 1.5px dashed #C9A97A;
+                       font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; }
+        .board-card { display: flex; align-items: center; gap: 8px; background: #fff; border-radius: 11px; padding: 9px 6px 9px 12px; box-shadow: 0 3px 10px rgba(44,26,14,0.13);
+                      cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+        .board-card + .board-card { margin-top: 8px; }
+        .board-card-body { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+        .board-card-title { font-family: 'Playfair Display', serif; font-size: 0.92rem; font-weight: 700; color: #2C1A0E; line-height: 1.15; min-width: 0; }
+        .board-card-count { flex: none; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; }
+        .board-x { flex: none; width: 32px; height: 32px; border-radius: 50%; border: none; background: transparent; color: #C9A97A; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: 1.15rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
+        .board-x:hover { color: #A0724A; }
+        .board-x:disabled { cursor: default; }
         /* Compact (D9′): icons only, pulled in from the sides; labels stay in the DOM at font-size 0. */
         .helm.compact .helm-door { gap: 0; }
         .helm.compact .helm-label { font-size: 0; opacity: 0; }
@@ -5427,10 +5537,25 @@ function ProvisionsApp() {
 
         {view === "plan" && (
           <>
-            {/* D9′ — Plan's control row. The single-surface Plan lens row is not
-                built yet (mockup only); until it is, this sentinel at the top of the
-                Plan content is the edge. When the lens row lands, move the ref onto it. */}
-            <div ref={controlRowRef} className="control-row-end" aria-hidden="true" />
+            {/* Plan's control row — [n this week] [+], Shop's grammar with the lens
+                slot EMPTY. v2 drops [Board | Days] into that slot without relayout.
+                This row is the D9′ sentinel: the pill compacts exactly when it
+                leaves the viewport, like Shop's. The + is the pill's + — New meal —
+                and, like the pill's, exists only signed in (creating a meal is an
+                identity-requiring write; the library's terminal row says why). */}
+            <div className="list-header" ref={controlRowRef}>
+              <span className="list-progress" style={{ flex: 1 }}>{boardMeals.length} this week</span>
+              {MEALS_ENABLED && isSignedIn && (
+                <button type="button" className="hdr-plus" aria-label="New meal" onClick={() => setMealSheet({ mode: "create", meal: null })}>+</button>
+              )}
+            </div>
+            <PlanBoard
+              meals={boardMeals}
+              counts={plannedMealCounts}
+              onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
+              onRemove={handleRemoveFromBoard}
+              removingMealId={removingMealId}
+            />
           <MealsLens
             meals={meals}
             loading={mealsLoading}
