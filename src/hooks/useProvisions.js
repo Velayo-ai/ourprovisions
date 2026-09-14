@@ -2829,6 +2829,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   //   never by side effect: wrap-up, decrements and other meals' adds never
   //   close a placement. skipMeal on a to-buy card zeroes the meal's pending
   //   rows first (removeMealFromList, as built) and then closes.
+  // planMeal — PLAN WITHOUT ADDING (SPEC_meal_planning_v1_board_planned.md):
+  //   an open placement at max+1 and nothing else. Planning and shopping are
+  //   separate acts; the board's object says a meal is planned in this period
+  //   and never drives the list on its own. A meal already open is a no-op.
+  // lockIn / lockInAll — the reverse: put a planned card's groceries on the
+  //   list through the existing add path (an open row keeps its slot). lockInAll
+  //   runs lockIn over the ids it is given, in that order, and reports the
+  //   count for ONE toast — never one per meal.
   // upNext — the head of the open queue, for Home.
   //
   // Rows close, they don't die: there is no DELETE policy, so a client delete
@@ -2939,6 +2947,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess, removeMealFromList]);
 
+  const planMeal = useCallback(async (mealId) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId) return false;
+    const cur = placementsRef.current[mealId];
+    if (cur && !cur.cookedAt && !cur.skippedAt) return true;   // already on the board
+    try { await appendPlacement(db, hh, mealId); reportSuccess(); return true; }
+    catch (err) { console.error("planMeal error:", err.message); setError(`Could not plan meal: ${err.message}`); return false; }
+  // appendPlacement is a stable hook-scope function (uses refs).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportSuccess]);
+
   // The head of the open queue — what Home shows as "Up next" (never
   // "Tonight": that is earned in Days v2 when planned_for = today).
   const upNext = useMemo(() => {
@@ -3033,6 +3053,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportTransientFailure, reportSuccess]);
 
+  // lockIn is the add path; the placement decision inside addMealToList keeps
+  // an open card's slot. Exposed by name so the board's button and the
+  // library's Add read as the same act.
+  const lockIn = useCallback(async (mealId) => addMealToList(mealId, 1), [addMealToList]);
+
+  const lockInAll = useCallback(async (mealIds) => {
+    let n = 0;
+    for (const id of mealIds || []) {
+      const count = await addMealToList(id, 1);
+      if (count > 0) n += 1;
+    }
+    return n;
+  }, [addMealToList]);
+
   const fetchMealProvenance = useCallback(async () => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -3073,7 +3107,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
-    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext,
+    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
