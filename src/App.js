@@ -1107,7 +1107,15 @@ const BOARD_SLOP_PX = 8;
 // × on every card = skip. On a to-buy card it zeroes the meal's pending rows
 // first (removeMealFromList); on a Ready card it only closes the placement.
 // Nothing else ever removes a card.
-function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, onReorder, busyMealId }) {
+// PLANNED (amendment 3, SPEC_meal_planning_v1_board_planned.md): an open
+// placement with no live list rows and no ready_at. The card reads "Not on the
+// list yet" and offers Lock in (the add path, keeps its slot), Cooked it (a
+// no-shop meal — freezer pizza — needs no type) and ×. A locked card whose
+// stepper is stepped back to zero returns here: "changed my mind about
+// shopping" and "changed my mind about cooking" are different gestures.
+// "Lock in all" sits in the board header while ≥1 card is Planned. The ×n
+// add-count is a list fact and is hidden at zero.
+function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, onLockIn, onLockInAll, lockingAll, onReorder, busyMealId }) {
   const [drag, setDrag] = useState(null);   // { id, from, to, dy, snapshot, slots }
   const pressRef = useRef(null);            // { id, index, pointerId, x, y, timer, el }
   const dragRef = useRef(null);             // mirrors drag for the pointer handlers
@@ -1140,7 +1148,7 @@ function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, 
 
   const onPointerDown = (e, m, index) => {
     if (e.button != null && e.button !== 0) return;
-    if (e.target.closest(".board-x, .board-cook")) return;
+    if (e.target.closest(".board-x, .board-cook, .board-lock, .board-lock-all")) return;
     if (meals.length < 2) return;             // nothing to reorder
     clearPress();
     const pr = { id: m.id, index, pointerId: e.pointerId, x: e.clientX, y: e.clientY, el: e.currentTarget, timer: null };
@@ -1183,17 +1191,25 @@ function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, 
   }
   const list = drag ? drag.snapshot : meals;
   const gap = 8;
+  const plannedCount = list.filter((m) => !placements?.[m.id]?.readyAt && (rows?.[m.id]?.total || 0) === 0).length;
   return (
     <div className="board">
       <div className="board-label" aria-hidden="true">This week</div>
+      {plannedCount > 0 && (
+        <button type="button" className="board-lock-all" disabled={lockingAll} onClick={onLockInAll}>
+          {lockingAll ? "Locking in…" : `Lock in all${plannedCount > 1 ? ` (${plannedCount})` : ""}`}
+        </button>
+      )}
       {list.map((m, i) => {
         const busy = busyMealId === m.id;
         const ready = !!placements?.[m.id]?.readyAt;
         const rc = rows?.[m.id] || { total: 0, bought: 0 };
+        const planned = !ready && rc.total === 0;
         const state = ready ? "Ready"
-          : rc.total === 0 ? "Not on the list"
+          : planned ? "Not on the list yet"
           : rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart`
           : `${rc.total} to buy`;
+        const addCount = counts?.[m.id] || 0;
         const lifted = drag && drag.id === m.id;
         let transform;
         if (drag) {
@@ -1222,10 +1238,18 @@ function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, 
           >
             <div className="board-card-body">
               <span className="board-card-title">{m.name}</span>
-              <span className="board-card-count">×{counts?.[m.id] || 0}</span>
-              <span className={`board-card-state${ready ? " ready" : ""}`}>{state}</span>
+              {addCount > 0 && <span className="board-card-count">×{addCount}</span>}
+              <span className={`board-card-state${ready ? " ready" : ""}${planned ? " planned" : ""}`}>{state}</span>
             </div>
-            {ready && (
+            {planned && (
+              <button
+                type="button"
+                className="board-lock"
+                disabled={busy}
+                onClick={(e) => { e.stopPropagation(); if (!busy) onLockIn(m.id); }}
+              >Lock in</button>
+            )}
+            {(ready || planned) && (
               <button
                 type="button"
                 className="board-cook"
@@ -1247,7 +1271,7 @@ function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, 
   );
 }
 
-function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onDecrement, decrementingMealId, isSignedIn }) {
+function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onDecrement, decrementingMealId, isSignedIn, onPlan, onBoardIds }) {
   // Terminal ghost row — matches the "+ Create new place" convention (same
   // 1.5px dashed border, same terminal position). It renders in the EMPTY
   // state too, deliberately: it is the only entry point to meal creation, so
@@ -1370,6 +1394,18 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
                 The stepper's mere presence IS the planned signal, which is why
                 the separate teal "Planned" label is gone; the teal border
                 still carries it on the card as a whole. */}
+            {/* Plan — the plan-first path (amendment 3): an open placement and
+                nothing else. A secondary text affordance beside Add, never a
+                second primary; hidden once the meal is on the board by either
+                route. Signed-out it is absent like the create row's control. */}
+            {addCount === 0 && isSignedIn && onPlan && !onBoardIds?.has(m.id) && count > 0 && (
+              <button
+                type="button"
+                className="meal-plan-btn"
+                onClick={() => { if (!busy) onPlan(m.id); }}
+                disabled={busy}
+              >Plan</button>
+            )}
             {addCount === 0 ? (
               /* Inline carries only what .add-btn has no opinion on: layout,
                  the busy fade, and the zero-ingredient muted state. That muted
@@ -2488,6 +2524,8 @@ function ProvisionsApp() {
     reorderBoard,
     markCooked,
     skipMeal,
+    planMeal,
+    lockInAll,
     updateFullName,
     activeCycle,
     activeSession,
@@ -2727,6 +2765,13 @@ function ProvisionsApp() {
     try { await markCooked(mealId); }
     finally { setBusyMealId(null); }
   }, [markCooked]);
+
+  // Plan without adding: the placement only. Lock in: the SAME add handler the
+  // library uses (so a meal with on-hand ingredients gets the on-hand prompt
+  // here too). Lock in all: the hook's batch over the Planned cards in queue
+  // order, default quantity 1, on-hand skipped — one toast at the end.
+  const handlePlanMeal = useCallback(async (mealId) => { await planMeal(mealId); }, [planMeal]);
+  const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
 
   const [decrementingMealId, setDecrementingMealId] = useState(null);
   const handleDecrementMeal = useCallback(async (mealId) => {
@@ -3032,6 +3077,24 @@ function ProvisionsApp() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToastMessage(null), 2500);
   }, []);
+
+  // Lock in all: the hook's batch over the Planned cards in queue order — one
+  // toast at the end. Below showToast for the same reason as the confirm below.
+  const [lockingAll, setLockingAll] = useState(false);
+  const handleLockInAll = useCallback(async () => {
+    const ids = boardMeals
+      .filter((m) => !placements[m.id]?.readyAt && (mealRowCounts[m.id]?.total || 0) === 0)
+      .map((m) => m.id);
+    if (!ids.length) return;
+    setLockingAll(true);
+    try {
+      const n = await lockInAll(ids);
+      await refreshProvenance();
+      showToast(n === 1 ? "1 meal on the list" : `${n} meals on the list`);
+    } finally {
+      setLockingAll(false);
+    }
+  }, [boardMeals, placements, mealRowCounts, lockInAll, refreshProvenance, showToast]);
 
   // Defined here, below showToast, rather than beside handleAddMealToList where it
   // logically belongs: it needs showToast, and CI=true turns no-use-before-define
@@ -4387,6 +4450,18 @@ function ProvisionsApp() {
         .board-cook { flex: none; border: 1.5px solid #0D9488; background: transparent; color: #0D9488; border-radius: 14px; padding: 5px 10px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
         .board-cook:disabled { opacity: 0.5; cursor: default; }
+        /* Planned (amendment 3): the state reads muted-italic; Lock in is the clay outline (the library's Add family) — plan-first's primary. */
+        .board-card-state.planned { font-style: italic; text-transform: none; letter-spacing: 0; font-size: 0.72rem; font-weight: 400; }
+        .board-lock { flex: none; border: 1.5px solid #C9A97A; background: transparent; color: #A0724A; border-radius: 14px; padding: 5px 10px; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+        .board-lock:disabled { opacity: 0.5; cursor: default; }
+        .board-lock-all { position: absolute; top: 5px; right: 10px; border: none; background: transparent; color: #A0724A; cursor: pointer; padding: 4px 6px;
+                          font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
+        .board-lock-all:disabled { opacity: 0.5; cursor: default; }
+        /* Library "Plan": a small text button beside Add — secondary, never a second primary. */
+        .meal-plan-btn { flex: none; border: none; background: transparent; color: #A0724A; cursor: pointer; padding: 6px 8px; margin-right: -2px;
+                         font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px; text-decoration: underline dotted; text-underline-offset: 3px; }
+        .meal-plan-btn:disabled { opacity: 0.5; cursor: default; }
         .board-x { flex: none; width: 32px; height: 32px; border-radius: 50%; border: none; background: transparent; color: #C9A97A; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: 1.15rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
         .board-x:hover { color: #A0724A; }
@@ -5720,6 +5795,9 @@ function ProvisionsApp() {
               onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
               onSkip={handleSkipMeal}
               onCooked={handleCookedMeal}
+              onLockIn={handleAddMealToList}
+              onLockInAll={handleLockInAll}
+              lockingAll={lockingAll}
               onReorder={reorderBoard}
               busyMealId={busyMealId}
             />
@@ -5734,6 +5812,8 @@ function ProvisionsApp() {
             plannedMealCounts={plannedMealCounts}
             onDecrement={handleDecrementMeal}
             decrementingMealId={decrementingMealId}
+            onPlan={handlePlanMeal}
+            onBoardIds={onBoardIds}
           />
           </>
         )}
