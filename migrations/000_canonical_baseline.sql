@@ -503,14 +503,22 @@ $function$;
 -- archive_trip_items — archive bought + unkept-pending items,
 -- clear all contributor badges for the household.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.archive_trip_items(p_household_id uuid, p_keep_item_ids uuid[])
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.archive_trip_items(p_household_id uuid, p_keep_item_ids uuid[])
+returns void
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $function$
 declare
   v_item_id uuid;
 begin
+  if not is_member_of(p_household_id) then
+    raise exception 'archive_trip_items: not a member of household %', p_household_id using errcode = '42501';
+  end if;
+
   -- Archive all bought items
   update list_items
   set deleted_at = now()
@@ -544,11 +552,15 @@ $function$;
 -- close_cycle — snapshot + close a cycle, open a new one, and
 -- roll selected items forward (upsert + badge reset).
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.close_cycle(p_cycle_id uuid, p_roll_item_ids uuid[])
- RETURNS uuid
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.close_cycle(p_cycle_id uuid, p_roll_item_ids uuid[])
+returns uuid
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $function$
 declare
   v_household_id  uuid;
   v_new_cycle_id  uuid;
@@ -564,6 +576,10 @@ begin
     raise exception 'Cycle % not found', p_cycle_id;
   end if;
 
+  if not is_member_of(v_household_id) then
+    raise exception 'close_cycle: not a member of household %', v_household_id using errcode = '42501';
+  end if;
+
   update provision_cycles
   set
     closed_at      = now(),
@@ -573,6 +589,27 @@ begin
                       where cycle_id = p_cycle_id and deleted_at is null),
     updated_at     = now()
   where id = p_cycle_id;
+
+  -- 050: readiness is earned at Wrap up. Every OPEN placement of this
+  -- household whose meal has no pending row left (bought rows are archived
+  -- by now with status 'bought'; a cleared row is archived still 'pending'
+  -- and blocks; a rolling row is live 'pending' and blocks) is stamped
+  -- ready_at once. Already-ready placements are left alone.
+  update meal_placements mp
+     set ready_at   = now(),
+         updated_at = now()
+   where mp.household_id = v_household_id
+     and mp.cooked_at  is null
+     and mp.skipped_at is null
+     and mp.ready_at   is null
+     and not exists (
+       select 1
+         from list_item_meals lim
+         join list_items li on li.id = lim.list_item_id
+        where lim.meal_id = mp.meal_id
+          and li.household_id = v_household_id
+          and li.status = 'pending'
+     );
 
   if array_length(p_roll_item_ids, 1) is null
      or array_length(p_roll_item_ids, 1) = 0 then
@@ -630,16 +667,23 @@ $function$;
 -- delete_custom_catalog_item — hard-delete a custom catalog
 -- item household-wide, cascading references first.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.delete_custom_catalog_item(p_household_id uuid, p_catalog_item_id uuid)
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.delete_custom_catalog_item(p_household_id uuid, p_catalog_item_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
 DECLARE
   v_is_global boolean;
   v_household uuid;
 BEGIN
+  IF NOT is_member_of(p_household_id) THEN
+    RAISE EXCEPTION 'delete_custom_catalog_item: not a member of household %', p_household_id USING ERRCODE = '42501';
+  END IF;
+
   SELECT is_global, household_id
     INTO v_is_global, v_household
     FROM catalog_items
@@ -685,16 +729,29 @@ $function$;
 -- ------------------------------------------------------------
 -- get_active_cycle — the open cycle for a household, if any.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.get_active_cycle(p_household_id uuid)
- RETURNS provision_cycles
- LANGUAGE sql
- STABLE SECURITY DEFINER
-AS $function$
-  select * from provision_cycles
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.get_active_cycle(p_household_id uuid)
+returns provision_cycles
+language plpgsql
+stable security definer
+set search_path to 'public', 'extensions'
+as $function$
+declare
+  v_row provision_cycles%rowtype;
+begin
+  if not is_member_of(p_household_id) then
+    raise exception 'get_active_cycle: not a member of household %', p_household_id using errcode = '42501';
+  end if;
+
+  select * into v_row from provision_cycles
   where household_id = p_household_id
     and closed_at is null
   order by started_at desc
   limit 1;
+  return v_row;
+end;
 $function$;
 
 -- ------------------------------------------------------------
@@ -769,12 +826,22 @@ $function$;
 -- ------------------------------------------------------------
 -- get_household_member_profiles — member profiles for a household.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.get_household_member_profiles(p_household_id uuid)
- RETURNS TABLE(user_id uuid, clerk_id text, full_name text, email text)
- LANGUAGE sql
- SECURITY DEFINER
- SET search_path TO 'public', 'extensions'
-AS $function$
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.get_household_member_profiles(p_household_id uuid)
+returns table(user_id uuid, clerk_id text, full_name text, email text)
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $function$
+#variable_conflict use_column
+begin
+  if not is_member_of(p_household_id) then
+    raise exception 'get_household_member_profiles: not a member of household %', p_household_id using errcode = '42501';
+  end if;
+
+  return query
   select
     u.id as user_id,
     u.clerk_id,
@@ -784,19 +851,31 @@ AS $function$
   join users u on u.id = hm.user_id
   where hm.household_id = p_household_id
   and hm.deleted_at is null;
+end;
 $function$;
 
 -- ------------------------------------------------------------
 -- get_household_user_ids — user ids in a household.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.get_household_user_ids(p_household_id uuid)
- RETURNS SETOF uuid
- LANGUAGE sql
- SECURITY DEFINER
-AS $function$
-  select user_id from household_members
-  where household_id = p_household_id
-  and deleted_at is null;
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.get_household_user_ids(p_household_id uuid)
+returns setof uuid
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $function$
+begin
+  if not is_member_of(p_household_id) then
+    raise exception 'get_household_user_ids: not a member of household %', p_household_id using errcode = '42501';
+  end if;
+
+  return query
+  select hm.user_id from household_members hm
+  where hm.household_id = p_household_id
+  and hm.deleted_at is null;
+end;
 $function$;
 
 -- ------------------------------------------------------------
@@ -804,22 +883,38 @@ $function$;
 -- name/category/is_staple inline via JOIN, bypassing RLS so a
 -- separate catalog resolver round-trip isn't needed.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.get_list_items_for_household(p_household_id uuid)
- RETURNS TABLE(id uuid, catalog_item_id uuid, quantity integer, price_per_unit numeric, status text, added_by uuid, name text, category text, is_staple boolean)
- LANGUAGE sql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.get_list_items_for_household(p_household_id uuid)
+returns table(id uuid, catalog_item_id uuid, quantity integer, price_per_unit numeric, status text, added_by uuid, name text, category text, is_staple boolean)
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+#variable_conflict use_column
+begin
+  if not is_member_of(p_household_id) then
+    raise exception 'get_list_items_for_household: not a member of household %', p_household_id using errcode = '42501';
+  end if;
+
+  return query
   select
     li.id, li.catalog_item_id, li.quantity, li.price_per_unit,
     li.status, li.added_by,
-    ci.name, ci.category, ci.is_staple
+    ci.name, ci.category,
+    exists (
+      select 1 from household_staples hs
+      where hs.household_id = p_household_id
+        and hs.catalog_item_id = ci.id
+    ) as is_staple
   from list_items li
   join catalog_items ci on ci.id = li.catalog_item_id
   where li.household_id = p_household_id
     and li.deleted_at is null
     and li.status in ('pending','bought')
-    and ci.deleted_at is null
+    and ci.deleted_at is null;
+end;
 $function$;
 
 -- ------------------------------------------------------------
@@ -837,35 +932,118 @@ $function$;
 -- ------------------------------------------------------------
 -- insert_custom_catalog_item — create a household-custom item.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.insert_custom_catalog_item(p_name text, p_category text, p_household_id uuid, p_created_by uuid)
- RETURNS uuid
- LANGUAGE sql
- SECURITY DEFINER
- SET search_path TO 'public', 'extensions'
-AS $function$
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.insert_custom_catalog_item(p_name text, p_category text, p_household_id uuid, p_created_by uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $function$
+DECLARE
+  existing_id uuid;
+  norm        text;
+  v_caller    uuid;
+BEGIN
+  IF NOT is_member_of(p_household_id) THEN
+    RAISE EXCEPTION 'insert_custom_catalog_item: not a member of household %', p_household_id USING ERRCODE = '42501';
+  END IF;
+  -- 051: the creator is the caller. p_created_by stays in the signature (037)
+  -- and is ignored.
+  v_caller := get_current_user_id();
+
+  norm := lower(trim(regexp_replace(p_name, '\s+', ' ', 'g')));
+
+  -- Reuse a live row whose NORMALIZED name matches, in scope
+  -- (a global item, OR a custom item owned by THIS household).
+  -- Prefer the global row; otherwise the oldest custom row.
+  SELECT id INTO existing_id
+  FROM catalog_items
+  WHERE lower(trim(regexp_replace(name, '\s+', ' ', 'g'))) = norm
+    AND deleted_at IS NULL
+    AND (is_global = true OR household_id = p_household_id)
+  ORDER BY is_global DESC, created_at ASC
+  LIMIT 1;
+
+  IF existing_id IS NOT NULL THEN
+    RETURN existing_id;
+  END IF;
+
+  -- No match: mint a new custom row, storing the ORIGINAL casing.
   INSERT INTO catalog_items (name, category, is_global, household_id, created_by)
-  VALUES (p_name, p_category, false, p_household_id, p_created_by)
-  RETURNING id;
+  VALUES (p_name, p_category, false, p_household_id, v_caller)
+  RETURNING id INTO existing_id;
+
+  RETURN existing_id;
+END;
 $function$;
 
 -- ------------------------------------------------------------
 -- insert_list_item — add a row to the living list.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.insert_list_item(p_household_id uuid, p_catalog_item_id uuid, p_quantity integer, p_status text, p_added_by uuid, p_cycle_id uuid DEFAULT NULL::uuid, p_price_per_unit numeric DEFAULT NULL::numeric)
- RETURNS uuid
- LANGUAGE sql
- SECURITY DEFINER
- SET search_path TO 'public', 'extensions'
-AS $function$
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.insert_list_item(p_household_id uuid, p_catalog_item_id uuid, p_quantity integer, p_status text, p_added_by uuid, p_cycle_id uuid default null::uuid, p_price_per_unit numeric default null::numeric)
+returns uuid
+language plpgsql
+security definer
+set search_path to 'public', 'extensions'
+as $function$
+DECLARE
+  v_cycle_id uuid;
+  v_id       uuid;
+  v_caller   uuid;
+BEGIN
+  IF NOT is_member_of(p_household_id) THEN
+    RAISE EXCEPTION 'insert_list_item: not a member of household %', p_household_id USING ERRCODE = '42501';
+  END IF;
+  -- 051: added_by is the caller. p_added_by stays in the signature (037) and
+  -- is ignored.
+  v_caller := get_current_user_id();
+
+  -- Serialize per-household so two concurrent adds can't open two cycles.
+  PERFORM pg_advisory_xact_lock(hashtext(p_household_id::text));
+
+  -- Resolve the open cycle server-side (p_cycle_id = hint only).
+  IF p_cycle_id IS NOT NULL THEN
+    SELECT id INTO v_cycle_id FROM provision_cycles
+      WHERE id = p_cycle_id AND household_id = p_household_id
+        AND closed_at IS NULL AND deleted_at IS NULL;
+  END IF;
+  IF v_cycle_id IS NULL THEN
+    SELECT id INTO v_cycle_id FROM provision_cycles
+      WHERE household_id = p_household_id
+        AND closed_at IS NULL AND deleted_at IS NULL
+      ORDER BY started_at DESC LIMIT 1;
+  END IF;
+  IF v_cycle_id IS NULL THEN
+    INSERT INTO provision_cycles (household_id, cycle_type, created_by)
+      VALUES (p_household_id, 'planned', v_caller)
+      RETURNING id INTO v_cycle_id;
+  END IF;
+
   INSERT INTO list_items (
     household_id, catalog_item_id, quantity, status,
     added_by, cycle_id, price_per_unit
   )
   VALUES (
     p_household_id, p_catalog_item_id, p_quantity, p_status,
-    p_added_by, p_cycle_id, p_price_per_unit
+    v_caller, v_cycle_id, p_price_per_unit
   )
-  RETURNING id;
+  ON CONFLICT (household_id, catalog_item_id)
+  DO UPDATE SET
+    quantity       = EXCLUDED.quantity,
+    status         = 'pending',
+    deleted_at     = NULL,
+    cycle_id       = v_cycle_id,
+    price_per_unit = COALESCE(EXCLUDED.price_per_unit, list_items.price_per_unit),
+    updated_at     = now()
+  RETURNING id INTO v_id;
+
+  RETURN v_id;
+END;
 $function$;
 
 -- ------------------------------------------------------------
@@ -873,12 +1051,23 @@ $function$;
 -- (bounding-box pre-filter + Haversine sort). Radius check is
 -- enforced app-side after this returns.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.match_known_store(p_household_id uuid, p_lat double precision, p_lng double precision)
- RETURNS uuid
- LANGUAGE sql
- STABLE SECURITY DEFINER
-AS $function$
-  select id
+-- 051 (2026-09-14): guarded body — is_member_of first, 42501 on failure. Verbatim from
+-- 051_secdef_household_authorization.sql; is_member_of itself arrives at 003 and this
+-- body is plpgsql (late-bound), so a clean rebuild still creates it here.
+create or replace function public.match_known_store(p_household_id uuid, p_lat double precision, p_lng double precision)
+returns uuid
+language plpgsql
+stable security definer
+set search_path to 'public', 'extensions'
+as $function$
+declare
+  v_id uuid;
+begin
+  if not is_member_of(p_household_id) then
+    raise exception 'match_known_store: not a member of household %', p_household_id using errcode = '42501';
+  end if;
+
+  select id into v_id
   from known_stores
   where household_id = p_household_id
     and deleted_at is null
@@ -890,6 +1079,8 @@ AS $function$
       power((lng - p_lng) * 111320 * cos(radians(p_lat)), 2)
     ) asc
   limit 1;
+  return v_id;
+end;
 $function$;
 
 -- ------------------------------------------------------------
@@ -1257,3 +1448,40 @@ insert into catalog_items (name, category, unit, is_global) values
 -- ============================================================
 -- END OF CANONICAL BASELINE
 -- ============================================================
+
+
+-- ======================================================================
+-- 051 (2026-09-14): SECURITY DEFINER household RPCs — EXECUTE to authenticated
+-- only. Revoked from PUBLIC, anon and service_role by name (revoking PUBLIC alone
+-- leaves explicit role grants in place). The four JWT-checking functions named
+-- here (remove_list_item, remove_member, leave_household, delete_household) are
+-- created by later migrations; the loop is safe to re-run once they exist.
+-- ======================================================================
+do $acl$
+declare
+  f text;
+begin
+  foreach f in array array[
+    'public.archive_trip_items(uuid, uuid[])',
+    'public.close_cycle(uuid, uuid[])',
+    'public.delete_custom_catalog_item(uuid, uuid)',
+    'public.get_active_cycle(uuid)',
+    'public.get_household_member_profiles(uuid)',
+    'public.get_household_user_ids(uuid)',
+    'public.get_list_items_for_household(uuid)',
+    'public.insert_custom_catalog_item(text, text, uuid, uuid)',
+    'public.insert_list_item(uuid, uuid, integer, text, uuid, uuid, numeric)',
+    'public.match_known_store(uuid, double precision, double precision)',
+    'public.create_household(text, text)',
+    'public.remove_list_item(uuid, uuid)',
+    'public.remove_member(uuid, uuid)',
+    'public.leave_household(uuid)',
+    'public.delete_household(uuid)'
+  ] loop
+    execute format('revoke all on function %s from public', f);
+    execute format('revoke all on function %s from anon', f);
+    execute format('revoke all on function %s from service_role', f);
+    execute format('grant execute on function %s to authenticated', f);
+  end loop;
+end
+$acl$;
