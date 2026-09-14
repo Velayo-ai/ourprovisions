@@ -1,5 +1,5 @@
 // src/hooks/useProvisions.js
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError } from "../lib/classifyFetchError";
 import { useConnectivity } from "../contexts/ConnectivityContext";
@@ -115,10 +115,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [partnerSession, setPartnerSession] = useState(null);
   const [storeSuggestions, setStoreSuggestions] = useState([]);
   const [checkedByMap, setCheckedByMap] = useState({});
-  // Plan board placements (SPEC_meal_planning_v1_board.md, migration 047):
-  // meal_id → sort_order for the active household. The board itself is
-  // DERIVED (a meal is on it iff active — plannedMealCounts in App.js); this
-  // only says where each active meal sits. Loaded and polled by App.js ONLY
+  // Plan board placements (047, amended by 050 — SPEC_meal_planning_v1_board_queue.md):
+  // meal_id → { sortOrder, readyAt, cookedAt, skippedAt } for the active
+  // household. THE BOARD IS A QUEUE OF OPEN PLACEMENTS: a meal is on it iff
+  // cookedAt and skippedAt are both null, in sortOrder, position 0 up next.
+  // Membership comes from here, never from the list; the list only supplies
+  // each card's STATE (what is still to buy). Loaded and polled by App.js ONLY
   // while Plan is visible, the same scoping as the meals poll, so an idle
   // client queries nothing new. placementsRef mirrors the state for use inside
   // callbacks; reorderPendingRef holds the poll off while a reorder write is
@@ -2574,12 +2576,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .eq("household_id", hh.id) // belt-and-suspenders; RLS already scopes this
         .is("deleted_at", null);
       if (mErr) throw mErr;
+      // A deleted meal must not stay the ghost head of the queue (050): close
+      // its placement as skipped. Best-effort — the meal is gone regardless.
+      try {
+        const cur = placementsRef.current[mealId];
+        if (cur && !cur.cookedAt && !cur.skippedAt) await closePlacement(db, hh, mealId, "skipped_at");
+      } catch (pErr) { console.warn("deleteMeal placement close (non-fatal):", pErr.message); }
       return true;
     } catch (err) {
       console.error("deleteMeal error:", err.message);
       setError(`Could not delete meal: ${err.message}`);
       return false;
     }
+  // closePlacement is a stable hook-scope function (uses refs).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [removeMealFromList]);
 
   // findCatalogMatch: the existing-row short-circuit shared by the resolver and
@@ -2805,33 +2815,42 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   //   so the 2s Plan poll does not re-render the board on every tick.
   //   refreshPlacements is the polled entry point and skips while a reorder
   //   write is in flight.
-  // appendPlacement — the add-path write: max+1 for the household, upserted so
-  //   a stale row (an inactive meal re-added weeks later) is OVERWRITTEN with
-  //   the new end-of-board position rather than reviving its old slot.
-  //   Non-fatal by design: the meal is on the list whether or not this row
-  //   lands, and a missing row just renders last.
+  // appendPlacement — the add-path write for a meal with no row or a CLOSED
+  //   row: max+1 for the household, ready/cooked/skipped all cleared, upserted
+  //   so a closed placement (cooked or skipped weeks ago) REOPENS at the end
+  //   of the board rather than reviving its old slot. Non-fatal by design:
+  //   the meal is on the list whether or not this row lands.
+  // clearReady — an add on an OPEN card that is already Ready: the meal has
+  //   a new need again, so readiness clears; the slot is kept (a stepper bump
+  //   is a servings change, not a re-plan).
   // reorderBoard — renumber the board 0..n-1 in one upsert batch. Optimistic;
   //   on failure the rows are reloaded and the board snaps back.
+  // markCooked / skipMeal — THE TWO EXITS. A card leaves the board by a tap,
+  //   never by side effect: wrap-up, decrements and other meals' adds never
+  //   close a placement. skipMeal on a to-buy card zeroes the meal's pending
+  //   rows first (removeMealFromList, as built) and then closes.
+  // upNext — the head of the open queue, for Home.
   //
-  // No cleanup anywhere. Remove / delete / wrap-up never touch this table;
-  // rows for inactive meals are inert. There is no DELETE policy, so a client
-  // delete would match zero rows and raise nothing (041) — don't write one.
+  // Rows close, they don't die: there is no DELETE policy, so a client delete
+  // would match zero rows and raise nothing (041) — don't write one.
   // ─────────────────────────────────────────────────────────────
+  const rowToPlacement = (r) => ({ sortOrder: r.sort_order, readyAt: r.ready_at ?? null, cookedAt: r.cooked_at ?? null, skippedAt: r.skipped_at ?? null });
+  const samePlacement = (a, b) => !!a && !!b && a.sortOrder === b.sortOrder && a.readyAt === b.readyAt && a.cookedAt === b.cookedAt && a.skippedAt === b.skippedAt;
+  const setPlacementsBoth = (next) => { placementsRef.current = next; setPlacements(next); };
   async function loadPlacements(db, hh) {
     const { data, error: err } = await db
       .from("meal_placements")
-      .select("meal_id, sort_order")
+      .select("meal_id, sort_order, ready_at, cooked_at, skipped_at")
       .eq("household_id", hh.id);
     if (err) { console.error("loadPlacements error:", err.message); return; }
     const next = {};
-    (data || []).forEach((r) => { next[r.meal_id] = r.sort_order; });
+    (data || []).forEach((r) => { next[r.meal_id] = rowToPlacement(r); });
     const prev = placementsRef.current;
     const prevKeys = Object.keys(prev);
     const same = prevKeys.length === Object.keys(next).length
-      && prevKeys.every((k) => next[k] === prev[k]);
+      && prevKeys.every((k) => samePlacement(next[k], prev[k]));
     if (same) return;
-    placementsRef.current = next;
-    setPlacements(next);
+    setPlacementsBoth(next);
   }
 
   const refreshPlacements = useCallback(async () => {
@@ -2860,25 +2879,89 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         household_id: hh.id,
         meal_id: mealId,
         sort_order: sortOrder,
+        ready_at: null,
+        cooked_at: null,
+        skipped_at: null,
         updated_at: new Date().toISOString(),
         updated_by: internalUserIdRef.current,
       }, { onConflict: "household_id,meal_id" });
     if (uErr) throw uErr;
-    const next = { ...placementsRef.current, [mealId]: sortOrder };
-    placementsRef.current = next;
-    setPlacements(next);
+    setPlacementsBoth({ ...placementsRef.current, [mealId]: { sortOrder, readyAt: null, cookedAt: null, skippedAt: null } });
   }
+
+  async function clearReady(db, hh, mealId) {
+    const { error: err } = await db
+      .from("meal_placements")
+      .update({ ready_at: null, updated_at: new Date().toISOString(), updated_by: internalUserIdRef.current })
+      .eq("household_id", hh.id)
+      .eq("meal_id", mealId);
+    if (err) throw err;
+    const cur = placementsRef.current[mealId];
+    if (cur) setPlacementsBoth({ ...placementsRef.current, [mealId]: { ...cur, readyAt: null } });
+  }
+
+  // One-column close for the two exits. Optimistic: the card leaves on this
+  // render; on failure the rows are reloaded and it comes back.
+  async function closePlacement(db, hh, mealId, column) {
+    const prev = placementsRef.current;
+    const cur = prev[mealId];
+    const stamp = new Date().toISOString();
+    if (cur) setPlacementsBoth({ ...prev, [mealId]: { ...cur, [column === "cooked_at" ? "cookedAt" : "skippedAt"]: stamp } });
+    const { error: err } = await db
+      .from("meal_placements")
+      .update({ [column]: stamp, updated_at: stamp, updated_by: internalUserIdRef.current })
+      .eq("household_id", hh.id)
+      .eq("meal_id", mealId);
+    if (err) { await loadPlacements(db, hh); throw err; }
+  }
+
+  const markCooked = useCallback(async (mealId) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId) return false;
+    try { await closePlacement(db, hh, mealId, "cooked_at"); reportSuccess(); return true; }
+    catch (err) { console.error("markCooked error:", err.message); setError(`Could not mark cooked: ${err.message}`); return false; }
+  // closePlacement is a stable hook-scope function (uses refs).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportSuccess]);
+
+  // zeroList: the caller's knowledge that the card is to-buy (ready_at null).
+  // Zeroing first, closing second: if the list write fails the card stays and
+  // says so, rather than leaving a closed placement over live pending rows.
+  const skipMeal = useCallback(async (mealId, { zeroList = true } = {}) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId) return false;
+    if (zeroList) { const ok = await removeMealFromList(mealId); if (!ok) return false; }
+    try { await closePlacement(db, hh, mealId, "skipped_at"); reportSuccess(); return true; }
+    catch (err) { console.error("skipMeal error:", err.message); setError(`Could not skip meal: ${err.message}`); return false; }
+  // closePlacement is a stable hook-scope function (uses refs).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportSuccess, removeMealFromList]);
+
+  // The head of the open queue — what Home shows as "Up next" (never
+  // "Tonight": that is earned in Days v2 when planned_for = today).
+  const upNext = useMemo(() => {
+    let head = null;
+    Object.entries(placements).forEach(([mealId, p]) => {
+      if (p.cookedAt || p.skippedAt) return;
+      if (!head || p.sortOrder < head.sortOrder) head = { mealId, sortOrder: p.sortOrder, readyAt: p.readyAt };
+    });
+    return head;
+  }, [placements]);
 
   const reorderBoard = useCallback(async (orderedMealIds) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !orderedMealIds?.length) return false;
-    const next = {};
-    orderedMealIds.forEach((id, i) => { next[id] = i; });
+    const prev = placementsRef.current;
+    const next = { ...prev };
+    orderedMealIds.forEach((id, i) => { next[id] = { ...(prev[id] || { readyAt: null, cookedAt: null, skippedAt: null }), sortOrder: i }; });
     // Optimistic: the board re-sorts on this render. A meal that had no row
     // (legacy data, a race) is in orderedMealIds too, so it gets one here.
-    placementsRef.current = next;
-    setPlacements(next);
+    // Only sort_order is written: the upsert's conflict update touches the
+    // columns in the payload and leaves the queue timestamps alone.
+    setPlacementsBoth(next);
     reorderPendingRef.current += 1;
     let ok = false;
     try {
@@ -2906,11 +2989,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess]);
 
-  // alreadyActive: the caller's knowledge (plannedMealCounts) of whether this
-  // meal is on the board right now. A second tap on an active meal's stepper
-  // bumps its count and must NOT move its card to the end — that is a servings
-  // change, not a re-add. An active meal with no row still gets one.
-  const addMealToList = useCallback(async (mealId, servings = 1, includeOnHandIds = [], { alreadyActive = false } = {}) => {
+  // The placement decision on add (050): no row or a CLOSED row → reopen at the
+  // end of the board (appendPlacement); an OPEN row → keep its slot — a stepper
+  // bump is a servings change, not a re-plan — and if it was Ready, clear
+  // that, because the meal has a new need again.
+  const addMealToList = useCallback(async (mealId, servings = 1, includeOnHandIds = []) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return 0;
@@ -2928,10 +3011,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       if (err) throw err;
       // The placement is written in the SAME action as the add so the card has
       // a slot the moment it appears (047). Non-fatal: log, never toast.
-      if (!alreadyActive || placementsRef.current[mealId] == null) {
-        try { await appendPlacement(db, hh, mealId); }
-        catch (pErr) { console.warn("appendPlacement (non-fatal):", pErr.message); }
-      }
+      try {
+        const cur = placementsRef.current[mealId];
+        const open = !!cur && !cur.cookedAt && !cur.skippedAt;
+        if (!open) await appendPlacement(db, hh, mealId);
+        else if (cur.readyAt) await clearReady(db, hh, mealId);
+      } catch (pErr) { console.warn("placement on add (non-fatal):", pErr.message); }
       // Re-sync the active cycle (the RPC may have opened one) + refresh the
       // list so quantities and provenance reflect immediately.
       await loadActiveCycle(db, hh.id);
@@ -2988,7 +3073,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
-    placements, refreshPlacements, reorderBoard,
+    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
