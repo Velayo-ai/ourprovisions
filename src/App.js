@@ -1094,13 +1094,20 @@ const MEALS_ENABLED = true;
 // finger. Reduced-motion: drag still works; the slide transitions are off.
 const BOARD_PRESS_MS = 350;
 const BOARD_SLOP_PX = 8;
-// CARD STATE. `pending` is per-meal count of PENDING list rows. Zero means every
-// ingredient is bought: the card reads "Ready to cook" and offers no ×, because
-// removeMealFromList only ever zeroes pending rows and there are none — the
-// affordance would do nothing. The meal stays on the board (the stepper still
-// counts it; the board must match the stepper). Remove shows only while ≥1
-// pending row exists.
-function PlanBoard({ meals, counts, pending, onOpen, onRemove, onReorder, removingMealId }) {
+// CARD STATE (050 — SPEC_meal_planning_v1_board_queue.md). Membership comes
+// from placements (boardMeals in App); the list only supplies each card's
+// state, via `rows` = per-meal { total, bought } live list rows:
+//   Ready                   placement.readyAt set — earned at Wrap up, never at
+//                           an in-cart tap (cart is a store action, not a
+//                           kitchen fact). Offers "Cooked it".
+//   "2 of 4 in cart"        readyAt null, some rows bought
+//   "4 to buy"              readyAt null, nothing bought yet
+//   "Not on the list"       readyAt null, no live rows (cleared at wrap-up, or
+//                           stepped to zero) — the card stays; it leaves by a tap
+// × on every card = skip. On a to-buy card it zeroes the meal's pending rows
+// first (removeMealFromList); on a Ready card it only closes the placement.
+// Nothing else ever removes a card.
+function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, onReorder, busyMealId }) {
   const [drag, setDrag] = useState(null);   // { id, from, to, dy, snapshot, slots }
   const pressRef = useRef(null);            // { id, index, pointerId, x, y, timer, el }
   const dragRef = useRef(null);             // mirrors drag for the pointer handlers
@@ -1133,7 +1140,7 @@ function PlanBoard({ meals, counts, pending, onOpen, onRemove, onReorder, removi
 
   const onPointerDown = (e, m, index) => {
     if (e.button != null && e.button !== 0) return;
-    if (e.target.closest(".board-x")) return;
+    if (e.target.closest(".board-x, .board-cook")) return;
     if (meals.length < 2) return;             // nothing to reorder
     clearPress();
     const pr = { id: m.id, index, pointerId: e.pointerId, x: e.clientX, y: e.clientY, el: e.currentTarget, timer: null };
@@ -1180,8 +1187,13 @@ function PlanBoard({ meals, counts, pending, onOpen, onRemove, onReorder, removi
     <div className="board">
       <div className="board-label" aria-hidden="true">This week</div>
       {list.map((m, i) => {
-        const busy = removingMealId === m.id;
-        const ready = (pending?.[m.id] || 0) === 0;
+        const busy = busyMealId === m.id;
+        const ready = !!placements?.[m.id]?.readyAt;
+        const rc = rows?.[m.id] || { total: 0, bought: 0 };
+        const state = ready ? "Ready"
+          : rc.total === 0 ? "Not on the list"
+          : rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart`
+          : `${rc.total} to buy`;
         const lifted = drag && drag.id === m.id;
         let transform;
         if (drag) {
@@ -1211,17 +1223,23 @@ function PlanBoard({ meals, counts, pending, onOpen, onRemove, onReorder, removi
             <div className="board-card-body">
               <span className="board-card-title">{m.name}</span>
               <span className="board-card-count">×{counts?.[m.id] || 0}</span>
-              {ready && <span className="board-card-ready">Ready to cook</span>}
+              <span className={`board-card-state${ready ? " ready" : ""}`}>{state}</span>
             </div>
-            {!ready && (
+            {ready && (
               <button
                 type="button"
-                className="board-x"
-                aria-label={`Remove ${m.name} from this week`}
+                className="board-cook"
                 disabled={busy}
-                onClick={(e) => { e.stopPropagation(); if (!busy) onRemove(m.id); }}
-              >×</button>
+                onClick={(e) => { e.stopPropagation(); if (!busy) onCooked(m.id); }}
+              >Cooked it</button>
             )}
+            <button
+              type="button"
+              className="board-x"
+              aria-label={ready ? `Skip ${m.name}` : `Skip ${m.name} and take its items off the list`}
+              disabled={busy}
+              onClick={(e) => { e.stopPropagation(); if (!busy) onSkip(m.id, !ready); }}
+            >×</button>
           </div>
         );
       })}
@@ -2465,10 +2483,11 @@ function ProvisionsApp() {
     addMealToList,
     removeMealIngredients,
     fetchMealProvenance,
-    removeMealFromList,
     placements,
     refreshPlacements,
     reorderBoard,
+    markCooked,
+    skipMeal,
     updateFullName,
     activeCycle,
     activeSession,
@@ -2560,32 +2579,28 @@ function ProvisionsApp() {
     return map;
   }, [mealProvenance]);
 
-  // The Plan board (SPEC_meal_planning_v1_board.md): the ACTIVE meals — read
-  // from the same plannedMealCounts the library's stepper shows, so the card's
-  // ×n and the stepper can never disagree, and no new query decides "active" —
-  // sorted by their 047 placement. A meal with no placement row (legacy data,
-  // a race) renders LAST in created_at order and gets a row on its next add or
-  // reorder; it is never an error.
+  // The Plan board (050, SPEC_meal_planning_v1_board_queue.md): THE QUEUE OF
+  // OPEN PLACEMENTS — a meal is on the board iff its placement has neither
+  // cooked_at nor skipped_at, in sort_order (position 0 is up next). The list
+  // no longer decides membership: wrap-up, decrements and other meals' adds
+  // cannot remove a card. A soft-deleted meal is not in `meals`, so it cannot
+  // render even before its placement closes.
   const boardMeals = useMemo(() => {
     const byCreated = (a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0);
     return (meals || [])
-      .filter((m) => (plannedMealCounts[m.id] || 0) > 0)
-      .sort((a, b) => {
-        const pa = placements[a.id], pb = placements[b.id];
-        if (pa != null && pb != null) return (pa - pb) || byCreated(a, b);
-        if (pa != null) return -1;
-        if (pb != null) return 1;
-        return byCreated(a, b);
-      });
-  }, [meals, plannedMealCounts, placements]);
+      .filter((m) => { const p = placements[m.id]; return !!p && !p.cookedAt && !p.skippedAt; })
+      .sort((a, b) => (placements[a.id].sortOrder - placements[b.id].sortOrder) || byCreated(a, b));
+  }, [meals, placements]);
 
-  // Per-meal count of PENDING list rows, from the same provenance map as the
-  // count above — no new query. Zero for an active meal = every ingredient is
-  // bought = the card reads "Ready to cook" and offers no remove.
-  const mealPendingCounts = useMemo(() => {
+  // Per-meal live list rows { total, bought }, from the same provenance map as
+  // the ×n count — no new query. This is the card's STATE while it is to-buy
+  // ("2 of 4 in cart", "4 to buy"); readiness itself is placement.readyAt.
+  const mealRowCounts = useMemo(() => {
     const map = {};
     Object.values(mealProvenance).flat().forEach((pr) => {
-      if (pr.status === "pending") map[pr.mealId] = (map[pr.mealId] || 0) + 1;
+      const c = map[pr.mealId] || (map[pr.mealId] = { total: 0, bought: 0 });
+      c.total += 1;
+      if (pr.status === "bought") c.bought += 1;
     });
     return map;
   }, [mealProvenance]);
@@ -2692,20 +2707,26 @@ function ProvisionsApp() {
     }
   }, [household?.id, view, refreshProvenance]);
 
-  // Board card ×. The existing removeMealFromList (08-20 backend): zeroes only
-  // this meal's pending share, never un-buys, leaves shared ingredients to the
-  // extent another meal needs them. The card leaves because the meal is no
-  // longer active — the provenance refresh is what makes that visible.
-  const [removingMealId, setRemovingMealId] = useState(null);
-  const handleRemoveFromBoard = useCallback(async (mealId) => {
-    setRemovingMealId(mealId);
+  // The two exits (050). Skip on a to-buy card zeroes the meal's pending rows
+  // first (removeMealFromList: never un-buys, leaves shared ingredients to the
+  // extent another meal needs them) and then closes the placement; on a Ready
+  // card it only closes. Cooked it closes as cooked. The card leaves because
+  // its placement closed — the provenance refresh keeps the library honest.
+  const [busyMealId, setBusyMealId] = useState(null);
+  const handleSkipMeal = useCallback(async (mealId, zeroList) => {
+    setBusyMealId(mealId);
     try {
-      await removeMealFromList(mealId);
+      await skipMeal(mealId, { zeroList });
       await refreshProvenance();
     } finally {
-      setRemovingMealId(null);
+      setBusyMealId(null);
     }
-  }, [removeMealFromList, refreshProvenance]);
+  }, [skipMeal, refreshProvenance]);
+  const handleCookedMeal = useCallback(async (mealId) => {
+    setBusyMealId(mealId);
+    try { await markCooked(mealId); }
+    finally { setBusyMealId(null); }
+  }, [markCooked]);
 
   const [decrementingMealId, setDecrementingMealId] = useState(null);
   const handleDecrementMeal = useCallback(async (mealId) => {
@@ -2732,9 +2753,9 @@ function ProvisionsApp() {
     if (onHand.length === 0) {
       setAddingMealId(mealId);
       try {
-        // flat: servings = 1 (dial deferred). alreadyActive: a stepper "+" on a
-        // meal already on the board bumps its count and must not move its card.
-        await addMealToList(mealId, 1, [], { alreadyActive: (plannedMealCounts[mealId] || 0) > 0 });
+        // flat: servings = 1 (dial deferred). The hook places the card (050):
+        // a closed placement reopens at the end, an open one keeps its slot.
+        await addMealToList(mealId, 1);
         await refreshProvenance();        // reflect the badge immediately
       } finally {
         setAddingMealId(null);
@@ -2754,7 +2775,7 @@ function ProvisionsApp() {
       })),
       choices: Object.fromEntries(onHand.map((mi) => [mi.catalog_item_id, "skip"])),
     });
-  }, [meals, addMealToList, refreshProvenance, plannedMealCounts]);
+  }, [meals, addMealToList, refreshProvenance]);
 
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
@@ -3030,7 +3051,7 @@ function ProvisionsApp() {
       // already be gone before the add runs, or it would be evaluated as on-hand
       // and could still be included by a stale id in the include list.
       if (removeIds.length > 0) await removeMealIngredients(mealId, removeIds);
-      const count = await addMealToList(mealId, 1, includeIds, { alreadyActive: (plannedMealCounts[mealId] || 0) > 0 });
+      const count = await addMealToList(mealId, 1, includeIds);
       await refreshProvenance();
       // A removal changes the recipe itself, so PLAN's count is now stale.
       if (removeIds.length > 0) await loadMeals();
@@ -3041,7 +3062,7 @@ function ProvisionsApp() {
     } finally {
       setAddingMealId(null);
     }
-  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast, plannedMealCounts]);
+  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast]);
 
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
@@ -4359,10 +4380,13 @@ function ProvisionsApp() {
         .board-card-body { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
         .board-card-title { font-family: 'Playfair Display', serif; font-size: 0.92rem; font-weight: 700; color: #2C1A0E; line-height: 1.15; min-width: 0; }
         .board-card-count { flex: none; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; }
-        /* Ready to cook (mockup frame 2, .card-sub.ready): teal is the meal signal. No × on a ready card — nothing left to zero. */
-        .board-card-ready { flex: none; margin-left: auto; font-family: 'Lato', sans-serif; font-size: 0.64rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #0D9488; }
-        .board-card.ready { padding-right: 12px; }
-        .board-card.lifted.ready { padding-right: 10.5px; }
+        /* Card state (050): the count while to-buy, "Ready" once earned at Wrap up (teal — the meal signal, mockup frame 2's .card-sub.ready). */
+        .board-card-state { flex: none; margin-left: auto; font-family: 'Lato', sans-serif; font-size: 0.64rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; white-space: nowrap; }
+        .board-card-state.ready { color: #0D9488; }
+        /* Cooked it — the Ready card's exit. Teal outline, the same family as the stepper's chrome; the × beside it is skip. */
+        .board-cook { flex: none; border: 1.5px solid #0D9488; background: transparent; color: #0D9488; border-radius: 14px; padding: 5px 10px; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+        .board-cook:disabled { opacity: 0.5; cursor: default; }
         .board-x { flex: none; width: 32px; height: 32px; border-radius: 50%; border: none; background: transparent; color: #C9A97A; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: 1.15rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
         .board-x:hover { color: #A0724A; }
@@ -5691,11 +5715,13 @@ function ProvisionsApp() {
             <PlanBoard
               meals={boardMeals}
               counts={plannedMealCounts}
-              pending={mealPendingCounts}
+              rows={mealRowCounts}
+              placements={placements}
               onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
-              onRemove={handleRemoveFromBoard}
+              onSkip={handleSkipMeal}
+              onCooked={handleCookedMeal}
               onReorder={reorderBoard}
-              removingMealId={removingMealId}
+              busyMealId={busyMealId}
             />
           <MealsLens
             meals={meals}
