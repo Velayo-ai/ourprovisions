@@ -2475,6 +2475,23 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
+  // Sign-up pre-fill (read once on mount). Outbound links may carry
+  // ?email_address=&first_name=&last_name=; map them to Clerk's initialValues keys
+  // so the sign-up modal opens with the form filled. Missing params fall back to
+  // undefined so Clerk treats them as unset. No router here (CRA), so this is a
+  // plain URLSearchParams read, same as the ?invite= / ?ref= bridge in index.js.
+  const signUpInitialValues = useMemo(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        emailAddress: params.get("email_address") || undefined,
+        firstName: params.get("first_name") || undefined,
+        lastName: params.get("last_name") || undefined,
+      };
+    } catch (e) {
+      return {};
+    }
+  }, []);
   const { getToken } = useAuth();
   const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss } = useActiveHousehold();
 
@@ -4883,7 +4900,7 @@ function ProvisionsApp() {
                 <SignInButton mode="modal">
                   <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign In</button>
                 </SignInButton>
-                <SignUpButton mode="modal">
+                <SignUpButton mode="modal" initialValues={signUpInitialValues}>
                   <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign Up</button>
                 </SignUpButton>
               </div>
