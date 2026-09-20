@@ -7,6 +7,20 @@
 // `view` values are the existing tab state values in App.js: Browse has always
 // been "input" and Shop "list" — do not "tidy" them; every view === "…" branch
 // in App.js keys on them.
+//
+// D3 (SPEC_rum_dxa_exposure.md): each door also has a HASH — display grammar for
+// the URL bar and Splunk RUM, never a state rename. Navigation writes
+// location.hash; a hashchange listener in App.js maps it back to `view`, so
+// reload and Back land on the right door and the RUM agent's route-change
+// instrumentation sees four first-class pages. Sheets and modals get no hash;
+// the one exception is Wrap up (WRAP_UP_HASH) so the funnel's last step is a
+// page view.
+//
+// DRIFT RISK — prod click-text unmask list (src/rum.js CHROME_ALLOW_LIST). On
+// prod, text inside `.helm-label`, `.helm-plus` and the other chrome classes
+// listed there is sent to Splunk in the clear. Any future chrome that renders
+// household text (a household-name pill in the helm, member initials, an item
+// count is fine but a name is not) must NOT reuse those classes or `op-chrome`.
 
 import { useEffect, useState } from "react";
 
@@ -65,11 +79,30 @@ export function ShopIcon({ size = 20 }) {
 // the pill's shape is what households learn, and adding a door later shifts
 // every other door under the thumb.
 export const NAV_DOORS = [
-  { key: "home",   label: "Home",   view: "home",  Icon: HomeIcon },
-  { key: "plan",   label: "Plan",   view: "plan",  Icon: PlanIcon },
-  { key: "browse", label: "Browse", view: "input", Icon: BrowseIcon },
-  { key: "shop",   label: "Shop",   view: "list",  Icon: ShopIcon, badge: true },
+  { key: "home",   label: "Home",   view: "home",  hash: "#/home",   Icon: HomeIcon },
+  { key: "plan",   label: "Plan",   view: "plan",  hash: "#/plan",   Icon: PlanIcon },
+  { key: "browse", label: "Browse", view: "input", hash: "#/browse", Icon: BrowseIcon },
+  { key: "shop",   label: "Shop",   view: "list",  hash: "#/shop",   Icon: ShopIcon, badge: true },
 ];
+
+// D3: the Wrap up modal is the one non-door surface with a hash — the funnel's
+// last step must be a page view. Nested under Shop so viewForHash still
+// resolves it to the Shop door on reload.
+export const WRAP_UP_HASH = "#/shop/wrap-up";
+
+// view → hash ("list" → "#/shop"); null for a view with no door.
+export function hashForView(view) {
+  const door = NAV_DOORS.find((d) => d.view === view);
+  return door ? door.hash : null;
+}
+
+// hash → view ("#/shop", "#/shop/wrap-up", "#shop" → "list"); null when the
+// hash names no door (empty, an invite/ref-stripped URL, or anything foreign).
+export function viewForHash(hash) {
+  const seg = (hash || "").replace(/^#\/?/, "").split("/")[0].toLowerCase();
+  const door = NAV_DOORS.find((d) => d.key === seg);
+  return door ? door.view : null;
+}
 
 // D5: past this width the pill unmounts and the same doors render as a rail.
 export const RAIL_MIN_WIDTH = 700;

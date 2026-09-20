@@ -1,7 +1,7 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
-import { NAV_DOORS, useMediaQuery, WIDE_QUERY, useScrollCompact } from './nav';
+import { NAV_DOORS, useMediaQuery, WIDE_QUERY, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
@@ -2594,7 +2594,9 @@ function ProvisionsApp() {
   const [localPrices, setLocalPrices] = useState({});
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
-  const [view, setView] = useState("input");
+  // D3 (SPEC_rum_dxa_exposure.md): a door hash in the URL at load wins — reload
+  // and Back land on the right door. No hash → the landing effect decides.
+  const [view, setView] = useState(() => viewForHash(window.location.hash) || "input");
   // D5: ≥700px mounts <Rail />, below it <Helm /> — exactly one at any width.
   const isWide = useMediaQuery(WIDE_QUERY);
   // D9′ (amended 2026-09-12): compact exactly when the current door's control
@@ -2613,7 +2615,9 @@ function ProvisionsApp() {
   // load even when the first list tick failed transiently and set no rows — a
   // slow cold load on prod (2026-09-12) landed on Browse with 18 items. The
   // hook flips householdReady only where the list RPC actually returned rows.
-  const landedRef = useRef(false);
+  // Already "landed" when the URL named a door at load (D3) — a reload on
+  // #/plan must open Plan, not be yanked to Shop by the first list read.
+  const landedRef = useRef(!!viewForHash(window.location.hash));
   useEffect(() => {
     const hasItems = listRows.some(r => (r.quantity || 0) > 0);
     const decided = landedRef.current ? "already" : (!householdReady ? "waiting" : (hasItems ? "list" : "input"));
@@ -3022,6 +3026,44 @@ function ProvisionsApp() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
+
+  // ── D3: hash routes (SPEC_rum_dxa_exposure.md) — ADDITIVE. The hash mirrors
+  // `view`; `view` values are untouched and every view === "…" branch still
+  // keys on them. Three pieces:
+  //   goToDoor  — a nav tap sets view AND pushes the door hash (a history entry,
+  //               so Back walks doors). Passed to <Helm /> and <Rail />.
+  //   hashchange — Back/forward/typed hash maps back to view; leaving
+  //               #/shop/wrap-up closes the Wrap up modal.
+  //   mirror    — programmatic view changes (the landing effect) get their hash
+  //               by replaceState: a route-change span, no history entry.
+  // The RUM agent emits routeChange on both hashchange and replaceState, so
+  // every door change is a page view. Sheets and other modals write no hash.
+  const goToDoor = useCallback((v) => {
+    setView(v);
+    const h = hashForView(v);
+    if (h && window.location.hash !== h) window.location.hash = h;
+  }, []);
+  useEffect(() => {
+    const onHashChange = () => {
+      const v = viewForHash(window.location.hash);
+      if (v) setView(v);
+      if (window.location.hash !== WRAP_UP_HASH) setShowWrapUpModal(false);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+  useEffect(() => {
+    const h = hashForView(view);
+    if (!h || viewForHash(window.location.hash) === view) return;
+    window.history.replaceState(null, "", h);
+  }, [view]);
+  // Wrap up is the one modal with a hash (D3, decided 2026-09-16): the funnel's
+  // last step is a page view. replaceState both ways — no extra history entry,
+  // and Back from the open modal leaves Shop, which closes it (hashchange above).
+  const closeWrapUp = useCallback(() => {
+    setShowWrapUpModal(false);
+    if (window.location.hash === WRAP_UP_HASH) window.history.replaceState(null, "", hashForView("list"));
+  }, []);
   const [wrappingUp, setWrappingUp] = useState(false);
   // Shop lens (SPEC_shop_lens_instore_capture.md): "aisles" (grouped) or "az"
   // (flat). Replaces the three-phase cycle on Shop — checked items are no longer
@@ -3852,7 +3894,7 @@ function ProvisionsApp() {
     setWrappingUp(true);
     await wrapUpTrip(Array.from(wrapUpRollItems));
     setWrappingUp(false);
-    setShowWrapUpModal(false);
+    closeWrapUp();
     setWrapUpRollItems(new Set());
     // The trip is over: the tray, the "added here" tags and the prompt state
     // were all scoped to it.
@@ -3909,6 +3951,7 @@ function ProvisionsApp() {
     );
     setWrapUpRollItems(pending);
     setShowWrapUpModal(true);
+    window.history.replaceState(null, "", WRAP_UP_HASH);
   };
 
   const openAddSheet = () => {
@@ -4382,7 +4425,7 @@ function ProvisionsApp() {
             pointerEvents: "auto",
           }}>
             <span>⚠ {error}</span>
-            <button onClick={dismissError} style={{
+            <button className="op-chrome" onClick={dismissError} style={{
               background: "none", border: "1px solid rgba(255,255,255,0.3)", color: "#FAF4EC",
               borderRadius: "4px", padding: "3px 10px", cursor: "pointer", fontSize: "0.75rem",
             }}>Dismiss</button>
@@ -4413,7 +4456,7 @@ function ProvisionsApp() {
       {isWide ? (
         <Rail
           view={view}
-          onChange={setView}
+          onChange={goToDoor}
           badgeCount={totalItems - checkedCount}
           initials={isSignedIn ? `${user?.firstName?.[0] || ""}${user?.lastName?.[0] || ""}` : ""}
           onAvatar={() => setShowProfileSheet(true)}
@@ -4421,7 +4464,7 @@ function ProvisionsApp() {
       ) : (
         <Helm
           view={view}
-          onChange={setView}
+          onChange={goToDoor}
           badgeCount={totalItems - checkedCount}
           compact={scrollCompact && view !== "home"}
           onPlus={doorAdd[view] || null}
@@ -7031,7 +7074,7 @@ function ProvisionsApp() {
       )}
 
       {showWrapUpModal && (
-        <div className="modal-overlay" onClick={() => !wrappingUp && setShowWrapUpModal(false)}>
+        <div className="modal-overlay" onClick={() => !wrappingUp && closeWrapUp()}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "360px" }}>
 
             {/* Header */}
@@ -7115,7 +7158,7 @@ function ProvisionsApp() {
             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
               <button
                 className="modal-cancel"
-                onClick={() => setShowWrapUpModal(false)}
+                onClick={closeWrapUp}
                 disabled={wrappingUp}
               >
                 Cancel

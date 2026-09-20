@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { trace } from "@opentelemetry/api";
 import { createSupabaseClient } from "../lib/supabaseClient";
+import { setHousehold } from "../rum";
 
 const ActiveHouseholdContext = createContext(null);
 
@@ -26,6 +27,14 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
   // Mirrors activeHouseholdId each render; read by the presence-check interval (step 2).
   const activeHouseholdIdRef = useRef(null);
   activeHouseholdIdRef.current = activeHouseholdId;
+
+  // D5 (SPEC_rum_dxa_exposure.md): the active household is a RUM segment
+  // dimension. One effect at the resolution point covers every way the lens
+  // moves — initial resolve, switchHousehold, loss recovery — and null stops
+  // the stamp. The id only; the name is text and text is masked on prod.
+  useEffect(() => {
+    setHousehold(activeHouseholdId);
+  }, [activeHouseholdId]);
 
   // Wall-clock stamp of when the lens last MOVED to a different household. Instrumentation
   // only — nothing branches on it. It answers the question the removal trace exists to
