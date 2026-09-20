@@ -13,8 +13,14 @@ let rumReady = false;
 // household name and every <input> stay masked. Never `body`, never a bare tag.
 // Any future chrome that renders household text (a household-name pill in the
 // helm, say) must NOT match one of these — see the drift note in src/nav.js.
+// Rules are matched against the CLICKED element and its ANCESTORS (the agent
+// walks up from the event target), never its children — so the selector must
+// name the element the tap lands on, or something above it. `.helm-door` is
+// the door button (its text is the label plus, on Shop, the badge count);
+// `.helm-label` still matters when the tap lands on the label span itself.
 const CHROME_ALLOW_LIST = [
-  '.helm-label',     // Helm + Rail door labels: Home / Plan / Browse / Shop
+  '.helm-door',      // Helm + Rail door buttons: Home / Plan / Browse / Shop (+ badge count)
+  '.helm-label',     // the label span inside a door, when it is the tap target
   '.helm-plus',      // the compact pill's +
   '.shop-seg',       // Shop lens toggle: Aisles | A–Z
   '.hdr-plus',       // Shop header +
