@@ -28,14 +28,6 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
   const activeHouseholdIdRef = useRef(null);
   activeHouseholdIdRef.current = activeHouseholdId;
 
-  // D5 (SPEC_rum_dxa_exposure.md): the active household is a RUM segment
-  // dimension. One effect at the resolution point covers every way the lens
-  // moves — initial resolve, switchHousehold, loss recovery — and null stops
-  // the stamp. The id only; the name is text and text is masked on prod.
-  useEffect(() => {
-    setHousehold(activeHouseholdId);
-  }, [activeHouseholdId]);
-
   // Wall-clock stamp of when the lens last MOVED to a different household. Instrumentation
   // only — nothing branches on it. It answers the question the removal trace exists to
   // settle: was the household the poll just declared gone one the user had been sitting in
@@ -77,6 +69,50 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
     if (!dbRef.current) dbRef.current = createSupabaseClient(getTokenRef.current, "op-household");
     return dbRef.current;
   };
+
+  // D5 (SPEC_rum_dxa_exposure.md): the active household is a RUM segment
+  // dimension. One effect at the resolution point covers every way the lens
+  // moves — initial resolve, switchHousehold, loss recovery — and null stops
+  // the stamp. The id only; the name is text and text is masked on prod.
+  //
+  // 053 / D8 (SPEC_learning_qualification.md): the two global learning-
+  // exclusion flags ride the same stamp. The id is stamped immediately (and
+  // both flag attributes retired) so no span carries a previous household's
+  // flags; the flags follow once read. Two row reads the existing SELECT
+  // policies already admit — households by membership, users by own clerk_id
+  // — telemetry-only, in their own try/catch, never on the user's path. A
+  // read that returns no row leaves its attribute retired rather than
+  // asserting false. `get_my_households` is deliberately untouched.
+  useEffect(() => {
+    setHousehold(activeHouseholdId);
+    if (!activeHouseholdId || !clerkId || !getTokenRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const db = getDb();
+        const [householdRes, userRes] = await Promise.all([
+          db.from("households").select("excluded_from_learning").eq("id", activeHouseholdId).maybeSingle(),
+          db.from("users").select("excluded_from_learning").eq("clerk_id", clerkId).maybeSingle(),
+        ]);
+        if (cancelled) return;
+        const h = householdRes?.data;
+        const u = userRes?.data;
+        setHousehold(activeHouseholdId, {
+          household: h ? h.excluded_from_learning === true : undefined,
+          user: u ? u.excluded_from_learning === true : undefined,
+        });
+      } catch (e) {
+        // Telemetry never reaches the user.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // getDb is a stable closure over refs; listing it would only re-fire the read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeHouseholdId, clerkId]);
 
   useEffect(() => {
     if (!clerkId || !getTokenRef.current) {

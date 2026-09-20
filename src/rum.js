@@ -105,10 +105,23 @@ if (rumToken) {
 // MERGES, and the OTel span attribute setter skips undefined values, so an
 // undefined value retires the key without touching the agent's own attributes.
 // No-op when RUM did not init (no token) — never throws into the app.
-export function setHousehold(id) {
+//
+// 053 / SPEC_learning_qualification.md D8: global learning exclusion rides the
+// same call. `exclusion` is { household: boolean|undefined, user: boolean|undefined }
+// read from households.excluded_from_learning and users.excluded_from_learning
+// (the caller's own row). A guest demo is a complete plan → shop → wrap-up
+// journey nobody lived; it pollutes the DXA funnel exactly as it pollutes the
+// list, and Dan's demos happen inside his REAL households, so the user flag
+// is carried too. Omitted / undefined → the attribute is retired, never
+// asserted false: unknown is not "not excluded".
+export function setHousehold(id, exclusion) {
   if (!rumReady) return;
   try {
-    SplunkOtelWeb.setGlobalAttributes({ 'household.id': id || undefined });
+    SplunkOtelWeb.setGlobalAttributes({
+      'household.id': id || undefined,
+      'household.excluded_from_learning': exclusion ? exclusion.household : undefined,
+      'user.excluded_from_learning': exclusion ? exclusion.user : undefined,
+    });
   } catch (e) {
     // Telemetry never reaches the user.
   }
