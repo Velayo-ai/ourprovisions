@@ -4,15 +4,75 @@ import SplunkSessionRecorder from '@splunk/otel-web-session-recorder';
 const rumToken = process.env.REACT_APP_RUM_TOKEN;
 const deployEnv = process.env.REACT_APP_DEPLOY_ENV || 'local';
 
+// Set once init() has run; setHousehold() below is a no-op until then.
+let rumReady = false;
+
+// DXA prod allow-list (SPEC_rum_dxa_exposure.md, D4). On prod every text node is
+// masked for click-text collection and ONLY these selectors are unmasked: app
+// chrome that can never carry household data. Item names, meal names, the
+// household name and every <input> stay masked. Never `body`, never a bare tag.
+// Any future chrome that renders household text (a household-name pill in the
+// helm, say) must NOT match one of these — see the drift note in src/nav.js.
+const CHROME_ALLOW_LIST = [
+  '.helm-label',     // Helm + Rail door labels: Home / Plan / Browse / Shop
+  '.helm-plus',      // the compact pill's +
+  '.shop-seg',       // Shop lens toggle: Aisles | A–Z
+  '.hdr-plus',       // Shop header +
+  '.wrapup',         // Shop header "Wrap up"
+  '.all-done-btn',   // All done card's "Wrap up trip →"
+  '.add-btn',        // row "Add" buttons (Browse, search, meal sheet)
+  '.board-lock',     // Plan board "Lock in"
+  '.board-lock-all', // Plan board "Lock in all (n)"
+  '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
+];
+
+// The Clerk auth UI (login, password, MFA/OTP) is excluded UNCONDITIONALLY in
+// BOTH environments and in BOTH the recorder and click-text collection — that is
+// a floor, not an environment-dependent choice. Listed last: later rules win.
+const CLERK_EXCLUDE_RULES = [
+  { rule: 'exclude', selector: '[class*="cl-"]' },
+  { rule: 'exclude', selector: '#clerk-components' },
+];
+
 // Skip init if no token (prevents boot errors in local dev without env set)
 if (rumToken) {
+  // Drives the DXA click-text `privacy` block below only. The session-replay
+  // masking split (dev unmasked / prod masked, SPEC_rum_session_replay_masking.md)
+  // is still ON HOLD for prod per the 2026-09-11 decision — the recorder block
+  // further down is main's, byte-for-byte; do not fold isProd into it here.
+  const isProd = deployEnv === 'production'; // exact Vercel prod value, confirmed 2026-09-03
+
   SplunkOtelWeb.init({
     realm: 'us1',
     rumAccessToken: rumToken,
     applicationName: 'OurProvisions',
     deploymentEnvironment: deployEnv,
     version: '1.0.0',
+    // D2: anonymous tracking, STATED — not inherited from a default that could
+    // flip again (v2.0 flipped it once). A persistent anonymous id gives DXA
+    // cross-session journeys without a Clerk id or email leaving the app.
+    user: { trackingMode: 'anonymousTracking' },
+    // D2: pinned to the hostname so dev and prod ids stay separate — a shared
+    // velayo.ai cookie would merge dev sessions into prod journeys.
+    cookieDomain: window.location.hostname,
+    // D4: click-text privacy. Dev unmasked (same audience argument as replay);
+    // prod masked with the chrome allow-list so the funnel reads "Wrap up",
+    // not "<button>". Clerk excluded in both.
+    privacy: {
+      maskAllText: isProd,
+      sensitivityRules: [
+        ...(isProd ? CHROME_ALLOW_LIST.map((selector) => ({ rule: 'unmask', selector })) : []),
+        ...CLERK_EXCLUDE_RULES,
+      ],
+    },
+    // D6: frustration signals in both envs. Dead click + error click are opt-in
+    // (rage click is on by default and stays on). The 09-14 "Could not wrap up"
+    // toast would have surfaced as an error click before a guest found it.
+    instrumentations: {
+      frustrationSignals: { deadClick: true, errorClick: true },
+    },
   });
+  rumReady = true;
 
   // Session replay masking. Order matters: general first, specific last;
   // exclude is absolute. Defense-in-depth: unmask the grocery UI for useful
@@ -30,4 +90,20 @@ if (rumToken) {
   });
 } else {
   console.warn('Splunk RUM: no token found, skipping instrumentation');
+}
+
+// D5: household as a segment dimension. Stamps `household.id` (a uuid — never
+// the name, never a user id or email) on every subsequent span. Called from
+// ActiveHouseholdContext whenever the active household resolves or changes;
+// null (membership lost, signed out) stops the stamp. setGlobalAttributes
+// MERGES, and the OTel span attribute setter skips undefined values, so an
+// undefined value retires the key without touching the agent's own attributes.
+// No-op when RUM did not init (no token) — never throws into the app.
+export function setHousehold(id) {
+  if (!rumReady) return;
+  try {
+    SplunkOtelWeb.setGlobalAttributes({ 'household.id': id || undefined });
+  } catch (e) {
+    // Telemetry never reaches the user.
+  }
 }
