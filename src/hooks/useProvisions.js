@@ -1588,6 +1588,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           expires_at: expiresAt,
         });
       if (inviteErr) throw inviteErr;
+      // DXA event: an invite minted (the depth / second-invite signal). Same
+      // tracer pattern as item_added_to_list; household id only — never the
+      // code. Telemetry never throws into, or blocks, the invite.
+      try {
+        tracer.startSpan("household_invite_created", {
+          attributes: { household_id: hh.id },
+        }).end();
+      } catch (e) {
+        console.warn("[rum] household_invite_created event failed:", e);
+      }
       return `${window.location.origin}?invite=${code}`;
     } catch (err) {
       console.error("createInvite error:", err.message);
