@@ -25,6 +25,29 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-09-19] — [Cross] — Sign-up honours the landing page's pre-fill params and opens itself; the Velayo → OurProvisions funnel audited
+**Goal:** Make a visitor arriving from `ourprovisions.app` (or any link carrying `email_address` / `first_name` / `last_name`) land in a pre-filled, already-open Clerk sign-up — and, from the design chat, find out why Mailchimp welcome emails weren't sending and audit the funnel end to end. (Design-chat context merged from the handoff, dropped as `design_handoff (52).md`. Tagged Cross: the code is OurProvisions; the Mailchimp / velayo.ai findings are Velayo OS and belong in that repo's log once it exists.)
+**Completed:**
+- **Traced the blank sign-up form to the app, not the landing page.** `ourprovisions-landing` (separate repo, `ourprovisions.app`) builds `https://ourprovisions.velayo.ai/sign-up?email_address=…&first_name=…&last_name=…` correctly in `door.js`; the app is CRA with no router and no `/sign-up` route, so Vercel's SPA fallback served the home page and nothing read the params. The request assumed a Next.js `<SignUp />` page; adapted to the real shape (Clerk's modal `SignUpButton`, which takes the same `initialValues` prop).
+- **Read the three params once on mount into Clerk's `initialValues` and passed them to the header `SignUpButton`** (`d98bd0c` on dev; cherry-picked to main as `6933286`). Missing params fall back to `undefined`. No Suspense concern — there is no `useSearchParams`.
+- **Auto-open: a mount effect calls `useClerk().openSignUp({ initialValues })` when at least one param is present**, gated on Clerk loaded + signed out, once per load via a ref; the header button stays as the manual fallback (`9edcde2` on dev; `a0770f0` on main). `SignInButton` and OAuth untouched.
+- **Verified headless on dev AND prod with a CDP script (Chrome, no Playwright in the env):** the params URL auto-opens "Create your account" with all three fields filled; the bare URL opens nothing and both header buttons still work; the Google button is present; no console errors beyond Clerk's dev-keys notice. Headless could not observe the Google redirect itself; **Dan confirmed the OAuth redirect manually on dev and prod** (per the handoff).
+- **Established the cherry-pick promotion pattern for isolated fixes:** both fixes went dev → main by `git cherry-pick`, leaving the 2026-09-14 docs commit `0ff92ac` and the 048/049/050/052 board client off prod. Prod client is now `a0770f0` = `1f0dcbd` + the two fixes.
+- **Design chat — Mailchimp welcome pipeline fixed:** the "Welcome New Friends" journey's Send step silently re-paused whenever its modal was closed without "Close & unpause"; First/Last name blank because embedded form 75674 lacked the fields server-side (velayo.ai's form already sent them); a stray border style fixed; the "[Test]" subject and stale archive link ruled out as artifacts, not defects.
+- **Design chat — funnel redundancy named:** a referred user signs up on velayo.ai, re-enters name/email on `ourprovisions.app`, then (until today) hit a third, blank form. The technical blocker is gone; what remains is a design decision across two properties.
+**Unfinished:**
+- **`0ff92ac` (the 2026-09-14 SESSION END docs) rode the first `git push origin dev` of this session** — exactly the CLAUDE.md warning. Dev only; main untouched. Nothing to undo, recorded so it isn't a surprise.
+- **Funnel split undecided:** retire/redirect `ourprovisions.app` into `ourprovisions.velayo.ai`? Should the welcome email's "Come aboard" link straight to the pre-filled sign-up? Is "confirm the code we email you" on the `ourprovisions.app` door still true? Velayo (brand) vs OurProvisions (product) separation.
+- **`SPEC_landing_page_beta.md` stays in `active/`** — the NOW/P0 row's deployed-URL gates (anon `select *` → zero rows, CORS checked in the console) were never formally confirmed; not this session's to close.
+- **Prod promotion of 048 / 049 / 050 / 052 + the board client** — still NOW/P0, untouched today.
+**Next session:**
+SESSION START
+Goal: Decide the Velayo vs. OurProvisions funnel split — whether `ourprovisions.app` stays a second data-entry point now that the app pre-fills and auto-opens sign-up — and scope any resulting change into the right repo(s) (`ourprovisions-landing`, the Mailchimp template).
+State: Pre-fill + auto-open live on prod (`a0770f0`). The `ourprovisions.app` → Open OurProvisions → open, pre-filled modal path works with zero extra taps. Mailchimp welcome pipeline confirmed working end to end. Prod client otherwise at `1f0dcbd`; dev carries the full board build awaiting its own promotion.
+Done when: A written decision on the landing-page redirect/retirement question exists in ROADMAP's DECISIONS LOG, and any resulting work is a scoped item in the owning repo — or an explicit "keep both doors" with the door copy corrected to match what the app now does.
+**Files updated:** `src/App.js` (`d98bd0c`, `9edcde2` on dev; `6933286`, `a0770f0` on main); `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`. Mailchimp form 75674 field config changed in the Mailchimp UI (no file).
+**DB changes:** None
+
 ### [2026-09-14] — [Cross] — Board shipped on dev, plan and list separated, a live prod exposure found and closed (051 on prod)
 **Goal:** Amend the meal-planning spec to the single-surface PLAN, decide placement storage and Days-in-v1, hand the build to Claude Code, and follow what the walks found. (Design-chat context merged from `handoff/design_handoff.md`; the session spanned 2026-09-12 → 09-14 across five specs. Tagged Cross: every code change is OurProvisions; the build cadence decision is Velayo OS.)
 **Completed:**
