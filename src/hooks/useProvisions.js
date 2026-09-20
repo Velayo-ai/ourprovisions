@@ -993,6 +993,33 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // than waiting for the poll.
         setQuantities((prev) => { const n = { ...prev }; delete n[optKey]; delete n[preKey(catalogItem.id)]; return n; });
       } else {
+        // DXA: was this catalog item LIVE on the list before this write? The
+        // UPDATE below has no deleted_at filter (it revives tombstones), so a
+        // matched row is either a live-row bump (silent) or a tombstone revive
+        // (an add — the item re-enters the list). Read from listRowsRef, which
+        // is server state, not the optimistic map. Edge: a row inserted this
+        // session and bumped before the 2s poll delivers it reads as not-live
+        // and emits twice.
+        const hadLiveRow = !!liveRowIdFor(catalogItem.id);
+        // One emitter for both add branches. source: 'browse' covers every
+        // manual add — Browse's Add, search quick-add, the new-item form and
+        // the Shop in-store Add sheet all funnel through updateQty. Telemetry
+        // never throws into, or blocks, the add.
+        const emitItemAdded = () => {
+          try {
+            tracer.startSpan("item_added_to_list", {
+              attributes: {
+                catalog_item_id: catalogItem.id,
+                category: categoryName || catalogItem.category || null,
+                is_custom: !catalogItem.is_global,
+                household_id: hh.id,
+                source: "browse",
+              },
+            }).end();
+          } catch (e) {
+            console.warn("[rum] item_added_to_list event failed:", e);
+          }
+        };
         const { data: updateData, error: updateErr } = await db
           .from("list_items")
           .update({ quantity: qty, status: "pending", deleted_at: null })
@@ -1019,22 +1046,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           if (insertErr) throw insertErr;
           const newItem = { id: newItemId };
           touched = { listItemId: newItemId, catalogItemId: catalogItem.id };
-          // DXA event: a NEW row on the list (not a bump, not a re-add of a live
-          // row). household_id is also stamped globally (rum.js setHousehold);
-          // repeated here so the event stands alone in a DXA funnel. Telemetry
-          // never throws into, or blocks, the add.
-          try {
-            tracer.startSpan("item_added_to_list", {
-              attributes: {
-                catalog_item_id: catalogItem.id,
-                category: categoryName || catalogItem.category || null,
-                is_custom: !catalogItem.is_global,
-                household_id: hh.id,
-              },
-            }).end();
-          } catch (e) {
-            console.warn("[rum] item_added_to_list event failed:", e);
-          }
+          // DXA event: a NEW row on the list. household_id is also stamped
+          // globally (rum.js setHousehold); repeated so the event stands alone
+          // in a DXA funnel.
+          emitItemAdded();
           // Real row now exists: mirror the value under its id. The pre:<cid>
           // placeholder stays until the poll delivers the row (the reader falls
           // back to it meanwhile), then the rebuild drops it.
@@ -1053,6 +1068,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         } else {
           // Row already exists — update this user's contributor quantity
           touched = { listItemId: updateData[0].id, catalogItemId: catalogItem.id };
+          // DXA event: the UPDATE matched a TOMBSTONE and revived it — the item
+          // re-entered the list, which is an add. A bump of a live row is not.
+          // (Found 2026-09-20: without this, an item that had ever been on the
+          // list never fired again — most adds in a household with history.)
+          if (!hadLiveRow) emitItemAdded();
           setQuantities((prev) => ({ ...prev, [updateData[0].id]: qty }));
           if (internalUserIdRef.current && updateData?.[0]?.id) {
             await db
@@ -3073,6 +3093,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // NOT auto-open here. A client auto-open is redundant and was itself a
       // double-open-cycle contributor. Pass activeCycleRef only as a hint; the
       // RPC ignores it unless it names a genuinely-open cycle.
+      // DXA: which catalog ids were LIVE before the RPC — read from server
+      // state so the per-ingredient emission below can tell a fresh row (new or
+      // revived tombstone) from a bump of a row already on the list.
+      const liveBefore = new Set(listRowsRef.current.map((r) => r.catalogItemId));
       const { data: count, error: err } = await db.rpc("add_meal_to_list", {
         p_meal_id: mealId,
         p_servings: servings,
@@ -3093,6 +3117,39 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       await loadActiveCycle(db, hh.id);
       await loadListItems(db, hh.id);
       reportSuccess();
+      // DXA event, source: 'meal' — one item_added_to_list per ingredient row
+      // the RPC put ON the list fresh (new or revived), never for one it merely
+      // bumped. The RPC returns only a count, so the ingredient list is read
+      // here, telemetry-only, with the same on_hand predicate the RPC applies
+      // (044): on_hand rows count only when included this time. Own try/catch,
+      // console.warn only — never blocks or throws into the add.
+      try {
+        const includeSet = new Set(includeOnHandIds || []);
+        const { data: ings, error: iErr } = await db
+          .from("meal_ingredients")
+          .select("catalog_item_id, on_hand, catalog_items(category, is_global)")
+          .eq("meal_id", mealId)
+          .is("deleted_at", null);
+        if (iErr) throw iErr;
+        const liveNow = new Set(listRowsRef.current.map((r) => r.catalogItemId));
+        for (const ing of ings || []) {
+          const cid = ing.catalog_item_id;
+          if (ing.on_hand && !includeSet.has(cid)) continue;   // skipped by the RPC
+          if (liveBefore.has(cid) || !liveNow.has(cid)) continue; // bump, or not landed
+          tracer.startSpan("item_added_to_list", {
+            attributes: {
+              catalog_item_id: cid,
+              category: ing.catalog_items?.category ?? null,
+              is_custom: ing.catalog_items ? !ing.catalog_items.is_global : null,
+              household_id: hh.id,
+              source: "meal",
+              meal_id: mealId,
+            },
+          }).end();
+        }
+      } catch (e) {
+        console.warn("[rum] item_added_to_list (meal) event failed:", e);
+      }
       return count || 0;
     } catch (err) {
       console.error("addMealToList error:", err.message);
