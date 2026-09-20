@@ -1100,6 +1100,23 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       if (updateErr) throw updateErr;
       pendingCheckRef.current.delete(listItemId);
       reportSuccess();
+      // DXA event: a row checked off (bought), never the un-check. Same tracer
+      // pattern as item_added_to_list; catalog_item_id may be null when the
+      // name no longer resolves in catalogRef (hidden/evicted). Telemetry never
+      // throws into, or blocks, the toggle.
+      if (newStatus === "bought") {
+        try {
+          tracer.startSpan("item_checked_off", {
+            attributes: {
+              list_item_id: listItemId,
+              catalog_item_id: catalogRef.current[itemName]?.id ?? null,
+              household_id: hh.id,
+            },
+          }).end();
+        } catch (e) {
+          console.warn("[rum] item_checked_off event failed:", e);
+        }
+      }
       // Resolves to the committed status so the Shop tab can write the matching
       // list_item_events row AFTER the primary write (D12), or nothing on failure.
       return newStatus;
