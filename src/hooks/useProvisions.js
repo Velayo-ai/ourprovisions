@@ -4,6 +4,14 @@ import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError } from "../lib/classifyFetchError";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
+import { trace } from "@opentelemetry/api";
+
+// RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
+// (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
+// exposes no addRUMEvent — its public API is init / setGlobalAttributes /
+// getSessionId / provider — so a custom event is a zero-length span on the OTel
+// tracer. With no RUM token the API's no-op provider stands in and this costs nothing.
+const tracer = trace.getTracer("ourprovisions-app");
 
 // A catalog item the meal builder has staged but NOT yet written. The id is a
 // client-only placeholder, deterministic on the normalised name so that staging
@@ -995,6 +1003,22 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           if (insertErr) throw insertErr;
           const newItem = { id: newItemId };
           touched = { listItemId: newItemId, catalogItemId: catalogItem.id };
+          // DXA event: a NEW row on the list (not a bump, not a re-add of a live
+          // row). household_id is also stamped globally (rum.js setHousehold);
+          // repeated here so the event stands alone in a DXA funnel. Telemetry
+          // never throws into, or blocks, the add.
+          try {
+            tracer.startSpan("item_added_to_list", {
+              attributes: {
+                catalog_item_id: catalogItem.id,
+                category: categoryName || catalogItem.category || null,
+                is_custom: !catalogItem.is_global,
+                household_id: hh.id,
+              },
+            }).end();
+          } catch (e) {
+            console.warn("[rum] item_added_to_list event failed:", e);
+          }
           // Real row now exists: mirror the value under its id. The pre:<cid>
           // placeholder stays until the poll delivers the row (the reader falls
           // back to it meanwhile), then the rebuild drops it.
