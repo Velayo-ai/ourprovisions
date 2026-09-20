@@ -2271,6 +2271,19 @@ function ProvisionsApp() {
       return {};
     }
   }, []);
+  // Auto-open the sign-up modal when the URL carries at least one pre-fill param
+  // (the landing page at ourprovisions.app links here with all three). The header
+  // SignUpButton stays as the manual fallback with the same initialValues. Gated on
+  // Clerk being loaded and the visitor being signed out; fires once per load.
+  const { openSignUp } = useClerk();
+  const autoSignUpFiredRef = useRef(false);
+  useEffect(() => {
+    if (autoSignUpFiredRef.current || !isLoaded || isSignedIn) return;
+    const hasParam = Object.values(signUpInitialValues).some(Boolean);
+    if (!hasParam) return;
+    autoSignUpFiredRef.current = true;
+    openSignUp({ initialValues: signUpInitialValues });
+  }, [isLoaded, isSignedIn, signUpInitialValues, openSignUp]);
   const { getToken } = useAuth();
   const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss } = useActiveHousehold();
 
