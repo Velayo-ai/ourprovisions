@@ -74,7 +74,17 @@ with (security_invoker = on) as
 with floors as (
   -- ── PERMISSIVE PLACEHOLDERS (D6). Tune from the observed distribution. ──
   select
-    2::integer     as min_distinct_sections,    -- Traverses: a route needs ≥ 2 sections
+    -- Traverses floor. 2 is a PLACEHOLDER and is KNOWN TO BE TOO LOW. A targeted
+    -- trip's route is dictated by its destination, not the store's layout: a
+    -- two-section milk run (dairy, then one other aisle on the way out) "teaches"
+    -- that dairy comes first at BOTH Market Basket (true — dairy is at the
+    -- front) and Hannaford (false — dairy is at the back). The same path at two
+    -- opposite layouts is not evidence about either. Only a trip that crosses
+    -- enough sections for the layout, not the errand, to dictate the order can
+    -- teach aisle order. Raise this from the observed distinct_sections
+    -- distribution across real (non-excluded) households; the reference session
+    -- for what a genuine shop looks like is prod Madbury 8ee6e792 (5 sections).
+    2::integer     as min_distinct_sections,
     2.0::numeric   as min_median_gap_seconds    -- Paced: under this, check order = display order
 ),
 checks as (
