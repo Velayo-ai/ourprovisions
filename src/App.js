@@ -7289,7 +7289,12 @@ const DESKTOP_COLUMN_CSS = `
                    transform: translateX(-50%);  /* centring — and the containing block for every fixed descendant */
                    border-radius: 22px; overflow: hidden; overflow: clip; background: #FAF4EC;
                    box-shadow: 0 26px 60px -14px rgba(20,10,4,.55), 0 0 0 1px rgba(255,255,255,.28); }
-    .phone-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    .phone-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+                    /* No visible scrollbar — the frame's whole argument is that it reads as a phone, and a desktop
+                       bar down the inside edge is the one detail contradicting it. Wheel and trackpad are unaffected;
+                       the content being visibly cut off carries the affordance. Scoped to THIS scroller only. */
+                    scrollbar-width: none; -ms-overflow-style: none; }
+    .phone-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
     .app-root { min-height: 100%; }
   }
 `;
