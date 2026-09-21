@@ -4312,18 +4312,24 @@ function ProvisionsApp() {
   const bannerPhotoUrl = isSignedIn ? (household?.photoUrl || null) : null;
 
   // Desktop column background (2026-09-20, treatment 3): the same household
-  // photo, full-bleed behind the column, scrim 44% + blur 7px — the layer
-  // lives OUTSIDE the column (ShoppingListApp's .desk-bg), so it is handed the
-  // whole background value through a CSS variable on <html>. No photo → the
-  // variable is absent and the layer falls back to the cream field, which is
-  // every new household. The photo appearing twice on desktop — cropped as the
-  // banner inside the column, blurred behind it — is intentional: an echo.
+  // photo, full-bleed behind the column, blur 7px, a 58% scrim (raised from
+  // the mockup's 44% — judged against a BRIGHT photo, the case that needs the
+  // darkening) and a radial vignette on top: clear at the centre behind the
+  // column, darker toward the viewport edges, so focus comes from contrast
+  // rather than uniform darkness. All on the one layer that lives OUTSIDE the
+  // column (ShoppingListApp's .desk-bg), handed the whole background value
+  // through a CSS variable on <html>. No photo → the variable is absent and
+  // the layer falls back to the cream field, which is every new household. The
+  // photo appearing twice on desktop — cropped as the banner inside the column,
+  // blurred behind it — is intentional: an echo.
   useEffect(() => {
     const root = document.documentElement;
     if (bannerPhotoUrl) {
       root.style.setProperty(
         "--op-desk-bg",
-        `linear-gradient(rgba(26,14,6,0.44), rgba(26,14,6,0.44)), url("${bannerPhotoUrl}") center / cover no-repeat #FAF4EC`
+        "radial-gradient(ellipse 62% 70% at 50% 50%, rgba(26,14,6,0) 0%, rgba(26,14,6,0.18) 60%, rgba(26,14,6,0.42) 100%), " +
+        "linear-gradient(rgba(26,14,6,0.58), rgba(26,14,6,0.58)), " +
+        `url("${bannerPhotoUrl}") center / cover no-repeat #FAF4EC`
       );
     } else {
       root.style.removeProperty("--op-desk-bg");
@@ -7272,9 +7278,9 @@ const DESKTOP_COLUMN_CSS = `
     html, body { height: 100%; overflow: hidden; scrollbar-gutter: auto; }
     /* The cream field — what every household without a photo sees, i.e. every new household. */
     body { background: #FAF4EC; }
-    /* The household photo as the room: scrim 44% + blur 7px on THIS layer (a filter on a parent
-       would blur its children). inset -3% ≈ scale 1.06 so the blurred, transparent edges sit
-       outside the viewport instead of leaving a pale halo. */
+    /* The household photo as the room: scrim 58% + radial vignette + blur 7px on THIS layer (a
+       filter on a parent would blur its children). inset -3% ≈ scale 1.06 so the blurred,
+       transparent edges sit outside the viewport instead of leaving a pale halo. */
     .desk-bg { display: block; position: fixed; inset: -3%; z-index: 0; pointer-events: none;
                background: var(--op-desk-bg, #FAF4EC); filter: blur(7px) saturate(.92); }
     /* The honest frame (mockup A): phone-width, centred, soft radius, shadow, a hairline of light. */
