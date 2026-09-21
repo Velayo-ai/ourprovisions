@@ -1,8 +1,12 @@
-// ── The Helm: one nav grammar, two renderers (SPEC_nav_helm.md, D6) ──────────
+// ── The Helm: one nav grammar, ONE renderer (SPEC_nav_helm.md, D6; rail retired 2026-09-20) ──
 // NAV_DOORS is the single source of truth for the app's doors — icons, order and
-// names cannot drift between the phone pill (<Helm />) and the wide rail
-// (<Rail />). The same array is meant to become the fleet nav grammar for the
-// other Our___ apps, so keep it data, not JSX.
+// names. It has exactly one renderer, the pill (<Helm />), at every width: on
+// desktop the app is a phone-width column and the helm lives inside it. The
+// wide rail (<Rail />) was retired 2026-09-20 — a nav rail outside a framed
+// column is a second navigation for the same four doors. The same array is
+// meant to become the fleet nav grammar for the other Our___ apps, so keep it
+// data, not JSX — and "one renderer, helm at every width" is now the grammar
+// they inherit.
 //
 // `view` values are the existing tab state values in App.js: Browse has always
 // been "input" and Shop "list" — do not "tidy" them; every view === "…" branch
@@ -104,30 +108,16 @@ export function viewForHash(hash) {
   return door ? door.view : null;
 }
 
-// D5: past this width the pill unmounts and the same doors render as a rail.
-export const RAIL_MIN_WIDTH = 700;
-export const WIDE_QUERY = `(min-width: ${RAIL_MIN_WIDTH}px)`;
-
-// JS media query (not CSS show/hide) so that exactly ONE of <Helm /> / <Rail />
-// is mounted at any width — the pill's mount-time "no animation" guard and its
-// fixed-position footprint both depend on it truly unmounting on wide.
-export function useMediaQuery(query) {
-  const get = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia(query).matches;
-  const [matches, setMatches] = useState(get);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return undefined;
-    const mql = window.matchMedia(query);
-    const onChange = (e) => setMatches(e.matches);
-    setMatches(mql.matches);
-    if (mql.addEventListener) mql.addEventListener("change", onChange);
-    else mql.addListener(onChange);
-    return () => {
-      if (mql.removeEventListener) mql.removeEventListener("change", onChange);
-      else mql.removeListener(onChange);
-    };
-  }, [query]);
-  return matches;
-}
+// Desktop column (2026-09-20 — mockup_desktop_phone_frame.html option A +
+// mockup_desktop_background_treatment.html treatment 3). Past COLUMN_MIN_WIDTH
+// the app becomes a phone-width column, centred, with a soft radius and shadow,
+// floating on the household photo (scrim 44%, blur 7px); with no photo, the
+// cream field. Below it NOTHING changes. The threshold is the old rail
+// threshold, inherited rather than invented: 700px leaves a 135px gutter each
+// side of a 430px column. Both are consumed by CSS only — there is no JS media
+// query any more, because there is only one nav renderer to mount.
+export const COLUMN_MIN_WIDTH = 700;   // was RAIL_MIN_WIDTH — same value, new job
+export const COLUMN_MAX_WIDTH = 430;
 
 // D9′ (v2, amended 2026-09-12) — the pill is compact EXACTLY when the door's
 // header controls are off-screen. Position-based, not direction-based: the
@@ -160,10 +150,13 @@ export function useScrollCompact(controlRow, { margin = 8 } = {}) {
     };
     const onScroll = () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } };
     update();
-    window.addEventListener("scroll", onScroll, { passive: true });
+    // Capture-phase on the document, not window: scroll events do not bubble,
+    // and on desktop (2026-09-20) the scroll root is the phone column's inner
+    // scroller, not the document. Capture catches both.
+    document.addEventListener("scroll", onScroll, { passive: true, capture: true });
     window.addEventListener("resize", onScroll, { passive: true });
     return () => {
-      window.removeEventListener("scroll", onScroll);
+      document.removeEventListener("scroll", onScroll, { capture: true });
       window.removeEventListener("resize", onScroll);
     };
   }, [controlRow, margin]);

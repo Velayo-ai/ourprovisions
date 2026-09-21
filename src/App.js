@@ -1,7 +1,7 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
-import { NAV_DOORS, useMediaQuery, WIDE_QUERY, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
+import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
@@ -841,41 +841,10 @@ function HomePlaceholder({ firstName, householdName }) {
   );
 }
 
-// D5 — past 700px the pill unmounts and the SAME doors stand in a left rail:
-// width is cheap there and thumb reach doesn't apply. Same NAV_DOORS, same
-// icons, same order, same active treatment (shared .helm-door). No compact
-// state and no + (v2): the Shop header row [count] [Aisles | A–Z] [+] [Wrap up]
-// sits at the top of the body column on wide and is reachable, so the rail
-// carries no trip controls — one + on the screen, not two.
-function Rail({ view, onChange, badgeCount, initials, onAvatar }) {
-  return (
-    <nav className="rail" aria-label="Main">
-      <div className="rail-mark" aria-hidden="true">P</div>
-      {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
-        const active = view === v;
-        return (
-          <button
-            key={key}
-            type="button"
-            className={`helm-door ${active ? "active" : ""}`}
-            aria-current={active ? "page" : undefined}
-            onClick={() => onChange(v)}
-          >
-            <Icon size={20} />
-            <span className="helm-label">{label}</span>
-            {badge && badgeCount > 0 && <span className="badge helm-badge">{badgeCount}</span>}
-          </button>
-        );
-      })}
-      <div className="rail-spacer" />
-      {initials ? (
-        <button type="button" className="rail-avatar" aria-label="Open profile" onClick={onAvatar}>{initials}</button>
-      ) : (
-        <div className="rail-avatar" aria-hidden="true" />
-      )}
-    </nav>
-  );
-}
+// The wide rail (<Rail />, D5) was retired 2026-09-20: on desktop the app is a
+// phone-width column and the helm lives inside it at every width. A nav rail
+// outside a framed column is a second navigation for the same four doors.
+// NAV_DOORS now has exactly one renderer.
 
 function ShopLensSegment({ lens, onChange }) {
   return (
@@ -2597,8 +2566,6 @@ function ProvisionsApp() {
   // D3 (SPEC_rum_dxa_exposure.md): a door hash in the URL at load wins — reload
   // and Back land on the right door. No hash → the landing effect decides.
   const [view, setView] = useState(() => viewForHash(window.location.hash) || "input");
-  // D5: ≥700px mounts <Rail />, below it <Helm /> — exactly one at any width.
-  const isWide = useMediaQuery(WIDE_QUERY);
   // D9′ (amended 2026-09-12): compact exactly when the current door's control
   // row is off-screen. Each door hands its row (or a sentinel at the block's
   // bottom) to `controlRowRef`; only the active door renders one, so at most one
@@ -3031,7 +2998,7 @@ function ProvisionsApp() {
   // `view`; `view` values are untouched and every view === "…" branch still
   // keys on them. Three pieces:
   //   goToDoor  — a nav tap sets view AND pushes the door hash (a history entry,
-  //               so Back walks doors). Passed to <Helm /> and <Rail />.
+  //               so Back walks doors). Passed to <Helm />.
   //   hashchange — Back/forward/typed hash maps back to view; leaving
   //               #/shop/wrap-up closes the Wrap up modal.
   //   mirror    — programmatic view changes (the landing effect) get their hash
@@ -4343,6 +4310,26 @@ function ProvisionsApp() {
   // banner control (spec D3). photoUrl is a signed URL resolved on switch, so it
   // swaps the instant activeHouseholdId changes — no stale frame (spec: swap).
   const bannerPhotoUrl = isSignedIn ? (household?.photoUrl || null) : null;
+
+  // Desktop column background (2026-09-20, treatment 3): the same household
+  // photo, full-bleed behind the column, scrim 44% + blur 7px — the layer
+  // lives OUTSIDE the column (ShoppingListApp's .desk-bg), so it is handed the
+  // whole background value through a CSS variable on <html>. No photo → the
+  // variable is absent and the layer falls back to the cream field, which is
+  // every new household. The photo appearing twice on desktop — cropped as the
+  // banner inside the column, blurred behind it — is intentional: an echo.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (bannerPhotoUrl) {
+      root.style.setProperty(
+        "--op-desk-bg",
+        `linear-gradient(rgba(26,14,6,0.44), rgba(26,14,6,0.44)), url("${bannerPhotoUrl}") center / cover no-repeat #FAF4EC`
+      );
+    } else {
+      root.style.removeProperty("--op-desk-bg");
+    }
+    return () => root.style.removeProperty("--op-desk-bg");
+  }, [bannerPhotoUrl]);
   const bannerHasPhoto = !!bannerPhotoUrl;
   // Dormancy (spec): wordmark choice persists even with no photo, but only takes
   // effect when a photo exists; with no photo the wordmark always renders large.
@@ -4366,7 +4353,7 @@ function ProvisionsApp() {
   const WORDMARK_SHADOW = bannerHasPhoto ? "0 2px 14px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.7)" : "none";
 
   return (
-      <div className="app-root" style={{ fontFamily: "'Georgia', serif", minHeight: "100vh", background: "#FAF4EC", color: "#2C1A0E" }}>
+      <div className="app-root" style={{ fontFamily: "'Georgia', serif", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
       {/* Gated on householdReady for the same reason as the landing effect — the list must have actually arrived, not merely stopped loading — so the landing tab is settled before the splash dissolves and there is no flash of Browse before Shop; the 5s failsafe still bounds it. */}
@@ -4452,24 +4439,17 @@ function ProvisionsApp() {
       {/* The Helm — floating nav pill (SPEC_nav_helm.md). Fixed, outside the
           scrolling content, z-index 900: over content, under sheets (1000) and
           the bottom status stack (2000). Not a bottom-centred STATUS surface, so
-          it is deliberately not inside the stack; the stack sits above it. */}
-      {isWide ? (
-        <Rail
-          view={view}
-          onChange={goToDoor}
-          badgeCount={totalItems - checkedCount}
-          initials={isSignedIn ? `${user?.firstName?.[0] || ""}${user?.lastName?.[0] || ""}` : ""}
-          onAvatar={() => setShowProfileSheet(true)}
-        />
-      ) : (
-        <Helm
-          view={view}
-          onChange={goToDoor}
-          badgeCount={totalItems - checkedCount}
-          compact={scrollCompact && view !== "home"}
-          onPlus={doorAdd[view] || null}
-        />
-      )}
+          it is deliberately not inside the stack; the stack sits above it.
+          The ONLY nav renderer at every width (rail retired 2026-09-20): on
+          desktop the pill anchors to the phone column, because the column's
+          transform makes it the containing block for every fixed descendant. */}
+      <Helm
+        view={view}
+        onChange={goToDoor}
+        badgeCount={totalItems - checkedCount}
+        compact={scrollCompact && view !== "home"}
+        onPlus={doorAdd[view] || null}
+      />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
@@ -4555,22 +4535,13 @@ function ProvisionsApp() {
         .home-greeting { font-family: 'Playfair Display', serif; font-size: 1.4rem; line-height: 1.2; color: #2C1A0E; }
         .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
         .home-promise { font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.5; color: #5c4a36; margin-top: 22px; max-width: 34ch; }
-        /* §6 — every scrolling root clears the pill; the document is the scroll root here. Off on wide (rail). */
-        .app-root { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+        /* §6 — every scrolling root clears the pill. The pill is present at EVERY width (rail retired 2026-09-20);
+           on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
+        .app-root { min-height: 100vh; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
         .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(90px + env(safe-area-inset-bottom)); pointer-events: none; z-index: 899;
                      background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
-        @media (min-width: 700px) { .app-root { padding-bottom: 0; padding-left: 84px; } }
-        /* ── The Rail (D5) — the same doors as an 84px espresso column on wide. ── */
-        .rail { position: fixed; left: 0; top: 0; bottom: 0; width: 84px; z-index: 900; background: #2C1A0E;
-                display: flex; flex-direction: column; align-items: center; padding: calc(18px + env(safe-area-inset-top)) 0 16px; }
-        .rail-mark { font-family: 'Playfair Display', serif; color: #FAF4EC; font-size: 1.4rem; margin-bottom: 26px; }
-        .rail .helm-door { flex: 0 0 auto; width: 64px; height: 60px; margin: 4px 0; border-radius: 14px; }
-        .rail-spacer { flex: 1; }
-        .rail-avatar { width: 34px; height: 34px; border-radius: 50%; border: none; background: #A0724A; color: #FAF4EC; cursor: pointer;
-                       font-family: 'Playfair Display', serif; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; }
-        /* Bottom status stack rides above the pill on phone; back to the edge on wide where the pill is gone. */
+        /* Bottom status stack rides above the pill — at every width now. */
         .bottom-stack { bottom: calc(92px + env(safe-area-inset-bottom)); }
-        @media (min-width: 700px) { .bottom-stack { bottom: 24px; } }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
         /* Budget banner */
@@ -4597,7 +4568,8 @@ function ProvisionsApp() {
         .category-block { margin-bottom: 28px; }
         .cat-title { font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: #A0724A; border-bottom: 2px solid #E8D5B7; padding-bottom: 8px; margin-bottom: 12px; }
         .items-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-        @media(max-width: 520px) { .items-grid { grid-template-columns: 1fr; } }
+        /* One column on phones, and one column inside the desktop phone column (it is 430px wide, whatever the window is). */
+        @media (max-width: 520px), (min-width: ${COLUMN_MIN_WIDTH}px) { .items-grid { grid-template-columns: 1fr; } }
         .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; -webkit-tap-highlight-color: transparent; }
         @media (hover: hover) { .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); } }
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
@@ -4922,10 +4894,10 @@ function ProvisionsApp() {
             </button>
           )}
           <div>
-            {/* On wide the rail's foot avatar opens the same Profile sheet, so the
-                header trigger steps aside — one DH, not two. Phone keeps it. The
+            {/* The header avatar is the one Profile trigger at every width
+                (the rail's foot avatar went with the rail, 2026-09-20). The
                 wrapping div stays so the row's space-between geometry is unchanged. */}
-            {isSignedIn ? (isWide ? null : (
+            {isSignedIn ? (
               <button
                 onClick={() => setShowProfileSheet(true)}
                 style={{
@@ -4940,7 +4912,7 @@ function ProvisionsApp() {
               >
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </button>
-            )) : !isLoaded ? (
+            ) : !isLoaded ? (
               // Clerk not loaded yet: render the buttons immediately (no layout
               // shift) but DISABLED, so a click can't hit a not-yet-wired modal
               // trigger. On a cold load the SignInButton/SignUpButton modal handlers
@@ -7213,11 +7185,24 @@ export default function ShoppingListApp() {
 
   return (
     <ConnectivityProvider>
-      <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id} onRemoval={onRemoval}>
-        <HouseholdDebugLog />
-        <ProvisionsApp />
-      </ActiveHouseholdProvider>
-      {systemMessage && (
+      {/* Desktop column (2026-09-20 — mockup A + background treatment 3). On phones
+          all three wrappers are inert: no styles apply below COLUMN_MIN_WIDTH. On
+          desktop: .desk-bg is the household photo full-bleed (scrim + blur on THIS
+          layer, never on the container — filter on a parent blurs its children;
+          overscanned so blurred edges never show a pale halo); .phone-frame is the
+          fixed, centred, phone-width column with the radius and shadow, and its
+          transform makes it the containing block for every position:fixed
+          descendant (helm, sheets, toasts, overlays, the system message below) so
+          they anchor to the column, not the window; .phone-scroll is the column's
+          own scroll root. */}
+      <div className="desk-bg" aria-hidden="true" />
+      <div className="phone-frame">
+        <div className="phone-scroll">
+          <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id} onRemoval={onRemoval}>
+            <HouseholdDebugLog />
+            <ProvisionsApp />
+          </ActiveHouseholdProvider>
+          {systemMessage && (
         <>
           <style>{`@keyframes shrinkBar { from { width: 100% } to { width: 0% } }`}</style>
           <div style={{
@@ -7268,6 +7253,35 @@ export default function ShoppingListApp() {
           </div>
         </>
       )}
+        </div>
+      </div>
+      <style>{DESKTOP_COLUMN_CSS}</style>
     </ConnectivityProvider>
   );
 }
+
+// Desktop column CSS (2026-09-20). Every rule is inside the min-width query, so
+// phones are untouched by construction — the wrappers exist there as plain
+// blocks with no styling at all.
+const DESKTOP_COLUMN_CSS = `
+  .desk-bg { display: none; }
+  @media (min-width: ${COLUMN_MIN_WIDTH}px) {
+    /* The column scrolls, not the document. */
+    html, body { height: 100%; overflow: hidden; }
+    /* The cream field — what every household without a photo sees, i.e. every new household. */
+    body { background: #FAF4EC; }
+    /* The household photo as the room: scrim 44% + blur 7px on THIS layer (a filter on a parent
+       would blur its children). inset -3% ≈ scale 1.06 so the blurred, transparent edges sit
+       outside the viewport instead of leaving a pale halo. */
+    .desk-bg { display: block; position: fixed; inset: -3%; z-index: 0; pointer-events: none;
+               background: var(--op-desk-bg, #FAF4EC); filter: blur(7px) saturate(.92); }
+    /* The honest frame (mockup A): phone-width, centred, soft radius, shadow, a hairline of light. */
+    .phone-frame { position: fixed; top: 24px; bottom: 24px; left: 50%; z-index: 1;
+                   width: ${COLUMN_MAX_WIDTH}px; max-width: calc(100vw - 48px);
+                   transform: translateX(-50%);  /* centring — and the containing block for every fixed descendant */
+                   border-radius: 22px; overflow: hidden; overflow: clip; background: #FAF4EC;
+                   box-shadow: 0 26px 60px -14px rgba(20,10,4,.55), 0 0 0 1px rgba(255,255,255,.28); }
+    .phone-scroll { height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+    .app-root { min-height: 100%; }
+  }
+`;
