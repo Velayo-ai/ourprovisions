@@ -104,6 +104,16 @@ gaps as (
 measures as (
   select
     session_id,
+    -- ⚠️ check_count and median_gap_seconds are both INFLATED BY DUPLICATE
+    -- CHECKED EVENTS: one tap can record two `checked` rows for the same item
+    -- (dev: Lemons, list_item 913fe976, session 5409f851, 2026-09-15 15:43:08
+    -- and 15:43:09 — 1.28s apart; prod: six same-item pairs 0.66–8.14s apart
+    -- across real sessions, e.g. Frozen Corn in fe8bafb4). A duplicate raises
+    -- check_count by one and inserts a near-zero gap, pulling the median DOWN
+    -- and biasing the Paced leg toward REJECTING real trips. Fix the duplicate
+    -- defect before tuning either floor, or the thresholds get fitted to
+    -- corrupted measurements. See ROADMAP NEXT "Duplicate `checked` events
+    -- from one tap corrupt the 053 measurements" (2026-09-20).
     count(*)                                              as check_count,
     count(distinct category)                              as distinct_sections,
     percentile_cont(0.5) within group (order by gap_s)    as median_gap_seconds,
