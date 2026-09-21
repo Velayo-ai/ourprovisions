@@ -31,7 +31,7 @@ OurProvisions is a collaborative household grocery and provisioning app. It is A
 
 - **Org:** `Velayo-ai` on GitHub (canonical remote — stale clones may show `dan-velayo/ourprovisions`)
 - **Dev branch:** `dev` — all active work committed here first
-- **Production branch:** `main` — merge dev → main; Vercel auto-deploys
+- **Production branch:** `main` — Vercel auto-deploys. **Promotion is by `git cherry-pick` (or a hand-authored commit), never a `dev → main` merge** *(rule since 2026-09-06; reason rewritten 2026-09-20)*. **Why, as of 2026-09-20:** `main` has only ever received picks, so `main..dev` is ~130 commits by history while carrying the same fixes; a merge would ship two things that are deliberately held — **the 14 meal-planning board commits** (`a596cb0..cc9303e`, dev-only client for the 047–052 schema) and **the `rum.js` session-replay masking split** (`d29adb0` / `c2f98f7`, on hold since 2026-09-11; prod's recorder block is kept byte-identical through every pick). *The earlier reason — that a merge would ship "Ask the Galley" to a prod with no Edge Function, `ANTHROPIC_API_KEY` or `CLERK_ISSUER` — is no longer true: `main` has carried Ask the Galley and prod's `meal-suggestion` Edge Function has been ACTIVE with its secrets since 2026-09-09. Do not re-derive merge safety from that check.* A docs commit is never promoted; when a picked commit bundles `docs/`, pick with `--no-commit` and restore `main`'s docs before committing (the 054 client pick, `41fda5e`).
 - **Local path:** `C:\Users\mr_dh\ourprovisions`
 
 ### docs/ layout — spec lifecycle folders *(physical since 2026-07-11, `0303397`)*
@@ -1194,7 +1194,7 @@ The live policy (effective 2026-03-23) describes email-for-waitlist on a brochur
 >
 > ⚠️ **`insert_list_item` is `anon`-executable on prod and its body contains NO `is_member_of()` guard** — verified against the live definition before *and* after `026`. `CREATE OR REPLACE` preserves the existing ACL, so `026` neither caused nor closed this. The grant is the only gate. Tracked as its own NEXT item, opened 2026-08-18.
 >
-> ⚠️ **The meals UI still does not reach prod users** — that is gated separately on `dev→main`, which stays closed until the Meals lens is user-complete. `createMeal` exists in the hook and nothing calls it yet.
+> ~~⚠️ **The meals UI still does not reach prod users** — that is gated separately on `dev→main`, which stays closed until the Meals lens is user-complete. `createMeal` exists in the hook and nothing calls it yet.~~ **STALE — corrected 2026-09-20:** meals (add path, create/edit meal, Ask the Galley) have been LIVE ON PROD since 2026-08-21 / 2026-09-09 by hand-authored promotes. What stays off prod today is the **meal-planning board** (047–052's client, 14 dev-only commits) — see "Repository & Git Workflow" for the current promotion rule and its reasons.
 >
 > **✅ UI STATUS UPDATED 2026-08-19 — the Meals lens is LIVE ON THE PLAN TAB, DEV ONLY (commit `ea1c170`).** `MEALS_ENABLED = true` (was `false`; the stale "hidden until `025`/`026` reach prod" comment was rewritten — that condition is met). **The relocation out of Browse is executed, not pending** — see *Nav / IA* below for the as-built render tree. **`main` is still untouched**, so the sentence above holds for prod users: the tab exists only on the dev preview. `createMeal` **still has no caller**, so PLAN is populated by `dev_meals_seed.sql` and cannot be populated by a user.
 
