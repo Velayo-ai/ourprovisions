@@ -1285,7 +1285,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const me = internalUserIdRef.current;
     const { data: open, error: openErr } = await db
       .from("shopping_sessions")
-      .select("id, household_id, cycle_id, user_id, store_id, store_name_raw, started_at, ended_at")
+      .select("id, household_id, cycle_id, user_id, store_id, store_name_raw, started_at, ended_at, gps_lat, gps_lng")
       .eq("household_id", householdId)
       .is("ended_at", null)
       .order("started_at", { ascending: false });
@@ -1360,16 +1360,39 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Writes store_name_raw on the caller's OWN open session (032:
   // sessions_update_own). Reads the row back rather than trusting the 2xx —
   // a write no policy admits matches zero rows and raises no error (041).
+  //
+  // 054 (SPEC_store_identity.md): the store is IDENTIFIED through resolve_store,
+  // the only write path to stores / known_stores. It returns the household's
+  // known_stores.id, which becomes shopping_sessions.store_id (session → link →
+  // store, D2). The session's own captured GPS rides along; with none, the
+  // resolver matches this household's history only. Identify, never describe:
+  // no new UI, the prompt's copy and chips are untouched. Resolution never
+  // blocks the shopper — on any failure the raw name is still written and the
+  // trip is simply unanchored (053's Anchored leg reads no_store).
   const setSessionStore = useCallback(async (name) => {
     const db = supabaseRef.current;
     const cur = activeSessionRef.current;
     const clean = (name || "").trim();
     if (!db || !cur || !clean) return false;
+    let storeId = null;
+    try {
+      const { data: resolved, error: resolveErr } = await db.rpc("resolve_store", {
+        p_household_id: cur.household_id,
+        p_name_raw: clean,
+        p_lat: cur.gps_lat ?? null,
+        p_lng: cur.gps_lng ?? null,
+      });
+      if (resolveErr) console.warn("resolve_store:", resolveErr.message);
+      else storeId = resolved || null;
+    } catch (e) {
+      console.warn("resolve_store:", e?.message || e);
+    }
+    const patch = storeId ? { store_name_raw: clean, store_id: storeId } : { store_name_raw: clean };
     const { data, error: storeErr } = await db
       .from("shopping_sessions")
-      .update({ store_name_raw: clean })
+      .update(patch)
       .eq("id", cur.id)
-      .select("id, household_id, cycle_id, user_id, store_id, store_name_raw, started_at, ended_at")
+      .select("id, household_id, cycle_id, user_id, store_id, store_name_raw, started_at, ended_at, gps_lat, gps_lng")
       .maybeSingle();
     if (storeErr || !data) {
       console.warn("setSessionStore:", storeErr?.message || "no row updated");
