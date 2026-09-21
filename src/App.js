@@ -7266,8 +7266,10 @@ export default function ShoppingListApp() {
 const DESKTOP_COLUMN_CSS = `
   .desk-bg { display: none; }
   @media (min-width: ${COLUMN_MIN_WIDTH}px) {
-    /* The column scrolls, not the document. */
-    html, body { height: 100%; overflow: hidden; }
+    /* The column scrolls, not the document — and the document's reserved scrollbar gutter
+       (scrollbar-gutter: stable on html, app-wide) is released here: with nothing to scroll it
+       only painted a pale 15px strip down the right edge that the fixed background never covers. */
+    html, body { height: 100%; overflow: hidden; scrollbar-gutter: auto; }
     /* The cream field — what every household without a photo sees, i.e. every new household. */
     body { background: #FAF4EC; }
     /* The household photo as the room: scrim 44% + blur 7px on THIS layer (a filter on a parent
