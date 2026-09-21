@@ -42,10 +42,16 @@ const CLERK_EXCLUDE_RULES = [
 
 // Skip init if no token (prevents boot errors in local dev without env set)
 if (rumToken) {
-  // Drives the DXA click-text `privacy` block below only. The session-replay
-  // masking split (dev unmasked / prod masked, SPEC_rum_session_replay_masking.md)
-  // is still ON HOLD for prod per the 2026-09-11 decision — the recorder block
-  // further down is main's, byte-for-byte; do not fold isProd into it here.
+  // Session replay masking is SPLIT BY ENVIRONMENT — this conditional is
+  // deliberate; do not "clean up" isProd back to one global setting.
+  // See SPEC_rum_session_replay_masking.md under docs/specs/.
+  //   dev  -> inputs/text UNMASKED: full debugging value, audience is Dan and
+  //           dev-preview testers who know this is actively instrumented.
+  //   prod -> inputs/text MASKED: real beta household/friends-and-family users
+  //           who have not been told replay may capture literal keystrokes.
+  // The same split drives the DXA click-text `privacy` block below, with a
+  // tighter prod rule (allow-list, never `body`).
+  // Order matters: general first, specific last; exclude is absolute.
   const isProd = deployEnv === 'production'; // exact Vercel prod value, confirmed 2026-09-03
 
   SplunkOtelWeb.init({
@@ -80,17 +86,6 @@ if (rumToken) {
   });
   rumReady = true;
 
-  // Session replay masking is SPLIT BY ENVIRONMENT — this conditional is
-  // deliberate; do not "clean up" isProd back to one global setting.
-  // See SPEC_rum_session_replay_masking.md under docs/specs/.
-  //   dev  -> inputs/text UNMASKED: full debugging value, audience is Dan and
-  //           dev-preview testers who know this is actively instrumented.
-  //   prod -> inputs/text MASKED: real beta household/friends-and-family users
-  //           who have not been told replay may capture literal keystrokes.
-  // The Clerk auth UI (login, password, MFA/OTP) is excluded UNCONDITIONALLY in
-  // BOTH environments — that is a floor, not an environment-dependent choice.
-  // Order matters: general first, specific last; exclude is absolute.
-  const isProd = deployEnv === 'production'; // exact Vercel prod value, confirmed 2026-09-03
   SplunkSessionRecorder.init({
     realm: 'us1',
     rumAccessToken: rumToken,
@@ -100,8 +95,7 @@ if (rumToken) {
       // An unmask rule BEATS maskAllInputs/maskAllText, so on prod it must not
       // be in the array at all — not merely set to something weaker.
       ...(isProd ? [] : [{ rule: 'unmask', selector: 'body' }]),
-      { rule: 'exclude', selector: '[class*="cl-"]' },
-      { rule: 'exclude', selector: '#clerk-components' },
+      ...CLERK_EXCLUDE_RULES,
     ],
   });
 } else {
