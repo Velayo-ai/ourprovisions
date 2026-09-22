@@ -40,13 +40,15 @@ One verb per door:
 | 1 | **Library card has ONE action: Plan.** Add is removed from the library. | Two intentions (pick, commit) happen at different moments; two buttons on one card is UI for a state machine. The double-tap cost is absorbed by Add-all on the board. |
 | 2 | **"Lock in" → "Add to Shop"** in all copy. `lockIn` / `lockInAll` keep their names in the hook. | It is literally the same action as adding an item, so it gets the same word. "Lock in" implied finality the action doesn't have. Copy change only — no churn in the hook or in 050/052's comments. |
 | 3 | **Mid-trip meal adds stay realtime — no gate, no confirm, no warning.** | A meal add during an open session behaves exactly as a manual item add; the list is live and a meal is a faster way to type N items. Revisit only on observed friction; the tell is items added mid-session that go unbought and roll. |
-| 4 | **Teal = the household finished something.** Wrap up in Shop; Cooked it and the Ready state on the board. Nothing else — no teal on Plan, Add to Shop, filters, links, chips, or counts. | Scarcity by *when*, not by count. A screen of teal after Wrap up is the reward, not dilution. This closes the button-colour question open since 2026-08-20. |
+| 4 | **Teal = the household finished something.** Wrap up in Shop; Cooked it (and its ✓ Cooked afterglow) on the board. Nothing else — no teal on Plan, Add to Shop, filters, links, chips, or counts. | Scarcity by *when*, not by count. A screen of teal after Wrap up is the reward, not dilution. This closes the button-colour question open since 2026-08-20. |
 | 5 | **Numbered tile replaces rail + colour block.** One tile per card carries `01` + rail word (Up next / Then / Later) on the meal's colour. Card is two columns. | The block read as a missing photo; the number makes its absence designed and reinforces drag order. Fixes the 430px wrap. A household photo later slides *under* the number — the number is an overlay, not the tile. |
 | 6 | **Cooked it leaves the Planned card.** Planned card has one button (Add to Shop); Cooked it and the future recipe sheet live behind ⋯. | The rare path (freezer pizza) was sitting at equal weight to the common one, and two buttons didn't fit at 390px. |
 | 7 | **No-shop placements — Leftovers and Eating out.** They hold a night, never touch the list, never become Ready, have no outcome action. × is the only exit. | People who map every night need them. No Cooked it / Ate out until someone asks — that's future analytics, not v2. |
 | 8 | **No-shop cards are `meals` rows with `kind`, not a nullable `meal_id` on placements.** | See Architecture — the placements PK is `(household_id, meal_id)` and every reader keys on `meal_id`. Reversal of the design-chat lean; the PK decides it. |
 | 10 | **PLAN is a week-of-food board, not a meal planner** (2026-09-21). Every card is a plan for a night; some plans need provisions. Meals, Leftovers, Eating out and Something else are **kinds** of plan, not states. States stay three. | Falls out of the no-shop cards: once two kinds existed, a third ("Something else") cost one CHECK value, and the model reads cleaner with kinds orthogonal to states. |
 | 11 | **The board shows no destructive control at rest on a meal card** (2026-09-21). Remove lives behind ⋯; the card's face carries one primary action and the drag grip. No-shop cards keep × because it is their only action. | A week of food should read as plans, not as things to delete. The rare path goes one tap deeper; the common one stays on the face. |
+| 12 | **A state chip shows only while the state is incomplete** (2026-09-21): PLANNED and TO BUY. Ready has no chip — the banner and the teal button carry it. | A chip that says "done" is decoration; the teal button already says it. |
+| 13 | **Cooked it mutes the card in place until the next board load** (2026-09-21). The placement closes via `cooked_at` exactly as before; upNext, counts and numbering exclude it at once; only the rendered card lingers, at 55%, as ✓ Cooked. **The board remains what's left to cook** — the week's record is a Home/history feature (ROADMAP NEXT), not the queue. | Tapping Cooked it and watching the card vanish reads as a mistake; a moment of afterglow confirms the act without turning the queue into a log. |
 | 9 | **Photos stay out.** The library's optional image seam stays; nothing in v2 renders one. | Prove the interaction as type, colour, state and motion first. |
 
 ---
@@ -57,7 +59,8 @@ One verb per door:
 |---|---|---|---|---|---|
 | **Planned** | open placement, no live rows, `ready_at` null | meal colour | PLANNED (muted) | Not on the list yet | **Add to Shop** (outline) · ⋯ (Remove · Cooked it · Open recipe) |
 | **To buy** | ≥1 live pending row | meal colour | TO BUY (muted) | "N to buy" / "B of N in cart" | **See on list** (outline) · ⋯ (Remove · Open recipe) |
-| **Ready** | `ready_at` set | meal colour | READY (teal) | Everything's in — go cook | **Cooked it** (teal fill) · ⋯ (Remove · Open recipe) |
+| **Ready** | `ready_at` set | meal colour | — (no chip: a state chip shows only while the state is incomplete) | Everything's in — go cook | **Cooked it** (teal fill) · ⋯ (Remove · Open recipe) |
+| **Cooked** (this board load only) | `cooked_at` set by Cooked it during this load | tile + text at 55% opacity, ✓ in place of the number, no rail word | — | — | **✓ Cooked** (teal outline, disabled) · no grip, no ⋯, no drag. Excluded from upNext, counts and numbering at once; leaves on the next board load |
 
 A meal card's right side is exactly: **chip + grip** on the top row, **action + ⋯** on the bottom row. **No destructive control at rest on a meal card** — Remove lives behind ⋯ (rule logged 2026-09-21). No-shop cards keep their × (it is their only action) and have no ⋯.
 | **Leftovers** | `meals.kind = 'leftovers'`, open placement | cream `#EFE9DE`, espresso text, word LEFTOVERS under number; dashed card | — (no chip, no state line) | "From Chicken Curry" / "From Chicken Curry, Pizza" / "From Chicken Curry, Pizza + 1" over `from_meal_ids`, or nothing | × · grip · drag |
@@ -69,7 +72,7 @@ A meal card's right side is exactly: **chip + grip** on the top row, **action + 
   - N ≥ 2: `"{n} nights · {N} meals to add to Shop →"` — **"add to Shop →"** is one tap target (underlined, espresso, 44px invisible padding); calls `lockInAll`.
   - N = 1: `"{n} nights · 1 meal to add to Shop"` — plain text, no link; the card's own Add to Shop is the affordance.
   - N = 0, any To buy: `"{n} nights · Everything's in Shop ✓"`.
-  - all meals Ready: `"{n} nights · stocked"`.
+  - all meals Ready: `"{n} nights · ready"`.
   - no meals at all: `"{n} nights"`.
   No "still". (Amended 2026-09-21.)
 - Right side: **+ Meals** (outline) → library, **always** — the board must never lose its door to more meals. The header follows the Browse/Shop pattern: it is the door's control row and the compact sentinel — when it scrolls off, the nav collapses and its + does what the header's + does (on Plan, open the library). The subtitle carries the count and the batch action ("4 nights · 2 meals to add to Shop →" — the ladder above). **No bar of any kind, and no action on the drag prose** — the batch action lives in the subtitle ladder above. The prompt stays two lines: *What sounds good next?* / *Drag meals into the order you want them.* (Amended 2026-09-21, five passes: the first build swapped + Meals for Add-N and left no entry to the library once anything was planned; the second put both in the header; the third had a full-width sand bar; the fourth an outline row; the fifth a link on the drag prose. Premium here means less.)
@@ -158,7 +161,7 @@ alter table meals add constraint meals_kind_check check (kind in ('meal', 'lefto
 - No-shop foot buttons → `planNoShop`. Leftovers opens a one-field sheet: a **multi-select (checkboxes, no minimum)** over the board's open meals + meals with `cooked_at` in the last two cycles. Eating out opens a one-field sheet: optional place name. Something else opens a one-field sheet: a free name (soccer, Mom's, takeout, no idea yet).
 - Meal cards: nothing functional removed, but tightened — one line of vertical rhythm between name / chip / line / button; the grip sits in the title row (× only on no-shop cards, same grey). No new decoration.
 - Rename every "Lock in" string. `grep -n "Lock in" src/` must return nothing when done.
-- Colour: replace teal on Plan / Add / filters / links / chips with espresso or outline. Teal only on Cooked it, the READY chip, and the stocked banner.
+- Colour: replace teal on Plan / Add / filters / links / chips with espresso or outline. Teal only on Cooked it / ✓ Cooked and the stocked banner. No READY chip (amended 2026-09-21).
 
 ---
 
@@ -182,11 +185,11 @@ alter table meals add constraint meals_kind_check check (kind in ('meal', 'lefto
 3. **add to Shop →** (subtitle, N = 2) runs both Planned cards in queue order, one toast, link gone at N = 0. Subtitle reads "Everything's in Shop ✓". Sand banner appears.
 4. **Mid-trip add:** account B plans + adds a meal while account A has an open session. Items appear on A's list live, no prompt on either side.
 5. **Wrap up** → every locked-in card Ready, teal banner *Everything's in. Go cook.* A card that was Planned (never added) stays Planned — 052 holds.
-6. **Cooked it** closes the placement; the next card becomes Up next; numbers renumber.
+6. **Cooked it** closes the placement; the next card becomes Up next; numbers renumber. The cooked card mutes in place (✓ Cooked, teal outline, disabled, grip hidden) until the next board load, then leaves.
 7. **Leftovers:** foot button → sheet → card 0N with LEFTOVERS and "From Porterhouse". Not in the library. Never on Shop. Survives Wrap up unchanged (not Ready). × removes it; the meals row is soft-deleted; it cannot be re-added.
 8. **Eating out** the same with a place name and without.
 9. **Header counts:** "4 meals" with only meals; "6 nights" once a no-shop card exists.
-10. **Colour audit:** with the board in Planned/To buy states, zero teal on Plan, Board, Library. After Wrap up, teal on READY chips, Cooked it, and the banner only. Shop's Wrap up unchanged.
+10. **Colour audit:** with the board in Planned/To buy states, zero teal on Plan, Board, Library. After Wrap up, teal on Cooked it (then ✓ Cooked) and the banner only. Shop's Wrap up unchanged.
 11. **430px:** no card wraps or overlaps in the desktop frame (the ROADMAP bug).
 12. `grep -rn "Lock in" src/` → nothing. Console clean.
 

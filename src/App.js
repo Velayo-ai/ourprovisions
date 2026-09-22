@@ -1040,7 +1040,7 @@ const MEALS_ENABLED = true;
 // earned at Wrap up. 055 adds meals.kind for the two no-shop cards.
 //
 // TEAL = THE HOUSEHOLD FINISHED SOMETHING. On this surface it appears on
-// exactly three things: the READY chip, Cooked it, and the stocked banner.
+// exactly two things: Cooked it (then ✓ Cooked) and the stocked banner.
 // Plan, Add to Shop, See on list, filters, links, counts — espresso or outline.
 //
 // TILE TONES. One numbered tile per card carries "01" + the rail word on the
@@ -1130,7 +1130,10 @@ function railWord(i, n) {
 //   To buy     ≥ 1 live pending row
 //              chip TO BUY · "N to buy" / "B of N in cart" · See on list
 //   Ready      ready_at set (earned at Wrap up, never at an in-cart tap)
-//              chip READY (teal) · "Everything's in — go cook" · Cooked it (teal)
+//              NO chip (a chip shows only while the state is incomplete) ·
+//              "Everything's in — go cook" · Cooked it (teal)
+//   Cooked     this board load only: muted in place, ✓ Cooked (teal outline,
+//              disabled), no grip, no number; gone on the next board load
 //   Leftovers  meals.kind = 'leftovers'   cream tile, dashed card, NO chip and
 //   Eating out meals.kind = 'out'         NO state line — name, one context
 //   Something  meals.kind = 'other' (057)  line (From X / Oak House / the free
@@ -1156,7 +1159,12 @@ function railWord(i, n) {
 const BOARD_PRESS_MS = 350;
 const BOARD_SLOP_PX = 8;
 const BOARD_CONTROLS = ".board-x, .board-cook, .board-lock, .board-see, .board-more, .board-menu";
-function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
+function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
+  // A card cooked THIS board load stays in place, muted, until the next load
+  // (cookedIds, owned by App). It is not in the queue: no drag, no number, no
+  // rail word, excluded from upNext / counts / numbering.
+  const isCooked = (m) => !!cookedIds?.has(m.id);
+  const openCount = meals.filter((m) => !isCooked(m)).length;
   const [drag, setDrag] = useState(null);   // { id, from, to, dy, snapshot, slots }
   const [menuFor, setMenuFor] = useState(null);   // meal id whose ⋯ menu is open
   const pressRef = useRef(null);            // { id, index, pointerId, x, y, timer, el }
@@ -1192,7 +1200,8 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
   const onPointerDown = (e, m, index) => {
     if (e.button != null && e.button !== 0) return;
     if (e.target.closest(BOARD_CONTROLS)) return;
-    if (meals.length < 2) return;             // nothing to reorder
+    if (isCooked(m)) return;                  // a cooked card has left the queue
+    if (openCount < 2) return;                // nothing to reorder
     clearPress();
     const pr = { id: m.id, index, pointerId: e.pointerId, x: e.clientX, y: e.clientY, el: e.currentTarget, timer: null };
     pr.timer = setTimeout(() => { if (pressRef.current === pr) lift(pr); }, BOARD_PRESS_MS);
@@ -1225,7 +1234,7 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
       const ids = d.snapshot.map((m) => m.id);
       const [moved] = ids.splice(d.from, 1);
       ids.splice(d.to, 0, moved);
-      onReorder(ids);
+      onReorder(ids.filter((id) => !cookedIds?.has(id)));
     }
   };
 
@@ -1234,24 +1243,37 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
   }
   const list = drag ? drag.snapshot : meals;
   const gap = 8;
+  // Numbering runs over the OPEN cards in their projected order (the finger's
+  // order while a drag is live), so a cooked card never holds a number and the
+  // rest renumber around it immediately.
+  const projected = drag
+    ? (() => { const a = list.slice(); const [mv] = a.splice(drag.from, 1); a.splice(drag.to, 0, mv); return a; })()
+    : list;
+  const openOrder = projected.filter((x) => !isCooked(x)).map((x) => x.id);
   return (
     <div className="board">
       {menuFor && <div className="board-menu-backdrop" onClick={(e) => { e.stopPropagation(); setMenuFor(null); }} />}
       {list.map((m, i) => {
         const busy = busyMealId === m.id;
         const noShop = isNoShop(m);
-        const ready = !noShop && !!placements?.[m.id]?.readyAt;
+        const cooked = isCooked(m);
+        const ready = !noShop && !cooked && !!placements?.[m.id]?.readyAt;
         const rc = rows?.[m.id] || { total: 0, bought: 0 };
-        const planned = !noShop && !ready && rc.total === 0;
-        const toBuy = !noShop && !ready && rc.total > 0;
+        const planned = !noShop && !cooked && !ready && rc.total === 0;
+        const toBuy = !noShop && !cooked && !ready && rc.total > 0;
+        const ordinal = openOrder.indexOf(m.id);
         // A planned meal with no ingredients has nothing to add — no button;
         // its exit is Cooked it (⋯) or ×. Add all skips it the same way.
         const canAdd = planned && (m.meal_ingredients || []).length > 0;
         const tone = mealTone(m);
-        const chip = ready ? "Ready" : toBuy ? "To buy" : planned ? "Planned" : null;
+        // A state chip shows only while the state is INCOMPLETE (Planned, To buy).
+        // Ready is carried by the banner and the teal button; no READY chip.
+        const chip = toBuy ? "To buy" : planned ? "Planned" : null;
         let title = m.name;
         let line;
-        if (noShop) {
+        if (cooked) {
+          line = "";
+        } else if (noShop) {
           // Name + the one context line; no filler when there is none.
           title = m.kind === "other" ? (noShopName(m) || "Something else") : noShopLabel(m);
           line = m.kind === "leftovers" ? leftoversLine(m, mealById)
@@ -1265,29 +1287,26 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
           line = rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart` : `${rc.total} to buy`;
         }
         const lifted = drag && drag.id === m.id;
-        // `pos` is the card's PROJECTED queue position while a drag is live —
-        // the number and rail word follow the finger, not the drop. The same
-        // arithmetic drives the slide transforms below, so what the eye sees
-        // moving and what the tile says always agree.
-        let pos = i;
+        // Slide transforms while a drag is live; the number and rail word come
+        // from `ordinal` (openOrder, the same projected order), so what the eye
+        // sees moving and what the tile says always agree.
         let transform;
         if (drag) {
           if (lifted) {
-            pos = drag.to;
             transform = `translateY(${drag.dy}px)`;
           } else {
             const h = drag.slots[drag.from].height + gap;
-            if (drag.from < drag.to && i > drag.from && i <= drag.to) { pos = i - 1; transform = `translateY(${-h}px)`; }
-            else if (drag.to < drag.from && i >= drag.to && i < drag.from) { pos = i + 1; transform = `translateY(${h}px)`; }
+            if (drag.from < drag.to && i > drag.from && i <= drag.to) transform = `translateY(${-h}px)`;
+            else if (drag.to < drag.from && i >= drag.to && i < drag.from) transform = `translateY(${h}px)`;
           }
         }
-        const open = () => { if (!noShop) onOpen(m); };
+        const open = () => { if (!noShop && !cooked) onOpen(m); };
         return (
           <div
             key={m.id}
-            className={`board-card${lifted ? " lifted" : ""}${ready ? " ready" : ""}${noShop ? " noshop" : ""}`}
-            role={noShop ? undefined : "button"}
-            tabIndex={noShop ? undefined : 0}
+            className={`board-card${lifted ? " lifted" : ""}${ready ? " ready" : ""}${noShop ? " noshop" : ""}${cooked ? " cooked" : ""}`}
+            role={noShop || cooked ? undefined : "button"}
+            tabIndex={noShop || cooked ? undefined : 0}
             onClick={() => { if (swallowClickRef.current) { swallowClickRef.current = false; return; } open(); }}
             onKeyDown={(e) => { if (!noShop && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } }}
             onPointerDown={(e) => onPointerDown(e, m, i)}
@@ -1298,8 +1317,8 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
             style={{ ...(busy ? { opacity: 0.5 } : null), ...(transform ? { transform } : null) }}
           >
             <div className="board-tile" style={{ background: tone.bg, color: tone.fg }} aria-hidden="true">
-              <span className="board-num">{String(pos + 1).padStart(2, "0")}</span>
-              <span className="board-rail">{noShop ? noShopTileWord(m) : railWord(pos, list.length)}</span>
+              <span className="board-num">{cooked ? "✓" : String(ordinal + 1).padStart(2, "0")}</span>
+              {!cooked && <span className="board-rail">{noShop ? noShopTileWord(m) : railWord(ordinal, openOrder.length)}</span>}
             </div>
             <div className="board-main">
               <div className="board-top">
@@ -1318,15 +1337,24 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
                   >×</button>
                 )}
                 {/* Grip — the drag affordance, same grey as ×. Decorative: the
-                    whole card is the long-press target. */}
-                <svg className="board-grip" width="10" height="16" viewBox="0 0 10 16" aria-hidden="true">
-                  <circle cx="3" cy="3" r="1.4" /><circle cx="7" cy="3" r="1.4" />
-                  <circle cx="3" cy="8" r="1.4" /><circle cx="7" cy="8" r="1.4" />
-                  <circle cx="3" cy="13" r="1.4" /><circle cx="7" cy="13" r="1.4" />
-                </svg>
+                    whole card is the long-press target. Hidden once cooked. */}
+                {!cooked && (
+                  <svg className="board-grip" width="10" height="16" viewBox="0 0 10 16" aria-hidden="true">
+                    <circle cx="3" cy="3" r="1.4" /><circle cx="7" cy="3" r="1.4" />
+                    <circle cx="3" cy="8" r="1.4" /><circle cx="7" cy="8" r="1.4" />
+                    <circle cx="3" cy="13" r="1.4" /><circle cx="7" cy="13" r="1.4" />
+                  </svg>
+                )}
               </div>
               {line && <div className="board-line">{line}</div>}
-              {!noShop && (
+              {/* Cooked this load: the card mutes in place; the button reads ✓ Cooked
+                  (teal outline, disabled). It leaves on the next board load. */}
+              {cooked && (
+                <div className="board-actions">
+                  <button type="button" className="board-cook done" disabled aria-label={`${m.name} cooked`}>✓ Cooked</button>
+                </div>
+              )}
+              {!noShop && !cooked && (
               <div className="board-actions">
                 {canAdd && (
                   <button
@@ -2747,6 +2775,20 @@ function ProvisionsApp() {
       .filter((m) => { const p = placements[m.id]; return !!p && !p.cookedAt && !p.skippedAt; })
       .sort((a, b) => (placements[a.id].sortOrder - placements[b.id].sortOrder) || byCreated(a, b));
   }, [meals, placements]);
+  // Cards cooked THIS board load. Cooked it closes the placement (cooked_at)
+  // exactly as before, and boardMeals — the queue: upNext, counts, numbering,
+  // the header — drops the meal at once. Only the RENDERED list keeps the card,
+  // muted in place, until the next board load clears this set. The board is
+  // what's left to cook; the week's record is a Home/history feature (ROADMAP
+  // NEXT), not the queue.
+  const [cookedHere, setCookedHere] = useState(() => new Set());
+  const boardCards = useMemo(() => {
+    if (cookedHere.size === 0) return boardMeals;
+    const byCreated = (a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0);
+    return (meals || [])
+      .filter((m) => { const p = placements[m.id]; return !!p && !p.skippedAt && (!p.cookedAt || cookedHere.has(m.id)); })
+      .sort((a, b) => (placements[a.id].sortOrder - placements[b.id].sortOrder) || byCreated(a, b));
+  }, [meals, placements, boardMeals, cookedHere]);
 
   // Per-meal live list rows { total, bought }, from the same provenance map as
   // the ×n count — no new query. This is the card's STATE while it is to-buy
@@ -2789,7 +2831,7 @@ function ProvisionsApp() {
   //   N = 1            · "1 meal to add to Shop"        plain — the card's own
   //                      button is the affordance
   //   N = 0, any To buy · "Everything's in Shop ✓"
-  //   all meals Ready  · "stocked"
+  //   all meals Ready  · "ready"
   //   no meals at all  · nothing after the count
   // Unit: "meals" while every open placement is a meal, "nights" once any
   // no-shop card exists (spec). Returned as parts because the link is JSX.
@@ -2802,7 +2844,7 @@ function ProvisionsApp() {
     if (boardStats.cards.length === 0) return { head, tail: "", link: 0 };
     if (N >= 2) return { head, tail: ` · ${N} meals to `, link: N };
     if (N === 1) return { head, tail: " · 1 meal to add to Shop", link: 0 };
-    if (boardStats.allReady) return { head, tail: " · stocked", link: 0 };
+    if (boardStats.allReady) return { head, tail: " · ready", link: 0 };
     if (boardStats.nonePlanned) return { head, tail: " · Everything's in Shop ✓", link: 0 };
     return { head, tail: "", link: 0 };
   }, [boardMeals.length, boardStats]);
@@ -2878,7 +2920,7 @@ function ProvisionsApp() {
 
   // Load the meal cards when the Plan tab opens.
   useEffect(() => {
-    if (MEALS_ENABLED && view === "plan" && household?.id) loadMeals();
+    if (MEALS_ENABLED && view === "plan" && household?.id) { setCookedHere(new Set()); loadMeals(); }
   }, [view, household?.id, loadMeals]);
 
   // ...and keep them live while PLAN is the visible tab. Navigation-only meant
@@ -2946,8 +2988,11 @@ function ProvisionsApp() {
   }, [skipMeal, refreshProvenance]);
   const handleCookedMeal = useCallback(async (mealId) => {
     setBusyMealId(mealId);
-    try { await markCooked(mealId); }
-    finally { setBusyMealId(null); }
+    setCookedHere((prev) => new Set(prev).add(mealId));   // mute in place, this load only
+    try {
+      const ok = await markCooked(mealId);
+      if (!ok) setCookedHere((prev) => { const next = new Set(prev); next.delete(mealId); return next; });
+    } finally { setBusyMealId(null); }
   }, [markCooked]);
 
   // Plan (library): the placement only — the one door out of the library. The
@@ -4726,7 +4771,7 @@ function ProvisionsApp() {
         .helm-badge { position: absolute; top: 1px; left: calc(50% + 5px); margin: 0; font-size: 0.58rem; padding: 0 4px; line-height: 15px; }
         .control-row-end { height: 0; margin: 0; padding: 0; }
         /* ── Plan (SPEC_meal_planning_v2_pick_commit_cook.md): Meals → Board → List → Cook. TEAL = the household finished something —
-           on this surface only the READY chip, Cooked it, and the stocked banner. Everything else is espresso (#6f5a45) or outline. ── */
+           on this surface only Cooked it (then ✓ Cooked) and the stocked banner. Everything else is espresso (#6f5a45) or outline. ── */
         .plan-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
         .plan-head-text { flex: 1; min-width: 0; }
         .plan-title { font-family: 'Playfair Display', serif; font-size: 1.45rem; font-weight: 700; color: #2C1A0E; margin: 0; line-height: 1.1; }
@@ -4778,7 +4823,6 @@ function ProvisionsApp() {
                             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .board-chip { flex: none; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60;
                       border: 1px solid #E8D5B7; border-radius: 999px; padding: 2px 7px; }
-        .board-chip.ready { color: #0D9488; border-color: #0D9488; }
         .board-line { font-family: 'Lato', sans-serif; font-size: 0.76rem; color: #8a7a60; line-height: 1.25; }
         .board-card.ready .board-line { color: #6f5a45; }
         .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
@@ -4789,6 +4833,10 @@ function ProvisionsApp() {
         .board-lock { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
         .board-see { border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; }
         .board-cook { border: 1.5px solid #0D9488; background: #0D9488; color: #fff; }
+        /* Cooked this load: muted in place (tile + text at 55%), ✓ Cooked as a teal outline, disabled at full weight. */
+        .board-card.cooked { cursor: default; }
+        .board-card.cooked .board-tile, .board-card.cooked .board-top, .board-card.cooked .board-line { opacity: 0.55; }
+        .board-cook.done, .board-cook.done:disabled { background: transparent; color: #0D9488; border-color: #0D9488; opacity: 1; cursor: default; }
         .board-lock:disabled, .board-see:disabled, .board-cook:disabled { opacity: 0.5; cursor: default; }
         .board-more { flex: none; width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent; color: #8a7a60; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 1.1rem; font-weight: 700; line-height: 1; padding: 0 0 6px; }
@@ -6197,10 +6245,11 @@ function ProvisionsApp() {
               </div>
             ) : null}
             <PlanBoard
-              meals={boardMeals}
+              meals={boardCards}
               rows={mealRowCounts}
               placements={placements}
               mealById={mealById}
+              cookedIds={cookedHere}
               onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
               onSkip={handleSkipMeal}
               onCooked={handleCookedMeal}
