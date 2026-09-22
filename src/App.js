@@ -4657,7 +4657,7 @@ function ProvisionsApp() {
                      font-family: 'Lato', sans-serif; font-size: 1.5rem; line-height: 1; padding: 0 0 4px; display: flex; align-items: center; justify-content: center; }
         .plan-meals { flex: none; border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; border-radius: 999px; padding: 8px 14px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
-        /* "+ Add M to Shop" — sand fill, the board's one call to action while anything is still to add. Not teal: nothing is finished yet. */
+        /* "+ Add M to Shop" — sand fill, the board's call to action while anything is still to add; sits beside the always-present "+ Meals". Not teal: nothing is finished yet. */
         .plan-addall { flex: none; border: none; background: #C9A97A; color: #2C1A0E; border-radius: 999px; padding: 9px 14px; cursor: pointer;
                        font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 900; white-space: nowrap; }
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
@@ -6060,23 +6060,23 @@ function ProvisionsApp() {
 
         {view === "plan" && planScreen === "board" && (
           <>
-            {/* THE BOARD (v2). Header: title, the counts line, and ONE control —
-                "+ Add M to Shop" (sand) while anything is still to add, otherwise
-                "+ Meals" (outline) into the library. Under it, a banner when the
-                week is set or stocked, else the prompt. No teal until the
-                household has finished something. */}
+            {/* THE BOARD (v2). Header: title, the counts line, "+ Meals" (outline)
+                into the library — ALWAYS, it is the board's only way to more meals
+                once the week has started — and, beside it while anything is still
+                to add, "+ Add M to Shop" (sand). Under it, a banner when the week
+                is set or stocked, else the prompt. No teal until the household has
+                finished something. */}
             <div className="plan-head">
               <div className="plan-head-text">
                 <h2 className="plan-title">This Week</h2>
                 <div className="plan-sub">{boardSubtitle}</div>
               </div>
-              {isSignedIn && boardStats.stillToAdd.length > 0 ? (
+              {isSignedIn && boardStats.stillToAdd.length > 0 && (
                 <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
                   {lockingAll ? "Adding…" : `+ Add ${boardStats.stillToAdd.length} to Shop`}
                 </button>
-              ) : (
-                <button type="button" className="plan-meals" onClick={() => setPlanScreen("library")}>+ Meals</button>
               )}
+              <button type="button" className="plan-meals" onClick={() => setPlanScreen("library")}>+ Meals</button>
             </div>
             {boardBanner === "stocked" ? (
               <div className="plan-banner stocked" role="status">
@@ -6116,10 +6116,11 @@ function ProvisionsApp() {
             {MEALS_ENABLED && isSignedIn && (
               <div className="plan-foot">
                 <div className="plan-foot-btns">
+                  <button type="button" className="plan-noshop" onClick={() => setPlanScreen("library")}>+ Meal</button>
                   <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "leftovers", name: "", fromMealId: null })}>Leftovers</button>
                   <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "out", name: "", fromMealId: null })}>Eating out</button>
                 </div>
-                <div className="plan-foot-line">Neither adds anything to Shop — they just hold the night.</div>
+                <div className="plan-foot-line">Leftovers and Eating out add nothing to Shop — they just hold the night.</div>
               </div>
             )}
           </>
