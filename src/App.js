@@ -4078,13 +4078,19 @@ function ProvisionsApp() {
     setSearchQuery("");
   };
   // D11 — the + does the DOOR's add. Shop → the Add sheet (add-from-the-aisle,
-  // "added here"); Browse → the same sheet, plain; Plan → New meal (the create
-  // sheet exists, and like its library row it needs an account); Home → absent,
-  // so no + ever renders there (D12). The + never becomes a menu.
+  // "added here"); Browse → the same sheet, plain; Plan → what the header's own
+  // + does on the screen you are on: from the board, open the library (v2 —
+  // the header's "+ Meals"); inside the library, New meal (the create sheet,
+  // which like its library row needs an account); Home → absent, so no + ever
+  // renders there (D12). The + never becomes a menu.
   const doorAdd = {
     list:  { label: "Add something", run: openAddSheet },
     input: { label: "Add to your list", run: openAddSheet },
-    ...(MEALS_ENABLED && isSignedIn ? { plan: { label: "New meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {}),
+    ...(MEALS_ENABLED
+      ? (planScreen === "library"
+        ? (isSignedIn ? { plan: { label: "New meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {})
+        : { plan: { label: "Meals", run: () => setPlanScreen("library") } })
+      : {}),
   };
   // "added here" and the added_in_store event are Shop semantics: the same sheet
   // opened from Browse's + adds plainly (no tag, no event, no session start).
@@ -4657,9 +4663,9 @@ function ProvisionsApp() {
                      font-family: 'Lato', sans-serif; font-size: 1.5rem; line-height: 1; padding: 0 0 4px; display: flex; align-items: center; justify-content: center; }
         .plan-meals { flex: none; border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; border-radius: 999px; padding: 8px 14px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
-        /* "+ Add M to Shop" — sand fill, the board's call to action while anything is still to add; sits beside the always-present "+ Meals". Not teal: nothing is finished yet. */
-        .plan-addall { flex: none; border: none; background: #C9A97A; color: #2C1A0E; border-radius: 999px; padding: 9px 14px; cursor: pointer;
-                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 900; white-space: nowrap; }
+        /* "+ Add M to Shop" — a full-width sand row above the first card while anything is still to add. Not teal: nothing is finished yet. */
+        .plan-addall { display: block; width: 100%; border: none; background: #C9A97A; color: #2C1A0E; border-radius: 12px; padding: 12px 14px; margin: 0 0 10px; cursor: pointer;
+                       font-family: 'Lato', sans-serif; font-size: 0.84rem; font-weight: 900; text-align: center; }
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
         .plan-prompt { margin: 0 2px 12px; }
         .plan-prompt-title { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.02rem; color: #2C1A0E; }
@@ -6060,22 +6066,20 @@ function ProvisionsApp() {
 
         {view === "plan" && planScreen === "board" && (
           <>
-            {/* THE BOARD (v2). Header: title, the counts line, "+ Meals" (outline)
-                into the library — ALWAYS, it is the board's only way to more meals
-                once the week has started — and, beside it while anything is still
-                to add, "+ Add M to Shop" (sand). Under it, a banner when the week
-                is set or stocked, else the prompt. No teal until the household has
-                finished something. */}
-            <div className="plan-head">
+            {/* THE BOARD (v2). Header follows the Browse/Shop pattern: title, the
+                counts line, and ONE control top-right — "+ Meals" (outline) into the
+                library, always. The header is the door's control row, so it is the
+                compact sentinel (controlRowRef): when it scrolls off, the Helm
+                compacts and its + does the door's add — here, open the library
+                (doorAdd.plan). Under the header, a banner when the week is set or
+                stocked, else the prompt; then "+ Add M to Shop" as a full-width sand
+                row above the first card while anything is still to add. No teal
+                until the household has finished something. */}
+            <div className="plan-head" ref={controlRowRef}>
               <div className="plan-head-text">
                 <h2 className="plan-title">This Week</h2>
                 <div className="plan-sub">{boardSubtitle}</div>
               </div>
-              {isSignedIn && boardStats.stillToAdd.length > 0 && (
-                <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
-                  {lockingAll ? "Adding…" : `+ Add ${boardStats.stillToAdd.length} to Shop`}
-                </button>
-              )}
               <button type="button" className="plan-meals" onClick={() => setPlanScreen("library")}>+ Meals</button>
             </div>
             {boardBanner === "stocked" ? (
@@ -6100,6 +6104,11 @@ function ProvisionsApp() {
                 <div className="plan-prompt-sub">Drag meals into the order you want them.</div>
               </div>
             ) : null}
+            {isSignedIn && boardStats.stillToAdd.length > 0 && (
+              <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
+                {lockingAll ? "Adding…" : `+ Add ${boardStats.stillToAdd.length} to Shop`}
+              </button>
+            )}
             <PlanBoard
               meals={boardMeals}
               rows={mealRowCounts}
@@ -6116,11 +6125,10 @@ function ProvisionsApp() {
             {MEALS_ENABLED && isSignedIn && (
               <div className="plan-foot">
                 <div className="plan-foot-btns">
-                  <button type="button" className="plan-noshop" onClick={() => setPlanScreen("library")}>+ Meal</button>
                   <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "leftovers", name: "", fromMealId: null })}>Leftovers</button>
                   <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "out", name: "", fromMealId: null })}>Eating out</button>
                 </div>
-                <div className="plan-foot-line">Leftovers and Eating out add nothing to Shop — they just hold the night.</div>
+                <div className="plan-foot-line">Neither adds anything to Shop — they just hold the night.</div>
               </div>
             )}
           </>
@@ -6132,7 +6140,7 @@ function ProvisionsApp() {
                 the board is one tap away and the nav tab is already lit. The + is
                 New meal (signed in only: creating a meal is an identity-requiring
                 write; the library's terminal row says why). */}
-            <div className="plan-head">
+            <div className="plan-head" ref={controlRowRef}>
               <button type="button" className="plan-back" aria-label="Back to the board" onClick={() => setPlanScreen("board")}>‹</button>
               <div className="plan-head-text">
                 <h2 className="plan-title">Meal Library</h2>

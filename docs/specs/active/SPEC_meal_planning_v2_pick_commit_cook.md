@@ -61,7 +61,7 @@ One verb per door:
 
 **Header:**
 - Title *This Week*. Subtitle: `"{N} meals · {M} still to add"` when every open placement is a meal; `"{N} nights · {M} still to add"` when any no-shop card exists. When M = 0: `"· all on the list"`; when every meal is Ready: `"· stocked"`.
-- Right side: **+ Meals** (outline) → library, **always** — the board must never lose its door to more meals. **+ Add {M} to Shop** (sand fill) appears beside it when M ≥ 1 and disappears at M = 0. (Amended 2026-09-21: the first build swapped one for the other and left no entry to the library once anything was planned.)
+- Right side: **+ Meals** (outline) → library, **always** — the board must never lose its door to more meals. The header follows the Browse/Shop pattern: it is the door's control row and the compact sentinel — when it scrolls off, the nav collapses and its + does what the header's + does (on Plan, open the library). **+ Add {M} to Shop** (sand fill) is NOT in the header: it is a full-width row above the first card when M ≥ 1, gone at M = 0. (Amended 2026-09-21, twice: the first build swapped + Meals for Add-N and left no entry to the library once anything was planned; the second put both in the header.)
 - Prompt under header: *What sounds good next?* / *Drag meals into the order you want them.* Only when ≥ 1 open placement.
 
 **Banners** (replace the prompt when true):
@@ -71,14 +71,14 @@ One verb per door:
 
 **Rail words** by position: 0 → *Up next*; 1..n-2 → *Then*; last → *Later*. Single card → *Up next*. Two cards → *Up next*, *Then*.
 
-**Foot of board:** three dashed buttons **+ Meal** (→ library) / **Leftovers** / **Eating out**, and the line *Leftovers and Eating out add nothing to Shop — they just hold the night.*
+**Foot of board:** two dashed buttons **Leftovers** / **Eating out**, and the line *Neither adds anything to Shop — they just hold the night.*
 
 **Toasts:**
 - Plan (library): *Planned. Add to Shop from the board when you're ready.* with a BOARD action.
 - Add to Shop (single): *{Meal} added. {n} items on the list.*
 - Add all: *{M} meals added. {n} items on the list.* with a SHOP action.
 
-**Empty board:** keep today's empty state; add the three dashed buttons under it.
+**Empty board:** keep today's empty state; add the two dashed buttons under it.
 
 **Tile colour:** derived from `meals.category` (hash → one of six house tones) until a stored per-meal colour exists. Same meal, same tone, in the library and on the board. Six tones: espresso `#6f5a45`, sand `#C9A97A`, clay `#A0724A`, stone `#9a9384`, olive `#5f6b4f`, slate `#7d8fa0`. Text on each tile is whichever of `#FAF4EC` / `#2C1A0E` passes 4.5:1.
 
@@ -128,7 +128,7 @@ alter table meals
 - Library card: remove Add; single + calls `planMeal`. Disabled with ON THE BOARD tag when an open placement exists.
 - Board card: new two-column layout per the states table. Planned → Add to Shop; To buy → See on list; Ready → Cooked it. Cooked it for Planned moves to ⋯.
 - Header logic per "The board" above. **Lock in all button hidden at M = 0** (already true; keep).
-- Foot buttons: **+ Meal** → library; Leftovers / Eating out → `planNoShop`. Leftovers opens a one-field sheet: optional "from which meal" picker over the household's open + recently cooked meals. Eating out opens a one-field sheet: optional place name.
+- No-shop foot buttons → `planNoShop`. Leftovers opens a one-field sheet: optional "from which meal" picker over the household's open + recently cooked meals. Eating out opens a one-field sheet: optional place name.
 - Rename every "Lock in" string. `grep -n "Lock in" src/` must return nothing when done.
 - Colour: replace teal on Plan / Add / filters / links / chips with espresso or outline. Teal only on Cooked it, the READY chip, and the stocked banner.
 
