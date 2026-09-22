@@ -1031,61 +1031,104 @@ function FlatHeader({ count, showCount = true }) {
 // 2026-08-18, so the flag is on and the lens lives on the PLAN tab.
 const MEALS_ENABLED = true;
 
-// ── Plan board (SPEC_meal_planning_v1_board.md — v1, Board only) ──────────
-// The meals that are on the list this cycle, in the household's shared order.
-// `meals` arrives already derived and sorted (boardMeals in App): a meal is
-// here iff it is active, so a card leaves because the meal stopped being
-// active — never because a flag was cleared. The count is the same
-// plannedMealCounts number the library's stepper shows.
+// ── Plan (SPEC_meal_planning_v2_pick_commit_cook.md — Pick, Commit, Cook) ──
+// Meals → Board → List → Cook. The library is where you decide WHAT (one
+// verb: Plan). The board is where you decide WHEN (one primary per card:
+// Add to list / See on list / Cooked it). The list handles what you need.
+// Nothing in 047–052 changes: the board is still meal_placements in
+// sort_order; the list still supplies each card's state; ready_at is still
+// earned at Wrap up. 055 adds meals.kind for the two no-shop cards.
 //
-// ALWAYS PRESENT. Empty, it is a dashed strip with one line of copy, so the
-// page's shape is stable and a first Add lands somewhere visible rather than
-// making a section appear. Tap opens the meal; × calls removeMealFromList.
-// No lens toggle, no day columns, no "Any day" row — those are v2 and the
-// mockup of record draws them; this is the Board half only.
+// TEAL = THE HOUSEHOLD FINISHED SOMETHING. On this surface it appears on
+// exactly three things: the READY chip, Cooked it, and the stocked banner.
+// Plan, Add to list, See on list, filters, links, counts — espresso or outline.
 //
-// DRAG TO REORDER — long-press (350ms) lifts, a tap opens. Long-press is never
-// the door to anything else. Kept boring on purpose: pointer events, translateY
-// on the lifted card, the cards it passes slide out of its way, reorder on
-// drop. No dependency, and none of SwipeToRemove's horizontal machinery — the
-// board is vertical. Order is SHARED (per household): drop calls onReorder
-// with the full id list and the hook renumbers 0..n-1.
+// TILE TONES. One numbered tile per card carries "01" + the rail word on the
+// meal's tone; the number makes the absent photo designed and reinforces
+// drag order (a household photo later slides UNDER the number). Six house
+// tones; text is whichever of #FAF4EC / #2C1A0E contrasts better on that tone
+// (precomputed — clay tops out at 3.97:1 either way, the palette's one miss;
+// the large numeral clears AA-large at 3:1). Keyed by the meal's CATEGORY
+// WORD so two meals in one category share a tone — the spec's rule. NOTE the
+// spec assumed `meals.category`; that column does not exist. The word is
+// derived from the meal's dominant ingredient category (falling back to the
+// name), so it is the same in the library and on the board. A stored per-meal
+// colour replaces mealTone and nothing else.
+const MEAL_TONES = [
+  { name: "espresso", bg: "#6f5a45", fg: "#FAF4EC" },
+  { name: "sand",     bg: "#C9A97A", fg: "#2C1A0E" },
+  { name: "clay",     bg: "#A0724A", fg: "#2C1A0E" },
+  { name: "stone",    bg: "#9a9384", fg: "#2C1A0E" },
+  { name: "olive",    bg: "#5f6b4f", fg: "#FAF4EC" },
+  { name: "slate",    bg: "#7d8fa0", fg: "#2C1A0E" },
+];
+const NO_SHOP_TONE = { name: "neutral", bg: "#EFE6D6", fg: "#6f5a45" };
+const isNoShop = (m) => !!m?.kind && m.kind !== "meal";
+const noShopLabel = (m) => (m?.kind === "leftovers" ? "Leftovers" : "Eating out");
+function mealCategoryWord(meal) {
+  const tally = {};
+  (meal?.meal_ingredients || []).forEach((mi) => {
+    const c = String(mi.catalog_items?.category || "").trim();
+    if (c) tally[c] = (tally[c] || 0) + 1;
+  });
+  let best = null;
+  Object.entries(tally).forEach(([c, n]) => {
+    if (!best || n > best[1] || (n === best[1] && c < best[0])) best = [c, n];
+  });
+  return best ? categoryLabel(best[0]).replace(/^[^\p{L}\p{N}]+/u, "").trim() || best[0] : (meal?.name || "Meal");
+}
+function mealTone(meal) {
+  if (isNoShop(meal)) return NO_SHOP_TONE;
+  const word = mealCategoryWord(meal);
+  let h = 0;
+  for (let i = 0; i < word.length; i += 1) h = (h * 31 + word.charCodeAt(i)) >>> 0;
+  return MEAL_TONES[h % MEAL_TONES.length];
+}
+// Rail words by position: 0 → Up next; last → Later (from three cards);
+// everything between → Then. One card: Up next. Two: Up next, Then.
+function railWord(i, n) {
+  if (i === 0) return "Up next";
+  if (n >= 3 && i === n - 1) return "Later";
+  return "Then";
+}
+
+// THE BOARD — the queue of open placements (050), in the household's shared
+// order. `meals` arrives derived and sorted (boardMeals in App) and includes
+// no-shop rows (055); `rows` = per-meal { total, bought } live list rows;
+// `mealById` resolves a leftovers card's from_meal_id.
 //
-// Scroll vs drag: touch-action pan-y lets a plain swipe scroll the page; a
-// finger that moves more than a few px before the timer fires cancels the
-// press. Once lifted, a document-level non-passive touchmove listener eats the
-// browser's scroll for the rest of the gesture, and contextmenu is suppressed
-// so the OS long-press menu never opens over a card. The click that follows
-// a lift is swallowed, so dropping a card never opens it.
+// CARD STATES (052 conditions, v2 chrome — one primary button per state):
+//   Planned    open placement, no live rows, ready_at null
+//              chip PLANNED · "Not on the list yet" · Add to list (outline)
+//              Cooked it (freezer pizza) lives behind ⋯, not beside it.
+//   To buy     ≥ 1 live pending row
+//              chip TO BUY · "N to buy" / "B of N in cart" · See on list
+//   Ready      ready_at set (earned at Wrap up, never at an in-cart tap)
+//              chip READY (teal) · "Everything's in — go cook" · Cooked it (teal)
+//   Leftovers  meals.kind = 'leftovers' — neutral tile, dashed card, no chip,
+//   Eating out meals.kind = 'out'         × only (they hold the night; they
+//              never touch the list, never become Ready, have no outcome).
+// × on every card = skip. On a to-buy card it zeroes the meal's pending rows
+// first; on a no-shop card the hook also soft-deletes the meals row (one-shot).
 //
-// While lifted the board renders a SNAPSHOT of the order taken at lift time:
-// the 2s poll (or the other member) cannot re-sort the cards under a moving
-// finger. Reduced-motion: drag still works; the slide transitions are off.
+// DRAG TO REORDER — long-press (350ms) lifts, a tap opens (a meal card only —
+// a no-shop card has no recipe to open). Long-press is never the door to
+// anything else. Pointer events, translateY on the lifted card, the cards it
+// passes slide out of its way, reorder on drop. Order is SHARED (per
+// household): drop calls onReorder with the full id list and the hook
+// renumbers 0..n-1. While lifted the board renders a SNAPSHOT of the order
+// taken at lift time so the 2s poll cannot re-sort under a moving finger.
+// touch-action pan-y lets a plain swipe scroll; a finger that moves more than
+// a few px before the timer fires cancels the press; once lifted a
+// non-passive touchmove listener eats the browser's scroll and contextmenu is
+// suppressed. The click after a lift is swallowed. Reduced-motion: drag still
+// works; the slide transitions are off.
 const BOARD_PRESS_MS = 350;
 const BOARD_SLOP_PX = 8;
-// CARD STATE (050 — SPEC_meal_planning_v1_board_queue.md). Membership comes
-// from placements (boardMeals in App); the list only supplies each card's
-// state, via `rows` = per-meal { total, bought } live list rows:
-//   Ready                   placement.readyAt set — earned at Wrap up, never at
-//                           an in-cart tap (cart is a store action, not a
-//                           kitchen fact). Offers "Cooked it".
-//   "2 of 4 in cart"        readyAt null, some rows bought
-//   "4 to buy"              readyAt null, nothing bought yet
-//   "Not on the list"       readyAt null, no live rows (cleared at wrap-up, or
-//                           stepped to zero) — the card stays; it leaves by a tap
-// × on every card = skip. On a to-buy card it zeroes the meal's pending rows
-// first (removeMealFromList); on a Ready card it only closes the placement.
-// Nothing else ever removes a card.
-// PLANNED (amendment 3, SPEC_meal_planning_v1_board_planned.md): an open
-// placement with no live list rows and no ready_at. The card reads "Not on the
-// list yet" and offers Lock in (the add path, keeps its slot), Cooked it (a
-// no-shop meal — freezer pizza — needs no type) and ×. A locked card whose
-// stepper is stepped back to zero returns here: "changed my mind about
-// shopping" and "changed my mind about cooking" are different gestures.
-// "Lock in all" sits in the board header while ≥1 card is Planned. The ×n
-// add-count is a list fact and is hidden at zero.
-function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, onLockIn, onLockInAll, lockingAll, onReorder, busyMealId }) {
+const BOARD_CONTROLS = ".board-x, .board-cook, .board-lock, .board-see, .board-more, .board-menu";
+function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
   const [drag, setDrag] = useState(null);   // { id, from, to, dy, snapshot, slots }
+  const [menuFor, setMenuFor] = useState(null);   // meal id whose ⋯ menu is open
   const pressRef = useRef(null);            // { id, index, pointerId, x, y, timer, el }
   const dragRef = useRef(null);             // mirrors drag for the pointer handlers
   const swallowClickRef = useRef(false);
@@ -1112,12 +1155,13 @@ function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, 
     const slots = cards.map((c) => { const r = c.getBoundingClientRect(); return { top: r.top, height: r.height }; });
     try { pr.el.setPointerCapture(pr.pointerId); } catch (_e) { /* capture is best-effort */ }
     swallowClickRef.current = true;
+    setMenuFor(null);
     setDrag({ id: pr.id, from: pr.index, to: pr.index, dy: 0, snapshot: meals, slots });
   }, [meals]);
 
   const onPointerDown = (e, m, index) => {
     if (e.button != null && e.button !== 0) return;
-    if (e.target.closest(".board-x, .board-cook, .board-lock, .board-lock-all")) return;
+    if (e.target.closest(BOARD_CONTROLS)) return;
     if (meals.length < 2) return;             // nothing to reorder
     clearPress();
     const pr = { id: m.id, index, pointerId: e.pointerId, x: e.clientX, y: e.clientY, el: e.currentTarget, timer: null };
@@ -1160,25 +1204,37 @@ function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, 
   }
   const list = drag ? drag.snapshot : meals;
   const gap = 8;
-  const plannedCount = list.filter((m) => !placements?.[m.id]?.readyAt && (rows?.[m.id]?.total || 0) === 0).length;
   return (
     <div className="board">
-      <div className="board-label" aria-hidden="true">This week</div>
-      {plannedCount > 0 && (
-        <button type="button" className="board-lock-all" disabled={lockingAll} onClick={onLockInAll}>
-          {lockingAll ? "Locking in…" : `Lock in all${plannedCount > 1 ? ` (${plannedCount})` : ""}`}
-        </button>
-      )}
+      {menuFor && <div className="board-menu-backdrop" onClick={(e) => { e.stopPropagation(); setMenuFor(null); }} />}
       {list.map((m, i) => {
         const busy = busyMealId === m.id;
-        const ready = !!placements?.[m.id]?.readyAt;
+        const noShop = isNoShop(m);
+        const ready = !noShop && !!placements?.[m.id]?.readyAt;
         const rc = rows?.[m.id] || { total: 0, bought: 0 };
-        const planned = !ready && rc.total === 0;
-        const state = ready ? "Ready"
-          : planned ? "Not on the list yet"
-          : rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart`
-          : `${rc.total} to buy`;
-        const addCount = counts?.[m.id] || 0;
+        const planned = !noShop && !ready && rc.total === 0;
+        const toBuy = !noShop && !ready && rc.total > 0;
+        // A planned meal with no ingredients has nothing to add — no button;
+        // its exit is Cooked it (⋯) or ×. Add all skips it the same way.
+        const canAdd = planned && (m.meal_ingredients || []).length > 0;
+        const tone = mealTone(m);
+        const chip = ready ? "Ready" : toBuy ? "To buy" : planned ? "Planned" : null;
+        let title = m.name;
+        let line;
+        if (m.kind === "leftovers") {
+          title = "Leftovers";
+          const from = m.from_meal_id ? mealById?.[m.from_meal_id] : null;
+          line = from ? `From the ${from.name}` : "Nothing to shop for";
+        } else if (m.kind === "out") {
+          title = "Eating out";
+          line = m.name && m.name !== "Eating out" ? m.name : "Nothing to shop for";
+        } else if (ready) {
+          line = "Everything's in — go cook";
+        } else if (planned) {
+          line = canAdd ? "Not on the list yet" : "Nothing to shop for";
+        } else {
+          line = rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart` : `${rc.total} to buy`;
+        }
         const lifted = drag && drag.id === m.id;
         let transform;
         if (drag) {
@@ -1190,14 +1246,15 @@ function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, 
             else if (drag.to < drag.from && i >= drag.to && i < drag.from) transform = `translateY(${h}px)`;
           }
         }
+        const open = () => { if (!noShop) onOpen(m); };
         return (
           <div
             key={m.id}
-            className={`board-card${lifted ? " lifted" : ""}${ready ? " ready" : ""}`}
-            role="button"
-            tabIndex={0}
-            onClick={() => { if (swallowClickRef.current) { swallowClickRef.current = false; return; } onOpen(m); }}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(m); } }}
+            className={`board-card${lifted ? " lifted" : ""}${ready ? " ready" : ""}${noShop ? " noshop" : ""}`}
+            role={noShop ? undefined : "button"}
+            tabIndex={noShop ? undefined : 0}
+            onClick={() => { if (swallowClickRef.current) { swallowClickRef.current = false; return; } open(); }}
+            onKeyDown={(e) => { if (!noShop && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } }}
             onPointerDown={(e) => onPointerDown(e, m, i)}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerEnd}
@@ -1205,34 +1262,72 @@ function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, 
             onContextMenu={(e) => e.preventDefault()}
             style={{ ...(busy ? { opacity: 0.5 } : null), ...(transform ? { transform } : null) }}
           >
-            <div className="board-card-body">
-              <span className="board-card-title">{m.name}</span>
-              {addCount > 0 && <span className="board-card-count">×{addCount}</span>}
-              <span className={`board-card-state${ready ? " ready" : ""}${planned ? " planned" : ""}`}>{state}</span>
+            <div className="board-tile" style={{ background: tone.bg, color: tone.fg }} aria-hidden="true">
+              <span className="board-num">{String(i + 1).padStart(2, "0")}</span>
+              <span className="board-rail">{noShop ? noShopLabel(m) : railWord(i, list.length)}</span>
             </div>
-            {planned && (
-              <button
-                type="button"
-                className="board-lock"
-                disabled={busy}
-                onClick={(e) => { e.stopPropagation(); if (!busy) onLockIn(m.id); }}
-              >Lock in</button>
-            )}
-            {(ready || planned) && (
-              <button
-                type="button"
-                className="board-cook"
-                disabled={busy}
-                onClick={(e) => { e.stopPropagation(); if (!busy) onCooked(m.id); }}
-              >Cooked it</button>
-            )}
-            <button
-              type="button"
-              className="board-x"
-              aria-label={ready ? `Skip ${m.name}` : `Skip ${m.name} and take its items off the list`}
-              disabled={busy}
-              onClick={(e) => { e.stopPropagation(); if (!busy) onSkip(m.id, !ready); }}
-            >×</button>
+            <div className="board-main">
+              <div className="board-top">
+                <span className="board-card-title">{title}</span>
+                {chip && <span className={`board-chip${ready ? " ready" : ""}`}>{chip}</span>}
+              </div>
+              <div className="board-line">{line}</div>
+              <div className="board-actions">
+                {canAdd && (
+                  <button
+                    type="button"
+                    className="board-lock"
+                    disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); if (!busy) onLockIn(m.id); }}
+                  >Add to list</button>
+                )}
+                {toBuy && (
+                  <button
+                    type="button"
+                    className="board-see"
+                    onClick={(e) => { e.stopPropagation(); onSeeList(); }}
+                  >See on list</button>
+                )}
+                {ready && (
+                  <button
+                    type="button"
+                    className="board-cook"
+                    disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); if (!busy) onCooked(m.id); }}
+                  >Cooked it</button>
+                )}
+                <span className="board-actions-gap" />
+                {!noShop && (
+                  <button
+                    type="button"
+                    className="board-more"
+                    aria-label={`More for ${m.name}`}
+                    aria-expanded={menuFor === m.id}
+                    onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === m.id ? null : m.id); }}
+                  >⋯</button>
+                )}
+                <button
+                  type="button"
+                  className="board-x"
+                  aria-label={noShop ? `Remove ${title}` : toBuy ? `Skip ${m.name} and take its items off the list` : `Skip ${m.name}`}
+                  disabled={busy}
+                  onClick={(e) => { e.stopPropagation(); if (!busy) onSkip(m.id, toBuy); }}
+                >×</button>
+              </div>
+              {/* ⋯ — the rare paths. Cooked it for a Planned card (freezer pizza) and
+                  the recipe; the read-only recipe sheet is on the record (09-14) and
+                  until it lands this opens the same sheet a card tap does. */}
+              {menuFor === m.id && (
+                <div className="board-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+                  {planned && (
+                    <button type="button" role="menuitem" disabled={busy}
+                      onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onCooked(m.id); }}>Cooked it</button>
+                  )}
+                  <button type="button" role="menuitem"
+                    onClick={(e) => { e.stopPropagation(); setMenuFor(null); onOpen(m); }}>Open recipe</button>
+                </div>
+              )}
+            </div>
           </div>
         );
       })}
@@ -1240,7 +1335,19 @@ function PlanBoard({ meals, counts, rows, placements, onOpen, onSkip, onCooked, 
   );
 }
 
-function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, plannedMealCounts, onDecrement, decrementingMealId, isSignedIn, onPlan, onBoardIds }) {
+// THE LIBRARY — where you decide WHAT. One action per card: Plan (the round
+// +), which places the meal at max+1 and touches nothing else. Add is gone
+// from here (v2 decision 1): pick and commit happen at different moments, and
+// the board's Add all absorbs the double tap. A meal already on the board
+// reads ON THE BOARD with the + disabled. Filters: All · Made before (any
+// placement carrying cooked_at) · Ours (household-owned — which, until seed or
+// shared meals exist, is every meal this read returns; the pill is correct by
+// construction and waits for the day it isn't trivial). Favorites is OMITTED,
+// not disabled: no data exists yet and a greyed pill promises a table that
+// hasn't been decided (per-user vs per-household). Every control is
+// espresso/outline — no teal in the library.
+function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, isSignedIn, onBoardIds, madeBefore, householdId }) {
+  const [filter, setFilter] = useState("all");
   // Terminal ghost row — matches the "+ Create new place" convention (same
   // 1.5px dashed border, same terminal position). It renders in the EMPTY
   // state too, deliberately: it is the only entry point to meal creation, so
@@ -1294,124 +1401,80 @@ function MealsLens({ meals, loading, onAddAll, addingMealId, onCreate, onEdit, p
             fontSize: "1.2rem", color: "#8a7a60", margin: 0 }}>No meals yet.</p>
           <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", color: "#C9A97A",
             marginTop: "8px", letterSpacing: "0.5px" }}>
-            Create one and its ingredients fill your list.
+            Create one, plan it, and its ingredients are one tap from your list.
           </p>
         </div>
         <div style={{ marginTop: "22px" }}>{createRow}</div>
       </div>
     );
   }
+  const FILTERS = [
+    { key: "all", label: "All" },
+    { key: "made", label: "Made before" },
+    { key: "ours", label: "Ours" },
+  ];
+  const shown = meals.filter((m) => {
+    if (filter === "made") return !!madeBefore?.has(m.id);
+    if (filter === "ours") return !m.household_id || m.household_id === householdId;
+    return true;
+  });
   return (
-    <div style={{ paddingTop: "6px" }}>
-      {meals.map((m) => {
+    <div style={{ paddingTop: "2px" }}>
+      <div className="lib-filters" role="tablist" aria-label="Filter meals">
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            type="button"
+            role="tab"
+            aria-selected={filter === f.key}
+            className={`lib-filter${filter === f.key ? " on" : ""}`}
+            onClick={() => setFilter(f.key)}
+          >{f.label}</button>
+        ))}
+      </div>
+      {shown.length === 0 && (
+        <div className="lib-empty">
+          {filter === "made" ? "Nothing cooked from the board yet — Cooked it fills this." : "Nothing here yet."}
+        </div>
+      )}
+      {shown.map((m) => {
         const count = (m.meal_ingredients || []).length;
-        // SPEC open question 1: does the count mean "in the recipe" or "will land on
-        // the list"? Once on_hand exists these diverge. Answered by showing BOTH rather
-        // than picking one and being wrong half the time: "6 ingredients · 2 on hand".
-        // Showing only the recipe total over-promises what Add will do; showing only the
-        // add-count quietly hides part of the recipe. The suffix appears ONLY when a meal
-        // actually has on-hand rows, so every meal without them reads exactly as before.
+        // "6 ingredients · 2 on hand": the recipe total and what Add will skip.
+        // The suffix appears ONLY when a meal actually has on-hand rows.
         const onHandCount = (m.meal_ingredients || []).filter((mi) => mi.on_hand).length;
-        const busy = addingMealId === m.id;
-        // Teal is the meal-on-the-list signal on SHOP; same meaning here.
-        const addCount = plannedMealCounts?.[m.id] || 0;
-        const isPlanned = addCount > 0;
-        const decrementBusy = decrementingMealId === m.id;
+        const busy = planningMealId === m.id;
+        const onBoard = !!onBoardIds?.has(m.id);
+        const tone = mealTone(m);
         return (
-          // Face-button-plus-swipe, same as catalog rows: "Add" is the primary
-          // action and stays one tap on the face; Edit lives behind the swipe.
-          // Only onEdit is wired — Staple and Hide have no meaning for a meal —
-          // so the panel reveals a single button at 80px.
-          // Edit-only, as it was before the removal spec. The stepper's "−"
-          // already covers un-planning — repeated taps reach zero exactly as
-          // one swipe used to — and at add_count === 1 the swipe was doing the
-          // literally identical thing through a less discoverable gesture.
+          // Face-button-plus-swipe, same as catalog rows: Plan is the one face
+          // action; Edit lives behind the swipe (Staple and Hide have no meaning
+          // for a meal, so the panel reveals a single button).
           <SwipeToRemove
             key={m.id}
             onEdit={() => onEdit && onEdit(m)}
             style={{ borderRadius: "12px", marginBottom: "9px" }}
           >
-          <div style={{
-            display: "flex", alignItems: "center", gap: "10px", padding: "12px",
-            // Resting state matches .item-row exactly (#F5EDE0 fill, 1.5px
-            // #E8D5B7) so PLAN and BROWSE read as one visual system rather than
-            // two. Planned swaps only the border colour — same 1.5px weight, so
-            // the card cannot shift size as it becomes planned.
-            border: isPlanned ? "1.5px solid #0D9488" : "1.5px solid #E8D5B7",
-            borderRadius: "12px",
-            // The same two-value lift BROWSE already uses for an in-play row
-            // (.item-row #F5EDE0 → .item-row.has-qty #FAF4EC), gated on
-            // isPlanned instead of qty > 0. Border weight is identical in both
-            // states, so becoming planned changes colour only — never size.
-            background: isPlanned ? "#FAF4EC" : "#F5EDE0",
-          }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.02rem",
-                fontWeight: 700, color: "#2C1A0E" }}>{m.name}</div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem", color: "#8a7a60", marginTop: "2px" }}>
+          <div className={`lib-card${onBoard ? " on-board" : ""}`}>
+            <div className="lib-tile" style={{ background: tone.bg, color: tone.fg }} aria-hidden="true">
+              <span className="lib-tile-word">{mealCategoryWord(m)}</span>
+              {onBoard && <span className="lib-tile-tag">On the board</span>}
+            </div>
+            <div className="lib-main">
+              <div className="lib-name">{m.name}</div>
+              <div className="lib-meta">
                 {count} {count === 1 ? "ingredient" : "ingredients"}
                 {onHandCount > 0 && ` · ${onHandCount} on hand`}
+                {onBoard && " · on the board"}
               </div>
             </div>
-            {/* Add⇄stepper, obeying the invariant every catalog row already
-                follows: NEVER a stepper at zero, only Add. Here the count is
-                "how many times has this meal been added" rather than one
-                item's quantity, but the rule and the chrome are identical —
-                .qty-controls/.qty-btn/.qty-display, the same trio
-                CatalogItemRow renders, not a hand-rolled lookalike.
-
-                The stepper's mere presence IS the planned signal, which is why
-                the separate teal "Planned" label is gone; the teal border
-                still carries it on the card as a whole. */}
-            {/* Plan — the plan-first path (amendment 3): an open placement and
-                nothing else. A secondary text affordance beside Add, never a
-                second primary; hidden once the meal is on the board by either
-                route. Signed-out it is absent like the create row's control. */}
-            {addCount === 0 && isSignedIn && onPlan && !onBoardIds?.has(m.id) && count > 0 && (
+            {isSignedIn && onPlan && (
               <button
                 type="button"
-                className="meal-plan-btn"
-                onClick={() => { if (!busy) onPlan(m.id); }}
-                disabled={busy}
-              >Plan</button>
-            )}
-            {addCount === 0 ? (
-              /* Inline carries only what .add-btn has no opinion on: layout,
-                 the busy fade, and the zero-ingredient muted state. That muted
-                 state MUST pin background as well as border/color —
-                 .add-btn:hover fills solid, and a disabled button still matches
-                 :hover on desktop, so without an inline background a meal with
-                 no ingredients would light up under the cursor as though it
-                 were live. Inline beats the pseudo-class, which keeps it
-                 inert. */
-              <button
-                className="add-btn"
-                onClick={() => { if (!busy) onAddAll(m.id); }}
-                disabled={busy || count === 0}
-                style={{
-                  whiteSpace: "nowrap", flexShrink: 0,
-                  opacity: busy ? 0.6 : 1,
-                  ...(busy ? { cursor: "default" } : {}),
-                  ...(count === 0 ? {
-                    background: "transparent", borderColor: "#E8D5B7",
-                    color: "#c2b193", cursor: "default",
-                  } : {}),
-                }}
-              >{busy ? "Adding…" : "Add"}</button>
-            ) : (
-              <div className="qty-controls" style={{ opacity: (busy || decrementBusy) ? 0.6 : 1 }}>
-                <button
-                  className="qty-btn"
-                  onClick={() => { if (!decrementBusy && !busy) onDecrement(m.id); }}
-                  disabled={decrementBusy || busy}
-                >−</button>
-                <span className="qty-display">{addCount}</span>
-                <button
-                  className="qty-btn"
-                  onClick={() => { if (!busy && !decrementBusy) onAddAll(m.id); }}
-                  disabled={busy || decrementBusy}
-                >+</button>
-              </div>
+                className="lib-plan"
+                aria-label={onBoard ? `${m.name} is on the board` : `Plan ${m.name}`}
+                disabled={busy || onBoard}
+                onClick={() => { if (!busy && !onBoard) onPlan(m.id); }}
+              >{busy ? "…" : "+"}</button>
             )}
           </div>
           </SwipeToRemove>
@@ -2511,7 +2574,6 @@ function ProvisionsApp() {
     updateMeal,
     requestMealSuggestion,
     deleteMeal,
-    decrementMealBatch,
     onListChangedRef,
     createCatalogItem,
     materializePendingIngredients,
@@ -2525,6 +2587,9 @@ function ProvisionsApp() {
     skipMeal,
     planMeal,
     lockInAll,
+    planNoShop,
+    madeBefore,
+    _listRows,
     updateFullName,
     activeCycle,
     activeSession,
@@ -2595,28 +2660,26 @@ function ProvisionsApp() {
     if (hasItems) setView("list");
   }, [householdReady, listRows]); // eslint-disable-line react-hooks/exhaustive-deps
   const [meals, setMeals] = useState([]);
+  // Plan has two screens since v2: the board (default, the tab's landing) and
+  // the library, one tap away behind "+ Meals" and back behind the chevron.
+  // Leaving the tab resets to the board so Plan always opens on the week.
+  const [planScreen, setPlanScreen] = useState("board");
+  useEffect(() => { if (view !== "plan") setPlanScreen("board"); }, [view]);
   const [mealsLoading, setMealsLoading] = useState(false);
   const [addingMealId, setAddingMealId] = useState(null);
   // Provenance for the teal meal facet: catalog_item_id → [{mealId,name,createdBy}].
   const [mealProvenance, setMealProvenance] = useState({});
 
-  // Meal id → how many times it has been added to the current list. Derived
-  // from the provenance map, which is already refreshed on PLAN by the
-  // navigation effect and the Part 3 poll trigger, so this updates live when
-  // another member adds or removes a meal.
-  //
-  // MAX across the meal's live rows, not sum or average. A meal edited between
-  // adds can leave its rows disagreeing (an ingredient added later has fewer
-  // adds behind it); MAX reads that as "added at least this many times", which
-  // is the conservative claim. Documented tradeoff, deliberately not
-  // engineered around.
-  const plannedMealCounts = useMemo(() => {
+  // The library set (055): kind === 'meal' only. `meals` itself carries every
+  // kind because the board renders no-shop rows; the library must never see
+  // one (a Leftovers row is not a recipe). Legacy rows without a kind read as
+  // meals — the column is NOT NULL DEFAULT 'meal', so this is belt-and-braces.
+  const libraryMeals = useMemo(() => (meals || []).filter((m) => !isNoShop(m)), [meals]);
+  const mealById = useMemo(() => {
     const map = {};
-    Object.values(mealProvenance).flat().forEach((pr) => {
-      map[pr.mealId] = Math.max(map[pr.mealId] || 0, pr.addCount || 1);
-    });
+    (meals || []).forEach((m) => { map[m.id] = m; });
     return map;
-  }, [mealProvenance]);
+  }, [meals]);
 
   // The Plan board (050, SPEC_meal_planning_v1_board_queue.md): THE QUEUE OF
   // OPEN PLACEMENTS — a meal is on the board iff its placement has neither
@@ -2643,6 +2706,41 @@ function ProvisionsApp() {
     });
     return map;
   }, [mealProvenance]);
+
+  // Board header / banner facts (v2, spec "The board"). `cards` = the meal
+  // cards (no-shop cards never count toward either banner or toward M).
+  //   stillToAdd — Planned meal cards WITH ingredients, queue order: the M in
+  //                "M still to add" and the ids Add all runs. A planned meal
+  //                with no ingredients has nothing to add and is left out.
+  //   allReady   — every meal card Ready → "stocked" / teal banner.
+  //   nonePlanned — every meal card on the list (To buy or Ready), none
+  //                Planned → "all on the list" / sand banner.
+  const boardStats = useMemo(() => {
+    const cards = boardMeals.filter((m) => !isNoShop(m));
+    const isReady = (m) => !!placements[m.id]?.readyAt;
+    const isPlanned = (m) => !isReady(m) && (mealRowCounts[m.id]?.total || 0) === 0;
+    const stillToAdd = cards.filter((m) => isPlanned(m) && (m.meal_ingredients || []).length > 0).map((m) => m.id);
+    return {
+      cards,
+      anyNoShop: boardMeals.length > cards.length,
+      stillToAdd,
+      allReady: cards.length > 0 && cards.every(isReady),
+      nonePlanned: cards.length > 0 && !cards.some(isPlanned),
+    };
+  }, [boardMeals, placements, mealRowCounts]);
+  const boardSubtitle = useMemo(() => {
+    const n = boardMeals.length;
+    if (n === 0) return "Pick meals from the library to fill the week";
+    const unit = boardStats.anyNoShop ? "night" : "meal";
+    let sub = `${n} ${unit}${n === 1 ? "" : "s"}`;
+    if (boardStats.cards.length > 0) {
+      if (boardStats.stillToAdd.length > 0) sub += ` · ${boardStats.stillToAdd.length} still to add`;
+      else if (boardStats.allReady) sub += " · stocked";
+      else if (boardStats.nonePlanned) sub += " · all on the list";
+    }
+    return sub;
+  }, [boardMeals.length, boardStats]);
+  const boardBanner = boardStats.allReady ? "stocked" : boardStats.nonePlanned ? "set" : null;
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
   const [editModalItem, setEditModalItem] = useState(null);
@@ -2746,6 +2844,25 @@ function ProvisionsApp() {
     }
   }, [household?.id, view, refreshProvenance]);
 
+  // Toast. `action` = { label, onClick } renders a tap target on the pill
+  // (BOARD after Plan, SHOP after Add all) and holds it a little longer.
+  // Declared here, above the Plan handlers that need it — CI=true turns
+  // no-use-before-define into a build failure.
+  const [toastMessage, setToastMessage] = useState(null);
+  const toastTimerRef = useRef(null);
+  const showToast = useCallback((message, action = null) => {
+    setToastMessage({ text: message, action });
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), action ? 4000 : 2500);
+  }, []);
+  // "{n} items on the list." — the LIVE count after an add, read from the
+  // hook's ref (set synchronously by loadListItems) rather than the `listRows`
+  // state this render closed over.
+  const itemsOnListText = useCallback(() => {
+    const n = (_listRows?.current || []).length;
+    return `${n} item${n === 1 ? "" : "s"} on the list.`;
+  }, [_listRows]);
+
   // The two exits (050). Skip on a to-buy card zeroes the meal's pending rows
   // first (removeMealFromList: never un-buys, leaves shared ingredients to the
   // extent another meal needs them) and then closes the placement; on a Ready
@@ -2767,23 +2884,50 @@ function ProvisionsApp() {
     finally { setBusyMealId(null); }
   }, [markCooked]);
 
-  // Plan without adding: the placement only. Lock in: the SAME add handler the
-  // library uses (so a meal with on-hand ingredients gets the on-hand prompt
-  // here too). Lock in all: the hook's batch over the Planned cards in queue
-  // order, default quantity 1, on-hand skipped — one toast at the end.
-  const handlePlanMeal = useCallback(async (mealId) => { await planMeal(mealId); }, [planMeal]);
+  // Plan (library): the placement only — the one door out of the library. The
+  // toast points at the board, where Add to list lives. Add to list (board):
+  // the SAME add handler as before (so a meal with on-hand ingredients gets
+  // the on-hand prompt). Add all: the hook's batch over the Planned cards in
+  // queue order, default quantity 1, on-hand skipped — one toast at the end.
+  const [planningMealId, setPlanningMealId] = useState(null);
+  const handlePlanMeal = useCallback(async (mealId) => {
+    setPlanningMealId(mealId);
+    try {
+      const ok = await planMeal(mealId);
+      if (ok) showToast("Planned. Add to list from the board when you're ready.", { label: "Board", onClick: () => setPlanScreen("board") });
+    } finally {
+      setPlanningMealId(null);
+    }
+  }, [planMeal, showToast]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
 
-  const [decrementingMealId, setDecrementingMealId] = useState(null);
-  const handleDecrementMeal = useCallback(async (mealId) => {
-    setDecrementingMealId(mealId);
+  // No-shop cards (055): Leftovers / Eating out. The foot buttons open a
+  // one-field sheet — leftovers: optional "from which meal" over the board's
+  // open meals + recently cooked ones; eating out: optional place name — then
+  // planNoShop inserts the meals row and places it in one action.
+  //   noShopSheet: null | { kind: 'leftovers' | 'out', name, fromMealId }
+  const [noShopSheet, setNoShopSheet] = useState(null);
+  const [noShopBusy, setNoShopBusy] = useState(false);
+  const leftoverSources = useMemo(() => {
+    const open = boardMeals.filter((m) => !isNoShop(m));
+    const cooked = libraryMeals
+      .filter((m) => placements[m.id]?.cookedAt && !open.some((o) => o.id === m.id))
+      .sort((a, b) => (placements[b.id].cookedAt > placements[a.id].cookedAt ? 1 : -1));
+    return [...open, ...cooked].slice(0, 8);
+  }, [boardMeals, libraryMeals, placements]);
+  const commitNoShop = useCallback(async () => {
+    if (!noShopSheet || noShopBusy) return;
+    setNoShopBusy(true);
     try {
-      await decrementMealBatch(mealId);
-      await refreshProvenance();
+      const id = await planNoShop(noShopSheet.kind, noShopSheet.name, noShopSheet.fromMealId);
+      if (id) {
+        setNoShopSheet(null);
+        await refreshMeals();   // the card renders from `meals`, so pull the new row now
+      }
     } finally {
-      setDecrementingMealId(null);
+      setNoShopBusy(false);
     }
-  }, [decrementMealBatch, refreshProvenance]);
+  }, [noShopSheet, noShopBusy, planNoShop, refreshMeals]);
 
   // On-hand prompt state. null = closed. Only ever set for a meal that actually
   // HAS on-hand ingredients, so the common case never sees it.
@@ -2801,8 +2945,9 @@ function ProvisionsApp() {
       try {
         // flat: servings = 1 (dial deferred). The hook places the card (050):
         // a closed placement reopens at the end, an open one keeps its slot.
-        await addMealToList(mealId, 1);
-        await refreshProvenance();        // reflect the badge immediately
+        const count = await addMealToList(mealId, 1);
+        await refreshProvenance();        // reflect the card state immediately
+        if (count) showToast(`${meal?.name || "Meal"} added. ${itemsOnListText()}`);
       } finally {
         setAddingMealId(null);
       }
@@ -2821,7 +2966,7 @@ function ProvisionsApp() {
       })),
       choices: Object.fromEntries(onHand.map((mi) => [mi.catalog_item_id, "skip"])),
     });
-  }, [meals, addMealToList, refreshProvenance]);
+  }, [meals, addMealToList, refreshProvenance, showToast, itemsOnListText]);
 
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
@@ -2973,8 +3118,6 @@ function ProvisionsApp() {
   const [creating, setCreating] = useState(false);
   const [newHouseholdName, setNewHouseholdName] = useState("");
   const [creatingInFlight, setCreatingInFlight] = useState(false);
-  const [toastMessage, setToastMessage] = useState(null);
-  const toastTimerRef = useRef(null);
   const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [renamingCategory, setRenamingCategory] = useState(null);
@@ -3111,29 +3254,22 @@ function ProvisionsApp() {
     }
   }, [showHouseholdModal, refreshMembers]);
 
-  const showToast = useCallback((message) => {
-    setToastMessage(message);
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastMessage(null), 2500);
-  }, []);
-
-  // Lock in all: the hook's batch over the Planned cards in queue order — one
-  // toast at the end. Below showToast for the same reason as the confirm below.
+  // Add all ("+ Add M to list"): the hook's batch over the Planned meal cards
+  // in queue order — boardStats.stillToAdd, which already excludes no-shop
+  // cards and ingredient-less meals — one toast at the end, with a SHOP action.
   const [lockingAll, setLockingAll] = useState(false);
   const handleLockInAll = useCallback(async () => {
-    const ids = boardMeals
-      .filter((m) => !placements[m.id]?.readyAt && (mealRowCounts[m.id]?.total || 0) === 0)
-      .map((m) => m.id);
+    const ids = boardStats.stillToAdd;
     if (!ids.length) return;
     setLockingAll(true);
     try {
       const n = await lockInAll(ids);
       await refreshProvenance();
-      showToast(n === 1 ? "1 meal on the list" : `${n} meals on the list`);
+      showToast(`${n} meal${n === 1 ? "" : "s"} added. ${itemsOnListText()}`, { label: "Shop", onClick: () => goToDoor("list") });
     } finally {
       setLockingAll(false);
     }
-  }, [boardMeals, placements, mealRowCounts, lockInAll, refreshProvenance, showToast]);
+  }, [boardStats, lockInAll, refreshProvenance, showToast, itemsOnListText, goToDoor]);
 
   // Defined here, below showToast, rather than beside handleAddMealToList where it
   // logically belongs: it needs showToast, and CI=true turns no-use-before-define
@@ -3141,7 +3277,7 @@ function ProvisionsApp() {
   // lives with the add handler.
   const confirmOnHandPrompt = useCallback(async () => {
     if (!onHandPrompt) return;
-    const { mealId, choices } = onHandPrompt;
+    const { mealId, mealName, choices } = onHandPrompt;
     const pick = (want) => Object.entries(choices).filter(([, v]) => v === want).map(([k]) => k);
     const includeIds = pick("include");
     const removeIds = pick("remove");
@@ -3161,10 +3297,11 @@ function ProvisionsApp() {
       // ingredients are all on hand and all skipped adds nothing. Silence would read
       // as a broken button, so say what happened.
       if (!count) showToast("Nothing added — you have it all on hand");
+      else showToast(`${mealName} added. ${itemsOnListText()}`);
     } finally {
       setAddingMealId(null);
     }
-  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast]);
+  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast, itemsOnListText]);
 
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
@@ -4435,12 +4572,26 @@ function ProvisionsApp() {
           <div style={{
             background: "rgba(44,26,14,0.92)", color: "#FAF4EC",
             fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
-            padding: "10px 22px", borderRadius: "999px",
+            padding: toastMessage.action ? "8px 10px 8px 20px" : "10px 22px", borderRadius: "999px",
             boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
-            whiteSpace: "nowrap", maxWidth: "90vw",
+            maxWidth: "90vw", display: "flex", alignItems: "center", gap: "12px",
             animation: "fadeIn 0.18s ease",
+            // A toast with an action is the one bottom-stack child that opts
+            // back into pointer events; a plain one stays transparent.
+            pointerEvents: toastMessage.action ? "auto" : "none",
           }}>
-            {toastMessage}
+            <span>{toastMessage.text}</span>
+            {toastMessage.action && (
+              <button
+                type="button"
+                onClick={() => { const a = toastMessage.action; setToastMessage(null); a.onClick(); }}
+                style={{
+                  flex: "none", background: "none", border: "1px solid rgba(250,244,236,0.4)", color: "#FAF4EC",
+                  borderRadius: "999px", padding: "5px 12px", cursor: "pointer",
+                  fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", fontWeight: 900, letterSpacing: "1px", textTransform: "uppercase",
+                }}
+              >{toastMessage.action.label}</button>
+            )}
           </div>
         )}
       </div>
@@ -4489,45 +4640,117 @@ function ProvisionsApp() {
         .helm-label { line-height: 1; white-space: nowrap; transition: opacity .2s ease; }
         .helm-badge { position: absolute; top: 1px; left: calc(50% + 5px); margin: 0; font-size: 0.58rem; padding: 0 4px; line-height: 15px; }
         .control-row-end { height: 0; margin: 0; padding: 0; }
-        /* ── Plan board (SPEC_meal_planning_v1_board.md v1; mockup_plan_single_surface.html frame 2 is the visual authority, minus the lens) ── */
-        .board { position: relative; background: #F3E9D8; border-radius: 14px; padding: 30px 10px 10px; margin-bottom: 18px; }
-        .board-label { position: absolute; top: 10px; left: 14px; font-family: 'Lato', sans-serif; font-size: 0.66rem; letter-spacing: 1.5px; text-transform: uppercase; color: #A0724A; }
-        .board-empty { height: 52px; padding: 0; display: flex; align-items: center; justify-content: center; background: transparent; border: 1.5px dashed #C9A97A;
+        /* ── Plan (SPEC_meal_planning_v2_pick_commit_cook.md): Meals → Board → List → Cook. TEAL = the household finished something —
+           on this surface only the READY chip, Cooked it, and the stocked banner. Everything else is espresso (#6f5a45) or outline. ── */
+        .plan-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+        .plan-head-text { flex: 1; min-width: 0; }
+        .plan-title { font-family: 'Playfair Display', serif; font-size: 1.45rem; font-weight: 700; color: #2C1A0E; margin: 0; line-height: 1.1; }
+        .plan-sub { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; margin-top: 3px; }
+        .plan-back { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; cursor: pointer;
+                     font-family: 'Lato', sans-serif; font-size: 1.5rem; line-height: 1; padding: 0 0 4px; display: flex; align-items: center; justify-content: center; }
+        .plan-meals { flex: none; border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; border-radius: 999px; padding: 8px 14px; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
+        /* "+ Add M to list" — sand fill, the board's one call to action while anything is still to add. Not teal: nothing is finished yet. */
+        .plan-addall { flex: none; border: none; background: #C9A97A; color: #2C1A0E; border-radius: 999px; padding: 9px 14px; cursor: pointer;
+                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 900; white-space: nowrap; }
+        .plan-addall:disabled { opacity: 0.6; cursor: default; }
+        .plan-prompt { margin: 0 2px 12px; }
+        .plan-prompt-title { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.02rem; color: #2C1A0E; }
+        .plan-prompt-sub { font-family: 'Lato', sans-serif; font-size: 0.76rem; color: #8a7a60; margin-top: 2px; }
+        .plan-banner { display: flex; align-items: center; gap: 12px; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+        .plan-banner.set { background: rgba(201,169,122,0.22); }
+        .plan-banner.stocked { background: rgba(13,148,136,0.10); }
+        .plan-banner-check { flex: none; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 900; }
+        .plan-banner.set .plan-banner-check { background: #C9A97A; color: #2C1A0E; }
+        .plan-banner.stocked .plan-banner-check { background: #0D9488; color: #fff; }
+        .plan-banner-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 0.98rem; color: #2C1A0E; }
+        .plan-banner-sub { font-family: 'Lato', sans-serif; font-size: 0.76rem; color: #6f5a45; margin-top: 1px; }
+        .board { position: relative; margin-bottom: 14px; }
+        .board-empty { height: 52px; display: flex; align-items: center; justify-content: center; border: 1.5px dashed #C9A97A; border-radius: 14px;
                        font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; }
-        .board-card { display: flex; align-items: center; gap: 8px; background: #fff; border-radius: 11px; padding: 9px 6px 9px 12px; box-shadow: 0 3px 10px rgba(44,26,14,0.13);
+        /* Two columns: the numbered tile, then everything else. No third column, so nothing wraps at 390–430px (the ROADMAP bug). */
+        .board-card { display: flex; align-items: stretch; background: #fff; border-radius: 12px; box-shadow: 0 3px 10px rgba(44,26,14,0.13);
                       cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-y; position: relative;
                       transition: transform .15s ease, box-shadow .15s ease; }
-        /* Lifted (mockup frame 4): amber hairline, deeper shadow, a touch larger. The lifted card
-           follows the pointer with no transition; the cards it passes slide out of its way. */
-        .board-card.lifted { z-index: 3; border: 1.5px solid #c8973a; padding: 7.5px 4.5px 7.5px 10.5px; box-shadow: 0 14px 26px rgba(44,26,14,0.3); transition: none; }
+        .board-card.noshop { background: transparent; box-shadow: none; cursor: default; outline: 1.5px dashed #C9A97A; outline-offset: -1.5px; }
+        /* Lifted: amber hairline (an outline, so the card's size never changes), deeper shadow. The lifted card follows the pointer with no transition. */
+        .board-card.lifted { z-index: 3; outline: 1.5px solid #c8973a; outline-offset: -1.5px; box-shadow: 0 14px 26px rgba(44,26,14,0.3); transition: none; }
         @media (prefers-reduced-motion: reduce) { .board-card { transition: none; } }
         .board-card + .board-card { margin-top: 8px; }
-        .board-card-body { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-        .board-card-title { font-family: 'Playfair Display', serif; font-size: 0.92rem; font-weight: 700; color: #2C1A0E; line-height: 1.15; min-width: 0; }
-        .board-card-count { flex: none; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; }
-        /* Card state (050): the count while to-buy, "Ready" once earned at Wrap up (teal — the meal signal, mockup frame 2's .card-sub.ready). */
-        .board-card-state { flex: none; margin-left: auto; font-family: 'Lato', sans-serif; font-size: 0.64rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; white-space: nowrap; }
-        .board-card-state.ready { color: #0D9488; }
-        /* Cooked it — the Ready card's exit. Teal outline, the same family as the stepper's chrome; the × beside it is skip. */
-        .board-cook { flex: none; border: 1.5px solid #0D9488; background: transparent; color: #0D9488; border-radius: 14px; padding: 5px 10px; cursor: pointer;
-                      font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
-        .board-cook:disabled { opacity: 0.5; cursor: default; }
-        /* Planned (amendment 3): the state reads muted-italic; Lock in is the clay outline (the library's Add family) — plan-first's primary. */
-        .board-card-state.planned { font-style: italic; text-transform: none; letter-spacing: 0; font-size: 0.72rem; font-weight: 400; }
-        .board-lock { flex: none; border: 1.5px solid #C9A97A; background: transparent; color: #A0724A; border-radius: 14px; padding: 5px 10px; cursor: pointer;
-                      font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
-        .board-lock:disabled { opacity: 0.5; cursor: default; }
-        .board-lock-all { position: absolute; top: 5px; right: 10px; border: none; background: transparent; color: #A0724A; cursor: pointer; padding: 4px 6px;
-                          font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
-        .board-lock-all:disabled { opacity: 0.5; cursor: default; }
-        /* Library "Plan": a small text button beside Add — secondary, never a second primary. */
-        .meal-plan-btn { flex: none; border: none; background: transparent; color: #A0724A; cursor: pointer; padding: 6px 8px; margin-right: -2px;
-                         font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px; text-decoration: underline dotted; text-underline-offset: 3px; }
-        .meal-plan-btn:disabled { opacity: 0.5; cursor: default; }
-        .board-x { flex: none; width: 32px; height: 32px; border-radius: 50%; border: none; background: transparent; color: #C9A97A; cursor: pointer;
+        .board-tile { flex: none; width: 62px; border-radius: 12px 0 0 12px; display: flex; flex-direction: column; align-items: flex-start; padding: 10px 8px; gap: 3px; }
+        .board-num { font-family: 'Playfair Display', serif; font-size: 1.35rem; font-weight: 700; line-height: 1; }
+        .board-rail { font-family: 'Lato', sans-serif; font-size: 0.54rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; line-height: 1.2; opacity: 0.92; }
+        .board-main { flex: 1; min-width: 0; padding: 10px 6px 6px 12px; display: flex; flex-direction: column; gap: 4px; position: relative; }
+        .board-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .board-card-title { flex: 1; min-width: 0; font-family: 'Playfair Display', serif; font-size: 0.98rem; font-weight: 700; color: #2C1A0E; line-height: 1.15;
+                            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .board-chip { flex: none; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60;
+                      border: 1px solid #E8D5B7; border-radius: 999px; padding: 2px 7px; }
+        .board-chip.ready { color: #0D9488; border-color: #0D9488; }
+        .board-line { font-family: 'Lato', sans-serif; font-size: 0.76rem; color: #8a7a60; min-height: 1.1em; }
+        .board-card.ready .board-line { color: #6f5a45; }
+        .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 2px; }
+        .board-actions-gap { flex: 1; }
+        /* One primary per state. Add to list / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
+        .board-lock, .board-see, .board-cook { flex: none; border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
+                      font-family: 'Lato', sans-serif; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.5px; }
+        .board-lock { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
+        .board-see { border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; }
+        .board-cook { border: 1.5px solid #0D9488; background: #0D9488; color: #fff; }
+        .board-lock:disabled, .board-see:disabled, .board-cook:disabled { opacity: 0.5; cursor: default; }
+        .board-more { flex: none; width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent; color: #8a7a60; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: 1.1rem; font-weight: 700; line-height: 1; padding: 0 0 6px; }
+        .board-more:hover { color: #6f5a45; }
+        .board-x { flex: none; width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent; color: #C9A97A; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: 1.15rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
         .board-x:hover { color: #A0724A; }
         .board-x:disabled { cursor: default; }
+        .board-menu-backdrop { position: fixed; inset: 0; z-index: 4; }
+        .board-menu { position: absolute; right: 6px; bottom: 40px; z-index: 5; background: #fff; border: 1px solid #E8D5B7; border-radius: 10px;
+                      box-shadow: 0 8px 24px rgba(44,26,14,0.18); padding: 4px; min-width: 150px; }
+        .board-menu button { display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 9px 12px; border-radius: 7px;
+                             font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #2C1A0E; cursor: pointer; }
+        .board-menu button:hover { background: #F5EDE0; }
+        .board-menu button:disabled { opacity: 0.5; cursor: default; }
+        .plan-foot { margin: 4px 0 18px; }
+        .plan-foot-btns { display: flex; gap: 8px; }
+        .plan-noshop { flex: 1; border: 1.5px dashed #C9A97A; background: transparent; color: #6f5a45; border-radius: 12px; padding: 11px; cursor: pointer;
+                       font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; }
+        .plan-foot-line { font-family: 'Lato', sans-serif; font-size: 0.7rem; color: #a9967c; font-style: italic; text-align: center; margin-top: 8px; }
+        /* Library (v2): category tile · name · meta · one round + (Plan). Filters are espresso pills. */
+        .lib-filters { display: flex; gap: 6px; margin: 0 0 12px; flex-wrap: wrap; }
+        .lib-filter { border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; border-radius: 999px; padding: 6px 12px; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: 0.74rem; font-weight: 700; }
+        .lib-filter.on { border-color: #6f5a45; background: #6f5a45; color: #FAF4EC; }
+        .lib-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 12px; }
+        .lib-card.on-board { background: #FAF4EC; }
+        .lib-tile { flex: none; width: 54px; height: 54px; border-radius: 9px; display: flex; align-items: center; justify-content: center; text-align: center;
+                    padding: 4px; overflow: hidden; position: relative; }
+        .lib-tile-word { font-family: 'Lato', sans-serif; font-size: 0.5rem; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; line-height: 1.2;
+                         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .lib-tile-tag { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(44,26,14,0.82); color: #FAF4EC; font-family: 'Lato', sans-serif;
+                        font-size: 0.4rem; font-weight: 900; letter-spacing: 0.5px; text-transform: uppercase; padding: 2px 0; }
+        .lib-main { flex: 1; min-width: 0; }
+        .lib-name { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; color: #2C1A0E; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .lib-meta { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 2px; }
+        .lib-plan { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
+                    font-family: 'Lato', sans-serif; font-size: 1.35rem; font-weight: 300; line-height: 1; padding: 0 0 2px; display: flex; align-items: center; justify-content: center; }
+        .lib-plan:disabled { opacity: 0.35; cursor: default; }
+        .lib-empty { padding: 24px 12px; text-align: center; font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; font-style: italic; }
+        /* No-shop sheet */
+        .noshop-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #6f5a45; margin-bottom: 14px; }
+        .noshop-label { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
+        .noshop-label span { font-weight: 400; color: #8a7a60; }
+        .noshop-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+        .noshop-chip { border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; border-radius: 999px; padding: 7px 12px; cursor: pointer;
+                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; }
+        .noshop-chip.on { border-color: #6f5a45; background: #6f5a45; color: #FAF4EC; }
+        .noshop-none { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; font-style: italic; }
+        .noshop-input { width: 100%; box-sizing: border-box; padding: 12px 13px; border-radius: 10px; border: 1.5px solid #E8D5B7; background: #FFFDF9;
+                        font-family: 'Lato', sans-serif; font-size: 0.92rem; color: #2C1A0E; outline: none; margin-bottom: 14px; }
+        .noshop-commit { width: 100%; border: none; background: #6f5a45; color: #FAF4EC; border-radius: 10px; padding: 12px; cursor: pointer;
+                         font-family: 'Lato', sans-serif; font-size: 0.88rem; font-weight: 900; }
+        .noshop-commit:disabled { opacity: 0.6; cursor: default; }
         /* Compact (D9′): icons only, pulled in from the sides; labels stay in the DOM at font-size 0. */
         .helm.compact .helm-door { gap: 0; }
         .helm.compact .helm-label { font-size: 0; opacity: 0; }
@@ -5827,48 +6050,101 @@ function ProvisionsApp() {
           <HomePlaceholder firstName={user?.firstName} householdName={household?.name} />
         )}
 
-        {view === "plan" && (
+        {view === "plan" && planScreen === "board" && (
           <>
-            {/* Plan's control row — [n this week] [+], Shop's grammar with the lens
-                slot EMPTY. v2 drops [Board | Days] into that slot without relayout.
-                This row is the D9′ sentinel: the pill compacts exactly when it
-                leaves the viewport, like Shop's. The + is the pill's + — New meal —
-                and, like the pill's, exists only signed in (creating a meal is an
-                identity-requiring write; the library's terminal row says why). */}
-            <div className="list-header" ref={controlRowRef}>
-              <span className="list-progress" style={{ flex: 1 }}>{boardMeals.length} this week</span>
-              {MEALS_ENABLED && isSignedIn && (
-                <button type="button" className="hdr-plus" aria-label="New meal" onClick={() => setMealSheet({ mode: "create", meal: null })}>+</button>
+            {/* THE BOARD (v2). Header: title, the counts line, and ONE control —
+                "+ Add M to list" (sand) while anything is still to add, otherwise
+                "+ Meals" (outline) into the library. Under it, a banner when the
+                week is set or stocked, else the prompt. No teal until the
+                household has finished something. */}
+            <div className="plan-head">
+              <div className="plan-head-text">
+                <h2 className="plan-title">This Week</h2>
+                <div className="plan-sub">{boardSubtitle}</div>
+              </div>
+              {isSignedIn && boardStats.stillToAdd.length > 0 ? (
+                <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
+                  {lockingAll ? "Adding…" : `+ Add ${boardStats.stillToAdd.length} to list`}
+                </button>
+              ) : (
+                <button type="button" className="plan-meals" onClick={() => setPlanScreen("library")}>+ Meals</button>
               )}
             </div>
+            {boardBanner === "stocked" ? (
+              <div className="plan-banner stocked" role="status">
+                <span className="plan-banner-check" aria-hidden="true">✓</span>
+                <div>
+                  <div className="plan-banner-title">Everything's in. Go cook.</div>
+                  <div className="plan-banner-sub">{boardStats.cards.length} meal{boardStats.cards.length === 1 ? "" : "s"} stocked and ready.</div>
+                </div>
+              </div>
+            ) : boardBanner === "set" ? (
+              <div className="plan-banner set" role="status">
+                <span className="plan-banner-check" aria-hidden="true">✓</span>
+                <div>
+                  <div className="plan-banner-title">All set for the week</div>
+                  <div className="plan-banner-sub">Everything you need is on your list.</div>
+                </div>
+              </div>
+            ) : boardMeals.length > 0 ? (
+              <div className="plan-prompt">
+                <div className="plan-prompt-title">What sounds good next?</div>
+                <div className="plan-prompt-sub">Drag meals into the order you want them.</div>
+              </div>
+            ) : null}
             <PlanBoard
               meals={boardMeals}
-              counts={plannedMealCounts}
               rows={mealRowCounts}
               placements={placements}
+              mealById={mealById}
               onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
               onSkip={handleSkipMeal}
               onCooked={handleCookedMeal}
               onLockIn={handleAddMealToList}
-              onLockInAll={handleLockInAll}
-              lockingAll={lockingAll}
+              onSeeList={() => goToDoor("list")}
               onReorder={reorderBoard}
-              busyMealId={busyMealId}
+              busyMealId={busyMealId || addingMealId}
             />
-          <MealsLens
-            meals={meals}
-            loading={mealsLoading}
-            onAddAll={handleAddMealToList}
-            addingMealId={addingMealId}
-            onCreate={() => setMealSheet({ mode: "create", meal: null })}
-            isSignedIn={isSignedIn}
-            onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
-            plannedMealCounts={plannedMealCounts}
-            onDecrement={handleDecrementMeal}
-            decrementingMealId={decrementingMealId}
-            onPlan={handlePlanMeal}
-            onBoardIds={onBoardIds}
-          />
+            {MEALS_ENABLED && isSignedIn && (
+              <div className="plan-foot">
+                <div className="plan-foot-btns">
+                  <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "leftovers", name: "", fromMealId: null })}>Leftovers</button>
+                  <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "out", name: "", fromMealId: null })}>Eating out</button>
+                </div>
+                <div className="plan-foot-line">Neither adds anything to your list — they just hold the night.</div>
+              </div>
+            )}
+          </>
+        )}
+
+        {view === "plan" && planScreen === "library" && (
+          <>
+            {/* THE LIBRARY (v2). Back chevron to the board; no "This Week" chip —
+                the board is one tap away and the nav tab is already lit. The + is
+                New meal (signed in only: creating a meal is an identity-requiring
+                write; the library's terminal row says why). */}
+            <div className="plan-head">
+              <button type="button" className="plan-back" aria-label="Back to the board" onClick={() => setPlanScreen("board")}>‹</button>
+              <div className="plan-head-text">
+                <h2 className="plan-title">Meal Library</h2>
+                <div className="plan-sub">Discover. Save. Plan for your week.</div>
+              </div>
+              {MEALS_ENABLED && isSignedIn && (
+                <button type="button" className="hdr-plus" aria-label="New meal" onClick={() => setMealSheet({ mode: "create", meal: null })}>+</button>
+              )}
+            </div>
+            <MealsLens
+              meals={libraryMeals}
+              loading={mealsLoading}
+              onPlan={handlePlanMeal}
+              planningMealId={planningMealId}
+              onCreate={() => setMealSheet({ mode: "create", meal: null })}
+              isSignedIn={isSignedIn}
+              onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
+              onBoardIds={onBoardIds}
+              madeBefore={madeBefore}
+              householdId={household?.id}
+            />
           </>
         )}
 
@@ -6397,6 +6673,52 @@ function ProvisionsApp() {
         )}
       </div>
 
+
+      {/* No-shop sheet (v2, 055) — one optional field, then "Hold the night". */}
+      {MEALS_ENABLED && noShopSheet && (
+        <div className="modal-overlay" onClick={() => { if (!noShopBusy) setNoShopSheet(null); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{noShopSheet.kind === "leftovers" ? "Leftovers" : "Eating out"}</h2>
+            <div className="noshop-sub">Holds the night on the board. Nothing goes on your list.</div>
+            {noShopSheet.kind === "leftovers" ? (
+              <>
+                <div className="noshop-label">From which meal? <span>(optional)</span></div>
+                <div className="noshop-chips">
+                  {leftoverSources.map((m) => {
+                    const on = noShopSheet.fromMealId === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        aria-pressed={on}
+                        className={`noshop-chip${on ? " on" : ""}`}
+                        onClick={() => setNoShopSheet((prev) => prev && ({ ...prev, fromMealId: on ? null : m.id }))}
+                      >{m.name}</button>
+                    );
+                  })}
+                  {leftoverSources.length === 0 && (
+                    <div className="noshop-none">Nothing on the board or cooked lately to pick from — that's fine.</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <input
+                className="noshop-input"
+                value={noShopSheet.name}
+                onChange={(e) => setNoShopSheet((prev) => prev && ({ ...prev, name: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") commitNoShop(); }}
+                placeholder="Where to? (optional)"
+                maxLength={60}
+                autoFocus
+              />
+            )}
+            <button type="button" className="noshop-commit" disabled={noShopBusy} onClick={commitNoShop}>
+              {noShopBusy ? "Adding…" : "Hold the night"}
+            </button>
+            <button type="button" className="op-never-mind" onClick={() => setNoShopSheet(null)} disabled={noShopBusy}>Never mind</button>
+          </div>
+        </div>
+      )}
 
       {/* On-hand prompt — only for meals that have on-hand ingredients.
           Three choices per ingredient, no confirmation on Remove: the prompt is

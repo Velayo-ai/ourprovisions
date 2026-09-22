@@ -27,8 +27,15 @@ const CHROME_ALLOW_LIST = [
   '.wrapup',         // Shop header "Wrap up"
   '.all-done-btn',   // All done card's "Wrap up trip →"
   '.add-btn',        // row "Add" buttons (Browse, search, meal sheet)
-  '.board-lock',     // Plan board "Lock in"
-  '.board-lock-all', // Plan board "Lock in all (n)"
+  '.board-lock',     // Plan board "Add to list" (v2; the class keeps the hook's name)
+  '.board-see',      // Plan board "See on list"
+  '.board-cook',     // Plan board "Cooked it"
+  '.board-more',     // Plan board ⋯ menu trigger
+  '.plan-addall',    // Plan header "+ Add N to list"
+  '.plan-meals',     // Plan header "+ Meals" → library
+  '.plan-noshop',    // Plan foot "Leftovers" / "Eating out"
+  '.lib-filter',     // Library filter pills
+  '.lib-plan',       // Library round + (Plan)
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 
