@@ -2763,12 +2763,12 @@ function ProvisionsApp() {
 
   // Board header / banner facts (v2, spec "The board"). `cards` = the meal
   // cards (no-shop cards never count toward either banner or toward M).
-  //   stillToAdd — Planned meal cards WITH ingredients, queue order: the M in
-  //                "M still to add" and the ids Add all runs. A planned meal
+  //   stillToAdd — Planned meal cards WITH ingredients, queue order: the N in
+  //                "N meals to add to Shop" and the ids Add all runs. A planned meal
   //                with no ingredients has nothing to add and is left out.
   //   allReady   — every meal card Ready → "stocked" / teal banner.
   //   nonePlanned — every meal card on the list (To buy or Ready), none
-  //                Planned → "all on the list" / sand banner.
+  //                Planned → "Everything's in Shop ✓" / sand banner.
   const boardStats = useMemo(() => {
     const cards = boardMeals.filter((m) => !isNoShop(m));
     const isReady = (m) => !!placements[m.id]?.readyAt;
@@ -2782,17 +2782,29 @@ function ProvisionsApp() {
       nonePlanned: cards.length > 0 && !cards.some(isPlanned),
     };
   }, [boardMeals, placements, mealRowCounts]);
+  // Header subtitle — "{n} nights" plus the batch action, as a ladder (N =
+  // Planned meal cards with ingredients, the ids Add all runs):
+  //   N ≥ 2            · "{N} meals to add to Shop →"   "add to Shop →" is the
+  //                      one tap target (lockInAll); 44px invisible padding
+  //   N = 1            · "1 meal to add to Shop"        plain — the card's own
+  //                      button is the affordance
+  //   N = 0, any To buy · "Everything's in Shop ✓"
+  //   all meals Ready  · "stocked"
+  //   no meals at all  · nothing after the count
+  // Unit: "meals" while every open placement is a meal, "nights" once any
+  // no-shop card exists (spec). Returned as parts because the link is JSX.
   const boardSubtitle = useMemo(() => {
     const n = boardMeals.length;
-    if (n === 0) return "Pick meals from the library to fill the week";
+    if (n === 0) return { head: "Pick meals from the library to fill the week", tail: "", link: 0 };
     const unit = boardStats.anyNoShop ? "night" : "meal";
-    let sub = `${n} ${unit}${n === 1 ? "" : "s"}`;
-    if (boardStats.cards.length > 0) {
-      if (boardStats.stillToAdd.length > 0) sub += ` · ${boardStats.stillToAdd.length} still to add`;
-      else if (boardStats.allReady) sub += " · stocked";
-      else if (boardStats.nonePlanned) sub += " · all on the list";
-    }
-    return sub;
+    const head = `${n} ${unit}${n === 1 ? "" : "s"}`;
+    const N = boardStats.stillToAdd.length;
+    if (boardStats.cards.length === 0) return { head, tail: "", link: 0 };
+    if (N >= 2) return { head, tail: ` · ${N} meals to `, link: N };
+    if (N === 1) return { head, tail: " · 1 meal to add to Shop", link: 0 };
+    if (boardStats.allReady) return { head, tail: " · stocked", link: 0 };
+    if (boardStats.nonePlanned) return { head, tail: " · Everything's in Shop ✓", link: 0 };
+    return { head, tail: "", link: 0 };
   }, [boardMeals.length, boardStats]);
   const boardBanner = boardStats.allReady ? "stocked" : boardStats.nonePlanned ? "set" : null;
   const [editingPrice, setEditingPrice] = useState(null);
@@ -4723,8 +4735,10 @@ function ProvisionsApp() {
                      font-family: 'Lato', sans-serif; font-size: 1.5rem; line-height: 1; padding: 0 0 4px; display: flex; align-items: center; justify-content: center; }
         .plan-meals { flex: none; border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; border-radius: 999px; padding: 8px 14px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
-        /* "Add M →" — a text link at the end of the prompt's prose, only at M ≥ 2. Same size as the prose, espresso. Not a bar, not teal. */
-        .plan-addall { display: inline; border: none; background: none; color: #6f5a45; padding: 0; margin-left: 6px; cursor: pointer;
+        /* "add to Shop →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
+           hit box; the matching negative margins keep the line box exactly where it was. Not a bar, not teal. */
+        .plan-addall { display: inline-block; vertical-align: baseline; border: none; background: none; color: #6f5a45; cursor: pointer;
+                       padding: 15px 4px; margin: -15px -4px; line-height: inherit;
                        font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(111,90,69,0.4); }
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
         .plan-prompt { margin: 0 2px 12px; }
@@ -6141,14 +6155,22 @@ function ProvisionsApp() {
                 library, always. The header is the door's control row, so it is the
                 compact sentinel (controlRowRef): when it scrolls off, the Helm
                 compacts and its + does the door's add — here, open the library
-                (doorAdd.plan). Under the header, a banner when the week is set or
-                stocked, else the prompt — whose second line ends in "Add M →" only
-                when two or more cards are still to add. No bar, no teal until the
-                household has finished something. */}
+                (doorAdd.plan). The subtitle carries the count AND the batch
+                action ("4 nights · 2 meals to add to Shop →" — see boardSubtitle).
+                Under the header, a banner when the week is set or stocked, else
+                the two-line prompt. No bar, no teal until the household has
+                finished something. */}
             <div className="plan-head" ref={controlRowRef}>
               <div className="plan-head-text">
                 <h2 className="plan-title">This Week</h2>
-                <div className="plan-sub">{boardSubtitle}</div>
+                <div className="plan-sub">
+                  {boardSubtitle.head}{boardSubtitle.tail}
+                  {boardSubtitle.link > 0 && (isSignedIn ? (
+                    <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
+                      {lockingAll ? "adding…" : "add to Shop →"}
+                    </button>
+                  ) : "add to Shop")}
+                </div>
               </div>
               <button type="button" className="plan-meals" onClick={() => setPlanScreen("library")}>+ Meals</button>
             </div>
@@ -6171,17 +6193,7 @@ function ProvisionsApp() {
             ) : boardMeals.length > 0 ? (
               <div className="plan-prompt">
                 <div className="plan-prompt-title">What sounds good next?</div>
-                <div className="plan-prompt-sub">
-                  Drag meals into the order you want them.
-                  {/* Add all — a text link at the end of the prose, only when there
-                      are TWO OR MORE Planned cards to batch. At one, the card's own
-                      Add to Shop is the only affordance; at zero, nothing. */}
-                  {isSignedIn && boardStats.stillToAdd.length >= 2 && (
-                    <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
-                      {lockingAll ? "Adding…" : `Add ${boardStats.stillToAdd.length} →`}
-                    </button>
-                  )}
-                </div>
+                <div className="plan-prompt-sub">Drag meals into the order you want them.</div>
               </div>
             ) : null}
             <PlanBoard

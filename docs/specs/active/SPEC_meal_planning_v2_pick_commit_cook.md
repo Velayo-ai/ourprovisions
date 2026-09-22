@@ -3,7 +3,7 @@
 **Scope:** OurProvisions
 **Status:** Design approved 2026-09-21, ready for BUILD
 **Supersedes (UI only):** `SPEC_meal_planning_v1_board_planned.md` — the schema it built (047 → 052) is unchanged and LIVE ON PROD. This spec is a client redesign plus one additive migration.
-**Copy amendment 2026-09-21 (build):** "Add to list" → **"Add to Shop"** wherever it appeared (card button, header button, Plan toast, the no-shop foot line). Capital S — it names the tab. "See on list" and the subtitle's "still to add" are unchanged.
+**Copy amendment 2026-09-21 (build):** "Add to list" → **"Add to Shop"** wherever it appeared (card button, header button, Plan toast, the no-shop foot line). Capital S — it names the tab. "See on list" is unchanged; the subtitle became the ladder below later the same day.
 **Mockups:** Design canvas "OurProvisions — Plan: Pick, Commit, Buy" (5 artboards: Board deciding / Board all-on-list / Board after-Wrap-up / Library / Board with leftovers & eating out). Reference-quality render at `docs/mockups/reference/` once Cody files it.
 
 ---
@@ -27,7 +27,7 @@ One verb per door:
 |---|---|---|
 | Library | **Plan** | `meal_placements` only (`planMeal`) |
 | Board, Planned card | **Add to Shop** | `add_meal_to_list` (`lockIn` — internal name unchanged) |
-| Board prompt line | **Add N →** | `lockInAll`, shown only when N ≥ 2 |
+| Board subtitle | **add to Shop →** | `lockInAll`, shown only when N ≥ 2 |
 | Shop | Wrap up | unchanged |
 | Board, Ready card | **Cooked it** | `cooked_at` |
 
@@ -65,8 +65,14 @@ A meal card's right side is exactly: **chip + grip** on the top row, **action + 
 | **Something else** | `meals.kind = 'other'` (057), open placement | cream, word = the name uppercased, cut at ~10 chars; OTHER when blank | — | title = the free text ("soccer", "Mom's", "takeout", "no idea yet"), else "Something else"; no line | × · grip · drag |
 
 **Header:**
-- Title *This Week*. Subtitle: `"{N} meals · {M} still to add"` when every open placement is a meal; `"{N} nights · {M} still to add"` when any no-shop card exists. When M = 0: `"· all on the list"`; when every meal is Ready: `"· stocked"`.
-- Right side: **+ Meals** (outline) → library, **always** — the board must never lose its door to more meals. The header follows the Browse/Shop pattern: it is the door's control row and the compact sentinel — when it scrolls off, the nav collapses and its + does what the header's + does (on Plan, open the library). The subtitle carries the count ("4 nights · 1 still to add"). **No bar of any kind.** When M ≥ 2 the prompt's second line ends in a text link, **"Add {M} →"** (espresso, prose-sized): *Drag meals into the order you want them. Add 2 →*. At M = 1 the card's own Add to Shop is the only affordance; nothing at M = 0. (Amended 2026-09-21, four passes: the first build swapped + Meals for Add-N and left no entry to the library once anything was planned; the second put both in the header; the third had a full-width sand bar; the fourth an outline row. Premium here means less.)
+- Title *This Week*. Subtitle = the count ("meals" when every open placement is a meal, "nights" once any no-shop card exists) plus the batch action, as a ladder (N = Planned meals with ingredients):
+  - N ≥ 2: `"{n} nights · {N} meals to add to Shop →"` — **"add to Shop →"** is one tap target (underlined, espresso, 44px invisible padding); calls `lockInAll`.
+  - N = 1: `"{n} nights · 1 meal to add to Shop"` — plain text, no link; the card's own Add to Shop is the affordance.
+  - N = 0, any To buy: `"{n} nights · Everything's in Shop ✓"`.
+  - all meals Ready: `"{n} nights · stocked"`.
+  - no meals at all: `"{n} nights"`.
+  No "still". (Amended 2026-09-21.)
+- Right side: **+ Meals** (outline) → library, **always** — the board must never lose its door to more meals. The header follows the Browse/Shop pattern: it is the door's control row and the compact sentinel — when it scrolls off, the nav collapses and its + does what the header's + does (on Plan, open the library). The subtitle carries the count ("4 nights · 1 still to add"). **No bar of any kind, and no action on the drag prose** — the batch action lives in the subtitle ladder above. The prompt stays two lines: *What sounds good next?* / *Drag meals into the order you want them.* (Amended 2026-09-21, five passes: the first build swapped + Meals for Add-N and left no entry to the library once anything was planned; the second put both in the header; the third had a full-width sand bar; the fourth an outline row; the fifth a link on the drag prose. Premium here means less.)
 - Prompt under header: *What sounds good next?* / *Drag meals into the order you want them.* Only when ≥ 1 open placement.
 
 **Banners** (replace the prompt when true):
@@ -173,7 +179,7 @@ alter table meals add constraint meals_kind_check check (kind in ('meal', 'lefto
 
 1. **Library has one action.** Plan places at `max+1`; nothing lands on Shop. Toast points at the board. The card reads ON THE BOARD with + disabled.
 2. **Add to Shop from the board** puts the meal's rows on Shop, card goes To buy. Toast with item count.
-3. **Add 2 to Shop** runs both Planned cards in queue order, one toast, button disappears at M = 0. Header reads "all on the list". Sand banner appears.
+3. **add to Shop →** (subtitle, N = 2) runs both Planned cards in queue order, one toast, link gone at N = 0. Subtitle reads "Everything's in Shop ✓". Sand banner appears.
 4. **Mid-trip add:** account B plans + adds a meal while account A has an open session. Items appear on A's list live, no prompt on either side.
 5. **Wrap up** → every locked-in card Ready, teal banner *Everything's in. Go cook.* A card that was Planned (never added) stays Planned — 052 holds.
 6. **Cooked it** closes the placement; the next card becomes Up next; numbers renumber.
