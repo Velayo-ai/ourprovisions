@@ -4751,9 +4751,10 @@ function ProvisionsApp() {
         .board-card.lifted { z-index: 3; outline: 1.5px solid #c8973a; outline-offset: -1.5px; box-shadow: 0 14px 26px rgba(44,26,14,0.3); transition: none; }
         @media (prefers-reduced-motion: reduce) { .board-card { transition: none; } }
         .board-card + .board-card { margin-top: 8px; }
-        .board-tile { flex: none; width: 62px; border-radius: 12px 0 0 12px; display: flex; flex-direction: column; align-items: flex-start; padding: 10px 8px; gap: 3px; }
+        .board-tile { flex: none; width: 62px; border-radius: 12px 0 0 12px; display: flex; flex-direction: column; align-items: flex-start; padding: 10px 6px; gap: 3px; overflow: hidden; }
         .board-num { font-family: 'Playfair Display', serif; font-size: 1.35rem; font-weight: 700; line-height: 1; }
-        .board-rail { font-family: 'Lato', sans-serif; font-size: 0.54rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; line-height: 1.2; opacity: 0.92; }
+        /* Rail word: 50px of content box. Tight tracking (.08em) and 0.5rem so nine capitals (LEFTOVERS, SOMETHING) fit; a space still wraps (EATING OUT). Anything longer clips at the tile edge, never bleeds. */
+        .board-rail { font-family: 'Lato', sans-serif; font-size: 0.5rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.2; opacity: 0.92; max-width: 100%; }
         /* One line of rhythm between name / chip / line / button. Grip and × share one grey. */
         .board-main { flex: 1; min-width: 0; padding: 8px 8px 8px 12px; display: flex; flex-direction: column; gap: 3px; position: relative; }
         .board-top { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 28px; }
