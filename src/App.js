@@ -1106,8 +1106,9 @@ function railWord(i, n) {
 //   Ready      ready_at set (earned at Wrap up, never at an in-cart tap)
 //              chip READY (teal) · "Everything's in — go cook" · Cooked it (teal)
 //   Leftovers  meals.kind = 'leftovers' — neutral tile, dashed card, no chip,
-//   Eating out meals.kind = 'out'         × only (they hold the night; they
-//              never touch the list, never become Ready, have no outcome).
+//   Eating out meals.kind = 'out'         × only, and they DRAG like any card
+//              (they hold the night; never touch the list, never become
+//              Ready, have no outcome action).
 // × on every card = skip. On a to-buy card it zeroes the meal's pending rows
 // first; on a no-shop card the hook also soft-deletes the meals row (one-shot).
 //
@@ -1236,14 +1237,20 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
           line = rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart` : `${rc.total} to buy`;
         }
         const lifted = drag && drag.id === m.id;
+        // `pos` is the card's PROJECTED queue position while a drag is live —
+        // the number and rail word follow the finger, not the drop. The same
+        // arithmetic drives the slide transforms below, so what the eye sees
+        // moving and what the tile says always agree.
+        let pos = i;
         let transform;
         if (drag) {
           if (lifted) {
+            pos = drag.to;
             transform = `translateY(${drag.dy}px)`;
           } else {
             const h = drag.slots[drag.from].height + gap;
-            if (drag.from < drag.to && i > drag.from && i <= drag.to) transform = `translateY(${-h}px)`;
-            else if (drag.to < drag.from && i >= drag.to && i < drag.from) transform = `translateY(${h}px)`;
+            if (drag.from < drag.to && i > drag.from && i <= drag.to) { pos = i - 1; transform = `translateY(${-h}px)`; }
+            else if (drag.to < drag.from && i >= drag.to && i < drag.from) { pos = i + 1; transform = `translateY(${h}px)`; }
           }
         }
         const open = () => { if (!noShop) onOpen(m); };
@@ -1263,8 +1270,8 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
             style={{ ...(busy ? { opacity: 0.5 } : null), ...(transform ? { transform } : null) }}
           >
             <div className="board-tile" style={{ background: tone.bg, color: tone.fg }} aria-hidden="true">
-              <span className="board-num">{String(i + 1).padStart(2, "0")}</span>
-              <span className="board-rail">{noShop ? noShopLabel(m) : railWord(i, list.length)}</span>
+              <span className="board-num">{String(pos + 1).padStart(2, "0")}</span>
+              <span className="board-rail">{noShop ? noShopLabel(m) : railWord(pos, list.length)}</span>
             </div>
             <div className="board-main">
               <div className="board-top">
@@ -4672,7 +4679,8 @@ function ProvisionsApp() {
         .board-card { display: flex; align-items: stretch; background: #fff; border-radius: 12px; box-shadow: 0 3px 10px rgba(44,26,14,0.13);
                       cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-y; position: relative;
                       transition: transform .15s ease, box-shadow .15s ease; }
-        .board-card.noshop { background: transparent; box-shadow: none; cursor: default; outline: 1.5px dashed #C9A97A; outline-offset: -1.5px; }
+        .board-card.noshop { background: transparent; box-shadow: none; cursor: grab; outline: 1.5px dashed #C9A97A; outline-offset: -1.5px; }
+        .board-card.noshop.lifted { cursor: grabbing; }
         /* Lifted: amber hairline (an outline, so the card's size never changes), deeper shadow. The lifted card follows the pointer with no transition. */
         .board-card.lifted { z-index: 3; outline: 1.5px solid #c8973a; outline-offset: -1.5px; box-shadow: 0 14px 26px rgba(44,26,14,0.3); transition: none; }
         @media (prefers-reduced-motion: reduce) { .board-card { transition: none; } }
