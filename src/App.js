@@ -1062,9 +1062,23 @@ const MEAL_TONES = [
   { name: "olive",    bg: "#5f6b4f", fg: "#FAF4EC" },
   { name: "slate",    bg: "#7d8fa0", fg: "#2C1A0E" },
 ];
-const NO_SHOP_TONE = { name: "neutral", bg: "#EFE6D6", fg: "#6f5a45" };
+// No-shop kinds (leftovers / out / other) share ONE cream tile — colour means
+// food to cook, and these plans cook nothing.
+const NO_SHOP_TONE = { name: "cream", bg: "#EFE9DE", fg: "#6f5a45" };
 const isNoShop = (m) => !!m?.kind && m.kind !== "meal";
-const noShopLabel = (m) => (m?.kind === "leftovers" ? "Leftovers" : "Eating out");
+const NO_SHOP_LABELS = { leftovers: "Leftovers", out: "Eating out", other: "Something else" };
+const noShopLabel = (m) => NO_SHOP_LABELS[m?.kind] || "Something else";
+// A no-shop row's free text is meals.name; a blank name stored the label, so
+// "given" means "differs from the label".
+const noShopName = (m) => (m?.name && m.name !== noShopLabel(m) ? m.name : "");
+// Tile word: the kind for leftovers / out; for 'other' the name itself,
+// uppercased by CSS, cut at ~10 chars; OTHER when blank.
+function noShopTileWord(m) {
+  if (m?.kind !== "other") return noShopLabel(m);
+  const n = noShopName(m);
+  if (!n) return "Other";
+  return n.length > 10 ? `${n.slice(0, 10)}…` : n;
+}
 // Leftovers caption from from_meal_ids (056), no articles: "From Chicken
 // Curry" / "From Chicken Curry, Pizza" / "From Chicken Curry, Pizza + 1".
 // Empty string when nothing resolves.
@@ -1115,10 +1129,12 @@ function railWord(i, n) {
 //              chip TO BUY · "N to buy" / "B of N in cart" · See on list
 //   Ready      ready_at set (earned at Wrap up, never at an in-cart tap)
 //              chip READY (teal) · "Everything's in — go cook" · Cooked it (teal)
-//   Leftovers  meals.kind = 'leftovers' — neutral tile, dashed card, no chip,
-//   Eating out meals.kind = 'out'         × only, and they DRAG like any card
-//              (they hold the night; never touch the list, never become
-//              Ready, have no outcome action).
+//   Leftovers  meals.kind = 'leftovers'   cream tile, dashed card, NO chip and
+//   Eating out meals.kind = 'out'         NO state line — name, one context
+//   Something  meals.kind = 'other' (057)  line (From X / Oak House / the free
+//     else                                 text), × and grip. They DRAG like
+//              any card, hold the night, never touch the list, never become
+//              Ready, have no outcome action. Kinds of plan, not states.
 // × on every card = skip. On a to-buy card it zeroes the meal's pending rows
 // first; on a no-shop card the hook also soft-deletes the meals row (one-shot).
 //
@@ -1232,12 +1248,12 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
         const chip = ready ? "Ready" : toBuy ? "To buy" : planned ? "Planned" : null;
         let title = m.name;
         let line;
-        if (m.kind === "leftovers") {
-          title = "Leftovers";
-          line = leftoversLine(m, mealById) || "Nothing to shop for";
-        } else if (m.kind === "out") {
-          title = "Eating out";
-          line = m.name && m.name !== "Eating out" ? m.name : "Nothing to shop for";
+        if (noShop) {
+          // Name + the one context line; no filler when there is none.
+          title = m.kind === "other" ? (noShopName(m) || "Something else") : noShopLabel(m);
+          line = m.kind === "leftovers" ? leftoversLine(m, mealById)
+            : m.kind === "out" ? noShopName(m)
+            : "";
         } else if (ready) {
           line = "Everything's in — go cook";
         } else if (planned) {
@@ -1280,14 +1296,29 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
           >
             <div className="board-tile" style={{ background: tone.bg, color: tone.fg }} aria-hidden="true">
               <span className="board-num">{String(pos + 1).padStart(2, "0")}</span>
-              <span className="board-rail">{noShop ? noShopLabel(m) : railWord(pos, list.length)}</span>
+              <span className="board-rail">{noShop ? noShopTileWord(m) : railWord(pos, list.length)}</span>
             </div>
             <div className="board-main">
               <div className="board-top">
                 <span className="board-card-title">{title}</span>
                 {chip && <span className={`board-chip${ready ? " ready" : ""}`}>{chip}</span>}
+                <button
+                  type="button"
+                  className="board-x"
+                  aria-label={noShop ? `Remove ${title}` : toBuy ? `Skip ${m.name} and take its items off the list` : `Skip ${m.name}`}
+                  disabled={busy}
+                  onClick={(e) => { e.stopPropagation(); if (!busy) onSkip(m.id, toBuy); }}
+                >×</button>
+                {/* Grip — the drag affordance, same grey as ×. Decorative: the
+                    whole card is the long-press target. */}
+                <svg className="board-grip" width="10" height="16" viewBox="0 0 10 16" aria-hidden="true">
+                  <circle cx="3" cy="3" r="1.4" /><circle cx="7" cy="3" r="1.4" />
+                  <circle cx="3" cy="8" r="1.4" /><circle cx="7" cy="8" r="1.4" />
+                  <circle cx="3" cy="13" r="1.4" /><circle cx="7" cy="13" r="1.4" />
+                </svg>
               </div>
-              <div className="board-line">{line}</div>
+              {line && <div className="board-line">{line}</div>}
+              {!noShop && (
               <div className="board-actions">
                 {canAdd && (
                   <button
@@ -1313,23 +1344,15 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
                   >Cooked it</button>
                 )}
                 <span className="board-actions-gap" />
-                {!noShop && (
-                  <button
-                    type="button"
-                    className="board-more"
-                    aria-label={`More for ${m.name}`}
-                    aria-expanded={menuFor === m.id}
-                    onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === m.id ? null : m.id); }}
-                  >⋯</button>
-                )}
                 <button
                   type="button"
-                  className="board-x"
-                  aria-label={noShop ? `Remove ${title}` : toBuy ? `Skip ${m.name} and take its items off the list` : `Skip ${m.name}`}
-                  disabled={busy}
-                  onClick={(e) => { e.stopPropagation(); if (!busy) onSkip(m.id, toBuy); }}
-                >×</button>
+                  className="board-more"
+                  aria-label={`More for ${m.name}`}
+                  aria-expanded={menuFor === m.id}
+                  onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === m.id ? null : m.id); }}
+                >⋯</button>
               </div>
+              )}
               {/* ⋯ — the rare paths. Cooked it for a Planned card (freezer pizza) and
                   the recipe; the read-only recipe sheet is on the record (09-14) and
                   until it lands this opens the same sheet a card tap does. */}
@@ -2918,12 +2941,13 @@ function ProvisionsApp() {
   }, [planMeal, showToast]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
 
-  // No-shop cards (055/056): Leftovers / Eating out. The foot buttons open a
-  // one-field sheet — leftovers: a multi-select (no minimum) over the board's
-  // open meals + meals cooked in the last two cycles; eating out: optional
-  // place name — then planNoShop inserts the meals row and places it in one
-  // action.
-  //   noShopSheet: null | { kind: 'leftovers' | 'out', name, fromMealIds: [] }
+  // No-shop cards (055/056/057): Leftovers / Eating out / Something else. The
+  // foot buttons open a one-field sheet — leftovers: a multi-select (no
+  // minimum) over the board's open meals + meals cooked in the last two
+  // cycles; eating out: optional place name; something else: a free name
+  // (soccer, Mom's, takeout, no idea yet) — then planNoShop inserts the meals
+  // row and places it in one action.
+  //   noShopSheet: null | { kind: 'leftovers' | 'out' | 'other', name, fromMealIds: [] }
   //   leftoverCutoff: ISO | null — read when the Leftovers sheet opens
   //   (fetchLeftoverCutoff); null = no cycle yet = no cutoff.
   const [noShopSheet, setNoShopSheet] = useState(null);
@@ -4685,9 +4709,9 @@ function ProvisionsApp() {
                      font-family: 'Lato', sans-serif; font-size: 1.5rem; line-height: 1; padding: 0 0 4px; display: flex; align-items: center; justify-content: center; }
         .plan-meals { flex: none; border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; border-radius: 999px; padding: 8px 14px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
-        /* "+ Add M to Shop" — a full-width sand row above the first card while anything is still to add. Not teal: nothing is finished yet. */
-        .plan-addall { display: block; width: 100%; border: none; background: #C9A97A; color: #2C1A0E; border-radius: 12px; padding: 12px 14px; margin: 0 0 10px; cursor: pointer;
-                       font-family: 'Lato', sans-serif; font-size: 0.84rem; font-weight: 900; text-align: center; }
+        /* "Add M to Shop" — a small outline row above the first card, only at M ≥ 2. Not sand, not teal: nothing is finished yet. */
+        .plan-addall { display: block; width: 100%; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; cursor: pointer;
+                       font-family: 'Lato', sans-serif; font-size: 0.76rem; font-weight: 900; letter-spacing: 0.5px; text-align: center; }
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
         .plan-prompt { margin: 0 2px 12px; }
         .plan-prompt-title { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.02rem; color: #2C1A0E; }
@@ -4716,16 +4740,19 @@ function ProvisionsApp() {
         .board-tile { flex: none; width: 62px; border-radius: 12px 0 0 12px; display: flex; flex-direction: column; align-items: flex-start; padding: 10px 8px; gap: 3px; }
         .board-num { font-family: 'Playfair Display', serif; font-size: 1.35rem; font-weight: 700; line-height: 1; }
         .board-rail { font-family: 'Lato', sans-serif; font-size: 0.54rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; line-height: 1.2; opacity: 0.92; }
-        .board-main { flex: 1; min-width: 0; padding: 10px 6px 6px 12px; display: flex; flex-direction: column; gap: 4px; position: relative; }
-        .board-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        /* One line of rhythm between name / chip / line / button. Grip and × share one grey. */
+        .board-main { flex: 1; min-width: 0; padding: 8px 8px 8px 12px; display: flex; flex-direction: column; gap: 3px; position: relative; }
+        .board-top { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 28px; }
+        .board-grip { flex: none; fill: #b5a58f; margin-left: 2px; cursor: grab; }
+        .board-card.lifted .board-grip { cursor: grabbing; }
         .board-card-title { flex: 1; min-width: 0; font-family: 'Playfair Display', serif; font-size: 0.98rem; font-weight: 700; color: #2C1A0E; line-height: 1.15;
                             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .board-chip { flex: none; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60;
                       border: 1px solid #E8D5B7; border-radius: 999px; padding: 2px 7px; }
         .board-chip.ready { color: #0D9488; border-color: #0D9488; }
-        .board-line { font-family: 'Lato', sans-serif; font-size: 0.76rem; color: #8a7a60; min-height: 1.1em; }
+        .board-line { font-family: 'Lato', sans-serif; font-size: 0.76rem; color: #8a7a60; line-height: 1.25; }
         .board-card.ready .board-line { color: #6f5a45; }
-        .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 2px; }
+        .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .board-actions-gap { flex: 1; }
         /* One primary per state. Add to Shop / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
         .board-lock, .board-see, .board-cook { flex: none; border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
@@ -4737,9 +4764,9 @@ function ProvisionsApp() {
         .board-more { flex: none; width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent; color: #8a7a60; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 1.1rem; font-weight: 700; line-height: 1; padding: 0 0 6px; }
         .board-more:hover { color: #6f5a45; }
-        .board-x { flex: none; width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent; color: #C9A97A; cursor: pointer;
+        .board-x { flex: none; width: 28px; height: 28px; border-radius: 50%; border: none; background: transparent; color: #b5a58f; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: 1.15rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
-        .board-x:hover { color: #A0724A; }
+        .board-x:hover { color: #6f5a45; }
         .board-x:disabled { cursor: default; }
         .board-menu-backdrop { position: fixed; inset: 0; z-index: 4; }
         .board-menu { position: absolute; right: 6px; bottom: 40px; z-index: 5; background: #fff; border: 1px solid #E8D5B7; border-radius: 10px;
@@ -4750,8 +4777,8 @@ function ProvisionsApp() {
         .board-menu button:disabled { opacity: 0.5; cursor: default; }
         .plan-foot { margin: 4px 0 18px; }
         .plan-foot-btns { display: flex; gap: 8px; }
-        .plan-noshop { flex: 1; border: 1.5px dashed #C9A97A; background: transparent; color: #6f5a45; border-radius: 12px; padding: 11px; cursor: pointer;
-                       font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; }
+        .plan-noshop { flex: 1 1 auto; min-width: 0; border: 1.5px dashed #C9A97A; background: transparent; color: #6f5a45; border-radius: 12px; padding: 10px 6px; cursor: pointer;
+                       font-family: 'Lato', sans-serif; font-size: 0.76rem; font-weight: 700; white-space: nowrap; }
         .plan-foot-line { font-family: 'Lato', sans-serif; font-size: 0.7rem; color: #a9967c; font-style: italic; text-align: center; margin-top: 8px; }
         /* Library (v2): category tile · name · meta · one round + (Plan). Filters are espresso pills. */
         .lib-filters { display: flex; gap: 6px; margin: 0 0 12px; flex-wrap: wrap; }
@@ -6100,9 +6127,10 @@ function ProvisionsApp() {
                 compact sentinel (controlRowRef): when it scrolls off, the Helm
                 compacts and its + does the door's add — here, open the library
                 (doorAdd.plan). Under the header, a banner when the week is set or
-                stocked, else the prompt; then "+ Add M to Shop" as a full-width sand
-                row above the first card while anything is still to add. No teal
-                until the household has finished something. */}
+                stocked, else the prompt; then, only when two or more cards are
+                still to add, a small outline "Add M to Shop" row above the first
+                card. No sand bar, no teal until the household has finished
+                something. */}
             <div className="plan-head" ref={controlRowRef}>
               <div className="plan-head-text">
                 <h2 className="plan-title">This Week</h2>
@@ -6132,9 +6160,12 @@ function ProvisionsApp() {
                 <div className="plan-prompt-sub">Drag meals into the order you want them.</div>
               </div>
             ) : null}
-            {isSignedIn && boardStats.stillToAdd.length > 0 && (
+            {/* Add all — a small outline row, and only when there are TWO OR MORE
+                Planned cards to batch. At one, the card's own Add to Shop is the
+                only affordance; at zero, nothing. The subtitle carries the count. */}
+            {isSignedIn && boardStats.stillToAdd.length >= 2 && (
               <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
-                {lockingAll ? "Adding…" : `+ Add ${boardStats.stillToAdd.length} to Shop`}
+                {lockingAll ? "Adding…" : `Add ${boardStats.stillToAdd.length} to Shop`}
               </button>
             )}
             <PlanBoard
@@ -6153,10 +6184,11 @@ function ProvisionsApp() {
             {MEALS_ENABLED && isSignedIn && (
               <div className="plan-foot">
                 <div className="plan-foot-btns">
-                  <button type="button" className="plan-noshop" onClick={openLeftoversSheet}>Leftovers</button>
-                  <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "out", name: "", fromMealIds: [] })}>Eating out</button>
+                  <button type="button" className="plan-noshop" onClick={openLeftoversSheet}>+ Leftovers</button>
+                  <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "out", name: "", fromMealIds: [] })}>+ Eating out</button>
+                  <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "other", name: "", fromMealIds: [] })}>+ Something else</button>
                 </div>
-                <div className="plan-foot-line">Neither adds anything to Shop — they just hold the night.</div>
+                <div className="plan-foot-line">None of these add anything to Shop — they just hold the night.</div>
               </div>
             )}
           </>
@@ -6723,7 +6755,7 @@ function ProvisionsApp() {
       {MEALS_ENABLED && noShopSheet && (
         <div className="modal-overlay" onClick={() => { if (!noShopBusy) setNoShopSheet(null); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{noShopSheet.kind === "leftovers" ? "Leftovers" : "Eating out"}</h2>
+            <h2>{NO_SHOP_LABELS[noShopSheet.kind] || "Something else"}</h2>
             <div className="noshop-sub">Holds the night on the board. Nothing goes on your list.</div>
             {noShopSheet.kind === "leftovers" ? (
               <>
@@ -6761,7 +6793,7 @@ function ProvisionsApp() {
                 value={noShopSheet.name}
                 onChange={(e) => setNoShopSheet((prev) => prev && ({ ...prev, name: e.target.value }))}
                 onKeyDown={(e) => { if (e.key === "Enter") commitNoShop(); }}
-                placeholder="Where to? (optional)"
+                placeholder={noShopSheet.kind === "out" ? "Where to? (optional)" : "soccer, Mom's, takeout, no idea yet"}
                 maxLength={60}
                 autoFocus
               />

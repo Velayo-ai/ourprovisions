@@ -2973,9 +2973,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   //   count for ONE toast — never one per meal. ("Add to Shop" in the UI since
   //   v2 — same act as adding an item, so the same word; the names stay.)
   //   Never call either on a no-shop meal: the caller filters kind === 'meal'.
-  // planNoShop — v2 (SPEC_meal_planning_v2_pick_commit_cook.md, 055): a night
-  //   that needs no groceries. Leftovers / Eating out are their OWN meals rows
-  //   with kind, no ingredients, placed in the same action. They never touch
+  // planNoShop — v2 (SPEC_meal_planning_v2_pick_commit_cook.md, 055/057): a
+  //   night that needs no groceries. Leftovers / Eating out / Something else
+  //   ('other', 057) are their OWN meals rows with kind, no ingredients, placed
+  //   in the same action. Kinds of plan, not states: the board's three states
+  //   (Planned / To buy / Ready) belong to meals only. They never touch
   //   the list and never become Ready (052's link condition has nothing to
   //   match). × is their only exit: skipMeal also soft-deletes the meals row,
   //   so a no-shop card is one-shot and can never be re-added.
@@ -3133,8 +3135,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
-    if (kind !== "leftovers" && kind !== "out") { console.error("planNoShop: bad kind", kind); return null; }
-    const label = (name || "").trim() || (kind === "leftovers" ? "Leftovers" : "Eating out");
+    if (kind !== "leftovers" && kind !== "out" && kind !== "other") { console.error("planNoShop: bad kind", kind); return null; }
+    const label = (name || "").trim() || (kind === "leftovers" ? "Leftovers" : kind === "out" ? "Eating out" : "Something else");
     try {
       const { data: meal, error: mErr } = await db
         .from("meals")
