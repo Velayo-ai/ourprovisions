@@ -2419,7 +2419,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!db || !hh) return [];
     const { data, error: err } = await db
       .from("meals")
-      .select("id, name, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
+      // 055: kind + from_meal_id ride along. This read returns EVERY kind — the
+      // board's meal lookup must include no-shop rows (leftovers, out). The
+      // library set is kind === 'meal' only, split from this array by the
+      // caller (libraryMeals in App); miss that and Leftovers rows show up as
+      // recipes. One read, not two, because both consumers poll on the same tick.
+      .select("id, name, kind, from_meal_id, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -2965,7 +2970,19 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // lockIn / lockInAll — the reverse: put a planned card's groceries on the
   //   list through the existing add path (an open row keeps its slot). lockInAll
   //   runs lockIn over the ids it is given, in that order, and reports the
-  //   count for ONE toast — never one per meal.
+  //   count for ONE toast — never one per meal. ("Add to list" in the UI since
+  //   v2 — same act as adding an item, so the same word; the names stay.)
+  //   Never call either on a no-shop meal: the caller filters kind === 'meal'.
+  // planNoShop — v2 (SPEC_meal_planning_v2_pick_commit_cook.md, 055): a night
+  //   that needs no groceries. Leftovers / Eating out are their OWN meals rows
+  //   with kind, no ingredients, placed in the same action. They never touch
+  //   the list and never become Ready (052's link condition has nothing to
+  //   match). × is their only exit: skipMeal also soft-deletes the meals row,
+  //   so a no-shop card is one-shot and can never be re-added.
+  // madeBefore — the library's filter: meal ids whose placement carries
+  //   cooked_at. One row per (household, meal), so re-planning a cooked meal
+  //   clears its cooked_at (appendPlacement) and it drops out of this set until
+  //   it is cooked again — a known limit of the single-row shape, not a bug.
   // upNext — the head of the open queue, for Home.
   //
   // Rows close, they don't die: there is no DELETE policy, so a client delete
@@ -3070,8 +3087,27 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
     if (zeroList) { const ok = await removeMealFromList(mealId); if (!ok) return false; }
-    try { await closePlacement(db, hh, mealId, "skipped_at"); reportSuccess(); return true; }
+    try { await closePlacement(db, hh, mealId, "skipped_at"); }
     catch (err) { console.error("skipMeal error:", err.message); setError(`Could not skip meal: ${err.message}`); return false; }
+    // 055: a no-shop card (kind leftovers | out) is one-shot — its meals row
+    // goes with the placement so nothing can re-add it. The kind check is IN
+    // the predicate, so this write matches zero rows for a real recipe and
+    // needs no lookup. Best-effort: the card is gone either way (boardMeals
+    // reads from `meals`, which excludes deleted rows, and the placement is
+    // closed); a stranded no-shop row is inert and never reaches the library
+    // (kind filter).
+    try {
+      const { error: dErr } = await db
+        .from("meals")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", mealId)
+        .eq("household_id", hh.id)
+        .neq("kind", "meal")
+        .is("deleted_at", null);
+      if (dErr) throw dErr;
+    } catch (dErr) { console.warn("skipMeal no-shop soft-delete (non-fatal):", dErr.message); }
+    reportSuccess();
+    return true;
   // closePlacement is a stable hook-scope function (uses refs).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess, removeMealFromList]);
@@ -3087,6 +3123,48 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // appendPlacement is a stable hook-scope function (uses refs).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess]);
+
+  // planNoShop(kind, name?, fromMealId?) → meal id | null. Insert the meals
+  // row, then place it at max+1 — one client action. The name defaults to the
+  // card's label so the board and Home always have something to say.
+  const planNoShop = useCallback(async (kind, name = null, fromMealId = null) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    if (kind !== "leftovers" && kind !== "out") { console.error("planNoShop: bad kind", kind); return null; }
+    const label = (name || "").trim() || (kind === "leftovers" ? "Leftovers" : "Eating out");
+    try {
+      const { data: meal, error: mErr } = await db
+        .from("meals")
+        .insert({
+          household_id: hh.id,
+          name: label,
+          kind,
+          from_meal_id: kind === "leftovers" ? (fromMealId || null) : null,
+          base_servings: 1,
+          created_by: internalUserIdRef.current,
+        })
+        .select("id")
+        .single();
+      if (mErr) throw mErr;
+      await appendPlacement(db, hh, meal.id);
+      reportSuccess();
+      return meal.id;
+    } catch (err) {
+      console.error("planNoShop error:", err.message);
+      setError(`Could not add ${label} to the board: ${err.message}`);
+      return null;
+    }
+  // appendPlacement is a stable hook-scope function (uses refs).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportSuccess]);
+
+  // Made before — see the block comment above.
+  const madeBefore = useMemo(() => {
+    const set = new Set();
+    Object.entries(placements).forEach(([mealId, p]) => { if (p.cookedAt) set.add(mealId); });
+    return set;
+  }, [placements]);
 
   // The head of the open queue — what Home shows as "Up next" (never
   // "Tonight": that is earned in Days v2 when planned_for = today).
@@ -3273,7 +3351,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
-    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll,
+    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
@@ -3282,6 +3360,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     _household: householdRef,
     _clerkId: clerkIdRef,
     _internalUserId: internalUserIdRef,
+    // v2 toasts read the live row count AFTER an add ("14 items on the list");
+    // loadListItems sets this ref synchronously, where the `listRows` state
+    // the caller closed over is a render behind.
+    _listRows: listRowsRef,
   };
 }
 
