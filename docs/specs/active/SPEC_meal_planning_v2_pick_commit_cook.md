@@ -56,7 +56,7 @@ One verb per door:
 | **Planned** | open placement, no live rows, `ready_at` null | meal colour | PLANNED (muted) | Not on the list yet | **Add to Shop** (outline) · ⋯ · × |
 | **To buy** | ≥1 live pending row | meal colour | TO BUY (muted) | "N to buy" / "B of N in cart" | **See on list** (outline) · ⋯ · × |
 | **Ready** | `ready_at` set | meal colour | READY (teal) | Everything's in — go cook | **Cooked it** (teal fill) · ⋯ · × |
-| **Leftovers** | `meals.kind = 'leftovers'`, open placement | neutral, dashed card, word LEFTOVERS under number | — | "From the X" / "From the X and the Y" / "From the X, the Y + N more" over `from_meal_ids`, or blank | × only, drag |
+| **Leftovers** | `meals.kind = 'leftovers'`, open placement | neutral, dashed card, word LEFTOVERS under number | — | "From Chicken Curry" / "From Chicken Curry, Pizza" / "From Chicken Curry, Pizza + 1" over `from_meal_ids` (no articles; amended 2026-09-21), or blank | × only, drag |
 | **Eating out** | `meals.kind = 'out'`, open placement | neutral, dashed card, word EATING OUT | — | `meals.name` if given ("Oakhouse"), else "Nothing to shop for" | × only, drag |
 
 **Header:**
@@ -166,7 +166,7 @@ alter table meals drop column from_meal_id;
 4. **Mid-trip add:** account B plans + adds a meal while account A has an open session. Items appear on A's list live, no prompt on either side.
 5. **Wrap up** → every locked-in card Ready, teal banner *Everything's in. Go cook.* A card that was Planned (never added) stays Planned — 052 holds.
 6. **Cooked it** closes the placement; the next card becomes Up next; numbers renumber.
-7. **Leftovers:** foot button → sheet → card 0N with LEFTOVERS and "From the Porterhouse". Not in the library. Never on Shop. Survives Wrap up unchanged (not Ready). × removes it; the meals row is soft-deleted; it cannot be re-added.
+7. **Leftovers:** foot button → sheet → card 0N with LEFTOVERS and "From Porterhouse". Not in the library. Never on Shop. Survives Wrap up unchanged (not Ready). × removes it; the meals row is soft-deleted; it cannot be re-added.
 8. **Eating out** the same with a place name and without.
 9. **Header counts:** "4 meals" with only meals; "6 nights" once a no-shop card exists.
 10. **Colour audit:** with the board in Planned/To buy states, zero teal on Plan, Board, Library. After Wrap up, teal on READY chips, Cooked it, and the banner only. Shop's Wrap up unchanged.

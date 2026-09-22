@@ -1065,14 +1065,14 @@ const MEAL_TONES = [
 const NO_SHOP_TONE = { name: "neutral", bg: "#EFE6D6", fg: "#6f5a45" };
 const isNoShop = (m) => !!m?.kind && m.kind !== "meal";
 const noShopLabel = (m) => (m?.kind === "leftovers" ? "Leftovers" : "Eating out");
-// Leftovers caption from from_meal_ids (056): "From the X" / "From the X and
-// the Y" / "From the X, the Y + N more". Empty string when nothing resolves.
+// Leftovers caption from from_meal_ids (056), no articles: "From Chicken
+// Curry" / "From Chicken Curry, Pizza" / "From Chicken Curry, Pizza + 1".
+// Empty string when nothing resolves.
 function leftoversLine(m, mealById) {
   const names = (m?.from_meal_ids || []).map((id) => mealById?.[id]?.name).filter(Boolean);
   if (names.length === 0) return "";
-  if (names.length === 1) return `From the ${names[0]}`;
-  if (names.length === 2) return `From the ${names[0]} and the ${names[1]}`;
-  return `From the ${names[0]}, the ${names[1]} + ${names.length - 2} more`;
+  if (names.length <= 2) return `From ${names.join(", ")}`;
+  return `From ${names[0]}, ${names[1]} + ${names.length - 2}`;
 }
 function mealCategoryWord(meal) {
   const tally = {};
