@@ -1034,14 +1034,14 @@ const MEALS_ENABLED = true;
 // ── Plan (SPEC_meal_planning_v2_pick_commit_cook.md — Pick, Commit, Cook) ──
 // Meals → Board → List → Cook. The library is where you decide WHAT (one
 // verb: Plan). The board is where you decide WHEN (one primary per card:
-// Add to list / See on list / Cooked it). The list handles what you need.
+// Add to Shop / See on list / Cooked it). The list handles what you need.
 // Nothing in 047–052 changes: the board is still meal_placements in
 // sort_order; the list still supplies each card's state; ready_at is still
 // earned at Wrap up. 055 adds meals.kind for the two no-shop cards.
 //
 // TEAL = THE HOUSEHOLD FINISHED SOMETHING. On this surface it appears on
 // exactly three things: the READY chip, Cooked it, and the stocked banner.
-// Plan, Add to list, See on list, filters, links, counts — espresso or outline.
+// Plan, Add to Shop, See on list, filters, links, counts — espresso or outline.
 //
 // TILE TONES. One numbered tile per card carries "01" + the rail word on the
 // meal's tone; the number makes the absent photo designed and reinforces
@@ -1099,7 +1099,7 @@ function railWord(i, n) {
 //
 // CARD STATES (052 conditions, v2 chrome — one primary button per state):
 //   Planned    open placement, no live rows, ready_at null
-//              chip PLANNED · "Not on the list yet" · Add to list (outline)
+//              chip PLANNED · "Not on the list yet" · Add to Shop (outline)
 //              Cooked it (freezer pizza) lives behind ⋯, not beside it.
 //   To buy     ≥ 1 live pending row
 //              chip TO BUY · "N to buy" / "B of N in cart" · See on list
@@ -1279,7 +1279,7 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
                     className="board-lock"
                     disabled={busy}
                     onClick={(e) => { e.stopPropagation(); if (!busy) onLockIn(m.id); }}
-                  >Add to list</button>
+                  >Add to Shop</button>
                 )}
                 {toBuy && (
                   <button
@@ -2885,7 +2885,7 @@ function ProvisionsApp() {
   }, [markCooked]);
 
   // Plan (library): the placement only — the one door out of the library. The
-  // toast points at the board, where Add to list lives. Add to list (board):
+  // toast points at the board, where Add to Shop lives. Add to Shop (board):
   // the SAME add handler as before (so a meal with on-hand ingredients gets
   // the on-hand prompt). Add all: the hook's batch over the Planned cards in
   // queue order, default quantity 1, on-hand skipped — one toast at the end.
@@ -2894,7 +2894,7 @@ function ProvisionsApp() {
     setPlanningMealId(mealId);
     try {
       const ok = await planMeal(mealId);
-      if (ok) showToast("Planned. Add to list from the board when you're ready.", { label: "Board", onClick: () => setPlanScreen("board") });
+      if (ok) showToast("Planned. Add to Shop from the board when you're ready.", { label: "Board", onClick: () => setPlanScreen("board") });
     } finally {
       setPlanningMealId(null);
     }
@@ -3254,7 +3254,7 @@ function ProvisionsApp() {
     }
   }, [showHouseholdModal, refreshMembers]);
 
-  // Add all ("+ Add M to list"): the hook's batch over the Planned meal cards
+  // Add all ("+ Add M to Shop"): the hook's batch over the Planned meal cards
   // in queue order — boardStats.stillToAdd, which already excludes no-shop
   // cards and ingredient-less meals — one toast at the end, with a SHOP action.
   const [lockingAll, setLockingAll] = useState(false);
@@ -4650,7 +4650,7 @@ function ProvisionsApp() {
                      font-family: 'Lato', sans-serif; font-size: 1.5rem; line-height: 1; padding: 0 0 4px; display: flex; align-items: center; justify-content: center; }
         .plan-meals { flex: none; border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; border-radius: 999px; padding: 8px 14px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
-        /* "+ Add M to list" — sand fill, the board's one call to action while anything is still to add. Not teal: nothing is finished yet. */
+        /* "+ Add M to Shop" — sand fill, the board's one call to action while anything is still to add. Not teal: nothing is finished yet. */
         .plan-addall { flex: none; border: none; background: #C9A97A; color: #2C1A0E; border-radius: 999px; padding: 9px 14px; cursor: pointer;
                        font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 900; white-space: nowrap; }
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
@@ -4691,7 +4691,7 @@ function ProvisionsApp() {
         .board-card.ready .board-line { color: #6f5a45; }
         .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 2px; }
         .board-actions-gap { flex: 1; }
-        /* One primary per state. Add to list / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
+        /* One primary per state. Add to Shop / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
         .board-lock, .board-see, .board-cook { flex: none; border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
                       font-family: 'Lato', sans-serif; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.5px; }
         .board-lock { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
@@ -6053,7 +6053,7 @@ function ProvisionsApp() {
         {view === "plan" && planScreen === "board" && (
           <>
             {/* THE BOARD (v2). Header: title, the counts line, and ONE control —
-                "+ Add M to list" (sand) while anything is still to add, otherwise
+                "+ Add M to Shop" (sand) while anything is still to add, otherwise
                 "+ Meals" (outline) into the library. Under it, a banner when the
                 week is set or stocked, else the prompt. No teal until the
                 household has finished something. */}
@@ -6064,7 +6064,7 @@ function ProvisionsApp() {
               </div>
               {isSignedIn && boardStats.stillToAdd.length > 0 ? (
                 <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
-                  {lockingAll ? "Adding…" : `+ Add ${boardStats.stillToAdd.length} to list`}
+                  {lockingAll ? "Adding…" : `+ Add ${boardStats.stillToAdd.length} to Shop`}
                 </button>
               ) : (
                 <button type="button" className="plan-meals" onClick={() => setPlanScreen("library")}>+ Meals</button>
@@ -6111,7 +6111,7 @@ function ProvisionsApp() {
                   <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "leftovers", name: "", fromMealId: null })}>Leftovers</button>
                   <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "out", name: "", fromMealId: null })}>Eating out</button>
                 </div>
-                <div className="plan-foot-line">Neither adds anything to your list — they just hold the night.</div>
+                <div className="plan-foot-line">Neither adds anything to Shop — they just hold the night.</div>
               </div>
             )}
           </>
@@ -6807,7 +6807,7 @@ function ProvisionsApp() {
                 merely mismatched ones. Reuse the classes; do not restyle inline. */}
             <div className="modal-actions">
               <button className="modal-cancel" onClick={() => setOnHandPrompt(null)}>Cancel</button>
-              <button className="modal-confirm" onClick={confirmOnHandPrompt}>Add to list</button>
+              <button className="modal-confirm" onClick={confirmOnHandPrompt}>Add to Shop</button>
             </div>
           </div>
         </div>

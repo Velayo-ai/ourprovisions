@@ -3,6 +3,7 @@
 **Scope:** OurProvisions
 **Status:** Design approved 2026-09-21, ready for BUILD
 **Supersedes (UI only):** `SPEC_meal_planning_v1_board_planned.md` — the schema it built (047 → 052) is unchanged and LIVE ON PROD. This spec is a client redesign plus one additive migration.
+**Copy amendment 2026-09-21 (build):** "Add to list" → **"Add to Shop"** wherever it appeared (card button, header button, Plan toast, the no-shop foot line). Capital S — it names the tab. "See on list" and the subtitle's "still to add" are unchanged.
 **Mockups:** Design canvas "OurProvisions — Plan: Pick, Commit, Buy" (5 artboards: Board deciding / Board all-on-list / Board after-Wrap-up / Library / Board with leftovers & eating out). Reference-quality render at `docs/mockups/reference/` once Cody files it.
 
 ---
@@ -25,8 +26,8 @@ One verb per door:
 | door | the one action | what it touches |
 |---|---|---|
 | Library | **Plan** | `meal_placements` only (`planMeal`) |
-| Board, Planned card | **Add to list** | `add_meal_to_list` (`lockIn` — internal name unchanged) |
-| Board header | **Add N to list** | `lockInAll`, shown only when N ≥ 1 |
+| Board, Planned card | **Add to Shop** | `add_meal_to_list` (`lockIn` — internal name unchanged) |
+| Board header | **Add N to Shop** | `lockInAll`, shown only when N ≥ 1 |
 | Shop | Wrap up | unchanged |
 | Board, Ready card | **Cooked it** | `cooked_at` |
 
@@ -37,11 +38,11 @@ One verb per door:
 | # | Decision | Rationale |
 |---|---|---|
 | 1 | **Library card has ONE action: Plan.** Add is removed from the library. | Two intentions (pick, commit) happen at different moments; two buttons on one card is UI for a state machine. The double-tap cost is absorbed by Add-all on the board. |
-| 2 | **"Lock in" → "Add to list"** in all copy. `lockIn` / `lockInAll` keep their names in the hook. | It is literally the same action as adding an item, so it gets the same word. "Lock in" implied finality the action doesn't have. Copy change only — no churn in the hook or in 050/052's comments. |
+| 2 | **"Lock in" → "Add to Shop"** in all copy. `lockIn` / `lockInAll` keep their names in the hook. | It is literally the same action as adding an item, so it gets the same word. "Lock in" implied finality the action doesn't have. Copy change only — no churn in the hook or in 050/052's comments. |
 | 3 | **Mid-trip meal adds stay realtime — no gate, no confirm, no warning.** | A meal add during an open session behaves exactly as a manual item add; the list is live and a meal is a faster way to type N items. Revisit only on observed friction; the tell is items added mid-session that go unbought and roll. |
-| 4 | **Teal = the household finished something.** Wrap up in Shop; Cooked it and the Ready state on the board. Nothing else — no teal on Plan, Add to list, filters, links, chips, or counts. | Scarcity by *when*, not by count. A screen of teal after Wrap up is the reward, not dilution. This closes the button-colour question open since 2026-08-20. |
+| 4 | **Teal = the household finished something.** Wrap up in Shop; Cooked it and the Ready state on the board. Nothing else — no teal on Plan, Add to Shop, filters, links, chips, or counts. | Scarcity by *when*, not by count. A screen of teal after Wrap up is the reward, not dilution. This closes the button-colour question open since 2026-08-20. |
 | 5 | **Numbered tile replaces rail + colour block.** One tile per card carries `01` + rail word (Up next / Then / Later) on the meal's colour. Card is two columns. | The block read as a missing photo; the number makes its absence designed and reinforces drag order. Fixes the 430px wrap. A household photo later slides *under* the number — the number is an overlay, not the tile. |
-| 6 | **Cooked it leaves the Planned card.** Planned card has one button (Add to list); Cooked it and the future recipe sheet live behind ⋯. | The rare path (freezer pizza) was sitting at equal weight to the common one, and two buttons didn't fit at 390px. |
+| 6 | **Cooked it leaves the Planned card.** Planned card has one button (Add to Shop); Cooked it and the future recipe sheet live behind ⋯. | The rare path (freezer pizza) was sitting at equal weight to the common one, and two buttons didn't fit at 390px. |
 | 7 | **No-shop placements — Leftovers and Eating out.** They hold a night, never touch the list, never become Ready, have no outcome action. × is the only exit. | People who map every night need them. No Cooked it / Ate out until someone asks — that's future analytics, not v2. |
 | 8 | **No-shop cards are `meals` rows with `kind`, not a nullable `meal_id` on placements.** | See Architecture — the placements PK is `(household_id, meal_id)` and every reader keys on `meal_id`. Reversal of the design-chat lean; the PK decides it. |
 | 9 | **Photos stay out.** The library's optional image seam stays; nothing in v2 renders one. | Prove the interaction as type, colour, state and motion first. |
@@ -52,7 +53,7 @@ One verb per door:
 
 | state | when (unchanged from 052) | tile | chip | line | actions |
 |---|---|---|---|---|---|
-| **Planned** | open placement, no live rows, `ready_at` null | meal colour | PLANNED (muted) | Not on the list yet | **Add to list** (outline) · ⋯ · × |
+| **Planned** | open placement, no live rows, `ready_at` null | meal colour | PLANNED (muted) | Not on the list yet | **Add to Shop** (outline) · ⋯ · × |
 | **To buy** | ≥1 live pending row | meal colour | TO BUY (muted) | "N to buy" / "B of N in cart" | **See on list** (outline) · ⋯ · × |
 | **Ready** | `ready_at` set | meal colour | READY (teal) | Everything's in — go cook | **Cooked it** (teal fill) · ⋯ · × |
 | **Leftovers** | `meals.kind = 'leftovers'`, open placement | neutral, dashed card, word LEFTOVERS under number | — | "From the {from_meal.name}" or blank | × only, drag |
@@ -60,7 +61,7 @@ One verb per door:
 
 **Header:**
 - Title *This Week*. Subtitle: `"{N} meals · {M} still to add"` when every open placement is a meal; `"{N} nights · {M} still to add"` when any no-shop card exists. When M = 0: `"· all on the list"`; when every meal is Ready: `"· stocked"`.
-- Right side: **+ Add {M} to list** (sand fill) when M ≥ 1; otherwise **+ Meals** (outline) → library.
+- Right side: **+ Add {M} to Shop** (sand fill) when M ≥ 1; otherwise **+ Meals** (outline) → library.
 - Prompt under header: *What sounds good next?* / *Drag meals into the order you want them.* Only when ≥ 1 open placement.
 
 **Banners** (replace the prompt when true):
@@ -70,11 +71,11 @@ One verb per door:
 
 **Rail words** by position: 0 → *Up next*; 1..n-2 → *Then*; last → *Later*. Single card → *Up next*. Two cards → *Up next*, *Then*.
 
-**Foot of board:** two dashed buttons **Leftovers** / **Eating out**, and the line *Neither adds anything to your list — they just hold the night.*
+**Foot of board:** two dashed buttons **Leftovers** / **Eating out**, and the line *Neither adds anything to Shop — they just hold the night.*
 
 **Toasts:**
-- Plan (library): *Planned. Add to list from the board when you're ready.* with a BOARD action.
-- Add to list (single): *{Meal} added. {n} items on the list.*
+- Plan (library): *Planned. Add to Shop from the board when you're ready.* with a BOARD action.
+- Add to Shop (single): *{Meal} added. {n} items on the list.*
 - Add all: *{M} meals added. {n} items on the list.* with a SHOP action.
 
 **Empty board:** keep today's empty state; add the two dashed buttons under it.
@@ -125,7 +126,7 @@ alter table meals
 ### App.js
 
 - Library card: remove Add; single + calls `planMeal`. Disabled with ON THE BOARD tag when an open placement exists.
-- Board card: new two-column layout per the states table. Planned → Add to list; To buy → See on list; Ready → Cooked it. Cooked it for Planned moves to ⋯.
+- Board card: new two-column layout per the states table. Planned → Add to Shop; To buy → See on list; Ready → Cooked it. Cooked it for Planned moves to ⋯.
 - Header logic per "The board" above. **Lock in all button hidden at M = 0** (already true; keep).
 - No-shop foot buttons → `planNoShop`. Leftovers opens a one-field sheet: optional "from which meal" picker over the household's open + recently cooked meals. Eating out opens a one-field sheet: optional place name.
 - Rename every "Lock in" string. `grep -n "Lock in" src/` must return nothing when done.
@@ -149,8 +150,8 @@ alter table meals
 ## Verification (deployed dev preview, two accounts, real auth)
 
 1. **Library has one action.** Plan places at `max+1`; nothing lands on Shop. Toast points at the board. The card reads ON THE BOARD with + disabled.
-2. **Add to list from the board** puts the meal's rows on Shop, card goes To buy. Toast with item count.
-3. **Add 2 to list** runs both Planned cards in queue order, one toast, button disappears at M = 0. Header reads "all on the list". Sand banner appears.
+2. **Add to Shop from the board** puts the meal's rows on Shop, card goes To buy. Toast with item count.
+3. **Add 2 to Shop** runs both Planned cards in queue order, one toast, button disappears at M = 0. Header reads "all on the list". Sand banner appears.
 4. **Mid-trip add:** account B plans + adds a meal while account A has an open session. Items appear on A's list live, no prompt on either side.
 5. **Wrap up** → every locked-in card Ready, teal banner *Everything's in. Go cook.* A card that was Planned (never added) stays Planned — 052 holds.
 6. **Cooked it** closes the placement; the next card becomes Up next; numbers renumber.

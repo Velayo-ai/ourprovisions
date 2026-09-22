@@ -2970,7 +2970,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // lockIn / lockInAll — the reverse: put a planned card's groceries on the
   //   list through the existing add path (an open row keeps its slot). lockInAll
   //   runs lockIn over the ids it is given, in that order, and reports the
-  //   count for ONE toast — never one per meal. ("Add to list" in the UI since
+  //   count for ONE toast — never one per meal. ("Add to Shop" in the UI since
   //   v2 — same act as adding an item, so the same word; the names stay.)
   //   Never call either on a no-shop meal: the caller filters kind === 'meal'.
   // planNoShop — v2 (SPEC_meal_planning_v2_pick_commit_cook.md, 055): a night
