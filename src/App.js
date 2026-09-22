@@ -3588,6 +3588,9 @@ function ProvisionsApp() {
         }, collapseMs);
       }, markMs);
     }
+    // `status` is the server-confirmed transition, or null when the write
+    // failed OR changed nothing (a re-tap on an already-committed row —
+    // SPEC_checked_event_duplicate_emission). Only a real transition is an event.
     const status = await toggleChecked(name, item.listItemId);
     if (!status) return;
     recordListEvent(status === "bought" ? "checked" : "unchecked", { listItemId: item.listItemId, catalogItemId: item.catalogItemId });
