@@ -1065,6 +1065,15 @@ const MEAL_TONES = [
 const NO_SHOP_TONE = { name: "neutral", bg: "#EFE6D6", fg: "#6f5a45" };
 const isNoShop = (m) => !!m?.kind && m.kind !== "meal";
 const noShopLabel = (m) => (m?.kind === "leftovers" ? "Leftovers" : "Eating out");
+// Leftovers caption from from_meal_ids (056): "From the X" / "From the X and
+// the Y" / "From the X, the Y + N more". Empty string when nothing resolves.
+function leftoversLine(m, mealById) {
+  const names = (m?.from_meal_ids || []).map((id) => mealById?.[id]?.name).filter(Boolean);
+  if (names.length === 0) return "";
+  if (names.length === 1) return `From the ${names[0]}`;
+  if (names.length === 2) return `From the ${names[0]} and the ${names[1]}`;
+  return `From the ${names[0]}, the ${names[1]} + ${names.length - 2} more`;
+}
 function mealCategoryWord(meal) {
   const tally = {};
   (meal?.meal_ingredients || []).forEach((mi) => {
@@ -1095,7 +1104,8 @@ function railWord(i, n) {
 // THE BOARD — the queue of open placements (050), in the household's shared
 // order. `meals` arrives derived and sorted (boardMeals in App) and includes
 // no-shop rows (055); `rows` = per-meal { total, bought } live list rows;
-// `mealById` resolves a leftovers card's from_meal_id.
+// `mealById` resolves a leftovers card's from_meal_ids (056; ids that no
+// longer resolve — a hard-deleted source — are skipped, never rendered).
 //
 // CARD STATES (052 conditions, v2 chrome — one primary button per state):
 //   Planned    open placement, no live rows, ready_at null
@@ -1224,8 +1234,7 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
         let line;
         if (m.kind === "leftovers") {
           title = "Leftovers";
-          const from = m.from_meal_id ? mealById?.[m.from_meal_id] : null;
-          line = from ? `From the ${from.name}` : "Nothing to shop for";
+          line = leftoversLine(m, mealById) || "Nothing to shop for";
         } else if (m.kind === "out") {
           title = "Eating out";
           line = m.name && m.name !== "Eating out" ? m.name : "Nothing to shop for";
@@ -2596,6 +2605,7 @@ function ProvisionsApp() {
     lockInAll,
     planNoShop,
     madeBefore,
+    fetchLeftoverCutoff,
     _listRows,
     updateFullName,
     activeCycle,
@@ -2908,25 +2918,37 @@ function ProvisionsApp() {
   }, [planMeal, showToast]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
 
-  // No-shop cards (055): Leftovers / Eating out. The foot buttons open a
-  // one-field sheet — leftovers: optional "from which meal" over the board's
-  // open meals + recently cooked ones; eating out: optional place name — then
-  // planNoShop inserts the meals row and places it in one action.
-  //   noShopSheet: null | { kind: 'leftovers' | 'out', name, fromMealId }
+  // No-shop cards (055/056): Leftovers / Eating out. The foot buttons open a
+  // one-field sheet — leftovers: a multi-select (no minimum) over the board's
+  // open meals + meals cooked in the last two cycles; eating out: optional
+  // place name — then planNoShop inserts the meals row and places it in one
+  // action.
+  //   noShopSheet: null | { kind: 'leftovers' | 'out', name, fromMealIds: [] }
+  //   leftoverCutoff: ISO | null — read when the Leftovers sheet opens
+  //   (fetchLeftoverCutoff); null = no cycle yet = no cutoff.
   const [noShopSheet, setNoShopSheet] = useState(null);
   const [noShopBusy, setNoShopBusy] = useState(false);
+  const [leftoverCutoff, setLeftoverCutoff] = useState(null);
+  const openLeftoversSheet = useCallback(async () => {
+    setNoShopSheet({ kind: "leftovers", name: "", fromMealIds: [] });
+    setLeftoverCutoff(await fetchLeftoverCutoff());
+  }, [fetchLeftoverCutoff]);
   const leftoverSources = useMemo(() => {
     const open = boardMeals.filter((m) => !isNoShop(m));
     const cooked = libraryMeals
-      .filter((m) => placements[m.id]?.cookedAt && !open.some((o) => o.id === m.id))
+      .filter((m) => {
+        const at = placements[m.id]?.cookedAt;
+        if (!at || open.some((o) => o.id === m.id)) return false;
+        return !leftoverCutoff || at >= leftoverCutoff;
+      })
       .sort((a, b) => (placements[b.id].cookedAt > placements[a.id].cookedAt ? 1 : -1));
-    return [...open, ...cooked].slice(0, 8);
-  }, [boardMeals, libraryMeals, placements]);
+    return [...open, ...cooked];
+  }, [boardMeals, libraryMeals, placements, leftoverCutoff]);
   const commitNoShop = useCallback(async () => {
     if (!noShopSheet || noShopBusy) return;
     setNoShopBusy(true);
     try {
-      const id = await planNoShop(noShopSheet.kind, noShopSheet.name, noShopSheet.fromMealId);
+      const id = await planNoShop(noShopSheet.kind, noShopSheet.name, noShopSheet.fromMealIds);
       if (id) {
         setNoShopSheet(null);
         await refreshMeals();   // the card renders from `meals`, so pull the new row now
@@ -4755,10 +4777,16 @@ function ProvisionsApp() {
         .noshop-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #6f5a45; margin-bottom: 14px; }
         .noshop-label { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
         .noshop-label span { font-weight: 400; color: #8a7a60; }
-        .noshop-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
-        .noshop-chip { border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; border-radius: 999px; padding: 7px 12px; cursor: pointer;
-                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; }
-        .noshop-chip.on { border-color: #6f5a45; background: #6f5a45; color: #FAF4EC; }
+        .noshop-checks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; max-height: 40vh; overflow-y: auto; }
+        .noshop-check { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1.5px solid #E8D5B7; border-radius: 10px; cursor: pointer;
+                        font-family: 'Lato', sans-serif; font-size: 0.84rem; color: #2C1A0E; }
+        .noshop-check.on { border-color: #6f5a45; background: #FAF4EC; }
+        .noshop-check input { position: absolute; opacity: 0; width: 0; height: 0; }
+        .noshop-check-box { flex: none; width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid #C9A97A; display: flex; align-items: center; justify-content: center;
+                            font-size: 0.7rem; font-weight: 900; color: #FAF4EC; background: transparent; }
+        .noshop-check.on .noshop-check-box { background: #6f5a45; border-color: #6f5a45; }
+        .noshop-check-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .noshop-check-meta { flex: none; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #8a7a60; }
         .noshop-none { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; font-style: italic; }
         .noshop-input { width: 100%; box-sizing: border-box; padding: 12px 13px; border-radius: 10px; border: 1.5px solid #E8D5B7; background: #FFFDF9;
                         font-family: 'Lato', sans-serif; font-size: 0.92rem; color: #2C1A0E; outline: none; margin-bottom: 14px; }
@@ -6125,8 +6153,8 @@ function ProvisionsApp() {
             {MEALS_ENABLED && isSignedIn && (
               <div className="plan-foot">
                 <div className="plan-foot-btns">
-                  <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "leftovers", name: "", fromMealId: null })}>Leftovers</button>
-                  <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "out", name: "", fromMealId: null })}>Eating out</button>
+                  <button type="button" className="plan-noshop" onClick={openLeftoversSheet}>Leftovers</button>
+                  <button type="button" className="plan-noshop" onClick={() => setNoShopSheet({ kind: "out", name: "", fromMealIds: [] })}>Eating out</button>
                 </div>
                 <div className="plan-foot-line">Neither adds anything to Shop — they just hold the night.</div>
               </div>
@@ -6699,22 +6727,31 @@ function ProvisionsApp() {
             <div className="noshop-sub">Holds the night on the board. Nothing goes on your list.</div>
             {noShopSheet.kind === "leftovers" ? (
               <>
-                <div className="noshop-label">From which meal? <span>(optional)</span></div>
-                <div className="noshop-chips">
+                <div className="noshop-label">From which meals? <span>(pick any, or none)</span></div>
+                <div className="noshop-checks">
                   {leftoverSources.map((m) => {
-                    const on = noShopSheet.fromMealId === m.id;
+                    const on = (noShopSheet.fromMealIds || []).includes(m.id);
                     return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        aria-pressed={on}
-                        className={`noshop-chip${on ? " on" : ""}`}
-                        onClick={() => setNoShopSheet((prev) => prev && ({ ...prev, fromMealId: on ? null : m.id }))}
-                      >{m.name}</button>
+                      <label key={m.id} className={`noshop-check${on ? " on" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => setNoShopSheet((prev) => {
+                            if (!prev) return prev;
+                            const cur = prev.fromMealIds || [];
+                            return { ...prev, fromMealIds: on ? cur.filter((id) => id !== m.id) : [...cur, m.id] };
+                          })}
+                        />
+                        <span className="noshop-check-box" aria-hidden="true">{on ? "✓" : ""}</span>
+                        <span className="noshop-check-name">{m.name}</span>
+                        {placements[m.id]?.cookedAt && !boardMeals.some((b) => b.id === m.id) && (
+                          <span className="noshop-check-meta">cooked</span>
+                        )}
+                      </label>
                     );
                   })}
                   {leftoverSources.length === 0 && (
-                    <div className="noshop-none">Nothing on the board or cooked lately to pick from — that's fine.</div>
+                    <div className="noshop-none">Nothing on the board or cooked in the last two trips to pick from — that's fine.</div>
                   )}
                 </div>
               </>

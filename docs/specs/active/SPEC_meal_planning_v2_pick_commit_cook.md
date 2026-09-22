@@ -56,7 +56,7 @@ One verb per door:
 | **Planned** | open placement, no live rows, `ready_at` null | meal colour | PLANNED (muted) | Not on the list yet | **Add to Shop** (outline) · ⋯ · × |
 | **To buy** | ≥1 live pending row | meal colour | TO BUY (muted) | "N to buy" / "B of N in cart" | **See on list** (outline) · ⋯ · × |
 | **Ready** | `ready_at` set | meal colour | READY (teal) | Everything's in — go cook | **Cooked it** (teal fill) · ⋯ · × |
-| **Leftovers** | `meals.kind = 'leftovers'`, open placement | neutral, dashed card, word LEFTOVERS under number | — | "From the {from_meal.name}" or blank | × only, drag |
+| **Leftovers** | `meals.kind = 'leftovers'`, open placement | neutral, dashed card, word LEFTOVERS under number | — | "From the X" / "From the X and the Y" / "From the X, the Y + N more" over `from_meal_ids`, or blank | × only, drag |
 | **Eating out** | `meals.kind = 'out'`, open placement | neutral, dashed card, word EATING OUT | — | `meals.name` if given ("Oakhouse"), else "Nothing to shop for" | × only, drag |
 
 **Header:**
@@ -96,18 +96,28 @@ One verb per door:
 
 ## Architecture
 
-### Migration `053_meals_kind.sql` — additive, dev first, then prod as one promotion
+### Migrations `055_meals_kind.sql` + `056_meals_from_meal_ids.sql` — additive, dev first, then prod as one promotion
+
+(Spec originally said 053; 053/054 were already taken at build time.)
 
 ```sql
+-- 055
 alter table meals
   add column kind text not null default 'meal'
     check (kind in ('meal', 'leftovers', 'out')),
   add column from_meal_id uuid null
     references meals(id) on delete set null;
+
+-- 056 (amended 2026-09-21): leftovers can name MORE THAN ONE source meal
+alter table meals add column from_meal_ids uuid[] null;
+update meals set from_meal_ids = array[from_meal_id] where from_meal_id is not null;
+alter table meals drop column from_meal_id;
 ```
 
+- **`from_meal_ids` carries no FK, deliberately.** Postgres cannot enforce a foreign key over array elements, so 055's `on delete set null` has no equivalent. Harmless by construction: `deleteMeal` is a soft delete, the client resolves ids against the household's live meals and skips any it cannot find, and the caption is a caption, not a join. `null` is the one "none" (never `[]`).
+
 - **Why on `meals`, not `meal_placements`:** placements' PK is `(household_id, meal_id)`; RLS, cascade, `placements[mealId]` in the hook, `upNext`, reorder, `deleteMeal` all key on `meal_id`. A nullable `meal_id` means a new surrogate PK on a table that is live on prod. A `meals.kind` is one column and one `WHERE`.
-- Each no-shop card is its **own** `meals` row: `household_id` = the household, `kind`, `name` ("Leftovers" / "Oakhouse" / "Eating out"), `from_meal_id` for leftovers, no `meal_ingredients`, `instructions` null. Created and placed in one client action (`planNoShop(kind, name?, fromMealId?)` → insert meal → `appendPlacement`).
+- Each no-shop card is its **own** `meals` row: `household_id` = the household, `kind`, `name` ("Leftovers" / "Oakhouse" / "Eating out"), `from_meal_ids` (0..n) for leftovers, no `meal_ingredients`, `instructions` null. Created and placed in one client action (`planNoShop(kind, name?, fromMealIds?)` → insert meal → `appendPlacement`).
 - **Library filter:** every library read adds `kind = 'meal'`. Miss this and Leftovers rows show up as recipes.
 - **× on a no-shop card:** `skipped_at` on the placement **and** `deleted_at` on the meals row in the same action. They are one-shot; nothing should be able to re-add them. Because `kind` is on the row, a skipped leftovers night stays distinguishable from a skipped dinner in the data.
 - **Readiness is already safe.** 052's condition requires ≥ 1 `list_item_meals` link into the closing cycle. A no-shop meal has no links, so `close_cycle` never stamps it. No change to `close_cycle`; no `kind` check needed there. (Do not add one — 052's body is the prod body and the 051 rule applies.)
@@ -117,7 +127,8 @@ alter table meals
 
 ### Hook — `src/hooks/useProvisions.js`
 
-- `planNoShop(kind, name, fromMealId)` — new. Insert `meals` row, then `appendPlacement`. Return the meal id.
+- `planNoShop(kind, name, fromMealIds)` — new. Insert `meals` row, then `appendPlacement`. Return the meal id.
+- `fetchLeftoverCutoff()` — new, on demand when the Leftovers sheet opens: the start of the earlier of the household's two most recent cycles ("cooked in the last two cycles"); `null` = no cycle yet = no cutoff.
 - `skipPlacement(mealId)` — existing × path. Add: if the meal's `kind !== 'meal'`, also soft-delete the meals row.
 - `loadMeals` — add `.eq('kind', 'meal')` for the library set; keep a second read (or a join on placements) so the board can render no-shop rows. The board's meal lookup must include all kinds; the library's must not.
 - `lockIn` / `lockInAll` — unchanged. Guard: never callable on a no-shop meal (no ingredients → `add_meal_to_list` would no-op, but don't reach it).
@@ -128,7 +139,7 @@ alter table meals
 - Library card: remove Add; single + calls `planMeal`. Disabled with ON THE BOARD tag when an open placement exists.
 - Board card: new two-column layout per the states table. Planned → Add to Shop; To buy → See on list; Ready → Cooked it. Cooked it for Planned moves to ⋯.
 - Header logic per "The board" above. **Lock in all button hidden at M = 0** (already true; keep).
-- No-shop foot buttons → `planNoShop`. Leftovers opens a one-field sheet: optional "from which meal" picker over the household's open + recently cooked meals. Eating out opens a one-field sheet: optional place name.
+- No-shop foot buttons → `planNoShop`. Leftovers opens a one-field sheet: a **multi-select (checkboxes, no minimum)** over the board's open meals + meals with `cooked_at` in the last two cycles. Eating out opens a one-field sheet: optional place name.
 - Rename every "Lock in" string. `grep -n "Lock in" src/` must return nothing when done.
 - Colour: replace teal on Plan / Add / filters / links / chips with espresso or outline. Teal only on Cooked it, the READY chip, and the stocked banner.
 

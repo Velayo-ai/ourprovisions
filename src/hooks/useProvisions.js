@@ -2419,12 +2419,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!db || !hh) return [];
     const { data, error: err } = await db
       .from("meals")
-      // 055: kind + from_meal_id ride along. This read returns EVERY kind — the
+      // 055/056: kind + from_meal_ids ride along. This read returns EVERY kind — the
       // board's meal lookup must include no-shop rows (leftovers, out). The
       // library set is kind === 'meal' only, split from this array by the
       // caller (libraryMeals in App); miss that and Leftovers rows show up as
       // recipes. One read, not two, because both consumers poll on the same tick.
-      .select("id, name, kind, from_meal_id, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
+      .select("id, name, kind, from_meal_ids, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -3124,10 +3124,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess]);
 
-  // planNoShop(kind, name?, fromMealId?) → meal id | null. Insert the meals
+  // planNoShop(kind, name?, fromMealIds?) → meal id | null. Insert the meals
   // row, then place it at max+1 — one client action. The name defaults to the
   // card's label so the board and Home always have something to say.
-  const planNoShop = useCallback(async (kind, name = null, fromMealId = null) => {
+  // fromMealIds (056): 0..n source meals for leftovers; stored null when empty
+  // so the column has one "none", never [].
+  const planNoShop = useCallback(async (kind, name = null, fromMealIds = null) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
@@ -3140,7 +3142,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           household_id: hh.id,
           name: label,
           kind,
-          from_meal_id: kind === "leftovers" ? (fromMealId || null) : null,
+          from_meal_ids: kind === "leftovers" && Array.isArray(fromMealIds) && fromMealIds.length > 0 ? fromMealIds : null,
           base_servings: 1,
           created_by: internalUserIdRef.current,
         })
@@ -3158,6 +3160,28 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // appendPlacement is a stable hook-scope function (uses refs).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess]);
+
+  // fetchLeftoverCutoff → ISO timestamp | null. "Cooked in the last two
+  // cycles" for the Leftovers picker: the household's two most recent cycles
+  // by start (the open one and the one before it, or the last two closed),
+  // cutoff = the earlier one's start. null when the household has no cycle
+  // yet, which the caller reads as "no cutoff". One indexed read, on demand
+  // (when the sheet opens), never polled.
+  const fetchLeftoverCutoff = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const { data, error: err } = await db
+      .from("provision_cycles")
+      .select("started_at, created_at")
+      .eq("household_id", hh.id)
+      .is("deleted_at", null)
+      .order("started_at", { ascending: false, nullsFirst: false })
+      .limit(2);
+    if (err) { console.warn("fetchLeftoverCutoff (non-fatal):", err.message); return null; }
+    const starts = (data || []).map((c) => c.started_at || c.created_at).filter(Boolean).sort();
+    return starts.length ? starts[0] : null;
+  }, []);
 
   // Made before — see the block comment above.
   const madeBefore = useMemo(() => {
@@ -3351,7 +3375,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
-    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore,
+    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, fetchLeftoverCutoff,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
