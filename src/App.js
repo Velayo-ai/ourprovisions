@@ -1125,6 +1125,8 @@ function railWord(i, n) {
 //   Planned    open placement, no live rows, ready_at null
 //              chip PLANNED · "Not on the list yet" · Add to Shop (outline)
 //              Cooked it (freezer pizza) lives behind ⋯, not beside it.
+//   A meal card's right side is exactly: chip + grip (top row), action + ⋯
+//   (bottom row). NO destructive control at rest — Remove is inside ⋯.
 //   To buy     ≥ 1 live pending row
 //              chip TO BUY · "N to buy" / "B of N in cart" · See on list
 //   Ready      ready_at set (earned at Wrap up, never at an in-cart tap)
@@ -1135,8 +1137,9 @@ function railWord(i, n) {
 //     else                                 text), × and grip. They DRAG like
 //              any card, hold the night, never touch the list, never become
 //              Ready, have no outcome action. Kinds of plan, not states.
-// × on every card = skip. On a to-buy card it zeroes the meal's pending rows
-// first; on a no-shop card the hook also soft-deletes the meals row (one-shot).
+// Skip = Remove (⋯) on a meal card, × on a no-shop card. On a to-buy card it
+// zeroes the meal's pending rows first; on a no-shop card the hook also
+// soft-deletes the meals row (one-shot).
 //
 // DRAG TO REORDER — long-press (350ms) lifts, a tap opens (a meal card only —
 // a no-shop card has no recipe to open). Long-press is never the door to
@@ -1302,13 +1305,18 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
               <div className="board-top">
                 <span className="board-card-title">{title}</span>
                 {chip && <span className={`board-chip${ready ? " ready" : ""}`}>{chip}</span>}
-                <button
-                  type="button"
-                  className="board-x"
-                  aria-label={noShop ? `Remove ${title}` : toBuy ? `Skip ${m.name} and take its items off the list` : `Skip ${m.name}`}
-                  disabled={busy}
-                  onClick={(e) => { e.stopPropagation(); if (!busy) onSkip(m.id, toBuy); }}
-                >×</button>
+                {/* × at rest only on a no-shop card — it is that card's one action.
+                    A meal card shows NO destructive control at rest: Remove lives
+                    behind ⋯ (the rule, logged 2026-09-21). */}
+                {noShop && (
+                  <button
+                    type="button"
+                    className="board-x"
+                    aria-label={`Remove ${title}`}
+                    disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); if (!busy) onSkip(m.id, false); }}
+                  >×</button>
+                )}
                 {/* Grip — the drag affordance, same grey as ×. Decorative: the
                     whole card is the long-press target. */}
                 <svg className="board-grip" width="10" height="16" viewBox="0 0 10 16" aria-hidden="true">
@@ -1353,11 +1361,17 @@ function PlanBoard({ meals, rows, placements, mealById, onOpen, onSkip, onCooked
                 >⋯</button>
               </div>
               )}
-              {/* ⋯ — the rare paths. Cooked it for a Planned card (freezer pizza) and
-                  the recipe; the read-only recipe sheet is on the record (09-14) and
-                  until it lands this opens the same sheet a card tap does. */}
+              {/* ⋯ — Remove, Cooked it (Planned only), Open recipe. Remove is the
+                  skip path (on a to-buy card it zeroes the meal's pending rows first);
+                  Cooked it is the freezer-pizza exit; the read-only recipe sheet is on
+                  the record (09-14) and until it lands Open recipe opens the same
+                  sheet a card tap does. */}
               {menuFor === m.id && (
                 <div className="board-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+                  <button type="button" role="menuitem" disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onSkip(m.id, toBuy); }}>
+                    {toBuy ? "Remove (and take its items off Shop)" : "Remove"}
+                  </button>
                   {planned && (
                     <button type="button" role="menuitem" disabled={busy}
                       onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onCooked(m.id); }}>Cooked it</button>
@@ -4709,9 +4723,9 @@ function ProvisionsApp() {
                      font-family: 'Lato', sans-serif; font-size: 1.5rem; line-height: 1; padding: 0 0 4px; display: flex; align-items: center; justify-content: center; }
         .plan-meals { flex: none; border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; border-radius: 999px; padding: 8px 14px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; white-space: nowrap; }
-        /* "Add M to Shop" — a small outline row above the first card, only at M ≥ 2. Not sand, not teal: nothing is finished yet. */
-        .plan-addall { display: block; width: 100%; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; border-radius: 10px; padding: 8px 12px; margin: 0 0 10px; cursor: pointer;
-                       font-family: 'Lato', sans-serif; font-size: 0.76rem; font-weight: 900; letter-spacing: 0.5px; text-align: center; }
+        /* "Add M →" — a text link at the end of the prompt's prose, only at M ≥ 2. Same size as the prose, espresso. Not a bar, not teal. */
+        .plan-addall { display: inline; border: none; background: none; color: #6f5a45; padding: 0; margin-left: 6px; cursor: pointer;
+                       font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(111,90,69,0.4); }
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
         .plan-prompt { margin: 0 2px 12px; }
         .plan-prompt-title { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1.02rem; color: #2C1A0E; }
@@ -6127,10 +6141,9 @@ function ProvisionsApp() {
                 compact sentinel (controlRowRef): when it scrolls off, the Helm
                 compacts and its + does the door's add — here, open the library
                 (doorAdd.plan). Under the header, a banner when the week is set or
-                stocked, else the prompt; then, only when two or more cards are
-                still to add, a small outline "Add M to Shop" row above the first
-                card. No sand bar, no teal until the household has finished
-                something. */}
+                stocked, else the prompt — whose second line ends in "Add M →" only
+                when two or more cards are still to add. No bar, no teal until the
+                household has finished something. */}
             <div className="plan-head" ref={controlRowRef}>
               <div className="plan-head-text">
                 <h2 className="plan-title">This Week</h2>
@@ -6157,17 +6170,19 @@ function ProvisionsApp() {
             ) : boardMeals.length > 0 ? (
               <div className="plan-prompt">
                 <div className="plan-prompt-title">What sounds good next?</div>
-                <div className="plan-prompt-sub">Drag meals into the order you want them.</div>
+                <div className="plan-prompt-sub">
+                  Drag meals into the order you want them.
+                  {/* Add all — a text link at the end of the prose, only when there
+                      are TWO OR MORE Planned cards to batch. At one, the card's own
+                      Add to Shop is the only affordance; at zero, nothing. */}
+                  {isSignedIn && boardStats.stillToAdd.length >= 2 && (
+                    <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
+                      {lockingAll ? "Adding…" : `Add ${boardStats.stillToAdd.length} →`}
+                    </button>
+                  )}
+                </div>
               </div>
             ) : null}
-            {/* Add all — a small outline row, and only when there are TWO OR MORE
-                Planned cards to batch. At one, the card's own Add to Shop is the
-                only affordance; at zero, nothing. The subtitle carries the count. */}
-            {isSignedIn && boardStats.stillToAdd.length >= 2 && (
-              <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
-                {lockingAll ? "Adding…" : `Add ${boardStats.stillToAdd.length} to Shop`}
-              </button>
-            )}
             <PlanBoard
               meals={boardMeals}
               rows={mealRowCounts}

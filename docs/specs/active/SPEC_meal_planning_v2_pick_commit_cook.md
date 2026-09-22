@@ -27,7 +27,7 @@ One verb per door:
 |---|---|---|
 | Library | **Plan** | `meal_placements` only (`planMeal`) |
 | Board, Planned card | **Add to Shop** | `add_meal_to_list` (`lockIn` — internal name unchanged) |
-| Board header | **Add N to Shop** | `lockInAll`, shown only when N ≥ 1 |
+| Board prompt line | **Add N →** | `lockInAll`, shown only when N ≥ 2 |
 | Shop | Wrap up | unchanged |
 | Board, Ready card | **Cooked it** | `cooked_at` |
 
@@ -46,6 +46,7 @@ One verb per door:
 | 7 | **No-shop placements — Leftovers and Eating out.** They hold a night, never touch the list, never become Ready, have no outcome action. × is the only exit. | People who map every night need them. No Cooked it / Ate out until someone asks — that's future analytics, not v2. |
 | 8 | **No-shop cards are `meals` rows with `kind`, not a nullable `meal_id` on placements.** | See Architecture — the placements PK is `(household_id, meal_id)` and every reader keys on `meal_id`. Reversal of the design-chat lean; the PK decides it. |
 | 10 | **PLAN is a week-of-food board, not a meal planner** (2026-09-21). Every card is a plan for a night; some plans need provisions. Meals, Leftovers, Eating out and Something else are **kinds** of plan, not states. States stay three. | Falls out of the no-shop cards: once two kinds existed, a third ("Something else") cost one CHECK value, and the model reads cleaner with kinds orthogonal to states. |
+| 11 | **The board shows no destructive control at rest on a meal card** (2026-09-21). Remove lives behind ⋯; the card's face carries one primary action and the drag grip. No-shop cards keep × because it is their only action. | A week of food should read as plans, not as things to delete. The rare path goes one tap deeper; the common one stays on the face. |
 | 9 | **Photos stay out.** The library's optional image seam stays; nothing in v2 renders one. | Prove the interaction as type, colour, state and motion first. |
 
 ---
@@ -54,16 +55,18 @@ One verb per door:
 
 | state | when (unchanged from 052) | tile | chip | line | actions |
 |---|---|---|---|---|---|
-| **Planned** | open placement, no live rows, `ready_at` null | meal colour | PLANNED (muted) | Not on the list yet | **Add to Shop** (outline) · ⋯ · × |
-| **To buy** | ≥1 live pending row | meal colour | TO BUY (muted) | "N to buy" / "B of N in cart" | **See on list** (outline) · ⋯ · × |
-| **Ready** | `ready_at` set | meal colour | READY (teal) | Everything's in — go cook | **Cooked it** (teal fill) · ⋯ · × |
+| **Planned** | open placement, no live rows, `ready_at` null | meal colour | PLANNED (muted) | Not on the list yet | **Add to Shop** (outline) · ⋯ (Remove · Cooked it · Open recipe) |
+| **To buy** | ≥1 live pending row | meal colour | TO BUY (muted) | "N to buy" / "B of N in cart" | **See on list** (outline) · ⋯ (Remove · Open recipe) |
+| **Ready** | `ready_at` set | meal colour | READY (teal) | Everything's in — go cook | **Cooked it** (teal fill) · ⋯ (Remove · Open recipe) |
+
+A meal card's right side is exactly: **chip + grip** on the top row, **action + ⋯** on the bottom row. **No destructive control at rest on a meal card** — Remove lives behind ⋯ (rule logged 2026-09-21). No-shop cards keep their × (it is their only action) and have no ⋯.
 | **Leftovers** | `meals.kind = 'leftovers'`, open placement | cream `#EFE9DE`, espresso text, word LEFTOVERS under number; dashed card | — (no chip, no state line) | "From Chicken Curry" / "From Chicken Curry, Pizza" / "From Chicken Curry, Pizza + 1" over `from_meal_ids`, or nothing | × · grip · drag |
 | **Eating out** | `meals.kind = 'out'`, open placement | cream, word EATING OUT | — | `meals.name` if given ("Oak House"), else nothing | × · grip · drag |
 | **Something else** | `meals.kind = 'other'` (057), open placement | cream, word = the name uppercased, cut at ~10 chars; OTHER when blank | — | title = the free text ("soccer", "Mom's", "takeout", "no idea yet"), else "Something else"; no line | × · grip · drag |
 
 **Header:**
 - Title *This Week*. Subtitle: `"{N} meals · {M} still to add"` when every open placement is a meal; `"{N} nights · {M} still to add"` when any no-shop card exists. When M = 0: `"· all on the list"`; when every meal is Ready: `"· stocked"`.
-- Right side: **+ Meals** (outline) → library, **always** — the board must never lose its door to more meals. The header follows the Browse/Shop pattern: it is the door's control row and the compact sentinel — when it scrolls off, the nav collapses and its + does what the header's + does (on Plan, open the library). The subtitle carries the count ("4 nights · 1 still to add"). **No sand bar.** When M ≥ 2 a small **outline** "Add {M} to Shop" row sits above the first card; at M = 1 the card's own Add to Shop is the only affordance; nothing at M = 0. (Amended 2026-09-21, three passes: the first build swapped + Meals for Add-N and left no entry to the library once anything was planned; the second put both in the header; the third had a full-width sand bar. Premium here means less.)
+- Right side: **+ Meals** (outline) → library, **always** — the board must never lose its door to more meals. The header follows the Browse/Shop pattern: it is the door's control row and the compact sentinel — when it scrolls off, the nav collapses and its + does what the header's + does (on Plan, open the library). The subtitle carries the count ("4 nights · 1 still to add"). **No bar of any kind.** When M ≥ 2 the prompt's second line ends in a text link, **"Add {M} →"** (espresso, prose-sized): *Drag meals into the order you want them. Add 2 →*. At M = 1 the card's own Add to Shop is the only affordance; nothing at M = 0. (Amended 2026-09-21, four passes: the first build swapped + Meals for Add-N and left no entry to the library once anything was planned; the second put both in the header; the third had a full-width sand bar; the fourth an outline row. Premium here means less.)
 - Prompt under header: *What sounds good next?* / *Drag meals into the order you want them.* Only when ≥ 1 open placement.
 
 **Banners** (replace the prompt when true):
@@ -144,10 +147,10 @@ alter table meals add constraint meals_kind_check check (kind in ('meal', 'lefto
 ### App.js
 
 - Library card: remove Add; single + calls `planMeal`. Disabled with ON THE BOARD tag when an open placement exists.
-- Board card: new two-column layout per the states table. Planned → Add to Shop; To buy → See on list; Ready → Cooked it. Cooked it for Planned moves to ⋯.
+- Board card: new two-column layout per the states table. Planned → Add to Shop; To buy → See on list; Ready → Cooked it. ⋯ holds Remove, Cooked it (Planned only), Open recipe; a meal card shows no × at rest.
 - Header logic per "The board" above. **Lock in all button hidden at M = 0** (already true; keep).
 - No-shop foot buttons → `planNoShop`. Leftovers opens a one-field sheet: a **multi-select (checkboxes, no minimum)** over the board's open meals + meals with `cooked_at` in the last two cycles. Eating out opens a one-field sheet: optional place name. Something else opens a one-field sheet: a free name (soccer, Mom's, takeout, no idea yet).
-- Meal cards: nothing functional removed, but tightened — one line of vertical rhythm between name / chip / line / button; × and the grip share one grey, in the title row. No new decoration.
+- Meal cards: nothing functional removed, but tightened — one line of vertical rhythm between name / chip / line / button; the grip sits in the title row (× only on no-shop cards, same grey). No new decoration.
 - Rename every "Lock in" string. `grep -n "Lock in" src/` must return nothing when done.
 - Colour: replace teal on Plan / Add / filters / links / chips with espresso or outline. Teal only on Cooked it, the READY chip, and the stocked banner.
 
