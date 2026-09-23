@@ -25,6 +25,33 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-09-22] — [OurProvisions] — Meal Library v1 ("What sounds good?") designed and spec'd in the design chat; build held behind the v2 go/no-go (second session of the day)
+**Goal:** Bring the Meal Library up to the quality of the v2 board — from an advisor's spec and a reference image to an approved mockup of record and a build-ready spec. (Design chat only; merged from `handoff/design_handoff.md`. The chat was redirected at SESSION START from the pre-authored v2 twelve-step walk, which carries forward unchanged. Claude Code's part this session was the scribe pass — nothing built.)
+**Completed:**
+- **Reviewed the advisor's spec against locked decisions and the live schema, and kept only what the schema can honestly show.** The reference image's food photography was set aside (its own spec said no photos). The 3-column grid was rejected at real width (~114 px per card) and 2 columns chosen by looking. No "30 min" is shown because `prep_minutes` does not exist. Occasion stays off the tile colour after rule B on the canvas turned a page of dinners into a wall of clay.
+- **Explored on a design canvas, "Plan: What Sounds Good" (six working screens):** three colour rules (A ingredient tone / B occasion tone / C ingredient tone + tinted word), Day one, the filter sheet and the occasion picker. **Rule A chosen** — keeps the v2 board's tone and puts the occasion in the word.
+- **Iterated the card to its final form over two rounds with Dan and the advisor.** The oversized italic initial was dropped ("manufacturing visual interest"). The occasion word and a 20 px serif meal name sit on the colour; the white strip holds only "{n} ingredients" and + / ✓. v2's ON THE BOARD tag became a quiet ✓.
+- **Designed the occasion model:** `meals.occasion` is an ordered list — the first entry shows on the card, the rail matches any entry. The rail lists only the occasions present and is hidden entirely on day one, where a one-line prompt shows until the first tag and then goes away permanently. In the edit sheet the field is **"Good for"** ("Choose any that fit. The first appears on the card.").
+- **Split attributes from occasion.** The rail is only for *when* you eat something. **From**, **Made before** and **Ours** move into a Filter sheet with a live "Show N meals", a dot on the Filter button and a removable chip per active filter. **From** began as Dan's "chef pill" (filter by Andrew); renamed from "Made by" so it can later list recipe authors and givers from outside the household. **Ruled by Dan:** when a member leaves, their chip leaves too; the meals stay with the household.
+- **Set the photo principle:** photos are optional household content, never required application content. No stock or generated food photography. The typographic card is the finished design; a household's own photo can sit behind the text later. Replaces v2 decision 9.
+- **Wrote the airlock pair and routed it at SESSION END:** `SPEC_meal_library_v1.md` (15 decisions, migration 058 `meals.occasion text[]` with its VERIFY select, 14 verification steps, sequencing) → `docs/specs/active/`; `mockup_meal_library_v1.html` (four working screens, the tiebreaker over the prose) → `docs/mockups/`. Scoped a future design session on recipe attribution, sharing and who's cooking (Grandma Phyllis's chili, "Andrew is cooking…" on Home) — NEXT.
+**Unfinished:**
+- **The v2 twelve-step walk and the prod go/no-go on 055–057 plus the board client are still owed.** It was the pre-authored goal and was not started. Meal Library v1 is **deliberately held behind it** (spec Sequencing §1).
+- **Nothing is built and no schema was touched.** Migration 058 exists only inside the spec — no file in `migrations/`. Take the next free number at build.
+- **Galley-drafted meals arrive untagged** until the prompt contract emits `occasion`. That change rides with Galley Phase B (an Edge Function redeploy on prod is its own gate).
+- **From can't name non-members in v1**, and it credits whoever *added* a recipe, not whose recipe it is. Grandma's chili typed in by Dan files under Dan until an author field exists.
+- **Watch item:** sides, appetizers and desserts plan like meals (a numbered board slot, counted in "{N} meals"). Grouping them with a main is future work.
+- **Clay tile contrast debt** (3.97:1) now also affects the 11.5 px occasion word. The 20 px bold name clears AA-large. Carried to LATER with the stored per-meal colour.
+- The design canvas is exploration only, private to Dan, not source of truth. The mockup file is the tiebreaker.
+- Both Supabase MCP servers failed to connect in this Claude Code session (connection timeout, not a config change). Nothing here needed a database, so no impact — noted so the next session does not mistake it for a revoked grant.
+**Next session:**
+SESSION START
+Goal: Walk the twelve verification steps of `SPEC_meal_planning_v2_pick_commit_cook.md` on dev with two accounts (Dan + Helen), then make the go/no-go call on promoting 055–057 and the board client to prod as one batch.
+State: The v2 board is live on dev (`feaee4a`, bundle `main.4cb72053.js`); 055–057 are dev only; the prod client is pre-board. Meal Library v1 is designed and spec'd (`docs/specs/active/SPEC_meal_library_v1.md` + `docs/mockups/mockup_meal_library_v1.html`), its build held behind this go/no-go. No schema change is pending anywhere except 058, which is spec only. Dev holds two local docs commits (the v2 one, `f3e8e1d`, and this one) — a `git push origin dev` for anything else ships both.
+Done when: all twelve v2 steps pass with two accounts (4 / 7 / 10 / 11 by hand), and a go/no-go is written to ROADMAP — promoted (055 → 056 → 057, each VERIFY read back, then the client) or held with the reason. After that, BUILD Meal Library v1 is the next build target.
+**Files updated:** `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/active/SPEC_meal_library_v1.md` (new — routed from the airlock), `docs/mockups/mockup_meal_library_v1.html` (new — routed from the airlock). No source files.
+**DB changes:** None. Migration 058 (`meals.occasion`) is authored in the spec only and not applied anywhere.
+
 ### [2026-09-22] — [Cross] — Meal planning v2, Pick / Commit / Cook: designed, spec'd and built on dev in one sitting (session ran 2026-09-21 21:47 → 00:04)
 **Goal:** Redesign the Plan tab from a two-button add model into a week-of-food board, spec it in the design chat, build it on dev the same day, and iterate from screenshots until it reads as one system. (Design chat + Claude Code; merged from `handoff/design_handoff.md`.)
 **Completed:**
