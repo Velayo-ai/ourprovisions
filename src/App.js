@@ -824,20 +824,60 @@ function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
   );
 }
 
-// D7: the Home door exists from day one; this is the promise, not the design.
-// HOME v1 builds into `view === "home"` — replace this component, keep the door.
-function HomePlaceholder({ firstName, householdName }) {
+// HOME v1 — the Tonight card replaces the D7 placeholder's promise line; the
+// door and the greeting stay. "Tonight" is the board's first card (position
+// 01, the head of the open queue): Plan stores no planned_for date or slot yet
+// (reserved for Days v2), so the household's first open placement IS the
+// night's plan by construction — no date arithmetic, so no UTC rollover to get
+// wrong. `ready` is the board's own gate (this household's meals AND
+// placements have loaded): the card renders nothing at all before the data has
+// arrived, never an empty state that the data then contradicts.
+function Home({ firstName, ready, meal, mealById, onAdd, onView }) {
   const hour = new Date().getHours();
   const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
   const dateLine = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   return (
-    <div className="home-placeholder">
+    <div className="home">
       <div className="home-greeting">Good {part}{firstName ? `, ${firstName}` : ""}</div>
       <div className="home-date">{dateLine}</div>
-      <p className="home-promise">
-        Tonight's meal and what's happening in {householdName || "your place"} will live here.
-      </p>
+      {ready && <TonightCard meal={meal} mealById={mealById} onAdd={onAdd} onView={onView} />}
     </div>
+  );
+}
+
+// The card. Empty: labelled "Tonight" — an invitation into the existing Plan
+// add flow (the library), never an add input of its own. Populated: labelled
+// "Up next" — the queue knows what is next, not what is tonight, until Days v2
+// adds planned_for (the hook's upNext rule, 2026-09-14); the head card's name,
+// "Dinner" alone (no time is stored), and a link that opens the meal in Plan.
+// A no-shop head (Leftovers / Eating out / Something else) has no recipe to
+// open, so its link goes to the board and its line carries the kind (and the
+// leftovers sources) instead. The aria-label follows the visible label. No
+// photo (2026-09-12: the household photo asserts context, never decorates;
+// no on the Tonight card).
+function TonightCard({ meal, mealById, onAdd, onView }) {
+  if (!meal) {
+    return (
+      <section className="tonight" aria-label="Tonight">
+        <div className="tonight-label">Tonight</div>
+        <h3 className="tonight-title">What sounds good?</h3>
+        <p className="tonight-body">Plan a meal and we'll help with the rest.</p>
+        <button type="button" className="tonight-link" onClick={onAdd}>+ Add tonight's meal</button>
+      </section>
+    );
+  }
+  const noShop = isNoShop(meal);
+  const name = noShop ? (noShopName(meal) || noShopLabel(meal)) : meal.name;
+  const line = noShop
+    ? ["Dinner", noShopName(meal) ? noShopLabel(meal) : "", meal.kind === "leftovers" ? leftoversLine(meal, mealById) : ""].filter(Boolean).join(" · ")
+    : "Dinner";
+  return (
+    <section className="tonight" aria-label="Up next">
+      <div className="tonight-label">Up next</div>
+      <h3 className="tonight-title">{name}</h3>
+      <p className="tonight-body">{line}</p>
+      <button type="button" className="tonight-link" onClick={() => onView(meal)}>{noShop ? "View plan →" : "View meal →"}</button>
+    </section>
   );
 }
 
@@ -2933,6 +2973,8 @@ function ProvisionsApp() {
   // hook already loads, no new query) picks "Add a meal" over "Add your first
   // meal".
   const boardReady = !!household?.id && mealsLoadedFor === household.id;
+  // Home's Tonight card shares the gate: the same load now runs on Home too.
+  const homeReady = boardReady;
   const showWelcome = boardReady && boardCards.length === 0;
   const everCooked = madeBefore.size > 0;
   // The drag hint earns its line only once there is an order to change: two
@@ -2962,9 +3004,10 @@ function ProvisionsApp() {
   };
 
   // ── Meals (add-path, migration 025) ──────────────────────────
-  // Placements ride along with both reads below. Both are Plan-only already
-  // (the navigation effect and the 2s poll are gated on view === "plan"), so
-  // the board's rows cost nothing on any other door.
+  // Placements ride along with both reads below. Both are gated on the doors
+  // that render them (the navigation effect and the 2s poll run on PLAN and,
+  // since HOME v1's Tonight card, on HOME), so the board's rows cost nothing
+  // on Browse or Shop.
   const loadMeals = useCallback(async () => {
     setMealsLoading(true);
     try {
@@ -3008,9 +3051,10 @@ function ProvisionsApp() {
     if (MEALS_ENABLED && (view === "list" || view === "plan")) refreshProvenance();
   };
 
-  // Load the meal cards when the Plan tab opens.
+  // Load the meal cards when the Plan tab opens — or Home, whose Tonight card
+  // is the board's first card and must not decide "empty" before the data is in.
   useEffect(() => {
-    if (MEALS_ENABLED && view === "plan" && household?.id) {
+    if (MEALS_ENABLED && (view === "plan" || view === "home") && household?.id) {
       const hhId = household.id;
       setCookedHere(new Set());
       loadMeals().then(() => setMealsLoadedFor(hhId));
@@ -3023,9 +3067,10 @@ function ProvisionsApp() {
   // the same gap Part 3 (1e81774) closed for SHOP provenance, one surface over.
   //
   // Scoped to the VISIBLE tab, and that scoping is the whole cost control:
-  // nothing renders the meal list off PLAN, so polling there would be a pure
-  // wasted query — the multiplier Part 3 was careful to avoid. Leaving the tab
-  // changes the view, which runs this effect's cleanup and stops the interval.
+  // only PLAN and HOME (the Tonight card) render meal data, so polling on any
+  // other door would be a pure wasted query — the multiplier Part 3 was
+  // careful to avoid. Leaving the tab changes the view, which runs this
+  // effect's cleanup and stops the interval.
   //
   // A second interval rather than piggybacking the SHOP list-change signal,
   // because that signal cannot see this: onListChangedRef fires on list_items
@@ -3033,7 +3078,7 @@ function ProvisionsApp() {
   // meal_ingredients WITHOUT touching the list at all. The ingredient-count
   // case this fixes would never have fired it.
   useEffect(() => {
-    if (!MEALS_ENABLED || view !== "plan" || !household?.id) return;
+    if (!MEALS_ENABLED || !(view === "plan" || view === "home") || !household?.id) return;
     const mealsPoll = setInterval(() => { refreshMeals(); }, 2000);
     return () => clearInterval(mealsPoll);
   }, [view, household?.id, refreshMeals]);
@@ -5047,11 +5092,18 @@ function ProvisionsApp() {
         @keyframes helmPlusIn { from { opacity: 0; } to { opacity: 1; } }
         .helm.no-anim, .helm.no-anim * { transition: none !important; animation: none !important; }
         @media (prefers-reduced-motion: reduce) { .helm, .helm * { transition: none !important; } }
-        /* Home placeholder (D7) — the door exists before its content; this names the promise. */
-        .home-placeholder { padding: 12px 2px 0; }
+        /* HOME v1 — greeting, date, the Tonight card. */
+        .home { padding: 12px 2px 0; }
         .home-greeting { font-family: 'Playfair Display', serif; font-size: 1.4rem; line-height: 1.2; color: #2C1A0E; }
         .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
-        .home-promise { font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.5; color: #5c4a36; margin-top: 22px; max-width: 34ch; }
+        /* The Tonight card in the board's language: a warm cream (the welcome's ghost-tile tone), the board card's 12px radius, no shadow, no photo.
+           Label = the board chip's type; title = Playfair; the link is a text button in Plan's link espresso (.plan-addall), the app has no blue. */
+        .tonight { margin-top: 22px; background: #F1E7D8; border-radius: 12px; padding: 16px 18px 14px; }
+        .tonight-label { font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
+        .tonight-title { margin: 6px 0 0; font-family: 'Playfair Display', serif; font-size: 1.25rem; font-weight: 700; line-height: 1.2; color: #2C1A0E; overflow-wrap: anywhere; }
+        .tonight-body { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: 0.9rem; line-height: 1.45; color: #6E5A4A; }
+        .tonight-link { display: inline-block; margin-top: 12px; padding: 0; border: none; background: none; cursor: pointer;
+                        font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
         /* §6 — every scrolling root clears the pill. The pill is present at EVERY width (rail retired 2026-09-20);
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
         .app-root { min-height: 100vh; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
@@ -6332,7 +6384,14 @@ function ProvisionsApp() {
 
       <div className="container">
         {view === "home" && (
-          <HomePlaceholder firstName={user?.firstName} householdName={household?.name} />
+          <Home
+            firstName={user?.firstName}
+            ready={homeReady}
+            meal={boardMeals[0] || null}
+            mealById={mealById}
+            onAdd={() => { setPlanScreen("library"); goToDoor("plan"); }}
+            onView={(m) => { setPlanScreen("board"); goToDoor("plan"); if (!isNoShop(m)) setMealSheet({ mode: "edit", meal: m }); }}
+          />
         )}
 
         {view === "plan" && planScreen === "board" && (

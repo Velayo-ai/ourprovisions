@@ -36,6 +36,7 @@ const CHROME_ALLOW_LIST = [
   '.plan-noshop',    // Hold a night: "Leftovers" / "Eating out" / "Something else" (board foot + welcome)
   '.lib-filter',     // Library filter pills
   '.lib-plan',       // Library round + (Plan)
+  '.tonight-link',   // Home Tonight card: "+ Add tonight's meal" / "View meal →" / "View plan →"
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 
