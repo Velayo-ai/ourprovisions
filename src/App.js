@@ -3047,13 +3047,17 @@ function ProvisionsApp() {
   }, [household?.id, view, refreshProvenance]);
 
   // Toast. `action` = { label, onClick } renders a tap target on the pill
-  // (BOARD after Plan, SHOP after Add all) and holds it a little longer.
+  // (VIEW WEEK after Plan, SHOP after Add all) and holds it a little longer.
+  // `opts.line` = the one-line variant (Plan's "Added to your week ✓"): a
+  // 44px pill, 16px side padding, 14px text, the action as plain uppercase
+  // letter-spaced text with no border. Same anchor, same timing; every other
+  // toast keeps the default pill.
   // Declared here, above the Plan handlers that need it — CI=true turns
   // no-use-before-define into a build failure.
   const [toastMessage, setToastMessage] = useState(null);
   const toastTimerRef = useRef(null);
-  const showToast = useCallback((message, action = null) => {
-    setToastMessage({ text: message, action });
+  const showToast = useCallback((message, action = null, opts = {}) => {
+    setToastMessage({ text: message, action, line: !!opts.line });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToastMessage(null), action ? 4000 : 2500);
   }, []);
@@ -3099,7 +3103,7 @@ function ProvisionsApp() {
     setPlanningMealId(mealId);
     try {
       const ok = await planMeal(mealId);
-      if (ok) showToast("Planned. Add to Shop from the board when you're ready.", { label: "Board", onClick: () => setPlanScreen("board") });
+      if (ok) showToast("Added to your week ✓", { label: "View week", onClick: () => setPlanScreen("board") }, { line: true });
     } finally {
       setPlanningMealId(null);
     }
@@ -4795,10 +4799,15 @@ function ProvisionsApp() {
         {toastMessage && (
           <div style={{
             background: "rgba(44,26,14,0.92)", color: "#FAF4EC",
-            fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
-            padding: toastMessage.action ? "8px 10px 8px 20px" : "10px 22px", borderRadius: "999px",
+            fontFamily: "'Lato', sans-serif", fontSize: toastMessage.line ? "14px" : "0.85rem",
+            // The one-line variant is a fixed 44px pill with 16px sides; the
+            // default pill keeps its padding-driven height.
+            ...(toastMessage.line
+              ? { height: "44px", padding: "0 16px", whiteSpace: "nowrap" }
+              : { padding: toastMessage.action ? "8px 10px 8px 20px" : "10px 22px" }),
+            borderRadius: "999px",
             boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
-            maxWidth: "90vw", display: "flex", alignItems: "center", gap: "12px",
+            maxWidth: "90vw", display: "flex", alignItems: "center", gap: toastMessage.line ? "16px" : "12px",
             animation: "fadeIn 0.18s ease",
             // A toast with an action is the one bottom-stack child that opts
             // back into pointer events; a plain one stays transparent.
@@ -4809,7 +4818,12 @@ function ProvisionsApp() {
               <button
                 type="button"
                 onClick={() => { const a = toastMessage.action; setToastMessage(null); a.onClick(); }}
-                style={{
+                style={toastMessage.line ? {
+                  // Plain text action: no border, no fill; the 44px pill is the hit box.
+                  flex: "none", background: "none", border: "none", color: "#FAF4EC",
+                  padding: "0", cursor: "pointer", alignSelf: "stretch",
+                  fontFamily: "'Lato', sans-serif", fontSize: "12px", fontWeight: 900, letterSpacing: "1.4px", textTransform: "uppercase",
+                } : {
                   flex: "none", background: "none", border: "1px solid rgba(250,244,236,0.4)", color: "#FAF4EC",
                   borderRadius: "999px", padding: "5px 12px", cursor: "pointer",
                   fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", fontWeight: 900, letterSpacing: "1px", textTransform: "uppercase",
