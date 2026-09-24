@@ -430,6 +430,7 @@ the receipt concept preview walks 2–3 screens and discloses itself, and the wh
 | **Stored per-meal tile colour; Favorites** *(2026-09-21)* | Tile tone is derived today (dominant ingredient category → six house tones; `meals.category` does not exist) and clay fails AA at 3.97:1 for the rail word. A stored colour replaces `mealTone` and nothing else. Favorites needs a table — per-user vs per-household undecided; the pill is omitted, not disabled, until then. **2026-09-22:** the clay contrast debt now also covers the library's 11.5 px occasion word (Meal Library v1); the 20 px bold name clears AA-large. |
 | **Outcome actions and expiry on no-shop cards** *(2026-09-21)* | Ate out / Had leftovers, and whether no-shop cards should expire at Wrap up. Ship × only; watch whether boards clutter. Wait for someone to ask. |
 | **Empty-week "Made before" suggestions** *(2026-09-23)* | The welcome deliberately recommends nothing. Suggestions from thin data would feel random and cost trust; they wait for a rating system and a real learning engine (and for `last_cooked_at`, since re-plan wipes the only cook record today). |
+| **Last-week recap in the empty-week status line** *(2026-09-23)* | Under "This Week" on the empty board, e.g. "Last week: 3 meals cooked" — a quiet acknowledgment that a new week has started, not a coach line. Needs a decision on what ends a "week" (likely the shopping cycle) before the count has a definition. |
 
 ---
 
