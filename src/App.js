@@ -2928,6 +2928,10 @@ function ProvisionsApp() {
   const boardReady = !!household?.id && mealsLoadedFor === household.id;
   const showWelcome = boardReady && boardCards.length === 0;
   const everCooked = madeBefore.size > 0;
+  // The drag hint earns its line only once there is an order to change: two
+  // or more open cards, and no banner in its place. The head's bottom margin
+  // follows it (8px to the hint, else 20px to the first card / banner).
+  const showDragHint = boardReady && !showWelcome && !boardBanner && boardMeals.length >= 2;
   const [editingPrice, setEditingPrice] = useState(null);
   const [priceInput, setPriceInput] = useState("");
   const [editModalItem, setEditModalItem] = useState(null);
@@ -4870,7 +4874,11 @@ function ProvisionsApp() {
                        padding: 15px 4px; margin: -15px -4px; line-height: inherit;
                        font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(111,90,69,0.4); }
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
-        .plan-prompt { margin: 0 2px 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; }
+        /* Board head → first card: 20px. With the drag hint (2+ cards, no banner): 8px to the hint, 20px from the hint to the first card.
+           The hint sits flush with "This Week" (no side margin). */
+        .plan-head.board-head { margin-bottom: 20px; }
+        .plan-head.board-head.with-hint { margin-bottom: 8px; }
+        .plan-prompt { margin: 0 0 20px; font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; }
         .plan-banner { display: flex; align-items: center; gap: 12px; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
         .plan-banner.set { background: rgba(201,169,122,0.22); }
         .plan-banner.stocked { background: rgba(13,148,136,0.10); }
@@ -4947,7 +4955,7 @@ function ProvisionsApp() {
         .plan-noshop svg { width: 20px; height: 20px; flex: none; }
         /* The empty-week welcome (mockup_plan_tab_welcome.html). Ghost cards fade 1 → .7 → .4; generous vertical air on purpose. */
         .plan-welcome { display: flex; flex-direction: column; align-items: center; padding: 0 4px; }
-        .plan-ghosts { margin-top: 10px; width: 100%; display: flex; flex-direction: column; gap: 8px; }
+        .plan-ghosts { margin-top: 4px; width: 100%; display: flex; flex-direction: column; gap: 8px; }
         .plan-ghost { height: 56px; border-radius: 14px; border: 1.5px dashed #C9AE88; background: #fff; display: flex; align-items: center; gap: 12px; padding: 0 8px; }
         .plan-ghost:nth-child(2) { border-color: #D8C3A5; background: transparent; opacity: 0.7; }
         .plan-ghost:nth-child(3) { border-color: #E2D3BD; background: transparent; opacity: 0.4; }
@@ -6316,13 +6324,13 @@ function ProvisionsApp() {
                 does the door's add — here, open the library (doorAdd.plan). The
                 subtitle carries the count AND the batch action ("4 nights · 2
                 meals to add to Shop →" — see boardSubtitle). Under the header, a
-                banner when the week is set or stocked, else the one-line drag
+                banner when the week is set or stocked, else (2+ cards) the drag
                 hint. No bar, no teal until the household has finished something.
                 Three states (PATCH_plan_tab_welcome): until this household's
                 meals and placements have loaded, the title alone; loaded with
                 nothing on the board, the welcome — title, no subtitle, no add
                 button, no foot; otherwise the working board. */}
-            <div className="plan-head" ref={controlRowRef}>
+            <div className={`plan-head board-head${showDragHint ? " with-hint" : ""}`} ref={controlRowRef}>
               <div className="plan-head-text">
                 <h2 className="plan-title">This Week</h2>
                 {boardReady && !showWelcome && (
@@ -6369,7 +6377,7 @@ function ProvisionsApp() {
                       <div className="plan-banner-sub">Everything you need is on your list.</div>
                     </div>
                   </div>
-                ) : boardMeals.length > 0 ? (
+                ) : showDragHint ? (
                   <div className="plan-prompt">Drag meals into the order you want them.</div>
                 ) : null}
                 <PlanBoard
