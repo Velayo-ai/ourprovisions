@@ -26,7 +26,20 @@ update public.users set excluded_from_learning = true, updated_at = now()
    'ef521b1f-8671-4542-92b6-cea5e8999cc1',  -- plan-b+clerk_test@example.com     Board Walk walker
    '0907b594-43a9-441c-9e46-9d14308eeffa',  -- mr_dholmes@outlook.com            MR DHOLMES
    '5e135cdf-1138-4011-9a32-a3d01c054313',  -- mr_dholmes+test2@outlook.com      MR2 DHOLMES
-   '39788a5f-9a7b-41b5-a940-50b7440bc960'   -- mr_dholmes+test3@outlook.com      MR3 DHOLMES
+   '39788a5f-9a7b-41b5-a940-50b7440bc960',  -- mr_dholmes+test3@outlook.com      MR3 DHOLMES
+   -- Added 2026-09-20 (second pass — the first list was incomplete, not deliberate).
+   -- Flag an account for what it IS; zero sessions is why it is cheap.
+   '6e102757-dba2-446f-9726-3852880461a0',  -- daniel.l.holmes+test8@gmail.com   Test User8
+   '405d00b4-ed34-4bbc-ada8-f56baf261161',  -- daniel.l.holmes+test9@gmail.com   Test User9
+   'a8c6f5bd-8ca9-44e5-821f-d62ad3d9bc48',  -- daniel.l.holmes+test20@gmail.com  test user 20
+   '305b2650-65ce-43a3-b4ed-ff107c9d93a5',  -- daniel.l.holmes+test21@gmail.com  Test Uesr21
+   'ce602d3f-3e9c-41a1-89e7-d7a696097890',  -- daniel.l.holmes+test32@gmail.com  (no name)
+   'b4cb6c8c-61c7-43d5-a1d6-05ab6dffef15',  -- daniel.l.holmes+test33@gmail.com  Test User 33
+   '3b9b437e-1bc7-4714-bc87-14e3ba0a4983',  -- daniel.l.holmes+test34@gmail.com  Test User 34
+   '851aa8c7-e51a-473e-aaae-ab8a38637d2a',  -- daniel.l.holmes+test35@gmail.com  Test User 35
+   '7e0ed3c3-ffa3-41dd-8cad-0b6f660bec16',  -- daniel.l.holmes+test50@gmail.com  Test User 50
+   '05008134-db94-4d2f-9217-d331d9a1e725',  -- daniel.l.holmes+test51@gmail.com  Test User50
+   '11b3fcf4-6c5d-41d3-89dc-a5a835a4fbea'   -- daniel.l.holmes+test52@gmail.com  Test User 52
  );
 
 update public.households set excluded_from_learning = true, updated_at = now()
