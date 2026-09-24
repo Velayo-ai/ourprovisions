@@ -32,8 +32,8 @@ const CHROME_ALLOW_LIST = [
   '.board-cook',     // Plan board "Cooked it"
   '.board-more',     // Plan board ⋯ menu trigger
   '.plan-addall',    // Plan header "+ Add N to Shop"
-  '.plan-meals',     // Plan header "+ Meals" → library
-  '.plan-noshop',    // Plan foot "Leftovers" / "Eating out"
+  '.plan-meals',     // Plan header "+ Add a meal" → library
+  '.plan-noshop',    // Hold a night: "Leftovers" / "Eating out" / "Something else" (board foot + welcome)
   '.lib-filter',     // Library filter pills
   '.lib-plan',       // Library round + (Plan)
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
