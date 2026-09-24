@@ -37,6 +37,7 @@ const CHROME_ALLOW_LIST = [
   '.lib-filter',     // Library filter pills
   '.lib-plan',       // Library round + (Plan)
   '.tonight-link',   // Home Tonight card: "+ Add tonight's meal" / "View meal →" / "View plan →"
+  '.list-card-link', // Home list card: "Start a list →" / "View list →"
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 

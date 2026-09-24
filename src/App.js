@@ -829,10 +829,13 @@ function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
 // 01, the head of the open queue): Plan stores no planned_for date or slot yet
 // (reserved for Days v2), so the household's first open placement IS the
 // night's plan by construction — no date arithmetic, so no UTC rollover to get
-// wrong. `ready` is the board's own gate (this household's meals AND
-// placements have loaded): the card renders nothing at all before the data has
-// arrived, never an empty state that the data then contradicts.
-function Home({ firstName, ready, meal, mealById, onAdd, onView }) {
+// wrong. `ready` is ONE gate for BOTH cards: the board's own (this household's
+// meals AND placements have loaded) AND householdReady (its list has actually
+// arrived). Nothing renders under the date until both are true, then both
+// cards appear together — never the list card first with the Tonight card
+// popping in above it on a cold open, and never an empty state that the data
+// then contradicts.
+function Home({ firstName, ready, meal, mealById, onAdd, onView, openCount, onStartList, onViewList }) {
   const hour = new Date().getHours();
   const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
   const dateLine = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
@@ -840,7 +843,12 @@ function Home({ firstName, ready, meal, mealById, onAdd, onView }) {
     <div className="home">
       <div className="home-greeting">Good {part}{firstName ? `, ${firstName}` : ""}</div>
       <div className="home-date">{dateLine}</div>
-      {ready && <TonightCard meal={meal} mealById={mealById} onAdd={onAdd} onView={onView} />}
+      {ready && (
+        <>
+          <TonightCard meal={meal} mealById={mealById} onAdd={onAdd} onView={onView} />
+          <ListCard openCount={openCount} onStartList={onStartList} onViewList={onViewList} />
+        </>
+      )}
     </div>
   );
 }
@@ -877,6 +885,34 @@ function TonightCard({ meal, mealById, onAdd, onView }) {
       <h3 className="tonight-title">{name}</h3>
       <p className="tonight-body">{line}</p>
       <button type="button" className="tonight-link" onClick={() => onView(meal)}>{noShop ? "View plan →" : "View meal →"}</button>
+    </section>
+  );
+}
+
+// The second card: the household's list. `openCount` is the Helm's Shop badge
+// number (live rows minus checked), so Home and the badge can never disagree.
+// Empty: an invitation into Browse (the catalog), never an empty Shop tab.
+// Populated: the count and a link to Shop. No store name — the app does not
+// know it (store recognition is Phase 2). Rendered under Home's single gate,
+// which includes householdReady (this household's list has actually arrived,
+// the landing rule), so "Build your grocery list" is never shown before the
+// data says it is true.
+function ListCard({ openCount, onStartList, onViewList }) {
+  if (!openCount) {
+    return (
+      <section className="tonight list-card" aria-label="Need anything?">
+        <div className="tonight-label">Need anything?</div>
+        <h3 className="tonight-title">Build your grocery list</h3>
+        <p className="tonight-body">Add what you need for the week.</p>
+        <button type="button" className="list-card-link" onClick={onStartList}>Start a list →</button>
+      </section>
+    );
+  }
+  return (
+    <section className="tonight list-card" aria-label="Your list">
+      <div className="tonight-label">Your list</div>
+      <h3 className="tonight-title">{openCount === 1 ? "1 item" : `${openCount} items`}</h3>
+      <button type="button" className="list-card-link" onClick={onViewList}>View list →</button>
     </section>
   );
 }
@@ -2973,8 +3009,10 @@ function ProvisionsApp() {
   // hook already loads, no new query) picks "Add a meal" over "Add your first
   // meal".
   const boardReady = !!household?.id && mealsLoadedFor === household.id;
-  // Home's Tonight card shares the gate: the same load now runs on Home too.
-  const homeReady = boardReady;
+  // Home renders both its cards under ONE gate: the board's (the same load now
+  // runs on Home too) AND householdReady (the list has arrived), so the two
+  // cards appear together on a cold open rather than one popping in above the other.
+  const homeReady = boardReady && householdReady;
   const showWelcome = boardReady && boardCards.length === 0;
   const everCooked = madeBefore.size > 0;
   // The drag hint earns its line only once there is an order to change: two
@@ -5102,8 +5140,12 @@ function ProvisionsApp() {
         .tonight-label { font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
         .tonight-title { margin: 6px 0 0; font-family: 'Playfair Display', serif; font-size: 1.25rem; font-weight: 700; line-height: 1.2; color: #2C1A0E; overflow-wrap: anywhere; }
         .tonight-body { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: 0.9rem; line-height: 1.45; color: #6E5A4A; }
-        .tonight-link { display: inline-block; margin-top: 12px; padding: 0; border: none; background: none; cursor: pointer;
+        .tonight-link, .list-card-link { display: inline-block; margin-top: 12px; padding: 0; border: none; background: none; cursor: pointer;
                         font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
+        /* The list card: the Tonight card's box, type and link; only the background differs — a very faint wash of the app's teal (#0D9488, the
+           finished-something colour) over the page cream, not a new blue. No icons. */
+        .tonight + .list-card { margin-top: 12px; }
+        .list-card { background: #E6F0EE; }
         /* §6 — every scrolling root clears the pill. The pill is present at EVERY width (rail retired 2026-09-20);
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
         .app-root { min-height: 100vh; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
@@ -6391,6 +6433,9 @@ function ProvisionsApp() {
             mealById={mealById}
             onAdd={() => { setPlanScreen("library"); goToDoor("plan"); }}
             onView={(m) => { setPlanScreen("board"); goToDoor("plan"); if (!isNoShop(m)) setMealSheet({ mode: "edit", meal: m }); }}
+            openCount={totalItems - checkedCount}
+            onStartList={() => goToDoor("input")}
+            onViewList={() => goToDoor("list")}
           />
         )}
 
