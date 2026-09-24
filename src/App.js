@@ -1048,7 +1048,9 @@ const MEALS_ENABLED = true;
 // drag order (a household photo later slides UNDER the number). Six house
 // tones; text is whichever of #FAF4EC / #2C1A0E contrasts better on that tone
 // (precomputed — clay tops out at 3.97:1 either way, the palette's one miss;
-// the large numeral clears AA-large at 3:1). Keyed by the meal's CATEGORY
+// the large numeral clears AA-large at 3:1). Sand is deliberately a step
+// darker than the chrome sand (#C9A97A) and the add button (--op-add): a tile
+// must never read as a button. Keyed by the meal's CATEGORY
 // WORD so two meals in one category share a tone — the spec's rule. NOTE the
 // spec assumed `meals.category`; that column does not exist. The word is
 // derived from the meal's dominant ingredient category (falling back to the
@@ -1056,7 +1058,7 @@ const MEALS_ENABLED = true;
 // colour replaces mealTone and nothing else.
 const MEAL_TONES = [
   { name: "espresso", bg: "#6f5a45", fg: "#FAF4EC" },
-  { name: "sand",     bg: "#C9A97A", fg: "#2C1A0E" },
+  { name: "sand",     bg: "#B8945F", fg: "#2C1A0E" },   // darker than --op-add (#D9BC8C) on purpose: no tile may match the add button
   { name: "clay",     bg: "#A0724A", fg: "#2C1A0E" },
   { name: "stone",    bg: "#9a9384", fg: "#2C1A0E" },
   { name: "olive",    bg: "#5f6b4f", fg: "#FAF4EC" },
@@ -1398,8 +1400,10 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
                   >×</button>
                 )}
                 {/* Grip — the drag affordance, same grey as ×. Decorative: the
-                    whole card is the long-press target. Hidden once cooked. */}
-                {!cooked && (
+                    whole card is the long-press target. Hidden once cooked, and
+                    hidden while fewer than two open cards (nothing to reorder —
+                    the same gate startPress uses). */}
+                {!cooked && openCount >= 2 && (
                   <svg className="board-grip" width="10" height="16" viewBox="0 0 10 16" aria-hidden="true">
                     <circle cx="3" cy="3" r="1.4" /><circle cx="7" cy="3" r="1.4" />
                     <circle cx="3" cy="8" r="1.4" /><circle cx="7" cy="8" r="1.4" />
@@ -2900,6 +2904,8 @@ function ProvisionsApp() {
   //   N = 0, any To buy · "Everything's in Shop ✓"
   //   all meals Ready  · "ready"
   //   no meals at all  · nothing after the count
+  //   ONE open card    · nothing after the count, whatever its state — "1 meal"
+  //                      / "1 night". The card and the banner say the rest.
   // Unit: "meals" while every open placement is a meal, "nights" once any
   // no-shop card exists (spec). Returned as parts because the link is JSX.
   const boardSubtitle = useMemo(() => {
@@ -2907,6 +2913,7 @@ function ProvisionsApp() {
     if (n === 0) return { head: "Pick meals from the library to fill the week", tail: "", link: 0 };
     const unit = boardStats.anyNoShop ? "night" : "meal";
     const head = `${n} ${unit}${n === 1 ? "" : "s"}`;
+    if (n === 1) return { head, tail: "", link: 0 };   // one card: just "1 meal" / "1 night"
     const N = boardStats.stillToAdd.length;
     if (boardStats.cards.length === 0) return { head, tail: "", link: 0 };
     if (N >= 2) return { head, tail: ` · ${N} meals to `, link: N };
