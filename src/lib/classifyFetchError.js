@@ -1,3 +1,17 @@
+import { isAuthTokenMissing } from "./supabaseClient";
+
+// §Polling discipline (SPEC_auth_state_ui_gating.md). Auth failures are a class
+// of their own, checked BEFORE transient/real: neither retries nor toasts.
+//   'missing'  — the fetch wrapper refused: no Clerk token (authHealth already
+//                counted the tick; the poller just skips it)
+//   'rejected' — the server answered 401/403 to a request that carried a token
+//   null       — not an auth failure; classifyFetchError decides from here
+export function classifyAuthFailure(error, status) {
+  if (status === 401 || status === 403) return 'rejected';
+  if (isAuthTokenMissing(error)) return 'missing';
+  return null;
+}
+
 export function classifyFetchError(err) {
   if (!err) return 'real';
 

@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { trace } from "@opentelemetry/api";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { setHousehold } from "../rum";
+import { isSessionHealthy } from "../lib/authHealth";
 
 const ActiveHouseholdContext = createContext(null);
 
@@ -248,6 +249,10 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
       if (resolvingRef.current) return;   // a deliberate loss-resolution owns this — don't double-fire
       if (deliberateLossRef.current) return;   // a deliberate delete/leave owns this window
       if (!getTokenRef.current) return;
+      // §Polling discipline: not in `ready` → hold. clerkId is withdrawn the render
+      // after the session stops being live and this interval is cleared with it;
+      // this read closes the gap for a tick already in flight.
+      if (!isSessionHealthy()) return;
       try {
         const db = getDb();
         const { data, error } = await db.rpc("get_my_households");

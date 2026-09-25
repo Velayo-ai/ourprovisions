@@ -1,7 +1,8 @@
 // src/hooks/useProvisions.js
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
-import { classifyFetchError } from "../lib/classifyFetchError";
+import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
+import { reportAuthRejected } from "../lib/authHealth";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 import { trace } from "@opentelemetry/api";
@@ -65,6 +66,19 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
   const errorSourceRef = useRef(null);
   const { reportTransientFailure, reportSuccess } = useConnectivity();
+  // §Polling discipline — every POLLED read runs its failure through this first.
+  // An auth failure never retries and never toasts: 'missing' (the wrapper
+  // refused on a null token) skips the tick — authHealth is already counting
+  // toward session_lost; 'rejected' (401/403 with a token attached) ends the
+  // session outright via reportAuthRejected, and the sign-out reset stops every
+  // interval. Returns true when the caller must return silently. Reads only —
+  // an RLS-denied WRITE is a 403 too, and that is a bug to toast, not a loss.
+  const stopOnAuthFailure = (error, status) => {
+    const cls = classifyAuthFailure(error, status);
+    if (cls === 'rejected') { reportAuthRejected(status); return true; }
+    if (cls === 'missing') return true;
+    return false;
+  };
   const supabaseRef = useRef(null);
   const householdRef = useRef(null);   // mirrors household for use inside callbacks
   const catalogRef = useRef({});       // mirrors catalogMap for use inside callbacks
@@ -208,10 +222,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }
 
   async function loadListItemsInner(db, householdId) {
-    const { data: items, error: listErr } = await db
+    const { data: items, error: listErr, status: listStatus } = await db
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
     if (listErr) {
+      if (stopOnAuthFailure(listErr, listStatus)) return;
       if (classifyFetchError(listErr) === 'transient') { reportTransientFailure(); } else { failWith("list", `Could not load list: ${listErr.message}`); }
       return;
     }
@@ -408,7 +423,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (wrappingUpRef.current || cyclePollBusyRef.current) return;
     cyclePollBusyRef.current = true;
     try {
-      const { data, error: cycleErr } = await db
+      const { data, error: cycleErr, status: cycleStatus } = await db
         .from("provision_cycles")
         .select("id, cycle_type, label, started_at, seeded_from")
         .eq("household_id", householdId)
@@ -416,7 +431,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .order("started_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (cycleErr) return;
+      if (cycleErr) { stopOnAuthFailure(cycleErr, cycleStatus); return; }
       const next = data || null;
       if ((next?.id || null) !== (activeCycleRef.current?.id || null)) {
         activeCycleRef.current = next;
@@ -750,6 +765,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const db = supabaseRef.current;
     if (!db || !bootstrapped) return;               // wait for Effect 1
     if (!userId || !clerkId) return;                 // not signed in
+    if (!sessionLive) return;                        // §Polling discipline: pollers run in `ready` only
 
     // ── Resolve which household to load ──
     const fallbackId = bootstrapHouseholdIdRef.current;
@@ -973,7 +989,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         realtimeChannelRef.current = null;
       }
     };
-  }, [activeHouseholdId, userId, clerkId, bootstrapped]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeHouseholdId, userId, clerkId, bootstrapped, sessionLive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────────
   // updateQty: handles both global catalog items AND custom items.
@@ -2056,12 +2072,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       return result;
     };
 
-    const { data: catalog, error: catalogErr } = await withJwtRetry(() => db
+    const { data: catalog, error: catalogErr, status: catalogStatus } = await withJwtRetry(() => db
       .from("catalog_items")
       .select("id, name, category, unit, is_global, price_hint, is_staple")
       .eq("is_global", true)
       .is("deleted_at", null));
     if (catalogErr) {
+      if (stopOnAuthFailure(catalogErr, catalogStatus)) return;
       if (classifyFetchError(catalogErr) === 'transient') { reportTransientFailure(); } else { failWith("catalog", `Could not refresh catalog: ${catalogErr.message}`); }
       return;
     }
@@ -2070,13 +2087,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // ordinary skew case the wait above has already cleared the window and this
     // never fires — but a rotation landing between the two queries would otherwise
     // fail the poll on the second half, which looks identical to the user.
-    const { data: customItems, error: customErr } = await withJwtRetry(() => db
+    const { data: customItems, error: customErr, status: customStatus } = await withJwtRetry(() => db
       .from("catalog_items")
       .select("id, name, category, unit, is_global, price_hint, is_staple")
       .eq("household_id", hh.id)
       .eq("is_global", false)
       .is("deleted_at", null));
     if (customErr) {
+      if (stopOnAuthFailure(customErr, customStatus)) return;
       if (classifyFetchError(customErr) === 'transient') { reportTransientFailure(); } else { failWith("catalog", `Could not refresh catalog: ${customErr.message}`); }
       return;
     }
@@ -2473,7 +2491,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return [];
-    const { data, error: err } = await db
+    const { data, error: err, status: mealsStatus } = await db
       .from("meals")
       // 055/056: kind + from_meal_ids ride along. This read returns EVERY kind — the
       // board's meal lookup must include no-shop rows (leftovers, out). The
@@ -2485,6 +2503,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (err) {
+      if (stopOnAuthFailure(err, mealsStatus)) return [];
       if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { failWith("meals", `Could not load meals: ${err.message}`); }
       return [];
     }
@@ -3049,12 +3068,28 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const rowToPlacement = (r) => ({ sortOrder: r.sort_order, readyAt: r.ready_at ?? null, cookedAt: r.cooked_at ?? null, skippedAt: r.skipped_at ?? null });
   const samePlacement = (a, b) => !!a && !!b && a.sortOrder === b.sortOrder && a.readyAt === b.readyAt && a.cookedAt === b.cookedAt && a.skippedAt === b.skippedAt;
   const setPlacementsBoth = (next) => { placementsRef.current = next; setPlacements(next); };
+  // §Polling discipline — placements backoff. The 2s meal tick keeps ticking
+  // (it is App.js's interval); this ref tells the POLLED entry (refreshPlacements)
+  // to sit out until `until`. Each non-auth failure doubles the wait,
+  // 2s → 4s → 8s → 16s → 30s cap; the first success resets it. Backoff is for
+  // network/5xx only — an auth failure never retries (stopOnAuthFailure).
+  const PLACEMENTS_BACKOFF_BASE_MS = 2000;
+  const PLACEMENTS_BACKOFF_CAP_MS = 30000;
+  const placementsBackoffRef = useRef({ delayMs: PLACEMENTS_BACKOFF_BASE_MS, until: 0 });
   async function loadPlacements(db, hh) {
-    const { data, error: err } = await db
+    const { data, error: err, status: plStatus } = await db
       .from("meal_placements")
       .select("meal_id, sort_order, ready_at, cooked_at, skipped_at")
       .eq("household_id", hh.id);
-    if (err) { console.error("loadPlacements error:", err.message); return; }
+    if (err) {
+      if (stopOnAuthFailure(err, plStatus)) return;
+      const b = placementsBackoffRef.current;
+      b.delayMs = Math.min(b.delayMs * 2, PLACEMENTS_BACKOFF_CAP_MS);
+      b.until = Date.now() + b.delayMs;
+      console.error("loadPlacements error:", err.message, `— next try in ${b.delayMs / 1000}s`);
+      return;
+    }
+    placementsBackoffRef.current = { delayMs: PLACEMENTS_BACKOFF_BASE_MS, until: 0 };
     const next = {};
     (data || []).forEach((r) => { next[r.meal_id] = rowToPlacement(r); });
     const prev = placementsRef.current;
@@ -3070,6 +3105,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     if (!db || !hh) return;
     if (reorderPendingRef.current > 0) return;
+    if (Date.now() < placementsBackoffRef.current.until) return;   // backing off after a failure
     await loadPlacements(db, hh);
   // loadPlacements is a stable hook-scope function (uses refs).
   // eslint-disable-next-line react-hooks/exhaustive-deps

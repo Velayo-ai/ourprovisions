@@ -3196,12 +3196,12 @@ function ProvisionsApp() {
   // Load the meal cards when the Plan tab opens — or Home, whose Tonight card
   // is the board's first card and must not decide "empty" before the data is in.
   useEffect(() => {
-    if (MEALS_ENABLED && (view === "plan" || view === "home") && household?.id) {
+    if (MEALS_ENABLED && (view === "plan" || view === "home") && household?.id && authPhase === "ready") {
       const hhId = household.id;
       setCookedHere(new Set());
       loadMeals().then(() => setMealsLoadedFor(hhId));
     }
-  }, [view, household?.id, loadMeals]);
+  }, [view, household?.id, loadMeals, authPhase]);
 
   // ...and keep them live while PLAN is the visible tab. Navigation-only meant
   // a client sitting on PLAN while another member created, renamed or
@@ -3220,10 +3220,12 @@ function ProvisionsApp() {
   // meal_ingredients WITHOUT touching the list at all. The ingredient-count
   // case this fixes would never have fired it.
   useEffect(() => {
-    if (!MEALS_ENABLED || !(view === "plan" || view === "home") || !household?.id) return;
+    // §Polling discipline: `ready` only — signed_in_no_token holds the last good
+    // UI without a fetch, and session_lost has already torn household down.
+    if (!MEALS_ENABLED || !(view === "plan" || view === "home") || !household?.id || authPhase !== "ready") return;
     const mealsPoll = setInterval(() => { refreshMeals(); }, 2000);
     return () => clearInterval(mealsPoll);
-  }, [view, household?.id, refreshMeals]);
+  }, [view, household?.id, refreshMeals, authPhase]);
 
   // Load provenance when a surface that shows the badge is visible: SHOP renders the
   // teal meal facet, and PLAN is where the meal cards live.
