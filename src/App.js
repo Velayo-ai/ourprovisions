@@ -2783,6 +2783,33 @@ function ProvisionsApp() {
       return {};
     }
   }, []);
+  // D5 (SPEC_auth_state_ui_gating §PII scrub 1): the pre-fill params leave the
+  // URL the moment they are read. The memo above already holds the values, so
+  // openSignUp / SignUpButton still pre-fill; what changes is that the email no
+  // longer rides in location.href for the life of the tab — which is what the
+  // RUM agent stamps on every span and what session replay records as the page
+  // URL. replaceState, so no history entry and no navigation. The path is
+  // normalised to "/" (Clerk's redirect had left us on /sign-up, a path with no
+  // component behind it); the hash — the app's route — is kept. Declared BEFORE
+  // useProvisions and the hash mirror so it runs first in this component's
+  // effect order: it must precede the first routeChange the mirror can emit.
+  //
+  // Deliberately narrower than "strip the whole query": only the three pre-fill
+  // keys go. ?invite= and ?ref= are codes, not PII, and two gates still read
+  // them from the URL (the welcome sheet's invite check and the join banner) —
+  // index.js has already persisted both to sessionStorage, but the URL copy is
+  // what those gates key on today, so it stays.
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const had = ["email_address", "first_name", "last_name"].filter((k) => url.searchParams.has(k));
+      const offPath = url.pathname !== "/";
+      if (had.length === 0 && !offPath) return;
+      had.forEach((k) => url.searchParams.delete(k));
+      const search = url.searchParams.toString();
+      window.history.replaceState(null, "", "/" + (search ? `?${search}` : "") + (url.hash || ""));
+    } catch (e) { /* URL parsing or history blocked — nothing to scrub, nothing to break */ }
+  }, []);
   // Auto-open the sign-up modal when the URL carries at least one pre-fill param
   // (the landing page at ourprovisions.app links here with all three). The header
   // SignUpButton stays as the manual fallback with the same initialValues. Gated on

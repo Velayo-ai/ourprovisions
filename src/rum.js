@@ -49,6 +49,43 @@ const CLERK_EXCLUDE_RULES = [
   { rule: 'exclude', selector: '#clerk-components' },
 ];
 
+// D5 (SPEC_auth_state_ui_gating §PII scrub 2) — the exporter hook. Every span
+// the agent sends carries location.href; documentLoad and resource spans carry
+// http.url and document.referrer. A pre-fill arrival put the visitor's email in
+// that URL (prod, 2026-09-24: Splunk stored it in the clear). App.js strips the
+// params from the URL itself right after reading them; this hook is the second
+// wall — any URL attribute on OUR origin loses its query string before it is
+// serialized. The hash stays (it is the route). Other origins are untouched on
+// purpose: a Supabase REST URL's query is the filter, not PII, and it is what
+// makes a span readable. Covers: location.href, http.url, document.referrer and
+// any attribute whose key ends in ".url". Does NOT cover session replay's own
+// URL capture — the recorder is a separate pipeline with no attribute hook; the
+// replaceState in App.js is what protects replay, which is why it runs before
+// the first routeChange.
+const URL_ATTRIBUTE_KEYS = new Set(['location.href', 'http.url', 'document.referrer']);
+function scrubOwnOriginQuery(value) {
+  if (typeof value !== 'string' || value.indexOf('?') === -1) return value;
+  try {
+    const u = new URL(value, window.location.href);
+    if (u.origin !== window.location.origin) return value;
+    u.search = '';
+    return u.toString();
+  } catch (e) {
+    return value;
+  }
+}
+export function scrubUrlAttributes(attributes) {
+  let out = attributes;
+  for (const key in attributes) {
+    if (!URL_ATTRIBUTE_KEYS.has(key) && !key.endsWith('.url')) continue;
+    const scrubbed = scrubOwnOriginQuery(attributes[key]);
+    if (scrubbed === attributes[key]) continue;
+    if (out === attributes) out = { ...attributes };
+    out[key] = scrubbed;
+  }
+  return out;
+}
+
 // Skip init if no token (prevents boot errors in local dev without env set)
 if (rumToken) {
   // Session replay masking is SPLIT BY ENVIRONMENT — this conditional is
@@ -91,6 +128,12 @@ if (rumToken) {
     // toast would have surfaced as an error click before a guest found it.
     instrumentations: {
       frustrationSignals: { deadClick: true, errorClick: true },
+    },
+    // D5: see scrubUrlAttributes above. Never throws into the agent.
+    exporter: {
+      onAttributesSerializing: (attributes) => {
+        try { return scrubUrlAttributes(attributes); } catch (e) { return attributes; }
+      },
     },
   });
   rumReady = true;
