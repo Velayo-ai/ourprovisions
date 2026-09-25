@@ -479,54 +479,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Creates the Supabase client once and runs bootstrap_new_user.
   // Does NOT fetch any household-scoped data — that belongs to Effect 2.
   useEffect(() => {
-    // If not signed in, fetch global catalog via direct REST call using anon key — no Supabase client needed
+    // D4 / D1 (SPEC_auth_state_ui_gating.md): no session → no data. The anon
+    // storefront preview that used to live here (seed catalog + category averages
+    // over apikey-only REST, for a signed-out Browse) was retired 2026-09-24 with
+    // Browse's signed-out rendering. After this the app makes ZERO anon queries;
+    // Home carries the signed-out surface.
     if (!getTokenRef.current || !userId || !clerkId) {
-      (async () => {
-        try {
-          const response = await fetch(
-            `${process.env.REACT_APP_SUPABASE_URL}/rest/v1/catalog_items?deleted_at=is.null&select=id,name,category,unit,price_hint`,
-            {
-              headers: {
-                apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
-                Authorization: `Bearer ${process.env.REACT_APP_SUPABASE_ANON_KEY}`,
-              },
-            }
-          );
-          const items = await response.json();
-          const cMap = {};
-          (Array.isArray(items) ? items : []).forEach(item => { cMap[item.name] = item; });
-          setCatalogMap(cMap);
-          catalogRef.current = cMap;
-          const hintPrices = {};
-          Object.values(cMap).forEach(item => {
-            if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
-          });
-          setPrices(hintPrices);
-          try {
-            const avgResponse = await fetch(
-              `${process.env.REACT_APP_SUPABASE_URL}/rest/v1/category_avg_prices?select=category,avg_price`,
-              {
-                headers: {
-                  apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
-                  Authorization: `Bearer ${process.env.REACT_APP_SUPABASE_ANON_KEY}`,
-                },
-              }
-            );
-            const avgRows = await avgResponse.json();
-            const avgMap = {};
-            (Array.isArray(avgRows) ? avgRows : []).forEach(row => {
-              avgMap[row.category] = parseFloat(row.avg_price);
-            });
-            setCategoryAvgPrices(avgMap);
-          } catch (err) {
-            console.error("Category avg prices load error:", err.message);
-          }
-        } catch (err) {
-          console.error("Anon catalog load error:", err.message);
-        } finally {
-          setLoading(false);
-        }
-      })();
+      setLoading(false);
       return;
     }
 
@@ -669,10 +628,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // not; or the token gone LOST_STREAK ticks running) clears the household
   // world in one place. Effect 2's cleanup has already stopped its intervals
   // by the time this runs (userId went undefined), and App.js's meal poll dies
-  // with household?.id. The catalog map stays: it is not household data, and
-  // Browse's signed-out preview still reads it until D4a retires that path.
-  // localStorage.activeHouseholdId stays too — a per-browser convenience,
-  // validated on the next sign-in.
+  // with household?.id. The catalog map goes too (D4a retired Browse's
+  // signed-out preview, so nothing renders it without a session; Effect 2
+  // rebuilds it on the next household load). localStorage.activeHouseholdId
+  // stays — a per-browser convenience, validated on the next sign-in.
   const wasLiveRef = useRef(false);
   useEffect(() => {
     if (sessionLive) { wasLiveRef.current = true; return; }
@@ -699,6 +658,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setHiddenCatalogItems([]);
     hiddenCatalogItemsRef.current = [];
     hiddenIdsRef.current = new Set();
+    setCatalogMap({});
+    catalogRef.current = {};
+    setPrices({});
+    setCategoryAvgPrices({});
     setActiveCycle(null);
     activeCycleRef.current = null;
     setActiveSession(null);

@@ -2969,11 +2969,17 @@ function ProvisionsApp() {
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
   // D3 (SPEC_rum_dxa_exposure.md): a door hash in the URL at load wins — reload
-  // and Back land on the right door. No hash → Home (SPEC_auth_state_ui_gating D4:
-  // Home is the front door, signed in or out); the mirror effect below writes
-  // #/home. The smart landing rule (D4a — Shop when the list has unbought items)
-  // is a follow-on slice, not this one.
+  // and Back land on the right door. No hash → Home until the landing rule has
+  // spoken (SPEC_auth_state_ui_gating D4/D4a, §Landing — the effect sits below
+  // the list counts it reads).
   const [view, setView] = useState(() => viewForHash(window.location.hash) || "home");
+  // §Landing — has THIS load decided where it lands? True from the start when the
+  // URL named a door (deep link, invite, bookmark: that hash wins, and while signed
+  // out the kept `view` IS the pendingRoute — the Home welcome renders over it and
+  // signing in lands there). Otherwise true once the rule below has run, or the
+  // moment the user taps a door / uses Back. Until then no hash is written, so a
+  // reload of an undecided load is still an undecided load, not a bookmark of Home.
+  const [landingDecided, setLandingDecided] = useState(() => !!viewForHash(window.location.hash));
   // D9′ (amended 2026-09-12): compact exactly when the current door's control
   // row is off-screen. Each door hands its row (or a sentinel at the block's
   // bottom) to `controlRowRef`; only the active door renders one, so at most one
@@ -2981,11 +2987,9 @@ function ProvisionsApp() {
   const [controlRow, setControlRow] = useState(null);
   const controlRowRef = useCallback((el) => setControlRow(el), []);
   const scrollCompact = useScrollCompact(controlRow);
-  // The pre-Home landing effect (Shop if the list had items, else Browse — a
-  // one-shot after the first successful list read) was retired 2026-09-24 with
-  // D4: a no-hash load lands on Home and stays there. Its successor is D4a's
-  // smart landing rule (SPEC_auth_state_ui_gating §Landing), decided once per
-  // load from list state, with a deep-link hash always winning — not built yet.
+  // The pre-Home landing effect (Shop if the list had items, else Browse) was
+  // retired 2026-09-24 with D4. Its successor is the §Landing rule further down
+  // (after totalItems / checkedCount, which it reads).
   const [meals, setMeals] = useState([]);
   // Plan has two screens since v2: the board (default, the tab's landing) and
   // the library, one tap away behind "+ Add a meal" and back behind the chevron.
@@ -3560,35 +3564,36 @@ function ProvisionsApp() {
   // The RUM agent emits routeChange on both hashchange and replaceState, so
   // every door change is a page view. Sheets and other modals write no hash.
   const goToDoor = useCallback((v) => {
-    // D4 (SPEC_auth_state_ui_gating): signed out, the doors that need a household
-    // open the sign-in modal instead of switching view — no household-shaped
-    // shell renders behind a SIGN IN header. Home is always open. Browse's
-    // signed-out preview stays reachable by direct #/browse only (hashchange
-    // path below), until D4a retires it with the anon catalog fetch.
+    // D4 (SPEC_auth_state_ui_gating): without a live session, every door but Home
+    // opens the sign-in modal instead of switching view — no household-shaped
+    // shell renders behind a SIGN IN header. (Browse's signed-out preview went
+    // with D4a: the anon catalog fetch behind it is retired, so there is nothing
+    // to show.) A tap is a landing decision (§Landing).
     if (isLoaded && !sessionLive && v !== "home") { openSignIn(); return; }
+    setLandingDecided(true);
     setView(v);
     const h = hashForView(v);
     if (h && window.location.hash !== h) window.location.hash = h;
   }, [isLoaded, sessionLive, openSignIn]);
-  // Not live (signed_out or session_lost), Home / Plan / Shop all show the Home
-  // welcome variant. The view is KEPT (only what renders changes), so signing in
-  // from a #/plan deep link lands on Plan. Browse ("input") is the one door that
-  // still renders without a session, until D4a retires the preview.
-  const signedOutWelcome = isLoaded && !sessionLive && view !== "input";
+  // Not live (signed_out or session_lost), every door shows the Home welcome
+  // variant. The view is KEPT (only what renders changes) — it is the
+  // pendingRoute: signing in from a #/plan deep link lands on Plan.
+  const signedOutWelcome = isLoaded && !sessionLive;
   useEffect(() => {
     const onHashChange = () => {
       const v = viewForHash(window.location.hash);
-      if (v) setView(v);
+      if (v) { setLandingDecided(true); setView(v); }   // Back/forward/typed: the user's route
       if (window.location.hash !== WRAP_UP_HASH) setShowWrapUpModal(false);
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
   useEffect(() => {
+    if (!landingDecided) return;   // §Landing: hold — no hash until this load has decided
     const h = hashForView(view);
     if (!h || viewForHash(window.location.hash) === view) return;
     window.history.replaceState(null, "", h);
-  }, [view]);
+  }, [view, landingDecided]);
   // Wrap up is the one modal with a hash (D3, decided 2026-09-16): the funnel's
   // last step is a page view. replaceState both ways — no extra history entry,
   // and Back from the open modal leaves Shop, which closes it (hashchange above).
@@ -4853,6 +4858,23 @@ function ProvisionsApp() {
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
   const hasEstimatedPrices = shoppingList.some(c => c.items.some(i => !prices[i.name]));
   const checkedCount = Object.values(checked).filter(Boolean).length;
+  // ── §Landing (SPEC_auth_state_ui_gating.md D4a) — decided ONCE per load ──
+  // No hash at load and the session is `ready`:
+  //   list has arrived (householdReady) → unbought items ≥ 1 → Shop, else Home;
+  //   rendered without list data (splash gone, loading overlay gone) → Home, and
+  //   STAY — never bounce a user off a tab after it has rendered.
+  // signed_out / bootstrapping → hold (Home welcome or the splash covers it), so
+  // signing in from the welcome runs this same rule once. "Unbought" is the Shop
+  // badge's own count. After the decision the user's taps own the route.
+  useEffect(() => {
+    if (landingDecided || authPhase !== "ready") return;
+    if (householdReady) {
+      setLandingDecided(true);
+      if (totalItems - checkedCount > 0) setView("list");
+      return;
+    }
+    if (!showSplash && !loading) setLandingDecided(true);
+  }, [landingDecided, authPhase, householdReady, showSplash, loading, totalItems, checkedCount]);
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.listItemId] ? i.subtotal : 0), 0), 0);
 
@@ -6771,7 +6793,7 @@ function ProvisionsApp() {
           </>
         )}
 
-        {view === "input" && (
+        {view === "input" && !signedOutWelcome && (
           <>
             <>
             {/* ── Search bar — sticky at top ── */}
