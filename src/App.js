@@ -6,7 +6,7 @@ import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHo
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
 import { useConnectivity } from './contexts/ConnectivityContext';
-import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut } from './lib/authHealth';
+import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -2760,11 +2760,12 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
-  // D2 (SPEC_auth_state_ui_gating.md): the session is LIVE when Clerk is loaded
-  // and signed in AND the token has not gone missing LOST_STREAK times running
-  // (authHealth, fed by the Supabase fetch wrapper). Every household-scoped
-  // input below keys on this, never on isSignedIn alone.
-  const { nullStreak, lastTokenAt } = useAuthHealth();
+  // D2 (SPEC_auth_state_ui_gating.md) as amended 2026-09-24: the session is LIVE
+  // when Clerk is loaded and signed in — Clerk's word only. Token trouble and
+  // offline (authHealth, fed by the Supabase fetch wrapper) are a HOLD on what
+  // polls, never the end of a session. Every household-scoped input below keys
+  // on this; the hold rides in authPhase.
+  const { nullStreak, clerkFailStreak, lastFailClass, lastTokenAt, online, rejectedAt } = useAuthHealth();
   const sessionLive = useSessionLive({ isLoaded, isSignedIn });
   // Sign-up pre-fill (read once on mount). Outbound links may carry
   // ?email_address=&first_name=&last_name=; map them to Clerk's initialValues keys
@@ -2914,16 +2915,24 @@ function ProvisionsApp() {
     sessionLive,
   });
 
-  // ── authPhase (SPEC_auth_state_ui_gating.md D2, D3) ──
+  // ── authPhase (SPEC_auth_state_ui_gating.md D2, D3; Amendment 2026-09-24 —
+  // offline is not auth loss) ──
   // One derived state drives what renders and what polls. The truth table:
   //   booting             Clerk not loaded
   //   signed_out          loaded, not signed in (a deliberate Sign out lands here)
-  //   signed_in_no_token  signed in, getToken returned null 1–2 ticks running — hold
+  //   signed_in_no_token  Clerk holds a session but a token cannot be fetched, the
+  //                       device is offline, or a poller was just refused a token
+  //                       — HOLD, indefinitely. No reset, no sheet; pollers skip;
+  //                       the pill reads "Reconnecting…". A user in a store with
+  //                       no signal stays signed in with their list on screen.
   //   bootstrapping       live, bootstrap_new_user not yet resolved
   //   ready               live and bootstrapped — the full app
-  //   session_lost        was live, now is not, with no reload — the sheet below
-  // A new Clerk session (sessionId changes) wipes the token streak: a lost
-  // session recovers only by signing in, never by a token wandering back.
+  //   session_lost        Clerk ITSELF reports no session after we were live, with
+  //                       no reload and no deliberate sign-out — the ONE signal.
+  //                       Never from token-fetch failures alone (V5, 2026-09-24:
+  //                       20s of DevTools Offline tripped the old three-null-
+  //                       tokens rule and put the sheet over a live session).
+  // A new Clerk session (sessionId changes) wipes the token streaks.
   const [lostSession, setLostSession] = useState(false);
   const wasLiveRef = useRef(false);
   const liveSinceRef = useRef(null);
@@ -2955,6 +2964,9 @@ function ProvisionsApp() {
         "auth.signed_in_age_seconds": liveSinceRef.current ? Math.round((Date.now() - liveSinceRef.current) / 1000) : -1,
         "auth.last_token_age_seconds": lastTokenAt ? Math.round((Date.now() - lastTokenAt) / 1000) : -1,
         "auth.null_token_streak": nullStreak,
+        "auth.clerk_fail_streak": clerkFailStreak,
+        "auth.last_fail_class": lastFailClass ?? "none",
+        "net.online": !!online,
         "auth.clerk_signed_in": !!isSignedIn,
         "view": view,
         "household.id": activeHouseholdId ?? "none",
@@ -2963,11 +2975,16 @@ function ProvisionsApp() {
     } catch (e) { /* telemetry never reaches the user */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionLive, isLoaded]);
+  // The hold: offline, a token that could not be fetched (either class), or a
+  // poller refused within the last REJECTED_HOLD_MS. It lifts by itself — the
+  // next tick that gets a token clears the streak; the `online` event runs one
+  // tick immediately; the refusal hold lapses inside isPollingOpen.
+  const rejectedHold = !!rejectedAt && Date.now() - rejectedAt < REJECTED_HOLD_MS;
+  const holding = !online || nullStreak > 0 || rejectedHold;
   const authPhase = !isLoaded ? "booting"
     : lostSession ? "session_lost"
     : !isSignedIn ? "signed_out"
-    : !sessionLive ? "session_lost"          // streak hit the floor; the effect above is one render behind
-    : nullStreak > 0 ? "signed_in_no_token"
+    : holding ? "signed_in_no_token"
     : bootstrapped ? "ready" : "bootstrapping";
   const prevPhaseRef = useRef(null);
   useEffect(() => {
@@ -2981,14 +2998,21 @@ function ProvisionsApp() {
     } catch (e) { /* telemetry never reaches the user */ }
   }, [authPhase]);
   // signed_in_no_token holds the last good UI behind the quiet "Reconnecting…"
-  // pill (one report per null tick; the third tick is session_lost, not
-  // offline). session_lost clears the pill — the sheet is the surface now and
+  // pill: ONE report per hold episode (not per tick — three reports would flip
+  // the pill to "Offline — showing last saved", and the hold is indefinite). The
+  // pill clears itself when a poller's read succeeds (reportSuccess at the
+  // read sites). session_lost clears it too — the sheet is the surface then and
   // the network is not the story.
   const { reportTransientFailure, reportSuccess } = useConnectivity();
+  const holdEpisodeRef = useRef(false);
   useEffect(() => {
-    if (authPhase === "signed_in_no_token") reportTransientFailure();
+    if (authPhase === "signed_in_no_token") {
+      if (!holdEpisodeRef.current) { holdEpisodeRef.current = true; reportTransientFailure(); }
+      return;
+    }
+    holdEpisodeRef.current = false;
     if (authPhase === "session_lost") reportSuccess();
-  }, [authPhase, nullStreak, reportTransientFailure, reportSuccess]);
+  }, [authPhase, reportTransientFailure, reportSuccess]);
 
   // ── 3h — activation watchdog (SPEC_auth_state_ui_gating, safety net) ──
   // The stuck state, seen live on the 2eafad0 preview: clerk-js finished a
@@ -3343,8 +3367,12 @@ function ProvisionsApp() {
     // §Polling discipline: `ready` only — signed_in_no_token holds the last good
     // UI without a fetch, and session_lost has already torn household down.
     if (!MEALS_ENABLED || !(view === "plan" || view === "home") || !household?.id || authPhase !== "ready") return;
-    const mealsPoll = setInterval(() => { refreshMeals(); }, 2000);
-    return () => clearInterval(mealsPoll);
+    // Amendment 2026-09-24: the tick passes isPollingOpen (closed offline and
+    // for the hold after a 401/403); back online runs one tick immediately.
+    const tick = () => { if (isPollingOpen()) refreshMeals(); };
+    const mealsPoll = setInterval(tick, 2000);
+    window.addEventListener("online", tick);
+    return () => { clearInterval(mealsPoll); window.removeEventListener("online", tick); };
   }, [view, household?.id, refreshMeals, authPhase]);
 
   // Load provenance when a surface that shows the badge is visible: SHOP renders the

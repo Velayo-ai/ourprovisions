@@ -1,6 +1,6 @@
 // src/lib/supabaseClient.js
 import { createClient } from "@supabase/supabase-js";
-import { reportToken } from "./authHealth";
+import { reportToken, classifyTokenFailure } from "./authHealth";
  
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -24,9 +24,10 @@ const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
 // { error: { message: "AuthTokenMissing: …", code: "" }, status: 0 }, so the
 // name is the discriminator — see isAuthTokenMissing.
 export class AuthTokenMissing extends Error {
-  constructor() {
-    super("no Clerk token — refusing to query as anon");
+  constructor(failClass) {
+    super(`no Clerk token (${failClass || "clerk"}) — refusing to query as anon`);
     this.name = "AuthTokenMissing";
+    this.failClass = failClass || "clerk";   // 'network' | 'clerk' — see authHealth.classifyTokenFailure
   }
 }
 
@@ -49,9 +50,20 @@ export function createSupabaseClient(getToken, storageKey) {
         apikey: SUPABASE_ANON_KEY,
       },
       fetch: async (url, options = {}) => {
-        const token = await getToken({ template: "supabase" });
-        reportToken(!!token);              // authHealth: the streak App.js derives authPhase from
-        if (!token) throw new AuthTokenMissing();
+        // Amendment 2026-09-24 (offline is not auth loss): getToken can REJECT,
+        // not just return null — offline, the request to Clerk never completes.
+        // Catch it, classify it (network vs Clerk-reported), report it, refuse.
+        // Both classes are a hold upstream; neither ends the session.
+        let token = null;
+        let failClass = null;
+        try {
+          token = await getToken({ template: "supabase" });
+          if (!token) failClass = "clerk";
+        } catch (err) {
+          failClass = classifyTokenFailure(err);
+        }
+        reportToken(!!token, failClass);   // authHealth: the streak App.js derives authPhase from
+        if (!token) throw new AuthTokenMissing(failClass);
         const headers = new Headers(options.headers);
         headers.set("apikey", SUPABASE_ANON_KEY);
         headers.set("Authorization", `Bearer ${token}`);

@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
-import { reportAuthRejected } from "../lib/authHealth";
+import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 import { trace } from "@opentelemetry/api";
@@ -750,6 +750,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     let pollInterval;
     let catalogPollInterval;
+    let onlineTick;
     let cancelled = false;
 
     async function loadForHousehold(householdId) {
@@ -927,8 +928,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         await loadActiveCycle(db, hh.id);
         if (cancelled) return;
 
-        pollInterval = setInterval(() => { loadListItems(db, hh.id); pollActiveCycle(db, hh.id); }, 2000);
-        catalogPollInterval = setInterval(() => { refreshCatalogRef.current(); }, 20000);
+        // Amendment 2026-09-24 (offline is not auth loss): every tick passes
+        // isPollingOpen — closed while navigator.onLine is false or for the
+        // hold after a 401/403 — so nothing is sent into the void, and the
+        // `online` event runs one immediate tick instead of waiting out the
+        // interval. A missing token does not close the gate: the tick has to
+        // reach the wrapper for Clerk to be asked again.
+        const listTick = () => { if (!isPollingOpen()) return; loadListItems(db, hh.id); pollActiveCycle(db, hh.id); };
+        const catalogTick = () => { if (!isPollingOpen()) return; refreshCatalogRef.current(); };
+        pollInterval = setInterval(listTick, 2000);
+        catalogPollInterval = setInterval(catalogTick, 20000);
+        onlineTick = () => { listTick(); catalogTick(); };
+        window.addEventListener("online", onlineTick);
 
         reportSuccess();
         setLoading(false);
@@ -947,6 +958,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       cancelled = true;
       if (pollInterval) clearInterval(pollInterval);
       if (catalogPollInterval) clearInterval(catalogPollInterval);
+      if (onlineTick) window.removeEventListener("online", onlineTick);
       if (realtimeChannelRef.current) {
         try { supabaseRef.current?.removeChannel(realtimeChannelRef.current); } catch (e) {}
         realtimeChannelRef.current = null;
