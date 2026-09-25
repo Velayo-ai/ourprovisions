@@ -2963,6 +2963,95 @@ function ProvisionsApp() {
     if (authPhase === "session_lost") reportSuccess();
   }, [authPhase, nullStreak, reportTransientFailure, reportSuccess]);
 
+  // ── 3h — activation watchdog (SPEC_auth_state_ui_gating, safety net) ──
+  // The stuck state, seen live on the 2eafad0 preview: clerk-js finished a
+  // modal sign-in on the server (client.lastActiveSessionId set, that client
+  // session "active") but clerk.session stayed null because setActive returned
+  // before its emit (the beforeunload-tracker race; root cause fixed by the
+  // router functions in index.js). React never hears about the session, so a
+  // hook can't react to it — this is a 500ms poll of the clerk-js instance,
+  // the one place that does know. After 1500ms stuck: setActive({session})
+  // once (no navigate → it emits). If still stuck 1500ms later: reload once,
+  // sessionStorage-guarded so it can never loop. auth.activation-stuck before,
+  // auth.activation-healed after (heal.method setActive | reload — the reload
+  // one is emitted on the next load, when the session is actually live, so the
+  // page tear-down cannot eat it).
+  const ACTIVATION_RELOAD_KEY = "op_activation_reload";
+  const healRef = useRef({ stuckSince: null, spanSent: false, setActiveAt: null });
+  useEffect(() => {
+    const tick = () => {
+      const c = clerk;
+      if (!c?.loaded) return;
+      const h = healRef.current;
+      const lastId = c.client?.lastActiveSessionId || null;
+      const clientSession = lastId ? (c.client?.sessions || []).find((x) => x.id === lastId) : null;
+      const stuck = !!clientSession && clientSession.status === "active" && !c.session;
+      if (!stuck) {
+        if (h.stuckSince && c.session && h.setActiveAt) {
+          try {
+            const span = tracer.startSpan("auth.activation-healed");
+            span.setAttributes({ "heal.method": "setActive", "heal.stuck_ms": Date.now() - h.stuckSince, "view": view });
+            span.end();
+          } catch (e) { /* telemetry never reaches the user */ }
+        }
+        healRef.current = { stuckSince: null, spanSent: false, setActiveAt: null };
+        return;
+      }
+      if (!h.stuckSince) { h.stuckSince = Date.now(); return; }
+      const stuckMs = Date.now() - h.stuckSince;
+      if (stuckMs < 1500) return;
+      if (!h.spanSent) {
+        h.spanSent = true;
+        try {
+          const span = tracer.startSpan("auth.activation-stuck");
+          span.setAttributes({
+            "auth.stuck_ms": stuckMs,
+            "clerk.client_status": c.status ?? "unknown",
+            "clerk.client_session_status": clientSession.status,
+            "clerk.has_last_active_session": true,
+            "auth.clerk_signed_in_react": !!isSignedIn,
+            "auth.clerk_loaded_react": !!isLoaded,
+            "view": view,
+          });
+          span.end();
+        } catch (e) { /* telemetry never reaches the user */ }
+      }
+      if (!h.setActiveAt) {
+        h.setActiveAt = Date.now();
+        try { Promise.resolve(c.setActive({ session: lastId })).catch(() => {}); } catch (e) { /* fall through to the reload */ }
+        return;
+      }
+      if (Date.now() - h.setActiveAt < 1500) return;
+      // Still stuck after setActive: reload ONCE. The flag is set before the
+      // reload and cleared only once a live session is observed (effect below),
+      // so a page that reloads into the same stuck state stops here.
+      try {
+        if (sessionStorage.getItem(ACTIVATION_RELOAD_KEY)) return;
+        sessionStorage.setItem(ACTIVATION_RELOAD_KEY, String(Date.now()));
+      } catch (e) { return; }
+      window.location.reload();
+    };
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clerk]);
+  // The reload leg of the healed span, and the loop guard's release: a live
+  // session after a guarded reload is the heal; a live session at any time
+  // clears the guard so a future stuck state may reload again.
+  useEffect(() => {
+    if (!sessionLive) return;
+    let stamp = null;
+    try { stamp = sessionStorage.getItem(ACTIVATION_RELOAD_KEY); } catch (e) { return; }
+    if (!stamp) return;
+    try { sessionStorage.removeItem(ACTIVATION_RELOAD_KEY); } catch (e) { /* storage blocked */ }
+    try {
+      const span = tracer.startSpan("auth.activation-healed");
+      span.setAttributes({ "heal.method": "reload", "heal.reload_age_ms": Date.now() - Number(stamp), "view": view });
+      span.end();
+    } catch (e) { /* telemetry never reaches the user */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionLive]);
+
   const [showSplash, setShowSplash] = useState(true);
   const handleSplashDone = useCallback(() => setShowSplash(false), []);
   const [localPrices, setLocalPrices] = useState({});
