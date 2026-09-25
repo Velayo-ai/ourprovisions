@@ -3014,6 +3014,47 @@ function ProvisionsApp() {
     if (authPhase === "session_lost") reportSuccess();
   }, [authPhase, reportTransientFailure, reportSuccess]);
 
+  // ── The session-lost sheet's one button (V5 follow-up, 2026-09-24) ──
+  // The sheet must never present a dead button. openSignIn is a no-op while
+  // clerk-js still holds an active session (Clerk closes the modal for a
+  // signed-in client) — which is exactly the state the false V5 session_lost
+  // left us in: sheet up, Sign In inert, a reload restored everything with no
+  // password. So the button checks clerk-js FIRST: a session exists → re-activate
+  // it (setActive emits, React catches up, the sheet unmounts); if React is
+  // still not live 1200ms later → reload once (the session cookie carries it).
+  // Only when Clerk genuinely has no session does the modal open.
+  const sessionLiveRef = useRef(sessionLive);
+  sessionLiveRef.current = sessionLive;
+  const sheetReactivatingRef = useRef(false);
+  const onSheetSignIn = useCallback(async () => {
+    const c = clerk;
+    const lastId = c?.client?.lastActiveSessionId || null;
+    const clientSession = lastId ? (c?.client?.sessions || []).find((x) => x.id === lastId && x.status === "active") : null;
+    const existing = c?.session || clientSession || null;
+    if (!existing) { openSignIn(); return; }
+    if (sheetReactivatingRef.current) return;
+    sheetReactivatingRef.current = true;
+    try {
+      const span = tracer.startSpan("auth.sheet-reactivate");
+      span.setAttributes({ "heal.method": "setActive", "clerk.session_status": existing.status ?? "unknown", "view": view });
+      span.end();
+    } catch (e) { /* telemetry never reaches the user */ }
+    try { await Promise.resolve(c.setActive({ session: existing.id })); } catch (e) { /* fall through to the reload check */ }
+    setTimeout(() => {
+      sheetReactivatingRef.current = false;
+      if (sessionLiveRef.current) return;          // React caught up — the sheet is already gone
+      try {
+        const span = tracer.startSpan("auth.sheet-reactivate");
+        span.setAttributes({ "heal.method": "reload", "view": view });
+        span.end();
+      } catch (e) { /* telemetry never reaches the user */ }
+      window.location.reload();
+    }, 1200);
+    // `view` is read inside the closures only (it is declared later in this
+    // component); listing it here would be a use-before-define at render time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clerk, openSignIn]);
+
   // ── 3h — activation watchdog (SPEC_auth_state_ui_gating, safety net) ──
   // The stuck state, seen live on the 2eafad0 preview: clerk-js finished a
   // modal sign-in on the server (client.lastActiveSessionId set, that client
@@ -6348,16 +6389,18 @@ function ProvisionsApp() {
                 fontFamily: "'Lato', sans-serif", fontSize: "13px", color: "#6f5a45",
                 lineHeight: 1.5, marginBottom: "22px",
               }}>Sign in to pick up where you left off.</div>
-              <SignInButton mode="modal">
-                <button
-                  type="button"
-                  style={{
-                    width: "100%", padding: "14px", background: "#2C1A0E", border: "none",
-                    borderRadius: "11px", fontFamily: "'Lato', sans-serif", fontSize: "14.5px",
-                    fontWeight: 900, letterSpacing: "0.02em", color: "#FAF4EC", cursor: "pointer",
-                  }}
-                >Sign In</button>
-              </SignInButton>
+              {/* Not a SignInButton: see onSheetSignIn — the modal is a no-op while
+                  clerk-js still holds a session, so the button decides what "sign in"
+                  means here (re-activate, else reload, else the modal). */}
+              <button
+                type="button"
+                onClick={onSheetSignIn}
+                style={{
+                  width: "100%", padding: "14px", background: "#2C1A0E", border: "none",
+                  borderRadius: "11px", fontFamily: "'Lato', sans-serif", fontSize: "14.5px",
+                  fontWeight: 900, letterSpacing: "0.02em", color: "#FAF4EC", cursor: "pointer",
+                }}
+              >Sign In</button>
             </div>
           </div>
         </div>
