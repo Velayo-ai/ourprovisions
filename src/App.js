@@ -2684,7 +2684,7 @@ function ProvisionsApp() {
     openSignUp({ initialValues: signUpInitialValues });
   }, [isLoaded, isSignedIn, signUpInitialValues, openSignUp]);
   const { getToken } = useAuth();
-  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss } = useActiveHousehold();
+  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss, loadingHouseholds } = useActiveHousehold();
 
   const {
     quantities,
@@ -3814,6 +3814,33 @@ function ProvisionsApp() {
       refreshHouseholds();
     }
   }, [loading, activeHouseholdId, myHouseholds, pendingJoinId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hand the bootstrap-made household to the lens (prod, 2026-09-24). A brand-new
+  // user's first get_my_households (ActiveHouseholdContext) can resolve BEFORE
+  // bootstrap_new_user has minted their place, so the context settles on
+  // activeHouseholdId = null while useProvisions Effect 2 loads the place from
+  // bootstrap's fallback id. Nothing then told the context the place existed — its
+  // next word was the 30s watchdog, which read "list no longer contains null" as a
+  // removal and posted "No longer a member of…" at someone who had just named their
+  // first place. The welcome sheet only RENAMES that place, so the hand-off belongs
+  // here, at the point the place becomes known, not in the sheet's handlers. Same
+  // shape as the join effect above: derived on every relevant render, a bounded
+  // number of refresh nudges, and switchHousehold stays the single writer. The
+  // null guard in checkPresence is the safety net if this never lands.
+  const adoptTriesRef = useRef(0);
+  useEffect(() => {
+    if (loading || loadingHouseholds || activeHouseholdId) return;
+    const hhId = household?.id;
+    if (!hhId) return;
+    if (myHouseholds.some((h) => h.id === hhId)) {
+      switchHousehold(hhId);
+      return;
+    }
+    if (adoptTriesRef.current < 4) {
+      adoptTriesRef.current += 1;
+      refreshHouseholds();
+    }
+  }, [loading, loadingHouseholds, activeHouseholdId, myHouseholds, household?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-dismiss the join banner: on a timer (success confirmations self-clear),
   // and immediately if the user switches away from the joined household (the

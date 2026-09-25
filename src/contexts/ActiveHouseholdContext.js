@@ -255,6 +255,16 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         }));
         myHouseholdsRef.current = households;
         setMyHouseholds(households);
+        // A null lens is NOT a removal (prod, 2026-09-24). A brand-new user's first
+        // get_my_households can return [] before bootstrap_new_user has minted their
+        // place, so the lens settles on null; when the poll next saw a list that did
+        // not "contain" null it took the removal path — probe (id=eq.null → 400),
+        // span, "No longer a member of…" — at someone who had just named their first
+        // place. Nothing was lost: adopt the first household silently and return.
+        if (activeHouseholdIdRef.current == null) {
+          if (households.length > 0) switchHousehold(households[0].id);
+          return;
+        }
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
         // Active household vanished from a healthy list — user was removed (or left).
 
