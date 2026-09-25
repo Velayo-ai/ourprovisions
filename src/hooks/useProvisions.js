@@ -24,7 +24,7 @@ const PENDING_CATALOG_PREFIX = "pending:";
 export const isPendingCatalogId = (id) =>
   typeof id === "string" && id.startsWith(PENDING_CATALOG_PREFIX);
 
-export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
+export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds, sessionId, sessionLive }) {
   // INVARIANT (2026-09-12): client state for list rows is keyed by list_item.id.
   // The name is a label, never an identity — two live rows can share one
   // ("Milk" custom beside "Milk" catalog; a reused cycle row). `quantities` and
@@ -639,9 +639,65 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // bootstrap_new_user (no-op for existing users) only. Including it caused a
     // name edit (which writes Clerk → changes fullName) to re-fire session
     // bootstrap and wedge the loading state. Bootstrap re-runs on identity
-    // change only.
+    // change — and, since the sign-out reset (below), on SESSION change: the
+    // same person signing back in after a loss has the same Clerk id, and
+    // without sessionId here nothing would re-bootstrap.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, clerkId, email]);
+  }, [userId, clerkId, email, sessionId]);
+
+  // ── Sign-out reset (SPEC_auth_state_ui_gating.md §Sign-out reset, D3) ──
+  // The missing half of sign-out. Until 2026-09-24 nothing here reset when the
+  // session went away: supabaseRef, householdRef and `household` survived, the
+  // meal poll kept ticking on household?.id, and the fetch wrapper sent
+  // apikey-only requests — PostgREST saw anon, 401 every 2s, for four minutes.
+  // Now every transition OUT of a live session (Clerk signed out, deliberate or
+  // not; or the token gone LOST_STREAK ticks running) clears the household
+  // world in one place. Effect 2's cleanup has already stopped its intervals
+  // by the time this runs (userId went undefined), and App.js's meal poll dies
+  // with household?.id. The catalog map stays: it is not household data, and
+  // Browse's signed-out preview still reads it until D4a retires that path.
+  // localStorage.activeHouseholdId stays too — a per-browser convenience,
+  // validated on the next sign-in.
+  const wasLiveRef = useRef(false);
+  useEffect(() => {
+    if (sessionLive) { wasLiveRef.current = true; return; }
+    if (!wasLiveRef.current) return;
+    wasLiveRef.current = false;
+    supabaseRef.current = null;
+    householdRef.current = null;
+    setHousehold(null);
+    setHouseholdMembers([]);
+    householdMembersRef.current = [];
+    bootstrappedRef.current = false;
+    setBootstrapped(false);
+    bootstrapHouseholdIdRef.current = null;
+    internalUserIdRef.current = null;
+    setReferralCode(null);
+    setHouseholdReady(false);
+    listFingerprintRef.current = "";
+    listRowsRef.current = [];
+    setListRows([]);
+    setQuantities({});
+    setChecked({});
+    setAddedByMap({});
+    setContributorsMap({});
+    setHiddenCatalogItems([]);
+    hiddenCatalogItemsRef.current = [];
+    hiddenIdsRef.current = new Set();
+    setActiveCycle(null);
+    activeCycleRef.current = null;
+    setActiveSession(null);
+    activeSessionRef.current = null;
+    setPartnerSession(null);
+    setStoreSuggestions([]);
+    setCheckedByMap({});
+    boughtFingerprintRef.current = "";
+    setPlacements({});
+    placementsRef.current = {};
+    errorSourceRef.current = null;
+    setError(null);
+    setLoading(false);
+  }, [sessionLive]);
 
   // Effect 1b — Reconcile users.full_name from Clerk on each session.
   // WHY its own effect: bootstrap runs once and is a no-op for existing users, and
@@ -3371,7 +3427,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
   return {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
-    hiddenCatalogItems, loading, householdReady, error, dismissError,
+    hiddenCatalogItems, loading, householdReady, bootstrapped, error, dismissError,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,

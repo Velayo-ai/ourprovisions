@@ -12,7 +12,11 @@ const ActiveHouseholdContext = createContext(null);
 // stands in and these spans cost nothing.
 const tracer = trace.getTracer("ourprovisions-app");
 
-export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children }) {
+// clerkId arrives already gated on the LIVE session (App.js passes undefined the
+// moment the session is not live — Clerk signed out, or the token gone
+// LOST_STREAK ticks running), and sessionId keys the two effects below so the
+// same person signing back in re-resolves. See SPEC_auth_state_ui_gating.md.
+export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemoval, children }) {
   const [myHouseholds, setMyHouseholds] = useState([]);
   const [activeHouseholdId, setActiveHouseholdId] = useState(null);
   const [loadingHouseholds, setLoadingHouseholds] = useState(true);
@@ -116,6 +120,15 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
 
   useEffect(() => {
     if (!clerkId || !getTokenRef.current) {
+      // §Sign-out reset (mirror). No live session: drop the client (its getToken
+      // would only ever refuse now), the list and the lens. The watchdog effect
+      // below returns early on !clerkId and its cleanup already cleared the
+      // interval, so nothing can fire on a stale dbRef. On first mount this is
+      // a no-op over already-empty state.
+      dbRef.current = null;
+      myHouseholdsRef.current = [];
+      setMyHouseholds([]);
+      setActiveHouseholdId(null);
       setLoadingHouseholds(false);
       return;
     }
@@ -160,7 +173,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
     return () => {
       cancelled = true;
     };
-  }, [clerkId]);
+  }, [clerkId, sessionId]);
 
   const switchHousehold = useCallback((id) => {
     if (!myHouseholdsRef.current.some((h) => h.id === id)) return;
@@ -325,7 +338,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
     const intervalId = setInterval(checkPresence, 30000);
     return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clerkId]);
+  }, [clerkId, sessionId]);
 
   return (
     <ActiveHouseholdContext.Provider

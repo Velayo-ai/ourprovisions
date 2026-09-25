@@ -1,5 +1,6 @@
 // src/lib/supabaseClient.js
 import { createClient } from "@supabase/supabase-js";
+import { reportToken } from "./authHealth";
  
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -16,6 +17,25 @@ const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
 // This lesson was learned once before, in the since-deleted `src/supabase.js`, which
 // assigned `op-public`/`op-authed` for exactly this reason — and it never got carried into
 // this newer factory. Anything that creates a THIRD client needs its own key too.
+// D1 (SPEC_auth_state_ui_gating.md): the wrapper REFUSES when there is no Clerk
+// token. It never downgrades to apikey-only — that is the "silent anon downgrade"
+// (prod, 2026-09-24: loadPlacements 401 every 2s under a SIGN IN header).
+// postgrest-js catches a rejected fetch and hands callers
+// { error: { message: "AuthTokenMissing: …", code: "" }, status: 0 }, so the
+// name is the discriminator — see isAuthTokenMissing.
+export class AuthTokenMissing extends Error {
+  constructor() {
+    super("no Clerk token — refusing to query as anon");
+    this.name = "AuthTokenMissing";
+  }
+}
+
+export function isAuthTokenMissing(err) {
+  if (!err) return false;
+  if (err.name === "AuthTokenMissing") return true;
+  return typeof err.message === "string" && err.message.startsWith("AuthTokenMissing");
+}
+
 export function createSupabaseClient(getToken, storageKey) {
   return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
@@ -30,11 +50,11 @@ export function createSupabaseClient(getToken, storageKey) {
       },
       fetch: async (url, options = {}) => {
         const token = await getToken({ template: "supabase" });
+        reportToken(!!token);              // authHealth: the streak App.js derives authPhase from
+        if (!token) throw new AuthTokenMissing();
         const headers = new Headers(options.headers);
         headers.set("apikey", SUPABASE_ANON_KEY);
-        if (token) {
-          headers.set("Authorization", `Bearer ${token}`);
-        }
+        headers.set("Authorization", `Bearer ${token}`);
         return fetch(url, { ...options, headers });
       },
     },

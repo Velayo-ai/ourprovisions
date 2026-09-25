@@ -5,6 +5,13 @@ import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_U
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
+import { useConnectivity } from './contexts/ConnectivityContext';
+import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut } from './lib/authHealth';
+import { trace } from '@opentelemetry/api';
+
+// Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
+// registers; a no-op provider stands in with no RUM token.
+const tracer = trace.getTracer("ourprovisions-app");
 
 // Maps Supabase category names → display names with emoji
 const CATEGORY_DISPLAY = {
@@ -2753,6 +2760,12 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
+  // D2 (SPEC_auth_state_ui_gating.md): the session is LIVE when Clerk is loaded
+  // and signed in AND the token has not gone missing LOST_STREAK times running
+  // (authHealth, fed by the Supabase fetch wrapper). Every household-scoped
+  // input below keys on this, never on isSignedIn alone.
+  const { nullStreak, lastTokenAt } = useAuthHealth();
+  const sessionLive = useSessionLive({ isLoaded, isSignedIn });
   // Sign-up pre-fill (read once on mount). Outbound links may carry
   // ?email_address=&first_name=&last_name=; map them to Clerk's initialValues keys
   // so the sign-up modal opens with the form filled. Missing params fall back to
@@ -2774,7 +2787,8 @@ function ProvisionsApp() {
   // (the landing page at ourprovisions.app links here with all three). The header
   // SignUpButton stays as the manual fallback with the same initialValues. Gated on
   // Clerk being loaded and the visitor being signed out; fires once per load.
-  const { openSignUp, openSignIn } = useClerk();
+  const clerk = useClerk();
+  const { openSignUp, openSignIn } = clerk;
   const autoSignUpFiredRef = useRef(false);
   useEffect(() => {
     if (autoSignUpFiredRef.current || !isLoaded || isSignedIn) return;
@@ -2783,7 +2797,7 @@ function ProvisionsApp() {
     autoSignUpFiredRef.current = true;
     openSignUp({ initialValues: signUpInitialValues });
   }, [isLoaded, isSignedIn, signUpInitialValues, openSignUp]);
-  const { getToken } = useAuth();
+  const { getToken, sessionId } = useAuth();
   const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss, loadingHouseholds } = useActiveHousehold();
 
   const {
@@ -2799,6 +2813,7 @@ function ProvisionsApp() {
     listRows,
     loading,
     householdReady,
+    bootstrapped,
     error,
     dismissError,
     updateQty,
@@ -2862,13 +2877,91 @@ function ProvisionsApp() {
     _internalUserId,
   } = useProvisions({
     getToken,
-    userId: isLoaded ? user?.id : undefined,
-    clerkId: isLoaded ? user?.id : undefined,
+    userId: sessionLive ? user?.id : undefined,
+    clerkId: sessionLive ? user?.id : undefined,
     email: user?.primaryEmailAddress?.emailAddress,
     fullName: user?.fullName || null,
     activeHouseholdId,
     myHouseholds,
+    sessionId,
+    sessionLive,
   });
+
+  // ── authPhase (SPEC_auth_state_ui_gating.md D2, D3) ──
+  // One derived state drives what renders and what polls. The truth table:
+  //   booting             Clerk not loaded
+  //   signed_out          loaded, not signed in (a deliberate Sign out lands here)
+  //   signed_in_no_token  signed in, getToken returned null 1–2 ticks running — hold
+  //   bootstrapping       live, bootstrap_new_user not yet resolved
+  //   ready               live and bootstrapped — the full app
+  //   session_lost        was live, now is not, with no reload — the sheet below
+  // A new Clerk session (sessionId changes) wipes the token streak: a lost
+  // session recovers only by signing in, never by a token wandering back.
+  const [lostSession, setLostSession] = useState(false);
+  const wasLiveRef = useRef(false);
+  const liveSinceRef = useRef(null);
+  const prevSessionIdRef = useRef(sessionId);
+  useEffect(() => {
+    if (sessionId && sessionId !== prevSessionIdRef.current) resetAuthHealth();
+    prevSessionIdRef.current = sessionId;
+  }, [sessionId]);
+  useEffect(() => {
+    if (sessionLive) {
+      if (!wasLiveRef.current) liveSinceRef.current = Date.now();
+      wasLiveRef.current = true;
+      setLostSession(false);
+      return;
+    }
+    if (!isLoaded || !wasLiveRef.current) return;
+    wasLiveRef.current = false;
+    // The profile sheet's Sign out raised the flag before calling Clerk: a
+    // choice, not a loss — plain signed_out, no sheet, no span.
+    if (consumeDeliberateSignOut()) return;
+    setLostSession(true);
+    // §Instrumentation — once per transition, so the next occurrence explains
+    // itself instead of being reconstructed from 27 console errors.
+    try {
+      const span = tracer.startSpan("auth.session-lost");
+      span.setAttributes({
+        "clerk.client_status": clerk?.status ?? "unknown",
+        "clerk.session_status": clerk?.session?.status ?? "none",
+        "auth.signed_in_age_seconds": liveSinceRef.current ? Math.round((Date.now() - liveSinceRef.current) / 1000) : -1,
+        "auth.last_token_age_seconds": lastTokenAt ? Math.round((Date.now() - lastTokenAt) / 1000) : -1,
+        "auth.null_token_streak": nullStreak,
+        "auth.clerk_signed_in": !!isSignedIn,
+        "view": view,
+        "household.id": activeHouseholdId ?? "none",
+      });
+      span.end();
+    } catch (e) { /* telemetry never reaches the user */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionLive, isLoaded]);
+  const authPhase = !isLoaded ? "booting"
+    : lostSession ? "session_lost"
+    : !isSignedIn ? "signed_out"
+    : !sessionLive ? "session_lost"          // streak hit the floor; the effect above is one render behind
+    : nullStreak > 0 ? "signed_in_no_token"
+    : bootstrapped ? "ready" : "bootstrapping";
+  const prevPhaseRef = useRef(null);
+  useEffect(() => {
+    const from = prevPhaseRef.current;
+    if (from === authPhase) return;
+    prevPhaseRef.current = authPhase;
+    try {
+      const span = tracer.startSpan("auth.phase-change");
+      span.setAttributes({ "auth.from": from ?? "none", "auth.to": authPhase });
+      span.end();
+    } catch (e) { /* telemetry never reaches the user */ }
+  }, [authPhase]);
+  // signed_in_no_token holds the last good UI behind the quiet "Reconnecting…"
+  // pill (one report per null tick; the third tick is session_lost, not
+  // offline). session_lost clears the pill — the sheet is the surface now and
+  // the network is not the story.
+  const { reportTransientFailure, reportSuccess } = useConnectivity();
+  useEffect(() => {
+    if (authPhase === "signed_in_no_token") reportTransientFailure();
+    if (authPhase === "session_lost") reportSuccess();
+  }, [authPhase, nullStreak, reportTransientFailure, reportSuccess]);
 
   const [showSplash, setShowSplash] = useState(true);
   const handleSplashDone = useCallback(() => setShowSplash(false), []);
@@ -3470,15 +3563,16 @@ function ProvisionsApp() {
     // shell renders behind a SIGN IN header. Home is always open. Browse's
     // signed-out preview stays reachable by direct #/browse only (hashchange
     // path below), until D4a retires it with the anon catalog fetch.
-    if (isLoaded && !isSignedIn && v !== "home") { openSignIn(); return; }
+    if (isLoaded && !sessionLive && v !== "home") { openSignIn(); return; }
     setView(v);
     const h = hashForView(v);
     if (h && window.location.hash !== h) window.location.hash = h;
-  }, [isLoaded, isSignedIn, openSignIn]);
-  // Signed out, Home / Plan / Shop all show the Home welcome variant. The view is
-  // KEPT (only what renders changes), so signing in from a #/plan deep link lands
-  // on Plan. Browse ("input") is the one door that still renders signed out.
-  const signedOutWelcome = isLoaded && !isSignedIn && view !== "input";
+  }, [isLoaded, sessionLive, openSignIn]);
+  // Not live (signed_out or session_lost), Home / Plan / Shop all show the Home
+  // welcome variant. The view is KEPT (only what renders changes), so signing in
+  // from a #/plan deep link lands on Plan. Browse ("input") is the one door that
+  // still renders without a session, until D4a retires the preview.
+  const signedOutWelcome = isLoaded && !sessionLive && view !== "input";
   useEffect(() => {
     const onHashChange = () => {
       const v = viewForHash(window.location.hash);
@@ -4862,10 +4956,10 @@ function ProvisionsApp() {
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
       {/* Gated on householdReady for the same reason as the landing effect — the list must have actually arrived, not merely stopped loading — so the landing tab is settled before the splash dissolves and there is no flash of Browse before Shop; the 5s failsafe still bounds it. */}
-      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || householdReady)} />}
+      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!sessionLive || householdReady)} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
-      {isSignedIn && loading && (
+      {sessionLive && loading && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(250,244,236,0.88)",
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -5566,7 +5660,7 @@ function ProvisionsApp() {
             {/* The header avatar is the one Profile trigger at every width
                 (the rail's foot avatar went with the rail, 2026-09-20). The
                 wrapping div stays so the row's space-between geometry is unchanged. */}
-            {isSignedIn ? (
+            {sessionLive ? (
               <button
                 onClick={() => setShowProfileSheet(true)}
                 style={{
@@ -6051,6 +6145,56 @@ function ProvisionsApp() {
           No backdrop onClick — this sheet is dismissed by Continue or Skip, never by a
           stray tap. Skip is right there and costs nothing; an accidental dismissal would
           silently spend the one time this sheet ever fires. */}
+      {/* D3 (SPEC_auth_state_ui_gating.md) — session loss is a designed moment.
+          The session went away with no reload: Clerk reports signed out after we
+          were live, or getToken came back null LOST_STREAK ticks running. By the
+          time this renders everything has stopped (§Sign-out reset in
+          useProvisions, mirrored by the household context); under it is the
+          signed-out rendering. Not dismissible — there is nothing to go back to,
+          and the one way forward is right here. A deliberate Sign out never
+          reaches this (markDeliberateSignOut). */}
+      {authPhase === "session_lost" && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(20,12,6,0.55)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            zIndex: 1200, animation: "fadeIn 0.2s ease",
+          }}
+        >
+          <div
+            style={{
+              background: "#FAF4EC", borderRadius: "22px 22px 0 0", padding: "8px 0 0",
+              width: "min(440px, 100vw)", boxShadow: "0 -12px 40px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div style={{
+              width: "36px", height: "4px", borderRadius: "2px",
+              background: "rgba(44,26,14,0.18)", margin: "0 auto 14px",
+            }} />
+            <div style={{ padding: "4px 22px 30px", textAlign: "center" }}>
+              <div style={{
+                fontFamily: "'Playfair Display', serif", fontWeight: 600, fontSize: "20px",
+                lineHeight: 1.3, color: "#2C1A0E", marginBottom: "8px",
+              }}>You’ve been signed out</div>
+              <div style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "13px", color: "#6f5a45",
+                lineHeight: 1.5, marginBottom: "22px",
+              }}>Sign in to pick up where you left off.</div>
+              <SignInButton mode="modal">
+                <button
+                  type="button"
+                  style={{
+                    width: "100%", padding: "14px", background: "#2C1A0E", border: "none",
+                    borderRadius: "11px", fontFamily: "'Lato', sans-serif", fontSize: "14.5px",
+                    fontWeight: 900, letterSpacing: "0.02em", color: "#FAF4EC", cursor: "pointer",
+                  }}
+                >Sign In</button>
+              </SignInButton>
+            </div>
+          </div>
+        </div>
+      )}
+
       {welcomeOpen && (
         <div
           style={{
@@ -7848,7 +7992,7 @@ function ProvisionsApp() {
             {/* Sign out */}
             <div style={{ height: "0.5px", background: "#e8ddd0", margin: "0 20px" }} />
             <button
-              onClick={() => signOut(() => setShowProfileSheet(false))}
+              onClick={() => { markDeliberateSignOut(); signOut(() => setShowProfileSheet(false)); }}
               style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", width: "100%" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -7975,8 +8119,11 @@ function ProvisionsApp() {
 }
 
 export default function ShoppingListApp() {
-  const { user } = useUser();
-  const { getToken } = useAuth();
+  const { user, isSignedIn, isLoaded } = useUser();
+  const { getToken, sessionId } = useAuth();
+  // Same liveness the app body derives (authHealth is a shared store), so the
+  // household context and useProvisions agree on when there is a session.
+  const sessionLive = useSessionLive({ isLoaded, isSignedIn });
   const [systemMessage, setSystemMessage] = useState(null);
   const systemMsgTimerRef = useRef(null);
 
@@ -8016,7 +8163,7 @@ export default function ShoppingListApp() {
       <div className="desk-bg" aria-hidden="true" />
       <div className="phone-frame">
         <div className="phone-scroll">
-          <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id} onRemoval={onRemoval}>
+          <ActiveHouseholdProvider getToken={getToken} clerkId={sessionLive ? user?.id : undefined} sessionId={sessionId} onRemoval={onRemoval}>
             <HouseholdDebugLog />
             <ProvisionsApp />
           </ActiveHouseholdProvider>
