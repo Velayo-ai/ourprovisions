@@ -853,6 +853,30 @@ function Home({ firstName, ready, meal, mealById, onAdd, onView, openCount, onSt
   );
 }
 
+// D4 (SPEC_auth_state_ui_gating.md) — Home is the signed-out surface. The
+// wordmark in the splash's own Playfair italic, one line of what this is, and
+// the same two modal buttons the header carries (same initialValues, so a
+// pre-filled arrival still pre-fills). Placeholder copy by design: a designed
+// welcome is a Home session, not this slice (spec §Open). Rendered in place of
+// the door content on Home, Plan and Shop while signed out — see
+// signedOutWelcome in ProvisionsApp.
+function HomeWelcome({ signUpInitialValues }) {
+  return (
+    <div className="home home-welcome">
+      <div className="home-wm"><span className="o">Our</span><span className="p">Provisions</span></div>
+      <p className="home-welcome-line">Your household’s living grocery list.</p>
+      <div className="home-welcome-actions">
+        <SignInButton mode="modal">
+          <button type="button" className="home-welcome-btn ghost">Sign In</button>
+        </SignInButton>
+        <SignUpButton mode="modal" initialValues={signUpInitialValues}>
+          <button type="button" className="home-welcome-btn solid">Sign Up</button>
+        </SignUpButton>
+      </div>
+    </div>
+  );
+}
+
 // The card. Empty: labelled "Tonight" — an invitation into the existing Plan
 // add flow (the library), never an add input of its own. Populated: labelled
 // "Up next" — the queue knows what is next, not what is tonight, until Days v2
@@ -2750,7 +2774,7 @@ function ProvisionsApp() {
   // (the landing page at ourprovisions.app links here with all three). The header
   // SignUpButton stays as the manual fallback with the same initialValues. Gated on
   // Clerk being loaded and the visitor being signed out; fires once per load.
-  const { openSignUp } = useClerk();
+  const { openSignUp, openSignIn } = useClerk();
   const autoSignUpFiredRef = useRef(false);
   useEffect(() => {
     if (autoSignUpFiredRef.current || !isLoaded || isSignedIn) return;
@@ -2852,8 +2876,11 @@ function ProvisionsApp() {
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
   // D3 (SPEC_rum_dxa_exposure.md): a door hash in the URL at load wins — reload
-  // and Back land on the right door. No hash → the landing effect decides.
-  const [view, setView] = useState(() => viewForHash(window.location.hash) || "input");
+  // and Back land on the right door. No hash → Home (SPEC_auth_state_ui_gating D4:
+  // Home is the front door, signed in or out); the mirror effect below writes
+  // #/home. The smart landing rule (D4a — Shop when the list has unbought items)
+  // is a follow-on slice, not this one.
+  const [view, setView] = useState(() => viewForHash(window.location.hash) || "home");
   // D9′ (amended 2026-09-12): compact exactly when the current door's control
   // row is off-screen. Each door hands its row (or a sentinel at the block's
   // bottom) to `controlRowRef`; only the active door renders one, so at most one
@@ -2861,27 +2888,11 @@ function ProvisionsApp() {
   const [controlRow, setControlRow] = useState(null);
   const controlRowRef = useCallback((el) => setControlRow(el), []);
   const scrollCompact = useScrollCompact(controlRow);
-  // Landing tab until a Home tab exists: Shop if the list has items, else Browse.
-  // Runs once per app load after the first SUCCESSFUL list read — never
-  // reactive, so adding a first item from Browse doesn't yank the user to Shop.
-  // Remove when Home ships.
-  // Gated on householdReady (useProvisions), not on loading/household: loading
-  // clears on the anon-catalog pass, and it clears at the end of the household
-  // load even when the first list tick failed transiently and set no rows — a
-  // slow cold load on prod (2026-09-12) landed on Browse with 18 items. The
-  // hook flips householdReady only where the list RPC actually returned rows.
-  // Already "landed" when the URL named a door at load (D3) — a reload on
-  // #/plan must open Plan, not be yanked to Shop by the first list read.
-  const landedRef = useRef(!!viewForHash(window.location.hash));
-  useEffect(() => {
-    const hasItems = listRows.some(r => (r.quantity || 0) > 0);
-    const decided = landedRef.current ? "already" : (!householdReady ? "waiting" : (hasItems ? "list" : "input"));
-    console.debug("[landing]", { householdId: household?.id, householdReady, rows: listRows.length, decided });
-    if (landedRef.current) return;
-    if (!householdReady) return;
-    landedRef.current = true;
-    if (hasItems) setView("list");
-  }, [householdReady, listRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The pre-Home landing effect (Shop if the list had items, else Browse — a
+  // one-shot after the first successful list read) was retired 2026-09-24 with
+  // D4: a no-hash load lands on Home and stays there. Its successor is D4a's
+  // smart landing rule (SPEC_auth_state_ui_gating §Landing), decided once per
+  // load from list state, with a deep-link hash always winning — not built yet.
   const [meals, setMeals] = useState([]);
   // Plan has two screens since v2: the board (default, the tab's landing) and
   // the library, one tap away behind "+ Add a meal" and back behind the chevron.
@@ -3454,10 +3465,20 @@ function ProvisionsApp() {
   // The RUM agent emits routeChange on both hashchange and replaceState, so
   // every door change is a page view. Sheets and other modals write no hash.
   const goToDoor = useCallback((v) => {
+    // D4 (SPEC_auth_state_ui_gating): signed out, the doors that need a household
+    // open the sign-in modal instead of switching view — no household-shaped
+    // shell renders behind a SIGN IN header. Home is always open. Browse's
+    // signed-out preview stays reachable by direct #/browse only (hashchange
+    // path below), until D4a retires it with the anon catalog fetch.
+    if (isLoaded && !isSignedIn && v !== "home") { openSignIn(); return; }
     setView(v);
     const h = hashForView(v);
     if (h && window.location.hash !== h) window.location.hash = h;
-  }, []);
+  }, [isLoaded, isSignedIn, openSignIn]);
+  // Signed out, Home / Plan / Shop all show the Home welcome variant. The view is
+  // KEPT (only what renders changes), so signing in from a #/plan deep link lands
+  // on Plan. Browse ("input") is the one door that still renders signed out.
+  const signedOutWelcome = isLoaded && !isSignedIn && view !== "input";
   useEffect(() => {
     const onHashChange = () => {
       const v = viewForHash(window.location.hash);
@@ -4952,7 +4973,7 @@ function ProvisionsApp() {
           desktop the pill anchors to the phone column, because the column's
           transform makes it the containing block for every fixed descendant. */}
       <Helm
-        view={view}
+        view={signedOutWelcome ? "home" : view}
         onChange={goToDoor}
         badgeCount={totalItems - checkedCount}
         compact={scrollCompact && view !== "home"}
@@ -5161,6 +5182,16 @@ function ProvisionsApp() {
         .home { padding: 12px 2px 0; }
         .home-greeting { font-family: 'Playfair Display', serif; font-size: 1.4rem; line-height: 1.2; color: #2C1A0E; }
         .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
+        /* D4 — the signed-out welcome variant: the splash wordmark's face (Playfair italic, Our light / Provisions bold) in espresso on the page cream;
+           one line in the Tonight card's body tone; the header's two buttons in the sheet's espresso and sand. */
+        .home-welcome { padding-top: 64px; text-align: center; }
+        .home-wm { font-family: 'Playfair Display', serif; font-style: italic; font-size: 2.1rem; line-height: 1; letter-spacing: 0.02em; color: #2C1A0E; white-space: nowrap; }
+        .home-wm .o { font-weight: 400; } .home-wm .p { font-weight: 700; }
+        .home-welcome-line { margin: 14px 0 0; font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; color: #6E5A4A; }
+        .home-welcome-actions { display: flex; gap: 10px; justify-content: center; margin-top: 28px; }
+        .home-welcome-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 11px 22px; border-radius: 6px; cursor: pointer; }
+        .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #A0724A; }
+        .home-welcome-btn.solid { background: #2C1A0E; border: 1.5px solid #2C1A0E; color: #FAF4EC; }
         /* The Tonight card in the board's language: a warm cream (the welcome's ghost-tile tone), the board card's 12px radius, no shadow, no photo.
            Label = the board chip's type; title = Playfair; the link is a text button in Plan's link espresso (.plan-addall), the app has no blue. */
         .tonight { margin-top: 22px; background: #F1E7D8; border-radius: 12px; padding: 16px 18px 14px; }
@@ -6452,7 +6483,9 @@ function ProvisionsApp() {
       )}
 
       <div className="container">
-        {view === "home" && (
+        {signedOutWelcome && <HomeWelcome signUpInitialValues={signUpInitialValues} />}
+
+        {view === "home" && !signedOutWelcome && (
           <Home
             firstName={user?.firstName}
             ready={homeReady}
@@ -6466,7 +6499,7 @@ function ProvisionsApp() {
           />
         )}
 
-        {view === "plan" && planScreen === "board" && (
+        {view === "plan" && planScreen === "board" && !signedOutWelcome && (
           <>
             {/* THE BOARD (v2). Header follows the Browse/Shop pattern: title, the
                 counts line, and ONE control top-right — "+ Add a meal" (filled,
@@ -6561,7 +6594,7 @@ function ProvisionsApp() {
           </>
         )}
 
-        {view === "plan" && planScreen === "library" && (
+        {view === "plan" && planScreen === "library" && !signedOutWelcome && (
           <>
             {/* THE LIBRARY (v2). Back chevron to the board; no "This Week" chip —
                 the board is one tap away and the nav tab is already lit. The + is
@@ -6954,7 +6987,7 @@ function ProvisionsApp() {
           </>
         )}
 
-        {view === "list" && (
+        {view === "list" && !signedOutWelcome && (
           <>
             {/* Store prompt (mockup frame D) — once per session, only while no
                 store is set, or re-opened from the eyebrow. Eyebrow renders only
