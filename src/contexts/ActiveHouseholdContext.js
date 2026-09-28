@@ -37,6 +37,13 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
   const [householdsAttempt, setHouseholdsAttempt] = useState(0);
   const householdsHoldRef = useRef({ key: null, failures: 0 });
   const [householdsReadFailed, setHouseholdsReadFailed] = useState(false);
+  // A5b (Addendum 2026-09-27): the clerkId whose places list has been read
+  // successfully at least once this session. Set ONLY on a successful read,
+  // cleared by the sign-out reset — mirrors useProvisions' membersLoadedFor.
+  // `householdsLoaded` (below) compares it to the current clerkId, so the
+  // Places sheet never draws "Your places" as empty before it has loaded (V11:
+  // "+ Create new place" alone, under a held read, invites a duplicate place).
+  const [householdsLoadedFor, setHouseholdsLoadedFor] = useState(null);
 
   // Stable ref so the effect doesn't re-fire when getToken identity changes each render.
   const getTokenRef = useRef(getToken);
@@ -152,6 +159,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
       setActiveHouseholdId(null);
       setLoadingHouseholds(false);
       setHouseholdsReadFailed(false);
+      setHouseholdsLoadedFor(null);
       householdsHoldRef.current = { key: null, failures: 0 };
       return;
     }
@@ -205,6 +213,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
         if (cancelled) return;
 
         setHouseholdsReadFailed(false);
+        setHouseholdsLoadedFor(clerkId);
         myHouseholdsRef.current = households;
         setMyHouseholds(households);
 
@@ -222,8 +231,18 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
       cancelled = true;
       if (cancelHold) cancelHold();
     };
-    // householdsAttempt is the A7 retry: bumped by the hold scheduler, nothing else.
+    // householdsAttempt is the A7 retry: bumped by the hold scheduler and by the
+    // Places sheet's Retry (A5b), nothing else.
   }, [clerkId, sessionId, householdsAttempt]);
+
+  // A5b: the Places sheet's Retry after a REAL read failure. Re-runs the initial
+  // read above (not refreshHouseholds): that path is the one that resolves the
+  // lens, clears householdsReadFailed and stamps householdsLoadedFor on success.
+  const retryHouseholds = useCallback(() => {
+    householdsHoldRef.current.failures = 0;
+    setHouseholdsReadFailed(false);
+    setHouseholdsAttempt((a) => a + 1);
+  }, []);
 
   const switchHousehold = useCallback((id) => {
     if (!myHouseholdsRef.current.some((h) => h.id === id)) return;
@@ -407,6 +426,9 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
         endDeliberateLoss,
         loadingHouseholds,
         householdsReadFailed,
+        // A5b: true once THIS user's places have been read successfully this session.
+        householdsLoaded: !!clerkId && householdsLoadedFor === clerkId,
+        retryHouseholds,
         hasMultiple: myHouseholds.length > 1,
       }}
     >

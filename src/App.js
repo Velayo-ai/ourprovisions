@@ -2826,7 +2826,7 @@ function ProvisionsApp() {
     openSignUp({ initialValues: signUpInitialValues });
   }, [isLoaded, isSignedIn, signUpInitialValues, openSignUp]);
   const { getToken, sessionId } = useAuth();
-  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss, loadingHouseholds, householdsReadFailed } = useActiveHousehold();
+  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss, loadingHouseholds, householdsReadFailed, householdsLoaded, retryHouseholds } = useActiveHousehold();
 
   const {
     quantities,
@@ -6086,6 +6086,34 @@ function ProvisionsApp() {
                 fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
                 textTransform: "uppercase", color: "#A0724A", marginBottom: "10px",
               }}>Your Places</div>
+              {/* A5b (Addendum 2026-09-27): "Your places" is never drawn empty
+                  before it has loaded. Until the context's read has SUCCEEDED for
+                  this user, the zone is the Members placeholder and "+ Create new
+                  place" does not render — the empty list under a held read (V11)
+                  reads as "you have no places" and invites a duplicate household.
+                  A real (non-transient) failure gets one line and a Retry; still
+                  no Create. A successful EMPTY read (a brand-new user) renders the
+                  Create row as before. */}
+              {!householdsLoaded ? (
+                householdsReadFailed ? (
+                  <div style={{ textAlign: "center", padding: "14px 20px", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", letterSpacing: "1px" }}>
+                    Couldn't load your places
+                    <button
+                      onClick={retryHouseholds}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer", marginLeft: "10px",
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
+                        color: "#A0724A", letterSpacing: "1px", padding: 0,
+                      }}
+                    >Retry</button>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: "14px 20px", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", letterSpacing: "1px" }}>
+                    Loading…
+                  </div>
+                )
+              ) : (
+              <>
               {(myHouseholds || []).map((hh) => {
                 const isActive = hh.id === activeHouseholdId;
                 if (isActive) {
@@ -6204,6 +6232,8 @@ function ProvisionsApp() {
                     >{creatingInFlight ? "Creating…" : "Create"}</button>
                   </div>
                 </div>
+              )}
+              </>
               )}
             </div>
 
