@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
+import { scheduleHoldRetry } from "../lib/holdRetry";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 import { trace } from "@opentelemetry/api";
@@ -160,6 +161,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const bootstrapHouseholdIdRef = useRef(null);
   const bootstrappedRef = useRef(false);
   const [bootstrapped, setBootstrapped] = useState(false);
+  // Amendment 2026-09-27 (A2/A3): a transient first request is a HOLD, never
+  // terminal. Each counter bumps to re-run its effect after the backoff (or at
+  // once on `online` / visible); each ref counts consecutive transient failures
+  // for the current identity (Effect 1) or household (Effect 2) so the delay
+  // grows 1→2→4→8→16→30s and resets on success or on a change of subject.
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
+  const bootstrapHoldRef = useRef({ key: null, failures: 0 });
+  const [householdAttempt, setHouseholdAttempt] = useState(0);
+  const householdHoldRef = useRef({ key: null, failures: 0 });
   const justJoinedViaInviteRef = useRef(false);
   const realtimeChannelRef = useRef(null);
 
@@ -489,9 +499,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       return;
     }
 
+    // A2: the hold counter belongs to THIS identity+session. A different person
+    // (or the same person's next session) starts at zero.
+    const holdKey = `${userId}|${clerkId}|${sessionId || ""}`;
+    if (bootstrapHoldRef.current.key !== holdKey) bootstrapHoldRef.current = { key: holdKey, failures: 0 };
+    let cancelled = false;
+    let cancelHold = null;
+
     async function setupSession() {
-      setLoading(true);
-      setError(null);
+      // The overlay ("Loading your provisions…") shows for the first attempt
+      // only. A retry runs quietly behind the pill — flashing a full-screen
+      // overlay every backoff step would be its own failure.
+      if (bootstrapHoldRef.current.failures === 0) { setLoading(true); setError(null); }
 
       try {
         // Create Supabase client once — guard prevents stacking GoTrueClient instances on switch
@@ -533,10 +552,36 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         };
         if (pendingRefCode) bootstrapArgs.p_ref_code = pendingRefCode;
 
-        const { data: bootstrapData, error: bootstrapErr } = await db
+        const { data: bootstrapData, error: bootstrapErr, status: bootstrapStatus } = await db
           .rpc("bootstrap_new_user", bootstrapArgs);
 
-        if (bootstrapErr) throw new Error(`Bootstrap failed: ${bootstrapErr.message}`);
+        if (bootstrapErr) {
+          // A2 (Amendment 2026-09-27): bootstrap is never terminal on a
+          // transient failure. Until tonight this threw on ANY error and the
+          // effect never re-ran (its deps are identity and session), so one
+          // "TypeError: Load failed" on a cold iPhone radio left the person
+          // signed in with no household until a cold start — no catalog, no
+          // list, an empty Members zone, "Provisions". Now:
+          //   transient (the request never got an answer) or 'missing' (the
+          //   wrapper refused on a null token — Clerk must be asked again) →
+          //   report to the pill, no toast, retry with backoff (1/2/4/8/16s,
+          //   then 30s) and at once on `online` / visible.
+          //   anything the server actually said ('real', or 401/403 with a
+          //   token) → today's toast, as before.
+          const authCls = classifyAuthFailure(bootstrapErr, bootstrapStatus);
+          const holdable = authCls === 'missing' || (authCls === null && classifyFetchError(bootstrapErr) === 'transient');
+          if (holdable) {
+            if (cancelled) return;
+            bootstrapHoldRef.current.failures += 1;
+            console.warn(`bootstrap hold (${bootstrapHoldRef.current.failures}):`, bootstrapErr.message);
+            reportTransientFailure();
+            setLoading(false);
+            cancelHold = scheduleHoldRetry(bootstrapHoldRef.current.failures, () => setBootstrapAttempt((a) => a + 1));
+            return;
+          }
+          throw new Error(`Bootstrap failed: ${bootstrapErr.message}`);
+        }
+        bootstrapHoldRef.current.failures = 0;
 
         // Code has been attempted — clear the persisted copy so it can't re-trigger
         // on a future visit, regardless of whether the join actually succeeded.
@@ -609,15 +654,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
 
     setupSession();
+    return () => {
+      cancelled = true;
+      if (cancelHold) cancelHold();
+    };
     // fullName intentionally excluded: it is a cosmetic attribute that feeds
     // bootstrap_new_user (no-op for existing users) only. Including it caused a
     // name edit (which writes Clerk → changes fullName) to re-fire session
     // bootstrap and wedge the loading state. Bootstrap re-runs on identity
     // change — and, since the sign-out reset (below), on SESSION change: the
     // same person signing back in after a loss has the same Clerk id, and
-    // without sessionId here nothing would re-bootstrap.
+    // without sessionId here nothing would re-bootstrap. bootstrapAttempt is
+    // the A2 retry: bumped by the hold scheduler, nothing else.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, clerkId, email, sessionId]);
+  }, [userId, clerkId, email, sessionId, bootstrapAttempt]);
 
   // ── Sign-out reset (SPEC_auth_state_ui_gating.md §Sign-out reset, D3) ──
   // The missing half of sign-out. Until 2026-09-24 nothing here reset when the
@@ -645,6 +695,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     bootstrappedRef.current = false;
     setBootstrapped(false);
     bootstrapHouseholdIdRef.current = null;
+    bootstrapHoldRef.current = { key: null, failures: 0 };
+    householdHoldRef.current = { key: null, failures: 0 };
     internalUserIdRef.current = null;
     setReferralCode(null);
     setHouseholdReady(false);
@@ -748,13 +800,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
     if (!targetId) return;
 
+    // A3: the household-fetch hold counter belongs to THIS household.
+    if (householdHoldRef.current.key !== targetId) householdHoldRef.current = { key: targetId, failures: 0 };
+
     let pollInterval;
     let catalogPollInterval;
     let onlineTick;
+    let cancelHold = null;
     let cancelled = false;
 
     async function loadForHousehold(householdId) {
-      setLoading(true);
+      // Overlay on the first attempt only; a retry runs behind the pill (A3).
+      if (householdHoldRef.current.failures === 0) setLoading(true);
       setHouseholdReady(false);
 
       // Reset per-household state so the previous household's rows don't flash
@@ -782,7 +839,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // base columns so the app degrades to today's espresso header instead of
         // hard-erroring. Once 024 is applied, the extended select succeeds.
         const BANNER_COLS = "photo_path, photo_position_x, photo_position_y, photo_zoom, banner_wordmark, created_by";
-        let hhData = null, hhErr = null;
+        let hhData = null, hhErr = null, hhStatus = null;
         {
           const ext = await db
             .from("households")
@@ -797,15 +854,31 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
               .select("id, name, budget_goal")
               .eq("id", householdId)
               .single();
-            hhData = base.data; hhErr = base.error;
+            hhData = base.data; hhErr = base.error; hhStatus = base.status;
           } else {
-            hhData = ext.data; hhErr = ext.error;
+            hhData = ext.data; hhErr = ext.error; hhStatus = ext.status;
           }
         }
         if (hhErr) {
-          if (classifyFetchError(hhErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not fetch place: ${hhErr.message}`); }
+          // A3 (Amendment 2026-09-27): this early return was the second terminal
+          // exit — no polls, no `online` listener, nothing to re-run it. A
+          // transient failure (or the wrapper's refusal on a null token) now
+          // holds and retries exactly as bootstrap does; a real error toasts.
+          if (cancelled) return;
+          const authCls = classifyAuthFailure(hhErr, hhStatus);
+          const holdable = authCls === 'missing' || (authCls === null && classifyFetchError(hhErr) === 'transient');
+          if (holdable) {
+            householdHoldRef.current.failures += 1;
+            console.warn(`household fetch hold (${householdHoldRef.current.failures}):`, hhErr.message);
+            reportTransientFailure();
+            setLoading(false);
+            cancelHold = scheduleHoldRetry(householdHoldRef.current.failures, () => setHouseholdAttempt((a) => a + 1));
+            return;
+          }
+          setError(`Could not fetch place: ${hhErr.message}`);
           setLoading(false); return;
         }
+        householdHoldRef.current.failures = 0;
         if (cancelled) return;
         const hh = hhData;
         // Private bucket → resolve photo_path to a signed URL for the header.
@@ -956,6 +1029,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     return () => {
       cancelled = true;
+      if (cancelHold) cancelHold();
       if (pollInterval) clearInterval(pollInterval);
       if (catalogPollInterval) clearInterval(catalogPollInterval);
       if (onlineTick) window.removeEventListener("online", onlineTick);
@@ -964,7 +1038,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         realtimeChannelRef.current = null;
       }
     };
-  }, [activeHouseholdId, userId, clerkId, bootstrapped, sessionLive]); // eslint-disable-line react-hooks/exhaustive-deps
+    // householdAttempt is the A3 retry: bumped by the hold scheduler, nothing else.
+  }, [activeHouseholdId, userId, clerkId, bootstrapped, sessionLive, householdAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────────
   // updateQty: handles both global catalog items AND custom items.
