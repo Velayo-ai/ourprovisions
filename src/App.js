@@ -2826,7 +2826,7 @@ function ProvisionsApp() {
     openSignUp({ initialValues: signUpInitialValues });
   }, [isLoaded, isSignedIn, signUpInitialValues, openSignUp]);
   const { getToken, sessionId } = useAuth();
-  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss, loadingHouseholds } = useActiveHousehold();
+  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss, loadingHouseholds, householdsReadFailed } = useActiveHousehold();
 
   const {
     quantities,
@@ -4217,9 +4217,19 @@ function ProvisionsApp() {
   // shape as the join effect above: derived on every relevant render, a bounded
   // number of refresh nudges, and switchHousehold stays the single writer. The
   // null guard in checkPresence is the safety net if this never lands.
+  //
+  // A7 (Amendment 2026-09-27): this hand-off is for a lens that RESOLVED to null
+  // (a successful empty read), never for one whose read errored. On the 2026-09-27
+  // cold start the context's first get_my_households failed, the lens sat null
+  // with loadingHouseholds false, and this effect persisted bootstrap's own pick
+  // (most-recently-joined: o11y Test House) over the person's remembered place.
+  // The context now holds and retries a transient failure (loadingHouseholds
+  // stays true) and flags a real one as householdsReadFailed; both keep this
+  // effect out. The persisted place changes only by the person's own switch or
+  // by a real, successful membership read.
   const adoptTriesRef = useRef(0);
   useEffect(() => {
-    if (loading || loadingHouseholds || activeHouseholdId) return;
+    if (loading || loadingHouseholds || householdsReadFailed || activeHouseholdId) return;
     const hhId = household?.id;
     if (!hhId) return;
     if (myHouseholds.some((h) => h.id === hhId)) {
@@ -4230,7 +4240,7 @@ function ProvisionsApp() {
       adoptTriesRef.current += 1;
       refreshHouseholds();
     }
-  }, [loading, loadingHouseholds, activeHouseholdId, myHouseholds, household?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading, loadingHouseholds, householdsReadFailed, activeHouseholdId, myHouseholds, household?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-dismiss the join banner: on a timer (success confirmations self-clear),
   // and immediately if the user switches away from the joined household (the

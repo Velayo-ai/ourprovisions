@@ -680,8 +680,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // by the time this runs (userId went undefined), and App.js's meal poll dies
   // with household?.id. The catalog map goes too (D4a retired Browse's
   // signed-out preview, so nothing renders it without a session; Effect 2
-  // rebuilds it on the next household load). localStorage.activeHouseholdId
-  // stays — a per-browser convenience, validated on the next sign-in.
+  // rebuilds it on the next household load). The remembered active place (A6: per user,
+  // `activeHouseholdId:<clerkId>`) stays, validated on the next sign-in.
   const wasLiveRef = useRef(false);
   useEffect(() => {
     if (sessionLive) { wasLiveRef.current = true; return; }

@@ -4,6 +4,12 @@ import { trace } from "@opentelemetry/api";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { setHousehold } from "../rum";
 import { isPollingOpen } from "../lib/authHealth";
+import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
+import { scheduleHoldRetry } from "../lib/holdRetry";
+// A6 (Amendment 2026-09-27): the remembered active place is PER USER
+// (`activeHouseholdId:<clerkId>`), legacy per-browser key adopted once — see
+// src/lib/rememberedHousehold.js.
+import { pickActiveHousehold, rememberHousehold } from "../lib/rememberedHousehold";
 
 const ActiveHouseholdContext = createContext(null);
 
@@ -21,10 +27,24 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
   const [myHouseholds, setMyHouseholds] = useState([]);
   const [activeHouseholdId, setActiveHouseholdId] = useState(null);
   const [loadingHouseholds, setLoadingHouseholds] = useState(true);
+  // A7 (Amendment 2026-09-27): the initial get_my_households used to give up on
+  // any error, leaving the lens null with loadingHouseholds false — which read
+  // downstream as "this person has no place". A transient failure now HOLDS
+  // (loadingHouseholds stays true) and retries on the A2 backoff, bumping
+  // `householdsAttempt`; only a real error ends the load, and it sets
+  // `householdsReadFailed` so the adopt effect in App.js knows the read
+  // errored rather than returned.
+  const [householdsAttempt, setHouseholdsAttempt] = useState(0);
+  const householdsHoldRef = useRef({ key: null, failures: 0 });
+  const [householdsReadFailed, setHouseholdsReadFailed] = useState(false);
 
   // Stable ref so the effect doesn't re-fire when getToken identity changes each render.
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
+  // Mirrors clerkId for switchHousehold, which writes the per-user key (A6)
+  // and must keep a stable identity (it sits in other callbacks' deps).
+  const clerkIdRef = useRef(clerkId);
+  clerkIdRef.current = clerkId;
 
   // Keep a ref in sync so switchHousehold can validate ids without capturing stale state.
   const myHouseholdsRef = useRef([]);
@@ -131,22 +151,50 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
       setMyHouseholds([]);
       setActiveHouseholdId(null);
       setLoadingHouseholds(false);
+      setHouseholdsReadFailed(false);
+      householdsHoldRef.current = { key: null, failures: 0 };
       return;
     }
 
+    // The hold counter belongs to THIS identity+session (A7).
+    const holdKey = `${clerkId}|${sessionId || ""}`;
+    if (householdsHoldRef.current.key !== holdKey) householdsHoldRef.current = { key: holdKey, failures: 0 };
+    // Loading is TRUE for the whole read, retries included. Before this it was
+    // only ever set false (initial true, false in finally), so after a sign-out
+    // → sign-in the next read ran with loadingHouseholds already false and the
+    // adopt effect was free to persist bootstrap's pick mid-read.
+    setLoadingHouseholds(true);
+
     let cancelled = false;
+    let cancelHold = null;
 
     (async () => {
+      let holding = false;
       try {
         const db = getDb();
 
-        const { data, error } = await db.rpc("get_my_households");
+        const { data, error, status } = await db.rpc("get_my_households");
 
         if (error) {
+          if (cancelled) return;
+          // A7: a transient failure (the request never got an answer) or the
+          // wrapper's refusal on a null token is a HOLD — the list stays
+          // loading and the read retries on the A2 backoff (at once on
+          // `online` / visible). Only a real error ends the load.
+          const authCls = classifyAuthFailure(error, status);
+          const holdable = authCls === 'missing' || (authCls === null && classifyFetchError(error) === 'transient');
+          if (holdable) {
+            holding = true;
+            householdsHoldRef.current.failures += 1;
+            console.warn(`[ActiveHousehold] get_my_households hold (${householdsHoldRef.current.failures}):`, error.message);
+            cancelHold = scheduleHoldRetry(householdsHoldRef.current.failures, () => setHouseholdsAttempt((a) => a + 1));
+            return;
+          }
           console.error("[ActiveHousehold] get_my_households failed:", error);
-          if (!cancelled) setLoadingHouseholds(false);
+          setHouseholdsReadFailed(true);
           return;
         }
+        householdsHoldRef.current.failures = 0;
 
         const households = (data || []).map((row) => ({
           id: row.household_id,
@@ -156,29 +204,30 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
 
         if (cancelled) return;
 
+        setHouseholdsReadFailed(false);
         myHouseholdsRef.current = households;
         setMyHouseholds(households);
 
-        // Prefer last-selected household from localStorage if it's still a valid membership;
-        // otherwise fall back to the first returned (oldest / default ordering from DB).
-        const stored = localStorage.getItem("activeHouseholdId");
-        const isValid = households.some((h) => h.id === stored);
-        setActiveHouseholdId(isValid ? stored : (households[0]?.id ?? null));
+        // A6: this user's own remembered place if still a member (adopting the
+        // legacy per-browser key once), else the first returned.
+        setActiveHouseholdId(pickActiveHousehold(clerkId, households));
       } catch (err) {
         console.error("[ActiveHousehold] unexpected error:", err);
       } finally {
-        if (!cancelled) setLoadingHouseholds(false);
+        if (!cancelled && !holding) setLoadingHouseholds(false);
       }
     })();
 
     return () => {
       cancelled = true;
+      if (cancelHold) cancelHold();
     };
-  }, [clerkId, sessionId]);
+    // householdsAttempt is the A7 retry: bumped by the hold scheduler, nothing else.
+  }, [clerkId, sessionId, householdsAttempt]);
 
   const switchHousehold = useCallback((id) => {
     if (!myHouseholdsRef.current.some((h) => h.id === id)) return;
-    localStorage.setItem("activeHouseholdId", id);
+    rememberHousehold(clerkIdRef.current, id);   // A6: per user; a storage failure never blocks a switch
     setActiveHouseholdId(id);
   }, []);
 
@@ -280,7 +329,8 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
         // span, "No longer a member of…" — at someone who had just named their first
         // place. Nothing was lost: adopt the first household silently and return.
         if (activeHouseholdIdRef.current == null) {
-          if (households.length > 0) switchHousehold(households[0].id);
+          // A6: prefer this user's remembered place over the oldest-first default.
+          if (households.length > 0) switchHousehold(pickActiveHousehold(clerkId, households));
           return;
         }
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
@@ -356,6 +406,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
         beginDeliberateLoss,
         endDeliberateLoss,
         loadingHouseholds,
+        householdsReadFailed,
         hasMultiple: myHouseholds.length > 1,
       }}
     >
