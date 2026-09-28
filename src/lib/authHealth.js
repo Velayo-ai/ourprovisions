@@ -17,6 +17,7 @@
 // component remount — a remount is not a new session. useSyncExternalStore
 // keeps React reads tear-free.
 import { useSyncExternalStore } from "react";
+import { hasTransientNetworkPhrase, splitErrorMessage } from "./transientPhrases";
 
 // After a 401/403 with a token attached, pollers sit out this long before the
 // next attempt. Clerk's own client refresh decides whether the session is gone;
@@ -55,9 +56,13 @@ if (typeof window !== "undefined") {
 export function classifyTokenFailure(err) {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return "network";
   if (!err) return "clerk";
-  const msg = typeof err.message === "string" ? err.message : "";
-  if (err.name === "TypeError") return "network";
-  if (/Failed to fetch|NetworkError|Load failed|ERR_NETWORK|ERR_CONNECTION|ERR_INTERNET_DISCONNECTED|ERR_NAME_NOT_RESOLVED|network/i.test(msg)) return "network";
+  // Amendment 2026-09-27 (A1): the network vocabulary is the shared list in
+  // transientPhrases.js — the same one classifyFetchError reads — so the two
+  // cannot drift again (they had: this list knew "Load failed", that one did not).
+  const { name, message: msg } = splitErrorMessage(err);
+  if (name === "TypeError") return "network";
+  if (hasTransientNetworkPhrase(msg)) return "network";
+  if (/network/i.test(msg)) return "network";
   return "clerk";
 }
 
