@@ -43,6 +43,31 @@ describe("isPollingOpen — the gate every poll tick runs through", () => {
     expect(isPollingOpen()).toBe(true);
   });
 
+  // Amendment 2026-09-27, A4 — a suspended PWA misses the `offline` event.
+  test("A4: navigator.onLine false with NO event closes the gate and resyncs the store", () => {
+    setOnLine(false);                       // no `offline` event dispatched
+    expect(getAuthHealth().online).toBe(true);
+    expect(isPollingOpen()).toBe(false);
+    expect(getAuthHealth().online).toBe(false);   // the pill now reads Reconnecting…
+    setOnLine(true);                        // no `online` event either
+    expect(isPollingOpen()).toBe(true);
+    expect(getAuthHealth().online).toBe(true);
+  });
+
+  test("A4: visibilitychange → visible resyncs `online` from navigator", () => {
+    setOnLine(false);
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(getAuthHealth().online).toBe(false);
+    setOnLine(true);
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(getAuthHealth().online).toBe(false);   // hidden: no resync
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(getAuthHealth().online).toBe(true);
+  });
+
   test("token failures of either class NEVER close the gate (a hold, not a loss)", () => {
     reportToken(false, "network");
     reportToken(false, "network");

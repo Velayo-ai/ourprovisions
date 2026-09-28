@@ -43,9 +43,27 @@ function emit() {
   for (const l of listeners) l();
 }
 
+// Amendment 2026-09-27 (A4): the store used to learn `online` from the two
+// window events ONLY. A suspended PWA runs no JavaScript during Airplane Mode,
+// so the `offline` event is commonly never delivered and the store kept saying
+// online: the gate stayed open, the first ticks after resume fired before the
+// radio was up, and the pill never showed. Now the live navigator.onLine is
+// read at every gate check and on every visibilitychange, and the store moves
+// to match. It remains a hint (it can read true before the radio is up); the
+// A2 backoff, not this flag, is what guarantees recovery.
+export function syncOnline() {
+  if (typeof navigator === "undefined") return state.online;
+  const now = navigator.onLine !== false;
+  if (now !== state.online) { state = { ...state, online: now }; emit(); }
+  return now;
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener("online", () => { if (!state.online) { state = { ...state, online: true }; emit(); } });
   window.addEventListener("offline", () => { if (state.online) { state = { ...state, online: false }; emit(); } });
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncOnline(); });
+  }
 }
 
 // network: the request to Clerk never completed (offline, DNS, reset). Clerk
@@ -132,7 +150,7 @@ export function useSessionLive({ isLoaded, isSignedIn }) {
 // A missing token does NOT close the gate: the tick must run for the wrapper to
 // ask Clerk again, which is the only way the streak ever resets.
 export function isPollingOpen() {
-  if (!state.online) return false;
+  if (!syncOnline()) return false;   // A4: the live flag, not the last event heard
   if (state.rejectedAt) {
     if (Date.now() - state.rejectedAt < REJECTED_HOLD_MS) return false;
     state = { ...state, rejectedAt: null, rejectedStatus: null };
