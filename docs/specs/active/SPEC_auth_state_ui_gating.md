@@ -114,3 +114,78 @@ The truth table's `signed_in_no_token` row said "after 3 consecutive null tokens
 Field evidence: V5 on dev, 2026-09-24 — DevTools Offline ~20s on Plan produced the "You've been signed out" sheet while `Clerk.session` stayed active the whole time; the `…/tokens/supabase` refresh failed offline and three null tokens tripped the old streak rule.
 
 **Implementation note (Claude Code, 2026-09-24).** Landed in `authHealth.js` (the polling gate `isPollingOpen`, token-failure classes, `online`), the fetch wrapper (a rejecting `getToken` is caught and classified), both poll loops and the household watchdog (tick passes the gate; `online` → one immediate tick), and the `authPhase` derivation (`holding` → `signed_in_no_token`; `session_lost` only from Clerk's `isSignedIn`). §Polling discipline's "401/403 → stop the interval and raise `session_lost`" is reconciled with this amendment as follows: a poller refused with a token attached HOLDS for 10s (`REJECTED_HOLD_MS`), then tries once more; whether the session is gone is left to Clerk's own client refresh, which is the one signal above. Neither token-failure class raises `session_lost`; both ride on the `auth.session-lost` span (`auth.clerk_fail_streak`, `auth.last_fail_class`, `net.online`) so a future incident can be read rather than reconstructed. The connectivity pill gets ONE transient report per hold episode (three would flip it to "Offline — showing last saved"), and clears on the next successful read.
+
+
+## Amendment 2026-09-27 — a failed first request is never terminal
+
+**Routes to:** merge into `docs/specs/active/SPEC_auth_state_ui_gating.md` as "Amendment 2026-09-27", after Amendment 2026-09-24.
+**Scope:** OurProvisions · web client · dev first. **No migrations. No RLS or RPC changes.**
+**Supersedes:** the 2026-09-25 design-chat draft of `SPEC_auth_state_ui_gating.md` (the "Canada" spec). Its diagnosis — a silent anonymous downgrade — does not apply to this build: the wrapper already refuses a null token. Do not build from that draft. Its useful parts (loading is never empty, the account-switch walks, the phantom-household check) are carried here.
+**Gates:** the single `dev→main` promotion of this spec. The promotion now waits for this amendment and its walks.
+
+---
+
+## Why
+
+Reproduced on dev (`ed24e8e`, iPhone PWA) on 2026-09-27, and consistent with the 09-25 Canada report (a phone just off a plane):
+
+1. DT signed in, Airplane Mode for 3+ minutes, off, app reopened → toast *"Could not load meals: TypeError: Load failed"*. No Reconnecting… pill.
+2. Same tab, on LTE, sign out DT, sign in DH → toast *"Bootstrap failed: TypeError: Load failed"*. Home shows the greeting only; Plan shows its title only; Browse has no catalog; the Places sheet lists every place but shows an **empty Members zone with Invite aboard and Leave place visible**; the wordmark reads "Provisions".
+3. Tapping around for minutes, and switching back to wifi: **no heal**.
+4. Force-quit and reopen: healed, but DH landed in **o11y Test House**, not Madbury.
+
+Root cause (Claude Code trace, read-only, 2026-09-27):
+
+- **WebKit's transport error is misclassified.** iOS reports a request that never reached the server as `TypeError: Load failed`; postgrest-js hands it back as a nameless error object. `classifyFetchError` knows Chrome's `Failed to fetch` but not WebKit's phrase, and its TypeError fallback needs `err.name` — so every such failure is `'real'`, which toasts instead of going to the pill. `classifyTokenFailure` in `authHealth.js` already lists `Load failed`; the two lists drifted.
+- **Bootstrap is terminal.** `bootstrap_new_user` runs once, in Effect 1 of `useProvisions`. On any error it toasts and stops: no classification, no retry, no online listener; its deps (`userId, clerkId, email, sessionId`) don't change while the session lives. Every household-scoped load (Effect 2 and everything after it) waits on it. Effect 2's household fetch has the same terminal exit.
+- **The connectivity store never learns it was offline.** A suspended PWA runs no JavaScript during Airplane Mode, so the `offline` event is missed; the store trusts events over a live `navigator.onLine`, the poll gate stays open, and the first ticks fire before the radio is up.
+- **Not-loaded renders as empty.** Members and catalog have no loaded flag; the Members zone, Invite aboard and Leave place render off an empty array. `isHouseholdCreator` derives from members, so with members unloaded even the owner sees Leave place.
+- **The active place is per browser, not per user.** `localStorage.activeHouseholdId` survives sign-out by design, so DH inherited DT's Madbury. On the cold start the context's first `get_my_households` also failed; the adopt effect then persisted bootstrap's own pick (most recently joined) — o11y Test House.
+
+**Prod has the same bootstrap and classifier gap today** (`main` `421a4a8`: identical throw / catch / toast, identical phrase list). This is not a regression from the eleven commits. It means Helen and Elly are exposed now, and the fix belongs in the same promotion.
+
+**Checked and ruled out:** a failed or zero-row bootstrap cannot create a household (the RPC's create step runs only after it finds no live membership; a fetch that never reached the server creates nothing; the client's auto-create in `resolveAfterHouseholdLoss` holds on any fetch error).
+
+## Decisions
+
+**A1 — One transient vocabulary.** `Load failed` (WebKit) and `Failed to fetch` (Chrome) are transient on every path. The classifier recognises a nameless object whose message starts `TypeError:`. `classifyFetchError` and `classifyTokenFailure` read **one shared phrase list**, so they cannot drift again. This also closes NEXT "Offline poll failures route to the connectivity pill, never a toast" (2026-09-12).
+
+**A2 — Bootstrap is never terminal on a transient failure.** A transient bootstrap failure is a hold, not an error: report to the pill ("Reconnecting…"), no toast, and retry — bounded backoff (1, 2, 4, 8, 16, then every 30 s) **plus** an immediate attempt on `online` and on `visibilitychange` → visible. Mechanism is the builder's call; a `bootstrapAttempt` counter in Effect 1's deps is the suggested shape. A non-transient (`'real'`) bootstrap failure keeps today's toast.
+
+**A3 — Effect 2's household fetch gets the same treatment.** Its early return on error is the second terminal exit; it holds and retries exactly as A2.
+
+**A4 — Resume re-reads the world.** `isPollingOpen` consults `navigator.onLine` live, and the store resyncs `online` on `visibilitychange`. `navigator.onLine` is a hint only — it can read true before the radio is up — so the A2 backoff, not the flag, is what guarantees recovery.
+
+**A5 — Not loaded is never drawn as empty.** Add `membersLoaded` (per active household) and `catalogLoaded`. Until `membersLoaded`: the Members zone shows the quiet placeholder; **Invite aboard and Leave place do not render**; `isHouseholdCreator` is not evaluated off an empty list; the wordmark stays neutral. Until `catalogLoaded`: Browse shows the quiet placeholder, not an empty catalog. Home and Plan already gate correctly (`homeReady`, `mealsLoadedFor`) and are unchanged. No new visuals — reuse the existing placeholder; a considered loading treatment needs its own mockup pass.
+
+**A6 — Each person returns to their own last place.** The remembered active place is keyed per user: `activeHouseholdId:<clerkId>`. On sign-in, use that user's key if they're still a member; else fall back as today. Legacy key: adopt it once only if the user is a member, write the per-user key, delete the legacy key. DT's place never leaks to DH; DH comes back to Madbury.
+
+**A7 — A failed first read is not "no place".** `ActiveHouseholdContext`'s initial `get_my_households` retries on a transient error (A2's backoff) before setting `loadingHouseholds` false. The adopt effect (`App.js` ~4220) must not persist bootstrap's fallback household while the context's read has errored rather than returned. The persisted place changes only by the person's own switch or by a real, successful membership read.
+
+## Build order — one commit per slice, one tested change before the next
+
+1. **A1** classifier + shared phrase list. Extend the authHealth Node check: nameless `{message: "TypeError: Load failed"}` → transient; `Failed to fetch` → transient; a `42501` → real.
+2. **A2 + A3** bootstrap and household-fetch hold + retry.
+3. **A4** connectivity resync on resume.
+4. **A6 + A7** per-user remembered place; context initial-read retry; adopt-effect guard.
+5. **A5** `membersLoaded` / `catalogLoaded` and the Places-sheet / Browse gates. Add any new selector to the RUM allow-list only if it is chrome.
+
+## Verification — deployed dev preview, iPhone PWA on cellular unless noted
+
+- **V8 (tonight's repro).** DT signed in, Airplane Mode 3+ min, off, **wifi off**, reopen, sign out, sign in as DH. Expect: no toast; "Reconnecting…" while the radio settles; Home cards, members and catalog arrive **without any tap** once the network is up; DH lands in **Madbury** (their own last place). Members zone never shows empty with Invite / Leave.
+- **V9.** Same airplane cycle, no account switch. No "Could not load meals" toast; pill only; board and list arrive unaided.
+- **V10.** Reverse switch DH → DT in one tab. DT lands in DT's own last place, never DH's. Then DT → DH: back to Madbury.
+- **V11 (desktop Chrome, dev preview).** Block `*supabase.co*` in DevTools, sign in, unblock after ~10 s. Bootstrap completes within one backoff step of unblocking, no toast; the Places sheet shows a loading Members zone with no Invite / Leave until members arrive.
+- **V12.** Wifi return heals: repeat V8 but turn wifi back on while held — recovery on the `online` event, not only on the timer.
+- **Regression:** re-walk V1–V7 and the pill check from 2026-09-24.
+- **Phantom check (dev):** confirm no household was created for DH around 2026-09-25 12:00–15:00 UTC or tonight 20:00–20:15 local (join `household_members` → `users` on `users.id`, filter by DH's `clerk_id`; verify column names first). Record the result; delete nothing.
+
+## Promotion
+
+This amendment rides the **same single `dev→main` merge** as the rest of the spec (the 2026-09-24 no-cherry-pick rule stands). Promotion Done-when gains: **V8–V12 pass on dev**, and one hour of prod RUM shows no `Bootstrap failed` toasts alongside `auth.session-lost` = 0 and `auth.activation-stuck` = 0.
+
+## Out of scope — logged, not fixed here
+
+- Other one-shot reads with no retry: `refreshMembers` (invite / remove flows only), `fetchLeftoverCutoff`, `loadSessions`, and the reads inside Effect 2 that ignore their errors (members, profiles, hidden items, staples, sessions). A5 and A3 cover the user-visible cases; the rest → NEXT: "one-shot reads adopt the hold-and-retry pattern."
+- The watchdog treating a **successful** empty `get_my_households` as a real removal — correct by design; unchanged.
+- The 2026-09-25 two-minute self-heal: most likely an iOS page eviction and reload on return (a cold start in disguise). Not chased.
