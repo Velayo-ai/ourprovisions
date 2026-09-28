@@ -2842,6 +2842,8 @@ function ProvisionsApp() {
     loading,
     householdReady,
     bootstrapped,
+    membersLoaded,
+    catalogLoaded,
     error,
     dismissError,
     updateQty,
@@ -4863,14 +4865,18 @@ function ProvisionsApp() {
   // ── Edit household sheet (OurBanner) ──
   // Am I the creator? Creator-only Delete gate (spec D4). The switcher already
   // proved the owner-role identity works; reuse it.
-  const isHouseholdCreator = householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner');
+  // A5 (Amendment 2026-09-27): never derived from an EMPTY list — until this
+  // place's members have been read, nobody is the creator and nobody may Leave
+  // (with members unloaded the owner used to see "Leave place").
+  const isHouseholdCreator = membersLoaded && householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner');
 
   // ── Earned "Our" (SPEC_wordmark_earned_our.md) ──
   // The single source of truth for the header wordmark. `householdMembers` is already
   // reloaded per active household, so switching re-evaluates this for free — no new
   // state, no new query. Signed out or still loading both land on false, which is the
-  // point: "Provisions" is the default in every unknown state.
-  const hasEarnedOur = isSignedIn && householdMembers.length > 1;
+  // point: "Provisions" is the default in every unknown state (A5: neutral until the
+  // members are actually loaded, not merely absent).
+  const hasEarnedOur = isSignedIn && membersLoaded && householdMembers.length > 1;
 
   // Draft has a photo when a new file is staged OR an existing stored path survives.
   const edHasPhoto = !!edFile || !!edPhotoPath;
@@ -5046,8 +5052,10 @@ function ProvisionsApp() {
     cat.items.filter(item => checked[item.listItemId])
   );
 
-  // Loading state for catalog — only true while fetch is in flight, not based on result size
-  const catalogLoading = loading;
+  // Loading state for catalog — only true while fetch is in flight, not based on result size.
+  // A5 (Amendment 2026-09-27): and until this place's catalog has actually been read —
+  // an unloaded catalog is the quiet placeholder, never an empty Browse with one chip.
+  const catalogLoading = loading || (sessionLive && !catalogLoaded);
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
@@ -6208,9 +6216,17 @@ function ProvisionsApp() {
                 textTransform: "uppercase", color: "#A0724A", marginBottom: "14px",
               }}>{(household?.name || "This place")} · Members</div>
 
-              {/* Member list */}
+              {/* Member list. A5 (Amendment 2026-09-27): until this place's members
+                  have been read, the zone is the existing quiet placeholder (the
+                  Browse catalog's) and the two verbs below do not render — "not
+                  loaded" is never drawn as "empty" (2026-09-27: an empty roster
+                  under Invite aboard and Leave place, for minutes). */}
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {householdMembers.map((m) => {
+                {!membersLoaded ? (
+                  <div style={{ textAlign: "center", padding: "14px 20px", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", letterSpacing: "1px" }}>
+                    Loading…
+                  </div>
+                ) : householdMembers.map((m) => {
                   const clerkId = m.users?.clerk_id;
                   const isMe = clerkId === user?.id;
                   const displayName = m.users?.full_name
@@ -6267,6 +6283,7 @@ function ProvisionsApp() {
                   structurally different, not just differently worded: espresso card vs.
                   outlined, ?invite= vs. ?ref=, names the place vs. never names it.
                   Hierarchy carries the distinction; neither verb gets a confirm. */}
+              {membersLoaded && (
               <button
                 onClick={handleInviteShare}
                 disabled={invitePreparing}
@@ -6299,6 +6316,7 @@ function ProvisionsApp() {
                   </div>
                 </div>
               </button>
+              )}
 
               {/* Hidden until the referral code is in hand. D8 says every in-app share
                   carries invite or ref and NEVER a naked URL, so with no code there is
@@ -6339,8 +6357,10 @@ function ProvisionsApp() {
 
               {/* Leaving is a membership action (you removing yourself) → it lives in
                   the membership zone, for non-creators. Delete (the entity action) is
-                  creator-only and lives inside Edit household (spec D3/D4). */}
-              {!isHouseholdCreator && (
+                  creator-only and lives inside Edit household (spec D3/D4). A5: not
+                  until the members are loaded — "not the creator" is unknowable off
+                  an empty list. */}
+              {membersLoaded && !isHouseholdCreator && (
                 <button
                   onClick={() => handleLeaveHousehold()}
                   style={{

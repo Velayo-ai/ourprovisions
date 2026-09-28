@@ -63,6 +63,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // with 18 items on the list). The splash gate and the landing decision wait
   // on this, not on loading. Reset on every household load.
   const [householdReady, setHouseholdReady] = useState(false);
+  // A5 (Amendment 2026-09-27): "not loaded" must never draw as "empty". These
+  // hold the id of the household whose members / catalog have been read at
+  // least once; the derived membersLoaded / catalogLoaded compare against the
+  // ACTIVE household, so a switch reads as not-loaded until the new place's
+  // rows are in. Reset with the rest of the household world on sign-out.
+  const [membersLoadedFor, setMembersLoadedFor] = useState(null);
+  const [catalogLoadedFor, setCatalogLoadedFor] = useState(null);
   const [error, setError] = useState(null);
   // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
   const errorSourceRef = useRef(null);
@@ -692,6 +699,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setHousehold(null);
     setHouseholdMembers([]);
     householdMembersRef.current = [];
+    setMembersLoadedFor(null);
+    setCatalogLoadedFor(null);
     bootstrappedRef.current = false;
     setBootstrapped(false);
     bootstrapHouseholdIdRef.current = null;
@@ -913,6 +922,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         }));
         setHouseholdMembers(membersWithProfiles);
         householdMembersRef.current = membersWithProfiles;
+        setMembersLoadedFor(hh.id);
 
         // Open shopping sessions — mine adopted (or expired), partner's noted.
         await loadSessions(db, hh.id);
@@ -978,6 +988,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         });
         setCatalogMap(cMap);
         catalogRef.current = cMap;
+        setCatalogLoadedFor(hh.id);
         const hintPrices = {};
         Object.values(cMap).forEach(item => {
           if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
@@ -2214,6 +2225,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       }));
       setHouseholdMembers(membersWithProfiles);
       householdMembersRef.current = membersWithProfiles;
+      setMembersLoadedFor(hh.id);
     } catch (err) {
       console.error("refreshMembers error:", err.message);
     }
@@ -3514,6 +3526,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   return {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
     hiddenCatalogItems, loading, householdReady, bootstrapped, error, dismissError,
+    // A5: per active household — false until that place's rows have been read once.
+    membersLoaded: !!household?.id && membersLoadedFor === household.id,
+    catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
