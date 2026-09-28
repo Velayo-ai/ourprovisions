@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-09-24 SESSION END (+ **Auth state — `authPhase`, the token-health store, the polling gate, the sign-out reset, the Clerk router-functions requirement, the landing rule, the PII scrub** as a new section (BUILT ON DEV; Part A on prod); the 2026-09-05 "Gating identity-requiring actions" section's systemic open item closed; Core Files: `src/lib/authHealth.js`, `src/lib/supabaseClient.js` (path corrected), `classifyFetchError` gains `classifyAuthFailure`)*
+*Last updated: 2026-09-27 SESSION END (+ **Amendment 2026-09-27 — a failed first request is never terminal** appended to the Auth state section: one transient vocabulary (`src/lib/transientPhrases.js`), the hold-and-retry primitive (`src/lib/holdRetry.js`) as the pattern for one-shot reads, `syncOnline` on the store, the loaded flags (`membersLoaded` / `catalogLoaded` / `householdsLoaded`, `householdsReadFailed`, `retryHouseholds`), the per-user remembered place (`src/lib/rememberedHousehold.js`), pill copy (`src/lib/pillState.js`), committed Jest suites, the offline verification recipe; Core Files rows for the four new libs and the changed context / pill; BUILT ON DEV `9c9b4fc` → `9d5e9dd`, V1–V14 green)*
 
 ---
 
@@ -388,7 +388,7 @@ going false is the only session-loss signal; a missing token is a hold.
 
 ---
 
-## Auth state — `authPhase`, the token-health store, the polling gate *(2026-09-24; `SPEC_auth_state_ui_gating.md` + Amendment; **BUILT ON DEV** `260aad2` → `6ff6690`; Part A `143037f` **LIVE ON PROD** as `421a4a8`)*
+## Auth state — `authPhase`, the token-health store, the polling gate, hold-and-retry *(2026-09-24 → 09-27; `SPEC_auth_state_ui_gating.md` + Amendment 2026-09-24 + Amendment 2026-09-27 (A1–A7) + Addendum A5b; **BUILT ON DEV** `260aad2` → `6ff6690`, then `9c9b4fc` → `9d5e9dd`; Part A `143037f` **LIVE ON PROD** as `421a4a8`)*
 
 Two questions, kept apart on purpose. **Is there a session?** Clerk's React context answers
 (`isLoaded`, `isSignedIn`) — and it is the ONE signal that can end a session in this app.
@@ -405,8 +405,8 @@ read through `useSyncExternalStore`.
   door gating, the Home welcome — keys on `sessionLive` (= Clerk loaded + signed in), never on
   `household?.id` alone. `auth.phase-change` spans on every transition.
 - **The fetch wrapper refuses.** `createSupabaseClient` catches a null OR rejecting `getToken`,
-  classifies it (`network`: `TypeError` / "Failed to fetch" / `navigator.onLine === false`; else
-  `clerk`), reports it to the store and throws `AuthTokenMissing`. It never sends `apikey`-only.
+  classifies it (`network`: `TypeError` / the shared transient phrase list / `navigator.onLine === false`;
+  else `clerk`), reports it to the store and throws `AuthTokenMissing`. It never sends `apikey`-only.
   postgrest-js surfaces the throw as `{ error: { message: "AuthTokenMissing: …" }, status: 0 }`;
   a real HTTP refusal arrives as `status: 401 | 403`. `classifyAuthFailure(error, status)` in
   `classifyFetchError.js` names the class BEFORE the transient/real split.
@@ -423,7 +423,8 @@ read through `useSyncExternalStore`.
   `ActiveHouseholdContext` when `clerkId` is withdrawn: `supabaseRef`, `householdRef`, `household`,
   members, `bootstrapped`, list/cycle/session/placements/catalog state, the shared error. Both key
   their resolve effects on Clerk's `sessionId` too, so the same person signing back in
-  re-bootstraps. `localStorage.activeHouseholdId` stays (validated on the next sign-in).
+  re-bootstraps. The remembered active place stays — per USER since A6 (see below), validated on the
+  next sign-in.
 - **Landing is decided once per load** (`landingDecided`): a hash wins (deep link, invite,
   bookmark) and, signed out, the KEPT `view` is the pendingRoute under the Home welcome; a bare load
   in `ready` goes to Shop when the list has unbought items (the Shop badge's count), else Home; a
@@ -456,9 +457,66 @@ read through `useSyncExternalStore`.
 - **Dependency hygiene:** one `@clerk/clerk-react` 5.61.4, one `@clerk/shared`; clerk-js itself is
   hot-loaded from the CDN (5.128.0 at the time of the diagnosis).
 
-Verification of record: V1–V7 in the spec, all passed on the dev domain 2026-09-24; the `authHealth`
-store has a sixteen-assertion Node check (not committed) — offline closes the gate, failures never
-close it, a refusal holds then lapses, the classifier, reset.
+**Amendment 2026-09-27 — a failed first request is never terminal** *(A1–A7 + Addendum A5b; from the
+09-25 "Canada" bug, reproduced on the iPhone PWA: Airplane Mode → resume → account switch →
+"Bootstrap failed: TypeError: Load failed", no heal short of a cold start. Prod `421a4a8` carries the
+same gap until the promotion.)*
+
+- **Transient classification is ONE vocabulary:** `src/lib/transientPhrases.js` holds the phrase list
+  ("Failed to fetch" Chrome, "Load failed" WebKit, "NetworkError", `ERR_*`) plus `splitErrorMessage`,
+  which reads postgrest-js's NAMELESS `{ message: "TypeError: Load failed", status: 0 }` and a named
+  browser error alike. `classifyFetchError` and `authHealth.classifyTokenFailure` both read it — they
+  had drifted (authHealth knew "Load failed", the fetch classifier did not), which is the whole bug.
+  A server that ANSWERED (401/403, 42501, any PostgREST error) is never transient by this list.
+- **Hold-and-retry primitive:** `src/lib/holdRetry.js` `scheduleHoldRetry(failures, onRetry)` —
+  backoff 1/2/4/8/16 s then every 30 s, PLUS an immediate attempt on `online` and on
+  `visibilitychange` → visible; returns a cancel for the effect cleanup. A transient failure (or the
+  wrapper's `'missing'` — Clerk must be asked again) reports to the pill, sets no toast and schedules
+  the next attempt by bumping a counter that sits in the effect's deps: bootstrap (Effect 1,
+  `bootstrapAttempt`), the household fetch (Effect 2, `householdAttempt`), the context's initial
+  `get_my_households` (`householdsAttempt`). Counters are keyed on identity+session (or household) and
+  cleared by the sign-out reset. The loading overlay shows for the first attempt only; retries run
+  behind the pill. A `'real'` error, or a 401/403 with a token, keeps its toast. **This is the pattern
+  for any one-shot read** (NEXT: `refreshMembers`, `fetchLeftoverCutoff`, `loadSessions`, Effect 2's
+  error-ignoring reads).
+- **Connectivity store resync:** `authHealth.syncOnline()` reads the live `navigator.onLine` on every
+  `isPollingOpen` check and on visible, and moves the store to match. A suspended PWA runs no JS
+  during Airplane Mode, so the `offline` event is commonly never delivered — the store used to trust
+  events alone and kept the gate open on resume. `navigator.onLine` is a hint (it can read true
+  before the radio is up); the backoff is what guarantees recovery.
+- **Loaded flags — never infer "loaded" from an empty array:** `householdReady` (list),
+  `mealsLoadedFor` (board), `membersLoadedFor` / `catalogLoadedFor` (hook, exposed as
+  `membersLoaded` / `catalogLoaded`, compared to the ACTIVE household so a switch reads not-loaded),
+  `householdsLoadedFor` (context, exposed as `householdsLoaded`, compared to the current clerkId, set
+  only on a successful read, cleared on sign-out). Until loaded: the Members zone, "Your places" and
+  Browse show the quiet placeholder; Invite aboard, Leave place and "+ Create new place" do not
+  render; `isHouseholdCreator` is false (so Delete inside Edit household hides too); the wordmark
+  stays "Provisions". `householdsReadFailed` (a REAL failure) selects "Couldn't load your places" +
+  Retry; `retryHouseholds` re-runs the full initial read — resolve the lens, clear the failure, stamp
+  loaded — not `refreshHouseholds`, which does none of those.
+- **The remembered active place is per user:** `src/lib/rememberedHousehold.js`, key
+  `activeHouseholdId:<clerkId>`; the legacy per-browser `activeHouseholdId` is adopted once only if the
+  user is a member, then deleted, else left for whoever it belongs to. `switchHousehold` and the
+  watchdog's null-lens branch both go through `pickActiveHousehold`. The context sets
+  `loadingHouseholds = true` at the START of every read (it was only ever set false, so a sign-out →
+  sign-in read ran "not loading" and the App adopt effect could persist bootstrap's fallback mid-read);
+  the adopt effect also returns on `householdsReadFailed`. The persisted place changes only by the
+  person's own switch or by a real, successful membership read.
+- **Pill copy:** `src/lib/pillState.js` `resolvePillState(connState, hasSavedData)` — "offline" with
+  nothing saved renders as "reconnecting"; App passes `householdReady`. Visibility still follows
+  `connState` alone.
+- **Tests:** committed Jest suites under `src/lib/` (`authHealth`, `holdRetry`, `rememberedHousehold`,
+  `pillState`; 39 assertions), `CI=true npx react-scripts test --watchAll=false src/lib`. The 09-24
+  sixteen-assertion Node check lives on inside `authHealth.test.js`.
+- **Verification recipe for offline work:** iPhone PWA, Airplane Mode 3+ min, resume on cellular only;
+  desktop Chrome DevTools → Request conditions, pattern `https://zxwtxjjmssykhqrghouf.supabase.co/*`
+  → Block (this Chrome needs full URLPattern syntax; `*supabase.co*` fails to parse). Delete the rule
+  afterwards — it persists across DevTools sessions. A bundle-marker proof must baseline against the
+  PREVIOUS deployment's own URL, not the dev alias, which flips ~30 s after a push.
+
+Verification of record: V1–V7 in the spec, all passed on the dev domain 2026-09-24 and re-walked
+green on `9d5e9dd` 2026-09-27; V8–V14 (Amendment 2 + A5b) passed 2026-09-27 on iPhone and desktop;
+phantom-household check on dev zero.
 
 ---
 
@@ -880,11 +938,16 @@ account is uncovered and will never report it; pre-09-11 sessions are unknowable
 |---|---|
 | `src/App.js` | Main React component — all UI, tabs, modals, list rendering |
 | `src/hooks/useProvisions.js` | All data logic — Supabase queries, state, real-time subscriptions |
-| `src/lib/classifyFetchError.js` | `classifyFetchError` returns `'transient'` or `'real'`; `classifyAuthFailure(error, status)` returns `'rejected'` (401/403) / `'missing'` (`AuthTokenMissing`) / `null` and is checked FIRST by every polled read. Imports `isAuthTokenMissing` from `supabaseClient`. |
-| `src/lib/authHealth.js` | Token-health store + polling gate (module singleton, `useSyncExternalStore`): `reportToken` / `classifyTokenFailure` / `reportAuthRejected` / `isPollingOpen` / `useSessionLive` / `useAuthHealth`; tracks `online` from `navigator.onLine` + events; `markDeliberateSignOut`. |
-| `src/contexts/ActiveHouseholdContext.js` | Multi-household spine. Holds `myHouseholds`, `activeHouseholdId`, `switchHousehold`, `refreshHouseholds`. Runs 30s `checkPresence` interval (Layer-2 removal detection). Exports `resolveAfterHouseholdLoss(lostId, notifyRemoval, lostName)` — the single switch-or-provision path guarded by `provisioningRef`; shared by `checkPresence` and `handleDeleteHousehold` so there is one provisioning code path with one in-flight guard. `notifyRemoval=false` for the deleting owner (suppress the removal notice), `true` for external removal via `checkPresence`; optional `lostName` names the departed household in the notice (falls back to the sticky `activeHouseholdNameRef`). Also exports `beginDeliberateLoss`/`endDeliberateLoss` — the deliberate-loss guard (see Key Patterns): the delete/leave handlers raise `deliberateLossRef` *before* their RPC and clear it in `finally`, and `checkPresence` bails while it (or `resolvingRef`) is set, so the watchdog poll cannot double-fire a removal the deliberate path is already handling. |
+| `src/lib/classifyFetchError.js` | `classifyFetchError` returns `'transient'` or `'real'` (reads the shared phrase list via `splitErrorMessage`, so postgrest's nameless "TypeError: Load failed" is transient); `classifyAuthFailure(error, status)` returns `'rejected'` (401/403) / `'missing'` (`AuthTokenMissing`) / `null` and is checked FIRST by every polled read. Imports `isAuthTokenMissing` from `supabaseClient`. |
+| `src/lib/transientPhrases.js` | The ONE transient-network vocabulary (`TRANSIENT_NETWORK_PHRASES`, `hasTransientNetworkPhrase`, `splitErrorMessage`) read by both classifiers (A1, 2026-09-27). |
+| `src/lib/holdRetry.js` | `scheduleHoldRetry(failures, onRetry)` — the hold-and-retry primitive for one-shot reads: 1/2/4/8/16 s then 30 s, immediate on `online` / visible, cancelable (A2/A3/A7). |
+| `src/lib/rememberedHousehold.js` | The per-user remembered active place: `activeHouseholdId:<clerkId>`, one-time legacy adoption, `pickActiveHousehold` (A6). |
+| `src/lib/pillState.js` | `resolvePillState(connState, hasSavedData)` — "offline" with nothing saved renders as "reconnecting" (A5b). |
+| `src/lib/*.test.js` | Committed Jest suites for the four libs above plus `authHealth` (39 assertions); `CI=true npx react-scripts test --watchAll=false src/lib`. |
+| `src/lib/authHealth.js` | Token-health store + polling gate (module singleton, `useSyncExternalStore`): `reportToken` / `classifyTokenFailure` / `reportAuthRejected` / `isPollingOpen` / `syncOnline` / `useSessionLive` / `useAuthHealth`; `online` from the live `navigator.onLine` (resynced on every gate check and on visible) + the two events; `markDeliberateSignOut`. |
+| `src/contexts/ActiveHouseholdContext.js` | Multi-household spine. Holds `myHouseholds`, `activeHouseholdId`, `switchHousehold`, `refreshHouseholds`, and since 2026-09-27 `loadingHouseholds` (true from the START of every read), `householdsReadFailed`, `householdsLoaded`, `retryHouseholds`; the initial read holds and retries on a transient failure. Runs 30s `checkPresence` interval (Layer-2 removal detection). Exports `resolveAfterHouseholdLoss(lostId, notifyRemoval, lostName)` — the single switch-or-provision path guarded by `provisioningRef`; shared by `checkPresence` and `handleDeleteHousehold` so there is one provisioning code path with one in-flight guard. `notifyRemoval=false` for the deleting owner (suppress the removal notice), `true` for external removal via `checkPresence`; optional `lostName` names the departed household in the notice (falls back to the sticky `activeHouseholdNameRef`). Also exports `beginDeliberateLoss`/`endDeliberateLoss` — the deliberate-loss guard (see Key Patterns): the delete/leave handlers raise `deliberateLossRef` *before* their RPC and clear it in `finally`, and `checkPresence` bails while it (or `resolvingRef`) is set, so the watchdog poll cannot double-fire a removal the deliberate path is already handling. |
 | `src/contexts/ConnectivityContext.js` | State machine exposing `connState` + `reportTransientFailure` / `reportSuccess`. Reads `authHealth.online`: "reconnecting" while `navigator.onLine` is false, "recovered" on every return; the failure counter is the one-bar fallback. Provider + `useConnectivity` hook. |
-| `src/components/ConnectivityPill.js` | Bottom-center status pill; renders nothing when `connState === 'online'`. |
+| `src/components/ConnectivityPill.js` | Bottom-center status pill; renders nothing when `connState === 'online'`; takes `hasSavedData` (App passes `householdReady`) so "Offline — showing last saved" is never claimed before anything has loaded. |
 | `src/lib/supabaseClient.js` | `createSupabaseClient(getToken, storageKey)` — one client per caller (distinct `storageKey`); the fetch wrapper asks Clerk for a fresh token on EVERY request, reports to `authHealth`, and REFUSES (`AuthTokenMissing`) on a null or rejecting `getToken` — never `apikey`-only. |
 | `public/index.html` | Shell — Open Graph tags, Clerk script, favicon |
 | `CLAUDE.md` (repo root) | Claude Code standing context + Session Scribe routine |
