@@ -5226,7 +5226,11 @@ function ProvisionsApp() {
         // children that need interaction opt back in individually.
         pointerEvents: "none",
       }}>
-        <ConnectivityPill />
+        {/* A5b: "Offline — showing last saved" only once this household's list has
+            actually arrived (householdReady — the same signal the splash and the
+            landing rule treat as "the data is on screen"); before that, a fresh
+            sign-in with nothing saved reads "Reconnecting…". */}
+        <ConnectivityPill hasSavedData={householdReady} />
 
         {/* Error toast — carries a Dismiss button, so it opts into pointer events */}
         {error && (
