@@ -40,8 +40,8 @@ Mockups: canvas "OurProvisions Home v2", artboards **Shop — wrap up, choose wh
 - **Floors:** the Paced floor is shared with 053. Reference one definition rather than copying the number, so tuning one tunes both. The minimum-checks floor (placeholder **5**) is new and belongs to this task only.
 
 ## Prerequisites (hard)
-1. **Duplicate `checked` events from one tap** (ROADMAP NEXT, 2026-09-20). They inflate check count and deflate median gap, corrupting both Paced and "faster". Fix first.
-2. **Crew RLS bug** (Clerk string vs uuid on crew tables), before anything is actually posted to a crew. Wrap Up's household-only summary can ship without it.
+1. ~~**Duplicate `checked` events from one tap**~~ — **MET** (amended 2026-09-28): fixed at emission 2026-09-21 (dev `bf4f9cc`, prod `b6afec6`; `docs/specs/built/SPEC_checked_event_duplicate_emission.md`), on prod. The concern stands as the reason the fix mattered here: duplicates inflate check count and deflate median gap, corrupting both Paced and "faster".
+2. **Crew RLS bug** (`velayo_crews` / `velayo_crew_members`, Clerk string vs uuid) — **OPEN**, before anything is actually posted to a crew. Status still contested: migration `014` rewrote these policies and may already cover it; settle it by reading the live policies before any crew build (ROADMAP NEXT P1, widened 2026-09-27 to recipe giving and crew news). Wrap Up's household-only summary can ship without it.
 
 ## Out of scope
 - Storing and displaying crew posts (crew feed spec, next).
@@ -63,4 +63,4 @@ Mockups: canvas "OurProvisions Home v2", artboards **Shop — wrap up, choose wh
 6. RPC from a non-member of the household → refused (live RLS test in the running app; the SQL editor bypasses RLS).
 
 ## Why a spec
-It reuses 053's legs across tasks while deliberately not reading 053's view. It carries a truth table and two hard prerequisites a future session would otherwise miss.
+It reuses 053's legs across tasks while deliberately not reading 053's view. It carries a truth table and one open hard prerequisite (the crew RLS status) a future session would otherwise miss; the other, the duplicate `checked` fix, was already met when this spec was filed.
