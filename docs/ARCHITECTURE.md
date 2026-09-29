@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-09-28 SESSION END (+ **prod client = dev client as of `5a7a255`** — the Auth state section LIVE ON PROD; the promotion rule reworded ("one `dev→main` merge" = one tree-identity commit, never `git merge`); `@clerk/react` gone on prod too; prod `rum.js` = dev's again (D5 URL scrub + two Home v1 allow-list selectors, fixed copy only); the Leftovers source-list rule written down as it stands, wrap-up-counted, slated to become "cooked within N days")*
+*Last updated: 2026-09-28 SESSION END (+ **prod client = dev client as of `5a7a255`** — the Auth state section LIVE ON PROD; the promotion rule reworded ("one `dev→main` merge" = one tree-identity commit, never `git merge`); `@clerk/react` gone on prod too; prod `rum.js` = dev's again (D5 URL scrub + two Home v1 allow-list selectors, fixed copy only); the Leftovers source-list rule written down as it stands, wrap-up-counted, slated to become "cooked within N days") · **second SESSION END 2026-09-28 (remote design session 2026-09-26 → 09-27 merged):** new forward-model section "Home v2 — essentials, crew news, recipe giving, the Wrap Up share" with the Home-only banner instruction of record (NOT built) and four patterns (task-named qualification with shared legs; relative public, absolute private; earned social layer; loves route by lineage); notes on the HOME IA bullet and the OurBanner section*
 
 ---
 
@@ -1438,7 +1438,7 @@ The meal↔item model, the one-list/two-lens invariant, the HOME/PLAN/BROWSE/SHO
 - Both gestures must produce the SAME state (quantity 0, still visible, still tagged) so the two lenses never diverge. Same shape as the existing **"hide is a lens, not an edit"** principle — the recipe is stable; only the shopping instance changes.
 
 ### Nav / IA — HOME / PLAN / BROWSE / SHOP
-- **HOME** — ambient landing: activity feed from `list_items` (`added_by`/`checked_by`/`created_at`/`updated_at`), meals, events. **Buildable on data already stored** (`provision_cycles` exists; member profiles via `get_household_member_profiles`). Insights / meal-planning cards render as **honest dormant slots** until their engines (Phase 2 / OurChef) land — pluggable, no redesign when they fill.
+- **HOME** — *(redefined 2026-09-27, design-level: **essentials, then crew news** — see "Home v2 — forward model"; the activity-feed framing below is the older model, and activity-for-solo was cut)* ambient landing: activity feed from `list_items` (`added_by`/`checked_by`/`created_at`/`updated_at`), meals, events. **Buildable on data already stored** (`provision_cycles` exists; member profiles via `get_household_member_profiles`). Insights / meal-planning cards render as **honest dormant slots** until their engines (Phase 2 / OurChef) land — pluggable, no redesign when they fill.
 - **PLAN** — week-shaper: cook / leftover / out nights, budget, events — feeds BROWSE. **✅ v1 BUILT 2026-08-19 (dev only) — PLAN now owns the Meals lens.** The week-shaper, budget and events remain forward model.
 - **BROWSE** — ~~two-lens list builder (Ingredients ⇄ Meals)~~ **⚠️ SUPERSEDED 2026-08-19 — Browse is INGREDIENTS-ONLY.** The Ingredients⇄Meals toggle and its `browseLens` state are deleted; Browse renders items + categories and nothing else, per the 2026-08-17 IA decision. The persistent conversational composer is still forward model.
 - **SHOP** — unchanged. Still renders the "Multiple meals" provenance badge, which is why provenance must stay fresh on SHOP as well as PLAN.
@@ -1519,6 +1519,25 @@ The meal↔item model, the one-list/two-lens invariant, the HOME/PLAN/BROWSE/SHO
 
 ---
 
+
+## Home v2 — essentials, crew news, recipe giving, the Wrap Up share — forward model *(design-level, remote session 2026-09-26 → 09-27; **NOTHING BUILT**; mockups `docs/mockups/mockup_home_essentials_crew_news.html`, `docs/mockups/mockup_wrapup_share.html`, reference `.jpg`s under `docs/mockups/reference/`; spec so far: `docs/specs/active/SPEC_wrapup_share.md`; `SPEC_home_v1_essentials.md` and the crew feed spec are still to write)*
+
+Home v1 (the Tonight card + the list card, live on prod as interim since `5a7a255`) is superseded by this design when built. Home becomes **essentials, then crew news**: greeting + date, the Tonight card as **"on deck"** (one meal, fixed order, no time-of-day reshuffling; the action follows state — Cooked it · Add to Shop · held night · nothing planned; Switch reuses Plan's reorder), a list line, a budget line with a thin bar; then a seam line ("That's tonight sorted.") and a finite, opt-in crew feed.
+
+**Home-only banner — plain instruction for Claude Code (no spec; → ROADMAP NEXT; not built):**
+> In `App.js`, render the OurBanner block (the photo wrapper, dissolve gradient and Row 2 wordmark band) only when `view === "home"`. On Plan, Browse and Shop, render Row 1 alone (avatar · ⚓ household ⚓ · Velayo dots) on `#1a0e06`. Home is unchanged: photo, `banner_wordmark`, earned-*Our* fade. The ⚓ household button stays in Row 1 on every tab (it's the household-sheet trigger off Home). Signed-out users still land on Home via `signedOutWelcome`. Verify on the dev preview: Home → Plan collapses with no photo flash, and Plan → Home restores it without a layout jump.
+
+*(Interaction noted at merge: this leaves the wordmark row on the signed-out Home, where it reads "Provisions" above the welcome's "OurProvisions". ROADMAP NEXT "Signed-out entry cleanup" step 3 proposes hiding the wordmark row while signed out; the two combine cleanly.)*
+
+**Patterns established (design-level):**
+- **Task-named qualification, shared legs.** A new task that needs "valid sessions" defines its own qualification (the Wrap Up share's `get_wrap_up_summary` RPC) and reuses 053's exclusion flags and Paced floor by reference. It never reads `aisle_order_sessions` (053 D5). Floors and boundaries are declared once, so tuning is a re-read, never a rewrite.
+- **Relative public, absolute private.** Anything leaving a household carries claims ("under budget", "beat his last big shop"), never amounts, items, or store.
+- **Earned social layer.** Crew news and activity appear only when there are other people, the same rule as the earned *Our*.
+- **Loves route by lineage.** A love on a copy routes to `copied_from_household_id` (the direct giver). No sync, consistent with lineage being provenance-only (see "Meals data model — buildable schema").
+
+**Recipe giving (design):** two paths — **crew** (household cards, in-app doorbell; the crew is `velayo_crews`, no Harbour dependency) and **link** (share sheet; doubles as an invite). An optional note travels with the gift. "Thank you" (at accept) and "loved it" (after cooking) are separate moments, delivered in-app to the direct giver's Home. A recipe can be taken straight from a crew post without the doorbell — posting to crew is consent. **Prerequisite:** the `velayo_crews` / `velayo_crew_members` RLS status (see "Crew catalog sharing" below — migration `014` vs the design chat's report; settle by reading the live policies).
+
+**Proposed, not built:** `get_wrap_up_summary(p_session_id)` — security definer, 051 household-authorization pattern. No new tables or columns. Full contract in `SPEC_wrapup_share.md`. Its stated prerequisite — the duplicate `checked` events — was already fixed at emission 2026-09-21 (dev `bf4f9cc`, prod `b6afec6`).
 
 ## Crew catalog sharing — forward model *(design-level 2026-08-23; NOTHING BUILT; `docs/specs/active/SPEC_crew_catalog_sharing.md`)*
 
@@ -2086,6 +2105,8 @@ The scrim is a **shared primitive**: the landing hero and the app header are the
 **Process gap (closed 2026-07-16) — approved mockups must ride the manifest.** `household_photo_header.html` won an eye-test Jul 11 and was scheduled for Beat 1 but was never listed in a `DROPPED_FILES` manifest, so it existed only in a chat while ROADMAP held its decisions as prose. A mockup that wins an eye-test and gets scheduled is filed to `docs/mockups/` — done for this one now.
 
 ### ★ OurBanner — the Beat 1 design of record *(2026-07-18; SUPERSEDES the requirements above)*
+
+> **2026-09-27 (design, not built):** the banner moves to **HOME only**; Plan, Browse and Shop render Row 1 alone. Instruction of record in "Home v2 — forward model"; storage, framing and the earned *Our* are unchanged.
 
 The 2026-07-18 design session built the real feature and **overrides two things above.** Spec: `docs/specs/built/SPEC_household_photo_header.md`; mockup of record (tiebreaker): `docs/mockups/mockup_ourbanner.html`. Migration 024 is applied and the feature is **live on prod** — both verification checklists walked 2026-08-15.
 
