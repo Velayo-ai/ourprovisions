@@ -158,6 +158,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // 5→4→5 flicker family, one surface over).
   const [placements, setPlacements] = useState({});
   const placementsRef = useRef({});
+  // Cook log (058, SPEC_replan_cook_history.md): meal_id → { lastCookedAt, count }
+  // for the active household, reduced client-side from meal_cooks (SELECT only —
+  // rows arrive through the cook_meal RPC, never from here). Loaded with the
+  // household (Effect 2) and after every markCooked; loadPlacements re-reads it
+  // when any cookedAt changed, because a partner's cook changes a placement and
+  // the 2s Plan poll is therefore already the change signal — no new poll.
+  // Read by madeBefore (D5) and App.js's Leftovers sheet (D4).
+  const [cooks, setCooks] = useState({});
   const reorderPendingRef = useRef(0);
   const eventSeqRef = useRef(0);
   const sessionStartingRef = useRef(null);
@@ -733,6 +741,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     boughtFingerprintRef.current = "";
     setPlacements({});
     placementsRef.current = {};
+    setCooks({});
     errorSourceRef.current = null;
     setError(null);
     setLoading(false);
@@ -840,6 +849,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       boughtFingerprintRef.current = "";
       setPlacements({});
       placementsRef.current = {};
+      setCooks({});
 
       try {
         // Fetch the household record. Banner columns (migration 024) are read
@@ -923,6 +933,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         setHouseholdMembers(membersWithProfiles);
         householdMembersRef.current = membersWithProfiles;
         setMembersLoadedFor(hh.id);
+
+        // Cook log (058) — with the household. The Plan poll re-reads it when a
+        // placement's cooked_at changes (loadPlacements); nothing else polls it.
+        await loadCooks(db, hh);
+        if (cancelled) return;
 
         // Open shopping sessions — mine adopted (or expired), partner's noted.
         await loadSessions(db, hh.id);
@@ -3118,10 +3133,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   //   the list and never become Ready (052's link condition has nothing to
   //   match). × is their only exit: skipMeal also soft-deletes the meals row,
   //   so a no-shop card is one-shot and can never be re-added.
-  // madeBefore — the library's filter: meal ids whose placement carries
-  //   cooked_at. One row per (household, meal), so re-planning a cooked meal
-  //   clears its cooked_at (appendPlacement) and it drops out of this set until
-  //   it is cooked again — a known limit of the single-row shape, not a bug.
+  // markCooked, since 058 — the cook_meal RPC, not a client update: it closes
+  //   the open placement AND writes a meal_cooks row in one transaction (D2),
+  //   with ONE timestamp for both. A null return means no open placement was
+  //   closed (D3: a partner got there first, or a double tap) — the meal is
+  //   cooked, just not by this tap: reload, no toast. Clearing cooked_at on the
+  //   placement at re-plan (appendPlacement) is now CORRECT: the placement is
+  //   the plan; the log keeps the history.
+  // loadCooks — the household's meal_cooks reduced to meal_id → { lastCookedAt,
+  //   count }; newest-first read, first row per meal is lastCookedAt.
+  // madeBefore — the library's filter: meal ids with at least one cook in the
+  //   log (D5). Re-planning no longer removes a meal from this set; the Plan
+  //   welcome's copy ("Add a meal" vs "Add your first meal") follows for free.
   // upNext — the head of the open queue, for Home.
   //
   // Rows close, they don't die: there is no DELETE policy, so a client delete
@@ -3138,6 +3161,27 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const PLACEMENTS_BACKOFF_BASE_MS = 2000;
   const PLACEMENTS_BACKOFF_CAP_MS = 30000;
   const placementsBackoffRef = useRef({ delayMs: PLACEMENTS_BACKOFF_BASE_MS, until: 0 });
+  async function loadCooks(db, hh) {
+    const { data, error: err, status: ckStatus } = await db
+      .from("meal_cooks")
+      .select("meal_id, cooked_at")
+      .eq("household_id", hh.id)
+      .order("cooked_at", { ascending: false })
+      .limit(1000);   // a known bound (years of cooking); a summary view replaces it when it matters
+    if (err) {
+      if (!stopOnAuthFailure(err, ckStatus)) console.warn("loadCooks (non-fatal):", err.message);
+      return;
+    }
+    if (householdRef.current?.id !== hh.id) return;   // switched households mid-read
+    const next = {};
+    (data || []).forEach((r) => {
+      const cur = next[r.meal_id];
+      if (cur) cur.count += 1;                                            // newest first: the first row set lastCookedAt
+      else next[r.meal_id] = { lastCookedAt: r.cooked_at, count: 1 };
+    });
+    setCooks(next);
+  }
+
   async function loadPlacements(db, hh) {
     const { data, error: err, status: plStatus } = await db
       .from("meal_placements")
@@ -3159,7 +3203,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const same = prevKeys.length === Object.keys(next).length
       && prevKeys.every((k) => samePlacement(next[k], prev[k]));
     if (same) return;
+    // 058: a changed cookedAt anywhere (a partner's cook, a re-plan clearing
+    // one, this device's own cook confirmed) is the one signal that the log
+    // moved — re-read it once, off the poll that already ran. Also fires on the
+    // first load after a switch (prev empty), a cheap duplicate of Effect 2's read.
+    const cookChanged = Object.keys(next).some((k) => next[k].cookedAt !== (prev[k]?.cookedAt ?? null))
+      || prevKeys.some((k) => !next[k] && prev[k].cookedAt);
     setPlacementsBoth(next);
+    if (cookChanged) await loadCooks(db, hh);
   }
 
   const refreshPlacements = useCallback(async () => {
@@ -3229,9 +3280,32 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
-    try { await closePlacement(db, hh, mealId, "cooked_at"); reportSuccess(); return true; }
-    catch (err) { console.error("markCooked error:", err.message); setError(`Could not mark cooked: ${err.message}`); return false; }
-  // closePlacement is a stable hook-scope function (uses refs).
+    // Optimistic close (the card mutes at once; the ✓ Cooked afterglow is unchanged).
+    const prev = placementsRef.current;
+    const cur = prev[mealId];
+    if (cur) setPlacementsBoth({ ...prev, [mealId]: { ...cur, cookedAt: new Date().toISOString() } });
+    const { data: cookedAt, error: err } = await db.rpc("cook_meal", { p_household_id: hh.id, p_meal_id: mealId });
+    if (err) {
+      await loadPlacements(db, hh);
+      console.error("markCooked error:", err.message);
+      setError(`Could not mark cooked: ${err.message}`);
+      return false;
+    }
+    if (cookedAt == null) {
+      // D3: nothing was closed — a partner's tap or a double tap already cooked
+      // it. The truth is on the server; read it back. No toast: the meal is cooked.
+      await loadPlacements(db, hh);
+      await loadCooks(db, hh);
+      reportSuccess();
+      return true;
+    }
+    // The server's timestamp replaces the optimistic one (it is also the log row's).
+    const now = placementsRef.current;
+    if (now[mealId]) setPlacementsBoth({ ...now, [mealId]: { ...now[mealId], cookedAt } });
+    setCooks((c) => ({ ...c, [mealId]: { lastCookedAt: cookedAt, count: (c[mealId]?.count || 0) + 1 } }));
+    reportSuccess();
+    return true;
+  // loadPlacements / loadCooks are stable hook-scope functions (use refs).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess]);
 
@@ -3317,34 +3391,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess]);
 
-  // fetchLeftoverCutoff → ISO timestamp | null. "Cooked in the last two
-  // cycles" for the Leftovers picker: the household's two most recent cycles
-  // by start (the open one and the one before it, or the last two closed),
-  // cutoff = the earlier one's start. null when the household has no cycle
-  // yet, which the caller reads as "no cutoff". One indexed read, on demand
-  // (when the sheet opens), never polled.
-  const fetchLeftoverCutoff = useCallback(async () => {
-    const db = supabaseRef.current;
-    const hh = householdRef.current;
-    if (!db || !hh) return null;
-    const { data, error: err } = await db
-      .from("provision_cycles")
-      .select("started_at, created_at")
-      .eq("household_id", hh.id)
-      .is("deleted_at", null)
-      .order("started_at", { ascending: false, nullsFirst: false })
-      .limit(2);
-    if (err) { console.warn("fetchLeftoverCutoff (non-fatal):", err.message); return null; }
-    const starts = (data || []).map((c) => c.started_at || c.created_at).filter(Boolean).sort();
-    return starts.length ? starts[0] : null;
-  }, []);
-
-  // Made before — see the block comment above.
-  const madeBefore = useMemo(() => {
-    const set = new Set();
-    Object.entries(placements).forEach(([mealId, p]) => { if (p.cookedAt) set.add(mealId); });
-    return set;
-  }, [placements]);
+  // Made before (D5) — see the block comment above. The cook log, not the
+  // placement's cooked_at, so a re-plan cannot empty it.
+  const madeBefore = useMemo(() => new Set(Object.keys(cooks)), [cooks]);
 
   // The head of the open queue — what Home shows as "Up next" (never
   // "Tonight": that is earned in Days v2 when planned_for = today).
@@ -3534,7 +3583,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
-    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, fetchLeftoverCutoff,
+    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
