@@ -5,6 +5,13 @@ import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_U
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
+import { useConnectivity } from './contexts/ConnectivityContext';
+import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
+import { trace } from '@opentelemetry/api';
+
+// Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
+// registers; a no-op provider stands in with no RUM token.
+const tracer = trace.getTracer("ourprovisions-app");
 
 // Maps Supabase category names → display names with emoji
 const CATEGORY_DISPLAY = {
@@ -824,20 +831,120 @@ function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
   );
 }
 
-// D7: the Home door exists from day one; this is the promise, not the design.
-// HOME v1 builds into `view === "home"` — replace this component, keep the door.
-function HomePlaceholder({ firstName, householdName }) {
+// HOME v1 — the Tonight card replaces the D7 placeholder's promise line; the
+// door and the greeting stay. "Tonight" is the board's first card (position
+// 01, the head of the open queue): Plan stores no planned_for date or slot yet
+// (reserved for Days v2), so the household's first open placement IS the
+// night's plan by construction — no date arithmetic, so no UTC rollover to get
+// wrong. `ready` is ONE gate for BOTH cards: the board's own (this household's
+// meals AND placements have loaded) AND householdReady (its list has actually
+// arrived). Nothing renders under the date until both are true, then both
+// cards appear together — never the list card first with the Tonight card
+// popping in above it on a cold open, and never an empty state that the data
+// then contradicts.
+function Home({ firstName, ready, meal, mealById, onAdd, onView, openCount, onStartList, onViewList }) {
   const hour = new Date().getHours();
   const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
   const dateLine = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   return (
-    <div className="home-placeholder">
+    <div className="home">
       <div className="home-greeting">Good {part}{firstName ? `, ${firstName}` : ""}</div>
       <div className="home-date">{dateLine}</div>
-      <p className="home-promise">
-        Tonight's meal and what's happening in {householdName || "your place"} will live here.
-      </p>
+      {ready && (
+        <>
+          <TonightCard meal={meal} mealById={mealById} onAdd={onAdd} onView={onView} />
+          <ListCard openCount={openCount} onStartList={onStartList} onViewList={onViewList} />
+        </>
+      )}
     </div>
+  );
+}
+
+// D4 (SPEC_auth_state_ui_gating.md) — Home is the signed-out surface. The
+// wordmark in the splash's own Playfair italic, one line of what this is, and
+// the same two modal buttons the header carries (same initialValues, so a
+// pre-filled arrival still pre-fills). Placeholder copy by design: a designed
+// welcome is a Home session, not this slice (spec §Open). Rendered in place of
+// the door content on Home, Plan and Shop while signed out — see
+// signedOutWelcome in ProvisionsApp.
+function HomeWelcome({ signUpInitialValues }) {
+  return (
+    <div className="home home-welcome">
+      <div className="home-wm"><span className="o">Our</span><span className="p">Provisions</span></div>
+      <p className="home-welcome-line">Your household’s living grocery list.</p>
+      <div className="home-welcome-actions">
+        <SignInButton mode="modal">
+          <button type="button" className="home-welcome-btn ghost">Sign In</button>
+        </SignInButton>
+        <SignUpButton mode="modal" initialValues={signUpInitialValues}>
+          <button type="button" className="home-welcome-btn solid">Sign Up</button>
+        </SignUpButton>
+      </div>
+    </div>
+  );
+}
+
+// The card. Empty: labelled "Tonight" — an invitation into the existing Plan
+// add flow (the library), never an add input of its own. Populated: labelled
+// "Up next" — the queue knows what is next, not what is tonight, until Days v2
+// adds planned_for (the hook's upNext rule, 2026-09-14); the head card's name,
+// "Dinner" alone (no time is stored), and a link that opens the meal in Plan.
+// A no-shop head (Leftovers / Eating out / Something else) has no recipe to
+// open, so its link goes to the board and its line carries the kind (and the
+// leftovers sources) instead. The aria-label follows the visible label. No
+// photo (2026-09-12: the household photo asserts context, never decorates;
+// no on the Tonight card).
+function TonightCard({ meal, mealById, onAdd, onView }) {
+  if (!meal) {
+    return (
+      <section className="tonight" aria-label="Tonight">
+        <div className="tonight-label">Tonight</div>
+        <h3 className="tonight-title">What sounds good?</h3>
+        <p className="tonight-body">Plan a meal and we'll help with the rest.</p>
+        <button type="button" className="tonight-link" onClick={onAdd}>+ Add tonight's meal</button>
+      </section>
+    );
+  }
+  const noShop = isNoShop(meal);
+  const name = noShop ? (noShopName(meal) || noShopLabel(meal)) : meal.name;
+  const line = noShop
+    ? ["Dinner", noShopName(meal) ? noShopLabel(meal) : "", meal.kind === "leftovers" ? leftoversLine(meal, mealById) : ""].filter(Boolean).join(" · ")
+    : "Dinner";
+  return (
+    <section className="tonight" aria-label="Up next">
+      <div className="tonight-label">Up next</div>
+      <h3 className="tonight-title">{name}</h3>
+      <p className="tonight-body">{line}</p>
+      <button type="button" className="tonight-link" onClick={() => onView(meal)}>{noShop ? "View plan →" : "View meal →"}</button>
+    </section>
+  );
+}
+
+// The second card: the household's list. `openCount` is the Helm's Shop badge
+// number (live rows minus checked), so Home and the badge can never disagree.
+// Empty: an invitation into Browse (the catalog), never an empty Shop tab.
+// Populated: the count and a link to Shop. No store name — the app does not
+// know it (store recognition is Phase 2). Rendered under Home's single gate,
+// which includes householdReady (this household's list has actually arrived,
+// the landing rule), so "Build your grocery list" is never shown before the
+// data says it is true.
+function ListCard({ openCount, onStartList, onViewList }) {
+  if (!openCount) {
+    return (
+      <section className="tonight list-card" aria-label="Need anything?">
+        <div className="tonight-label">Need anything?</div>
+        <h3 className="tonight-title">Build your grocery list</h3>
+        <p className="tonight-body">Add what you need for the week.</p>
+        <button type="button" className="list-card-link" onClick={onStartList}>Start a list →</button>
+      </section>
+    );
+  }
+  return (
+    <section className="tonight list-card" aria-label="Your list">
+      <div className="tonight-label">Your list</div>
+      <h3 className="tonight-title">{openCount === 1 ? "1 item" : `${openCount} items`}</h3>
+      <button type="button" className="list-card-link" onClick={onViewList}>View list →</button>
+    </section>
   );
 }
 
@@ -2653,6 +2760,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
+  // D2 (SPEC_auth_state_ui_gating.md) as amended 2026-09-24: the session is LIVE
+  // when Clerk is loaded and signed in — Clerk's word only. Token trouble and
+  // offline (authHealth, fed by the Supabase fetch wrapper) are a HOLD on what
+  // polls, never the end of a session. Every household-scoped input below keys
+  // on this; the hold rides in authPhase.
+  const { nullStreak, clerkFailStreak, lastFailClass, lastTokenAt, online, rejectedAt } = useAuthHealth();
+  const sessionLive = useSessionLive({ isLoaded, isSignedIn });
   // Sign-up pre-fill (read once on mount). Outbound links may carry
   // ?email_address=&first_name=&last_name=; map them to Clerk's initialValues keys
   // so the sign-up modal opens with the form filled. Missing params fall back to
@@ -2670,11 +2784,39 @@ function ProvisionsApp() {
       return {};
     }
   }, []);
+  // D5 (SPEC_auth_state_ui_gating §PII scrub 1): the pre-fill params leave the
+  // URL the moment they are read. The memo above already holds the values, so
+  // openSignUp / SignUpButton still pre-fill; what changes is that the email no
+  // longer rides in location.href for the life of the tab — which is what the
+  // RUM agent stamps on every span and what session replay records as the page
+  // URL. replaceState, so no history entry and no navigation. The path is
+  // normalised to "/" (Clerk's redirect had left us on /sign-up, a path with no
+  // component behind it); the hash — the app's route — is kept. Declared BEFORE
+  // useProvisions and the hash mirror so it runs first in this component's
+  // effect order: it must precede the first routeChange the mirror can emit.
+  //
+  // Deliberately narrower than "strip the whole query": only the three pre-fill
+  // keys go. ?invite= and ?ref= are codes, not PII, and two gates still read
+  // them from the URL (the welcome sheet's invite check and the join banner) —
+  // index.js has already persisted both to sessionStorage, but the URL copy is
+  // what those gates key on today, so it stays.
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const had = ["email_address", "first_name", "last_name"].filter((k) => url.searchParams.has(k));
+      const offPath = url.pathname !== "/";
+      if (had.length === 0 && !offPath) return;
+      had.forEach((k) => url.searchParams.delete(k));
+      const search = url.searchParams.toString();
+      window.history.replaceState(null, "", "/" + (search ? `?${search}` : "") + (url.hash || ""));
+    } catch (e) { /* URL parsing or history blocked — nothing to scrub, nothing to break */ }
+  }, []);
   // Auto-open the sign-up modal when the URL carries at least one pre-fill param
   // (the landing page at ourprovisions.app links here with all three). The header
   // SignUpButton stays as the manual fallback with the same initialValues. Gated on
   // Clerk being loaded and the visitor being signed out; fires once per load.
-  const { openSignUp } = useClerk();
+  const clerk = useClerk();
+  const { openSignUp, openSignIn } = clerk;
   const autoSignUpFiredRef = useRef(false);
   useEffect(() => {
     if (autoSignUpFiredRef.current || !isLoaded || isSignedIn) return;
@@ -2683,8 +2825,8 @@ function ProvisionsApp() {
     autoSignUpFiredRef.current = true;
     openSignUp({ initialValues: signUpInitialValues });
   }, [isLoaded, isSignedIn, signUpInitialValues, openSignUp]);
-  const { getToken } = useAuth();
-  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss, loadingHouseholds } = useActiveHousehold();
+  const { getToken, sessionId } = useAuth();
+  const { activeHouseholdId, myHouseholds, switchHousehold, refreshHouseholds, resolveAfterHouseholdLoss, beginDeliberateLoss, endDeliberateLoss, loadingHouseholds, householdsReadFailed, householdsLoaded, retryHouseholds } = useActiveHousehold();
 
   const {
     quantities,
@@ -2699,6 +2841,9 @@ function ProvisionsApp() {
     listRows,
     loading,
     householdReady,
+    bootstrapped,
+    membersLoaded,
+    catalogLoaded,
     error,
     dismissError,
     updateQty,
@@ -2762,13 +2907,244 @@ function ProvisionsApp() {
     _internalUserId,
   } = useProvisions({
     getToken,
-    userId: isLoaded ? user?.id : undefined,
-    clerkId: isLoaded ? user?.id : undefined,
+    userId: sessionLive ? user?.id : undefined,
+    clerkId: sessionLive ? user?.id : undefined,
     email: user?.primaryEmailAddress?.emailAddress,
     fullName: user?.fullName || null,
     activeHouseholdId,
     myHouseholds,
+    sessionId,
+    sessionLive,
   });
+
+  // ── authPhase (SPEC_auth_state_ui_gating.md D2, D3; Amendment 2026-09-24 —
+  // offline is not auth loss) ──
+  // One derived state drives what renders and what polls. The truth table:
+  //   booting             Clerk not loaded
+  //   signed_out          loaded, not signed in (a deliberate Sign out lands here)
+  //   signed_in_no_token  Clerk holds a session but a token cannot be fetched, the
+  //                       device is offline, or a poller was just refused a token
+  //                       — HOLD, indefinitely. No reset, no sheet; pollers skip;
+  //                       the pill reads "Reconnecting…". A user in a store with
+  //                       no signal stays signed in with their list on screen.
+  //   bootstrapping       live, bootstrap_new_user not yet resolved
+  //   ready               live and bootstrapped — the full app
+  //   session_lost        Clerk ITSELF reports no session after we were live, with
+  //                       no reload and no deliberate sign-out — the ONE signal.
+  //                       Never from token-fetch failures alone (V5, 2026-09-24:
+  //                       20s of DevTools Offline tripped the old three-null-
+  //                       tokens rule and put the sheet over a live session).
+  // A new Clerk session (sessionId changes) wipes the token streaks.
+  const [lostSession, setLostSession] = useState(false);
+  const wasLiveRef = useRef(false);
+  const liveSinceRef = useRef(null);
+  const prevSessionIdRef = useRef(sessionId);
+  useEffect(() => {
+    if (sessionId && sessionId !== prevSessionIdRef.current) resetAuthHealth();
+    prevSessionIdRef.current = sessionId;
+  }, [sessionId]);
+  useEffect(() => {
+    if (sessionLive) {
+      if (!wasLiveRef.current) liveSinceRef.current = Date.now();
+      wasLiveRef.current = true;
+      setLostSession(false);
+      return;
+    }
+    if (!isLoaded || !wasLiveRef.current) return;
+    wasLiveRef.current = false;
+    // The profile sheet's Sign out raised the flag before calling Clerk: a
+    // choice, not a loss — plain signed_out, no sheet, no span.
+    if (consumeDeliberateSignOut()) return;
+    setLostSession(true);
+    // §Instrumentation — once per transition, so the next occurrence explains
+    // itself instead of being reconstructed from 27 console errors.
+    try {
+      const span = tracer.startSpan("auth.session-lost");
+      span.setAttributes({
+        "clerk.client_status": clerk?.status ?? "unknown",
+        "clerk.session_status": clerk?.session?.status ?? "none",
+        "auth.signed_in_age_seconds": liveSinceRef.current ? Math.round((Date.now() - liveSinceRef.current) / 1000) : -1,
+        "auth.last_token_age_seconds": lastTokenAt ? Math.round((Date.now() - lastTokenAt) / 1000) : -1,
+        "auth.null_token_streak": nullStreak,
+        "auth.clerk_fail_streak": clerkFailStreak,
+        "auth.last_fail_class": lastFailClass ?? "none",
+        "net.online": !!online,
+        "auth.clerk_signed_in": !!isSignedIn,
+        "view": view,
+        "household.id": activeHouseholdId ?? "none",
+      });
+      span.end();
+    } catch (e) { /* telemetry never reaches the user */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionLive, isLoaded]);
+  // The hold: offline, a token that could not be fetched (either class), or a
+  // poller refused within the last REJECTED_HOLD_MS. It lifts by itself — the
+  // next tick that gets a token clears the streak; the `online` event runs one
+  // tick immediately; the refusal hold lapses inside isPollingOpen.
+  const rejectedHold = !!rejectedAt && Date.now() - rejectedAt < REJECTED_HOLD_MS;
+  const holding = !online || nullStreak > 0 || rejectedHold;
+  const authPhase = !isLoaded ? "booting"
+    : lostSession ? "session_lost"
+    : !isSignedIn ? "signed_out"
+    : holding ? "signed_in_no_token"
+    : bootstrapped ? "ready" : "bootstrapping";
+  const prevPhaseRef = useRef(null);
+  useEffect(() => {
+    const from = prevPhaseRef.current;
+    if (from === authPhase) return;
+    prevPhaseRef.current = authPhase;
+    try {
+      const span = tracer.startSpan("auth.phase-change");
+      span.setAttributes({ "auth.from": from ?? "none", "auth.to": authPhase });
+      span.end();
+    } catch (e) { /* telemetry never reaches the user */ }
+  }, [authPhase]);
+  // signed_in_no_token holds the last good UI behind the quiet "Reconnecting…"
+  // pill: ONE report per hold episode (not per tick — three reports would flip
+  // the pill to "Offline — showing last saved", and the hold is indefinite). The
+  // pill clears itself when a poller's read succeeds (reportSuccess at the
+  // read sites). session_lost clears it too — the sheet is the surface then and
+  // the network is not the story.
+  const { reportTransientFailure, reportSuccess } = useConnectivity();
+  const holdEpisodeRef = useRef(false);
+  useEffect(() => {
+    if (authPhase === "signed_in_no_token") {
+      if (!holdEpisodeRef.current) { holdEpisodeRef.current = true; reportTransientFailure(); }
+      return;
+    }
+    holdEpisodeRef.current = false;
+    if (authPhase === "session_lost") reportSuccess();
+  }, [authPhase, reportTransientFailure, reportSuccess]);
+
+  // ── The session-lost sheet's one button (V5 follow-up, 2026-09-24) ──
+  // The sheet must never present a dead button. openSignIn is a no-op while
+  // clerk-js still holds an active session (Clerk closes the modal for a
+  // signed-in client) — which is exactly the state the false V5 session_lost
+  // left us in: sheet up, Sign In inert, a reload restored everything with no
+  // password. So the button checks clerk-js FIRST: a session exists → re-activate
+  // it (setActive emits, React catches up, the sheet unmounts); if React is
+  // still not live 1200ms later → reload once (the session cookie carries it).
+  // Only when Clerk genuinely has no session does the modal open.
+  const sessionLiveRef = useRef(sessionLive);
+  sessionLiveRef.current = sessionLive;
+  const sheetReactivatingRef = useRef(false);
+  const onSheetSignIn = useCallback(async () => {
+    const c = clerk;
+    const lastId = c?.client?.lastActiveSessionId || null;
+    const clientSession = lastId ? (c?.client?.sessions || []).find((x) => x.id === lastId && x.status === "active") : null;
+    const existing = c?.session || clientSession || null;
+    if (!existing) { openSignIn(); return; }
+    if (sheetReactivatingRef.current) return;
+    sheetReactivatingRef.current = true;
+    try {
+      const span = tracer.startSpan("auth.sheet-reactivate");
+      span.setAttributes({ "heal.method": "setActive", "clerk.session_status": existing.status ?? "unknown", "view": view });
+      span.end();
+    } catch (e) { /* telemetry never reaches the user */ }
+    try { await Promise.resolve(c.setActive({ session: existing.id })); } catch (e) { /* fall through to the reload check */ }
+    setTimeout(() => {
+      sheetReactivatingRef.current = false;
+      if (sessionLiveRef.current) return;          // React caught up — the sheet is already gone
+      try {
+        const span = tracer.startSpan("auth.sheet-reactivate");
+        span.setAttributes({ "heal.method": "reload", "view": view });
+        span.end();
+      } catch (e) { /* telemetry never reaches the user */ }
+      window.location.reload();
+    }, 1200);
+    // `view` is read inside the closures only (it is declared later in this
+    // component); listing it here would be a use-before-define at render time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clerk, openSignIn]);
+
+  // ── 3h — activation watchdog (SPEC_auth_state_ui_gating, safety net) ──
+  // The stuck state, seen live on the 2eafad0 preview: clerk-js finished a
+  // modal sign-in on the server (client.lastActiveSessionId set, that client
+  // session "active") but clerk.session stayed null because setActive returned
+  // before its emit (the beforeunload-tracker race; root cause fixed by the
+  // router functions in index.js). React never hears about the session, so a
+  // hook can't react to it — this is a 500ms poll of the clerk-js instance,
+  // the one place that does know. After 1500ms stuck: setActive({session})
+  // once (no navigate → it emits). If still stuck 1500ms later: reload once,
+  // sessionStorage-guarded so it can never loop. auth.activation-stuck before,
+  // auth.activation-healed after (heal.method setActive | reload — the reload
+  // one is emitted on the next load, when the session is actually live, so the
+  // page tear-down cannot eat it).
+  const ACTIVATION_RELOAD_KEY = "op_activation_reload";
+  const healRef = useRef({ stuckSince: null, spanSent: false, setActiveAt: null });
+  useEffect(() => {
+    const tick = () => {
+      const c = clerk;
+      if (!c?.loaded) return;
+      const h = healRef.current;
+      const lastId = c.client?.lastActiveSessionId || null;
+      const clientSession = lastId ? (c.client?.sessions || []).find((x) => x.id === lastId) : null;
+      const stuck = !!clientSession && clientSession.status === "active" && !c.session;
+      if (!stuck) {
+        if (h.stuckSince && c.session && h.setActiveAt) {
+          try {
+            const span = tracer.startSpan("auth.activation-healed");
+            span.setAttributes({ "heal.method": "setActive", "heal.stuck_ms": Date.now() - h.stuckSince, "view": view });
+            span.end();
+          } catch (e) { /* telemetry never reaches the user */ }
+        }
+        healRef.current = { stuckSince: null, spanSent: false, setActiveAt: null };
+        return;
+      }
+      if (!h.stuckSince) { h.stuckSince = Date.now(); return; }
+      const stuckMs = Date.now() - h.stuckSince;
+      if (stuckMs < 1500) return;
+      if (!h.spanSent) {
+        h.spanSent = true;
+        try {
+          const span = tracer.startSpan("auth.activation-stuck");
+          span.setAttributes({
+            "auth.stuck_ms": stuckMs,
+            "clerk.client_status": c.status ?? "unknown",
+            "clerk.client_session_status": clientSession.status,
+            "clerk.has_last_active_session": true,
+            "auth.clerk_signed_in_react": !!isSignedIn,
+            "auth.clerk_loaded_react": !!isLoaded,
+            "view": view,
+          });
+          span.end();
+        } catch (e) { /* telemetry never reaches the user */ }
+      }
+      if (!h.setActiveAt) {
+        h.setActiveAt = Date.now();
+        try { Promise.resolve(c.setActive({ session: lastId })).catch(() => {}); } catch (e) { /* fall through to the reload */ }
+        return;
+      }
+      if (Date.now() - h.setActiveAt < 1500) return;
+      // Still stuck after setActive: reload ONCE. The flag is set before the
+      // reload and cleared only once a live session is observed (effect below),
+      // so a page that reloads into the same stuck state stops here.
+      try {
+        if (sessionStorage.getItem(ACTIVATION_RELOAD_KEY)) return;
+        sessionStorage.setItem(ACTIVATION_RELOAD_KEY, String(Date.now()));
+      } catch (e) { return; }
+      window.location.reload();
+    };
+    const id = setInterval(tick, 500);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clerk]);
+  // The reload leg of the healed span, and the loop guard's release: a live
+  // session after a guarded reload is the heal; a live session at any time
+  // clears the guard so a future stuck state may reload again.
+  useEffect(() => {
+    if (!sessionLive) return;
+    let stamp = null;
+    try { stamp = sessionStorage.getItem(ACTIVATION_RELOAD_KEY); } catch (e) { return; }
+    if (!stamp) return;
+    try { sessionStorage.removeItem(ACTIVATION_RELOAD_KEY); } catch (e) { /* storage blocked */ }
+    try {
+      const span = tracer.startSpan("auth.activation-healed");
+      span.setAttributes({ "heal.method": "reload", "heal.reload_age_ms": Date.now() - Number(stamp), "view": view });
+      span.end();
+    } catch (e) { /* telemetry never reaches the user */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionLive]);
 
   const [showSplash, setShowSplash] = useState(true);
   const handleSplashDone = useCallback(() => setShowSplash(false), []);
@@ -2776,8 +3152,17 @@ function ProvisionsApp() {
   // Merge: supabase prices override local defaults when available
   const prices = useMemo(() => ({ ...localPrices, ...supabasePrices }), [localPrices, supabasePrices]);
   // D3 (SPEC_rum_dxa_exposure.md): a door hash in the URL at load wins — reload
-  // and Back land on the right door. No hash → the landing effect decides.
-  const [view, setView] = useState(() => viewForHash(window.location.hash) || "input");
+  // and Back land on the right door. No hash → Home until the landing rule has
+  // spoken (SPEC_auth_state_ui_gating D4/D4a, §Landing — the effect sits below
+  // the list counts it reads).
+  const [view, setView] = useState(() => viewForHash(window.location.hash) || "home");
+  // §Landing — has THIS load decided where it lands? True from the start when the
+  // URL named a door (deep link, invite, bookmark: that hash wins, and while signed
+  // out the kept `view` IS the pendingRoute — the Home welcome renders over it and
+  // signing in lands there). Otherwise true once the rule below has run, or the
+  // moment the user taps a door / uses Back. Until then no hash is written, so a
+  // reload of an undecided load is still an undecided load, not a bookmark of Home.
+  const [landingDecided, setLandingDecided] = useState(() => !!viewForHash(window.location.hash));
   // D9′ (amended 2026-09-12): compact exactly when the current door's control
   // row is off-screen. Each door hands its row (or a sentinel at the block's
   // bottom) to `controlRowRef`; only the active door renders one, so at most one
@@ -2785,27 +3170,9 @@ function ProvisionsApp() {
   const [controlRow, setControlRow] = useState(null);
   const controlRowRef = useCallback((el) => setControlRow(el), []);
   const scrollCompact = useScrollCompact(controlRow);
-  // Landing tab until a Home tab exists: Shop if the list has items, else Browse.
-  // Runs once per app load after the first SUCCESSFUL list read — never
-  // reactive, so adding a first item from Browse doesn't yank the user to Shop.
-  // Remove when Home ships.
-  // Gated on householdReady (useProvisions), not on loading/household: loading
-  // clears on the anon-catalog pass, and it clears at the end of the household
-  // load even when the first list tick failed transiently and set no rows — a
-  // slow cold load on prod (2026-09-12) landed on Browse with 18 items. The
-  // hook flips householdReady only where the list RPC actually returned rows.
-  // Already "landed" when the URL named a door at load (D3) — a reload on
-  // #/plan must open Plan, not be yanked to Shop by the first list read.
-  const landedRef = useRef(!!viewForHash(window.location.hash));
-  useEffect(() => {
-    const hasItems = listRows.some(r => (r.quantity || 0) > 0);
-    const decided = landedRef.current ? "already" : (!householdReady ? "waiting" : (hasItems ? "list" : "input"));
-    console.debug("[landing]", { householdId: household?.id, householdReady, rows: listRows.length, decided });
-    if (landedRef.current) return;
-    if (!householdReady) return;
-    landedRef.current = true;
-    if (hasItems) setView("list");
-  }, [householdReady, listRows]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The pre-Home landing effect (Shop if the list had items, else Browse) was
+  // retired 2026-09-24 with D4. Its successor is the §Landing rule further down
+  // (after totalItems / checkedCount, which it reads).
   const [meals, setMeals] = useState([]);
   // Plan has two screens since v2: the board (default, the tab's landing) and
   // the library, one tap away behind "+ Add a meal" and back behind the chevron.
@@ -2933,6 +3300,10 @@ function ProvisionsApp() {
   // hook already loads, no new query) picks "Add a meal" over "Add your first
   // meal".
   const boardReady = !!household?.id && mealsLoadedFor === household.id;
+  // Home renders both its cards under ONE gate: the board's (the same load now
+  // runs on Home too) AND householdReady (the list has arrived), so the two
+  // cards appear together on a cold open rather than one popping in above the other.
+  const homeReady = boardReady && householdReady;
   const showWelcome = boardReady && boardCards.length === 0;
   const everCooked = madeBefore.size > 0;
   // The drag hint earns its line only once there is an order to change: two
@@ -2962,9 +3333,10 @@ function ProvisionsApp() {
   };
 
   // ── Meals (add-path, migration 025) ──────────────────────────
-  // Placements ride along with both reads below. Both are Plan-only already
-  // (the navigation effect and the 2s poll are gated on view === "plan"), so
-  // the board's rows cost nothing on any other door.
+  // Placements ride along with both reads below. Both are gated on the doors
+  // that render them (the navigation effect and the 2s poll run on PLAN and,
+  // since HOME v1's Tonight card, on HOME), so the board's rows cost nothing
+  // on Browse or Shop.
   const loadMeals = useCallback(async () => {
     setMealsLoading(true);
     try {
@@ -3008,14 +3380,15 @@ function ProvisionsApp() {
     if (MEALS_ENABLED && (view === "list" || view === "plan")) refreshProvenance();
   };
 
-  // Load the meal cards when the Plan tab opens.
+  // Load the meal cards when the Plan tab opens — or Home, whose Tonight card
+  // is the board's first card and must not decide "empty" before the data is in.
   useEffect(() => {
-    if (MEALS_ENABLED && view === "plan" && household?.id) {
+    if (MEALS_ENABLED && (view === "plan" || view === "home") && household?.id && authPhase === "ready") {
       const hhId = household.id;
       setCookedHere(new Set());
       loadMeals().then(() => setMealsLoadedFor(hhId));
     }
-  }, [view, household?.id, loadMeals]);
+  }, [view, household?.id, loadMeals, authPhase]);
 
   // ...and keep them live while PLAN is the visible tab. Navigation-only meant
   // a client sitting on PLAN while another member created, renamed or
@@ -3023,9 +3396,10 @@ function ProvisionsApp() {
   // the same gap Part 3 (1e81774) closed for SHOP provenance, one surface over.
   //
   // Scoped to the VISIBLE tab, and that scoping is the whole cost control:
-  // nothing renders the meal list off PLAN, so polling there would be a pure
-  // wasted query — the multiplier Part 3 was careful to avoid. Leaving the tab
-  // changes the view, which runs this effect's cleanup and stops the interval.
+  // only PLAN and HOME (the Tonight card) render meal data, so polling on any
+  // other door would be a pure wasted query — the multiplier Part 3 was
+  // careful to avoid. Leaving the tab changes the view, which runs this
+  // effect's cleanup and stops the interval.
   //
   // A second interval rather than piggybacking the SHOP list-change signal,
   // because that signal cannot see this: onListChangedRef fires on list_items
@@ -3033,10 +3407,16 @@ function ProvisionsApp() {
   // meal_ingredients WITHOUT touching the list at all. The ingredient-count
   // case this fixes would never have fired it.
   useEffect(() => {
-    if (!MEALS_ENABLED || view !== "plan" || !household?.id) return;
-    const mealsPoll = setInterval(() => { refreshMeals(); }, 2000);
-    return () => clearInterval(mealsPoll);
-  }, [view, household?.id, refreshMeals]);
+    // §Polling discipline: `ready` only — signed_in_no_token holds the last good
+    // UI without a fetch, and session_lost has already torn household down.
+    if (!MEALS_ENABLED || !(view === "plan" || view === "home") || !household?.id || authPhase !== "ready") return;
+    // Amendment 2026-09-24: the tick passes isPollingOpen (closed offline and
+    // for the hold after a 401/403); back online runs one tick immediately.
+    const tick = () => { if (isPollingOpen()) refreshMeals(); };
+    const mealsPoll = setInterval(tick, 2000);
+    window.addEventListener("online", tick);
+    return () => { clearInterval(mealsPoll); window.removeEventListener("online", tick); };
+  }, [view, household?.id, refreshMeals, authPhase]);
 
   // Load provenance when a surface that shows the badge is visible: SHOP renders the
   // teal meal facet, and PLAN is where the meal cards live.
@@ -3371,24 +3751,36 @@ function ProvisionsApp() {
   // The RUM agent emits routeChange on both hashchange and replaceState, so
   // every door change is a page view. Sheets and other modals write no hash.
   const goToDoor = useCallback((v) => {
+    // D4 (SPEC_auth_state_ui_gating): without a live session, every door but Home
+    // opens the sign-in modal instead of switching view — no household-shaped
+    // shell renders behind a SIGN IN header. (Browse's signed-out preview went
+    // with D4a: the anon catalog fetch behind it is retired, so there is nothing
+    // to show.) A tap is a landing decision (§Landing).
+    if (isLoaded && !sessionLive && v !== "home") { openSignIn(); return; }
+    setLandingDecided(true);
     setView(v);
     const h = hashForView(v);
     if (h && window.location.hash !== h) window.location.hash = h;
-  }, []);
+  }, [isLoaded, sessionLive, openSignIn]);
+  // Not live (signed_out or session_lost), every door shows the Home welcome
+  // variant. The view is KEPT (only what renders changes) — it is the
+  // pendingRoute: signing in from a #/plan deep link lands on Plan.
+  const signedOutWelcome = isLoaded && !sessionLive;
   useEffect(() => {
     const onHashChange = () => {
       const v = viewForHash(window.location.hash);
-      if (v) setView(v);
+      if (v) { setLandingDecided(true); setView(v); }   // Back/forward/typed: the user's route
       if (window.location.hash !== WRAP_UP_HASH) setShowWrapUpModal(false);
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
   useEffect(() => {
+    if (!landingDecided) return;   // §Landing: hold — no hash until this load has decided
     const h = hashForView(view);
     if (!h || viewForHash(window.location.hash) === view) return;
     window.history.replaceState(null, "", h);
-  }, [view]);
+  }, [view, landingDecided]);
   // Wrap up is the one modal with a hash (D3, decided 2026-09-16): the funnel's
   // last step is a page view. replaceState both ways — no extra history entry,
   // and Back from the open modal leaves Shop, which closes it (hashchange above).
@@ -3827,9 +4219,19 @@ function ProvisionsApp() {
   // shape as the join effect above: derived on every relevant render, a bounded
   // number of refresh nudges, and switchHousehold stays the single writer. The
   // null guard in checkPresence is the safety net if this never lands.
+  //
+  // A7 (Amendment 2026-09-27): this hand-off is for a lens that RESOLVED to null
+  // (a successful empty read), never for one whose read errored. On the 2026-09-27
+  // cold start the context's first get_my_households failed, the lens sat null
+  // with loadingHouseholds false, and this effect persisted bootstrap's own pick
+  // (most-recently-joined: o11y Test House) over the person's remembered place.
+  // The context now holds and retries a transient failure (loadingHouseholds
+  // stays true) and flags a real one as householdsReadFailed; both keep this
+  // effect out. The persisted place changes only by the person's own switch or
+  // by a real, successful membership read.
   const adoptTriesRef = useRef(0);
   useEffect(() => {
-    if (loading || loadingHouseholds || activeHouseholdId) return;
+    if (loading || loadingHouseholds || householdsReadFailed || activeHouseholdId) return;
     const hhId = household?.id;
     if (!hhId) return;
     if (myHouseholds.some((h) => h.id === hhId)) {
@@ -3840,7 +4242,7 @@ function ProvisionsApp() {
       adoptTriesRef.current += 1;
       refreshHouseholds();
     }
-  }, [loading, loadingHouseholds, activeHouseholdId, myHouseholds, household?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading, loadingHouseholds, householdsReadFailed, activeHouseholdId, myHouseholds, household?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-dismiss the join banner: on a timer (success confirmations self-clear),
   // and immediately if the user switches away from the joined household (the
@@ -4463,14 +4865,18 @@ function ProvisionsApp() {
   // ── Edit household sheet (OurBanner) ──
   // Am I the creator? Creator-only Delete gate (spec D4). The switcher already
   // proved the owner-role identity works; reuse it.
-  const isHouseholdCreator = householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner');
+  // A5 (Amendment 2026-09-27): never derived from an EMPTY list — until this
+  // place's members have been read, nobody is the creator and nobody may Leave
+  // (with members unloaded the owner used to see "Leave place").
+  const isHouseholdCreator = membersLoaded && householdMembers.some(m => m.users?.clerk_id === user?.id && m.role === 'owner');
 
   // ── Earned "Our" (SPEC_wordmark_earned_our.md) ──
   // The single source of truth for the header wordmark. `householdMembers` is already
   // reloaded per active household, so switching re-evaluates this for free — no new
   // state, no new query. Signed out or still loading both land on false, which is the
-  // point: "Provisions" is the default in every unknown state.
-  const hasEarnedOur = isSignedIn && householdMembers.length > 1;
+  // point: "Provisions" is the default in every unknown state (A5: neutral until the
+  // members are actually loaded, not merely absent).
+  const hasEarnedOur = isSignedIn && membersLoaded && householdMembers.length > 1;
 
   // Draft has a photo when a new file is staged OR an existing stored path survives.
   const edHasPhoto = !!edFile || !!edPhotoPath;
@@ -4646,13 +5052,32 @@ function ProvisionsApp() {
     cat.items.filter(item => checked[item.listItemId])
   );
 
-  // Loading state for catalog — only true while fetch is in flight, not based on result size
-  const catalogLoading = loading;
+  // Loading state for catalog — only true while fetch is in flight, not based on result size.
+  // A5 (Amendment 2026-09-27): and until this place's catalog has actually been read —
+  // an unloaded catalog is the quiet placeholder, never an empty Browse with one chip.
+  const catalogLoading = loading || (sessionLive && !catalogLoaded);
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
   const hasEstimatedPrices = shoppingList.some(c => c.items.some(i => !prices[i.name]));
   const checkedCount = Object.values(checked).filter(Boolean).length;
+  // ── §Landing (SPEC_auth_state_ui_gating.md D4a) — decided ONCE per load ──
+  // No hash at load and the session is `ready`:
+  //   list has arrived (householdReady) → unbought items ≥ 1 → Shop, else Home;
+  //   rendered without list data (splash gone, loading overlay gone) → Home, and
+  //   STAY — never bounce a user off a tab after it has rendered.
+  // signed_out / bootstrapping → hold (Home welcome or the splash covers it), so
+  // signing in from the welcome runs this same rule once. "Unbought" is the Shop
+  // badge's own count. After the decision the user's taps own the route.
+  useEffect(() => {
+    if (landingDecided || authPhase !== "ready") return;
+    if (householdReady) {
+      setLandingDecided(true);
+      if (totalItems - checkedCount > 0) setView("list");
+      return;
+    }
+    if (!showSplash && !loading) setLandingDecided(true);
+  }, [landingDecided, authPhase, householdReady, showSplash, loading, totalItems, checkedCount]);
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.listItemId] ? i.subtotal : 0), 0), 0);
 
@@ -4758,10 +5183,10 @@ function ProvisionsApp() {
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
       {/* Gated on householdReady for the same reason as the landing effect — the list must have actually arrived, not merely stopped loading — so the landing tab is settled before the splash dissolves and there is no flash of Browse before Shop; the 5s failsafe still bounds it. */}
-      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!isSignedIn || householdReady)} />}
+      {showSplash && <SplashScreen onDone={handleSplashDone} ready={isLoaded && (!sessionLive || householdReady)} />}
 
       {/* Loading overlay — shown while Supabase bootstraps after sign-in */}
-      {isSignedIn && loading && (
+      {sessionLive && loading && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(250,244,236,0.88)",
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -4801,7 +5226,11 @@ function ProvisionsApp() {
         // children that need interaction opt back in individually.
         pointerEvents: "none",
       }}>
-        <ConnectivityPill />
+        {/* A5b: "Offline — showing last saved" only once this household's list has
+            actually arrived (householdReady — the same signal the splash and the
+            landing rule treat as "the data is on screen"); before that, a fresh
+            sign-in with nothing saved reads "Reconnecting…". */}
+        <ConnectivityPill hasSavedData={householdReady} />
 
         {/* Error toast — carries a Dismiss button, so it opts into pointer events */}
         {error && (
@@ -4869,7 +5298,7 @@ function ProvisionsApp() {
           desktop the pill anchors to the phone column, because the column's
           transform makes it the containing block for every fixed descendant. */}
       <Helm
-        view={view}
+        view={signedOutWelcome ? "home" : view}
         onChange={goToDoor}
         badgeCount={totalItems - checkedCount}
         compact={scrollCompact && view !== "home"}
@@ -5074,11 +5503,32 @@ function ProvisionsApp() {
         @keyframes helmPlusIn { from { opacity: 0; } to { opacity: 1; } }
         .helm.no-anim, .helm.no-anim * { transition: none !important; animation: none !important; }
         @media (prefers-reduced-motion: reduce) { .helm, .helm * { transition: none !important; } }
-        /* Home placeholder (D7) — the door exists before its content; this names the promise. */
-        .home-placeholder { padding: 12px 2px 0; }
+        /* HOME v1 — greeting, date, the Tonight card. */
+        .home { padding: 12px 2px 0; }
         .home-greeting { font-family: 'Playfair Display', serif; font-size: 1.4rem; line-height: 1.2; color: #2C1A0E; }
         .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
-        .home-promise { font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.5; color: #5c4a36; margin-top: 22px; max-width: 34ch; }
+        /* D4 — the signed-out welcome variant: the splash wordmark's face (Playfair italic, Our light / Provisions bold) in espresso on the page cream;
+           one line in the Tonight card's body tone; the header's two buttons in the sheet's espresso and sand. */
+        .home-welcome { padding-top: 64px; text-align: center; }
+        .home-wm { font-family: 'Playfair Display', serif; font-style: italic; font-size: 2.1rem; line-height: 1; letter-spacing: 0.02em; color: #2C1A0E; white-space: nowrap; }
+        .home-wm .o { font-weight: 400; } .home-wm .p { font-weight: 700; }
+        .home-welcome-line { margin: 14px 0 0; font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; color: #6E5A4A; }
+        .home-welcome-actions { display: flex; gap: 10px; justify-content: center; margin-top: 28px; }
+        .home-welcome-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 11px 22px; border-radius: 6px; cursor: pointer; }
+        .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #A0724A; }
+        .home-welcome-btn.solid { background: #2C1A0E; border: 1.5px solid #2C1A0E; color: #FAF4EC; }
+        /* The Tonight card in the board's language: a warm cream (the welcome's ghost-tile tone), the board card's 12px radius, no shadow, no photo.
+           Label = the board chip's type; title = Playfair; the link is a text button in Plan's link espresso (.plan-addall), the app has no blue. */
+        .tonight { margin-top: 22px; background: #F1E7D8; border-radius: 12px; padding: 16px 18px 14px; }
+        .tonight-label { font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
+        .tonight-title { margin: 6px 0 0; font-family: 'Playfair Display', serif; font-size: 1.25rem; font-weight: 700; line-height: 1.2; color: #2C1A0E; overflow-wrap: anywhere; }
+        .tonight-body { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: 0.9rem; line-height: 1.45; color: #6E5A4A; }
+        .tonight-link, .list-card-link { display: inline-block; margin-top: 12px; padding: 0; border: none; background: none; cursor: pointer;
+                        font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
+        /* The list card: the Tonight card's box, type and link; only the background differs — a very faint wash of the app's teal (#0D9488, the
+           finished-something colour) over the page cream, not a new blue. No icons. */
+        .tonight + .list-card { margin-top: 12px; }
+        .list-card { background: #E6F0EE; }
         /* §6 — every scrolling root clears the pill. The pill is present at EVERY width (rail retired 2026-09-20);
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
         .app-root { min-height: 100vh; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
@@ -5441,7 +5891,7 @@ function ProvisionsApp() {
             {/* The header avatar is the one Profile trigger at every width
                 (the rail's foot avatar went with the rail, 2026-09-20). The
                 wrapping div stays so the row's space-between geometry is unchanged. */}
-            {isSignedIn ? (
+            {sessionLive ? (
               <button
                 onClick={() => setShowProfileSheet(true)}
                 style={{
@@ -5640,6 +6090,34 @@ function ProvisionsApp() {
                 fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
                 textTransform: "uppercase", color: "#A0724A", marginBottom: "10px",
               }}>Your Places</div>
+              {/* A5b (Addendum 2026-09-27): "Your places" is never drawn empty
+                  before it has loaded. Until the context's read has SUCCEEDED for
+                  this user, the zone is the Members placeholder and "+ Create new
+                  place" does not render — the empty list under a held read (V11)
+                  reads as "you have no places" and invites a duplicate household.
+                  A real (non-transient) failure gets one line and a Retry; still
+                  no Create. A successful EMPTY read (a brand-new user) renders the
+                  Create row as before. */}
+              {!householdsLoaded ? (
+                householdsReadFailed ? (
+                  <div style={{ textAlign: "center", padding: "14px 20px", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", letterSpacing: "1px" }}>
+                    Couldn't load your places
+                    <button
+                      onClick={retryHouseholds}
+                      style={{
+                        background: "none", border: "none", cursor: "pointer", marginLeft: "10px",
+                        fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
+                        color: "#A0724A", letterSpacing: "1px", padding: 0,
+                      }}
+                    >Retry</button>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: "center", padding: "14px 20px", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", letterSpacing: "1px" }}>
+                    Loading…
+                  </div>
+                )
+              ) : (
+              <>
               {(myHouseholds || []).map((hh) => {
                 const isActive = hh.id === activeHouseholdId;
                 if (isActive) {
@@ -5759,6 +6237,8 @@ function ProvisionsApp() {
                   </div>
                 </div>
               )}
+              </>
+              )}
             </div>
 
             <hr style={{ border: "none", borderTop: "1px solid #f0e6d8", margin: 0 }} />
@@ -5770,9 +6250,17 @@ function ProvisionsApp() {
                 textTransform: "uppercase", color: "#A0724A", marginBottom: "14px",
               }}>{(household?.name || "This place")} · Members</div>
 
-              {/* Member list */}
+              {/* Member list. A5 (Amendment 2026-09-27): until this place's members
+                  have been read, the zone is the existing quiet placeholder (the
+                  Browse catalog's) and the two verbs below do not render — "not
+                  loaded" is never drawn as "empty" (2026-09-27: an empty roster
+                  under Invite aboard and Leave place, for minutes). */}
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                {householdMembers.map((m) => {
+                {!membersLoaded ? (
+                  <div style={{ textAlign: "center", padding: "14px 20px", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8a7a60", letterSpacing: "1px" }}>
+                    Loading…
+                  </div>
+                ) : householdMembers.map((m) => {
                   const clerkId = m.users?.clerk_id;
                   const isMe = clerkId === user?.id;
                   const displayName = m.users?.full_name
@@ -5829,6 +6317,7 @@ function ProvisionsApp() {
                   structurally different, not just differently worded: espresso card vs.
                   outlined, ?invite= vs. ?ref=, names the place vs. never names it.
                   Hierarchy carries the distinction; neither verb gets a confirm. */}
+              {membersLoaded && (
               <button
                 onClick={handleInviteShare}
                 disabled={invitePreparing}
@@ -5861,6 +6350,7 @@ function ProvisionsApp() {
                   </div>
                 </div>
               </button>
+              )}
 
               {/* Hidden until the referral code is in hand. D8 says every in-app share
                   carries invite or ref and NEVER a naked URL, so with no code there is
@@ -5901,8 +6391,10 @@ function ProvisionsApp() {
 
               {/* Leaving is a membership action (you removing yourself) → it lives in
                   the membership zone, for non-creators. Delete (the entity action) is
-                  creator-only and lives inside Edit household (spec D3/D4). */}
-              {!isHouseholdCreator && (
+                  creator-only and lives inside Edit household (spec D3/D4). A5: not
+                  until the members are loaded — "not the creator" is unknowable off
+                  an empty list. */}
+              {membersLoaded && !isHouseholdCreator && (
                 <button
                   onClick={() => handleLeaveHousehold()}
                   style={{
@@ -5926,6 +6418,58 @@ function ProvisionsApp() {
           No backdrop onClick — this sheet is dismissed by Continue or Skip, never by a
           stray tap. Skip is right there and costs nothing; an accidental dismissal would
           silently spend the one time this sheet ever fires. */}
+      {/* D3 (SPEC_auth_state_ui_gating.md) — session loss is a designed moment.
+          The session went away with no reload: Clerk reports signed out after we
+          were live, or getToken came back null LOST_STREAK ticks running. By the
+          time this renders everything has stopped (§Sign-out reset in
+          useProvisions, mirrored by the household context); under it is the
+          signed-out rendering. Not dismissible — there is nothing to go back to,
+          and the one way forward is right here. A deliberate Sign out never
+          reaches this (markDeliberateSignOut). */}
+      {authPhase === "session_lost" && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(20,12,6,0.55)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            zIndex: 1200, animation: "fadeIn 0.2s ease",
+          }}
+        >
+          <div
+            style={{
+              background: "#FAF4EC", borderRadius: "22px 22px 0 0", padding: "8px 0 0",
+              width: "min(440px, 100vw)", boxShadow: "0 -12px 40px rgba(0,0,0,0.4)",
+            }}
+          >
+            <div style={{
+              width: "36px", height: "4px", borderRadius: "2px",
+              background: "rgba(44,26,14,0.18)", margin: "0 auto 14px",
+            }} />
+            <div style={{ padding: "4px 22px 30px", textAlign: "center" }}>
+              <div style={{
+                fontFamily: "'Playfair Display', serif", fontWeight: 600, fontSize: "20px",
+                lineHeight: 1.3, color: "#2C1A0E", marginBottom: "8px",
+              }}>You’ve been signed out</div>
+              <div style={{
+                fontFamily: "'Lato', sans-serif", fontSize: "13px", color: "#6f5a45",
+                lineHeight: 1.5, marginBottom: "22px",
+              }}>Sign in to pick up where you left off.</div>
+              {/* Not a SignInButton: see onSheetSignIn — the modal is a no-op while
+                  clerk-js still holds a session, so the button decides what "sign in"
+                  means here (re-activate, else reload, else the modal). */}
+              <button
+                type="button"
+                onClick={onSheetSignIn}
+                style={{
+                  width: "100%", padding: "14px", background: "#2C1A0E", border: "none",
+                  borderRadius: "11px", fontFamily: "'Lato', sans-serif", fontSize: "14.5px",
+                  fontWeight: 900, letterSpacing: "0.02em", color: "#FAF4EC", cursor: "pointer",
+                }}
+              >Sign In</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {welcomeOpen && (
         <div
           style={{
@@ -6358,11 +6902,23 @@ function ProvisionsApp() {
       )}
 
       <div className="container">
-        {view === "home" && (
-          <HomePlaceholder firstName={user?.firstName} householdName={household?.name} />
+        {signedOutWelcome && <HomeWelcome signUpInitialValues={signUpInitialValues} />}
+
+        {view === "home" && !signedOutWelcome && (
+          <Home
+            firstName={user?.firstName}
+            ready={homeReady}
+            meal={boardMeals[0] || null}
+            mealById={mealById}
+            onAdd={() => { setPlanScreen("library"); goToDoor("plan"); }}
+            onView={(m) => { setPlanScreen("board"); goToDoor("plan"); if (!isNoShop(m)) setMealSheet({ mode: "edit", meal: m }); }}
+            openCount={totalItems - checkedCount}
+            onStartList={() => goToDoor("input")}
+            onViewList={() => goToDoor("list")}
+          />
         )}
 
-        {view === "plan" && planScreen === "board" && (
+        {view === "plan" && planScreen === "board" && !signedOutWelcome && (
           <>
             {/* THE BOARD (v2). Header follows the Browse/Shop pattern: title, the
                 counts line, and ONE control top-right — "+ Add a meal" (filled,
@@ -6457,7 +7013,7 @@ function ProvisionsApp() {
           </>
         )}
 
-        {view === "plan" && planScreen === "library" && (
+        {view === "plan" && planScreen === "library" && !signedOutWelcome && (
           <>
             {/* THE LIBRARY (v2). Back chevron to the board; no "This Week" chip —
                 the board is one tap away and the nav tab is already lit. The + is
@@ -6488,7 +7044,7 @@ function ProvisionsApp() {
           </>
         )}
 
-        {view === "input" && (
+        {view === "input" && !signedOutWelcome && (
           <>
             <>
             {/* ── Search bar — sticky at top ── */}
@@ -6850,7 +7406,7 @@ function ProvisionsApp() {
           </>
         )}
 
-        {view === "list" && (
+        {view === "list" && !signedOutWelcome && (
           <>
             {/* Store prompt (mockup frame D) — once per session, only while no
                 store is set, or re-opened from the eyebrow. Eyebrow renders only
@@ -7711,7 +8267,7 @@ function ProvisionsApp() {
             {/* Sign out */}
             <div style={{ height: "0.5px", background: "#e8ddd0", margin: "0 20px" }} />
             <button
-              onClick={() => signOut(() => setShowProfileSheet(false))}
+              onClick={() => { markDeliberateSignOut(); signOut(() => setShowProfileSheet(false)); }}
               style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", width: "100%" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -7838,8 +8394,11 @@ function ProvisionsApp() {
 }
 
 export default function ShoppingListApp() {
-  const { user } = useUser();
-  const { getToken } = useAuth();
+  const { user, isSignedIn, isLoaded } = useUser();
+  const { getToken, sessionId } = useAuth();
+  // Same liveness the app body derives (authHealth is a shared store), so the
+  // household context and useProvisions agree on when there is a session.
+  const sessionLive = useSessionLive({ isLoaded, isSignedIn });
   const [systemMessage, setSystemMessage] = useState(null);
   const systemMsgTimerRef = useRef(null);
 
@@ -7879,7 +8438,7 @@ export default function ShoppingListApp() {
       <div className="desk-bg" aria-hidden="true" />
       <div className="phone-frame">
         <div className="phone-scroll">
-          <ActiveHouseholdProvider getToken={getToken} clerkId={user?.id} onRemoval={onRemoval}>
+          <ActiveHouseholdProvider getToken={getToken} clerkId={sessionLive ? user?.id : undefined} sessionId={sessionId} onRemoval={onRemoval}>
             <HouseholdDebugLog />
             <ProvisionsApp />
           </ActiveHouseholdProvider>

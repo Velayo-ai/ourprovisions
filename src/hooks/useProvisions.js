@@ -1,7 +1,9 @@
 // src/hooks/useProvisions.js
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createSupabaseClient } from "../lib/supabaseClient";
-import { classifyFetchError } from "../lib/classifyFetchError";
+import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
+import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
+import { scheduleHoldRetry } from "../lib/holdRetry";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 import { trace } from "@opentelemetry/api";
@@ -24,7 +26,7 @@ const PENDING_CATALOG_PREFIX = "pending:";
 export const isPendingCatalogId = (id) =>
   typeof id === "string" && id.startsWith(PENDING_CATALOG_PREFIX);
 
-export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds }) {
+export function useProvisions({ getToken, userId, clerkId, email, fullName, activeHouseholdId, myHouseholds, sessionId, sessionLive }) {
   // INVARIANT (2026-09-12): client state for list rows is keyed by list_item.id.
   // The name is a label, never an identity — two live rows can share one
   // ("Milk" custom beside "Milk" catalog; a reused cycle row). `quantities` and
@@ -61,10 +63,30 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // with 18 items on the list). The splash gate and the landing decision wait
   // on this, not on loading. Reset on every household load.
   const [householdReady, setHouseholdReady] = useState(false);
+  // A5 (Amendment 2026-09-27): "not loaded" must never draw as "empty". These
+  // hold the id of the household whose members / catalog have been read at
+  // least once; the derived membersLoaded / catalogLoaded compare against the
+  // ACTIVE household, so a switch reads as not-loaded until the new place's
+  // rows are in. Reset with the rest of the household world on sign-out.
+  const [membersLoadedFor, setMembersLoadedFor] = useState(null);
+  const [catalogLoadedFor, setCatalogLoadedFor] = useState(null);
   const [error, setError] = useState(null);
   // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
   const errorSourceRef = useRef(null);
   const { reportTransientFailure, reportSuccess } = useConnectivity();
+  // §Polling discipline — every POLLED read runs its failure through this first.
+  // An auth failure never retries and never toasts: 'missing' (the wrapper
+  // refused on a null token) skips the tick — authHealth is already counting
+  // toward session_lost; 'rejected' (401/403 with a token attached) ends the
+  // session outright via reportAuthRejected, and the sign-out reset stops every
+  // interval. Returns true when the caller must return silently. Reads only —
+  // an RLS-denied WRITE is a 403 too, and that is a bug to toast, not a loss.
+  const stopOnAuthFailure = (error, status) => {
+    const cls = classifyAuthFailure(error, status);
+    if (cls === 'rejected') { reportAuthRejected(status); return true; }
+    if (cls === 'missing') return true;
+    return false;
+  };
   const supabaseRef = useRef(null);
   const householdRef = useRef(null);   // mirrors household for use inside callbacks
   const catalogRef = useRef({});       // mirrors catalogMap for use inside callbacks
@@ -146,6 +168,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const bootstrapHouseholdIdRef = useRef(null);
   const bootstrappedRef = useRef(false);
   const [bootstrapped, setBootstrapped] = useState(false);
+  // Amendment 2026-09-27 (A2/A3): a transient first request is a HOLD, never
+  // terminal. Each counter bumps to re-run its effect after the backoff (or at
+  // once on `online` / visible); each ref counts consecutive transient failures
+  // for the current identity (Effect 1) or household (Effect 2) so the delay
+  // grows 1→2→4→8→16→30s and resets on success or on a change of subject.
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
+  const bootstrapHoldRef = useRef({ key: null, failures: 0 });
+  const [householdAttempt, setHouseholdAttempt] = useState(0);
+  const householdHoldRef = useRef({ key: null, failures: 0 });
   const justJoinedViaInviteRef = useRef(false);
   const realtimeChannelRef = useRef(null);
 
@@ -208,10 +239,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }
 
   async function loadListItemsInner(db, householdId) {
-    const { data: items, error: listErr } = await db
+    const { data: items, error: listErr, status: listStatus } = await db
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
     if (listErr) {
+      if (stopOnAuthFailure(listErr, listStatus)) return;
       if (classifyFetchError(listErr) === 'transient') { reportTransientFailure(); } else { failWith("list", `Could not load list: ${listErr.message}`); }
       return;
     }
@@ -408,7 +440,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (wrappingUpRef.current || cyclePollBusyRef.current) return;
     cyclePollBusyRef.current = true;
     try {
-      const { data, error: cycleErr } = await db
+      const { data, error: cycleErr, status: cycleStatus } = await db
         .from("provision_cycles")
         .select("id, cycle_type, label, started_at, seeded_from")
         .eq("household_id", householdId)
@@ -416,7 +448,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .order("started_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      if (cycleErr) return;
+      if (cycleErr) { stopOnAuthFailure(cycleErr, cycleStatus); return; }
       const next = data || null;
       if ((next?.id || null) !== (activeCycleRef.current?.id || null)) {
         activeCycleRef.current = next;
@@ -464,60 +496,28 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Creates the Supabase client once and runs bootstrap_new_user.
   // Does NOT fetch any household-scoped data — that belongs to Effect 2.
   useEffect(() => {
-    // If not signed in, fetch global catalog via direct REST call using anon key — no Supabase client needed
+    // D4 / D1 (SPEC_auth_state_ui_gating.md): no session → no data. The anon
+    // storefront preview that used to live here (seed catalog + category averages
+    // over apikey-only REST, for a signed-out Browse) was retired 2026-09-24 with
+    // Browse's signed-out rendering. After this the app makes ZERO anon queries;
+    // Home carries the signed-out surface.
     if (!getTokenRef.current || !userId || !clerkId) {
-      (async () => {
-        try {
-          const response = await fetch(
-            `${process.env.REACT_APP_SUPABASE_URL}/rest/v1/catalog_items?deleted_at=is.null&select=id,name,category,unit,price_hint`,
-            {
-              headers: {
-                apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
-                Authorization: `Bearer ${process.env.REACT_APP_SUPABASE_ANON_KEY}`,
-              },
-            }
-          );
-          const items = await response.json();
-          const cMap = {};
-          (Array.isArray(items) ? items : []).forEach(item => { cMap[item.name] = item; });
-          setCatalogMap(cMap);
-          catalogRef.current = cMap;
-          const hintPrices = {};
-          Object.values(cMap).forEach(item => {
-            if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
-          });
-          setPrices(hintPrices);
-          try {
-            const avgResponse = await fetch(
-              `${process.env.REACT_APP_SUPABASE_URL}/rest/v1/category_avg_prices?select=category,avg_price`,
-              {
-                headers: {
-                  apikey: process.env.REACT_APP_SUPABASE_ANON_KEY,
-                  Authorization: `Bearer ${process.env.REACT_APP_SUPABASE_ANON_KEY}`,
-                },
-              }
-            );
-            const avgRows = await avgResponse.json();
-            const avgMap = {};
-            (Array.isArray(avgRows) ? avgRows : []).forEach(row => {
-              avgMap[row.category] = parseFloat(row.avg_price);
-            });
-            setCategoryAvgPrices(avgMap);
-          } catch (err) {
-            console.error("Category avg prices load error:", err.message);
-          }
-        } catch (err) {
-          console.error("Anon catalog load error:", err.message);
-        } finally {
-          setLoading(false);
-        }
-      })();
+      setLoading(false);
       return;
     }
 
+    // A2: the hold counter belongs to THIS identity+session. A different person
+    // (or the same person's next session) starts at zero.
+    const holdKey = `${userId}|${clerkId}|${sessionId || ""}`;
+    if (bootstrapHoldRef.current.key !== holdKey) bootstrapHoldRef.current = { key: holdKey, failures: 0 };
+    let cancelled = false;
+    let cancelHold = null;
+
     async function setupSession() {
-      setLoading(true);
-      setError(null);
+      // The overlay ("Loading your provisions…") shows for the first attempt
+      // only. A retry runs quietly behind the pill — flashing a full-screen
+      // overlay every backoff step would be its own failure.
+      if (bootstrapHoldRef.current.failures === 0) { setLoading(true); setError(null); }
 
       try {
         // Create Supabase client once — guard prevents stacking GoTrueClient instances on switch
@@ -559,10 +559,36 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         };
         if (pendingRefCode) bootstrapArgs.p_ref_code = pendingRefCode;
 
-        const { data: bootstrapData, error: bootstrapErr } = await db
+        const { data: bootstrapData, error: bootstrapErr, status: bootstrapStatus } = await db
           .rpc("bootstrap_new_user", bootstrapArgs);
 
-        if (bootstrapErr) throw new Error(`Bootstrap failed: ${bootstrapErr.message}`);
+        if (bootstrapErr) {
+          // A2 (Amendment 2026-09-27): bootstrap is never terminal on a
+          // transient failure. Until tonight this threw on ANY error and the
+          // effect never re-ran (its deps are identity and session), so one
+          // "TypeError: Load failed" on a cold iPhone radio left the person
+          // signed in with no household until a cold start — no catalog, no
+          // list, an empty Members zone, "Provisions". Now:
+          //   transient (the request never got an answer) or 'missing' (the
+          //   wrapper refused on a null token — Clerk must be asked again) →
+          //   report to the pill, no toast, retry with backoff (1/2/4/8/16s,
+          //   then 30s) and at once on `online` / visible.
+          //   anything the server actually said ('real', or 401/403 with a
+          //   token) → today's toast, as before.
+          const authCls = classifyAuthFailure(bootstrapErr, bootstrapStatus);
+          const holdable = authCls === 'missing' || (authCls === null && classifyFetchError(bootstrapErr) === 'transient');
+          if (holdable) {
+            if (cancelled) return;
+            bootstrapHoldRef.current.failures += 1;
+            console.warn(`bootstrap hold (${bootstrapHoldRef.current.failures}):`, bootstrapErr.message);
+            reportTransientFailure();
+            setLoading(false);
+            cancelHold = scheduleHoldRetry(bootstrapHoldRef.current.failures, () => setBootstrapAttempt((a) => a + 1));
+            return;
+          }
+          throw new Error(`Bootstrap failed: ${bootstrapErr.message}`);
+        }
+        bootstrapHoldRef.current.failures = 0;
 
         // Code has been attempted — clear the persisted copy so it can't re-trigger
         // on a future visit, regardless of whether the join actually succeeded.
@@ -635,13 +661,82 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
 
     setupSession();
+    return () => {
+      cancelled = true;
+      if (cancelHold) cancelHold();
+    };
     // fullName intentionally excluded: it is a cosmetic attribute that feeds
     // bootstrap_new_user (no-op for existing users) only. Including it caused a
     // name edit (which writes Clerk → changes fullName) to re-fire session
     // bootstrap and wedge the loading state. Bootstrap re-runs on identity
-    // change only.
+    // change — and, since the sign-out reset (below), on SESSION change: the
+    // same person signing back in after a loss has the same Clerk id, and
+    // without sessionId here nothing would re-bootstrap. bootstrapAttempt is
+    // the A2 retry: bumped by the hold scheduler, nothing else.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, clerkId, email]);
+  }, [userId, clerkId, email, sessionId, bootstrapAttempt]);
+
+  // ── Sign-out reset (SPEC_auth_state_ui_gating.md §Sign-out reset, D3) ──
+  // The missing half of sign-out. Until 2026-09-24 nothing here reset when the
+  // session went away: supabaseRef, householdRef and `household` survived, the
+  // meal poll kept ticking on household?.id, and the fetch wrapper sent
+  // apikey-only requests — PostgREST saw anon, 401 every 2s, for four minutes.
+  // Now every transition OUT of a live session (Clerk signed out, deliberate or
+  // not; or the token gone LOST_STREAK ticks running) clears the household
+  // world in one place. Effect 2's cleanup has already stopped its intervals
+  // by the time this runs (userId went undefined), and App.js's meal poll dies
+  // with household?.id. The catalog map goes too (D4a retired Browse's
+  // signed-out preview, so nothing renders it without a session; Effect 2
+  // rebuilds it on the next household load). The remembered active place (A6: per user,
+  // `activeHouseholdId:<clerkId>`) stays, validated on the next sign-in.
+  const wasLiveRef = useRef(false);
+  useEffect(() => {
+    if (sessionLive) { wasLiveRef.current = true; return; }
+    if (!wasLiveRef.current) return;
+    wasLiveRef.current = false;
+    supabaseRef.current = null;
+    householdRef.current = null;
+    setHousehold(null);
+    setHouseholdMembers([]);
+    householdMembersRef.current = [];
+    setMembersLoadedFor(null);
+    setCatalogLoadedFor(null);
+    bootstrappedRef.current = false;
+    setBootstrapped(false);
+    bootstrapHouseholdIdRef.current = null;
+    bootstrapHoldRef.current = { key: null, failures: 0 };
+    householdHoldRef.current = { key: null, failures: 0 };
+    internalUserIdRef.current = null;
+    setReferralCode(null);
+    setHouseholdReady(false);
+    listFingerprintRef.current = "";
+    listRowsRef.current = [];
+    setListRows([]);
+    setQuantities({});
+    setChecked({});
+    setAddedByMap({});
+    setContributorsMap({});
+    setHiddenCatalogItems([]);
+    hiddenCatalogItemsRef.current = [];
+    hiddenIdsRef.current = new Set();
+    setCatalogMap({});
+    catalogRef.current = {};
+    setPrices({});
+    setCategoryAvgPrices({});
+    setActiveCycle(null);
+    activeCycleRef.current = null;
+    setActiveSession(null);
+    activeSessionRef.current = null;
+    setPartnerSession(null);
+    setStoreSuggestions([]);
+    setCheckedByMap({});
+    boughtFingerprintRef.current = "";
+    setPlacements({});
+    placementsRef.current = {};
+    errorSourceRef.current = null;
+    setError(null);
+    setLoading(false);
+  }, [sessionLive]);
 
   // Effect 1b — Reconcile users.full_name from Clerk on each session.
   // WHY its own effect: bootstrap runs once and is a no-op for existing users, and
@@ -694,6 +789,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const db = supabaseRef.current;
     if (!db || !bootstrapped) return;               // wait for Effect 1
     if (!userId || !clerkId) return;                 // not signed in
+    if (!sessionLive) return;                        // §Polling discipline: pollers run in `ready` only
 
     // ── Resolve which household to load ──
     const fallbackId = bootstrapHouseholdIdRef.current;
@@ -713,12 +809,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
     if (!targetId) return;
 
+    // A3: the household-fetch hold counter belongs to THIS household.
+    if (householdHoldRef.current.key !== targetId) householdHoldRef.current = { key: targetId, failures: 0 };
+
     let pollInterval;
     let catalogPollInterval;
+    let onlineTick;
+    let cancelHold = null;
     let cancelled = false;
 
     async function loadForHousehold(householdId) {
-      setLoading(true);
+      // Overlay on the first attempt only; a retry runs behind the pill (A3).
+      if (householdHoldRef.current.failures === 0) setLoading(true);
       setHouseholdReady(false);
 
       // Reset per-household state so the previous household's rows don't flash
@@ -746,7 +848,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // base columns so the app degrades to today's espresso header instead of
         // hard-erroring. Once 024 is applied, the extended select succeeds.
         const BANNER_COLS = "photo_path, photo_position_x, photo_position_y, photo_zoom, banner_wordmark, created_by";
-        let hhData = null, hhErr = null;
+        let hhData = null, hhErr = null, hhStatus = null;
         {
           const ext = await db
             .from("households")
@@ -761,15 +863,31 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
               .select("id, name, budget_goal")
               .eq("id", householdId)
               .single();
-            hhData = base.data; hhErr = base.error;
+            hhData = base.data; hhErr = base.error; hhStatus = base.status;
           } else {
-            hhData = ext.data; hhErr = ext.error;
+            hhData = ext.data; hhErr = ext.error; hhStatus = ext.status;
           }
         }
         if (hhErr) {
-          if (classifyFetchError(hhErr) === 'transient') { reportTransientFailure(); } else { setError(`Could not fetch place: ${hhErr.message}`); }
+          // A3 (Amendment 2026-09-27): this early return was the second terminal
+          // exit — no polls, no `online` listener, nothing to re-run it. A
+          // transient failure (or the wrapper's refusal on a null token) now
+          // holds and retries exactly as bootstrap does; a real error toasts.
+          if (cancelled) return;
+          const authCls = classifyAuthFailure(hhErr, hhStatus);
+          const holdable = authCls === 'missing' || (authCls === null && classifyFetchError(hhErr) === 'transient');
+          if (holdable) {
+            householdHoldRef.current.failures += 1;
+            console.warn(`household fetch hold (${householdHoldRef.current.failures}):`, hhErr.message);
+            reportTransientFailure();
+            setLoading(false);
+            cancelHold = scheduleHoldRetry(householdHoldRef.current.failures, () => setHouseholdAttempt((a) => a + 1));
+            return;
+          }
+          setError(`Could not fetch place: ${hhErr.message}`);
           setLoading(false); return;
         }
+        householdHoldRef.current.failures = 0;
         if (cancelled) return;
         const hh = hhData;
         // Private bucket → resolve photo_path to a signed URL for the header.
@@ -804,6 +922,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         }));
         setHouseholdMembers(membersWithProfiles);
         householdMembersRef.current = membersWithProfiles;
+        setMembersLoadedFor(hh.id);
 
         // Open shopping sessions — mine adopted (or expired), partner's noted.
         await loadSessions(db, hh.id);
@@ -869,6 +988,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         });
         setCatalogMap(cMap);
         catalogRef.current = cMap;
+        setCatalogLoadedFor(hh.id);
         const hintPrices = {};
         Object.values(cMap).forEach(item => {
           if (item.price_hint != null) hintPrices[item.name] = parseFloat(item.price_hint);
@@ -892,8 +1012,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         await loadActiveCycle(db, hh.id);
         if (cancelled) return;
 
-        pollInterval = setInterval(() => { loadListItems(db, hh.id); pollActiveCycle(db, hh.id); }, 2000);
-        catalogPollInterval = setInterval(() => { refreshCatalogRef.current(); }, 20000);
+        // Amendment 2026-09-24 (offline is not auth loss): every tick passes
+        // isPollingOpen — closed while navigator.onLine is false or for the
+        // hold after a 401/403 — so nothing is sent into the void, and the
+        // `online` event runs one immediate tick instead of waiting out the
+        // interval. A missing token does not close the gate: the tick has to
+        // reach the wrapper for Clerk to be asked again.
+        const listTick = () => { if (!isPollingOpen()) return; loadListItems(db, hh.id); pollActiveCycle(db, hh.id); };
+        const catalogTick = () => { if (!isPollingOpen()) return; refreshCatalogRef.current(); };
+        pollInterval = setInterval(listTick, 2000);
+        catalogPollInterval = setInterval(catalogTick, 20000);
+        onlineTick = () => { listTick(); catalogTick(); };
+        window.addEventListener("online", onlineTick);
 
         reportSuccess();
         setLoading(false);
@@ -910,14 +1040,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
     return () => {
       cancelled = true;
+      if (cancelHold) cancelHold();
       if (pollInterval) clearInterval(pollInterval);
       if (catalogPollInterval) clearInterval(catalogPollInterval);
+      if (onlineTick) window.removeEventListener("online", onlineTick);
       if (realtimeChannelRef.current) {
         try { supabaseRef.current?.removeChannel(realtimeChannelRef.current); } catch (e) {}
         realtimeChannelRef.current = null;
       }
     };
-  }, [activeHouseholdId, userId, clerkId, bootstrapped]); // eslint-disable-line react-hooks/exhaustive-deps
+    // householdAttempt is the A3 retry: bumped by the hold scheduler, nothing else.
+  }, [activeHouseholdId, userId, clerkId, bootstrapped, sessionLive, householdAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────────
   // updateQty: handles both global catalog items AND custom items.
@@ -2000,12 +2133,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       return result;
     };
 
-    const { data: catalog, error: catalogErr } = await withJwtRetry(() => db
+    const { data: catalog, error: catalogErr, status: catalogStatus } = await withJwtRetry(() => db
       .from("catalog_items")
       .select("id, name, category, unit, is_global, price_hint, is_staple")
       .eq("is_global", true)
       .is("deleted_at", null));
     if (catalogErr) {
+      if (stopOnAuthFailure(catalogErr, catalogStatus)) return;
       if (classifyFetchError(catalogErr) === 'transient') { reportTransientFailure(); } else { failWith("catalog", `Could not refresh catalog: ${catalogErr.message}`); }
       return;
     }
@@ -2014,13 +2148,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // ordinary skew case the wait above has already cleared the window and this
     // never fires — but a rotation landing between the two queries would otherwise
     // fail the poll on the second half, which looks identical to the user.
-    const { data: customItems, error: customErr } = await withJwtRetry(() => db
+    const { data: customItems, error: customErr, status: customStatus } = await withJwtRetry(() => db
       .from("catalog_items")
       .select("id, name, category, unit, is_global, price_hint, is_staple")
       .eq("household_id", hh.id)
       .eq("is_global", false)
       .is("deleted_at", null));
     if (customErr) {
+      if (stopOnAuthFailure(customErr, customStatus)) return;
       if (classifyFetchError(customErr) === 'transient') { reportTransientFailure(); } else { failWith("catalog", `Could not refresh catalog: ${customErr.message}`); }
       return;
     }
@@ -2090,6 +2225,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       }));
       setHouseholdMembers(membersWithProfiles);
       householdMembersRef.current = membersWithProfiles;
+      setMembersLoadedFor(hh.id);
     } catch (err) {
       console.error("refreshMembers error:", err.message);
     }
@@ -2417,7 +2553,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return [];
-    const { data, error: err } = await db
+    const { data, error: err, status: mealsStatus } = await db
       .from("meals")
       // 055/056: kind + from_meal_ids ride along. This read returns EVERY kind — the
       // board's meal lookup must include no-shop rows (leftovers, out). The
@@ -2429,6 +2565,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (err) {
+      if (stopOnAuthFailure(err, mealsStatus)) return [];
       if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { failWith("meals", `Could not load meals: ${err.message}`); }
       return [];
     }
@@ -2993,12 +3130,28 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const rowToPlacement = (r) => ({ sortOrder: r.sort_order, readyAt: r.ready_at ?? null, cookedAt: r.cooked_at ?? null, skippedAt: r.skipped_at ?? null });
   const samePlacement = (a, b) => !!a && !!b && a.sortOrder === b.sortOrder && a.readyAt === b.readyAt && a.cookedAt === b.cookedAt && a.skippedAt === b.skippedAt;
   const setPlacementsBoth = (next) => { placementsRef.current = next; setPlacements(next); };
+  // §Polling discipline — placements backoff. The 2s meal tick keeps ticking
+  // (it is App.js's interval); this ref tells the POLLED entry (refreshPlacements)
+  // to sit out until `until`. Each non-auth failure doubles the wait,
+  // 2s → 4s → 8s → 16s → 30s cap; the first success resets it. Backoff is for
+  // network/5xx only — an auth failure never retries (stopOnAuthFailure).
+  const PLACEMENTS_BACKOFF_BASE_MS = 2000;
+  const PLACEMENTS_BACKOFF_CAP_MS = 30000;
+  const placementsBackoffRef = useRef({ delayMs: PLACEMENTS_BACKOFF_BASE_MS, until: 0 });
   async function loadPlacements(db, hh) {
-    const { data, error: err } = await db
+    const { data, error: err, status: plStatus } = await db
       .from("meal_placements")
       .select("meal_id, sort_order, ready_at, cooked_at, skipped_at")
       .eq("household_id", hh.id);
-    if (err) { console.error("loadPlacements error:", err.message); return; }
+    if (err) {
+      if (stopOnAuthFailure(err, plStatus)) return;
+      const b = placementsBackoffRef.current;
+      b.delayMs = Math.min(b.delayMs * 2, PLACEMENTS_BACKOFF_CAP_MS);
+      b.until = Date.now() + b.delayMs;
+      console.error("loadPlacements error:", err.message, `— next try in ${b.delayMs / 1000}s`);
+      return;
+    }
+    placementsBackoffRef.current = { delayMs: PLACEMENTS_BACKOFF_BASE_MS, until: 0 };
     const next = {};
     (data || []).forEach((r) => { next[r.meal_id] = rowToPlacement(r); });
     const prev = placementsRef.current;
@@ -3014,6 +3167,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     if (!db || !hh) return;
     if (reorderPendingRef.current > 0) return;
+    if (Date.now() < placementsBackoffRef.current.until) return;   // backing off after a failure
     await loadPlacements(db, hh);
   // loadPlacements is a stable hook-scope function (uses refs).
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3371,7 +3525,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
   return {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
-    hiddenCatalogItems, loading, householdReady, error, dismissError,
+    hiddenCatalogItems, loading, householdReady, bootstrapped, error, dismissError,
+    // A5: per active household — false until that place's rows have been read once.
+    membersLoaded: !!household?.id && membersLoadedFor === household.id,
+    catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,

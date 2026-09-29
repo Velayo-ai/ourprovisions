@@ -3,6 +3,13 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { trace } from "@opentelemetry/api";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { setHousehold } from "../rum";
+import { isPollingOpen } from "../lib/authHealth";
+import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
+import { scheduleHoldRetry } from "../lib/holdRetry";
+// A6 (Amendment 2026-09-27): the remembered active place is PER USER
+// (`activeHouseholdId:<clerkId>`), legacy per-browser key adopted once — see
+// src/lib/rememberedHousehold.js.
+import { pickActiveHousehold, rememberHousehold } from "../lib/rememberedHousehold";
 
 const ActiveHouseholdContext = createContext(null);
 
@@ -12,14 +19,39 @@ const ActiveHouseholdContext = createContext(null);
 // stands in and these spans cost nothing.
 const tracer = trace.getTracer("ourprovisions-app");
 
-export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children }) {
+// clerkId arrives already gated on the LIVE session (App.js passes undefined the
+// moment the session is not live — Clerk signed out, or the token gone
+// LOST_STREAK ticks running), and sessionId keys the two effects below so the
+// same person signing back in re-resolves. See SPEC_auth_state_ui_gating.md.
+export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemoval, children }) {
   const [myHouseholds, setMyHouseholds] = useState([]);
   const [activeHouseholdId, setActiveHouseholdId] = useState(null);
   const [loadingHouseholds, setLoadingHouseholds] = useState(true);
+  // A7 (Amendment 2026-09-27): the initial get_my_households used to give up on
+  // any error, leaving the lens null with loadingHouseholds false — which read
+  // downstream as "this person has no place". A transient failure now HOLDS
+  // (loadingHouseholds stays true) and retries on the A2 backoff, bumping
+  // `householdsAttempt`; only a real error ends the load, and it sets
+  // `householdsReadFailed` so the adopt effect in App.js knows the read
+  // errored rather than returned.
+  const [householdsAttempt, setHouseholdsAttempt] = useState(0);
+  const householdsHoldRef = useRef({ key: null, failures: 0 });
+  const [householdsReadFailed, setHouseholdsReadFailed] = useState(false);
+  // A5b (Addendum 2026-09-27): the clerkId whose places list has been read
+  // successfully at least once this session. Set ONLY on a successful read,
+  // cleared by the sign-out reset — mirrors useProvisions' membersLoadedFor.
+  // `householdsLoaded` (below) compares it to the current clerkId, so the
+  // Places sheet never draws "Your places" as empty before it has loaded (V11:
+  // "+ Create new place" alone, under a held read, invites a duplicate place).
+  const [householdsLoadedFor, setHouseholdsLoadedFor] = useState(null);
 
   // Stable ref so the effect doesn't re-fire when getToken identity changes each render.
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
+  // Mirrors clerkId for switchHousehold, which writes the per-user key (A6)
+  // and must keep a stable identity (it sits in other callbacks' deps).
+  const clerkIdRef = useRef(clerkId);
+  clerkIdRef.current = clerkId;
 
   // Keep a ref in sync so switchHousehold can validate ids without capturing stale state.
   const myHouseholdsRef = useRef([]);
@@ -116,23 +148,61 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
 
   useEffect(() => {
     if (!clerkId || !getTokenRef.current) {
+      // §Sign-out reset (mirror). No live session: drop the client (its getToken
+      // would only ever refuse now), the list and the lens. The watchdog effect
+      // below returns early on !clerkId and its cleanup already cleared the
+      // interval, so nothing can fire on a stale dbRef. On first mount this is
+      // a no-op over already-empty state.
+      dbRef.current = null;
+      myHouseholdsRef.current = [];
+      setMyHouseholds([]);
+      setActiveHouseholdId(null);
       setLoadingHouseholds(false);
+      setHouseholdsReadFailed(false);
+      setHouseholdsLoadedFor(null);
+      householdsHoldRef.current = { key: null, failures: 0 };
       return;
     }
 
+    // The hold counter belongs to THIS identity+session (A7).
+    const holdKey = `${clerkId}|${sessionId || ""}`;
+    if (householdsHoldRef.current.key !== holdKey) householdsHoldRef.current = { key: holdKey, failures: 0 };
+    // Loading is TRUE for the whole read, retries included. Before this it was
+    // only ever set false (initial true, false in finally), so after a sign-out
+    // → sign-in the next read ran with loadingHouseholds already false and the
+    // adopt effect was free to persist bootstrap's pick mid-read.
+    setLoadingHouseholds(true);
+
     let cancelled = false;
+    let cancelHold = null;
 
     (async () => {
+      let holding = false;
       try {
         const db = getDb();
 
-        const { data, error } = await db.rpc("get_my_households");
+        const { data, error, status } = await db.rpc("get_my_households");
 
         if (error) {
+          if (cancelled) return;
+          // A7: a transient failure (the request never got an answer) or the
+          // wrapper's refusal on a null token is a HOLD — the list stays
+          // loading and the read retries on the A2 backoff (at once on
+          // `online` / visible). Only a real error ends the load.
+          const authCls = classifyAuthFailure(error, status);
+          const holdable = authCls === 'missing' || (authCls === null && classifyFetchError(error) === 'transient');
+          if (holdable) {
+            holding = true;
+            householdsHoldRef.current.failures += 1;
+            console.warn(`[ActiveHousehold] get_my_households hold (${householdsHoldRef.current.failures}):`, error.message);
+            cancelHold = scheduleHoldRetry(householdsHoldRef.current.failures, () => setHouseholdsAttempt((a) => a + 1));
+            return;
+          }
           console.error("[ActiveHousehold] get_my_households failed:", error);
-          if (!cancelled) setLoadingHouseholds(false);
+          setHouseholdsReadFailed(true);
           return;
         }
+        householdsHoldRef.current.failures = 0;
 
         const households = (data || []).map((row) => ({
           id: row.household_id,
@@ -142,29 +212,41 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
 
         if (cancelled) return;
 
+        setHouseholdsReadFailed(false);
+        setHouseholdsLoadedFor(clerkId);
         myHouseholdsRef.current = households;
         setMyHouseholds(households);
 
-        // Prefer last-selected household from localStorage if it's still a valid membership;
-        // otherwise fall back to the first returned (oldest / default ordering from DB).
-        const stored = localStorage.getItem("activeHouseholdId");
-        const isValid = households.some((h) => h.id === stored);
-        setActiveHouseholdId(isValid ? stored : (households[0]?.id ?? null));
+        // A6: this user's own remembered place if still a member (adopting the
+        // legacy per-browser key once), else the first returned.
+        setActiveHouseholdId(pickActiveHousehold(clerkId, households));
       } catch (err) {
         console.error("[ActiveHousehold] unexpected error:", err);
       } finally {
-        if (!cancelled) setLoadingHouseholds(false);
+        if (!cancelled && !holding) setLoadingHouseholds(false);
       }
     })();
 
     return () => {
       cancelled = true;
+      if (cancelHold) cancelHold();
     };
-  }, [clerkId]);
+    // householdsAttempt is the A7 retry: bumped by the hold scheduler and by the
+    // Places sheet's Retry (A5b), nothing else.
+  }, [clerkId, sessionId, householdsAttempt]);
+
+  // A5b: the Places sheet's Retry after a REAL read failure. Re-runs the initial
+  // read above (not refreshHouseholds): that path is the one that resolves the
+  // lens, clears householdsReadFailed and stamps householdsLoadedFor on success.
+  const retryHouseholds = useCallback(() => {
+    householdsHoldRef.current.failures = 0;
+    setHouseholdsReadFailed(false);
+    setHouseholdsAttempt((a) => a + 1);
+  }, []);
 
   const switchHousehold = useCallback((id) => {
     if (!myHouseholdsRef.current.some((h) => h.id === id)) return;
-    localStorage.setItem("activeHouseholdId", id);
+    rememberHousehold(clerkIdRef.current, id);   // A6: per user; a storage failure never blocks a switch
     setActiveHouseholdId(id);
   }, []);
 
@@ -235,6 +317,10 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
       if (resolvingRef.current) return;   // a deliberate loss-resolution owns this — don't double-fire
       if (deliberateLossRef.current) return;   // a deliberate delete/leave owns this window
       if (!getTokenRef.current) return;
+      // §Polling discipline: offline or holding after a 401/403 → skip the tick.
+      // (Session loss itself withdraws clerkId, and this interval is cleared
+      // with it — Amendment 2026-09-24: offline is a hold, never a loss.)
+      if (!isPollingOpen()) return;
       try {
         const db = getDb();
         const { data, error } = await db.rpc("get_my_households");
@@ -262,7 +348,8 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         // span, "No longer a member of…" — at someone who had just named their first
         // place. Nothing was lost: adopt the first household silently and return.
         if (activeHouseholdIdRef.current == null) {
-          if (households.length > 0) switchHousehold(households[0].id);
+          // A6: prefer this user's remembered place over the oldest-first default.
+          if (households.length > 0) switchHousehold(pickActiveHousehold(clerkId, households));
           return;
         }
         if (households.some((h) => h.id === activeHouseholdIdRef.current)) return;
@@ -325,7 +412,7 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
     const intervalId = setInterval(checkPresence, 30000);
     return () => clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clerkId]);
+  }, [clerkId, sessionId]);
 
   return (
     <ActiveHouseholdContext.Provider
@@ -338,6 +425,10 @@ export function ActiveHouseholdProvider({ getToken, clerkId, onRemoval, children
         beginDeliberateLoss,
         endDeliberateLoss,
         loadingHouseholds,
+        householdsReadFailed,
+        // A5b: true once THIS user's places have been read successfully this session.
+        householdsLoaded: !!clerkId && householdsLoadedFor === clerkId,
+        retryHouseholds,
         hasMultiple: myHouseholds.length > 1,
       }}
     >

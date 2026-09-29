@@ -1,4 +1,5 @@
 import { useConnectivity } from "../contexts/ConnectivityContext";
+import { resolvePillState } from "../lib/pillState";
 
 const CONFIGS = {
   reconnecting: {
@@ -55,12 +56,16 @@ const dotBase = {
   flexShrink: 0,
 };
 
-export function ConnectivityPill() {
+// `hasSavedData` (A5b, Addendum 2026-09-27): true once this household's data has
+// rendered at least once — App.js passes householdReady. Without it the
+// "offline" state is drawn as "Reconnecting…": there is nothing saved to show.
+// Copy only — visibility still follows connState alone.
+export function ConnectivityPill({ hasSavedData = true }) {
   const { connState } = useConnectivity();
 
   if (connState === "online") return null;
 
-  const cfg = CONFIGS[connState];
+  const cfg = CONFIGS[resolvePillState(connState, hasSavedData)];
 
   return (
     <>
