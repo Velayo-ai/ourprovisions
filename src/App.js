@@ -7606,7 +7606,10 @@ function ProvisionsApp() {
                         />
                         <span className="noshop-check-box" aria-hidden="true">{on ? "✓" : ""}</span>
                         <span className="noshop-check-name">{m.name}</span>
-                        {placements[m.id]?.cookedAt && !boardMeals.some((b) => b.id === m.id) && (
+                        {/* 058: the tag reads the cook log, the same source as the list, so a
+                            meal cooked, re-planned and then x-skipped (placement cooked_at cleared,
+                            skipped_at set) is listed AND tagged. */}
+                        {!!cooks[m.id] && !boardMeals.some((b) => b.id === m.id) && (
                           <span className="noshop-check-meta">cooked</span>
                         )}
                       </label>
