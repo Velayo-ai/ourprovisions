@@ -1175,6 +1175,13 @@ const MEAL_TONES = [
 // food to cook, and these plans cook nothing.
 const NO_SHOP_TONE = { name: "cream", bg: "#EFE9DE", fg: "#6f5a45" };
 const isNoShop = (m) => !!m?.kind && m.kind !== "meal";
+// Leftovers window (SPEC_replan_cook_history.md D4): a meal cooked within this
+// many days is offered as a leftovers source. Leftovers are a fridge fact, not a
+// shopping-cycle fact — the old rule counted wrap-ups, so a household that rarely
+// wrapped up saw weeks-old meals. 4 is a STARTING POINT, and Leftovers is a
+// helper, not essential: tune it from what households say, not by reasoning.
+// The one place this number lives.
+const LEFTOVER_WINDOW_DAYS = 4;
 const NO_SHOP_LABELS = { leftovers: "Leftovers", out: "Eating out", other: "Something else" };
 const noShopLabel = (m) => NO_SHOP_LABELS[m?.kind] || "Something else";
 // A no-shop row's free text is meals.name; a blank name stored the label, so
@@ -2880,7 +2887,7 @@ function ProvisionsApp() {
     lockInAll,
     planNoShop,
     madeBefore,
-    fetchLeftoverCutoff,
+    cooks,
     _listRows,
     updateFullName,
     activeCycle,
@@ -3492,31 +3499,32 @@ function ProvisionsApp() {
 
   // No-shop cards (055/056/057): Leftovers / Eating out / Something else. The
   // foot buttons open a one-field sheet — leftovers: a multi-select (no
-  // minimum) over the board's open meals + meals cooked in the last two
-  // cycles; eating out: optional place name; something else: a free name
-  // (soccer, Mom's, takeout, no idea yet) — then planNoShop inserts the meals
-  // row and places it in one action.
+  // minimum) over the board's open meals + meals cooked in the last
+  // LEFTOVER_WINDOW_DAYS (058, D4 — the cook log, not the placement, so a
+  // re-planned meal still counts); eating out: optional place name; something
+  // else: a free name (soccer, Mom's, takeout, no idea yet) — then planNoShop
+  // inserts the meals row and places it in one action.
   //   noShopSheet: null | { kind: 'leftovers' | 'out' | 'other', name, fromMealIds: [] }
-  //   leftoverCutoff: ISO | null — read when the Leftovers sheet opens
-  //   (fetchLeftoverCutoff); null = no cycle yet = no cutoff.
+  //   leftoverSince: ISO — now − N days, recorded when the sheet opens so the
+  //   memo is stable while it is open (no clock drift mid-pick).
   const [noShopSheet, setNoShopSheet] = useState(null);
   const [noShopBusy, setNoShopBusy] = useState(false);
-  const [leftoverCutoff, setLeftoverCutoff] = useState(null);
-  const openLeftoversSheet = useCallback(async () => {
+  const [leftoverSince, setLeftoverSince] = useState(null);
+  const openLeftoversSheet = useCallback(() => {
+    setLeftoverSince(new Date(Date.now() - LEFTOVER_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString());
     setNoShopSheet({ kind: "leftovers", name: "", fromMealIds: [] });
-    setLeftoverCutoff(await fetchLeftoverCutoff());
-  }, [fetchLeftoverCutoff]);
+  }, []);
   const leftoverSources = useMemo(() => {
     const open = boardMeals.filter((m) => !isNoShop(m));
     const cooked = libraryMeals
       .filter((m) => {
-        const at = placements[m.id]?.cookedAt;
-        if (!at || open.some((o) => o.id === m.id)) return false;
-        return !leftoverCutoff || at >= leftoverCutoff;
+        const at = cooks[m.id]?.lastCookedAt;
+        if (!at || !leftoverSince || open.some((o) => o.id === m.id)) return false;
+        return at >= leftoverSince;
       })
-      .sort((a, b) => (placements[b.id].cookedAt > placements[a.id].cookedAt ? 1 : -1));
+      .sort((a, b) => (cooks[b.id].lastCookedAt > cooks[a.id].lastCookedAt ? 1 : -1));
     return [...open, ...cooked];
-  }, [boardMeals, libraryMeals, placements, leftoverCutoff]);
+  }, [boardMeals, libraryMeals, cooks, leftoverSince]);
   const commitNoShop = useCallback(async () => {
     if (!noShopSheet || noShopBusy) return;
     setNoShopBusy(true);
