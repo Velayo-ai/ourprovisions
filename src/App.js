@@ -3764,8 +3764,10 @@ function ProvisionsApp() {
   const [tripSummary, setTripSummary] = useState(null);
   // Trip reality (SPEC_trip_qualification_v2): the server's verdict for the
   // wrapped session, fetched once the summary is up. The client displays it and
-  // never decides it (D8). realityAnswer is the local collapse after a tap —
-  // "Counted." / "Not counted." — so the control is never offered twice.
+  // never decides it (D8). realityAnswer is the local record of the last tap:
+  // "real" collapses to "Counted."; "testing" collapses to the EXCLUDED state's
+  // own line, where Count it stays available — a testing answer is never final
+  // on the summary (D7). Only a same-answer double tap is ignored.
   const [tripReality, setTripReality] = useState(null);
   const [realityAnswer, setRealityAnswer] = useState(null);
 
