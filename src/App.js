@@ -3746,6 +3746,21 @@ function ProvisionsApp() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
+  // Two pieces, deliberately separate:
+  //   tripSnapshotRef — the facts, captured the moment Wrap up is invoked,
+  //     while the trip still exists. It has to be a capture: wrapUpTrip nulls
+  //     activeSession, closes the cycle and empties listRows, so every live
+  //     source the All done card reads (totalItems, checkedCount,
+  //     activeSession.started_at) is gone by the time the summary renders.
+  //     `minutes` is frozen at capture, never recomputed. A ref, not state,
+  //     because the direct path writes it and reads it back in the same tick.
+  //   tripSummary — the receipt actually on screen, or null. Set once, on a
+  //     wrap-up that closed AND bought something.
+  // Facts only — no learning line, no "faster than last time". Those are
+  // claims, and claims need qualification: this will later be backed by the
+  // get_wrap_up_summary RPC (SPEC_wrapup_share.md), pending qualification v2.
+  const tripSnapshotRef = useRef(null);
+  const [tripSummary, setTripSummary] = useState(null);
 
   // ── D3: hash routes (SPEC_rum_dxa_exposure.md) — ADDITIVE. The hash mirrors
   // `view`; `view` values are untouched and every view === "…" branch still
@@ -4653,12 +4668,28 @@ function ProvisionsApp() {
     setShowBudgetModal(false);
   };
 
-  const handleWrapUp = async () => {
+  // The one wrap-up routine. Both entries reach it: the modal's confirm, and
+  // the no-choice direct path in openWrapUp. `rollNames` is the CONFIRMED
+  // roll-forward set (empty on the direct path, where nothing is pending), and
+  // `snapshot` is passed in rather than read from state so the direct path —
+  // which captures and wraps up in one tick — cannot race a pending setState.
+  const runWrapUp = async (rollNames, snapshot) => {
     setWrappingUp(true);
-    await wrapUpTrip(Array.from(wrapUpRollItems));
+    const closed = await wrapUpTrip(rollNames);
     setWrappingUp(false);
     closeWrapUp();
     setWrapUpRollItems(new Set());
+    // Only a trip that actually closed earns a summary, and only one that
+    // bought something: nothing in the cart is not a trip to celebrate, so the
+    // wrap-up closes straight to the list. On failure the hook has already
+    // surfaced the error and the list is untouched — show nothing and leave
+    // the user where they were. carriedCount is the set actually handed to
+    // wrapUpTrip, never openWrapUp's pre-selection.
+    setTripSummary(
+      closed && snapshot && snapshot.itemCount > 0
+        ? { ...snapshot, carriedCount: rollNames.length }
+        : null
+    );
     // The trip is over: the tray, the "added here" tags and the prompt state
     // were all scoped to it.
     setTrayOpen(false);
@@ -4666,6 +4697,16 @@ function ProvisionsApp() {
     setStorePromptOpen(false);
     setStorePromptSkippedFor(null);
   };
+
+  // The modal's confirm. wrapUpRollItems is the user's edited selection, which
+  // is why carriedCount is settled here and not at openWrapUp.
+  const handleWrapUp = () => runWrapUp(Array.from(wrapUpRollItems), tripSnapshotRef.current);
+
+  // The summary stays until it is dismissed — it is the receipt for the trip,
+  // not a toast. A cancelled Wrap up leaves nothing behind: the snapshot sits
+  // in the ref unread and is overwritten by the next openWrapUp, and only a
+  // completed wrap-up ever writes tripSummary.
+  const dismissTripSummary = () => setTripSummary(null);
 
   // ── Shop tab: in-store actions (SPEC_shop_lens_instore_capture.md) ──
   // Every handler here does the PRIMARY write first through the existing path,
@@ -4709,12 +4750,47 @@ function ProvisionsApp() {
   // Wrap up (D4): one home for the pre-select logic — called by the helm's
   // Wrap up chip and by the all-done "Wrap Up Trip →" button. Pending (unchecked)
   // items are pre-selected to roll forward; at 100% that set is simply empty.
+  // Both entries into Wrap up come through here — the helm's muted chip and the
+  // All done card's "Wrap up trip →" — so capturing the snapshot here covers
+  // both paths with one capture, including the chip path that never renders the
+  // All done card at all.
   const openWrapUp = () => {
+    // The direct path has no modal to disable its confirm, so the re-entry
+    // guard lives here, at the one entry both paths share: a second tap while
+    // a wrap-up is in flight would run close_cycle twice.
+    if (wrappingUp) return;
     const pending = new Set(
       shoppingList.flatMap(cat =>
         cat.items.filter(i => !checked[i.listItemId]).map(i => i.name)
       )
     );
+    const startedAt = activeSession?.started_at ? new Date(activeSession.started_at).getTime() : null;
+    const snapshot = {
+      // What went in the cart, not what was on the list — the chip opens Wrap up
+      // at any percentage, and a summary that counts unbought rows is a lie.
+      itemCount: boughtItems.length,
+      // Frozen now. Omitted with no open session, exactly as the All done card
+      // omits it (a delivery-style check-off reads "N items" alone).
+      minutes: startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null,
+      storeName: activeSession?.store_name_raw || null,
+      // Settled at confirm, from the set actually handed to wrapUpTrip — this
+      // is the moment the roll-forward set is PRE-selected, not the moment it
+      // is confirmed, and the modal exists precisely so it can be edited
+      // (per-row toggles, Select all, Clear all). A count taken here would
+      // claim "3 carried forward" after a Clear all carried nothing.
+      carriedCount: 0,
+    };
+    tripSnapshotRef.current = snapshot;
+    // A confirm appears only when it carries a choice. Everything bought and
+    // nothing pending means the modal's only content — which items to roll
+    // forward — is empty, so it would ask nothing and offer one button. Go
+    // straight to the wrap-up and the summary. The empty list (nothing bought,
+    // nothing pending) is NOT this case: there is no trip to close out, so it
+    // keeps the modal rather than acting on a tap with no stated intent.
+    if (pending.size === 0 && boughtItems.length > 0) {
+      runWrapUp([], snapshot);
+      return;
+    }
     setWrapUpRollItems(pending);
     setShowWrapUpModal(true);
     window.history.replaceState(null, "", WRAP_UP_HASH);
@@ -5068,7 +5144,12 @@ function ProvisionsApp() {
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
   const hasEstimatedPrices = shoppingList.some(c => c.items.some(i => !prices[i.name]));
-  const checkedCount = Object.values(checked).filter(Boolean).length;
+  // Counted from the SAME set as totalItems, never from the raw `checked` map.
+  // `checked` is keyed by list_item.id for every row the server returned,
+  // including rows shoppingList drops (quantity <= 0). Counting the map could
+  // make checkedCount exceed totalItems, and the All done card's
+  // `checkedCount === totalItems` gate would then never fire at 100%.
+  const checkedCount = boughtItems.length;
   // ── §Landing (SPEC_auth_state_ui_gating.md D4a) — decided ONCE per load ──
   // No hash at load and the session is `ready`:
   //   list has arrived (householdReady) → unbought items ≥ 1 → Shop, else Home;
@@ -5806,6 +5887,14 @@ function ProvisionsApp() {
         .all-done-meta b { color: #2C1A0E; font-weight: 700; }
         .all-done-learn { font-family: 'Lato', sans-serif; font-size: 0.74rem; color: #A0724A; margin-top: 6px; }
         .all-done-btn { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
+                        font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
+                        padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
+        /* The trip summary's dismiss. Same look as .all-done-btn, deliberately
+           NOT that class: .all-done-btn is on the RUM prod unmask allow-list as
+           the "Wrap up trip →" funnel signal, and folding a "Done" tap into it
+           would double-count wrap-up intent. This carries .op-chrome instead
+           (fixed copy, the sanctioned bucket). */
+        .trip-summary-done { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
                         font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
                         padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
         .list-total { background: #F5EDE0; border: 2px solid #c8973a; border-radius: 10px; padding: 16px 18px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
@@ -7463,7 +7552,7 @@ function ProvisionsApp() {
                       anything remains to find, muted again at 100%. At 100% the All done card's
                       teal button carries the emphasis; two emphasized exits on one screen is
                       what D9 guards against. Tappable in every state. */}
-                  <button type="button" className={`wrapup ${checkedCount > 0 && checkedCount < totalItems ? "full" : "muted"}`} onClick={openWrapUp}>Wrap up</button>
+                  <button type="button" className={`wrapup ${checkedCount > 0 && checkedCount < totalItems ? "full" : "muted"}`} onClick={openWrapUp} disabled={wrappingUp}>Wrap up</button>
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
@@ -7490,7 +7579,13 @@ function ProvisionsApp() {
                         {minutes !== null && <>&nbsp;&nbsp;·&nbsp;&nbsp;<b>{minutes}</b> {minutes === 1 ? "minute" : "minutes"}</>}
                       </div>
                       {learning && <div className="all-done-learn">We're learning how you shop this store.</div>}
-                      <button type="button" className="all-done-btn" onClick={openWrapUp}>Wrap up trip →</button>
+                      {/* At 100% there is nothing to roll forward, so this goes
+                          straight to the wrap-up with no modal (openWrapUp) —
+                          which also means this button carries the in-flight
+                          state the modal's confirm used to show. */}
+                      <button type="button" className="all-done-btn" onClick={openWrapUp} disabled={wrappingUp}>
+                        {wrappingUp ? "Wrapping up…" : "Wrap up trip →"}
+                      </button>
                     </div>
                   );
                 })()}
@@ -8400,6 +8495,65 @@ function ProvisionsApp() {
           </div>
         </div>
       )}
+
+      {/* Trip summary — rendered from the openWrapUp snapshot, never from live
+          state (the trip it describes no longer exists). Facts only: what went
+          in the cart, how long it took, where. Deliberately NO learning line
+          and NO comparison ("faster than last time", "under budget") — those
+          are claims about a trip's standing, and standing needs qualification.
+          When get_wrap_up_summary lands (SPEC_wrapup_share.md) it replaces this
+          snapshot as the source and brings the claims with it, qualified.
+          Pending qualification v2. */}
+      {tripSummary && (() => {
+        const carried = tripSummary.carriedCount;
+        // A trip can round to 0 minutes (Math.round over a sub-30s shop) and
+        // "0 minutes" reads like a broken clock. Still omitted entirely with no
+        // open session — null is "unknown", 0 is "very fast", and they are not
+        // the same claim. No trailing period: this is a &middot;-separated
+        // values line, not a sentence.
+        const minutesPhrase = tripSummary.minutes === null
+          ? null
+          : tripSummary.minutes < 1
+            ? <b>under a minute</b>
+            : <><b>{tripSummary.minutes}</b> {tripSummary.minutes === 1 ? "minute" : "minutes"}</>;
+        const dot = <>&nbsp;&nbsp;&middot;&nbsp;&nbsp;</>;
+        return (
+          <div className="modal-overlay" onClick={dismissTripSummary}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "340px" }}>
+              <div className="all-done" style={{ padding: "4px 0 0" }}>
+                <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
+                <h2>Trip wrapped.</h2>
+                {/* The store line is the established pattern and survives the
+                    carried case — it is the one place the trip says WHERE it
+                    happened. The carried sentence is appended to it, not
+                    swapped for it; with no store recognised, it stands alone. */}
+                <p className="all-done-sub">
+                  {tripSummary.storeName
+                    ? <>Your trip to {tripSummary.storeName} is closed out.{carried > 0 && " The rest is on your next list."}</>
+                    : carried > 0
+                      ? "The rest is on your next list."
+                      : "Your trip is closed out."}
+                </p>
+                <div className="all-done-meta">
+                  {carried > 0 ? (
+                    <>
+                      <b>{tripSummary.itemCount}</b> bought
+                      {dot}<b>{carried}</b> carried forward
+                      {minutesPhrase && <>{dot}{minutesPhrase}</>}
+                    </>
+                  ) : (
+                    <>
+                      <b>{tripSummary.itemCount}</b> {tripSummary.itemCount === 1 ? "item" : "items"}
+                      {minutesPhrase && <>{dot}{minutesPhrase}</>}
+                    </>
+                  )}
+                </div>
+                <button type="button" className="op-chrome trip-summary-done" onClick={dismissTripSummary}>Done</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
