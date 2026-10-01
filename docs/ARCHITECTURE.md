@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-09-29 SESSION END (+ **Cook history — `meal_cooks` + `cook_meal` (058, DEV + PROD)**: the state-row + history-log pattern, the table, the RPC, the backfill, the client `cooks` state, the time-based Leftovers rule (replacing the 09-28 "rule as it stands"), the COOKED tag; 058 row in Migration Files (the Meal Library `occasion` migration takes 059+); `meal_cooks` under Live Tables; the FK exceptions paragraph; `cook_meal` in Canonical Functions (18))*
+*Last updated: 2026-09-30 SESSION END (+ **Post-action summaries — the snapshot-before-destroy pattern** (new section): capture before teardown, user-chosen values at confirm, a success boolean from an action whose errors never throw, the re-entry guard a removed modal leaves behind, `checkedCount` sharing one set with `totalItems`, and the RUM class choice for the dismiss; **Learning qualification** gains the read-time / retroactive-by-construction note — a flag change re-judges history)*
 
 ---
 
@@ -879,6 +879,12 @@ households; chain slugs are heuristic.
 
 ## Learning qualification — global exclusion + per-task gates *(migration 053, 2026-09-20; **DEV + PROD 2026-09-20** — prod by Dan in the SQL editor, marking 10 users / 2 households by confirmed list, client D8 by cherry-pick `8c7b898`, D8 verified by contrast in Splunk; `docs/specs/built/SPEC_learning_qualification.md`; `src/rum.js`, `src/contexts/ActiveHouseholdContext.js`)*
 
+> **⚠️ UPDATED 2026-09-30 — the verdict is READ-TIME, so a flag change is retroactive by construction.** `aisle_order_sessions` is a **view**: it recomputes `qualified` and `reason_codes` from the data on every read and stores nothing. Flipping `users.excluded_from_learning` or `households.excluded_from_learning` therefore **re-judges all history**, not just future trips. **Measure the blast radius before any flip** — query the view filtered to that subject and count what newly qualifies. Done for the founder flip: 32 sessions in the view, **3** newly qualified, every one of them failing on `excluded_account` alone (verified after: flag `false`, 3 qualified, 0 blocked on `excluded_account`).
+>
+> **The exclusion flags are no longer the demo strategy** (DECISIONS 2026-09-30). They are admin-only overrides for genuinely synthetic accounts. The founder account was un-excluded because excluding the app's heaviest real user threw away the best data available, and because the approach only ever worked for people we could name — real users demo and play too. The replacement is **trip qualification v2** (ROADMAP NEXT), built on *trips are presumed real*: exclusion needs affirmative evidence from several agreeing signals, and ambiguity is resolved by asking, never by silently discounting.
+>
+> **The `min_distinct_sections = 2` floor is known to be too low and 053 says so itself.** A real 3-item, 1.6-minute Hannaford trip clears Traverses sitting exactly on it — the two-section milk run the migration's own comment warns teaches opposite layouts at Market Basket and Hannaford. It is a named test case for v2.
+
 The consumption signal is the defensible asset, and until 053 demo traffic was indistinguishable
 from real shopping inside it. The first draft asked the shopper "was this trip real?" in the Wrap
 Up modal; that taxed every genuine trip with a 1%-relevant decision and would have been missed
@@ -950,6 +956,23 @@ never-flagged fixture user in its own household (`f0530000-…` ids).
 **Known gaps, by design (spec "Risks"):** a beta tester who demos without saying so is uncovered
 until noticed (retroactive marking reaches them); a real user demoing inside a store on their own
 account is uncovered and will never report it; pre-09-11 sessions are unknowable and stay unmarked.
+
+---
+
+## Post-action summaries — snapshot before destroy *(established 2026-09-30, the wrap-up trip summary; `619068e` → `b32ba71`, **dev only**; `src/App.js`, `src/hooks/useProvisions.js`)*
+
+The Wrap up "trip summary" looked like a regression — tapping through landed on an empty list — but no post-close summary had ever existed. The only one was the **All done** card, and it reads `totalItems`, `checkedCount` and `activeSession.started_at`: every source `wrapUpTrip` destroys. It unmounted the moment the wrap-up succeeded. The pattern below is the general fix, and applies to any summary of an action that tears down its own inputs.
+
+- **Capture what the summary needs BEFORE the action runs.** `openWrapUp` writes `{ itemCount, minutes, storeName }` into `tripSnapshotRef`. The summary renders from that snapshot and never from live derived state. `minutes` is **frozen at capture**, not recomputed against a session that no longer exists.
+- **A ref, not state, when one tick does both.** The no-modal path captures and acts in the same tick; a `useState` write would not be readable yet. The snapshot is also **passed into** the action routine as an argument rather than read back from state, so neither path can race a pending `setState`.
+- **User-chosen values are captured at CONFIRM, not at open.** `carriedCount` comes from the roll-forward set actually handed to `wrapUpTrip`. `openWrapUp` only *pre-selects* it, and the modal exists precisely so it can be edited — a count taken at open reads "3 carried forward" after a Clear all carried nothing. Split the snapshot by *when the value becomes true*, not by convenience.
+- **Distinguish "unknown" from "zero".** `minutes === null` (no open session) omits the clock entirely; `minutes < 1` renders "under a minute". Rounding to `0 minutes` reads like a broken clock, and omitting is a different claim from "very fast".
+- **`wrapUpTrip` returns a success boolean.** Its failures route through `setError` and are **never thrown**, so `await` alone cannot distinguish a closed trip from a failed one. Any caller that reacts to the outcome — here, showing a celebration — must branch on the return value. Applies to every hook action in this codebase that reports errors by state rather than by throwing.
+- **Removing a modal removes the pause that absorbed a double tap.** A confirm appears only when it carries a choice (DECISIONS 2026-09-30), so a full trip now wraps with no modal — which means the direct path needs its own **re-entry guard** (`if (wrappingUp) return;` at the single shared entry) and its own **in-flight state** (the button reads "Wrapping up…" and disables). Without the guard a double tap runs `close_cycle` twice. Treat this as a checklist item whenever a confirm step is removed.
+- **Both sides of a completeness gate must come from one set.** `checkedCount` now derives from `boughtItems` (filtered out of `shoppingList`), the same source as `totalItems`. It previously counted every truthy entry in the `checked` map — keyed for every row the server returned — while `shoppingList` drops rows at `quantity <= 0`, so a bought row at quantity 0 made `checkedCount > totalItems` and the `checkedCount === totalItems` gate could never fire at 100%. **Hardening, not a live fix: prod had 0 such rows when measured.**
+- **RUM:** the dismiss is `.op-chrome .trip-summary-done`, deliberately **not** `.all-done-btn`, which stays on the prod unmask allow-list as the "Wrap up trip →" funnel signal — reusing it would fold "Done" taps into wrap-up intent and double-count the funnel. `CHROME_ALLOW_LIST` is unchanged; the store name renders in `.all-done-sub`, which is not allow-listed and stays masked on prod. This is the 2026-09-28 rule applied in the other direction: not only "does a new allow-listed class leak household text?", but "does reusing an allow-listed class corrupt the signal it already carries?"
+
+**Facts only.** The summary shows items, carried forward, minutes and store, and makes **no** learning or qualification claim. `SPEC_wrapup_share`'s `get_wrap_up_summary` would replace the snapshot as the source and bring the claims with it — deferred until trip qualification v2, and its `qualified` verdict needs revising against the presumed-real principle first.
 
 ---
 
