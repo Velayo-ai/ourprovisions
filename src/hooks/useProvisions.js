@@ -1617,10 +1617,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [ensureSession]);
 
+  // Returns true only when the trip actually closed. The caller shows a trip
+  // summary on the strength of it, and a celebration over a failed wrap-up is
+  // worse than none — the errors below are reported through setError, never
+  // thrown, so a bare `await` could not tell the two apart.
   const wrapUpTrip = useCallback(async (rollItemNames = []) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
-    if (!hh || !db) return;
+    if (!hh || !db) return false;
 
     wrappingUpRef.current = true;
     try {
@@ -1628,7 +1632,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       let cycle = activeCycleRef.current;
       if (!cycle) {
         cycle = await ensureOpenCycle("planned");
-        if (!cycle) { setError("Could not create cycle"); return; }
+        if (!cycle) { setError("Could not create cycle"); return false; }
       }
 
       // Close active session if one is open
@@ -1690,11 +1694,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setQuantities({});
       wrappingUpRef.current = false;
       await loadListItems(db, hh.id);
+      return true;
 
     } catch (err) {
       wrappingUpRef.current = false;
       console.error("wrapUpTrip error:", err.message);
       setError(`Could not wrap up trip: ${err.message}`);
+      return false;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

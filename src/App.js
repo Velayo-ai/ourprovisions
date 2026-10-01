@@ -3746,6 +3746,15 @@ function ProvisionsApp() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
+  // The trip summary is a SNAPSHOT, taken in openWrapUp while the trip still
+  // exists. It has to be: wrapUpTrip nulls activeSession, closes the cycle and
+  // empties listRows, so every live source the All done card reads
+  // (totalItems, checkedCount, activeSession.started_at) is gone by the time
+  // the summary needs to render. `minutes` is frozen at capture, not recomputed.
+  // Facts only — no learning line, no "faster than last time". Those are
+  // claims, and claims need qualification: this will later be backed by the
+  // get_wrap_up_summary RPC (SPEC_wrapup_share.md), pending qualification v2.
+  const [tripSummary, setTripSummary] = useState(null);
 
   // ── D3: hash routes (SPEC_rum_dxa_exposure.md) — ADDITIVE. The hash mirrors
   // `view`; `view` values are untouched and every view === "…" branch still
@@ -4655,10 +4664,14 @@ function ProvisionsApp() {
 
   const handleWrapUp = async () => {
     setWrappingUp(true);
-    await wrapUpTrip(Array.from(wrapUpRollItems));
+    const closed = await wrapUpTrip(Array.from(wrapUpRollItems));
     setWrappingUp(false);
     closeWrapUp();
     setWrapUpRollItems(new Set());
+    // Only a trip that actually closed earns a summary. On failure the hook has
+    // already surfaced the error and the list is untouched — drop the snapshot
+    // and leave the user where they were.
+    setTripSummary(prev => (closed && prev ? { ...prev, shown: true } : null));
     // The trip is over: the tray, the "added here" tags and the prompt state
     // were all scoped to it.
     setTrayOpen(false);
@@ -4666,6 +4679,11 @@ function ProvisionsApp() {
     setStorePromptOpen(false);
     setStorePromptSkippedFor(null);
   };
+
+  // The summary stays until it is dismissed — it is the receipt for the trip,
+  // not a toast. A snapshot left at shown:false by a cancelled Wrap up is inert
+  // (the render gates on `shown`) and is overwritten by the next openWrapUp.
+  const dismissTripSummary = () => setTripSummary(null);
 
   // ── Shop tab: in-store actions (SPEC_shop_lens_instore_capture.md) ──
   // Every handler here does the PRIMARY write first through the existing path,
@@ -4709,12 +4727,27 @@ function ProvisionsApp() {
   // Wrap up (D4): one home for the pre-select logic — called by the helm's
   // Wrap up chip and by the all-done "Wrap Up Trip →" button. Pending (unchecked)
   // items are pre-selected to roll forward; at 100% that set is simply empty.
+  // Both entries into Wrap up come through here — the helm's muted chip and the
+  // All done card's "Wrap up trip →" — so capturing the snapshot here covers
+  // both paths with one capture, including the chip path that never renders the
+  // All done card at all.
   const openWrapUp = () => {
     const pending = new Set(
       shoppingList.flatMap(cat =>
         cat.items.filter(i => !checked[i.listItemId]).map(i => i.name)
       )
     );
+    const startedAt = activeSession?.started_at ? new Date(activeSession.started_at).getTime() : null;
+    setTripSummary({
+      // What went in the cart, not what was on the list — the chip opens Wrap up
+      // at any percentage, and a summary that counts unbought rows is a lie.
+      itemCount: boughtItems.length,
+      // Frozen now. Omitted with no open session, exactly as the All done card
+      // omits it (a delivery-style check-off reads "N items" alone).
+      minutes: startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null,
+      storeName: activeSession?.store_name_raw || null,
+      shown: false,
+    });
     setWrapUpRollItems(pending);
     setShowWrapUpModal(true);
     window.history.replaceState(null, "", WRAP_UP_HASH);
@@ -5811,6 +5844,14 @@ function ProvisionsApp() {
         .all-done-meta b { color: #2C1A0E; font-weight: 700; }
         .all-done-learn { font-family: 'Lato', sans-serif; font-size: 0.74rem; color: #A0724A; margin-top: 6px; }
         .all-done-btn { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
+                        font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
+                        padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
+        /* The trip summary's dismiss. Same look as .all-done-btn, deliberately
+           NOT that class: .all-done-btn is on the RUM prod unmask allow-list as
+           the "Wrap up trip →" funnel signal, and folding a "Done" tap into it
+           would double-count wrap-up intent. This carries .op-chrome instead
+           (fixed copy, the sanctioned bucket). */
+        .trip-summary-done { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
                         font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
                         padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
         .list-total { background: #F5EDE0; border: 2px solid #c8973a; border-radius: 10px; padding: 16px 18px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
@@ -8401,6 +8442,39 @@ function ProvisionsApp() {
                     : "Close & clear"
                 }
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trip summary — rendered from the openWrapUp snapshot, never from live
+          state (the trip it describes no longer exists). Facts only: what went
+          in the cart, how long it took, where. Deliberately NO learning line
+          and NO comparison ("faster than last time", "under budget") — those
+          are claims about a trip's standing, and standing needs qualification.
+          When get_wrap_up_summary lands (SPEC_wrapup_share.md) it replaces this
+          snapshot as the source and brings the claims with it, qualified.
+          Pending qualification v2. */}
+      {tripSummary?.shown && (
+        <div className="modal-overlay" onClick={dismissTripSummary}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "340px" }}>
+            <div className="all-done" style={{ padding: "4px 0 0" }}>
+              <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
+              <h2>Trip wrapped.</h2>
+              <p className="all-done-sub">
+                {tripSummary.storeName
+                  ? <>Your trip to {tripSummary.storeName} is closed out.</>
+                  : "Your trip is closed out."}
+              </p>
+              {tripSummary.itemCount > 0 && (
+                <div className="all-done-meta">
+                  <b>{tripSummary.itemCount}</b> {tripSummary.itemCount === 1 ? "item" : "items"}
+                  {tripSummary.minutes !== null && (
+                    <>&nbsp;&nbsp;&middot;&nbsp;&nbsp;<b>{tripSummary.minutes}</b> {tripSummary.minutes === 1 ? "minute" : "minutes"}</>
+                  )}
+                </div>
+              )}
+              <button type="button" className="op-chrome trip-summary-done" onClick={dismissTripSummary}>Done</button>
             </div>
           </div>
         </div>
