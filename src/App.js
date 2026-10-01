@@ -4731,9 +4731,12 @@ function ProvisionsApp() {
   // One handler for all three controls: Real trip / Just testing write the
   // answer; Count it writes `real`. The collapse happens only after the server
   // confirms the write — a failed write leaves the control in place rather
-  // than showing a confirmation the data doesn't support.
+  // than showing a confirmation the data doesn't support. A testing answer is
+  // never final here: Count it stays available after Just testing and simply
+  // overwrites it (answer_trip_reality is last-answer-wins). Only a same-answer
+  // double tap is ignored.
   const handleRealityAnswer = async (answer) => {
-    if (!tripSessionId || realityAnswer) return;
+    if (!tripSessionId || realityAnswer === answer) return;
     const row = await answerTripReality(tripSessionId, answer);
     if (!row) return;
     setTripReality(row);
@@ -8601,11 +8604,17 @@ function ProvisionsApp() {
                     question; excluded by signals, or by a `testing` answer → the quiet
                     Count-it line. An admin-flagged account shows nothing at all.
                     Done without answering writes nothing — unanswered is real (D6).
-                    After a tap the control collapses to one line. Fixed copy only on
+                    After Real trip or Count it the control collapses to "Counted.";
+                    after Just testing it becomes the EXCLUDED state's own line — the
+                    same component and class as state 3 — so Count it is always one
+                    tap away (D7: never silent, never irreversible). Fixed copy only on
                     the three controls; they are allow-listed by class (rum.js). No
                     teal: answering a question is not a celebrated completion. */}
-                {realityAnswer ? (
-                  <p className="trip-reality-line">{realityAnswer === "real" ? "Counted." : "Not counted."}</p>
+                {realityAnswer === "real" ? (
+                  <p className="trip-reality-line">Counted.</p>
+                ) : realityAnswer === "testing"
+                    || (!realityAnswer && tripReality?.verdict === "excluded" && tripReality?.verdict_source !== "admin_flag") ? (
+                  <p className="trip-reality-line">Not counted as a shopping trip ·<button type="button" className="trip-reality-countit" onClick={() => handleRealityAnswer("real")}>Count it</button></p>
                 ) : tripReality?.verdict === "pending" && tripReality?.first_ask ? (
                   <div className="trip-reality-ask">
                     <p className="tr-eyebrow">Quick question</p>
@@ -8616,8 +8625,6 @@ function ProvisionsApp() {
                       <button type="button" className="trip-reality-testing" onClick={() => handleRealityAnswer("testing")}>Just testing</button>
                     </div>
                   </div>
-                ) : tripReality?.verdict === "excluded" && tripReality?.verdict_source !== "admin_flag" ? (
-                  <p className="trip-reality-line">Not counted as a shopping trip ·<button type="button" className="trip-reality-countit" onClick={() => handleRealityAnswer("real")}>Count it</button></p>
                 ) : null}
                 <button type="button" className="op-chrome trip-summary-done" onClick={dismissTripSummary}>Done</button>
               </div>
