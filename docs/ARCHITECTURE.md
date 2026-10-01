@@ -1,5 +1,5 @@
 # OurProvisions — Architecture
-*Last updated: 2026-09-30 SESSION END (+ **Post-action summaries — the snapshot-before-destroy pattern** (new section): capture before teardown, user-chosen values at confirm, a success boolean from an action whose errors never throw, the re-entry guard a removed modal leaves behind, `checkedCount` sharing one set with `totalItems`, and the RUM class choice for the dismiss; **Learning qualification** gains the read-time / retroactive-by-construction note — a flag change re-judges history)*
+*Last updated: 2026-09-30 SESSION END + post-session promotion (+ **Post-action summaries — snapshot before destroy**: capture before teardown, user-chosen values at confirm, unknown vs zero, a success boolean from an action whose errors never throw, the re-entry guard a removed modal leaves behind, one set behind both sides of a completeness gate, and the RUM class choice — now **LIVE ON PROD** as `15f6880`, bundle `main.2079d0a6.js`; **Learning qualification** gains the read-time / retroactive-by-construction note — a flag change re-judges history)*
 
 ---
 
@@ -959,7 +959,7 @@ account is uncovered and will never report it; pre-09-11 sessions are unknowable
 
 ---
 
-## Post-action summaries — snapshot before destroy *(established 2026-09-30, the wrap-up trip summary; `619068e` → `b32ba71`, **dev only**; `src/App.js`, `src/hooks/useProvisions.js`)*
+## Post-action summaries — snapshot before destroy *(established 2026-09-30, the wrap-up trip summary; `619068e` → `b32ba71` on dev, **LIVE ON PROD the same night as `15f6880`** by tree identity — bundle `main.2079d0a6.js`, `dpl_GGmcMmmeQcFzux3dkaUpx4zCk9eR`, walked A–D on prod; `src/App.js`, `src/hooks/useProvisions.js`)*
 
 The Wrap up "trip summary" looked like a regression — tapping through landed on an empty list — but no post-close summary had ever existed. The only one was the **All done** card, and it reads `totalItems`, `checkedCount` and `activeSession.started_at`: every source `wrapUpTrip` destroys. It unmounted the moment the wrap-up succeeded. The pattern below is the general fix, and applies to any summary of an action that tears down its own inputs.
 

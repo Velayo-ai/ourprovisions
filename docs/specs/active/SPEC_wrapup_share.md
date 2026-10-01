@@ -3,9 +3,10 @@
 
 > **Status 2026-09-30 — DEFERRED. Stays in `docs/specs/active/`; it is blocked, not superseded.**
 > Two things changed under it on 2026-09-30:
-> 1. **The household-facing half shipped differently.** A client-side snapshot summary is on dev
->    (`619068e` → `b32ba71`): items, carried forward, minutes and store — facts only, no share,
->    no claims. It does **not** use `get_wrap_up_summary`, which remains unbuilt.
+> 1. **The household-facing half shipped differently and is LIVE ON PROD** (2026-09-30, `main`
+>    `15f6880`, bundle `main.2079d0a6.js`; built on dev as `619068e` → `b32ba71`, walked A–D on
+>    prod). A client-side snapshot summary: items, carried forward, minutes and store — facts
+>    only, no share, no claims. It does **not** use `get_wrap_up_summary`, which remains unbuilt.
 > 2. **The `qualified` verdict below predates the "trips are presumed real" principle**
 >    (DECISIONS 2026-09-30) and must be revised against it before this is built. The spec's
 >    exclusion-first framing — exclusion flags plus floors, trips guilty until they clear a bar —
