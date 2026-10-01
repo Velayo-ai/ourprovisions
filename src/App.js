@@ -2899,6 +2899,7 @@ function ProvisionsApp() {
     setSessionStore,
     recordListEvent,
     wrapUpTrip,
+    fetchTripReality, answerTripReality,
     createHousehold,
     refreshMembers,
     renameHousehold,
@@ -3761,6 +3762,12 @@ function ProvisionsApp() {
   // get_wrap_up_summary RPC (SPEC_wrapup_share.md), pending qualification v2.
   const tripSnapshotRef = useRef(null);
   const [tripSummary, setTripSummary] = useState(null);
+  // Trip reality (SPEC_trip_qualification_v2): the server's verdict for the
+  // wrapped session, fetched once the summary is up. The client displays it and
+  // never decides it (D8). realityAnswer is the local collapse after a tap —
+  // "Counted." / "Not counted." — so the control is never offered twice.
+  const [tripReality, setTripReality] = useState(null);
+  const [realityAnswer, setRealityAnswer] = useState(null);
 
   // ── D3: hash routes (SPEC_rum_dxa_exposure.md) — ADDITIVE. The hash mirrors
   // `view`; `view` values are untouched and every view === "…" branch still
@@ -4708,6 +4715,31 @@ function ProvisionsApp() {
   // completed wrap-up ever writes tripSummary.
   const dismissTripSummary = () => setTripSummary(null);
 
+  // Fetch the verdict once per summary, keyed on the wrapped session; cleared
+  // with it so a stale verdict can never attach to the next trip. Null row
+  // (no session, RPC failure, non-member) renders state 1 — the plain summary.
+  const tripSessionId = tripSummary?.sessionId || null;
+  useEffect(() => {
+    let live = true;
+    setTripReality(null);
+    setRealityAnswer(null);
+    if (!tripSessionId) return undefined;
+    fetchTripReality(tripSessionId).then((row) => { if (live) setTripReality(row); });
+    return () => { live = false; };
+  }, [tripSessionId, fetchTripReality]);
+
+  // One handler for all three controls: Real trip / Just testing write the
+  // answer; Count it writes `real`. The collapse happens only after the server
+  // confirms the write — a failed write leaves the control in place rather
+  // than showing a confirmation the data doesn't support.
+  const handleRealityAnswer = async (answer) => {
+    if (!tripSessionId || realityAnswer) return;
+    const row = await answerTripReality(tripSessionId, answer);
+    if (!row) return;
+    setTripReality(row);
+    setRealityAnswer(answer);
+  };
+
   // ── Shop tab: in-store actions (SPEC_shop_lens_instore_capture.md) ──
   // Every handler here does the PRIMARY write first through the existing path,
   // then records the event best-effort (D12) — never awaited by the tap, never
@@ -4773,6 +4805,9 @@ function ProvisionsApp() {
       // omits it (a delivery-style check-off reads "N items" alone).
       minutes: startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null,
       storeName: activeSession?.store_name_raw || null,
+      // The session the verdict is about. Captured here for the same reason as
+      // everything else: wrapUpTrip nulls activeSession before the summary mounts.
+      sessionId: activeSession?.id || null,
       // Settled at confirm, from the set actually handed to wrapUpTrip — this
       // is the moment the roll-forward set is PRE-selected, not the moment it
       // is confirmed, and the modal exists precisely so it can be edited
@@ -5897,6 +5932,18 @@ function ProvisionsApp() {
         .trip-summary-done { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
                         font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
                         padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
+        /* Trip reality (SPEC_trip_qualification_v2; mockup_trip_reality_ask.html).
+           Geometry from the mockup, colours from the app's own palette. The ask is
+           left-aligned inside the centred card, as drawn. Two EQUAL outlined
+           buttons, no primary — the app has no preferred answer. No teal. */
+        .trip-reality-ask { margin: 16px 0 18px; padding: 18px 16px; border-radius: 14px; background: #F5EADA; border: 1px solid #E8D5B7; text-align: left; }
+        .trip-reality-ask .tr-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: #A0724A; font-weight: 700; margin: 0 0 8px; }
+        .trip-reality-ask .tr-q { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: 1.15rem; line-height: 1.25; margin: 0 0 6px; color: #2C1A0E; }
+        .trip-reality-ask .tr-why { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: 0 0 14px; line-height: 1.4; }
+        .trip-reality-ask .tr-btns { display: flex; gap: 10px; }
+        .trip-reality-ask .tr-btns button { flex: 1; padding: 13px 10px; border-radius: 12px; border: 1.5px solid #C9A97A; background: transparent; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: 0.88rem; cursor: pointer; }
+        .trip-reality-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; text-align: center; margin: 10px 0 14px; }
+        .trip-reality-line .trip-reality-countit { background: none; border: 0; padding: 0 0 0 4px; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: 0.82rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
         .list-total { background: #F5EDE0; border: 2px solid #c8973a; border-radius: 10px; padding: 16px 18px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
         .list-total.over { border-color: #e05c5c; }
         .lt-left .lt-label { font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
@@ -8548,6 +8595,30 @@ function ProvisionsApp() {
                     </>
                   )}
                 </div>
+                {/* Trip reality (SPEC_trip_qualification_v2; mockup_trip_reality_ask.html
+                    is the tiebreaker). The server decides; the client shows one of
+                    three states: real → nothing; pending, on the FIRST ask only → the
+                    question; excluded by signals, or by a `testing` answer → the quiet
+                    Count-it line. An admin-flagged account shows nothing at all.
+                    Done without answering writes nothing — unanswered is real (D6).
+                    After a tap the control collapses to one line. Fixed copy only on
+                    the three controls; they are allow-listed by class (rum.js). No
+                    teal: answering a question is not a celebrated completion. */}
+                {realityAnswer ? (
+                  <p className="trip-reality-line">{realityAnswer === "real" ? "Counted." : "Not counted."}</p>
+                ) : tripReality?.verdict === "pending" && tripReality?.first_ask ? (
+                  <div className="trip-reality-ask">
+                    <p className="tr-eyebrow">Quick question</p>
+                    <p className="tr-q">Quick trip, or just testing?</p>
+                    <p className="tr-why">We couldn't tell. Real trips teach the app your store.</p>
+                    <div className="tr-btns">
+                      <button type="button" className="trip-reality-real" onClick={() => handleRealityAnswer("real")}>Real trip</button>
+                      <button type="button" className="trip-reality-testing" onClick={() => handleRealityAnswer("testing")}>Just testing</button>
+                    </div>
+                  </div>
+                ) : tripReality?.verdict === "excluded" && tripReality?.verdict_source !== "admin_flag" ? (
+                  <p className="trip-reality-line">Not counted as a shopping trip ·<button type="button" className="trip-reality-countit" onClick={() => handleRealityAnswer("real")}>Count it</button></p>
+                ) : null}
                 <button type="button" className="op-chrome trip-summary-done" onClick={dismissTripSummary}>Done</button>
               </div>
             </div>

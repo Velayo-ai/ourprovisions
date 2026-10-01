@@ -38,6 +38,9 @@ const CHROME_ALLOW_LIST = [
   '.lib-plan',       // Library round + (Plan)
   '.tonight-link',   // Home Tonight card: "+ Add tonight's meal" / "View meal →" / "View plan →"
   '.list-card-link', // Home list card: "Start a list →" / "View list →"
+  '.trip-reality-real',    // trip summary ask: "Real trip"     (SPEC_trip_qualification_v2 — these three ARE the D11 ask-rate metric)
+  '.trip-reality-testing', // trip summary ask: "Just testing"
+  '.trip-reality-countit', // trip summary excluded line: "Count it"
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 

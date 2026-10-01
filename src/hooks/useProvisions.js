@@ -1705,6 +1705,38 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Trip reality (SPEC_trip_qualification_v2 D8) ──
+  // The client DISPLAYS a verdict; it never decides one. get_trip_reality is the
+  // only read path (it also stamps the ask as shown, once, and says so with
+  // first_ask); answer_trip_reality is the only write path. Both are best-effort
+  // from the summary: a failure shows the plain summary (state 1), never a
+  // toast — the same posture as recordListEvent (D12).
+  const fetchTripReality = useCallback(async (sessionId) => {
+    const db = supabaseRef.current;
+    if (!db || !sessionId) return null;
+    try {
+      const { data, error } = await db.rpc("get_trip_reality", { p_session_id: sessionId });
+      if (error) { console.warn("get_trip_reality:", error.message); return null; }
+      return data || null;
+    } catch (err) {
+      console.warn("get_trip_reality:", err?.message || err);
+      return null;
+    }
+  }, []);
+
+  const answerTripReality = useCallback(async (sessionId, answer) => {
+    const db = supabaseRef.current;
+    if (!db || !sessionId) return null;
+    try {
+      const { data, error } = await db.rpc("answer_trip_reality", { p_session_id: sessionId, p_answer: answer });
+      if (error) { console.warn("answer_trip_reality:", error.message); return null; }
+      return data || null;
+    } catch (err) {
+      console.warn("answer_trip_reality:", err?.message || err);
+      return null;
+    }
+  }, []);
+
   const updateBudgetGoal = useCallback(async (amount) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -3593,6 +3625,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
+    fetchTripReality, answerTripReality,
     supabase: supabaseRef.current,
     _supabase: supabaseRef,
     _household: householdRef,
