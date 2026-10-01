@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trip reality ask — mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;1,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --espresso:#1a0e06; --ink:#2B1E16; --cream:#EFE9DE; --paper:#FAF7F1;
+    --sand:#D9BC8C; --sand-deep:#B8945F; --teal:#2F7F76; --muted:#7a6a5c; --line:#E4DACB;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#CFC4B2;font-family:Inter,system-ui,sans-serif;color:var(--ink)}
+  .sheet{max-width:1400px;margin:0 auto;padding:32px 16px}
+  h1{font:600 22px Playfair Display,serif;margin:0 0 4px}
+  .sub{color:#4a3d32;font-size:13px;margin:0 0 24px}
+  .row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  .frame{width:390px;background:var(--cream);border-radius:28px;box-shadow:0 18px 40px rgba(0,0,0,.25);overflow:hidden}
+  .label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#4a3d32;margin:0 0 8px;font-weight:600}
+  .hdr{background:var(--espresso);color:var(--cream);height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font-size:12px;letter-spacing:.08em}
+  .hdr .av{width:28px;height:28px;border-radius:50%;background:var(--sand);color:var(--espresso);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:11px}
+  .body{padding:28px 20px 110px;min-height:680px}
+  .card{background:var(--paper);border-radius:18px;padding:24px 20px;box-shadow:0 2px 0 rgba(43,30,22,.04)}
+  .arc{width:56px;height:28px;border:3px solid var(--teal);border-bottom:0;border-radius:56px 56px 0 0;margin:0 auto 14px}
+  .head{font:600 28px Playfair Display,serif;text-align:center;margin:0 0 6px;color:var(--ink)}
+  .vals{text-align:center;font-size:15px;color:var(--ink);margin:0 0 4px}
+  .vals span{color:var(--muted);padding:0 6px}
+  .store{text-align:center;font-size:13px;color:var(--muted);font-style:italic;margin:0 0 20px}
+  .done{display:block;width:100%;padding:15px;border-radius:14px;border:1.5px solid var(--sand-deep);background:transparent;color:var(--ink);font:500 15px Inter;letter-spacing:.02em}
+  /* ask card */
+  .ask{margin:0 0 20px;padding:18px 16px;border-radius:14px;background:#F3EBDC;border:1px solid var(--line)}
+  .ask .eyebrow{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--sand-deep);font-weight:600;margin:0 0 8px}
+  .ask .q{font:500 19px/1.25 Playfair Display,serif;font-style:italic;margin:0 0 6px;color:var(--ink)}
+  .ask .why{font-size:13px;color:var(--muted);margin:0 0 14px;line-height:1.4}
+  .ask .btns{display:flex;gap:10px}
+  .ask button{flex:1;padding:13px 10px;border-radius:12px;border:1.5px solid var(--sand-deep);background:transparent;color:var(--ink);font:500 14px Inter}
+  /* excluded line */
+  .notcounted{text-align:center;font-size:13px;color:var(--muted);margin:-8px 0 20px}
+  .notcounted button{background:none;border:0;padding:0 0 0 4px;color:var(--ink);font:500 13px Inter;text-decoration:underline;text-underline-offset:3px}
+  .note{width:390px;font-size:12.5px;color:#3d3128;line-height:1.5;margin-top:10px;background:rgba(255,255,255,.55);padding:12px 14px;border-radius:12px}
+  .note b{color:var(--ink)}
+  .helm{position:relative;margin:-92px 20px 0;height:56px;background:var(--espresso);border-radius:30px;display:flex;align-items:center;justify-content:space-around;color:var(--cream);font-size:10px;letter-spacing:.1em;opacity:.95}
+  .helm div{text-align:center}
+  .helm .on{color:var(--sand)}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <h1>Trip summary — reality states</h1>
+  <p class="sub">The snapshot summary shipped 2026-09-30, plus the two new states from SPEC_trip_qualification_v2. Same card, same Done; nothing teal except the arc.</p>
+  <div class="row">
+
+    <!-- STATE 1 -->
+    <div>
+      <p class="label">1 · Real — nothing added (today's summary)</p>
+      <div class="frame">
+        <div class="hdr"><div class="av">DH</div><div>⚓ MADBURY ⚓</div><div>⋯</div></div>
+        <div class="body">
+          <div class="card">
+            <div class="arc"></div>
+            <h2 class="head">Trip wrapped.</h2>
+            <p class="vals">12 items<span>·</span>14 min</p>
+            <p class="store">Hannaford Dover · 2 carried forward. The rest is on your next list.</p>
+            <button class="done trip-summary-done">Done</button>
+          </div>
+        </div>
+        <div class="helm"><div>HOME</div><div>PLAN</div><div>BROWSE</div><div class="on">SHOP</div></div>
+      </div>
+      <div class="note">0 or 1 demo vote, or an answer of <b>real</b> on record. The common case for every real household. No new chrome.</div>
+    </div>
+
+    <!-- STATE 2 -->
+    <div>
+      <p class="label">2 · Pending — the ask (exactly 2 demo votes)</p>
+      <div class="frame">
+        <div class="hdr"><div class="av">DH</div><div>⚓ MADBURY ⚓</div><div>⋯</div></div>
+        <div class="body">
+          <div class="card">
+            <div class="arc"></div>
+            <h2 class="head">Trip wrapped.</h2>
+            <p class="vals">7 items<span>·</span>under a minute</p>
+            <p class="store">Market Basket Lee</p>
+            <div class="ask trip-reality-ask">
+              <p class="eyebrow">Quick question</p>
+              <p class="q">Quick trip, or just testing?</p>
+              <p class="why">We couldn't tell. Real trips teach the app your store.</p>
+              <div class="btns">
+                <button class="trip-reality-real">Real trip</button>
+                <button class="trip-reality-testing">Just testing</button>
+              </div>
+            </div>
+            <button class="done trip-summary-done">Done</button>
+          </div>
+        </div>
+        <div class="helm"><div>HOME</div><div>PLAN</div><div>BROWSE</div><div class="on">SHOP</div></div>
+      </div>
+      <div class="note">Shown once. Tapping either button collapses the card to a one-line confirmation ("Counted." / "Not counted."). Tapping <b>Done</b> without answering leaves the trip <b>real</b> and never asks again. Two equal outlined buttons, no primary: the app has no preferred answer.</div>
+    </div>
+
+    <!-- STATE 3 -->
+    <div>
+      <p class="label">3 · Excluded — the quiet line (3 demo votes, or "testing" on record)</p>
+      <div class="frame">
+        <div class="hdr"><div class="av">DH</div><div>⚓ MADBURY ⚓</div><div>⋯</div></div>
+        <div class="body">
+          <div class="card">
+            <div class="arc"></div>
+            <h2 class="head">Trip wrapped.</h2>
+            <p class="vals">9 items<span>·</span>under a minute</p>
+            <p class="store">No store</p>
+            <p class="notcounted">Not counted as a shopping trip ·<button class="trip-reality-countit">Count it</button></p>
+            <button class="done trip-summary-done">Done</button>
+          </div>
+        </div>
+        <div class="helm"><div>HOME</div><div>PLAN</div><div>BROWSE</div><div class="on">SHOP</div></div>
+      </div>
+      <div class="note">Never silent, never irreversible. <b>Count it</b> writes the answer <i>real</i>; the line becomes "Counted." The summary's facts are unchanged — the trip happened, it just doesn't teach. Admin-flagged synthetic accounts show no line at all.</div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
