@@ -98,6 +98,23 @@ Two Phase 3 notes, reserved not built:
 
 The first two are the ROADMAP P2 inputs. Each must be reproduced from the live tables at build time, not asserted.
 
+> **Amendment 2026-10-01 — the eight cases, reproduced at build (059 on dev; Dover, Lee and Madbury read from prod inline, since prod carries no view). Three rows change; no floor was touched.**
+>
+> **S3 rule (migration `060`).** S3 reads **not-demo when `store_id` is resolved OR `store_name_raw` is non-null**; **demo only when GPS is present and both are null**; unknown with no fix. Found on case 7: Madbury `8ee6e792` predates 054 store identity, so its store was *named* ("Market Basket Lee") but never *resolved*, and 059's S3 cast a demo vote against the spec's own reference shop. A named store is evidence of being at a store. D4 still holds — a demo vote still needs a GPS fix.
+>
+> | Case | Observed (059 → 060 where it differs) | Disposition |
+> |---|---|---|
+> | **1 Hannaford Dover `f5aee06f`** | S1 **unknown** (0 add events), S2 unknown, S3 not-demo, **0 votes, real**. Layer 2: 2 sections against a floor of 2 — **Traverses PASSES**, all three legs pass, `qualified = true`. | **Row amended: qualifies at floor 2.** The expected "rejected by Traverses" contradicted §Tuning step 4 (floor stays at 2). Dover is now **the designated target for the 053 Traverses tune after the duplicate sweep**: the tune is right when this session, and only sessions like it, drop out. |
+> | **2 Two-store outing (Lee `c25299ac` → Dover)** | Lee: S1 **not-demo** (5 measured items — prod carries in-store adds), S2 not-demo, S3 not-demo, 0 votes, real, **qualifies**. Dover as case 1. | **Amended to match case 1:** both legs qualify at floor 2; the list-finisher is caught by the same future tune. |
+> | **3 Sacandaga parking-lot** | It is on **dev**, not prod: `5b2fd39b`, 2026-09-15 11:35, 7 checks, max gap **1.6 s**, span **0.11 min** → S2 **demo**; S1 **unknown** (no add timestamp — Step 0); S3 **unknown** (that session has **no GPS fix**, so "at a store" in the expected column was also wrong). **1 vote → real.** | **Recorded as observed, not a failure.** The expected column assumed an add timestamp existed. One vote short of the ask, by design (D1). |
+> | **7 Madbury `8ee6e792`** | S1 **not-demo** (4 measured), S2 not-demo, S3 **demo under 059 → not-demo under 060**; **votes 1 → 0**; real both ways. Layer 2: `store_id` is NULL (pre-054), so `leg_anchored` fails — **`no_store`, not "qualifies"**. | **Row amended: real at 0 votes; Layer 2 `no_store` until a pre-054 `store_id` backfill** (queued, ROADMAP NEXT). Still the reference for what a genuine traversal looks like (5 sections). |
+> | **4, 5, 6, 8** | Not historical rows — a kitchen-table demo (location on / off), a cashier blast and a one-item top-up are **walk scenarios**. | Walked live on dev, household Test 500 House (the one unflagged dev household). Cases 4 and 5 need their items added through the **Shop Add sheet**, or S1 cannot vote. |
+>
+> **Two build facts that follow from the table.** (a) S1 reads `unknown` on every historical row with no in-store add, and `not-demo` wherever prod carried adds — so the dev 0.8 % coverage was a dev-data artifact and S1 is genuinely measurable on prod. (b) Nearly every dev household is admin-flagged, so `verdict_source = admin_flag` masks the signals there; the vote columns are still computed and are what the cases test.
+>
+> **`get_trip_reality` returns `first_ask` (060).** The RPC stamps `reality_asked_at` before it returns, so in a pending response the stamp is never null and the client could not tell a first read from a reload. `first_ask` is true only on the call that did the stamping; the ask renders only then. Needed by verification step 4; the stamping guard itself is unchanged.
+
+
 ## Data
 
 - **New columns on `shopping_sessions`** (additive migration, number taken at build — 058 is taken, so 059+): `reality_answer text check (reality_answer in ('real','testing'))` nullable, `reality_answered_at timestamptz`, `reality_asked_at timestamptz`. The last records that the ask was shown, so it is shown once and the ask rate can be measured.
