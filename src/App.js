@@ -5068,7 +5068,12 @@ function ProvisionsApp() {
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
   const hasEstimatedPrices = shoppingList.some(c => c.items.some(i => !prices[i.name]));
-  const checkedCount = Object.values(checked).filter(Boolean).length;
+  // Counted from the SAME set as totalItems, never from the raw `checked` map.
+  // `checked` is keyed by list_item.id for every row the server returned,
+  // including rows shoppingList drops (quantity <= 0). Counting the map could
+  // make checkedCount exceed totalItems, and the All done card's
+  // `checkedCount === totalItems` gate would then never fire at 100%.
+  const checkedCount = boughtItems.length;
   // ── §Landing (SPEC_auth_state_ui_gating.md D4a) — decided ONCE per load ──
   // No hash at load and the session is `ready`:
   //   list has arrived (householdReady) → unbought items ≥ 1 → Shop, else Home;
