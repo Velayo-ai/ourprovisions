@@ -125,6 +125,12 @@ stop and report it rather than committing.
     constraints, patterns, principles); bump its "Last updated" date.
   - After merging, **DELETE `handoff/design_handoff.md`** so it can't be
     double-applied. The content now lives in the committed docs.
+    **Use a plain `rm handoff/design_handoff.md`, NOT `git rm`.** The airlock's
+    `handoff/.gitignore` is `*` + `!.gitignore`, so the handoff is untracked and
+    ignored — `git rm` fails with "pathspec did not match any files", and the
+    deletion never appears in `git status`. The only tracked files in `handoff/`
+    are `.gitignore` and `DESIGN_CHAT_handoff_prompt.md` (force-added).
+    (Learned 2026-09-30.)
 - **If it does not exist**, proceed normally — log only what you witnessed.
 
 ### Step 0.5 — Route any payload files dropped in `handoff/`
@@ -143,17 +149,26 @@ home and cleared out.
   `docs/specs/active/`.
 - If a payload file is present but the manifest does not list it, do NOT guess
   and do NOT delete it — surface it to me and ask where it goes.
+- **Payload files are gitignored too, so `git mv` does NOT work on them either**
+  — it fails with "fatal: not under version control" (verified 2026-09-30).
+  Route a payload file with a plain `mv`, then `git add` the DESTINATION path.
+  Anything deleted from the airlock goes with a plain `rm`. `git mv` only
+  applies to files already tracked — i.e. spec lifecycle moves *within*
+  `docs/specs/` (Step 4), never a move out of `handoff/`.
 - Default destination for a new `SPEC_*.md` with no explicit manifest destination
   is `docs/specs/active/` — a fresh spec hasn't shipped yet, so it is always
   `active/` (it graduates to `built/` on ship; see Step 4).
-  Moving = `git mv handoff/<file> docs/specs/active/<file>` so history is preserved.
+  Moving = `mv handoff/<file> docs/specs/active/<file>` then
+  `git add docs/specs/active/<file>`. **NOT `git mv`** — the airlock is
+  gitignored, so the payload is untracked and `git mv` fails outright. There is
+  no history to preserve: the file's first commit is the one that files it.
 - **Only `SPEC_*.md` has a lifecycle.** `PATCH_*.md` and `OBSERVATION_*.md` have no
   `active/`/`built/` equivalent — once merged into the docs and verified, they are simply
   DELETED from the airlock, exactly like the old `CATCHUP_*.md` handoffs. Their content
   lives on in SESSION_LOG / ROADMAP / ARCHITECTURE, not in `docs/specs/`.
-- Before `git mv`, ensure the destination folder exists — if the manifest names a
+- Before moving, ensure the destination folder exists — if the manifest names a
   destination path that isn't present yet, `mkdir -p` it first, then move. A
-  `git mv` into a missing directory fails; don't let a new bucket (or a typo'd
+  move into a missing directory fails; don't let a new bucket (or a typo'd
   path) silently break routing.
 - After routing, `handoff/` must contain ONLY the two baseline files. That clean
   state is the signal that nothing is pending.
@@ -212,8 +227,11 @@ Before committing, verify the handoff was consumed:
   lifecycle move was missed — fix before committing.
 
 Then:
-`git add docs/ handoff/` (stage doc changes, the handoff deletion, and any
-payload files moved into `docs/specs/` — `docs/` covers its subfolders)
+`git add docs/ handoff/` (stage doc changes and any payload files moved into
+`docs/specs/` — `docs/` covers its subfolders). Note: this stages NOTHING for
+the `design_handoff.md` deletion, because that file is gitignored and untracked
+— it is removed from disk with `rm` and never appears in the commit. An empty
+`handoff/` in `git status` is the expected, correct result, not a missed step.
 `git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
 Do NOT push automatically — leave the commit local for my review. I'll push.
 

@@ -1,5 +1,21 @@
 # SPEC_wrapup_share.md
-2026-09-27 · OurProvisions · Design approved, not built
+2026-09-27 · OurProvisions · **DEFERRED 2026-09-30 — blocked, not retired**
+
+> **Status 2026-09-30 — DEFERRED. Stays in `docs/specs/active/`; it is blocked, not superseded.**
+> Two things changed under it on 2026-09-30:
+> 1. **The household-facing half shipped differently.** A client-side snapshot summary is on dev
+>    (`619068e` → `b32ba71`): items, carried forward, minutes and store — facts only, no share,
+>    no claims. It does **not** use `get_wrap_up_summary`, which remains unbuilt.
+> 2. **The `qualified` verdict below predates the "trips are presumed real" principle**
+>    (DECISIONS 2026-09-30) and must be revised against it before this is built. The spec's
+>    exclusion-first framing — exclusion flags plus floors, trips guilty until they clear a bar —
+>    is the approach that was explicitly retired when the founder-account exclusion was reversed.
+>    Rework it against **trip qualification v2** (ROADMAP NEXT), which presumes trips real,
+>    requires several agreeing signals to exclude, and resolves ambiguity by asking.
+>
+> Its other hard prerequisite — the crew RLS status (`velayo_crews` / `velayo_crew_members`) — is
+> still open. **Do not build from this spec until both are settled.** Decisions and truth table
+> below are unedited and remain the design of record for the share half.
 
 ## What this is
 At Shop → Wrap Up, show the household how the trip went and offer to share a *relative* win with the crew ("Dan beat his last shop and stayed under budget"). This spec covers **which trips count, what they're compared against, and what may leave the household.** The crew feed that displays the post is a separate spec (not yet written).
