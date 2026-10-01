@@ -4664,14 +4664,24 @@ function ProvisionsApp() {
 
   const handleWrapUp = async () => {
     setWrappingUp(true);
+    // The confirmed roll-forward set — read before wrapUpTrip, which consumes
+    // it, and before setWrapUpRollItems clears it. This, not openWrapUp's
+    // pre-selection, is what actually lands on the next list.
+    const carried = wrapUpRollItems.size;
     const closed = await wrapUpTrip(Array.from(wrapUpRollItems));
     setWrappingUp(false);
     closeWrapUp();
     setWrapUpRollItems(new Set());
-    // Only a trip that actually closed earns a summary. On failure the hook has
-    // already surfaced the error and the list is untouched — drop the snapshot
-    // and leave the user where they were.
-    setTripSummary(prev => (closed && prev ? { ...prev, shown: true } : null));
+    // Only a trip that actually closed earns a summary, and only one that
+    // bought something: nothing in the cart is not a trip to celebrate, so the
+    // wrap-up closes straight to the list. On failure the hook has already
+    // surfaced the error and the list is untouched — drop the snapshot and
+    // leave the user where they were.
+    setTripSummary(prev =>
+      closed && prev && prev.itemCount > 0
+        ? { ...prev, carriedCount: carried, shown: true }
+        : null
+    );
     // The trip is over: the tray, the "added here" tags and the prompt state
     // were all scoped to it.
     setTrayOpen(false);
@@ -4746,6 +4756,14 @@ function ProvisionsApp() {
       // omits it (a delivery-style check-off reads "N items" alone).
       minutes: startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null,
       storeName: activeSession?.store_name_raw || null,
+      // carriedCount is NOT captured here, and deliberately so. This is the
+      // moment the roll-forward set is PRE-selected, not the moment it is
+      // confirmed: the modal exists precisely so the set can be edited (per-row
+      // toggles, Select all, Clear all). A count taken now would claim "3
+      // carried forward" after a Clear all carried nothing. It is filled in at
+      // confirm, from the set actually handed to wrapUpTrip. Everything above
+      // IS captured here, because wrapUpTrip destroys all of it.
+      carriedCount: 0,
       shown: false,
     });
     setWrapUpRollItems(pending);
@@ -8455,30 +8473,52 @@ function ProvisionsApp() {
           When get_wrap_up_summary lands (SPEC_wrapup_share.md) it replaces this
           snapshot as the source and brings the claims with it, qualified.
           Pending qualification v2. */}
-      {tripSummary?.shown && (
-        <div className="modal-overlay" onClick={dismissTripSummary}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "340px" }}>
-            <div className="all-done" style={{ padding: "4px 0 0" }}>
-              <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
-              <h2>Trip wrapped.</h2>
-              <p className="all-done-sub">
-                {tripSummary.storeName
-                  ? <>Your trip to {tripSummary.storeName} is closed out.</>
-                  : "Your trip is closed out."}
-              </p>
-              {tripSummary.itemCount > 0 && (
+      {tripSummary?.shown && (() => {
+        const carried = tripSummary.carriedCount;
+        // A trip can round to 0 minutes (Math.round over a sub-30s shop) and
+        // "0 minutes" reads like a broken clock. Still omitted entirely with no
+        // open session — null is "unknown", 0 is "very fast", and they are not
+        // the same claim. No trailing period: this is a &middot;-separated
+        // values line, not a sentence.
+        const minutesPhrase = tripSummary.minutes === null
+          ? null
+          : tripSummary.minutes < 1
+            ? <b>under a minute</b>
+            : <><b>{tripSummary.minutes}</b> {tripSummary.minutes === 1 ? "minute" : "minutes"}</>;
+        const dot = <>&nbsp;&nbsp;&middot;&nbsp;&nbsp;</>;
+        return (
+          <div className="modal-overlay" onClick={dismissTripSummary}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "340px" }}>
+              <div className="all-done" style={{ padding: "4px 0 0" }}>
+                <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
+                <h2>Trip wrapped.</h2>
+                <p className="all-done-sub">
+                  {carried > 0
+                    ? "The rest is on your next list."
+                    : tripSummary.storeName
+                      ? <>Your trip to {tripSummary.storeName} is closed out.</>
+                      : "Your trip is closed out."}
+                </p>
                 <div className="all-done-meta">
-                  <b>{tripSummary.itemCount}</b> {tripSummary.itemCount === 1 ? "item" : "items"}
-                  {tripSummary.minutes !== null && (
-                    <>&nbsp;&nbsp;&middot;&nbsp;&nbsp;<b>{tripSummary.minutes}</b> {tripSummary.minutes === 1 ? "minute" : "minutes"}</>
+                  {carried > 0 ? (
+                    <>
+                      <b>{tripSummary.itemCount}</b> bought
+                      {dot}<b>{carried}</b> carried forward
+                      {minutesPhrase && <>{dot}{minutesPhrase}</>}
+                    </>
+                  ) : (
+                    <>
+                      <b>{tripSummary.itemCount}</b> {tripSummary.itemCount === 1 ? "item" : "items"}
+                      {minutesPhrase && <>{dot}{minutesPhrase}</>}
+                    </>
                   )}
                 </div>
-              )}
-              <button type="button" className="op-chrome trip-summary-done" onClick={dismissTripSummary}>Done</button>
+                <button type="button" className="op-chrome trip-summary-done" onClick={dismissTripSummary}>Done</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
