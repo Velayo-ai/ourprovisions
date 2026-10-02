@@ -861,23 +861,29 @@ function Home({ firstName, ready, deck, list, budget }) {
 
 // D4 (SPEC_auth_state_ui_gating.md) — Home is the signed-out surface. The
 // wordmark in the splash's own Playfair italic, one line of what this is, and
-// the same two modal buttons the header carries (same initialValues, so a
-// pre-filled arrival still pre-fills). Placeholder copy by design: a designed
-// welcome is a Home session, not this slice (spec §Open). Rendered in place of
-// the door content on Home, Plan and Shop while signed out — see
-// signedOutWelcome in ProvisionsApp.
-function HomeWelcome({ signUpInitialValues }) {
+// the ONE sign-in pair the app shows while signed out (the header carries none
+// since 2026-10-02 — "Signed-out entry cleanup"). Same initialValues as before,
+// so a pre-filled arrival still pre-fills. Placeholder copy by design: a
+// designed welcome is a Home session, not this slice (spec §Open). Rendered in
+// place of the door content on every door whenever the session is not live —
+// signed_out, session_lost AND booting (see signedOutWelcome in ProvisionsApp).
+//   `ready` = Clerk loaded. Until then the two buttons render DISABLED with the
+//   same classes and dimensions — a click can't hit a not-yet-wired modal
+//   trigger, and they go live with no layout jump when Clerk finishes. A
+//   returning signed-in user on a slow Clerk sees this greyed pair past the
+//   splash, then hands off to the signed-in shell in ONE render (useUser flips
+//   isLoaded and isSignedIn from the same snapshot) — the buttons are never
+//   live for them, so no sign-in modal can open under a signed-in session.
+function HomeWelcome({ signUpInitialValues, ready }) {
+  const signIn = <button type="button" className="home-welcome-btn ghost" disabled={!ready}>Sign In</button>;
+  const signUp = <button type="button" className="home-welcome-btn solid" disabled={!ready}>Sign Up</button>;
   return (
     <div className="home home-welcome">
       <div className="home-wm"><span className="o">Our</span><span className="p">Provisions</span></div>
       <p className="home-welcome-line">Your household’s living grocery list.</p>
       <div className="home-welcome-actions">
-        <SignInButton mode="modal">
-          <button type="button" className="home-welcome-btn ghost">Sign In</button>
-        </SignInButton>
-        <SignUpButton mode="modal" initialValues={signUpInitialValues}>
-          <button type="button" className="home-welcome-btn solid">Sign Up</button>
-        </SignUpButton>
+        {ready ? <SignInButton mode="modal">{signIn}</SignInButton> : signIn}
+        {ready ? <SignUpButton mode="modal" initialValues={signUpInitialValues}>{signUp}</SignUpButton> : signUp}
       </div>
     </div>
   );
@@ -3937,10 +3943,15 @@ function ProvisionsApp() {
     const h = hashForView(v);
     if (h && window.location.hash !== h) window.location.hash = h;
   }, [isLoaded, sessionLive, openSignIn]);
-  // Not live (signed_out or session_lost), every door shows the Home welcome
-  // variant. The view is KEPT (only what renders changes) — it is the
-  // pendingRoute: signing in from a #/plan deep link lands on Plan.
-  const signedOutWelcome = isLoaded && !sessionLive;
+  // Not live — signed_out, session_lost, AND booting (Clerk still loading) —
+  // every door shows the Home welcome variant, never the signed-in shell
+  // (Signed-out entry cleanup, 2026-10-02: past the splash's 5 s failsafe a
+  // slow Clerk used to show the household-shaped shell under a header with two
+  // disabled buttons). While booting the welcome's own pair is disabled; it goes
+  // live when Clerk loads, or the whole welcome hands off to the signed-in
+  // shell in one render. The view is KEPT (only what renders changes) — it is
+  // the pendingRoute: signing in from a #/plan deep link lands on Plan.
+  const signedOutWelcome = !sessionLive;
   useEffect(() => {
     const onHashChange = () => {
       const v = viewForHash(window.location.hash);
@@ -5800,6 +5811,7 @@ function ProvisionsApp() {
         .home-welcome-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 11px 22px; border-radius: 6px; cursor: pointer; }
         .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #A0724A; }
         .home-welcome-btn.solid { background: #2C1A0E; border: 1.5px solid #2C1A0E; color: #FAF4EC; }
+        .home-welcome-btn:disabled { opacity: 0.5; cursor: default; }
         /* THE ON-DECK CARD in the board's language: the welcome's warm cream, no shadow, no photo (the household photo asserts
            context, never decorates). Eyebrow = the board chip's type; title = Playfair; status = the board line's tone. One primary
            per state as a pill (the board's buttons at Home's scale); Switch is a text button; × is the board's ×. */
@@ -6223,11 +6235,16 @@ function ProvisionsApp() {
               </svg>
             </button>
           )}
-          <div>
+          <div style={{ minHeight: "32px" }}>
             {/* The header avatar is the one Profile trigger at every width
                 (the rail's foot avatar went with the rail, 2026-09-20). The
-                wrapping div stays so the row's space-between geometry is unchanged. */}
-            {sessionLive ? (
+                wrapping div stays (32px tall, the avatar's height) so the row's
+                space-between geometry is unchanged whether or not it is filled.
+                Signed-out entry cleanup (2026-10-02): the header carries NO
+                SIGN IN / SIGN UP in any signed-out state — signed_out, booting
+                or session_lost. The welcome's pair is the one entry (disabled
+                until Clerk loads); the session_lost sheet keeps its own Sign In. */}
+            {sessionLive && (
               <button
                 onClick={() => setShowProfileSheet(true)}
                 style={{
@@ -6242,26 +6259,6 @@ function ProvisionsApp() {
               >
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </button>
-            ) : !isLoaded ? (
-              // Clerk not loaded yet: render the buttons immediately (no layout
-              // shift) but DISABLED, so a click can't hit a not-yet-wired modal
-              // trigger. On a cold load the SignInButton/SignUpButton modal handlers
-              // aren't live until Clerk finishes; showing them enabled produced dead
-              // buttons until a refresh. Same dimensions as the live buttons below —
-              // only cursor + opacity differ. Swaps to live once isLoaded is true.
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button disabled style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "default", opacity: 0.5 }}>Sign In</button>
-                <button disabled style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "default", opacity: 0.5 }}>Sign Up</button>
-              </div>
-            ) : (
-              <div style={{ display: "flex", gap: "8px" }}>
-                <SignInButton mode="modal">
-                  <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign In</button>
-                </SignInButton>
-                <SignUpButton mode="modal" initialValues={signUpInitialValues}>
-                  <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign Up</button>
-                </SignUpButton>
-              </div>
             )}
           </div>
           <button
@@ -6277,12 +6274,16 @@ function ProvisionsApp() {
           </button>
         </div>
 
-        {/* Row 2: OurProvisions wordmark band — HOME ONLY (bannerOnHome); the
-            other tabs end at Row 1. Over a photo it obeys the household's
-            banner_wordmark: large (default), small (~⅔, ~80%), or hidden (not
-            rendered — the middle band is photo only, spec D4). The band keeps
-            its height when hidden so the photo has room to breathe. */}
-        {bannerOnHome && (
+        {/* Row 2: OurProvisions wordmark band — HOME ONLY (bannerOnHome) and
+            SIGNED IN ONLY (sessionLive — Signed-out entry cleanup step 3,
+            2026-10-02: while signed out it read "Provisions" above the welcome's
+            "OurProvisions", and its button was inert; the welcome's headline
+            carries the brand, Row 1 keeps the Velayo dots). The other tabs end
+            at Row 1. Over a photo it obeys the household's banner_wordmark:
+            large (default), small (~⅔, ~80%), or hidden (not rendered — the
+            middle band is photo only, spec D4). The band keeps its height when
+            hidden so the photo has room to breathe. */}
+        {bannerOnHome && sessionLive && (
         <div style={{
           position: "relative", zIndex: 1,
           padding: bannerWordmark === "small" ? "16px 16px" : "20px 16px",
@@ -7241,7 +7242,7 @@ function ProvisionsApp() {
       )}
 
       <div className="container">
-        {signedOutWelcome && <HomeWelcome signUpInitialValues={signUpInitialValues} />}
+        {signedOutWelcome && <HomeWelcome signUpInitialValues={signUpInitialValues} ready={isLoaded} />}
 
         {view === "home" && !signedOutWelcome && (
           <Home
