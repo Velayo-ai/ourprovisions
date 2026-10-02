@@ -3197,6 +3197,12 @@ function ProvisionsApp() {
   const [addingMealId, setAddingMealId] = useState(null);
   // Provenance for the teal meal facet: catalog_item_id → [{mealId,name,createdBy}].
   const [mealProvenance, setMealProvenance] = useState({});
+  // The household whose provenance the navigation load has read at least once
+  // (SPEC_home_v1_essentials D10) — the same shape as mealsLoadedFor. Home's
+  // on-deck card derives To buy from mealRowCounts, which derives from
+  // provenance; until this matches, a To-buy meal would read as Planned for a
+  // beat on every cold open. Never show state the data doesn't support.
+  const [provenanceLoadedFor, setProvenanceLoadedFor] = useState(null);
 
   // The library set (055): kind === 'meal' only. `meals` itself carries every
   // kind because the board renders no-shop rows; the library must never see
@@ -3308,10 +3314,13 @@ function ProvisionsApp() {
   // hook already loads, no new query) picks "Add a meal" over "Add your first
   // meal".
   const boardReady = !!household?.id && mealsLoadedFor === household.id;
-  // Home renders both its cards under ONE gate: the board's (the same load now
-  // runs on Home too) AND householdReady (the list has arrived), so the two
-  // cards appear together on a cold open rather than one popping in above the other.
-  const homeReady = boardReady && householdReady;
+  // Home renders everything under the date behind ONE gate: the board's (the
+  // same load now runs on Home too), householdReady (the list has arrived) AND
+  // this household's provenance (D10 — the on-deck card's To buy state reads
+  // it). The card, the list line and the budget line appear together on a cold
+  // open, never one popping in above another, and never a state the data then
+  // contradicts.
+  const homeReady = boardReady && householdReady && provenanceLoadedFor === household?.id;
   const showWelcome = boardReady && boardCards.length === 0;
   const everCooked = madeBefore.size > 0;
   // The drag hint earns its line only once there is an order to change: two
@@ -3385,7 +3394,7 @@ function ProvisionsApp() {
   // refreshCatalogRef — a ref write is idempotent, so the double render in
   // StrictMode is harmless.
   onListChangedRef.current = () => {
-    if (MEALS_ENABLED && (view === "list" || view === "plan")) refreshProvenance();
+    if (MEALS_ENABLED && (view === "list" || view === "plan" || view === "home")) refreshProvenance();
   };
 
   // Load the meal cards when the Plan tab opens — or Home, whose Tonight card
@@ -3427,10 +3436,14 @@ function ProvisionsApp() {
   }, [view, household?.id, refreshMeals, authPhase]);
 
   // Load provenance when a surface that shows the badge is visible: SHOP renders the
-  // teal meal facet, and PLAN is where the meal cards live.
+  // teal meal facet, PLAN is where the meal cards live, and HOME's on-deck card
+  // mirrors the board's first card (its To buy line is mealRowCounts, which is
+  // provenance). The first resolved read for a household marks it loaded for
+  // Home's gate; the 2s list poll keeps it fresh via onListChangedRef above.
   useEffect(() => {
-    if (MEALS_ENABLED && household?.id && (view === "list" || view === "plan")) {
-      refreshProvenance();
+    if (MEALS_ENABLED && household?.id && (view === "list" || view === "plan" || view === "home")) {
+      const hhId = household.id;
+      refreshProvenance().then(() => setProvenanceLoadedFor(hhId));
     }
   }, [household?.id, view, refreshProvenance]);
 
