@@ -5428,7 +5428,18 @@ function ProvisionsApp() {
     }
     return () => root.style.removeProperty("--op-desk-bg");
   }, [bannerPhotoUrl]);
-  const bannerHasPhoto = !!bannerPhotoUrl;
+  // HOME-ONLY BANNER (ARCHITECTURE "Home v2 — forward model", decided 2026-09-27,
+  // built 2026-10-01). The OurBanner block — the photo layers, the dissolve and
+  // the Row 2 wordmark band — renders only on HOME. Plan, Browse and Shop get
+  // Row 1 alone (avatar · ⚓ household ⚓ · Velayo dots) on #1a0e06, so every
+  // photo-dependent treatment in the header keys off bannerHasPhoto, which is
+  // now "a photo exists AND we are on Home". Storage, framing and the earned
+  // Our are unchanged; the ⚓ household button stays in Row 1 on every tab (it
+  // is the household sheet's trigger off Home). The desktop blurred backdrop
+  // (--op-desk-bg, outside the column) is not the banner and keeps the photo
+  // on every tab. Signed out still lands on Home via signedOutWelcome.
+  const bannerOnHome = view === "home";
+  const bannerHasPhoto = !!bannerPhotoUrl && bannerOnHome;
   // Dormancy (spec): wordmark choice persists even with no photo, but only takes
   // effect when a photo exists; with no photo the wordmark always renders large.
   const bannerWordmark = bannerHasPhoto ? (household?.banner_wordmark || "large") : "large";
@@ -6160,10 +6171,12 @@ function ProvisionsApp() {
 
       {/* OurBanner region — household identity only. Nav lives in the Helm
           (floating pill / wide rail, SPEC_nav_helm.md); the strip that used to sit
-          under the header is gone. When a photo exists, this wrapper carries the
-          photo+gradient behind the header. Photo-less: an inert relative box and the
-          header keeps its solid espresso. The layer spans the wrapper's flow height =
-          the header (the modals in between are position:fixed and add no height). */}
+          under the header is gone. When a photo exists AND the tab is Home
+          (bannerHasPhoto), this wrapper carries the photo+gradient behind the
+          header. Photo-less, or any other tab: an inert relative box and the
+          header keeps its solid espresso — Row 1 alone off Home. The layer spans
+          the wrapper's flow height = the header (the modals in between are
+          position:fixed and add no height). */}
       <div style={{ position: "relative" }}>
         {bannerHasPhoto && (
           <>
@@ -6264,10 +6277,12 @@ function ProvisionsApp() {
           </button>
         </div>
 
-        {/* Row 2: OurProvisions wordmark band. Over a photo it obeys the
-            household's banner_wordmark: large (default), small (~⅔, ~80%), or
-            hidden (not rendered — the middle band is photo only, spec D4). The
-            band keeps its height when hidden so the photo has room to breathe. */}
+        {/* Row 2: OurProvisions wordmark band — HOME ONLY (bannerOnHome); the
+            other tabs end at Row 1. Over a photo it obeys the household's
+            banner_wordmark: large (default), small (~⅔, ~80%), or hidden (not
+            rendered — the middle band is photo only, spec D4). The band keeps
+            its height when hidden so the photo has room to breathe. */}
+        {bannerOnHome && (
         <div style={{
           position: "relative", zIndex: 1,
           padding: bannerWordmark === "small" ? "16px 16px" : "20px 16px",
@@ -6324,6 +6339,7 @@ function ProvisionsApp() {
             </h1>
           )}
         </div>
+        )}
       </div>
 
       {/* Velayo app menu */}
