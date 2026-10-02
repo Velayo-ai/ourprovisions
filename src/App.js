@@ -1336,6 +1336,50 @@ function PlanWelcome({ firstMeal, onAdd, children }) {
 const BOARD_PRESS_MS = 350;
 const BOARD_SLOP_PX = 8;
 const BOARD_CONTROLS = ".board-x, .board-cook, .board-lock, .board-see, .board-more, .board-menu";
+
+// A CARD'S STATE — one derivation, two renderers: the board and Home's on-deck
+// card (SPEC_home_v1_essentials D3: Home and Plan must never describe the same
+// meal differently, so any state change lands here and nowhere else). Pure:
+// the meal plus the board's inputs → the flags, the chip, the title and the
+// status line exactly as the board has always computed them inline.
+//   cooked   in cookedIds — cooked THIS load, muted in place (no line)
+//   noShop   kind ≠ meal — title by kind, one context line, never a state
+//   ready    placement.readyAt — "Everything's in — go cook"
+//   planned  no live rows — "Not on the list yet" (canAdd) / "Nothing to shop for"
+//   toBuy    ≥ 1 live row — "N to buy" / "B of N in cart"
+function boardCardState(m, { placements, rows, mealById, cookedIds }) {
+  const noShop = isNoShop(m);
+  const cooked = !!cookedIds?.has(m.id);
+  const ready = !noShop && !cooked && !!placements?.[m.id]?.readyAt;
+  const rc = rows?.[m.id] || { total: 0, bought: 0 };
+  const planned = !noShop && !cooked && !ready && rc.total === 0;
+  const toBuy = !noShop && !cooked && !ready && rc.total > 0;
+  // A planned meal with no ingredients has nothing to add — no Add to Shop;
+  // on the board its exit is Cooked it (⋯) or Remove. Add all skips it the same way.
+  const canAdd = planned && (m.meal_ingredients || []).length > 0;
+  // A state chip shows only while the state is INCOMPLETE (Planned, To buy).
+  // Ready is carried by the banner and the teal button; no READY chip.
+  const chip = toBuy ? "To buy" : planned ? "Planned" : null;
+  let title = m.name;
+  let line;
+  if (cooked) {
+    line = "";
+  } else if (noShop) {
+    // Name + the one context line; no filler when there is none.
+    title = m.kind === "other" ? (noShopName(m) || "Something else") : noShopLabel(m);
+    line = m.kind === "leftovers" ? leftoversLine(m, mealById)
+      : m.kind === "out" ? noShopName(m)
+      : "";
+  } else if (ready) {
+    line = "Everything's in — go cook";
+  } else if (planned) {
+    line = canAdd ? "Not on the list yet" : "Nothing to shop for";
+  } else {
+    line = rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart` : `${rc.total} to buy`;
+  }
+  return { noShop, cooked, ready, planned, toBuy, canAdd, rc, chip, title, line };
+}
+
 function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
   // A card cooked THIS board load stays in place, muted, until the next load
   // (cookedIds, owned by App). It is not in the queue: no drag, no number, no
@@ -1432,37 +1476,10 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
       {menuFor && <div className="board-menu-backdrop" onClick={(e) => { e.stopPropagation(); setMenuFor(null); }} />}
       {list.map((m, i) => {
         const busy = busyMealId === m.id;
-        const noShop = isNoShop(m);
-        const cooked = isCooked(m);
-        const ready = !noShop && !cooked && !!placements?.[m.id]?.readyAt;
-        const rc = rows?.[m.id] || { total: 0, bought: 0 };
-        const planned = !noShop && !cooked && !ready && rc.total === 0;
-        const toBuy = !noShop && !cooked && !ready && rc.total > 0;
+        // ONE derivation for every card, shared with Home's on-deck card (D3).
+        const { noShop, cooked, ready, planned, toBuy, canAdd, chip, title, line } = boardCardState(m, { placements, rows, mealById, cookedIds });
         const ordinal = openOrder.indexOf(m.id);
-        // A planned meal with no ingredients has nothing to add — no button;
-        // its exit is Cooked it (⋯) or ×. Add all skips it the same way.
-        const canAdd = planned && (m.meal_ingredients || []).length > 0;
         const tone = mealTone(m);
-        // A state chip shows only while the state is INCOMPLETE (Planned, To buy).
-        // Ready is carried by the banner and the teal button; no READY chip.
-        const chip = toBuy ? "To buy" : planned ? "Planned" : null;
-        let title = m.name;
-        let line;
-        if (cooked) {
-          line = "";
-        } else if (noShop) {
-          // Name + the one context line; no filler when there is none.
-          title = m.kind === "other" ? (noShopName(m) || "Something else") : noShopLabel(m);
-          line = m.kind === "leftovers" ? leftoversLine(m, mealById)
-            : m.kind === "out" ? noShopName(m)
-            : "";
-        } else if (ready) {
-          line = "Everything's in — go cook";
-        } else if (planned) {
-          line = canAdd ? "Not on the list yet" : "Nothing to shop for";
-        } else {
-          line = rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart` : `${rc.total} to buy`;
-        }
         const lifted = drag && drag.id === m.id;
         // Slide transforms while a drag is live; the number and rail word come
         // from `ordinal` (openOrder, the same projected order), so what the eye
