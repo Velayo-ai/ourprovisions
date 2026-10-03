@@ -1744,6 +1744,8 @@ const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appeti
 const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert" };
 const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appetizer: "Appetizers" };
 const NO_LIB_FILTERS = { from: null, made: false, ours: false };
+// The "Something new?" tile coaches until the library has this many meals.
+const LIBRARY_COACH_MAX = 6;
 // The one search predicate (spec): case-insensitive substring on the name and on
 // the occasion words, singular and plural ("dessert", "snacks"). Smarter search
 // replaces this function, not the UI. `q` arrives trimmed and lower-cased.
@@ -1945,14 +1947,18 @@ function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, i
   const activeCount = (filters.from ? 1 : 0) + (filters.made ? 1 : 0) + (filters.ours ? 1 : 0);
   const fromMember = filters.from ? fromMembers.find((mb) => mb.id === filters.from) : null;
 
-  // The Create tile — the ONE door to meal creation (the v2 terminal row and the
-  // separate Ask AI card folded into it). Rendered in the empty state too: a
-  // household with no meals could otherwise never make its first one. Signed
-  // out it is a sign-in prompt, not a live control (every identity-requiring
-  // write silently no-ops without a Clerk token); the whole Plan view sits
-  // behind the signed-out welcome since 2026-10-02, so this branch is kept as
-  // belt-and-braces, not walked.
-  const createTile = isSignedIn ? (
+  // The Create tile is a COACHING surface (Dan, 2026-10-03): it shows only
+  // while the household's whole library — `meals` here is every live
+  // kind='meal' row, never the filtered or searched result — has fewer than
+  // LIBRARY_COACH_MAX meals. From there the head-row + Create and the Helm's
+  // + are the doors. Derived on every render; no stored flag. Rendered in the
+  // empty state too: a household with no meals could otherwise never make its
+  // first one. Signed out it is a sign-in prompt, not a live control (every
+  // identity-requiring write silently no-ops without a Clerk token); the whole
+  // Plan view sits behind the signed-out welcome since 2026-10-02, so that
+  // branch is kept as belt-and-braces, not walked.
+  const coaching = meals.length < LIBRARY_COACH_MAX;
+  const createTile = !coaching ? null : isSignedIn ? (
     <div className="lib-create-tile">
       <div className="lib-create-text">
         <div className="lib-create-t">Something new?</div>
