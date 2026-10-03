@@ -34,8 +34,13 @@ const CHROME_ALLOW_LIST = [
   '.plan-addall',    // Plan header "+ Add N to Shop"
   '.plan-meals',     // Plan header "+ Add a meal" → library
   '.plan-noshop',    // Hold a night: "Leftovers" / "Eating out" / "Something else" (board foot + welcome)
-  '.lib-filter',     // Library filter pills
-  '.lib-plan',       // Library round + (Plan)
+  '.lib-occ',        // Library occasion rail pills: All / Dinner / Breakfast / … (Meal Library v1)
+  '.lib-fbtn',       // Library Filter button (icon only)
+  '.lib-plan',       // Library card pill: "Plan" / "Planned" — fixed copy; the meal name is in the SIBLING card-body button, never here
+  '.lib-create',     // Library "+ Create" (head row and the Create tile)
+  '.lib-week',       // Library week line: "{N} meals planned this week" / "Nothing planned yet this week"
+  '.lib-show',       // Library filter sheet: "Show N meals"
+  '.lib-clear',      // Library filter sheet: "Clear"
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
   '.deck-switch',    // Home on-deck card: "Switch"
   '.deck-x',         // Home on-deck card: × on a held night

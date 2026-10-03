@@ -1719,52 +1719,250 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
   );
 }
 
-// THE LIBRARY — where you decide WHAT. One action per card: Plan (the round
-// +), which places the meal at max+1 and touches nothing else. Add is gone
-// from here (v2 decision 1): pick and commit happen at different moments, and
-// the board's Add all absorbs the double tap. A meal already on the board
-// reads ON THE BOARD with the + disabled. Filters: All · Made before (any
-// placement carrying cooked_at) · Ours (household-owned — which, until seed or
-// shared meals exist, is every meal this read returns; the pill is correct by
-// construction and waits for the day it isn't trivial). Favorites is OMITTED,
-// not disabled: no data exists yet and a greyed pill promises a table that
-// hasn't been decided (per-user vs per-household). Every control is
-// espresso/outline — no teal in the library.
-function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, isSignedIn, onBoardIds, madeBefore, householdId }) {
-  const [filter, setFilter] = useState("all");
-  // Terminal ghost row — matches the "+ Create new place" convention (same
-  // 1.5px dashed border, same terminal position). It renders in the EMPTY
-  // state too, deliberately: it is the only entry point to meal creation, so
-  // a household with no meals could otherwise never make its first one.
-  // Signed out, this row becomes a sign-in prompt rather than a live control.
-  // Creating a meal is an identity-requiring write, and every such write silently
-  // no-ops when signed out (no Supabase client is ever built without a Clerk token),
-  // so a clickable row here promises something the app cannot deliver. It is NOT
-  // hidden: an absent control with no explanation is the same "state is invisible"
-  // defect in a smaller costume. Same box, same dashed border, same terminal slot —
-  // only the affordance and the words change, so there is no layout shift.
-  const createRow = isSignedIn ? (
-    <button
-      onClick={onCreate}
-      style={{
-        width: "100%", background: "none", border: "1.5px dashed #A0724A",
-        borderRadius: "12px", padding: "14px", marginTop: "2px",
-        fontFamily: "'Lato', sans-serif", fontSize: "0.92rem", fontWeight: 700,
-        color: "#A0724A", cursor: "pointer", textAlign: "center", boxSizing: "border-box",
-      }}
-    >+ Create new meal</button>
+// THE LIBRARY — "What sounds good?" (SPEC_meal_library_v1 + the v1.1 amendment).
+// Where you decide WHAT; This Week (the board) decides WHEN. A two-column card
+// grid: a coloured top (the first occasion word + the name; tone by dominant
+// ingredient category, exactly as on the board) over a white strip ("{n}
+// ingredients" + the ONE action, Plan → ✓ Planned). The card body opens Edit
+// Meal, planned or not. Above the grid: search, a Filter button (From / Made
+// before / Ours live in a sheet; active ones show as removable chips) and the
+// occasion rail — All plus only the occasions some meal carries; with none
+// tagged the rail hides behind a one-line prompt until the first tag. Below:
+// one Create tile (one door — the New Meal sheet, Galley inside). ZERO TEAL:
+// planning isn't finishing. "Planned" = an open placement (onBoardIds), so a
+// ✓ Cooked afterglow card reads Plan again. Favorites is OMITTED, not disabled:
+// no data exists yet and a greyed pill promises a table that hasn't been decided.
+// RUM: .lib-occ / .lib-fbtn / .lib-plan / .lib-create / .lib-show / .lib-clear /
+// .lib-week carry fixed copy only; the card body (meal name) and the From chips
+// (first names) are NOT allow-listed — keep names out of those classes.
+// OCCASIONS (061). Fixed display order for the rail and the Good-for chips:
+// Dinner first because most meals are dinners. The singular word is what the
+// card and the chips show; the rail pluralises Snacks / Sides / Appetizers.
+const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appetizer", "dessert"];
+const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert" };
+const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appetizer: "Appetizers" };
+const NO_LIB_FILTERS = { from: null, made: false, ours: false };
+// The one search predicate (spec): case-insensitive substring on the name and on
+// the occasion words, singular and plural ("dessert", "snacks"). Smarter search
+// replaces this function, not the UI. `q` arrives trimmed and lower-cased.
+function matchesQuery(meal, q) {
+  if (!q) return true;
+  if ((meal?.name || "").toLowerCase().includes(q)) return true;
+  return (meal?.occasion || []).some((o) => o.includes(q)
+    || (OCCASION_WORD[o] || "").toLowerCase().includes(q)
+    || (OCCASION_PILL[o] || "").toLowerCase().includes(q));
+}
+
+// Browse's rail, reused: the same .cat-rail-wrap / .cat-rail classes (scroll-snap,
+// pan-x, the styled scrollbar, the edge fades), so the scroll behaviour is not
+// forked — only the pills differ (.lib-occ: espresso on-state, no glyph). The
+// edge sync mirrors Browse's syncRailEdges for this rail's own node; the resting
+// position is keyed off the PILL SET (not the selection) exactly as Browse does,
+// so it never yanks a rail the user is mid-scroll.
+function OccasionRail({ present, value, onChange }) {
+  const node = useRef(null);
+  const [edges, setEdges] = useState({ atStart: true, atEnd: true });
+  const sync = useCallback(() => {
+    const rail = node.current;
+    if (!rail) return;
+    const max = rail.scrollWidth - rail.clientWidth;
+    const atStart = rail.scrollLeft <= 1;
+    const atEnd = rail.scrollLeft >= max - 1;
+    setEdges((prev) => (prev.atStart === atStart && prev.atEnd === atEnd ? prev : { atStart, atEnd }));
+  }, []);
+  const presentKey = present.join(",");
+  useLayoutEffect(() => {
+    const rail = node.current;
+    if (!rail) return;
+    const active = rail.querySelector('[data-active="1"]');
+    rail.scrollLeft = active ? Math.max(0, active.offsetLeft - rail.offsetLeft) : 0;
+    sync();
+  }, [presentKey, sync]);
+  useEffect(() => {
+    const rail = node.current;
+    if (!rail) return;
+    rail.addEventListener("scroll", sync, { passive: true });
+    window.addEventListener("resize", sync);
+    return () => { rail.removeEventListener("scroll", sync); window.removeEventListener("resize", sync); };
+  }, [sync]);
+  const pills = [["all", "All"], ...present.map((k) => [k, OCCASION_PILL[k]])];
+  return (
+    <div className={`cat-rail-wrap lib-rail${edges.atStart ? " at-start" : ""}${edges.atEnd ? " at-end" : ""}`}>
+      <div className="cat-rail" ref={node} role="tablist" aria-label="Good for">
+        {pills.map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={value === k}
+            data-active={value === k ? "1" : undefined}
+            className={`lib-occ${value === k ? " on" : ""}`}
+            onClick={() => onChange(k)}
+          >{label}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// One card. Two real buttons, never nested: the coloured top ("Open {meal}")
+// and the pill ("Plan {meal}" / disabled "Planned for this week"). The occasion
+// row keeps its height when untagged so names align across a row; the name
+// wraps and is never truncated to one line. The on-hand suffix lives in the
+// meal sheet, not here (the card is too narrow and it is subordinate).
+const CheckGlyph = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
+);
+const PlusGlyph = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+);
+function LibraryCard({ meal, planned, busy, canPlan, onPlan, onOpen }) {
+  const tone = mealTone(meal);
+  const count = (meal.meal_ingredients || []).length;
+  const first = (meal.occasion || [])[0];
+  return (
+    <div className="lib-gcard">
+      <button
+        type="button"
+        className="lib-gtop"
+        style={{ background: tone.bg, color: tone.fg }}
+        aria-label={`Open ${meal.name}`}
+        onClick={() => onOpen(meal)}
+      >
+        <span className="lib-gocc">{first ? OCCASION_WORD[first] : ""}</span>
+        <span className="lib-gname">{meal.name}</span>
+      </button>
+      <div className="lib-gstrip">
+        <span className="lib-gcount">{count} {count === 1 ? "ingredient" : "ingredients"}</span>
+        {canPlan && (planned ? (
+          <button type="button" className="lib-plan planned" disabled aria-label="Planned for this week">
+            <CheckGlyph />Planned
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="lib-plan"
+            disabled={busy}
+            aria-label={`Plan ${meal.name}`}
+            onClick={() => { if (!busy) onPlan(meal.id); }}
+          >{busy ? "…" : "Plan"}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// FILTER SHEET (mockup screen 3). FROM = current household members with ≥ 1
+// library meal (created_by — who ADDED it to this library, not whose recipe it
+// is), single-select, tapping the selected chip clears it; a member who left
+// takes their chip with them, never the meals. HISTORY = Made before (the cook
+// log, 058) and Ours (v2's predicate, unchanged). Applies on Show; Clear resets
+// these three in the draft only — never the occasion or the search. The count
+// on Show is the live grid count with the draft applied (occasion and search
+// included), so a chip that would return nothing says so before it does.
+function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onShow, onClose }) {
+  const n = countFor(draft);
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" role="dialog" aria-label="Filter meals" onClick={(e) => e.stopPropagation()}>
+        <h2>Filter meals</h2>
+        <div className="lib-sheet-lbl">From</div>
+        {fromMembers.length > 0 && (
+          <div className="lib-chips">
+            {fromMembers.map((mb) => {
+              const on = draft.from === mb.id;
+              return (
+                <button
+                  key={mb.id}
+                  type="button"
+                  className={`lib-chef${on ? " on" : ""}`}
+                  aria-pressed={on}
+                  onClick={() => setDraft({ ...draft, from: on ? null : mb.id })}
+                ><span className="lib-mini" aria-hidden="true">{mb.initial}</span>{mb.firstName}</button>
+              );
+            })}
+          </div>
+        )}
+        <div className="lib-sheet-note">Only people with meals in your library show here.</div>
+        <div className="lib-sheet-lbl">History</div>
+        <button type="button" role="switch" aria-checked={draft.made} className="lib-sw" onClick={() => setDraft({ ...draft, made: !draft.made })}>
+          <span><span className="lib-sw-l">Made before</span><span className="lib-sw-d">Meals you've cooked from This Week</span></span>
+          <span className="lib-track" aria-hidden="true" />
+        </button>
+        <button type="button" role="switch" aria-checked={draft.ours} className="lib-sw" onClick={() => setDraft({ ...draft, ours: !draft.ours })}>
+          <span><span className="lib-sw-l">Ours</span><span className="lib-sw-d">Made in this household, not shared in</span></span>
+          <span className="lib-track" aria-hidden="true" />
+        </button>
+        <div className="lib-sheet-btns">
+          <button type="button" className="lib-clear" onClick={() => setDraft({ ...NO_LIB_FILTERS })}>Clear</button>
+          <button type="button" className="lib-show" onClick={onShow}>Show {n} {n === 1 ? "meal" : "meals"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, isSignedIn, onBoardIds, madeBefore, householdId, members }) {
+  const [query, setQuery] = useState("");
+  const [occ, setOcc] = useState("all");
+  const [filters, setFilters] = useState(NO_LIB_FILTERS);
+  // null while closed; the sheet's draft (a copy of `filters`) while open.
+  const [draft, setDraft] = useState(null);
+
+  // The rail shows only occasions some meal carries, in the fixed order. If the
+  // selected one stops being present (last meal untagged or deleted), fall back
+  // to All rather than filter to nothing.
+  const present = useMemo(() => OCCASION_ORDER.filter((k) => meals.some((m) => (m.occasion || []).includes(k))), [meals]);
+  const anyTagged = present.length > 0;
+  useEffect(() => { if (occ !== "all" && !present.includes(occ)) setOcc("all"); }, [occ, present]);
+
+  // From chips: current members with ≥ 1 library meal. First name from the
+  // profile's full name (else the email's local part); the monogram is the
+  // roster's sand circle — the app has no per-member colour, and the header's
+  // teal monogram is the one colour this surface forbids.
+  const fromMembers = useMemo(() => (members || [])
+    .filter((mb) => mb.user_id && meals.some((m) => m.created_by === mb.user_id))
+    .map((mb) => {
+      const full = (mb.users?.full_name || "").trim();
+      const firstName = full.split(/\s+/)[0] || (mb.users?.email ? mb.users.email.split("@")[0] : "Member");
+      return { id: mb.user_id, firstName, initial: firstName[0].toUpperCase() };
+    }), [members, meals]);
+  // An applied From whose member left (or whose meals are gone) clears itself.
+  useEffect(() => {
+    if (filters.from && !fromMembers.some((mb) => mb.id === filters.from)) setFilters((f) => ({ ...f, from: null }));
+  }, [filters.from, fromMembers]);
+
+  const q = query.trim().toLowerCase();
+  const passes = useCallback((m, f, o) => (o === "all" || (m.occasion || []).includes(o))
+    && matchesQuery(m, q)
+    && (!f.from || m.created_by === f.from)
+    && (!f.made || !!madeBefore?.has(m.id))
+    && (!f.ours || !m.household_id || m.household_id === householdId), [q, madeBefore, householdId]);
+  const shown = useMemo(() => meals.filter((m) => passes(m, filters, occ)), [meals, filters, occ, passes]);
+  const countFor = (f) => meals.filter((m) => passes(m, f, occ)).length;
+  const activeCount = (filters.from ? 1 : 0) + (filters.made ? 1 : 0) + (filters.ours ? 1 : 0);
+  const fromMember = filters.from ? fromMembers.find((mb) => mb.id === filters.from) : null;
+
+  // The Create tile — the ONE door to meal creation (the v2 terminal row and the
+  // separate Ask AI card folded into it). Rendered in the empty state too: a
+  // household with no meals could otherwise never make its first one. Signed
+  // out it is a sign-in prompt, not a live control (every identity-requiring
+  // write silently no-ops without a Clerk token); the whole Plan view sits
+  // behind the signed-out welcome since 2026-10-02, so this branch is kept as
+  // belt-and-braces, not walked.
+  const createTile = isSignedIn ? (
+    <div className="lib-create-tile">
+      <div className="lib-create-text">
+        <div className="lib-create-t">Something new?</div>
+        <div className="lib-create-s">Build your own, or let the Galley help.</div>
+      </div>
+      <button type="button" className="lib-create outline" onClick={onCreate}><PlusGlyph />Create</button>
+    </div>
   ) : (
-    <div
-      style={{
-        width: "100%", background: "none", border: "1.5px dashed #C9A97A",
-        borderRadius: "12px", padding: "14px", marginTop: "2px",
-        fontFamily: "'Lato', sans-serif", fontSize: "0.92rem", fontWeight: 700,
-        color: "#9a8a78", cursor: "default", textAlign: "center", boxSizing: "border-box",
-      }}
-    >
-      Sign in to create meals
-      <div style={{ fontWeight: 400, fontSize: "0.78rem", marginTop: "4px", fontStyle: "italic" }}>
-        Meals are saved to your place, so they need your account.
+    <div className="lib-create-tile gated">
+      <div className="lib-create-text">
+        <div className="lib-create-t">Sign in to create meals</div>
+        <div className="lib-create-s">Meals are saved to your place, so they need your account.</div>
       </div>
     </div>
   );
@@ -1779,7 +1977,7 @@ function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, i
   }
   if (meals.length === 0) {
     return (
-      <div style={{ padding: "44px 24px 0" }}>
+      <div style={{ padding: "32px 0 0" }}>
         <div style={{ textAlign: "center" }}>
           <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic",
             fontSize: "1.2rem", color: "#8a7a60", margin: 0 }}>No meals yet.</p>
@@ -1788,83 +1986,89 @@ function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, i
             Create one, plan it, and its ingredients are one tap from your list.
           </p>
         </div>
-        <div style={{ marginTop: "22px" }}>{createRow}</div>
+        <div style={{ marginTop: "6px" }}>{createTile}</div>
       </div>
     );
   }
-  const FILTERS = [
-    { key: "all", label: "All" },
-    { key: "made", label: "Made before" },
-    { key: "ours", label: "Ours" },
-  ];
-  const shown = meals.filter((m) => {
-    if (filter === "made") return !!madeBefore?.has(m.id);
-    if (filter === "ours") return !m.household_id || m.household_id === householdId;
-    return true;
-  });
+
+  // Made before alone emptying the grid keeps its own line; everything else
+  // is "Nothing matches that yet."
+  const madeAlone = filters.made && !filters.from && !filters.ours && !q && occ === "all";
   return (
-    <div style={{ paddingTop: "2px" }}>
-      <div className="lib-filters" role="tablist" aria-label="Filter meals">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.key}
-            className={`lib-filter${filter === f.key ? " on" : ""}`}
-            onClick={() => setFilter(f.key)}
-          >{f.label}</button>
-        ))}
+    <div className="lib">
+      <div className="lib-search-row">
+        <label className="lib-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search your meals…"
+            aria-label="Search your meals"
+          />
+        </label>
+        <button
+          type="button"
+          className="lib-fbtn"
+          aria-label={activeCount ? `Filter meals, ${activeCount} active` : "Filter meals"}
+          onClick={() => setDraft({ ...filters })}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
+          {activeCount > 0 && <span className="lib-fdot" aria-hidden="true" />}
+        </button>
       </div>
-      {shown.length === 0 && (
-        <div className="lib-empty">
-          {filter === "made" ? "Nothing cooked from the board yet — Cooked it fills this." : "Nothing here yet."}
+
+      {/* Active filters are always visible (decision 10): a filtered grid must never read as a short library. */}
+      {activeCount > 0 && (
+        <div className="lib-active">
+          {fromMember && (
+            <button type="button" className="lib-chip-x" aria-label={`Remove filter: ${fromMember.firstName}'s`} onClick={() => setFilters((f) => ({ ...f, from: null }))}>
+              <span className="lib-mini" aria-hidden="true">{fromMember.initial}</span>{fromMember.firstName}'s <span aria-hidden="true">×</span>
+            </button>
+          )}
+          {filters.made && (
+            <button type="button" className="lib-chip-x" aria-label="Remove filter: Made before" onClick={() => setFilters((f) => ({ ...f, made: false }))}>Made before <span aria-hidden="true">×</span></button>
+          )}
+          {filters.ours && (
+            <button type="button" className="lib-chip-x" aria-label="Remove filter: Ours" onClick={() => setFilters((f) => ({ ...f, ours: false }))}>Ours <span aria-hidden="true">×</span></button>
+          )}
         </div>
       )}
-      {shown.map((m) => {
-        const count = (m.meal_ingredients || []).length;
-        // "6 ingredients · 2 on hand": the recipe total and what Add will skip.
-        // The suffix appears ONLY when a meal actually has on-hand rows.
-        const onHandCount = (m.meal_ingredients || []).filter((mi) => mi.on_hand).length;
-        const busy = planningMealId === m.id;
-        const onBoard = !!onBoardIds?.has(m.id);
-        const tone = mealTone(m);
-        return (
-          // Face-button-plus-swipe, same as catalog rows: Plan is the one face
-          // action; Edit lives behind the swipe (Staple and Hide have no meaning
-          // for a meal, so the panel reveals a single button).
-          <SwipeToRemove
+
+      {anyTagged
+        ? <OccasionRail present={present} value={occ} onChange={setOcc} />
+        : <div className="lib-hint">Sort meals by when you eat them — open any meal to mark it Dinner, Lunch…</div>}
+
+      {shown.length === 0 && (
+        <div className="lib-empty">
+          {madeAlone ? "Nothing cooked from This Week yet — Cooked it fills this." : "Nothing matches that yet."}
+        </div>
+      )}
+      <div className="lib-grid">
+        {shown.map((m) => (
+          <LibraryCard
             key={m.id}
-            onEdit={() => onEdit && onEdit(m)}
-            style={{ borderRadius: "12px", marginBottom: "9px" }}
-          >
-          <div className={`lib-card${onBoard ? " on-board" : ""}`}>
-            <div className="lib-tile" style={{ background: tone.bg, color: tone.fg }} aria-hidden="true">
-              <span className="lib-tile-word">{mealCategoryWord(m)}</span>
-              {onBoard && <span className="lib-tile-tag">On the board</span>}
-            </div>
-            <div className="lib-main">
-              <div className="lib-name">{m.name}</div>
-              <div className="lib-meta">
-                {count} {count === 1 ? "ingredient" : "ingredients"}
-                {onHandCount > 0 && ` · ${onHandCount} on hand`}
-                {onBoard && " · on the board"}
-              </div>
-            </div>
-            {isSignedIn && onPlan && (
-              <button
-                type="button"
-                className="lib-plan"
-                aria-label={onBoard ? `${m.name} is on the board` : `Plan ${m.name}`}
-                disabled={busy || onBoard}
-                onClick={() => { if (!busy && !onBoard) onPlan(m.id); }}
-              >{busy ? "…" : "+"}</button>
-            )}
-          </div>
-          </SwipeToRemove>
-        );
-      })}
-      {createRow}
+            meal={m}
+            planned={!!onBoardIds?.has(m.id)}
+            busy={planningMealId === m.id}
+            canPlan={!!(isSignedIn && onPlan)}
+            onPlan={onPlan}
+            onOpen={(meal) => onEdit && onEdit(meal)}
+          />
+        ))}
+      </div>
+      {createTile}
+
+      {draft && (
+        <LibraryFilterSheet
+          draft={draft}
+          setDraft={setDraft}
+          fromMembers={fromMembers}
+          countFor={countFor}
+          onShow={() => { setFilters(draft); setDraft(null); }}
+          onClose={() => setDraft(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1906,13 +2110,6 @@ const GalleyGlyph = ({ size = 12 }) => (
     <path d="M12 3v3M12 18v3M4.2 6.2l2.1 2.1M17.7 15.7l2.1 2.1M3 12h3M18 12h3M4.2 17.8l2.1-2.1M17.7 8.3l2.1-2.1" />
   </svg>
 );
-
-// OCCASIONS (061, Meal Library v1). Fixed display order for the Good-for chips
-// and the library rail: Dinner first because most meals are dinners. The
-// singular word is what the card and the chips show; the rail pluralises
-// Snacks / Sides / Appetizers (the library commit adds that map).
-const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appetizer", "dessert"];
-const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert" };
 
 // GOOD FOR — the meal sheet's occasion picker (Meal Library v1 decision 13).
 // Seven chips in a fixed order, multi-select, STORED IN TAP ORDER: the first
@@ -3671,7 +3868,9 @@ function ProvisionsApp() {
   }, [boardMeals, reorderBoard, deckSwitching]);
 
   // Plan (library): the placement only — the one door out of the library. The
-  // toast points at the board, where Add to Shop lives. Add to Shop (board):
+  // toast names the meal and carries no action (v1.1 A7: the week line is the
+  // persistent route to This Week); showToast replaces, never stacks, so a
+  // second Plan inside the window swaps the text. Add to Shop (board):
   // the SAME add handler as before (so a meal with on-hand ingredients gets
   // the on-hand prompt). Add all: the hook's batch over the Planned cards in
   // queue order, default quantity 1, on-hand skipped — one toast at the end.
@@ -3680,11 +3879,11 @@ function ProvisionsApp() {
     setPlanningMealId(mealId);
     try {
       const ok = await planMeal(mealId);
-      if (ok) showToast("Added to your week ✓", { label: "View week", onClick: () => setPlanScreen("board") }, { line: true });
+      if (ok) showToast(`${mealById[mealId]?.name || "Meal"} added to your week ✓`);
     } finally {
       setPlanningMealId(null);
     }
-  }, [planMeal, showToast]);
+  }, [planMeal, showToast, mealById]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
 
   // No-shop cards (055/056/057): Leftovers / Eating out / Something else. The
@@ -5676,8 +5875,6 @@ function ProvisionsApp() {
         .plan-head-text { flex: 1; min-width: 0; }
         .plan-title { font-family: 'Playfair Display', serif; font-size: 1.45rem; font-weight: 700; color: #2C1A0E; margin: 0; line-height: 1.1; }
         .plan-sub { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; margin-top: 3px; }
-        .plan-back { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; cursor: pointer;
-                     font-family: 'Lato', sans-serif; font-size: 1.5rem; line-height: 1; padding: 0 0 4px; display: flex; align-items: center; justify-content: center; }
         .plan-meals { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 40px; padding: 0 16px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; white-space: nowrap; }
         /* "add to Shop →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
@@ -5787,25 +5984,74 @@ function ProvisionsApp() {
                             display: flex; align-items: center; justify-content: center; gap: 10px; font-family: 'Lato', sans-serif; font-size: 16px; font-weight: 700; }
         .plan-welcome-add svg { width: 18px; height: 18px; flex: none; }
         .plan-welcome .hold-night { margin-top: 36px; }
-        /* Library (v2): category tile · name · meta · one round + (Plan). Filters are espresso pills. */
-        .lib-filters { display: flex; gap: 6px; margin: 0 0 12px; flex-wrap: wrap; }
-        .lib-filter { border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; border-radius: 999px; padding: 6px 12px; cursor: pointer;
-                      font-family: 'Lato', sans-serif; font-size: 0.74rem; font-weight: 700; }
-        .lib-filter.on { border-color: #6f5a45; background: #6f5a45; color: #FAF4EC; }
-        .lib-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 12px; }
-        .lib-card.on-board { background: #FAF4EC; }
-        .lib-tile { flex: none; width: 54px; height: 54px; border-radius: 9px; display: flex; align-items: center; justify-content: center; text-align: center;
-                    padding: 4px; overflow: hidden; position: relative; }
-        .lib-tile-word { font-family: 'Lato', sans-serif; font-size: 0.5rem; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; line-height: 1.2;
-                         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-        .lib-tile-tag { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(44,26,14,0.82); color: #FAF4EC; font-family: 'Lato', sans-serif;
-                        font-size: 0.4rem; font-weight: 900; letter-spacing: 0.5px; text-transform: uppercase; padding: 2px 0; }
-        .lib-main { flex: 1; min-width: 0; }
-        .lib-name { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; color: #2C1A0E; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .lib-meta { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 2px; }
-        .lib-plan { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
-                    font-family: 'Lato', sans-serif; font-size: 1.35rem; font-weight: 300; line-height: 1; padding: 0 0 2px; display: flex; align-items: center; justify-content: center; }
-        .lib-plan:disabled { opacity: 0.35; cursor: default; }
+        /* Library — "What sounds good?" (SPEC_meal_library_v1 + v1.1). Two-column grid, 16px row / 12px column gap, one column
+           below 340px. Card = coloured top (first occasion word + 20px serif name; tone = mealTone, the board's rule) over a
+           white strip (count + the Plan pill). ZERO TEAL: Plan is espresso outline, ✓ Planned is sand/espresso, the rail and
+           chips use the filled-espresso on-state. Clay's 11.5px word is the known AA miss (tracked in LATER). */
+        .lib-week { display: inline-flex; align-items: center; gap: 3px; min-height: 28px; margin-top: 2px; padding: 0; border: none; background: none; cursor: pointer;
+                    font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 500; color: #6E5A4A; text-align: left; }
+        .lib-create { flex: none; height: 40px; padding: 0 16px; border-radius: 20px; cursor: pointer; white-space: nowrap;
+                      font-family: 'Lato', sans-serif; font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+        .lib-create.fill { border: none; background: #6f5a45; color: #FAF4EC; }
+        .lib-create.outline { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
+        .lib-search-row { display: flex; gap: 8px; margin: 0 0 12px; }
+        .lib-search { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 12px;
+                      border: 1.5px solid #E8D5B7; background: #F5EDE0; color: #8a7a60; }
+        .lib-search input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-family: 'Lato', sans-serif; font-size: 0.92rem; color: #2C1A0E; }
+        .lib-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+        .lib-fbtn { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+                    display: flex; align-items: center; justify-content: center; position: relative; padding: 0; }
+        .lib-fdot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #A0724A; border: 1.5px solid #FFFDF9; }
+        .lib-active { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+        .lib-chip-x { height: 32px; padding: 0 10px 0 6px; border-radius: 16px; border: 1.5px solid #6f5a45; background: #FFFDF9; color: #2C1A0E; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
+        .lib-chip-x > span:last-child { color: #8a7a60; font-weight: 400; }
+        .lib-chip-x .lib-mini { width: 22px; height: 22px; font-size: 0.62rem; }
+        .lib-rail { margin: 0 0 14px; }
+        .lib-occ { flex: none; height: 36px; padding: 0 16px; border-radius: 18px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: 0.86rem; font-weight: 700; white-space: nowrap; }
+        .lib-occ.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
+        .lib-hint { margin: 0 0 14px; font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; }
+        .lib-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; align-items: stretch; }
+        @media (max-width: 339px) { .lib-grid { grid-template-columns: minmax(0, 1fr); } }
+        .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1.5px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
+        .lib-gtop { flex: 1; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; text-align: left; width: 100%; min-height: 92px;
+                    padding: 11px 12px 14px; border: none; cursor: pointer; font: inherit; }
+        .lib-gocc { display: block; min-height: 14px; line-height: 14px; font-family: 'Lato', sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+        .lib-gname { display: block; font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+        .lib-gstrip { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 8px 8px 12px; }
+        .lib-gcount { min-width: 0; font-family: 'Lato', sans-serif; font-size: 12.5px; color: #8a7a60; }
+        .lib-plan { flex: none; height: 34px; padding: 0 14px; border-radius: 17px; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
+                    font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+        .lib-plan:disabled { cursor: default; opacity: 0.6; }
+        .lib-plan.planned { border-color: transparent; background: #EFE6D6; color: #3A2A20; font-weight: 600; padding: 0 12px; opacity: 1; }
+        .lib-create-tile { margin-top: 16px; border: 1.5px dashed #C9A97A; border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 14px; }
+        .lib-create-tile.gated { border-color: #C9A97A; opacity: 0.8; }
+        .lib-create-text { flex: 1; min-width: 0; }
+        .lib-create-t { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 1rem; color: #2C1A0E; }
+        .lib-create-s { font-family: 'Lato', sans-serif; font-size: 12.5px; color: #8a7a60; margin-top: 2px; }
+        /* Filter sheet (mockup screen 3) in the app's modal chrome. */
+        .lib-sheet-lbl { font-family: 'Lato', sans-serif; font-size: 0.7rem; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: #A0724A; margin: 20px 0 10px; }
+        .lib-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .lib-chef { height: 40px; padding: 0 14px 0 6px; border-radius: 20px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #2C1A0E; cursor: pointer;
+                    font-family: 'Lato', sans-serif; font-size: 0.88rem; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
+        .lib-chef.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
+        .lib-mini { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #E8D5B7; color: #8a7a60; display: inline-flex; align-items: center; justify-content: center;
+                    font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; }
+        .lib-sheet-note { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; margin-top: 8px; }
+        .lib-sw { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 0; border: none; border-bottom: 1px solid #EFE6D6; background: transparent; text-align: left; cursor: pointer; }
+        .lib-sw > span:first-child { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .lib-sw-l { font-family: 'Lato', sans-serif; font-size: 0.95rem; font-weight: 700; color: #2C1A0E; }
+        .lib-sw-d { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; margin-top: 2px; }
+        .lib-track { flex: none; width: 44px; height: 26px; border-radius: 13px; background: #D9C9AE; position: relative; transition: background 0.15s; }
+        .lib-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #FFFDF9; transition: left 0.15s; }
+        .lib-sw[aria-checked="true"] .lib-track { background: #6f5a45; }
+        .lib-sw[aria-checked="true"] .lib-track::after { left: 21px; }
+        .lib-sheet-btns { display: flex; gap: 10px; margin-top: 24px; }
+        .lib-clear { flex: none; height: 48px; padding: 0 20px; border-radius: 24px; border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; cursor: pointer;
+                     font-family: 'Lato', sans-serif; font-size: 0.95rem; font-weight: 700; }
+        .lib-show { flex: 1; height: 48px; border-radius: 24px; border: none; background: #6f5a45; color: #FAF4EC; cursor: pointer;
+                    font-family: 'Lato', sans-serif; font-size: 0.95rem; font-weight: 700; }
         .lib-empty { padding: 24px 12px; text-align: center; font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; font-style: italic; }
         /* Good for (061) — the meal sheet's occasion chips. Espresso on-state, zero teal; ON CARD marks the first pick. */
         .gf-chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -7427,18 +7673,26 @@ function ProvisionsApp() {
 
         {view === "plan" && planScreen === "library" && !signedOutWelcome && (
           <>
-            {/* THE LIBRARY (v2). Back chevron to the board; no "This Week" chip —
-                the board is one tap away and the nav tab is already lit. The + is
-                New meal (signed in only: creating a meal is an identity-requiring
-                write; the library's terminal row says why). */}
+            {/* THE LIBRARY — "What sounds good?" (v1 + v1.1). No back arrow: location
+                is the Helm's (PLAN lit); the way back to This Week is the week line
+                or PLAN itself. The week line counts OPEN kind='meal' placements —
+                boardStats.cards, the same set as the board's "N meals"; no-shop
+                nights do not count (build decision 2026-10-03). + Create opens the
+                existing New Meal sheet unchanged (signed in only: creating a meal
+                is an identity-requiring write). The head row stays the Helm's
+                compact sentinel (controlRowRef). */}
             <div className="plan-head" ref={controlRowRef}>
-              <button type="button" className="plan-back" aria-label="Back to the board" onClick={() => setPlanScreen("board")}>‹</button>
               <div className="plan-head-text">
-                <h2 className="plan-title">Meal Library</h2>
-                <div className="plan-sub">Discover. Save. Plan for your week.</div>
+                <h2 className="plan-title">What sounds good?</h2>
+                <button type="button" className="lib-week" onClick={() => setPlanScreen("board")}>
+                  {boardStats.cards.length === 0
+                    ? "Nothing planned yet this week"
+                    : `${boardStats.cards.length} ${boardStats.cards.length === 1 ? "meal" : "meals"} planned this week`}
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+                </button>
               </div>
               {MEALS_ENABLED && isSignedIn && (
-                <button type="button" className="hdr-plus" aria-label="New meal" onClick={() => setMealSheet({ mode: "create", meal: null })}>+</button>
+                <button type="button" className="lib-create fill" aria-label="Create a meal" onClick={() => setMealSheet({ mode: "create", meal: null })}><PlusGlyph />Create</button>
               )}
             </div>
             <MealsLens
@@ -7452,6 +7706,7 @@ function ProvisionsApp() {
               onBoardIds={onBoardIds}
               madeBefore={madeBefore}
               householdId={household?.id}
+              members={householdMembers}
             />
           </>
         )}
