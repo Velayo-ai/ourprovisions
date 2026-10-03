@@ -896,6 +896,8 @@ function HomeWelcome({ signUpInitialValues, ready }) {
 //   0  boardCards[0] cooked this load   name · ✓ Cooked (teal outline, disabled) · no Switch
 //      — the afterglow (D6): cookedHere is cleared by the meals load effect on
 //      view entry, so the next card is on deck on the next Home load. No timer.
+//      Since 2026-10-03 the set drawn is afterglowIds — an id leaves the moment
+//      its placement reopens (re-plan), so an open placement always wins.
 //   1  no open card                     "What sounds good?" · Add a meal (deep sand,
 //      the library) · Hold-a-night buttons ("OR HOLD A NIGHT")
 //   2  no-shop (held night)             the board's title + context line · × and
@@ -3595,13 +3597,28 @@ function ProvisionsApp() {
   // what's left to cook; the week's record is a Home/history feature (ROADMAP
   // NEXT), not the queue.
   const [cookedHere, setCookedHere] = useState(() => new Set());
+  // AN OPEN PLACEMENT ALWAYS WINS OVER THE AFTERGLOW (walk 8b, 2026-10-03).
+  // cookedHere records "cooked on this device this load"; afterglowIds is the
+  // set the board and Home actually DRAW, keeping an id only while its
+  // placement is still closed as cooked. Re-plan a meal straight after Cooked
+  // it (the library's Plan, or a partner's arriving by poll) and the placement
+  // reopens (cookedAt null), so the id drops out here and the card is a
+  // planned card again — no reload. A plain cook keeps its ✓ Cooked, as before:
+  // the placements map holds closed rows with their stamp (loadPlacements has
+  // no cooked/skipped filter; markCooked's optimistic write keeps the entry).
+  const afterglowIds = useMemo(() => {
+    if (cookedHere.size === 0) return cookedHere;
+    const next = new Set();
+    cookedHere.forEach((id) => { if (placements[id]?.cookedAt) next.add(id); });
+    return next;
+  }, [cookedHere, placements]);
   const boardCards = useMemo(() => {
-    if (cookedHere.size === 0) return boardMeals;
+    if (afterglowIds.size === 0) return boardMeals;
     const byCreated = (a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0);
     return (meals || [])
-      .filter((m) => { const p = placements[m.id]; return !!p && !p.skippedAt && (!p.cookedAt || cookedHere.has(m.id)); })
+      .filter((m) => { const p = placements[m.id]; return !!p && !p.skippedAt && (!p.cookedAt || afterglowIds.has(m.id)); })
       .sort((a, b) => (placements[a.id].sortOrder - placements[b.id].sortOrder) || byCreated(a, b));
-  }, [meals, placements, boardMeals, cookedHere]);
+  }, [meals, placements, boardMeals, afterglowIds]);
 
   // Per-meal live list rows { total, bought }, from the same provenance map as
   // the ×n count — no new query. This is the card's STATE while it is to-buy
@@ -7549,7 +7566,7 @@ function ProvisionsApp() {
             ready={homeReady}
             deck={{
               // The board's inputs, verbatim (D3) — the same props PlanBoard gets.
-              boardMeals, boardCards, placements, rows: mealRowCounts, mealById, cookedIds: cookedHere,
+              boardMeals, boardCards, placements, rows: mealRowCounts, mealById, cookedIds: afterglowIds,
               busyMealId: busyMealId || addingMealId, switching: deckSwitching,
               holdNight: MEALS_ENABLED && isSignedIn,
               onAdd: () => { setPlanScreen("library"); goToDoor("plan"); },
@@ -7647,7 +7664,7 @@ function ProvisionsApp() {
                   rows={mealRowCounts}
                   placements={placements}
                   mealById={mealById}
-                  cookedIds={cookedHere}
+                  cookedIds={afterglowIds}
                   onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
                   onSkip={handleSkipMeal}
                   onCooked={handleCookedMeal}
