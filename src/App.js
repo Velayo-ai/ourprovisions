@@ -831,18 +831,16 @@ function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
   );
 }
 
-// HOME v1 — the Tonight card replaces the D7 placeholder's promise line; the
-// door and the greeting stay. "Tonight" is the board's first card (position
-// 01, the head of the open queue): Plan stores no planned_for date or slot yet
-// (reserved for Days v2), so the household's first open placement IS the
-// night's plan by construction — no date arithmetic, so no UTC rollover to get
-// wrong. `ready` is ONE gate for BOTH cards: the board's own (this household's
-// meals AND placements have loaded) AND householdReady (its list has actually
-// arrived). Nothing renders under the date until both are true, then both
-// cards appear together — never the list card first with the Tonight card
-// popping in above it on a cold open, and never an empty state that the data
-// then contradicts.
-function Home({ firstName, ready, meal, mealById, onAdd, onView, openCount, onStartList, onViewList }) {
+// HOME v1 ESSENTIALS (SPEC_home_v1_essentials.md; supersedes the Tonight card
+// + list card of 5a7a255). Four things, top to bottom, nothing else (D1):
+// greeting + date, the ON-DECK card, the LIST LINE, the BUDGET LINE. "On deck"
+// is the board's first open card (boardMeals[0]): Plan stores no planned_for
+// date until Days v2, so position decides, never time of day (D2). `ready` is
+// homeReady — this household's board, list AND provenance have loaded (D10) —
+// and nothing renders under the date until it is true: the three essentials
+// appear together, never one popping in above another, and never a state the
+// data then contradicts (a To-buy meal reading as Planned for a beat).
+function Home({ firstName, ready, deck, list, budget }) {
   const hour = new Date().getHours();
   const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
   const dateLine = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
@@ -852,8 +850,9 @@ function Home({ firstName, ready, meal, mealById, onAdd, onView, openCount, onSt
       <div className="home-date">{dateLine}</div>
       {ready && (
         <>
-          <TonightCard meal={meal} mealById={mealById} onAdd={onAdd} onView={onView} />
-          <ListCard openCount={openCount} onStartList={onStartList} onViewList={onViewList} />
+          <OnDeckCard {...deck} />
+          <HomeListLine {...list} />
+          {budget && <HomeBudgetLine {...budget} />}
         </>
       )}
     </div>
@@ -862,89 +861,197 @@ function Home({ firstName, ready, meal, mealById, onAdd, onView, openCount, onSt
 
 // D4 (SPEC_auth_state_ui_gating.md) — Home is the signed-out surface. The
 // wordmark in the splash's own Playfair italic, one line of what this is, and
-// the same two modal buttons the header carries (same initialValues, so a
-// pre-filled arrival still pre-fills). Placeholder copy by design: a designed
-// welcome is a Home session, not this slice (spec §Open). Rendered in place of
-// the door content on Home, Plan and Shop while signed out — see
-// signedOutWelcome in ProvisionsApp.
-function HomeWelcome({ signUpInitialValues }) {
+// the ONE sign-in pair the app shows while signed out (the header carries none
+// since 2026-10-02 — "Signed-out entry cleanup"). Same initialValues as before,
+// so a pre-filled arrival still pre-fills. Placeholder copy by design: a
+// designed welcome is a Home session, not this slice (spec §Open). Rendered in
+// place of the door content on every door whenever the session is not live —
+// signed_out, session_lost AND booting (see signedOutWelcome in ProvisionsApp).
+//   `ready` = Clerk loaded. Until then the two buttons render DISABLED with the
+//   same classes and dimensions — a click can't hit a not-yet-wired modal
+//   trigger, and they go live with no layout jump when Clerk finishes. A
+//   returning signed-in user on a slow Clerk sees this greyed pair past the
+//   splash, then hands off to the signed-in shell in ONE render (useUser flips
+//   isLoaded and isSignedIn from the same snapshot) — the buttons are never
+//   live for them, so no sign-in modal can open under a signed-in session.
+function HomeWelcome({ signUpInitialValues, ready }) {
+  const signIn = <button type="button" className="home-welcome-btn ghost" disabled={!ready}>Sign In</button>;
+  const signUp = <button type="button" className="home-welcome-btn solid" disabled={!ready}>Sign Up</button>;
   return (
     <div className="home home-welcome">
       <div className="home-wm"><span className="o">Our</span><span className="p">Provisions</span></div>
       <p className="home-welcome-line">Your household’s living grocery list.</p>
       <div className="home-welcome-actions">
-        <SignInButton mode="modal">
-          <button type="button" className="home-welcome-btn ghost">Sign In</button>
-        </SignInButton>
-        <SignUpButton mode="modal" initialValues={signUpInitialValues}>
-          <button type="button" className="home-welcome-btn solid">Sign Up</button>
-        </SignUpButton>
+        {ready ? <SignInButton mode="modal">{signIn}</SignInButton> : signIn}
+        {ready ? <SignUpButton mode="modal" initialValues={signUpInitialValues}>{signUp}</SignUpButton> : signUp}
       </div>
     </div>
   );
 }
 
-// The card. Empty: labelled "Tonight" — an invitation into the existing Plan
-// add flow (the library), never an add input of its own. Populated: labelled
-// "Up next" — the queue knows what is next, not what is tonight, until Days v2
-// adds planned_for (the hook's upNext rule, 2026-09-14); the head card's name,
-// "Dinner" alone (no time is stored), and a link that opens the meal in Plan.
-// A no-shop head (Leftovers / Eating out / Something else) has no recipe to
-// open, so its link goes to the board and its line carries the kind (and the
-// leftovers sources) instead. The aria-label follows the visible label. No
-// photo (2026-09-12: the household photo asserts context, never decorates;
-// no on the Tonight card).
-function TonightCard({ meal, mealById, onAdd, onView }) {
-  if (!meal) {
+// THE ON-DECK CARD — position 1 of the open queue under the eyebrow "On deck"
+// in every state (D2). Its states MIRROR the board card's, from the SAME
+// derivation (boardCardState — D3); only the actions differ, because this card
+// has no ⋯ and no chip. The truth table, first match wins:
+//   0  boardCards[0] cooked this load   name · ✓ Cooked (teal outline, disabled) · no Switch
+//      — the afterglow (D6): cookedHere is cleared by the meals load effect on
+//      view entry, so the next card is on deck on the next Home load. No timer.
+//   1  no open card                     "What sounds good?" · Add a meal (deep sand,
+//      the library) · Hold-a-night buttons ("OR HOLD A NIGHT")
+//   2  no-shop (held night)             the board's title + context line · × and
+//      Switch, no primary (D9) — it leaves by ×, as on the board
+//   3  Ready                            "Everything's in — go cook" · Cooked it (teal)
+//   4  To buy                           "N to buy" / "B of N in cart" · NO button (D4):
+//      the list line directly underneath carries Let's shop →
+//   5  Planned, has ingredients         "Not on the list yet" · Add to Shop (outline;
+//      the board's handler, so on-hand meals still get the on-hand prompt)
+//   6  Planned, no ingredients          "Nothing to shop for" · Cooked it (teal) —
+//      on the board this exit lives behind ⋯; here it is the one action
+// Switch (D8) renders only with 2+ open cards and swaps 1 and 2 through the
+// board's reorderBoard — no new write path. Tapping the body of a meal card
+// (rows 3–6) opens the meal as v1's "View meal →" did; a no-shop card has no
+// recipe and no body tap. No destructive control at rest on a meal card
+// (09-21): Remove stays on the board's ⋯. Busy: the card dims and its buttons
+// disable while a write is in flight (the board's busyMealId pattern).
+// TEAL (#0D9488) appears ONLY on Cooked it / ✓ Cooked (D5) — teal means the
+// household finished something.
+// RUM: .deck-primary / .deck-switch / .deck-x are prod-unmasked and carry FIXED
+// copy only — meal names live in .deck-title / .deck-status, which are not on
+// the allow-list, and no allow-listed element has household text in its
+// aria-label either. The body tap target (.deck-body) is masked.
+function OnDeckCard({
+  boardMeals, boardCards, placements, rows, mealById, cookedIds, busyMealId, switching, holdNight,
+  onAdd, onView, onLockIn, onCooked, onSkip, onSwitch, onLeftovers, onOut, onOther,
+}) {
+  // Row 0 — the afterglow reads the RENDERED list: boardMeals has already
+  // dropped the cooked meal, boardCards keeps it until the next load.
+  const head = boardCards[0];
+  if (head && cookedIds?.has(head.id)) {
     return (
-      <section className="tonight" aria-label="Tonight">
-        <div className="tonight-label">Tonight</div>
-        <h3 className="tonight-title">What sounds good?</h3>
-        <p className="tonight-body">Plan a meal and we'll help with the rest.</p>
-        <button type="button" className="tonight-link" onClick={onAdd}>+ Add tonight's meal</button>
+      <section className="deck cooked" aria-label="On deck">
+        <div className="deck-eyebrow">On deck</div>
+        <div className="deck-body">
+          <h3 className="deck-title">{head.name}</h3>
+        </div>
+        <div className="deck-actions">
+          <button type="button" className="deck-primary done" disabled>✓ Cooked</button>
+        </div>
       </section>
     );
   }
-  const noShop = isNoShop(meal);
-  const name = noShop ? (noShopName(meal) || noShopLabel(meal)) : meal.name;
-  const line = noShop
-    ? ["Dinner", noShopName(meal) ? noShopLabel(meal) : "", meal.kind === "leftovers" ? leftoversLine(meal, mealById) : ""].filter(Boolean).join(" · ")
-    : "Dinner";
+  const m = boardMeals[0];
+  // Row 1 — nothing on deck: an invitation into Plan's library, never an add
+  // input of its own; the same three hold buttons as the board's welcome.
+  if (!m) {
+    return (
+      <section className="deck" aria-label="On deck">
+        <div className="deck-eyebrow">On deck</div>
+        <div className="deck-body">
+          <h3 className="deck-title">What sounds good?</h3>
+          <p className="deck-status">Plan a meal and we'll turn it into your list.</p>
+        </div>
+        <div className="deck-actions">
+          <button type="button" className="deck-primary add" onClick={onAdd}>Add a meal</button>
+        </div>
+        {holdNight && <HoldANightButtons label="OR HOLD A NIGHT" onLeftovers={onLeftovers} onOut={onOut} onOther={onOther} />}
+      </section>
+    );
+  }
+  // Rows 2–6 — the board's derivation, verbatim.
+  const st = boardCardState(m, { placements, rows, mealById, cookedIds });
+  const busy = busyMealId === m.id || switching;
+  const canSwitch = boardMeals.length >= 2;
+  let primary = null;
+  if (st.noShop || st.toBuy) {
+    primary = null;                                   // D9 / D4
+  } else if (st.ready || !st.canAdd) {
+    // Ready (row 3) — and a planned meal with nothing to shop for (row 6).
+    primary = <button type="button" className="deck-primary teal" disabled={busy} onClick={() => { if (!busy) onCooked(m.id); }}>Cooked it</button>;
+  } else {
+    primary = <button type="button" className="deck-primary" disabled={busy} onClick={() => { if (!busy) onLockIn(m.id); }}>Add to Shop</button>;
+  }
+  const open = () => { if (!busy && !st.noShop) onView(m); };
   return (
-    <section className="tonight" aria-label="Up next">
-      <div className="tonight-label">Up next</div>
-      <h3 className="tonight-title">{name}</h3>
-      <p className="tonight-body">{line}</p>
-      <button type="button" className="tonight-link" onClick={() => onView(meal)}>{noShop ? "View plan →" : "View meal →"}</button>
+    <section className={`deck${st.noShop ? " noshop" : ""}${busy ? " busy" : ""}`} aria-label="On deck">
+      <div className="deck-eyebrow">On deck</div>
+      {st.noShop ? (
+        <div className="deck-body">
+          <h3 className="deck-title">{st.title}</h3>
+          {st.line && <p className="deck-status">{st.line}</p>}
+        </div>
+      ) : (
+        <div
+          className="deck-body tap"
+          role="button"
+          tabIndex={0}
+          onClick={open}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }}
+        >
+          <h3 className="deck-title">{st.title}</h3>
+          {st.line && <p className="deck-status">{st.line}</p>}
+        </div>
+      )}
+      {(primary || st.noShop || canSwitch) && (
+        <div className="deck-actions">
+          {primary}
+          {st.noShop && (
+            <button type="button" className="deck-x" aria-label="Remove this night" disabled={busy} onClick={() => { if (!busy) onSkip(m.id, false); }}>×</button>
+          )}
+          {canSwitch && (
+            <button type="button" className="deck-switch" disabled={busy} onClick={() => { if (!busy) onSwitch(); }}>Switch</button>
+          )}
+        </div>
+      )}
     </section>
   );
 }
 
-// The second card: the household's list. `openCount` is the Helm's Shop badge
-// number (live rows minus checked), so Home and the badge can never disagree.
-// Empty: an invitation into Browse (the catalog), never an empty Shop tab.
-// Populated: the count and a link to Shop. No store name — the app does not
-// know it (store recognition is Phase 2). Rendered under Home's single gate,
-// which includes householdReady (this household's list has actually arrived,
-// the landing rule), so "Build your grocery list" is never shown before the
-// data says it is true.
-function ListCard({ openCount, onStartList, onViewList }) {
+// THE LIST LINE. `openCount` is the Helm's Shop badge number (live rows minus
+// checked), so Home and the badge can never disagree. `firstItem` is the first
+// unchecked row in Shop's Aisles order (pendingItems[0]: CATEGORY_ORDER, then
+// name) — what you'd reach first. `shopping` = this user has an open session.
+//   0 open             "Nothing on your list · Start a list →"   (Browse)
+//   shopping           "N left to find · Let's shop →"
+//   otherwise          "N thing(s) to get · {first item} · Let's shop →"
+// The link is a LEAF button carrying fixed copy only — the RUM unmask rule
+// matches the tapped element and its ancestors, so the count and the item name
+// sit beside it in .home-line-text (masked), never inside it.
+function HomeListLine({ openCount, firstItem, shopping, onStartList, onShop }) {
   if (!openCount) {
     return (
-      <section className="tonight list-card" aria-label="Need anything?">
-        <div className="tonight-label">Need anything?</div>
-        <h3 className="tonight-title">Build your grocery list</h3>
-        <p className="tonight-body">Add what you need for the week.</p>
-        <button type="button" className="list-card-link" onClick={onStartList}>Start a list →</button>
-      </section>
+      <div className="home-line">
+        <span className="home-line-text">Nothing on your list ·</span>
+        <button type="button" className="home-line-link" onClick={onStartList}>Start a list →</button>
+      </div>
     );
   }
+  const n = openCount;
+  const text = shopping
+    ? `${n} left to find ·`
+    : `${n} thing${n === 1 ? "" : "s"} to get${firstItem ? ` · ${firstItem}` : ""} ·`;
   return (
-    <section className="tonight list-card" aria-label="Your list">
-      <div className="tonight-label">Your list</div>
-      <h3 className="tonight-title">{openCount === 1 ? "1 item" : `${openCount} items`}</h3>
-      <button type="button" className="list-card-link" onClick={onViewList}>View list →</button>
-    </section>
+    <div className="home-line">
+      <span className="home-line-text">{text}</span>
+      <button type="button" className="home-line-link" onClick={onShop}>Let's shop →</button>
+    </div>
+  );
+}
+
+// THE BUDGET LINE (D7) — measures exactly what Shop's Trip Total measures, and
+// renders only when Shop would show it (the caller gates on showPrices,
+// budget_goal set, list non-empty). No new arithmetic: totalCost, budgetNum,
+// budgetPct, overBudget, budgetRemaining and hasEstimatedPrices are the budget
+// banner's own values; the bar colours are its thresholds. Not tappable in v1.
+function HomeBudgetLine({ totalCost, budgetNum, budgetPct, overBudget, budgetRemaining, hasEstimatedPrices }) {
+  const fill = overBudget ? "#e05c5c" : budgetPct > 85 ? "#C9A97A" : "#A0724A";
+  const label = overBudget
+    ? `$${Math.abs(budgetRemaining).toFixed(2)} over $${budgetNum.toFixed(0)}`
+    : `${hasEstimatedPrices ? "~" : ""}$${totalCost.toFixed(2)} of $${budgetNum.toFixed(0)}`;
+  return (
+    <div className="home-budget" role="status" aria-label="Budget">
+      <div className="home-budget-bar" aria-hidden="true"><div className="home-budget-fill" style={{ width: `${budgetPct}%`, background: fill }} /></div>
+      <div className={`home-budget-label${overBudget ? " over" : ""}`}>{label}</div>
+    </div>
   );
 }
 
@@ -1336,6 +1443,50 @@ function PlanWelcome({ firstMeal, onAdd, children }) {
 const BOARD_PRESS_MS = 350;
 const BOARD_SLOP_PX = 8;
 const BOARD_CONTROLS = ".board-x, .board-cook, .board-lock, .board-see, .board-more, .board-menu";
+
+// A CARD'S STATE — one derivation, two renderers: the board and Home's on-deck
+// card (SPEC_home_v1_essentials D3: Home and Plan must never describe the same
+// meal differently, so any state change lands here and nowhere else). Pure:
+// the meal plus the board's inputs → the flags, the chip, the title and the
+// status line exactly as the board has always computed them inline.
+//   cooked   in cookedIds — cooked THIS load, muted in place (no line)
+//   noShop   kind ≠ meal — title by kind, one context line, never a state
+//   ready    placement.readyAt — "Everything's in — go cook"
+//   planned  no live rows — "Not on the list yet" (canAdd) / "Nothing to shop for"
+//   toBuy    ≥ 1 live row — "N to buy" / "B of N in cart"
+function boardCardState(m, { placements, rows, mealById, cookedIds }) {
+  const noShop = isNoShop(m);
+  const cooked = !!cookedIds?.has(m.id);
+  const ready = !noShop && !cooked && !!placements?.[m.id]?.readyAt;
+  const rc = rows?.[m.id] || { total: 0, bought: 0 };
+  const planned = !noShop && !cooked && !ready && rc.total === 0;
+  const toBuy = !noShop && !cooked && !ready && rc.total > 0;
+  // A planned meal with no ingredients has nothing to add — no Add to Shop;
+  // on the board its exit is Cooked it (⋯) or Remove. Add all skips it the same way.
+  const canAdd = planned && (m.meal_ingredients || []).length > 0;
+  // A state chip shows only while the state is INCOMPLETE (Planned, To buy).
+  // Ready is carried by the banner and the teal button; no READY chip.
+  const chip = toBuy ? "To buy" : planned ? "Planned" : null;
+  let title = m.name;
+  let line;
+  if (cooked) {
+    line = "";
+  } else if (noShop) {
+    // Name + the one context line; no filler when there is none.
+    title = m.kind === "other" ? (noShopName(m) || "Something else") : noShopLabel(m);
+    line = m.kind === "leftovers" ? leftoversLine(m, mealById)
+      : m.kind === "out" ? noShopName(m)
+      : "";
+  } else if (ready) {
+    line = "Everything's in — go cook";
+  } else if (planned) {
+    line = canAdd ? "Not on the list yet" : "Nothing to shop for";
+  } else {
+    line = rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart` : `${rc.total} to buy`;
+  }
+  return { noShop, cooked, ready, planned, toBuy, canAdd, rc, chip, title, line };
+}
+
 function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
   // A card cooked THIS board load stays in place, muted, until the next load
   // (cookedIds, owned by App). It is not in the queue: no drag, no number, no
@@ -1432,37 +1583,10 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
       {menuFor && <div className="board-menu-backdrop" onClick={(e) => { e.stopPropagation(); setMenuFor(null); }} />}
       {list.map((m, i) => {
         const busy = busyMealId === m.id;
-        const noShop = isNoShop(m);
-        const cooked = isCooked(m);
-        const ready = !noShop && !cooked && !!placements?.[m.id]?.readyAt;
-        const rc = rows?.[m.id] || { total: 0, bought: 0 };
-        const planned = !noShop && !cooked && !ready && rc.total === 0;
-        const toBuy = !noShop && !cooked && !ready && rc.total > 0;
+        // ONE derivation for every card, shared with Home's on-deck card (D3).
+        const { noShop, cooked, ready, planned, toBuy, canAdd, chip, title, line } = boardCardState(m, { placements, rows, mealById, cookedIds });
         const ordinal = openOrder.indexOf(m.id);
-        // A planned meal with no ingredients has nothing to add — no button;
-        // its exit is Cooked it (⋯) or ×. Add all skips it the same way.
-        const canAdd = planned && (m.meal_ingredients || []).length > 0;
         const tone = mealTone(m);
-        // A state chip shows only while the state is INCOMPLETE (Planned, To buy).
-        // Ready is carried by the banner and the teal button; no READY chip.
-        const chip = toBuy ? "To buy" : planned ? "Planned" : null;
-        let title = m.name;
-        let line;
-        if (cooked) {
-          line = "";
-        } else if (noShop) {
-          // Name + the one context line; no filler when there is none.
-          title = m.kind === "other" ? (noShopName(m) || "Something else") : noShopLabel(m);
-          line = m.kind === "leftovers" ? leftoversLine(m, mealById)
-            : m.kind === "out" ? noShopName(m)
-            : "";
-        } else if (ready) {
-          line = "Everything's in — go cook";
-        } else if (planned) {
-          line = canAdd ? "Not on the list yet" : "Nothing to shop for";
-        } else {
-          line = rc.bought > 0 ? `${rc.bought} of ${rc.total} in cart` : `${rc.total} to buy`;
-        }
         const lifted = drag && drag.id === m.id;
         // Slide transforms while a drag is live; the number and rail word come
         // from `ordinal` (openOrder, the same projected order), so what the eye
@@ -3197,6 +3321,12 @@ function ProvisionsApp() {
   const [addingMealId, setAddingMealId] = useState(null);
   // Provenance for the teal meal facet: catalog_item_id → [{mealId,name,createdBy}].
   const [mealProvenance, setMealProvenance] = useState({});
+  // The household whose provenance the navigation load has read at least once
+  // (SPEC_home_v1_essentials D10) — the same shape as mealsLoadedFor. Home's
+  // on-deck card derives To buy from mealRowCounts, which derives from
+  // provenance; until this matches, a To-buy meal would read as Planned for a
+  // beat on every cold open. Never show state the data doesn't support.
+  const [provenanceLoadedFor, setProvenanceLoadedFor] = useState(null);
 
   // The library set (055): kind === 'meal' only. `meals` itself carries every
   // kind because the board renders no-shop rows; the library must never see
@@ -3308,10 +3438,13 @@ function ProvisionsApp() {
   // hook already loads, no new query) picks "Add a meal" over "Add your first
   // meal".
   const boardReady = !!household?.id && mealsLoadedFor === household.id;
-  // Home renders both its cards under ONE gate: the board's (the same load now
-  // runs on Home too) AND householdReady (the list has arrived), so the two
-  // cards appear together on a cold open rather than one popping in above the other.
-  const homeReady = boardReady && householdReady;
+  // Home renders everything under the date behind ONE gate: the board's (the
+  // same load now runs on Home too), householdReady (the list has arrived) AND
+  // this household's provenance (D10 — the on-deck card's To buy state reads
+  // it). The card, the list line and the budget line appear together on a cold
+  // open, never one popping in above another, and never a state the data then
+  // contradicts.
+  const homeReady = boardReady && householdReady && provenanceLoadedFor === household?.id;
   const showWelcome = boardReady && boardCards.length === 0;
   const everCooked = madeBefore.size > 0;
   // The drag hint earns its line only once there is an order to change: two
@@ -3343,7 +3476,7 @@ function ProvisionsApp() {
   // ── Meals (add-path, migration 025) ──────────────────────────
   // Placements ride along with both reads below. Both are gated on the doors
   // that render them (the navigation effect and the 2s poll run on PLAN and,
-  // since HOME v1's Tonight card, on HOME), so the board's rows cost nothing
+  // since HOME v1's on-deck card, on HOME), so the board's rows cost nothing
   // on Browse or Shop.
   const loadMeals = useCallback(async () => {
     setMealsLoading(true);
@@ -3385,10 +3518,10 @@ function ProvisionsApp() {
   // refreshCatalogRef — a ref write is idempotent, so the double render in
   // StrictMode is harmless.
   onListChangedRef.current = () => {
-    if (MEALS_ENABLED && (view === "list" || view === "plan")) refreshProvenance();
+    if (MEALS_ENABLED && (view === "list" || view === "plan" || view === "home")) refreshProvenance();
   };
 
-  // Load the meal cards when the Plan tab opens — or Home, whose Tonight card
+  // Load the meal cards when the Plan tab opens — or Home, whose on-deck card
   // is the board's first card and must not decide "empty" before the data is in.
   useEffect(() => {
     if (MEALS_ENABLED && (view === "plan" || view === "home") && household?.id && authPhase === "ready") {
@@ -3404,7 +3537,7 @@ function ProvisionsApp() {
   // the same gap Part 3 (1e81774) closed for SHOP provenance, one surface over.
   //
   // Scoped to the VISIBLE tab, and that scoping is the whole cost control:
-  // only PLAN and HOME (the Tonight card) render meal data, so polling on any
+  // only PLAN and HOME (the on-deck card) render meal data, so polling on any
   // other door would be a pure wasted query — the multiplier Part 3 was
   // careful to avoid. Leaving the tab changes the view, which runs this
   // effect's cleanup and stops the interval.
@@ -3427,10 +3560,14 @@ function ProvisionsApp() {
   }, [view, household?.id, refreshMeals, authPhase]);
 
   // Load provenance when a surface that shows the badge is visible: SHOP renders the
-  // teal meal facet, and PLAN is where the meal cards live.
+  // teal meal facet, PLAN is where the meal cards live, and HOME's on-deck card
+  // mirrors the board's first card (its To buy line is mealRowCounts, which is
+  // provenance). The first resolved read for a household marks it loaded for
+  // Home's gate; the 2s list poll keeps it fresh via onListChangedRef above.
   useEffect(() => {
-    if (MEALS_ENABLED && household?.id && (view === "list" || view === "plan")) {
-      refreshProvenance();
+    if (MEALS_ENABLED && household?.id && (view === "list" || view === "plan" || view === "home")) {
+      const hhId = household.id;
+      refreshProvenance().then(() => setProvenanceLoadedFor(hhId));
     }
   }, [household?.id, view, refreshProvenance]);
 
@@ -3480,6 +3617,18 @@ function ProvisionsApp() {
       if (!ok) setCookedHere((prev) => { const next = new Set(prev); next.delete(mealId); return next; });
     } finally { setBusyMealId(null); }
   }, [markCooked]);
+  // Home's Switch (SPEC_home_v1_essentials D8): cards 1 and 2 trade places
+  // through the board's own reorder — the full queue in order with the head
+  // pair swapped, and the hook renumbers 0..n-1. Optimistic like a drag; the
+  // flag only disables the deck's buttons while the write is in flight.
+  const [deckSwitching, setDeckSwitching] = useState(false);
+  const handleSwitchDeck = useCallback(async () => {
+    if (boardMeals.length < 2 || deckSwitching) return;
+    const ids = boardMeals.map((m) => m.id);
+    [ids[0], ids[1]] = [ids[1], ids[0]];
+    setDeckSwitching(true);
+    try { await reorderBoard(ids); } finally { setDeckSwitching(false); }
+  }, [boardMeals, reorderBoard, deckSwitching]);
 
   // Plan (library): the placement only — the one door out of the library. The
   // toast points at the board, where Add to Shop lives. Add to Shop (board):
@@ -3794,10 +3943,15 @@ function ProvisionsApp() {
     const h = hashForView(v);
     if (h && window.location.hash !== h) window.location.hash = h;
   }, [isLoaded, sessionLive, openSignIn]);
-  // Not live (signed_out or session_lost), every door shows the Home welcome
-  // variant. The view is KEPT (only what renders changes) — it is the
-  // pendingRoute: signing in from a #/plan deep link lands on Plan.
-  const signedOutWelcome = isLoaded && !sessionLive;
+  // Not live — signed_out, session_lost, AND booting (Clerk still loading) —
+  // every door shows the Home welcome variant, never the signed-in shell
+  // (Signed-out entry cleanup, 2026-10-02: past the splash's 5 s failsafe a
+  // slow Clerk used to show the household-shaped shell under a header with two
+  // disabled buttons). While booting the welcome's own pair is disabled; it goes
+  // live when Clerk loads, or the whole welcome hands off to the signed-in
+  // shell in one render. The view is KEPT (only what renders changes) — it is
+  // the pendingRoute: signing in from a #/plan deep link lands on Plan.
+  const signedOutWelcome = !sessionLive;
   useEffect(() => {
     const onHashChange = () => {
       const v = viewForHash(window.location.hash);
@@ -5285,7 +5439,18 @@ function ProvisionsApp() {
     }
     return () => root.style.removeProperty("--op-desk-bg");
   }, [bannerPhotoUrl]);
-  const bannerHasPhoto = !!bannerPhotoUrl;
+  // HOME-ONLY BANNER (ARCHITECTURE "Home v2 — forward model", decided 2026-09-27,
+  // built 2026-10-01). The OurBanner block — the photo layers, the dissolve and
+  // the Row 2 wordmark band — renders only on HOME. Plan, Browse and Shop get
+  // Row 1 alone (avatar · ⚓ household ⚓ · Velayo dots) on #1a0e06, so every
+  // photo-dependent treatment in the header keys off bannerHasPhoto, which is
+  // now "a photo exists AND we are on Home". Storage, framing and the earned
+  // Our are unchanged; the ⚓ household button stays in Row 1 on every tab (it
+  // is the household sheet's trigger off Home). The desktop blurred backdrop
+  // (--op-desk-bg, outside the column) is not the banner and keeps the photo
+  // on every tab. Signed out still lands on Home via signedOutWelcome.
+  const bannerOnHome = view === "home";
+  const bannerHasPhoto = !!bannerPhotoUrl && bannerOnHome;
   // Dormancy (spec): wordmark choice persists even with no photo, but only takes
   // effect when a photo exists; with no photo the wordmark always renders large.
   const bannerWordmark = bannerHasPhoto ? (household?.banner_wordmark || "large") : "large";
@@ -5646,18 +5811,50 @@ function ProvisionsApp() {
         .home-welcome-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 11px 22px; border-radius: 6px; cursor: pointer; }
         .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #A0724A; }
         .home-welcome-btn.solid { background: #2C1A0E; border: 1.5px solid #2C1A0E; color: #FAF4EC; }
-        /* The Tonight card in the board's language: a warm cream (the welcome's ghost-tile tone), the board card's 12px radius, no shadow, no photo.
-           Label = the board chip's type; title = Playfair; the link is a text button in Plan's link espresso (.plan-addall), the app has no blue. */
-        .tonight { margin-top: 22px; background: #F1E7D8; border-radius: 12px; padding: 16px 18px 14px; }
-        .tonight-label { font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
-        .tonight-title { margin: 6px 0 0; font-family: 'Playfair Display', serif; font-size: 1.25rem; font-weight: 700; line-height: 1.2; color: #2C1A0E; overflow-wrap: anywhere; }
-        .tonight-body { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: 0.9rem; line-height: 1.45; color: #6E5A4A; }
-        .tonight-link, .list-card-link { display: inline-block; margin-top: 12px; padding: 0; border: none; background: none; cursor: pointer;
-                        font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
-        /* The list card: the Tonight card's box, type and link; only the background differs — a very faint wash of the app's teal (#0D9488, the
-           finished-something colour) over the page cream, not a new blue. No icons. */
-        .tonight + .list-card { margin-top: 12px; }
-        .list-card { background: #E6F0EE; }
+        .home-welcome-btn:disabled { opacity: 0.5; cursor: default; }
+        /* THE ON-DECK CARD in the board's language: the welcome's warm cream, no shadow, no photo (the household photo asserts
+           context, never decorates). Eyebrow = the board chip's type; title = Playfair; status = the board line's tone. One primary
+           per state as a pill (the board's buttons at Home's scale); Switch is a text button; × is the board's ×. */
+        .deck { margin-top: 22px; background: #F1E7D8; border-radius: 16px; padding: 18px 20px 16px; }
+        .deck.busy { opacity: 0.5; }
+        .deck.noshop { background: transparent; outline: 1.5px dashed #C9A97A; outline-offset: -1.5px; }
+        .deck-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.6rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; }
+        .deck-body { margin: 6px -6px 0; padding: 0 6px; border-radius: 10px; }
+        .deck-body.tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .deck-body.tap:focus-visible { outline: 2px solid #c8973a; outline-offset: 2px; }
+        .deck-title { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
+        .deck-status { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: 0.92rem; line-height: 1.45; color: #6E5A4A; }
+        .deck.cooked .deck-title { opacity: 0.55; }
+        .deck-actions { display: flex; align-items: center; gap: 18px; margin-top: 16px; }
+        /* Primary: espresso outline (Add to Shop); teal fill ONLY for Cooked it — the household finished something; deep sand (--op-add) for
+           Add a meal, the same as both of Plan's add buttons. */
+        .deck-primary { flex: none; min-height: 44px; padding: 0 22px; border-radius: 22px; cursor: pointer; white-space: nowrap;
+                        border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45;
+                        font-family: 'Lato', sans-serif; font-size: 0.8rem; font-weight: 900; letter-spacing: 0.5px; }
+        .deck-primary.teal { border-color: #0D9488; background: #0D9488; color: #fff; }
+        .deck-primary.add { border-color: var(--op-add); background: var(--op-add); color: var(--op-add-ink); }
+        .deck-primary.done, .deck-primary.done:disabled { border-color: #0D9488; background: transparent; color: #0D9488; opacity: 1; cursor: default; }
+        .deck-primary:disabled { opacity: 0.5; cursor: default; }
+        .deck-switch { flex: none; min-height: 44px; padding: 0 4px; border: none; background: none; cursor: pointer; color: #6f5a45;
+                       font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; }
+        .deck-switch:disabled { opacity: 0.5; cursor: default; }
+        .deck-x { flex: none; width: 36px; height: 36px; border-radius: 50%; border: none; background: transparent; color: #b5a58f; cursor: pointer;
+                  font-family: 'Lato', sans-serif; font-size: 1.4rem; font-weight: 300; line-height: 1; padding: 0 0 3px; }
+        .deck-x:hover { color: #6f5a45; }
+        .deck-x:disabled { cursor: default; opacity: 0.5; }
+        .deck .hold-night { margin-top: 18px; }
+        /* THE LIST LINE and THE BUDGET LINE — one ruled block under the card. The line reads as one sentence; only the link is a tap
+           target (a leaf button with fixed copy — RUM). The budget bar is the budget banner's bar at 6px, on the page. */
+        .home-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; margin-top: 16px; padding: 8px 0 4px; border-top: 1px solid #EADCC6;
+                     font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; }
+        .home-line-text { color: #2C1A0E; overflow-wrap: anywhere; }
+        .home-line-link { padding: 10px 0; margin: -10px 0; border: none; background: none; cursor: pointer; white-space: nowrap;
+                          font-family: 'Lato', sans-serif; font-size: 0.95rem; font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
+        .home-budget { margin-top: 10px; padding-top: 14px; border-top: 1px solid #EADCC6; }
+        .home-budget-bar { height: 6px; background: #F1E6D6; border-radius: 3px; overflow: hidden; }
+        .home-budget-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease, background 0.3s; }
+        .home-budget-label { margin-top: 8px; font-family: 'Lato', sans-serif; font-size: 0.9rem; color: #6E5A4A; }
+        .home-budget-label.over { color: #e05c5c; }
         /* §6 — every scrolling root clears the pill. The pill is present at EVERY width (rail retired 2026-09-20);
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
         .app-root { min-height: 100vh; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
@@ -5986,10 +6183,12 @@ function ProvisionsApp() {
 
       {/* OurBanner region — household identity only. Nav lives in the Helm
           (floating pill / wide rail, SPEC_nav_helm.md); the strip that used to sit
-          under the header is gone. When a photo exists, this wrapper carries the
-          photo+gradient behind the header. Photo-less: an inert relative box and the
-          header keeps its solid espresso. The layer spans the wrapper's flow height =
-          the header (the modals in between are position:fixed and add no height). */}
+          under the header is gone. When a photo exists AND the tab is Home
+          (bannerHasPhoto), this wrapper carries the photo+gradient behind the
+          header. Photo-less, or any other tab: an inert relative box and the
+          header keeps its solid espresso — Row 1 alone off Home. The layer spans
+          the wrapper's flow height = the header (the modals in between are
+          position:fixed and add no height). */}
       <div style={{ position: "relative" }}>
         {bannerHasPhoto && (
           <>
@@ -6036,11 +6235,16 @@ function ProvisionsApp() {
               </svg>
             </button>
           )}
-          <div>
+          <div style={{ minHeight: "32px" }}>
             {/* The header avatar is the one Profile trigger at every width
                 (the rail's foot avatar went with the rail, 2026-09-20). The
-                wrapping div stays so the row's space-between geometry is unchanged. */}
-            {sessionLive ? (
+                wrapping div stays (32px tall, the avatar's height) so the row's
+                space-between geometry is unchanged whether or not it is filled.
+                Signed-out entry cleanup (2026-10-02): the header carries NO
+                SIGN IN / SIGN UP in any signed-out state — signed_out, booting
+                or session_lost. The welcome's pair is the one entry (disabled
+                until Clerk loads); the session_lost sheet keeps its own Sign In. */}
+            {sessionLive && (
               <button
                 onClick={() => setShowProfileSheet(true)}
                 style={{
@@ -6055,26 +6259,6 @@ function ProvisionsApp() {
               >
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </button>
-            ) : !isLoaded ? (
-              // Clerk not loaded yet: render the buttons immediately (no layout
-              // shift) but DISABLED, so a click can't hit a not-yet-wired modal
-              // trigger. On a cold load the SignInButton/SignUpButton modal handlers
-              // aren't live until Clerk finishes; showing them enabled produced dead
-              // buttons until a refresh. Same dimensions as the live buttons below —
-              // only cursor + opacity differ. Swaps to live once isLoaded is true.
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button disabled style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "default", opacity: 0.5 }}>Sign In</button>
-                <button disabled style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "default", opacity: 0.5 }}>Sign Up</button>
-              </div>
-            ) : (
-              <div style={{ display: "flex", gap: "8px" }}>
-                <SignInButton mode="modal">
-                  <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "transparent", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign In</button>
-                </SignInButton>
-                <SignUpButton mode="modal" initialValues={signUpInitialValues}>
-                  <button style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", letterSpacing: "1px", textTransform: "uppercase", padding: "6px 14px", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.4)", color: "white", borderRadius: "4px", cursor: "pointer" }}>Sign Up</button>
-                </SignUpButton>
-              </div>
             )}
           </div>
           <button
@@ -6090,10 +6274,16 @@ function ProvisionsApp() {
           </button>
         </div>
 
-        {/* Row 2: OurProvisions wordmark band. Over a photo it obeys the
-            household's banner_wordmark: large (default), small (~⅔, ~80%), or
-            hidden (not rendered — the middle band is photo only, spec D4). The
-            band keeps its height when hidden so the photo has room to breathe. */}
+        {/* Row 2: OurProvisions wordmark band — HOME ONLY (bannerOnHome) and
+            SIGNED IN ONLY (sessionLive — Signed-out entry cleanup step 3,
+            2026-10-02: while signed out it read "Provisions" above the welcome's
+            "OurProvisions", and its button was inert; the welcome's headline
+            carries the brand, Row 1 keeps the Velayo dots). The other tabs end
+            at Row 1. Over a photo it obeys the household's banner_wordmark:
+            large (default), small (~⅔, ~80%), or hidden (not rendered — the
+            middle band is photo only, spec D4). The band keeps its height when
+            hidden so the photo has room to breathe. */}
+        {bannerOnHome && sessionLive && (
         <div style={{
           position: "relative", zIndex: 1,
           padding: bannerWordmark === "small" ? "16px 16px" : "20px 16px",
@@ -6150,6 +6340,7 @@ function ProvisionsApp() {
             </h1>
           )}
         </div>
+        )}
       </div>
 
       {/* Velayo app menu */}
@@ -7002,7 +7193,12 @@ function ProvisionsApp() {
 
       </div>{/* /OurBanner region wrapper */}
 
-      {showPrices && totalItems > 0 && (
+      {/* The budget banner renders on every door EXCEPT Home (SPEC_home_v1_essentials D1,
+          2026-10-03): Home's own budget line replaces it there. And never while the welcome
+          is up (signedOutWelcome — signed out, session lost, or booting): the welcome shows
+          only the sign-in pair, and `view` keeps the hash's door (#/shop) while signed out,
+          so the Home guard alone does not cover it. Every other view is unchanged. */}
+      {!signedOutWelcome && view !== "home" && showPrices && totalItems > 0 && (
         <div className={`budget-banner ${overBudget ? "over" : ""}`}>
           <div style={{ flex: 1 }}>
             <div className="budget-label">Estimated Total</div>
@@ -7042,7 +7238,7 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {showPrices && totalItems === 0 && (
+      {!signedOutWelcome && view !== "home" && showPrices && totalItems === 0 && (
         <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 20px", background: "#2C1A0E", borderBottom: "2px solid #c8973a" }}>
           <button className="set-budget-btn" onClick={openBudgetModal}>
             {budgetNum !== null ? `Budget: $${budgetNum.toFixed(0)} ✎` : "+ Set Budget"}
@@ -7051,19 +7247,38 @@ function ProvisionsApp() {
       )}
 
       <div className="container">
-        {signedOutWelcome && <HomeWelcome signUpInitialValues={signUpInitialValues} />}
+        {signedOutWelcome && <HomeWelcome signUpInitialValues={signUpInitialValues} ready={isLoaded} />}
 
         {view === "home" && !signedOutWelcome && (
           <Home
             firstName={user?.firstName}
             ready={homeReady}
-            meal={boardMeals[0] || null}
-            mealById={mealById}
-            onAdd={() => { setPlanScreen("library"); goToDoor("plan"); }}
-            onView={(m) => { setPlanScreen("board"); goToDoor("plan"); if (!isNoShop(m)) setMealSheet({ mode: "edit", meal: m }); }}
-            openCount={totalItems - checkedCount}
-            onStartList={() => goToDoor("input")}
-            onViewList={() => goToDoor("list")}
+            deck={{
+              // The board's inputs, verbatim (D3) — the same props PlanBoard gets.
+              boardMeals, boardCards, placements, rows: mealRowCounts, mealById, cookedIds: cookedHere,
+              busyMealId: busyMealId || addingMealId, switching: deckSwitching,
+              holdNight: MEALS_ENABLED && isSignedIn,
+              onAdd: () => { setPlanScreen("library"); goToDoor("plan"); },
+              onView: (m) => { setPlanScreen("board"); goToDoor("plan"); if (!isNoShop(m)) setMealSheet({ mode: "edit", meal: m }); },
+              onLockIn: handleAddMealToList,      // the board's Add to Shop — on-hand prompt included
+              onCooked: handleCookedMeal,
+              onSkip: handleSkipMeal,
+              onSwitch: handleSwitchDeck,
+              onLeftovers: openLeftoversSheet,
+              onOut: () => setNoShopSheet({ kind: "out", name: "", fromMealIds: [] }),
+              onOther: () => setNoShopSheet({ kind: "other", name: "", fromMealIds: [] }),
+            }}
+            list={{
+              openCount: totalItems - checkedCount,
+              firstItem: pendingItems[0]?.name || "",
+              shopping: !!activeSession,
+              onStartList: () => goToDoor("input"),
+              onShop: () => goToDoor("list"),
+            }}
+            // D7: only when Shop would show it — prices on, a budget set, a non-empty list.
+            budget={showPrices && budgetNum !== null && totalItems > 0
+              ? { totalCost, budgetNum, budgetPct, overBudget, budgetRemaining, hasEstimatedPrices }
+              : null}
           />
         )}
 

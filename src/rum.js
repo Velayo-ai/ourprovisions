@@ -36,8 +36,10 @@ const CHROME_ALLOW_LIST = [
   '.plan-noshop',    // Hold a night: "Leftovers" / "Eating out" / "Something else" (board foot + welcome)
   '.lib-filter',     // Library filter pills
   '.lib-plan',       // Library round + (Plan)
-  '.tonight-link',   // Home Tonight card: "+ Add tonight's meal" / "View meal →" / "View plan →"
-  '.list-card-link', // Home list card: "Start a list →" / "View list →"
+  '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
+  '.deck-switch',    // Home on-deck card: "Switch"
+  '.deck-x',         // Home on-deck card: × on a held night
+  '.home-line-link', // Home list line: "Let's shop →" / "Start a list →"
   '.trip-reality-real',    // trip summary ask: "Real trip"     (SPEC_trip_qualification_v2 — these three ARE the D11 ask-rate metric)
   '.trip-reality-testing', // trip summary ask: "Just testing"
   '.trip-reality-countit', // trip summary excluded line: "Count it"
