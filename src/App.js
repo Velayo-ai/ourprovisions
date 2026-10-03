@@ -7193,7 +7193,9 @@ function ProvisionsApp() {
 
       </div>{/* /OurBanner region wrapper */}
 
-      {showPrices && totalItems > 0 && (
+      {/* The budget banner renders on every door EXCEPT Home (SPEC_home_v1_essentials D1,
+          2026-10-03): Home's own budget line replaces it there. Every other view is unchanged. */}
+      {view !== "home" && showPrices && totalItems > 0 && (
         <div className={`budget-banner ${overBudget ? "over" : ""}`}>
           <div style={{ flex: 1 }}>
             <div className="budget-label">Estimated Total</div>
@@ -7233,7 +7235,7 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {showPrices && totalItems === 0 && (
+      {view !== "home" && showPrices && totalItems === 0 && (
         <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 20px", background: "#2C1A0E", borderBottom: "2px solid #c8973a" }}>
           <button className="set-budget-btn" onClick={openBudgetModal}>
             {budgetNum !== null ? `Budget: $${budgetNum.toFixed(0)} ✎` : "+ Set Budget"}
