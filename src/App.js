@@ -6051,11 +6051,20 @@ function ProvisionsApp() {
         .lib-gocc { display: block; min-height: 14px; line-height: 14px; font-family: 'Lato', sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
         .lib-gname { display: block; font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
         .lib-gstrip { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 8px 8px 12px; }
-        .lib-gcount { min-width: 0; font-family: 'Lato', sans-serif; font-size: 12.5px; color: #8a7a60; }
+        /* The count stays on ONE line (walk 2026-10-03: "11 ingredients" wrapped beside ✓ Planned in the 430px column).
+           Measured in headless Edge with the Arial fallback (Lato is not web-loaded): 430px needs 168 of 171; under 400px
+           the strip, count and ✓ Planned pill trim a little so 390px needs 152 of 155. The unplanned Plan pill has 30px of
+           slack and keeps its padding. Ellipsis is the safety net for a wider system font — one line, never an overlap. */
+        .lib-gcount { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Lato', sans-serif; font-size: 12.5px; color: #8a7a60; }
         .lib-plan { flex: none; height: 34px; padding: 0 14px; border-radius: 17px; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
                     font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
         .lib-plan:disabled { cursor: default; opacity: 0.6; }
-        .lib-plan.planned { border-color: transparent; background: #EFE6D6; color: #3A2A20; font-weight: 600; padding: 0 12px; opacity: 1; }
+        .lib-plan.planned { border-color: transparent; background: #EFE6D6; color: #3A2A20; font-weight: 600; padding: 0 9px; opacity: 1; }
+        @media (max-width: 399px) {
+          .lib-gstrip { padding: 8px 6px 8px 10px; gap: 4px; }
+          .lib-gcount { font-size: 11.5px; }
+          .lib-plan.planned { padding: 0 6px; font-size: 12px; }
+        }
         .lib-create-tile { margin-top: 16px; border: 1.5px dashed #C9A97A; border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 14px; }
         .lib-create-tile.gated { border-color: #C9A97A; opacity: 0.8; }
         .lib-create-text { flex: 1; min-width: 0; }
