@@ -38,7 +38,7 @@ const CHROME_ALLOW_LIST = [
   '.lib-fbtn',       // Library Filter button (icon only)
   '.lib-plan',       // Library card pill: "Plan" / "Planned" — fixed copy; the meal name is in the SIBLING card-body button, never here
   '.lib-create',     // Library "+ Create" (head row and the Create tile)
-  '.lib-week',       // Library week line: "{N} meals planned this week" / "Nothing planned yet this week"
+  '.lib-week',       // Library week line: "{N} meals planned this week" / "No meals planned yet this week"
   '.lib-show',       // Library filter sheet: "Show N meals"
   '.lib-clear',      // Library filter sheet: "Clear"
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)

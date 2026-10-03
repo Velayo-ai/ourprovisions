@@ -7677,7 +7677,10 @@ function ProvisionsApp() {
                 is the Helm's (PLAN lit); the way back to This Week is the week line
                 or PLAN itself. The week line counts OPEN kind='meal' placements —
                 boardStats.cards, the same set as the board's "N meals"; no-shop
-                nights do not count (build decision 2026-10-03). + Create opens the
+                nights do not count (build decision 2026-10-03, confirmed by the design
+                chat the same day: a dish made from leftovers is an ordinary meal and
+                counts like any other). Zero state says "No meals planned" — with only
+                held nights on the board, "Nothing planned" would be false. + Create opens the
                 existing New Meal sheet unchanged (signed in only: creating a meal
                 is an identity-requiring write). The head row stays the Helm's
                 compact sentinel (controlRowRef). */}
@@ -7686,7 +7689,7 @@ function ProvisionsApp() {
                 <h2 className="plan-title">What sounds good?</h2>
                 <button type="button" className="lib-week" onClick={() => setPlanScreen("board")}>
                   {boardStats.cards.length === 0
-                    ? "Nothing planned yet this week"
+                    ? "No meals planned yet this week"
                     : `${boardStats.cards.length} ${boardStats.cards.length === 1 ? "meal" : "meals"} planned this week`}
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
                 </button>
