@@ -1,6 +1,6 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
+import { useProvisions, isPendingCatalogId, normalizeOccasion } from './hooks/useProvisions';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
@@ -1907,6 +1907,39 @@ const GalleyGlyph = ({ size = 12 }) => (
   </svg>
 );
 
+// OCCASIONS (061, Meal Library v1). Fixed display order for the Good-for chips
+// and the library rail: Dinner first because most meals are dinners. The
+// singular word is what the card and the chips show; the rail pluralises
+// Snacks / Sides / Appetizers (the library commit adds that map).
+const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appetizer", "dessert"];
+const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert" };
+
+// GOOD FOR — the meal sheet's occasion picker (Meal Library v1 decision 13).
+// Seven chips in a fixed order, multi-select, STORED IN TAP ORDER: the first
+// picked carries ON CARD and is the word the library card shows; deselecting
+// it promotes the next. Flexible discovery tags, not a classification —
+// "choose any that fit". Espresso on-state, no teal (planning isn't finishing).
+function GoodForChips({ value, onChange, style }) {
+  const toggle = (k) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k]);
+  return (
+    <div className="modal-field" style={style}>
+      <label className="modal-label">Good for</label>
+      <div className="gf-chips" role="group" aria-label="Good for">
+        {OCCASION_ORDER.map((k) => {
+          const on = value.includes(k);
+          return (
+            <button key={k} type="button" className={`gf-chip${on ? " on" : ""}`} aria-pressed={on} onClick={() => toggle(k)}>
+              {OCCASION_WORD[k]}
+              {on && value[0] === k && <span className="gf-oncard">On card</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div className="gf-help">Choose any that fit. The first appears on the card.</div>
+    </div>
+  );
+}
+
 // One parameterized sheet for BOTH create and edit (mode: 'create' | 'edit').
 // Built as one component from the start rather than retrofitting edit onto a
 // create-only sheet later — the seam is nearly free now and expensive after.
@@ -1945,10 +1978,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // until 2026-09-09 the field only appeared once it had content, so a manual meal
   // had no way to get steps at all. Edit mode loads whatever is already stored.
   const [instructions, setInstructions] = useState(isEdit ? (meal?.instructions || "") : "");
+  // Good for (061) — the ordered occasion list. Edit loads what is stored
+  // (normalised: the client never trusts an array it did not write); create
+  // starts untagged. Galley drafts arrive untagged in v1 and are tagged here.
+  const [occasion, setOccasion] = useState(() => (isEdit ? normalizeOccasion(meal?.occasion) : []));
   // What the sheet opened with — the baseline `isDirty` compares against. Lazy
-  // initialiser: captured on the first render, when the three states above still
+  // initialiser: captured on the first render, when the four states above still
   // hold their initial values, and never updated afterwards.
-  const [openedWith] = useState(() => ({ name, instructions, rows }));
+  const [openedWith] = useState(() => ({ name, instructions, rows, occasion }));
   // Read renders the recipe card (or, with nothing stored, the empty chip that
   // points at both paths); edit is the textarea + Done. Opens in read — the card
   // for a meal that has steps, the chip for one that does not — and returns to
@@ -2291,6 +2328,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const isDirty = name !== openedWith.name
     || instructions !== openedWith.instructions
     || rowsKey(rows) !== rowsKey(openedWith.rows)
+    || occasion.join(",") !== openedWith.occasion.join(",")   // a changed tag is unsaved work (spec)
     || fromGalley
     || aiBusy;
 
@@ -2328,6 +2366,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             placeholder="Taco Night"
           />
         </div>
+
+        <GoodForChips value={occasion} onChange={setOccasion} style={aiDim} />
 
         <div className="modal-field" style={aiBusy ? undefined : aiDim}>
           <label className="modal-label">Ingredients</label>
@@ -2881,7 +2921,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             className="modal-confirm"
             disabled={!canSave || saving}
             style={{ opacity: (!canSave || saving) ? 0.5 : 1, cursor: (!canSave || saving) ? "default" : "pointer" }}
-            onClick={() => onCommit({ name, instructions, ingredients: rows })}
+            onClick={() => onCommit({ name, instructions, ingredients: rows, occasion })}
           >{saving ? "Saving…" : "Save Meal"}</button>
         </div>
       </div>
@@ -3734,7 +3774,7 @@ function ProvisionsApp() {
   const [mealSaving, setMealSaving] = useState(false);
   const [mealDeleting, setMealDeleting] = useState(false);
 
-  const commitMealSheet = useCallback(async ({ name, instructions, ingredients }) => {
+  const commitMealSheet = useCallback(async ({ name, instructions, ingredients, occasion }) => {
     if (!mealSheet) return;
     setMealSaving(true);
     try {
@@ -3748,6 +3788,7 @@ function ProvisionsApp() {
       const payload = {
         name,
         instructions,
+        occasion,   // 061 — ordered Good-for list; the hook normalises it
         // flat: the servings dial is deferred. NOTE the AI draft also reports its own
         // baseServings and it is deliberately DISCARDED here — quantity_per_serving only
         // reads as a flat quantity while base_servings is 1 (migration 025). Storing the
@@ -5766,6 +5807,13 @@ function ProvisionsApp() {
                     font-family: 'Lato', sans-serif; font-size: 1.35rem; font-weight: 300; line-height: 1; padding: 0 0 2px; display: flex; align-items: center; justify-content: center; }
         .lib-plan:disabled { opacity: 0.35; cursor: default; }
         .lib-empty { padding: 24px 12px; text-align: center; font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; font-style: italic; }
+        /* Good for (061) — the meal sheet's occasion chips. Espresso on-state, zero teal; ON CARD marks the first pick. */
+        .gf-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .gf-chip { height: 38px; padding: 0 14px; border-radius: 19px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: 0.88rem; font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
+        .gf-chip.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
+        .gf-oncard { font-size: 0.56rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; color: #D9BC8C; }
+        .gf-help { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; margin-top: 8px; }
         /* No-shop sheet */
         .noshop-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #6f5a45; margin-bottom: 14px; }
         .noshop-label { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
