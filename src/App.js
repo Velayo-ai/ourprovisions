@@ -2508,6 +2508,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // The ask block dims while the steps are being hand-edited: a draft would
   // replace what is being typed. Same shape as aiDim, different trigger.
   const galleyDim = stepsMode === "edit" ? { opacity: 0.55, pointerEvents: "none" } : undefined;
+  // THE GALLEY HIDES ON MANUAL BUILDING (Dan, 2026-10-03). The ask block shows
+  // only while the draft has no ingredients and no steps, or the draft came
+  // from the Galley (its "Not quite it? Ask the galley again" handle is
+  // unchanged). It leaves in the same render as the first hand-added
+  // ingredient or typed step, and returns if every one is removed; editing an
+  // existing meal with ingredients opens without it. Reason: a leftover Ask
+  // control would draft over hand-entered work.
+  const galleyAvailable = fromGalley || (rows.length === 0 && !instructions.trim());
   // Ask AI needs a real Clerk identity: the Edge Function verifies the token
   // against Clerk JWKS, so signed out it can only ever fail. Gate the control
   // rather than letting the attempt through to a generic error.
@@ -2897,7 +2905,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             // Mockup state 1: the empty state points at both paths, and the Galley
             // below stays live — which is why empty is not edit mode.
             <button type="button" className="op-steps-empty" onClick={() => setStepsMode("edit")}>
-              No steps yet — write them, or ask the galley.
+              {galleyAvailable ? "No steps yet — write them, or ask the galley." : "No steps yet — write them."}
             </button>
           )}
 
@@ -2916,7 +2924,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             in this same row. ── */}
         {/* Divider only makes sense between two live paths — gone while the galley is
             thinking (the manual fields are skeletons) and once its block has collapsed. */}
-        {!aiBusy && !galleyCollapsed && (
+        {!aiBusy && !galleyCollapsed && galleyAvailable && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "22px 0 14px" }}>
             <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
             <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", fontWeight: 900,
@@ -2950,7 +2958,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           </div>
         )}
 
-        {!aiBusy && !galleyCollapsed && (
+        {!aiBusy && !galleyCollapsed && galleyAvailable && (
         <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.22)",
           borderRadius: "14px", padding: "14px", marginBottom: "16px", ...galleyDim }}>
           <div style={{ display: "flex", alignItems: "center", gap: "7px", fontFamily: "'Lato', sans-serif",
