@@ -115,7 +115,9 @@ function CategoryPickerGrid({ categories, selected, onSelect, onNewCategory }) {
 
 const SWIPE_THRESHOLD = 60;
 
-// Device-local list text-size steps. Index (0–4) is persisted; scale drives --op-list-scale.
+// Device-local text-size steps (SPEC_global_text_size: one knob, every surface). Index (0–4)
+// is persisted under the ORIGINAL key op_list_text_size — the key is internal and existing
+// users keep their step; the scale drives --op-text-scale on documentElement.
 const TEXT_STEPS = [0.9, 1.0, 1.2, 1.45, 1.75];
 const TEXT_LABELS = ["Compact", "Default", "Large", "XL", "XXL"];
 
@@ -4444,7 +4446,7 @@ function ProvisionsApp() {
   });
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--op-list-scale", TEXT_STEPS[textSizeIdx]);
+    document.documentElement.style.setProperty("--op-text-scale", TEXT_STEPS[textSizeIdx]);
     localStorage.setItem("op_list_text_size", String(textSizeIdx));
   }, [textSizeIdx]);
 
@@ -6006,7 +6008,7 @@ function ProvisionsApp() {
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         /* --op-add: deep sand = adding things (both "Add a meal" buttons). Dark brown stays the Helm's; teal = the household finished something. */
-        :root { --op-list-scale: 1; --op-add: #D9BC8C; --op-add-ink: #2B1E16; }
+        :root { --op-text-scale: 1; --op-add: #D9BC8C; --op-add-ink: #2B1E16; }
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
@@ -6374,7 +6376,7 @@ function ProvisionsApp() {
         @media (hover: hover) { .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); } }
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
-        .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-list-scale)); color: #2C1A0E; flex: 1; }
+        .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-text-scale)); color: #2C1A0E; flex: 1; }
         .op-mic-btn { flex: none; width: 44px; height: 44px; border-radius: 10px; background: #2C1A0E; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
         .op-mic-btn svg { width: 19px; height: 19px; stroke: #FFFDF9; fill: none; }
         .op-mic-btn:disabled { opacity: .45; cursor: default; }
@@ -6418,11 +6420,11 @@ function ProvisionsApp() {
         .add-btn:active { background: #A0724A; border-color: #A0724A; color: #fff; }
         @media (hover: hover) { .add-btn:hover { background: #A0724A; border-color: #A0724A; color: #fff; } }
         .price-row { display: flex; align-items: center; gap: 8px; }
-        .price-display { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-list-scale)); color: #8a7a60; }
+        .price-display { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); color: #8a7a60; }
         .price-edit-wrap { display: flex; align-items: center; gap: 4px; width: 100%; }
         .price-input { font-family: 'Lato', sans-serif; font-size: 0.82rem; border: 1.5px solid #c8973a; border-radius: 4px; padding: 3px 6px; width: 70px; color: #2C1A0E; background: #F5EDE0; outline: none; }
         .price-save-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; background: #c8973a; color: white; border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; }
-        .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-list-scale)); color: #c8973a; font-weight: 700; text-align: right; }
+        .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; text-align: right; }
         .list-empty { text-align: center; padding: 60px 20px; }
         .list-empty h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: #8a7a60; }
         .list-empty p { font-family: 'Lato', sans-serif; color: #a89878; margin-top: 8px; font-size: 0.9rem; }
@@ -6454,7 +6456,7 @@ function ProvisionsApp() {
            Padding is set so a single-line row lands at roughly an Aisles row's tap height. */
         .list-item.az { padding: 13px 4px; gap: 12px; border-bottom: 1px solid #F0E6D6; }
         .list-item.az .checkbox { width: 18px; height: 18px; }
-        .list-item.az .li-name { font-size: calc(0.9rem * var(--op-list-scale)); }
+        .list-item.az .li-name { font-size: calc(0.9rem * var(--op-text-scale)); }
         .added-here-tag { display: inline-block; margin-left: 6px; font-family: 'Lato', sans-serif; font-size: 0.62rem; font-weight: 700; color: #0D9488; border: 1px solid #0D9488; border-radius: 4px; padding: 1px 5px; vertical-align: middle; letter-spacing: .3px; }
         .in-cart-tray { margin-top: 26px; border-radius: 12px; background: #fff; border: 1px solid #E3D4BC; overflow: hidden; }
         .tray-head { display: flex; align-items: center; gap: 10px; padding: 13px 14px; cursor: pointer; background: none; border: none; width: 100%; text-align: left; }
@@ -6466,7 +6468,7 @@ function ProvisionsApp() {
         .in-cart-tray { margin-bottom: 8px; }
         .tray-body .list-item { padding: 11px 0; opacity: 0.55; }
         .tray-body .list-item:last-child { border-bottom: none; }
-        .tray-body .li-name { text-decoration: line-through; color: #a89878; font-size: calc(0.88rem * var(--op-list-scale)); }
+        .tray-body .li-name { text-decoration: line-through; color: #a89878; font-size: calc(0.88rem * var(--op-text-scale)); }
         .tray-initial { width: 20px; height: 20px; border-radius: 50%; background: #E8D5B7; color: #2C1A0E; font-family: 'Lato', sans-serif; font-size: 0.6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         /* Rows animate INTO wherever they land — down into the tray, back up into an aisle — so the person sees where the item went. */
         @keyframes opRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
@@ -6587,10 +6589,10 @@ function ProvisionsApp() {
         .checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
         .checkbox.checked { background: #c8973a; border-color: #c8973a; }
         .checkmark { color: white; font-size: 0.7rem; font-weight: bold; }
-        .li-name { font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-list-scale)); flex: 1; cursor: pointer; }
+        .li-name { font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-text-scale)); flex: 1; cursor: pointer; }
         .li-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
-        .li-qty { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-list-scale)); color: #8a7a60; }
-        .li-subtotal { font-family: 'Playfair Display', serif; font-size: calc(0.95rem * var(--op-list-scale)); color: #c8973a; font-weight: 700; }
+        .li-qty { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #8a7a60; }
+        .li-subtotal { font-family: 'Playfair Display', serif; font-size: calc(0.95rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; }
         .li-subtotal.done { color: #a89878; }
         .clear-btn { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 16px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
         .clear-btn:hover { border-color: #e05c5c; color: #e05c5c; }
