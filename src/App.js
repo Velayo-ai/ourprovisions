@@ -740,14 +740,14 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
             }}
           >
             <div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
                 <strong>{hiddenMatch.item.name}</strong>{hiddenMatch.live ? ` ×${hiddenMatch.qty}` : ""}
               </div>
               <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
                 {hiddenMatch.live ? "Hidden from your view — tap to reveal" : "Hidden from your view — tap to reveal and add"}
               </div>
             </div>
-            <span style={{ color: "#A0724A", fontSize: "18px" }}>↺</span>
+            <span style={{ color: "#8A5F3A", fontSize: "18px" }}>↺</span>
           </div>
         </>
       )}
@@ -2085,7 +2085,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         <div style={{ textAlign: "center" }}>
           <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic",
             fontSize: ts(19.2, 0.5), color: "#8a7a60", margin: 0 }}>No meals yet.</p>
-          <p style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.8), color: "#C9A97A",
+          <p style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A",
             marginTop: "8px", letterSpacing: "0.5px" }}>
             Create one, plan it, and its ingredients are one tap from your list.
           </p>
@@ -2714,13 +2714,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
                     gap: "7px", flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14.4),
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                       color: r.on_hand ? "#8a7a60" : "#2C1A0E" }}>
                       {r.name}
                     </span>
                     {r.on_hand && (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "4px",
-                        fontFamily: "'Lato', sans-serif", fontSize: ts(10.6), fontWeight: 700,
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 700,
                         letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B4E1F",
                         background: "rgba(201,169,122,0.22)", borderRadius: "999px", padding: "2px 8px" }}>
                         On hand · {r.quantity_per_serving}
@@ -2730,7 +2730,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                         that go?", which is only a live question for a brand-new item. */}
                     {r.isNew && (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "3px",
-                        fontFamily: "'Lato', sans-serif", fontSize: ts(10.6), color: "#8a7a60",
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7a60",
                         background: "rgba(160,114,74,0.12)", borderRadius: "999px", padding: "2px 7px" }}>
                         <span aria-hidden="true">{categoryGlyph(r.category)}</span>
                         new in {CATEGORY_LABEL[r.category] || r.category || "Household"}
@@ -2755,8 +2755,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       aria-label={`Need ${r.name} again`}
                       style={{
                         background: "none", border: "1.5px solid #C9A97A", borderRadius: "999px",
-                        padding: "6px 13px", fontFamily: "'Lato', sans-serif", fontSize: ts(11.8, 0.8),
-                        fontWeight: 700, color: "#A0724A", cursor: "pointer", flexShrink: 0,
+                        padding: "6px 13px", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8),
+                        fontWeight: 700, color: "#8A5F3A", cursor: "pointer", flexShrink: 0,
                         whiteSpace: "nowrap",
                       }}
                     >Need it</button>
@@ -2800,7 +2800,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                         aria-label={`I already have ${r.name} — keep it in the meal but do not add it`}
                         style={{
                           background: "none", border: "none", padding: "2px 0", cursor: "pointer",
-                          fontFamily: "'Lato', sans-serif", fontSize: ts(10.9, 0.8), fontWeight: 400,
+                          fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 400,
                           color: "#9a8a78", textDecoration: "underline", textUnderlineOffset: "2px",
                         }}
                       >I have this</button>
@@ -2822,7 +2822,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
           {!aiBusy && !trimmedQuery && (
             <div style={{ padding: "10px 2px 0", fontFamily: "'Lato', sans-serif",
-              fontSize: ts(12.5), color: "#C9A97A" }}>
+              fontSize: ts(14), color: "#C9A97A" }}>
               Start typing to find an ingredient.
             </div>
           )}
@@ -2837,12 +2837,12 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   gap: "10px", padding: "8px 2px",
                 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14.4),
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                       color: "#2C1A0E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {it.name}
                     </span>
                     <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: "3px",
-                      fontFamily: "'Lato', sans-serif", fontSize: ts(10.9), color: "#8a7a60",
+                      fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7a60",
                       background: "rgba(201,169,122,0.16)", borderRadius: "999px", padding: "2px 8px" }}>
                       <span aria-hidden="true">{categoryGlyph(it.category)}</span>
                       {CATEGORY_LABEL[it.category] || it.category || "Uncategorised"}
@@ -2851,13 +2851,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   {stagedRow ? (
                     <button
                       className="add-btn"
-                      style={{ flexShrink: 0, fontSize: ts(12.8, 0.8), padding: "6px 14px",
+                      style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 14px",
                         background: "#E8D5B7", color: "#6b5a45" }}
                       onClick={() => stageItem(it)}
                       aria-label={`${it.name} already added — add another`}
                     >Added ×{stagedRow.quantity_per_serving}</button>
                   ) : (
-                    <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(12.8, 0.8), padding: "6px 16px" }}
+                    <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 16px" }}
                       onClick={() => stageItem(it)}>+ Add</button>
                   )}
                 </div>
@@ -2869,7 +2869,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           {/* No match → inline create, matching Browse's live pattern. */}
           {!aiBusy && showNoResults && (
             <div style={{ marginTop: "8px" }}>
-              <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: ts(10),
+              <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5),
                 letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
                 No results for "{trimmedQuery}"
               </div>
@@ -2880,14 +2880,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
                       padding: "12px 14px", cursor: "pointer" }}>
                     <div>
-                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#A0724A" }}>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                         Add <strong>"{trimmedQuery}"</strong> to {name.trim() || "this meal"}
                       </div>
-                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(10), color: "#C9A97A", marginTop: "2px" }}>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A", marginTop: "2px" }}>
                         Tap to choose a category
                       </div>
                     </div>
-                    <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(12.8, 0.8), padding: "6px 16px" }}>Add</button>
+                    <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 16px" }}>Add</button>
                   </div>
                 ) : (
                   <div>
@@ -2905,7 +2905,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     {/* ── New category inline input — revealed by the tile ── */}
                     {newCatOpen && (
                       <div style={{ padding: "0 14px 14px" }}>
-                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(10), letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
+                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
                           Name the new category
                         </div>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -2919,7 +2919,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                             placeholder="e.g. Pet Supplies"
                             style={{
                               flex: 1, border: "1.5px solid #E8D5B7", borderRadius: "20px",
-                              padding: "6px 14px", fontFamily: "'Lato', sans-serif", fontSize: ts(12),
+                              padding: "6px 14px", fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                               color: "#2C1A0E", background: "#F5EDE0", outline: "none",
                             }}
                           />
@@ -2979,7 +2979,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 placeholder={"1. Whisk the dry ingredients.\n2. Fold in the wet."}
                 style={{ resize: "vertical", lineHeight: 1.55, fontFamily: "'Lato', sans-serif" }}
               />
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(10.5), color: "#8a7968",
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7968",
                 marginTop: "7px", lineHeight: 1.5 }}>
                 One step per line, numbered. Blank lines are ignored.
               </div>
@@ -3031,7 +3031,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
         {!aiBusy && !galleyCollapsed && galleyAvailable && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "22px 0 14px" }}>
             <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(10), fontWeight: 900,
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 900,
               letterSpacing: "0.1em", textTransform: "uppercase", color: "#b5a48d" }}>or</div>
             <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
           </div>
@@ -3048,12 +3048,12 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(15), color: "#2C1A0E" }}>
                   The galley's working on it…
                 </div>
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(11), color: "#8a7968", marginTop: "2px" }}>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7968", marginTop: "2px" }}>
                   Usually a few seconds.
                 </div>
               </div>
             </div>
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12), color: "#6f5a45", fontStyle: "italic",
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#6f5a45", fontStyle: "italic",
               background: "#FFFDF9", border: "1.5px solid rgba(44,26,14,0.10)", borderRadius: "9px",
               padding: "9px 11px", marginBottom: "14px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
               "{aiText.trim()}"
@@ -3066,8 +3066,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
         <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.22)",
           borderRadius: "14px", padding: "14px", marginBottom: "16px", ...galleyDim }}>
           <div style={{ display: "flex", alignItems: "center", gap: "7px", fontFamily: "'Lato', sans-serif",
-            fontSize: ts(10.5), fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase",
-            color: "#A0724A", marginBottom: "10px" }}>
+            fontSize: ts(12.5), fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase",
+            color: "#8A5F3A", marginBottom: "10px" }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A0724A" strokeWidth="1.8"
               strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
@@ -3093,7 +3093,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 width: "100%", boxSizing: "border-box", minHeight: "44px", maxHeight: "110px",
                 padding: "12px 13px", paddingRight: "34px", borderRadius: "10px",
                 border: "1.5px solid #E8D5B7",
-                background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: ts(14.4),
+                background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                 color: "#2C1A0E", outline: "none", resize: "vertical",
                 opacity: (aiBusy || saving) ? 0.6 : 1,
               }}
@@ -3150,7 +3150,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             )}
           </div>
 
-          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(10.5),
+          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
             color: micHint ? "#b3261e" : "#8a7968", marginTop: "8px", lineHeight: 1.5 }}>
             {!isSignedIn
               ? "Sign in to use Ask the Galley — it builds the meal against your account."
@@ -3170,7 +3170,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               marginTop: "12px", width: "100%", border: "none", borderRadius: "12px", padding: "12px",
               background: aiInert ? "#E8D5B7" : "#A0724A",
               color: aiInert ? "#9a8a78" : "#FFFDF9",
-              fontFamily: "'Lato', sans-serif", fontSize: ts(13.6, 0.8), fontWeight: 700,
+              fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
               cursor: aiInert ? "default" : "pointer",
               transition: "background 0.15s",
             }}
@@ -3180,7 +3180,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
         {/* States the locked decision plainly rather than leaving it inferred. */}
         {isEdit && (
-          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.2), color: "#8a7a60",
+          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7a60",
             fontStyle: "italic", marginBottom: "14px" }}>
             Changes here won't update items already on your list.
           </div>
@@ -3199,7 +3199,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center", gap: "9px", width: "100%",
                   background: "none", border: "1.5px solid rgba(179,38,30,0.4)", borderRadius: "14px", padding: "13px",
-                  color: "#c0392b", fontFamily: "'Lato', sans-serif", fontSize: ts(13.6, 0.8), fontWeight: 700,
+                  color: "#c0392b", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
                   cursor: (saving || deleting) ? "default" : "pointer", opacity: (saving || deleting) ? 0.5 : 1,
                 }}
               >
@@ -3211,16 +3211,16 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 <button
                   onClick={() => setConfirmDelete(false)}
                   disabled={deleting}
-                  style={{ flex: 1, background: "#E8D5B7", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: ts(13.1, 0.8), color: "#2C1A0E", cursor: deleting ? "default" : "pointer" }}
+                  style={{ flex: 1, background: "#E8D5B7", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), color: "#2C1A0E", cursor: deleting ? "default" : "pointer" }}
                 >Keep</button>
                 <button
                   onClick={() => { if (!deleting) onDelete(); }}
                   disabled={deleting}
-                  style={{ flex: 2, background: "#c0392b", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: ts(13.1, 0.8), fontWeight: 700, color: "#fff", cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1 }}
+                  style={{ flex: 2, background: "#c0392b", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700, color: "#fff", cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1 }}
                 >{deleting ? "Deleting…" : "Yes, delete meal"}</button>
               </div>
             )}
-            <div style={{ fontSize: ts(11.2), color: "#9a8a78", textAlign: "center", marginTop: "8px", lineHeight: 1.4 }}>
+            <div style={{ fontSize: ts(14), color: "#9a8a78", textAlign: "center", marginTop: "8px", lineHeight: 1.4 }}>
               Removes this meal for everyone. Anything already bought stays on your list.
             </div>
           </div>
@@ -4235,10 +4235,10 @@ function ProvisionsApp() {
     const mealLine = mealNames ? `For ${mealNames}` : null;
 
     if (!catalogLine && !mealLine) return null;
-    const base = { fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.3px", marginTop: "3px" };
+    const base = { fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "0.3px", marginTop: "3px" };
     return (
       <>
-        {catalogLine && <div style={{ ...base, color: "#A0724A" }}>{catalogLine}</div>}
+        {catalogLine && <div style={{ ...base, color: "#8A5F3A" }}>{catalogLine}</div>}
         {mealLine && <div style={{ ...base, color: "#0D9488" }}>{mealLine}</div>}
       </>
     );
@@ -6063,9 +6063,9 @@ function ProvisionsApp() {
                      font-family: 'Playfair Display', serif; font-size: calc(26px * (1 + (var(--op-text-scale) - 1) * 0.4)); font-weight: 700; line-height: 1.15; color: #8C7660;
                      border-bottom: 3px solid transparent; }
         .plan-view.on { color: #2A170C; border-bottom-color: #A0714A; cursor: default; }
-        .plan-sub { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
+        .plan-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
         .plan-meals { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 44px; padding: 0 18px; cursor: pointer;
-                      font-family: 'Lato', sans-serif; font-size: calc(0.82rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
         /* "add to Shop →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
            hit box; the matching negative margins keep the line box exactly where it was. Not a bar, not teal. */
         .plan-addall { display: inline-block; vertical-align: baseline; border: none; background: none; color: #6f5a45; cursor: pointer;
@@ -6074,7 +6074,7 @@ function ProvisionsApp() {
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
         /* Board head → first card: 20px. With the drag hint (2+ cards, no banner): 8px to the hint, 20px from the hint to the first card.
            The hint sits flush with "This Week" (no side margin). */
-        .plan-prompt { margin: 0 0 20px; font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); color: #8a7a60; }
+        .plan-prompt { margin: 0 0 20px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         .plan-banner { display: flex; align-items: center; gap: 12px; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
         .plan-banner.set { background: rgba(201,169,122,0.22); }
         .plan-banner.stocked { background: rgba(13,148,136,0.10); }
@@ -6082,10 +6082,10 @@ function ProvisionsApp() {
         .plan-banner.set .plan-banner-check { background: #C9A97A; color: #2C1A0E; }
         .plan-banner.stocked .plan-banner-check { background: #0D9488; color: #fff; }
         .plan-banner-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(0.98rem * var(--op-text-scale)); color: #2C1A0E; }
-        .plan-banner-sub { font-family: 'Lato', sans-serif; font-size: calc(0.76rem * var(--op-text-scale)); color: #6f5a45; margin-top: 1px; }
+        .plan-banner-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #6f5a45; margin-top: 1px; }
         .board { position: relative; margin-bottom: 14px; }
         .board-empty { height: 52px; display: flex; align-items: center; justify-content: center; border: 1.5px dashed #C9A97A; border-radius: 14px;
-                       font-family: 'Lato', sans-serif; font-size: calc(0.82rem * var(--op-text-scale)); color: #8a7a60; }
+                       font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         /* Two columns: the numbered tile, then everything else. No third column, so nothing wraps at 390–430px (the ROADMAP bug). */
         .board-card { display: flex; align-items: stretch; background: #fff; border-radius: 12px; box-shadow: 0 3px 10px rgba(44,26,14,0.13);
                       cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-y; position: relative;
@@ -6109,13 +6109,13 @@ function ProvisionsApp() {
                             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .board-chip { flex: none; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60;
                       border: 1px solid #E8D5B7; border-radius: 999px; padding: 2px 7px; }
-        .board-line { font-family: 'Lato', sans-serif; font-size: calc(0.76rem * var(--op-text-scale)); color: #8a7a60; line-height: 1.25; }
+        .board-line { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; line-height: 1.25; }
         .board-card.ready .board-line { color: #6f5a45; }
         .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .board-actions-gap { flex: 1; }
         /* One primary per state. Add to Shop / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
         .board-lock, .board-see, .board-cook { flex: none; border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
-                      font-family: 'Lato', sans-serif; font-size: calc(0.7rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; letter-spacing: 0.5px; }
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; letter-spacing: 0.5px; }
         .board-lock { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
         .board-see { border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; }
         .board-cook { border: 1.5px solid #0D9488; background: #0D9488; color: #fff; }
@@ -6135,7 +6135,7 @@ function ProvisionsApp() {
         .board-menu { position: absolute; right: 6px; bottom: 40px; z-index: 5; background: #fff; border: 1px solid #E8D5B7; border-radius: 10px;
                       box-shadow: 0 8px 24px rgba(44,26,14,0.18); padding: 4px; min-width: 150px; }
         .board-menu button { display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 9px 12px; border-radius: 7px;
-                             font-family: 'Lato', sans-serif; font-size: calc(0.82rem * var(--op-text-scale)); color: #2C1A0E; cursor: pointer; }
+                             font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; cursor: pointer; }
         .board-menu button:hover { background: #F5EDE0; }
         .board-menu button:disabled { opacity: 0.5; cursor: default; }
         .plan-foot { margin: 10px 0 18px; }
@@ -6143,11 +6143,11 @@ function ProvisionsApp() {
         .hold-night { width: 100%; }
         .hold-night-rule { display: flex; align-items: center; gap: 12px; }
         .hold-night-rule > span:not(.hold-night-label) { flex: 1 1 auto; height: 1px; background: #E2D3BD; }
-        .hold-night-label { flex: none; font-family: 'Lato', sans-serif; font-size: calc(11px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.14em; color: #7A6656; }
+        .hold-night-label { flex: none; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.14em; color: #7A6656; }
         .hold-night-btns { margin-top: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
         .plan-noshop { min-width: 0; height: 64px; border: 1.5px solid #D8C3A5; background: transparent; color: #4A3226; border-radius: 16px; padding: 0 4px; cursor: pointer;
                        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
-                       font-family: 'Lato', sans-serif; font-size: calc(13px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.1; text-align: center; }
+                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.1; text-align: center; }
         .plan-noshop svg { width: 20px; height: 20px; flex: none; }
         /* The empty-week welcome (mockup_plan_tab_welcome.html). Ghost cards fade 1 → .7 → .4; generous vertical air on purpose. */
         .plan-welcome { display: flex; flex-direction: column; align-items: center; padding: 0 4px; }
@@ -6176,72 +6176,70 @@ function ProvisionsApp() {
            white strip (count + the Plan pill). ZERO TEAL: Plan is espresso outline, ✓ Planned is sand/espresso, the rail and
            chips use the filled-espresso on-state. Clay's 11.5px word is the known AA miss (tracked in LATER). */
         .lib-create { flex: none; height: 44px; padding: 0 18px; border-radius: 22px; cursor: pointer; white-space: nowrap;
-                      font-family: 'Lato', sans-serif; font-size: calc(13.5px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
         .lib-create.fill { border: none; background: #6f5a45; color: #FAF4EC; }
         .lib-create.outline { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
         .lib-search-row { display: flex; gap: 8px; margin: 0 0 12px; }
         .lib-search { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 12px;
                       border: 1.5px solid #E8D5B7; background: #F5EDE0; color: #8a7a60; }
-        .lib-search input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-family: 'Lato', sans-serif; font-size: calc(0.92rem * var(--op-text-scale)); color: #2C1A0E; }
+        .lib-search input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
         .lib-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
         .lib-fbtn { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
                     display: flex; align-items: center; justify-content: center; position: relative; padding: 0; }
         .lib-fdot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #A0724A; border: 1.5px solid #FFFDF9; }
         .lib-active { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
         .lib-chip-x { height: 32px; padding: 0 10px 0 6px; border-radius: 16px; border: 1.5px solid #6f5a45; background: #FFFDF9; color: #2C1A0E; cursor: pointer;
-                      font-family: 'Lato', sans-serif; font-size: calc(0.8rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
         .lib-chip-x > span:last-child { color: #8a7a60; font-weight: 400; }
         .lib-chip-x .lib-mini { width: 22px; height: 22px; font-size: 0.62rem; }
         .lib-rail { margin: 0 0 14px; }
         .lib-occ { flex: none; height: 36px; padding: 0 16px; border-radius: 18px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
-                   font-family: 'Lato', sans-serif; font-size: calc(0.86rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
+                   font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
         .lib-occ.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
-        .lib-hint { margin: 0 0 14px; font-family: 'Lato', sans-serif; font-size: calc(0.82rem * var(--op-text-scale)); color: #8a7a60; }
+        .lib-hint { margin: 0 0 14px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         .lib-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; align-items: stretch; }
         @media (max-width: 339px) { .lib-grid { grid-template-columns: minmax(0, 1fr); } }
         .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1.5px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
         .lib-gtop { flex: 1; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; text-align: left; width: 100%; min-height: 92px;
                     padding: 11px 12px 14px; border: none; cursor: pointer; font: inherit; }
-        .lib-gocc { display: block; min-height: 14px; line-height: 14px; font-family: 'Lato', sans-serif; font-size: calc(11.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+        .lib-gocc { display: block; min-height: 14px; line-height: 14px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
         .lib-gname { display: block; font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
         .lib-gstrip { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 8px 8px 12px; }
         /* The count stays on ONE line (walk 2026-10-03: "11 ingredients" wrapped beside ✓ Planned in the 430px column).
            Measured in headless Edge with the Arial fallback (Lato is not web-loaded): 430px needs 168 of 171; under 400px
            the strip, count and ✓ Planned pill trim a little so 390px needs 152 of 155. The unplanned Plan pill has 30px of
            slack and keeps its padding. Ellipsis is the safety net for a wider system font — one line, never an overlap. */
-        .lib-gcount { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8a7a60; }
+        .lib-gcount { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         .lib-plan { flex: none; height: 34px; padding: 0 14px; border-radius: 17px; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
-                    font-family: 'Lato', sans-serif; font-size: calc(12.5px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
         .lib-plan:disabled { cursor: default; opacity: 0.6; }
         .lib-plan.planned { border-color: transparent; background: #EFE6D6; color: #3A2A20; font-weight: 600; padding: 0 9px; opacity: 1; cursor: pointer; }
         .lib-plan.planned:disabled { cursor: default; opacity: 0.6; }
         /* Stage label (un-plan rows 4–5): text, not a control — no border, no fill, no hover, no focus ring; the pill's height so the strip doesn't jump. */
         .lib-stage { flex: none; height: 34px; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
-                     font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 600; color: #6f5a45; }
+                     font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 600; color: #6f5a45; }
         @media (max-width: 399px) {
           .lib-gstrip { padding: 8px 6px 8px 10px; gap: 4px; }
-          .lib-gcount { font-size: calc(11.5px * var(--op-text-scale)); }
-          .lib-plan.planned { padding: 0 6px; font-size: calc(12px * (1 + (var(--op-text-scale) - 1) * 0.8)); }
-          .lib-stage { font-size: calc(12px * var(--op-text-scale)); }
+          .lib-plan.planned { padding: 0 6px; }
         }
         .lib-create-tile { margin-top: 16px; border: 1.5px dashed #C9A97A; border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 14px; }
         .lib-create-tile.gated { border-color: #C9A97A; opacity: 0.8; }
         .lib-create-text { flex: 1; min-width: 0; }
         .lib-create-t { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(1rem * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; }
-        .lib-create-s { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8a7a60; margin-top: 2px; }
+        .lib-create-s { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 2px; }
         /* Filter sheet (mockup screen 3) in the app's modal chrome. */
-        .lib-sheet-lbl { font-family: 'Lato', sans-serif; font-size: calc(0.7rem * var(--op-text-scale)); font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: #A0724A; margin: 20px 0 10px; }
+        .lib-sheet-lbl { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: #8A5F3A; margin: 20px 0 10px; }
         .lib-chips { display: flex; flex-wrap: wrap; gap: 8px; }
         .lib-chef { height: 40px; padding: 0 14px 0 6px; border-radius: 20px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #2C1A0E; cursor: pointer;
                     font-family: 'Lato', sans-serif; font-size: calc(0.88rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
         .lib-chef.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
         .lib-mini { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #E8D5B7; color: #8a7a60; display: inline-flex; align-items: center; justify-content: center;
                     font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; }
-        .lib-sheet-note { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
+        .lib-sheet-note { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
         .lib-sw { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 0; border: none; border-bottom: 1px solid #EFE6D6; background: transparent; text-align: left; cursor: pointer; }
         .lib-sw > span:first-child { flex: 1; min-width: 0; display: flex; flex-direction: column; }
         .lib-sw-l { font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; }
-        .lib-sw-d { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); color: #8a7a60; margin-top: 2px; }
+        .lib-sw-d { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 2px; }
         .lib-track { flex: none; width: 44px; height: 26px; border-radius: 13px; background: #D9C9AE; position: relative; transition: background 0.15s; }
         .lib-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #FFFDF9; transition: left 0.15s; }
         .lib-sw[aria-checked="true"] .lib-track { background: #6f5a45; }
@@ -6251,31 +6249,31 @@ function ProvisionsApp() {
                      font-family: 'Lato', sans-serif; font-size: calc(0.95rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .lib-show { flex: 1; height: 48px; border-radius: 24px; border: none; background: #6f5a45; color: #FAF4EC; cursor: pointer;
                     font-family: 'Lato', sans-serif; font-size: calc(0.95rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
-        .lib-empty { padding: 24px 12px; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(0.82rem * var(--op-text-scale)); color: #8a7a60; font-style: italic; }
+        .lib-empty { padding: 24px 12px; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; font-style: italic; }
         /* Good for (061) — the meal sheet's occasion chips. Espresso on-state, zero teal; ON CARD marks the first pick. */
         .gf-chips { display: flex; flex-wrap: wrap; gap: 8px; }
         .gf-chip { height: 38px; padding: 0 14px; border-radius: 19px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: calc(0.88rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
         .gf-chip.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
         .gf-oncard { font-size: 0.56rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; color: #D9BC8C; }
-        .gf-help { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
+        .gf-help { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
         /* No-shop sheet */
-        .noshop-sub { font-family: 'Lato', sans-serif; font-size: calc(0.82rem * var(--op-text-scale)); color: #6f5a45; margin-bottom: 14px; }
-        .noshop-label { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
+        .noshop-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #6f5a45; margin-bottom: 14px; }
+        .noshop-label { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
         .noshop-label span { font-weight: 400; color: #8a7a60; }
         .noshop-checks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; max-height: 40vh; overflow-y: auto; }
         .noshop-check { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1.5px solid #E8D5B7; border-radius: 10px; cursor: pointer;
-                        font-family: 'Lato', sans-serif; font-size: calc(0.84rem * var(--op-text-scale)); color: #2C1A0E; }
+                        font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
         .noshop-check.on { border-color: #6f5a45; background: #FAF4EC; }
         .noshop-check input { position: absolute; opacity: 0; width: 0; height: 0; }
         .noshop-check-box { flex: none; width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid #C9A97A; display: flex; align-items: center; justify-content: center;
                             font-size: 0.7rem; font-weight: 900; color: #FAF4EC; background: transparent; }
         .noshop-check.on .noshop-check-box { background: #6f5a45; border-color: #6f5a45; }
         .noshop-check-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .noshop-check-meta { flex: none; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #8a7a60; }
-        .noshop-none { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); color: #8a7a60; font-style: italic; margin-bottom: 14px; }
+        .noshop-check-meta { flex: none; font-size: 12.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #8a7a60; }
+        .noshop-none { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; font-style: italic; margin-bottom: 14px; }
         .noshop-input { width: 100%; box-sizing: border-box; padding: 12px 13px; border-radius: 10px; border: 1.5px solid #E8D5B7; background: #FFFDF9;
-                        font-family: 'Lato', sans-serif; font-size: calc(0.92rem * var(--op-text-scale)); color: #2C1A0E; outline: none; margin-bottom: 14px; }
+                        font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; outline: none; margin-bottom: 14px; }
         .noshop-commit { width: 100%; border: none; background: #6f5a45; color: #FAF4EC; border-radius: 10px; padding: 12px; cursor: pointer;
                          font-family: 'Lato', sans-serif; font-size: calc(0.88rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; }
         .noshop-commit:disabled { opacity: 0.6; cursor: default; }
@@ -6302,7 +6300,7 @@ function ProvisionsApp() {
         .home-welcome-line { margin: 14px 0 0; font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; color: #6E5A4A; }
         .home-welcome-actions { display: flex; gap: 10px; justify-content: center; margin-top: 28px; }
         .home-welcome-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 11px 22px; border-radius: 6px; cursor: pointer; }
-        .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #A0724A; }
+        .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #8A5F3A; }
         .home-welcome-btn.solid { background: #2C1A0E; border: 1.5px solid #2C1A0E; color: #FAF4EC; }
         .home-welcome-btn:disabled { opacity: 0.5; cursor: default; }
         /* THE ON-DECK CARD in the board's language: the welcome's warm cream, no shadow, no photo (the household photo asserts
@@ -6367,7 +6365,7 @@ function ProvisionsApp() {
         .budget-goal-section { text-align: right; }
         .budget-goal-label { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 1.5px; text-transform: uppercase; color: #c8b89a; }
         .budget-goal-remaining { font-family: 'Playfair Display', serif; font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
-        .budget-goal-remaining.ok { color: #A0724A; }
+        .budget-goal-remaining.ok { color: #8A5F3A; }
         .budget-goal-remaining.over { color: #e05c5c; }
         .budget-bar-wrap { width: 100%; height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; margin-top: 6px; overflow: hidden; }
         .budget-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease, background 0.3s; }
@@ -6379,7 +6377,7 @@ function ProvisionsApp() {
         .add-item-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; background: #A0724A; color: #FAF4EC; border: none; border-radius: 5px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
         .add-item-btn:hover { background: #6B4423; }
         .category-block { margin-bottom: 28px; }
-        .cat-title { font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: #A0724A; border-bottom: 2px solid #E8D5B7; padding-bottom: 8px; margin-bottom: 12px; }
+        .cat-title { font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; border-bottom: 2px solid #E8D5B7; padding-bottom: 8px; margin-bottom: 12px; }
         .items-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         /* One column on phones, and one column inside the desktop phone column (it is 430px wide, whatever the window is). */
         @media (max-width: 520px), (min-width: ${COLUMN_MIN_WIDTH}px) { .items-grid { grid-template-columns: 1fr; } }
@@ -6407,29 +6405,29 @@ function ProvisionsApp() {
         .op-ember { width: 10px; height: 10px; border-radius: 50%; background: #A0724A; flex: none; animation: opEmber 1.6s ease-in-out infinite; }
         @keyframes opEmber { 0%, 100% { opacity: .35; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
         @media (prefers-reduced-motion: reduce) { .op-skel, .op-ember { animation: none; } .op-ember { opacity: .8; } }
-        .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #6f5a45; cursor: pointer; }
+        .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #6f5a45; cursor: pointer; }
         .op-recipe { background: #fff; border: 1.5px solid rgba(44,26,14,.10); border-radius: 14px; padding: 16px 16px 14px; }
         .op-recipe.galley { border-color: rgba(160,114,74,.3); }
-        .op-recipe-eyebrow { display: flex; align-items: center; gap: 6px; font-family: 'Lato', sans-serif; font-size: calc(10px * var(--op-text-scale)); font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #A0724A; margin-bottom: 8px; }
+        .op-recipe-eyebrow { display: flex; align-items: center; gap: 6px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #8A5F3A; margin-bottom: 8px; }
         .op-recipe-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(21px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; margin-bottom: 4px; }
-        .op-recipe-meta { font-family: 'Lato', sans-serif; font-size: calc(11.5px * var(--op-text-scale)); color: #8a7968; margin-bottom: 14px; }
+        .op-recipe-meta { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; margin-bottom: 14px; }
         .op-steps { list-style: none; margin: 0; padding: 0; }
         .op-steps li { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 12px; }
         .op-steps li:last-child { margin-bottom: 0; }
-        .op-step-badge { flex: none; width: 24px; height: 24px; border-radius: 50%; background: rgba(160,114,74,.13); color: #A0724A; font-family: 'Lato', sans-serif; font-size: calc(11.5px * var(--op-text-scale)); font-weight: 900; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
-        .op-steps p { margin: 0; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; }
-        .op-steps-action { background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-weight: 700; font-size: calc(12px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: 0; text-transform: none; color: #A0724A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; }
+        .op-step-badge { flex: none; width: 24px; height: 24px; border-radius: 50%; background: rgba(160,114,74,.13); color: #8A5F3A; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 900; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+        .op-steps p { margin: 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; }
+        .op-steps-action { background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-weight: 700; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: 0; text-transform: none; color: #8A5F3A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; }
         .op-ask-again { display: block; width: 100%; text-align: center; margin-top: 12px; }
-        .op-steps-done { width: 100%; margin-top: 10px; padding: 11px; background: #A0724A; border: none; border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(13px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; color: #fff; cursor: pointer; }
-        .op-steps-empty { width: 100%; padding: 12px 11px; background: none; border: 1.5px dashed #C9A97A; border-radius: 9px; font-family: 'Lato', sans-serif; font-size: calc(12px * var(--op-text-scale)); color: #8a7968; cursor: pointer; text-align: center; }
+        .op-steps-done { width: 100%; margin-top: 10px; padding: 11px; background: #A0724A; border: none; border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; color: #fff; cursor: pointer; }
+        .op-steps-empty { width: 100%; padding: 12px 11px; background: none; border: 1.5px dashed #C9A97A; border-radius: 9px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; cursor: pointer; text-align: center; }
         .qty-controls { display: inline-flex; align-items: center; background: transparent; border: 1px solid #C9A97A; border-radius: 999px; overflow: hidden; flex-shrink: 0; }
         .qty-btn { width: 38px; height: 34px; border: 0; background: transparent; color: #A0724A; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; line-height: 1; transition: background 0.12s; }
         .qty-btn:active { background: #F5EDE0; }
         .qty-display { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; min-width: 30px; text-align: center; color: #2C1A0E; border-left: 1px solid #C9A97A; border-right: 1px solid #C9A97A; padding: 8px 0; }
         .qty-display.zero { color: #c8b89a; font-weight: 400; }
-        .add-btn { border: 1px solid #C9A97A; background: transparent; color: #A0724A; font-family: 'Lato', sans-serif; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.02em; padding: 9px 22px; border-radius: 999px; cursor: pointer; transition: all 0.14s; }
-        .add-btn:active { background: #A0724A; border-color: #A0724A; color: #fff; }
-        @media (hover: hover) { .add-btn:hover { background: #A0724A; border-color: #A0724A; color: #fff; } }
+        .add-btn { border: 1px solid #C9A97A; background: transparent; color: #8A5F3A; font-family: 'Lato', sans-serif; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.02em; padding: 9px 22px; border-radius: 999px; cursor: pointer; transition: all 0.14s; }
+        .add-btn:active { background: #A0724A; border-color: #8A5F3A; color: #fff; }
+        @media (hover: hover) { .add-btn:hover { background: #A0724A; border-color: #8A5F3A; color: #fff; } }
         .price-row { display: flex; align-items: center; gap: 8px; }
         .price-display { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); color: #8a7a60; }
         .price-edit-wrap { display: flex; align-items: center; gap: 4px; width: 100%; }
@@ -6445,23 +6443,23 @@ function ProvisionsApp() {
         .wrapup { flex: none; border: none; cursor: pointer; padding: 9px 12px; border-radius: 18px; white-space: nowrap;
                   font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
                   transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
-        .wrapup.muted { background: transparent; color: #A0724A; box-shadow: inset 0 0 0 1.5px #C9A97A; }
+        .wrapup.muted { background: transparent; color: #8A5F3A; box-shadow: inset 0 0 0 1.5px #C9A97A; }
         /* Emphasized = teal fill, white text — the same colour as the All done card's "Wrap up trip →" button, because it is the same action. Amber is the badge's alone. */
         .wrapup.full { background: #0D9488; color: #fff; box-shadow: none; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
         .cyc-ico { flex: none; width: 46px; height: 46px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; color: #A0724A; cursor: pointer; padding: 0; transition: background 0.18s, border-color 0.18s, color 0.18s; }
-        .cyc-ico.on { background: #A0724A; border-color: #A0724A; color: #fff; }
+        .cyc-ico.on { background: #A0724A; border-color: #8A5F3A; color: #fff; }
         .cyc-ico svg { width: 22px; height: 22px; display: block; }
         /* ── Shop tab: lens · In cart tray · in-store Add · store prompt (SPEC_shop_lens_instore_capture.md) ── */
         .shop-seg { flex: none; height: 46px; border-radius: 11px; border: 1px solid #E8D5B7; background: #fff; display: flex; overflow: hidden; }
-        .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #A0724A; cursor: pointer; transition: background .15s, color .15s; }
+        .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; cursor: pointer; transition: background .15s, color .15s; }
         .shop-seg button.on { background: #A0724A; color: #fff; }
         .store-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: -6px 2px 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
         .store-line b { color: #2C1A0E; font-weight: 700; }
-        .store-line .chev { font-size: 0.7rem; color: #A0724A; }
-        .store-line .store-set { color: #A0724A; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
+        .store-line .chev { font-size: 0.7rem; color: #8A5F3A; }
+        .store-line .store-set { color: #8A5F3A; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
         .az-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin: 2px 0 6px; }
         /* A–Z is a different MODE, not the same rows minus headers: one flat list, small circle, no provenance, no prices.
            Padding is set so a single-line row lands at roughly an Aisles row's tap height. */
@@ -6511,7 +6509,7 @@ function ProvisionsApp() {
         .store-chips { display: flex; flex-wrap: wrap; gap: 8px; }
         .store-chip { font-family: 'Lato', sans-serif; font-size: 0.8rem; font-weight: 700; padding: 8px 13px; border-radius: 20px; border: 1px solid #E8D5B7; background: #FAF4EC; color: #2C1A0E; cursor: pointer; }
         .store-chip:disabled { opacity: .5; cursor: default; }
-        .store-chip.other { color: #A0724A; border-style: dashed; font-weight: 400; }
+        .store-chip.other { color: #8A5F3A; border-style: dashed; font-weight: 400; }
         .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 10px; cursor: pointer; text-decoration: underline; }
         .store-field-label { font-family: 'Lato', sans-serif; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #C9A97A; margin-bottom: 7px; }
         .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: 0.85rem; color: #2C1A0E; background: #F5EDE0; outline: none; }
@@ -6524,15 +6522,15 @@ function ProvisionsApp() {
         .add-result .ar-main { flex: 1; min-width: 0; }
         .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: 0.92rem; color: #2C1A0E; }
         .add-result .ar-cat { font-family: 'Lato', sans-serif; font-size: 0.7rem; color: #8a7a60; margin-top: 2px; }
-        .add-result .ar-go { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #A0724A; }
+        .add-result .ar-go { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; }
         .add-result.create { border-bottom: none; }
-        .add-result.create .ar-name { color: #A0724A; }
+        .add-result.create .ar-name { color: #8A5F3A; }
         .add-result.create .ar-name b { color: #2C1A0E; }
         .add-sheet-hint { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 12px; line-height: 1.45; }
         .op-later-badge { position: absolute; top: -8px; right: -8px; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 700; letter-spacing: .5px; background: #0D9488; color: #fff; padding: 2px 6px; border-radius: 8px; }
         .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
         /* Names in the filter descriptor read as content, not as voice. */
-        .declutter-desc b { font-style: normal; font-weight: 700; color: #A0724A; }
+        .declutter-desc b { font-style: normal; font-weight: 700; color: #8A5F3A; }
         /* ── Browse category rail ──
            Bleeds to the container edges (.container pads 16px) so pills scroll
            UNDER the fade rather than clipping at it, while resting flush with the
@@ -6581,7 +6579,7 @@ function ProvisionsApp() {
           .cat-rail { scrollbar-width: thin; scrollbar-color: #E8D5B7 transparent; }
         }
         .cat-rail > * { scroll-snap-align: start; flex: 0 0 auto; white-space: nowrap; }
-        .cat-pill { display: flex; align-items: center; gap: 7px; padding: 9px 16px 9px 13px; border-radius: 999px; border: 1px solid #E8D5B7; background: #F5EADA; color: #A0724A; font-family: 'Lato', sans-serif; font-size: 0.82rem; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+        .cat-pill { display: flex; align-items: center; gap: 7px; padding: 9px 16px 9px 13px; border-radius: 999px; border: 1px solid #E8D5B7; background: #F5EADA; color: #8A5F3A; font-family: 'Lato', sans-serif; font-size: 0.82rem; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
         /* The load-bearing detail: a fixed glyph box makes a wide emoji and a
            narrow one produce identical pill geometry. */
         .cat-pill .cat-em { font-size: 0.92rem; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
@@ -6615,7 +6613,7 @@ function ProvisionsApp() {
         .all-done-sub { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1rem; color: #8a7a60; margin: 0 0 16px; }
         .all-done-meta { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; letter-spacing: 0.5px; }
         .all-done-meta b { color: #2C1A0E; font-weight: 700; }
-        .all-done-learn { font-family: 'Lato', sans-serif; font-size: 0.74rem; color: #A0724A; margin-top: 6px; }
+        .all-done-learn { font-family: 'Lato', sans-serif; font-size: 12.5px; color: #8A5F3A; margin-top: 6px; }
         .all-done-btn { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
                         font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
                         padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
@@ -6632,7 +6630,7 @@ function ProvisionsApp() {
            left-aligned inside the centred card, as drawn. Two EQUAL outlined
            buttons, no primary — the app has no preferred answer. No teal. */
         .trip-reality-ask { margin: 16px 0 18px; padding: 18px 16px; border-radius: 14px; background: #F5EADA; border: 1px solid #E8D5B7; text-align: left; }
-        .trip-reality-ask .tr-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: #A0724A; font-weight: 700; margin: 0 0 8px; }
+        .trip-reality-ask .tr-eyebrow { font-family: 'Lato', sans-serif; font-size: 12.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #8A5F3A; font-weight: 700; margin: 0 0 8px; }
         .trip-reality-ask .tr-q { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: 1.15rem; line-height: 1.25; margin: 0 0 6px; color: #2C1A0E; }
         .trip-reality-ask .tr-why { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: 0 0 14px; line-height: 1.4; }
         .trip-reality-ask .tr-btns { display: flex; gap: 10px; }
@@ -6661,7 +6659,7 @@ function ProvisionsApp() {
         .sheet-close:disabled { opacity: 0.4; cursor: default; }
         .modal-subtitle { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 20px; }
         .modal-field { margin-bottom: 16px; }
-        .modal-label { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; margin-bottom: 6px; display: block; }
+        .modal-label { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; margin-bottom: 6px; display: block; }
         .modal-input { width: 100%; font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-text-scale)); border: 1.5px solid #E8D5B7; border-radius: 6px; padding: 9px 12px; color: #2C1A0E; background: #F5EDE0; outline: none; transition: border-color 0.2s; }
         .modal-input:focus { border-color: #c8973a; }
         .modal-input-prefix { display: flex; align-items: center; border: 1.5px solid #E8D5B7; border-radius: 6px; background: #F5EDE0; overflow: hidden; transition: border-color 0.2s; }
@@ -6672,9 +6670,9 @@ function ProvisionsApp() {
         .modal-error { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #e05c5c; margin-bottom: 12px; }
         .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
         .modal-actions-spaced { display: flex; gap: 10px; justify-content: space-between; align-items: center; margin-top: 8px; }
-        .modal-cancel { font-family: 'Lato', sans-serif; font-size: calc(0.8rem * (1 + (var(--op-text-scale) - 1) * 0.8)); padding: 9px 18px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
+        .modal-cancel { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); padding: 9px 18px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
         .modal-cancel:hover { border-color: #2C1A0E; color: #2C1A0E; }
-        .modal-confirm { font-family: 'Lato', sans-serif; font-size: calc(0.8rem * (1 + (var(--op-text-scale) - 1) * 0.8)); padding: 9px 18px; background: #A0724A; color: #FAF4EC; border: none; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
+        .modal-confirm { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); padding: 9px 18px; background: #A0724A; color: #FAF4EC; border: none; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
         .modal-confirm:hover { background: #c8973a; }
         .modal-remove { font-family: 'Lato', sans-serif; font-size: 0.8rem; padding: 9px 18px; border: 1.5px solid #e8d5d5; background: transparent; color: #e05c5c; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
         .modal-remove:hover { background: #fff0f0; border-color: #e05c5c; }
@@ -6926,8 +6924,8 @@ function ProvisionsApp() {
             {/* ── Zone 1: Your Households (name-only rows; bare pencil on the active row) ── */}
             <div>
               <div style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
-                textTransform: "uppercase", color: "#A0724A", marginBottom: "10px",
+                fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2.5px",
+                textTransform: "uppercase", color: "#8A5F3A", marginBottom: "10px",
               }}>Your Places</div>
               {/* A5b (Addendum 2026-09-27): "Your places" is never drawn empty
                   before it has loaded. Until the context's read has SUCCEEDED for
@@ -6946,7 +6944,7 @@ function ProvisionsApp() {
                       style={{
                         background: "none", border: "none", cursor: "pointer", marginLeft: "10px",
                         fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
-                        color: "#A0724A", letterSpacing: "1px", padding: 0,
+                        color: "#8A5F3A", letterSpacing: "1px", padding: 0,
                       }}
                     >Retry</button>
                   </div>
@@ -7019,7 +7017,7 @@ function ProvisionsApp() {
                   style={{
                     width: "100%", background: "none", border: "1.5px dashed #A0724A",
                     borderRadius: "8px", padding: "11px 14px", marginTop: "2px",
-                    fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#A0724A",
+                    fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8A5F3A",
                     cursor: "pointer", textAlign: "center", boxSizing: "border-box",
                   }}
                 >+ Create new place</button>
@@ -7085,8 +7083,8 @@ function ProvisionsApp() {
             {/* ── Zone 2: {household} · Members (roster + Invite; no count, no monogram) ── */}
             <div>
               <div style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
-                textTransform: "uppercase", color: "#A0724A", marginBottom: "14px",
+                fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2.5px",
+                textTransform: "uppercase", color: "#8A5F3A", marginBottom: "14px",
               }}>{(household?.name || "This place")} · Members</div>
 
               {/* Member list. A5 (Amendment 2026-09-27): until this place's members
@@ -7339,7 +7337,7 @@ function ProvisionsApp() {
 
               <div style={{
                 fontFamily: "'Lato', sans-serif", fontSize: "10px", fontWeight: 900,
-                letterSpacing: "0.16em", textTransform: "uppercase", color: "#A0724A",
+                letterSpacing: "0.16em", textTransform: "uppercase", color: "#8A5F3A",
                 marginBottom: "8px", textAlign: "center",
               }}>Welcome aboard</div>
 
@@ -7511,7 +7509,7 @@ function ProvisionsApp() {
             />
             {/* Header: Cancel · title · Save */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px" }}>
-              <button onClick={closeEditHousehold} style={{ background: "none", border: "none", color: "#A0724A", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+              <button onClick={closeEditHousehold} style={{ background: "none", border: "none", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.05rem", color: "#2C1A0E" }}>Edit place</div>
               <button
                 onClick={saveEditHousehold}
@@ -7585,7 +7583,7 @@ function ProvisionsApp() {
               {/* Photo controls — only when a photo exists (spec D3) */}
               {edHasPhoto && (
                 <>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Zoom</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", margin: "18px 0 8px" }}>Zoom</div>
                   <input
                     type="range" min="100" max="320" value={edZoom}
                     onChange={(e) => setEdZoom(Number(e.target.value))}
@@ -7603,7 +7601,7 @@ function ProvisionsApp() {
                     >Remove photo</button>
                   </div>
 
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Wordmark</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", margin: "18px 0 8px" }}>Wordmark</div>
                   <div style={{ display: "flex", background: "#FBF7F0", border: "1px solid rgba(44,26,14,0.10)", borderRadius: "12px", overflow: "hidden" }}>
                     {["large", "small", "hidden"].map((opt) => (
                       <button
@@ -7622,7 +7620,7 @@ function ProvisionsApp() {
               )}
 
               {/* Household name */}
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Place name</div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", margin: "18px 0 8px" }}>Place name</div>
               <input
                 value={edName}
                 onChange={(e) => setEdName(e.target.value)}
@@ -8091,7 +8089,7 @@ function ProvisionsApp() {
                           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", cursor: "pointer" }}
                         >
                           <div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
                               Add <strong>"{searchQuery}"</strong> to your list
                             </div>
                             <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
@@ -8106,7 +8104,7 @@ function ProvisionsApp() {
                             onClick={() => setSearchPickerOpen(false)}
                             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px 8px", cursor: "pointer" }}
                           >
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
                               Add <strong>"{searchQuery}"</strong> to your list
                             </div>
                             <span style={{ color: "#C9A97A", fontSize: "18px" }}>−</span>
@@ -8225,7 +8223,7 @@ function ProvisionsApp() {
                         }}
                         style={{
                           background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                          fontSize: "0.72rem", color: "#A0724A", cursor: "pointer",
+                          fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
                           letterSpacing: "0.5px", padding: "0",
                         }}
                       >＋ Add item</button>
@@ -8268,7 +8266,7 @@ function ProvisionsApp() {
                     onClick={() => setShowManageCategoriesModal(true)}
                     style={{
                       background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                      fontSize: "0.75rem", color: "#A0724A", cursor: "pointer",
+                      fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
                       letterSpacing: "1px", textDecoration: "underline",
                     }}
                   >Manage Categories</button>
@@ -8518,7 +8516,7 @@ function ProvisionsApp() {
           <div className="modal" role="dialog" aria-modal="true" aria-label="Already on hand" onClick={(e) => e.stopPropagation()}>
             <SheetClose onClose={() => setOnHandPrompt(null)} />
             <h2>Already on hand</h2>
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(13.6),
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
               color: "#5c4a36", lineHeight: 1.5, marginBottom: "14px" }}>
               <strong>{onHandPrompt.mealName}</strong> has ingredients you marked as on hand.
               Include any of them this time?
@@ -8543,7 +8541,7 @@ function ProvisionsApp() {
               }));
               return (
                 <div key={it.catalog_item_id} style={{ marginBottom: "16px" }}>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14.1),
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                     fontWeight: 700, color: "#2C1A0E", marginBottom: "6px" }}>{it.name}</div>
                   <div style={{ display: "flex", gap: "6px", opacity: removing ? 0.4 : 1 }}>
                     {opts.map((o) => {
@@ -8555,7 +8553,7 @@ function ProvisionsApp() {
                           aria-pressed={on}
                           style={{
                             flex: 1, padding: "8px 4px", borderRadius: "999px", cursor: "pointer",
-                            fontFamily: "'Lato', sans-serif", fontSize: ts(11.8), fontWeight: 700,
+                            fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 700,
                             border: on ? "1.5px solid #A0724A" : "1.5px solid #E8D5B7",
                             background: on ? "#A0724A" : "transparent",
                             color: on ? "#FAF4EC" : "#8a7a60",
@@ -8573,7 +8571,7 @@ function ProvisionsApp() {
                       aria-pressed={removing}
                       style={{
                         background: "none", border: "none", padding: "2px 0", cursor: "pointer",
-                        fontFamily: "'Lato', sans-serif", fontSize: ts(10.9),
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(14),
                         fontWeight: removing ? 700 : 400,
                         color: removing ? "#b3261e" : "#9a8a78",
                         textDecoration: "underline", textUnderlineOffset: "2px",
@@ -8584,7 +8582,7 @@ function ProvisionsApp() {
               );
             })}
 
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(11.5),
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
               color: "#8a7a60", fontStyle: "italic", marginBottom: "12px", lineHeight: 1.5 }}>
               Including is just for this time — the ingredient stays on hand for next time.
               Removing takes it out of the meal for good.
@@ -8665,7 +8663,7 @@ function ProvisionsApp() {
               />
               {isSignedIn && !newItemName.trim() && (
                 addModalResetDone ? (
-                  <div style={{ fontSize: "12px", color: "#A0724A", fontStyle: "italic", marginTop: "6px" }}>
+                  <div style={{ fontSize: "12.5px", color: "#8A5F3A", fontStyle: "italic", marginTop: "6px" }}>
                     ✓ {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} items unhidden
                   </div>
                 ) : hiddenCatalogItems.some(h => h.category === newItemCategory) ? (
@@ -8675,7 +8673,7 @@ function ProvisionsApp() {
                       setAddModalResetDone(true);
                       setTimeout(() => setAddModalResetDone(false), 2000);
                     }}
-                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#A0724A", fontFamily: "'Lato', sans-serif", fontSize: "12px", padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block" }}
+                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block" }}
                   >
                     Unhide {hiddenCatalogItems.filter(h => h.category === newItemCategory).length} hidden {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} {hiddenCatalogItems.filter(h => h.category === newItemCategory).length === 1 ? "item" : "items"}
                   </button>
@@ -8877,7 +8875,7 @@ function ProvisionsApp() {
                     <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                   ))}
                 </select>
-                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "6px", fontStyle: "italic" }}>
+                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
                   Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
                 </p>
                 {renamingCategory && (
@@ -8917,7 +8915,7 @@ function ProvisionsApp() {
                     <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                   ))}
                 </select>
-                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "6px", fontStyle: "italic" }}>
+                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
                   Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
                 </p>
                 {deletingCategory && (
@@ -8950,7 +8948,7 @@ function ProvisionsApp() {
 
             {isSignedIn && (
               <div style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#A0724A", marginBottom: "8px" }}>Danger Zone</div>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "8px" }}>Danger Zone</div>
                 {!showResetConfirm ? (
                   <button
                     onClick={() => setShowResetConfirm(true)}
@@ -9114,19 +9112,19 @@ function ProvisionsApp() {
                   || user?.primaryEmailAddress?.emailAddress}
               </div>
             )}
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#A0724A", marginTop: "2px" }}>{user?.primaryEmailAddress?.emailAddress}</div>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "2px" }}>{user?.primaryEmailAddress?.emailAddress}</div>
               </div>
             </div>
 
             {/* Preferences */}
             <div style={{ padding: "14px 20px 8px" }}>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#A0724A", marginBottom: "12px" }}>Preferences</div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "12px" }}>Preferences</div>
 
               {/* Show prices toggle */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "12px", borderBottom: "0.5px solid #e8ddd0" }}>
                 <div>
                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>Show prices &amp; budget</div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "2px" }}>Display item prices and estimated total</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "2px" }}>Display item prices and estimated total</div>
                 </div>
                 <div
                   onClick={() => setShowPrices(p => !p)}
@@ -9140,19 +9138,19 @@ function ProvisionsApp() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "12px" }}>
                 <div>
                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>List text size</div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "2px" }}>Bigger text for the list, on this device</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "2px" }}>Bigger text for the list, on this device</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", border: "1px solid #E8D5B7", borderRadius: "7px", background: "#fff", padding: "5px 10px", flexShrink: 0 }}>
                   <button
                     onClick={() => setTextSizeIdx(i => Math.max(0, i - 1))}
                     disabled={textSizeIdx === 0}
-                    style={{ background: "none", border: "none", cursor: textSizeIdx === 0 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "0.78rem", color: textSizeIdx === 0 ? "#d8c8aa" : "#A0724A", lineHeight: 1, padding: 0 }}
+                    style={{ background: "none", border: "none", cursor: textSizeIdx === 0 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "0.78rem", color: textSizeIdx === 0 ? "#d8c8aa" : "#8A5F3A", lineHeight: 1, padding: 0 }}
                   >A</button>
-                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", textTransform: "uppercase", letterSpacing: "1.5px", color: "#A0724A", minWidth: "56px", textAlign: "center" }}>{TEXT_LABELS[textSizeIdx]}</span>
+                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", textTransform: "uppercase", letterSpacing: "1.5px", color: "#8A5F3A", minWidth: "56px", textAlign: "center" }}>{TEXT_LABELS[textSizeIdx]}</span>
                   <button
                     onClick={() => setTextSizeIdx(i => Math.min(TEXT_STEPS.length - 1, i + 1))}
                     disabled={textSizeIdx === TEXT_STEPS.length - 1}
-                    style={{ background: "none", border: "none", cursor: textSizeIdx === TEXT_STEPS.length - 1 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "1.05rem", color: textSizeIdx === TEXT_STEPS.length - 1 ? "#d8c8aa" : "#A0724A", lineHeight: 1, padding: 0 }}
+                    style={{ background: "none", border: "none", cursor: textSizeIdx === TEXT_STEPS.length - 1 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "1.05rem", color: textSizeIdx === TEXT_STEPS.length - 1 ? "#d8c8aa" : "#8A5F3A", lineHeight: 1, padding: 0 }}
                   >A</button>
                 </div>
               </div>
@@ -9244,13 +9242,13 @@ function ProvisionsApp() {
                 <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
                   <button
                     onClick={() => setWrapUpRollItems(new Set(pendingItems.map(i => i.name)))}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", color: "#A0724A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                   >
                     Select all
                   </button>
                   <button
                     onClick={() => setWrapUpRollItems(new Set())}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", color: "#A0724A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                   >
                     Clear all
                   </button>
