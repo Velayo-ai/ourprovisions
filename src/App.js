@@ -6037,7 +6037,7 @@ function ProvisionsApp() {
         }
         .helm-door { position: relative; flex: 1; min-width: 0; margin: 5px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
                      background: none; border: none; padding: 0; cursor: pointer; color: #C9A97A; border-radius: 22px;
-                     font-family: 'Lato', sans-serif; font-size: 0.58rem; letter-spacing: 1.2px; text-transform: uppercase;
+                     font-family: 'Lato', sans-serif; font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; /* chrome: fixed at 12px, never follows the knob (SPEC_global_text_size) */
                      transition: color .2s ease, background .2s ease, margin .2s ease; -webkit-tap-highlight-color: transparent; }
         .helm-door svg { width: 18px; height: 18px; display: block; transition: width .2s ease, height .2s ease; }
         .helm.compact .helm-door { margin: 4px 0; }
