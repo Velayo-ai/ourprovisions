@@ -2021,7 +2021,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         <div className="lib-create-t">Something new?</div>
         <div className="lib-create-s">Build your own, or let the Galley help.</div>
       </div>
-      <button type="button" className="lib-create outline" onClick={onCreate}><PlusGlyph />Create</button>
+      <button type="button" className="lib-create outline" aria-label="Create a new meal" onClick={onCreate}><PlusGlyph />New meal</button>
     </div>
   ) : (
     <div className="lib-create-tile gated">
