@@ -1721,6 +1721,41 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
   );
 }
 
+// PLAN'S TITLE SWITCH (SPEC_plan_week_meals_switch, D1–D3, D10). This Week and
+// Meals are two views of ONE activity, so both names are always on screen at
+// the size of a page title: two serif links, the active one ink with a 3px clay
+// underline the width of the word, the other muted. No segmented pill (it cost
+// ~60px and repeated the title), no back arrow, no breadcrumb, and Meals is not
+// a fifth door. Rendered ONCE for both views so they cannot drift. The row is
+// also the Helm's compact sentinel (controlRowRef) on both views. Real buttons
+// inside a labelled nav, aria-current on the active one; the vertical padding
+// (not smaller type) makes the ≥44px tap target.
+function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
+  const link = (key, label) => {
+    const on = screen === key;
+    return (
+      <button
+        type="button"
+        className={`plan-view${on ? " on" : ""}`}
+        aria-current={on ? "page" : undefined}
+        onClick={() => { if (!on) onSwitch(key); }}
+      >{label}</button>
+    );
+  };
+  return (
+    <div className={`plan-ctl${className ? ` ${className}` : ""}`} ref={rowRef}>
+      <div className="plan-ctl-text">
+        <nav className="plan-switch" aria-label="Plan views">
+          {link("board", "This Week")}
+          {link("library", "Meals")}
+        </nav>
+        {subtitle && <div className="plan-sub">{subtitle}</div>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
 // THE LIBRARY — "What sounds good?" (SPEC_meal_library_v1 + the v1.1 amendment).
 // Where you decide WHAT; This Week (the board) decides WHEN. A two-column card
 // grid: a coloured top (the first occasion word + the name; tone by dominant
@@ -5953,11 +5988,24 @@ function ProvisionsApp() {
         .control-row-end { height: 0; margin: 0; padding: 0; }
         /* ── Plan (SPEC_meal_planning_v2_pick_commit_cook.md): Meals → Board → List → Cook. TEAL = the household finished something —
            on this surface only Cooked it (then ✓ Cooked) and the stocked banner. Everything else is espresso (#6f5a45) or outline. ── */
-        .plan-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-        .plan-head-text { flex: 1; min-width: 0; }
-        .plan-title { font-family: 'Playfair Display', serif; font-size: 1.45rem; font-weight: 700; color: #2C1A0E; margin: 0; line-height: 1.1; }
-        .plan-sub { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; margin-top: 3px; }
-        .plan-meals { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 40px; padding: 0 16px; cursor: pointer;
+        /* ── Plan's title switch (SPEC_plan_week_meals_switch, D1–D3, D10): "This Week" · "Meals" ARE the page title, both always visible;
+           active = ink + 3px clay underline the width of the word, inactive = muted. The row is the Helm's compact sentinel on both views.
+           Spacing: banner → row 30px (the container's 24 + 6 here), title → subtitle 8px, then 18px to the first card / 20px to the search.
+           The add button is top-aligned with the title line, 44px tall. ── */
+        .plan-ctl { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 6px 0 20px; }
+        .plan-ctl.board { margin-bottom: 18px; }
+        .plan-ctl.board.with-hint { margin-bottom: 8px; }
+        .plan-ctl.meals { margin-bottom: 20px; }
+        .plan-ctl-text { flex: 1; min-width: 0; }
+        .plan-switch { display: flex; gap: 18px; }
+        /* 8px top + 5px bottom padding + the line + the underline ≈ 46px tap target; the negative top margin keeps the title's
+           visual top on the row's top edge so the add button aligns with the title line, not the padded box. */
+        .plan-view { border: none; background: none; padding: 8px 0 5px; margin: -8px 0 0; cursor: pointer; white-space: nowrap;
+                     font-family: 'Playfair Display', serif; font-size: 26px; font-weight: 700; line-height: 1.15; color: #8C7660;
+                     border-bottom: 3px solid transparent; }
+        .plan-view.on { color: #2A170C; border-bottom-color: #A0714A; cursor: default; }
+        .plan-sub { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; margin-top: 8px; }
+        .plan-meals { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 44px; padding: 0 18px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; white-space: nowrap; }
         /* "add to Shop →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
            hit box; the matching negative margins keep the line box exactly where it was. Not a bar, not teal. */
@@ -5967,8 +6015,6 @@ function ProvisionsApp() {
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
         /* Board head → first card: 20px. With the drag hint (2+ cards, no banner): 8px to the hint, 20px from the hint to the first card.
            The hint sits flush with "This Week" (no side margin). */
-        .plan-head.board-head { margin-bottom: 20px; }
-        .plan-head.board-head.with-hint { margin-bottom: 8px; }
         .plan-prompt { margin: 0 0 20px; font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; }
         .plan-banner { display: flex; align-items: center; gap: 12px; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
         .plan-banner.set { background: rgba(201,169,122,0.22); }
@@ -6072,7 +6118,7 @@ function ProvisionsApp() {
            chips use the filled-espresso on-state. Clay's 11.5px word is the known AA miss (tracked in LATER). */
         .lib-week { display: inline-flex; align-items: center; gap: 3px; min-height: 28px; margin-top: 2px; padding: 0; border: none; background: none; cursor: pointer;
                     font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 500; color: #6E5A4A; text-align: left; }
-        .lib-create { flex: none; height: 40px; padding: 0 16px; border-radius: 20px; cursor: pointer; white-space: nowrap;
+        .lib-create { flex: none; height: 44px; padding: 0 18px; border-radius: 22px; cursor: pointer; white-space: nowrap;
                       font-family: 'Lato', sans-serif; font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
         .lib-create.fill { border: none; background: #6f5a45; color: #FAF4EC; }
         .lib-create.outline { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
@@ -7674,38 +7720,39 @@ function ProvisionsApp() {
 
         {view === "plan" && planScreen === "board" && !signedOutWelcome && (
           <>
-            {/* THE BOARD (v2). Header follows the Browse/Shop pattern: title, the
-                counts line, and ONE control top-right — "+ Add a meal" (filled,
-                --op-add: deep sand = adding things) into the library. The header
-                is the door's control row, so it is the compact sentinel
+            {/* THE BOARD (v2) under the title switch (SPEC_plan_week_meals_switch):
+                "This Week" active, "Meals" one tap away, the subtitle carrying the
+                count AND the batch action ("4 nights · 2 meals to add to Shop →" —
+                see boardSubtitle), and ONE control top-right — the add button
+                (--op-add: deep sand = adding things) into the library. The switch
+                row is the door's control row, so it is the compact sentinel
                 (controlRowRef): when it scrolls off, the Helm compacts and its +
-                does the door's add — here, open the library (doorAdd.plan). The
-                subtitle carries the count AND the batch action ("4 nights · 2
-                meals to add to Shop →" — see boardSubtitle). Under the header, a
-                banner when the week is set or stocked, else (2+ cards) the drag
-                hint. No bar, no teal until the household has finished something.
-                Three states (PATCH_plan_tab_welcome): until this household's
-                meals and placements have loaded, the title alone; loaded with
-                nothing on the board, the welcome — title, no subtitle, no add
-                button, no foot; otherwise the working board. */}
-            <div className={`plan-head board-head${showDragHint ? " with-hint" : ""}`} ref={controlRowRef}>
-              <div className="plan-head-text">
-                <h2 className="plan-title">This Week</h2>
-                {boardReady && !showWelcome && (
-                  <div className="plan-sub">
-                    {boardSubtitle.head}{boardSubtitle.tail}
-                    {boardSubtitle.link > 0 && (isSignedIn ? (
-                      <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
-                        {lockingAll ? "adding…" : "add to Shop →"}
-                      </button>
-                    ) : "add to Shop")}
-                  </div>
-                )}
-              </div>
-              {boardReady && !showWelcome && (
+                does the door's add — here, open the library (doorAdd.plan). Under
+                the row, a banner when the week is set or stocked, else (2+ cards)
+                the drag hint. No bar, no teal until the household has finished
+                something. Three states (PATCH_plan_tab_welcome): until this
+                household's meals and placements have loaded, the switch alone;
+                loaded with nothing on the board, the welcome — switch, no
+                subtitle, no add button, no foot; otherwise the working board. */}
+            <PlanSwitch
+              screen="board"
+              onSwitch={setPlanScreen}
+              rowRef={controlRowRef}
+              className={`board${showDragHint ? " with-hint" : ""}`}
+              subtitle={boardReady && !showWelcome ? (
+                <>
+                  {boardSubtitle.head}{boardSubtitle.tail}
+                  {boardSubtitle.link > 0 && (isSignedIn ? (
+                    <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
+                      {lockingAll ? "adding…" : "add to Shop →"}
+                    </button>
+                  ) : "add to Shop")}
+                </>
+              ) : null}
+              action={boardReady && !showWelcome ? (
                 <button type="button" className="plan-meals" onClick={() => setPlanScreen("library")}>+ Add a meal</button>
-              )}
-            </div>
+              ) : null}
+            />
             {!boardReady ? null : showWelcome ? (
               <PlanWelcome firstMeal={!everCooked} onAdd={() => setPlanScreen("library")}>
                 {MEALS_ENABLED && isSignedIn && (
@@ -7769,31 +7816,33 @@ function ProvisionsApp() {
 
         {view === "plan" && planScreen === "library" && !signedOutWelcome && (
           <>
-            {/* THE LIBRARY — "What sounds good?" (v1 + v1.1). No back arrow: location
-                is the Helm's (PLAN lit); the way back to This Week is the week line
-                or PLAN itself. The week line counts OPEN kind='meal' placements —
-                boardStats.cards, the same set as the board's "N meals"; no-shop
-                nights do not count (build decision 2026-10-03, confirmed by the design
-                chat the same day: a dish made from leftovers is an ordinary meal and
-                counts like any other). Zero state says "No meals planned" — with only
-                held nights on the board, "Nothing planned" would be false. + Create opens the
-                existing New Meal sheet unchanged (signed in only: creating a meal
-                is an identity-requiring write). The head row stays the Helm's
-                compact sentinel (controlRowRef). */}
-            <div className="plan-head" ref={controlRowRef}>
-              <div className="plan-head-text">
-                <h2 className="plan-title">What sounds good?</h2>
-                <button type="button" className="lib-week" onClick={() => setPlanScreen("board")}>
-                  {boardStats.cards.length === 0
-                    ? "No meals planned yet this week"
-                    : `${boardStats.cards.length} ${boardStats.cards.length === 1 ? "meal" : "meals"} planned this week`}
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
-                </button>
-              </div>
-              {MEALS_ENABLED && isSignedIn && (
+            {/* THE LIBRARY under the title switch (SPEC_plan_week_meals_switch):
+                "Meals" active, "This Week" one tap away — the switch is the route
+                back; no back arrow (location is the Helm's, PLAN lit). The subtitle
+                is "What sounds good? · {N} meals" (D3) — the invitation plus the
+                library's size, N = the whole library (kind = 'meal'), never the
+                filtered result. The create button opens the existing New Meal
+                sheet unchanged (signed in only: creating a meal is an
+                identity-requiring write). The switch row is the Helm's compact
+                sentinel (controlRowRef). */}
+            <PlanSwitch
+              screen="library"
+              onSwitch={setPlanScreen}
+              rowRef={controlRowRef}
+              className="meals"
+              subtitle={<>What sounds good? · {libraryMeals.length} {libraryMeals.length === 1 ? "meal" : "meals"}</>}
+              action={MEALS_ENABLED && isSignedIn ? (
                 <button type="button" className="lib-create fill" aria-label="Create a meal" onClick={() => setMealSheet({ mode: "create", meal: null })}><PlusGlyph />Create</button>
-              )}
-            </div>
+              ) : null}
+            />
+            {/* The week line (v1.1 A5) — the switch now carries the route to This
+                Week; this line leaves in the next commit (D8). */}
+            <button type="button" className="lib-week" onClick={() => setPlanScreen("board")}>
+              {boardStats.cards.length === 0
+                ? "No meals planned yet this week"
+                : `${boardStats.cards.length} ${boardStats.cards.length === 1 ? "meal" : "meals"} planned this week`}
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
+            </button>
             <MealsLens
               meals={libraryMeals}
               loading={mealsLoading}
