@@ -45,10 +45,12 @@ Root cause: the **List text size** control reaches six list-row classes only. Ev
 | Body | Ingredient names, search input, row text | 14 px | 15 px | 1 |
 | Button | Plan pill, rail pills, "I have this", primary buttons | 13 px | 14 px | 0.8 |
 | Card title | Meal name on library card | 20 px | 20 px | 0.5 |
-| Sheet title | Meal name in sheet | 24 px | 24 px | 0.5 |
-| Page title | "What sounds good?" | 22 px | 22 px | 0.4 |
+| Sheet title | Sheet headings (`.modal h2`, every sheet) | 22.4 px | 22.4 px — **no size change (build decision 2026-10-04)**; one rule for all sheets | 0.5 |
+| Page title | The Plan title switch "This Week" · "Meals" (`SPEC_plan_week_meals_switch` D1) | 26 px | 26 px — **keep (build decision 2026-10-04)** | 0.4 |
 
 Wordmark stays fixed at its current size.
+
+**Known exception (build 2026-10-04, this build only):** tile ornaments under 10 px — the board's TO BUY chip (`.board-chip`), the Good-for ON CARD marker (`.gf-oncard`), the rail word UP NEXT (`.board-rail`), the welcome's ghost word and the board numeral — stay fixed (k 0). TO BUY and ON CARD carry state and are unreadable at 9 px; a board-tile redesign is the follow-up. The decorative ones are fine fixed. The From-chip monogram (`.lib-mini`) is fixed. Chrome 11 → 12 ships as its own commit so it can be reverted alone. `ts()` scaling applies to the Plan surfaces this build; the floor and the `#8A5F3A` swap apply app-wide to small text; the other sheets join the knob in a follow-up. `.modal-confirm` (white on `#A0724A`) also fails contrast at 14 px — a follow-up, not this build.
 
 ---
 
