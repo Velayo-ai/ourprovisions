@@ -1769,8 +1769,9 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
 // planning isn't finishing. "Planned" = an open placement (onBoardIds), so a
 // ✓ Cooked afterglow card reads Plan again. Favorites is OMITTED, not disabled:
 // no data exists yet and a greyed pill promises a table that hasn't been decided.
-// RUM: .lib-occ / .lib-fbtn / .lib-plan / .lib-create / .lib-show / .lib-clear /
-// .lib-week carry fixed copy only; the card body (meal name) and the From chips
+// RUM: .lib-occ / .lib-fbtn / .lib-plan / .lib-create / .lib-show / .lib-clear
+// (and the switch row's .plan-view / .plan-meals) carry fixed copy only; the
+// card body (meal name) and the From chips
 // (first names) are NOT allow-listed — keep names out of those classes.
 // OCCASIONS (061). Fixed display order for the rail and the Good-for chips:
 // Dinner first because most meals are dinners. The singular word is what the
@@ -1850,7 +1851,7 @@ function OccasionRail({ present, value, onChange }) {
 // the library can never disagree:
 //   none     → Plan (outline pill)            rows 1 and 6 — no open placement,
 //                                             or cooked this load (afterglow)
-//   planned  → ✓ Planned (sand pill, LIVE)    rows 2–3 — Plan is still the latest
+//   planned  → ✓ This week (sand pill, LIVE)  rows 2–3 — Plan is still the latest
 //                                             step; tapping UN-PLANS (skipMeal,
 //                                             the board's Remove path, no list
 //                                             links to zero). aria-label is fixed
@@ -1897,7 +1898,7 @@ function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
             disabled={busy}
             aria-label="Remove from this week"
             onClick={() => { if (!busy) onUnplan(meal.id); }}
-          ><CheckGlyph />Planned</button>
+          ><CheckGlyph />This week</button>
         ) : (
           <button
             type="button"
@@ -6116,8 +6117,6 @@ function ProvisionsApp() {
            below 340px. Card = coloured top (first occasion word + 20px serif name; tone = mealTone, the board's rule) over a
            white strip (count + the Plan pill). ZERO TEAL: Plan is espresso outline, ✓ Planned is sand/espresso, the rail and
            chips use the filled-espresso on-state. Clay's 11.5px word is the known AA miss (tracked in LATER). */
-        .lib-week { display: inline-flex; align-items: center; gap: 3px; min-height: 28px; margin-top: 2px; padding: 0; border: none; background: none; cursor: pointer;
-                    font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 500; color: #6E5A4A; text-align: left; }
         .lib-create { flex: none; height: 44px; padding: 0 18px; border-radius: 22px; cursor: pointer; white-space: nowrap;
                       font-family: 'Lato', sans-serif; font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
         .lib-create.fill { border: none; background: #6f5a45; color: #FAF4EC; }
@@ -7750,7 +7749,7 @@ function ProvisionsApp() {
                 </>
               ) : null}
               action={boardReady && !showWelcome ? (
-                <button type="button" className="plan-meals" onClick={() => setPlanScreen("library")}>+ Add a meal</button>
+                <button type="button" className="plan-meals" aria-label="Add a meal to this week" onClick={() => setPlanScreen("library")}>+ Add</button>
               ) : null}
             />
             {!boardReady ? null : showWelcome ? (
@@ -7818,7 +7817,9 @@ function ProvisionsApp() {
           <>
             {/* THE LIBRARY under the title switch (SPEC_plan_week_meals_switch):
                 "Meals" active, "This Week" one tap away — the switch is the route
-                back; no back arrow (location is the Helm's, PLAN lit). The subtitle
+                back (the v1.1 week line is gone, D8); no back arrow (location is the
+                Helm's, PLAN lit). + New (D4) opens the New Meal sheet; Plan on a card
+                never leaves Meals (D6) — add two or three, then tap This Week. The subtitle
                 is "What sounds good? · {N} meals" (D3) — the invitation plus the
                 library's size, N = the whole library (kind = 'meal'), never the
                 filtered result. The create button opens the existing New Meal
@@ -7832,17 +7833,9 @@ function ProvisionsApp() {
               className="meals"
               subtitle={<>What sounds good? · {libraryMeals.length} {libraryMeals.length === 1 ? "meal" : "meals"}</>}
               action={MEALS_ENABLED && isSignedIn ? (
-                <button type="button" className="lib-create fill" aria-label="Create a meal" onClick={() => setMealSheet({ mode: "create", meal: null })}><PlusGlyph />Create</button>
+                <button type="button" className="lib-create fill" aria-label="Create a new meal" onClick={() => setMealSheet({ mode: "create", meal: null })}><PlusGlyph />New</button>
               ) : null}
             />
-            {/* The week line (v1.1 A5) — the switch now carries the route to This
-                Week; this line leaves in the next commit (D8). */}
-            <button type="button" className="lib-week" onClick={() => setPlanScreen("board")}>
-              {boardStats.cards.length === 0
-                ? "No meals planned yet this week"
-                : `${boardStats.cards.length} ${boardStats.cards.length === 1 ? "meal" : "meals"} planned this week`}
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
-            </button>
             <MealsLens
               meals={libraryMeals}
               loading={mealsLoading}
