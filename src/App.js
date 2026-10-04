@@ -2711,7 +2711,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   borderRadius: "8px", marginBottom: "6px",
                   background: r.on_hand ? "rgba(250,244,236,0.55)" : "#FAF4EC",
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  {/* flexWrap (SPEC_global_text_size decision 9): at XL / XXL the control drops below the name instead of squeezing it. */}
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px" }}>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
                     gap: "7px", flexWrap: "wrap" }}>
                     <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
@@ -6204,7 +6205,11 @@ function ProvisionsApp() {
                     padding: 11px 12px 14px; border: none; cursor: pointer; font: inherit; }
         .lib-gocc { display: block; min-height: 14px; line-height: 14px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
         .lib-gname { display: block; font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
-        .lib-gstrip { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 8px 8px 12px; }
+        /* The strip WRAPS rather than shrinks (SPEC_global_text_size decision 9): the count keeps its natural width and the pill
+           drops below it when the two no longer fit — flex wraps before it shrinks, so the count is never squeezed into an ellipsis
+           at Large / XL / XXL (or at Default on a long count). Row gap 6px when stacked. */
+        .lib-gstrip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 8px 8px 12px; }
+        .lib-gcount { flex: 0 1 auto; max-width: 100%; }
         /* The count stays on ONE line (walk 2026-10-03: "11 ingredients" wrapped beside ✓ Planned in the 430px column).
            Measured in headless Edge with the Arial fallback (Lato is not web-loaded): 430px needs 168 of 171; under 400px
            the strip, count and ✓ Planned pill trim a little so 390px needs 152 of 155. The unplanned Plan pill has 30px of
@@ -6668,7 +6673,11 @@ function ProvisionsApp() {
         .modal-input-inner { flex: 1; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: none; padding: 9px 12px; color: #2C1A0E; background: transparent; outline: none; }
         .modal-select { width: 100%; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: 1.5px solid #E8D5B7; border-radius: 6px; padding: 9px 12px; color: #2C1A0E; background: #F5EDE0; outline: none; cursor: pointer; }
         .modal-error { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #e05c5c; margin-bottom: 12px; }
-        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+        /* Pinned footer (SPEC_global_text_size decision 9): the meal sheet's .modal scrolls (88vh), so its actions stick to the
+           bottom edge and the list scrolls beneath; a cream fill and a soft top shadow keep the rows from showing through. Inert
+           on sheets that don't scroll. */
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; position: sticky; bottom: -28px; padding: 10px 0 28px; margin-bottom: -28px;
+                         background: #FAF4EC; box-shadow: 0 -10px 10px -10px rgba(44,26,14,0.18); z-index: 1; }
         .modal-actions-spaced { display: flex; gap: 10px; justify-content: space-between; align-items: center; margin-top: 8px; }
         .modal-cancel { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); padding: 9px 18px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
         .modal-cancel:hover { border-color: #2C1A0E; color: #2C1A0E; }
