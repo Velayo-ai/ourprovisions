@@ -4289,6 +4289,14 @@ function ProvisionsApp() {
   //               by replaceState: a route-change span, no history entry.
   // The RUM agent emits routeChange on both hashchange and replaceState, so
   // every door change is a page view. Sheets and other modals write no hash.
+  // The two scroll roots: on phones the window scrolls; inside the desktop phone
+  // frame the .phone-scroll column scrolls and the document does not. Scroll
+  // both — the one that isn't scrolling is a no-op.
+  const scrollToTop = () => {
+    window.scrollTo(0, 0);
+    const col = document.querySelector(".phone-scroll");
+    if (col) col.scrollTop = 0;
+  };
   const goToDoor = useCallback((v) => {
     // D4 (SPEC_auth_state_ui_gating): without a live session, every door but Home
     // opens the sign-in modal instead of switching view — no household-shaped
@@ -4297,10 +4305,19 @@ function ProvisionsApp() {
     // to show.) A tap is a landing decision (§Landing).
     if (isLoaded && !sessionLive && v !== "home") { openSignIn(); return; }
     setLandingDecided(true);
+    // D12 (SPEC_plan_week_meals_switch): tapping PLAN while already on Plan
+    // returns to This Week, scrolled to the top — the way back when the switch
+    // row is off-screen and the Helm is compact (the iOS re-tap convention). A
+    // SAME-door tap only: coming from another door is left as it was — leaving
+    // Plan already resets planScreen to the board (the view effect), and Home's
+    // "Add a meal" deliberately sets the library before calling goToDoor("plan"),
+    // a route a cross-door reset here would break. Before this, a same-door tap
+    // did nothing (same view, hash already equal).
+    if (v === "plan" && view === "plan") { setPlanScreen("board"); scrollToTop(); }
     setView(v);
     const h = hashForView(v);
     if (h && window.location.hash !== h) window.location.hash = h;
-  }, [isLoaded, sessionLive, openSignIn]);
+  }, [isLoaded, sessionLive, openSignIn, view]);
   // Not live — signed_out, session_lost, AND booting (Clerk still loading) —
   // every door shows the Home welcome variant, never the signed-in shell
   // (Signed-out entry cleanup, 2026-10-02: past the splash's 5 s failsafe a
