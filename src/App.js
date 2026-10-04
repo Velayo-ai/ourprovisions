@@ -1810,17 +1810,30 @@ function OccasionRail({ present, value, onChange }) {
 }
 
 // One card. Two real buttons, never nested: the coloured top ("Open {meal}")
-// and the pill ("Plan {meal}" / disabled "Planned for this week"). The occasion
-// row keeps its height when untagged so names align across a row; the name
-// wraps and is never truncated to one line. The on-hand suffix lives in the
-// meal sheet, not here (the card is too narrow and it is subordinate).
+// and the pill. The pill's slot follows the meal's STAGE (SPEC_meal_library_unplan,
+// "one step back, never two"), read from boardCardState so This Week, Home and
+// the library can never disagree:
+//   none     → Plan (outline pill)            rows 1 and 6 — no open placement,
+//                                             or cooked this load (afterglow)
+//   planned  → ✓ Planned (sand pill, LIVE)    rows 2–3 — Plan is still the latest
+//                                             step; tapping UN-PLANS (skipMeal,
+//                                             the board's Remove path, no list
+//                                             links to zero). aria-label is fixed
+//                                             copy, never the meal name.
+//   toBuy    → "To buy" (text, inert, no ✓)   row 4 — the board's chip word;
+//                                             changes happen on This Week
+//   ready    → "✓ Ready" (text, inert)        row 5
+// Pill = action, text = status: the shape says whether it does something. The
+// occasion row keeps its height when untagged so names align across a row; the
+// name wraps and is never truncated to one line. The on-hand suffix lives in
+// the meal sheet, not here (the card is too narrow and it is subordinate).
 const CheckGlyph = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
 );
 const PlusGlyph = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
 );
-function LibraryCard({ meal, planned, busy, canPlan, onPlan, onOpen }) {
+function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
   const tone = mealTone(meal);
   const count = (meal.meal_ingredients || []).length;
   const first = (meal.occasion || [])[0];
@@ -1838,10 +1851,18 @@ function LibraryCard({ meal, planned, busy, canPlan, onPlan, onOpen }) {
       </button>
       <div className="lib-gstrip">
         <span className="lib-gcount">{count} {count === 1 ? "ingredient" : "ingredients"}</span>
-        {canPlan && (planned ? (
-          <button type="button" className="lib-plan planned" disabled aria-label="Planned for this week">
-            <CheckGlyph />Planned
-          </button>
+        {canPlan && (stage === "toBuy" ? (
+          <span className="lib-stage">To buy</span>
+        ) : stage === "ready" ? (
+          <span className="lib-stage"><CheckGlyph />Ready</span>
+        ) : stage === "planned" ? (
+          <button
+            type="button"
+            className="lib-plan planned"
+            disabled={busy}
+            aria-label="Remove from this week"
+            onClick={() => { if (!busy) onUnplan(meal.id); }}
+          ><CheckGlyph />Planned</button>
         ) : (
           <button
             type="button"
@@ -1906,7 +1927,7 @@ function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onShow, on
   );
 }
 
-function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, isSignedIn, onBoardIds, madeBefore, householdId, members }) {
+function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members }) {
   const [query, setQuery] = useState("");
   const [occ, setOcc] = useState("all");
   const [filters, setFilters] = useState(NO_LIB_FILTERS);
@@ -2057,10 +2078,11 @@ function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, i
           <LibraryCard
             key={m.id}
             meal={m}
-            planned={!!onBoardIds?.has(m.id)}
+            stage={stages?.[m.id] || "none"}
             busy={planningMealId === m.id}
             canPlan={!!(isSignedIn && onPlan)}
             onPlan={onPlan}
+            onUnplan={onUnplan}
             onOpen={(meal) => onEdit && onEdit(meal)}
           />
         ))}
@@ -3916,6 +3938,35 @@ function ProvisionsApp() {
     }
   }, [planMeal, showToast, mealById]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
+  // The library's stage per meal (SPEC_meal_library_unplan D4): the board's own
+  // derivation, so the pill can never disagree with This Week or Home. A meal
+  // outside onBoardIds — never planned, removed, or cooked (afterglow included:
+  // afterglowIds is not an open placement) — is "none" and offers Plan.
+  const libraryStages = useMemo(() => {
+    const map = {};
+    libraryMeals.forEach((m) => {
+      if (!onBoardIds.has(m.id)) { map[m.id] = "none"; return; }
+      const st = boardCardState(m, { placements, rows: mealRowCounts, mealById, cookedIds: afterglowIds });
+      map[m.id] = st.ready ? "ready" : st.toBuy ? "toBuy" : "planned";
+    });
+    return map;
+  }, [libraryMeals, onBoardIds, placements, mealRowCounts, mealById, afterglowIds]);
+  // Un-plan (the library's one step back): the board's Remove path for a
+  // PLANNED card, unchanged — skipMeal with zeroList false, because in the
+  // un-plannable window nothing is on the list to zero (Step 0, 2026-10-04:
+  // every reader of skipped_at is an "is it open?" predicate; none reads a skip
+  // as a preference; the stamp is cleared by the next re-plan). closePlacement
+  // is optimistic, so the pill, the week line and the queue move in the same
+  // render as the tap; a failure reloads the rows and the card comes back.
+  const handleUnplanMeal = useCallback(async (mealId) => {
+    setPlanningMealId(mealId);
+    try {
+      const ok = await skipMeal(mealId, { zeroList: false });
+      if (ok) showToast(`${mealById[mealId]?.name || "Meal"} removed from your week`);
+    } finally {
+      setPlanningMealId(null);
+    }
+  }, [skipMeal, showToast, mealById]);
 
   // No-shop cards (055/056/057): Leftovers / Eating out / Something else. The
   // foot buttons open a one-field sheet — leftovers: a multi-select (no
@@ -6059,11 +6110,16 @@ function ProvisionsApp() {
         .lib-plan { flex: none; height: 34px; padding: 0 14px; border-radius: 17px; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
                     font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
         .lib-plan:disabled { cursor: default; opacity: 0.6; }
-        .lib-plan.planned { border-color: transparent; background: #EFE6D6; color: #3A2A20; font-weight: 600; padding: 0 9px; opacity: 1; }
+        .lib-plan.planned { border-color: transparent; background: #EFE6D6; color: #3A2A20; font-weight: 600; padding: 0 9px; opacity: 1; cursor: pointer; }
+        .lib-plan.planned:disabled { cursor: default; opacity: 0.6; }
+        /* Stage label (un-plan rows 4–5): text, not a control — no border, no fill, no hover, no focus ring; the pill's height so the strip doesn't jump. */
+        .lib-stage { flex: none; height: 34px; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+                     font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 600; color: #6f5a45; }
         @media (max-width: 399px) {
           .lib-gstrip { padding: 8px 6px 8px 10px; gap: 4px; }
           .lib-gcount { font-size: 11.5px; }
           .lib-plan.planned { padding: 0 6px; font-size: 12px; }
+          .lib-stage { font-size: 12px; }
         }
         .lib-create-tile { margin-top: 16px; border: 1.5px dashed #C9A97A; border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 14px; }
         .lib-create-tile.gated { border-color: #C9A97A; opacity: 0.8; }
@@ -7742,11 +7798,12 @@ function ProvisionsApp() {
               meals={libraryMeals}
               loading={mealsLoading}
               onPlan={handlePlanMeal}
+              onUnplan={handleUnplanMeal}
               planningMealId={planningMealId}
               onCreate={() => setMealSheet({ mode: "create", meal: null })}
               isSignedIn={isSignedIn}
               onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
-              onBoardIds={onBoardIds}
+              stages={libraryStages}
               madeBefore={madeBefore}
               householdId={household?.id}
               members={householdMembers}
