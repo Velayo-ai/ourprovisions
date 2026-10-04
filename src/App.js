@@ -9143,11 +9143,11 @@ function ProvisionsApp() {
                 </div>
               </div>
 
-              {/* List text size stepper */}
+              {/* Text size stepper (SPEC_global_text_size decision 6: one knob, every surface) */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "12px" }}>
                 <div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>List text size</div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "2px" }}>Bigger text for the list, on this device</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>Text size</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "2px" }}>Bigger text across the app, on this device</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", border: "1px solid #E8D5B7", borderRadius: "7px", background: "#fff", padding: "5px 10px", flexShrink: 0 }}>
                   <button
