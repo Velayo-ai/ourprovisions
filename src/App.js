@@ -5358,18 +5358,19 @@ function ProvisionsApp() {
     setSearchQuery("");
   };
   // D11 — the + does the DOOR's add. Shop → the Add sheet (add-from-the-aisle,
-  // "added here"); Browse → the same sheet, plain; Plan → what the header's own
-  // + does on the screen you are on: from the board, open the library (v2 —
-  // the header's "+ Add a meal"); inside the library, New meal (the create sheet,
-  // which like its library row needs an account); Home → absent, so no + ever
-  // renders there (D12). The + never becomes a menu.
+  // "added here"); Browse → the same sheet, plain; Plan → what the switch row's
+  // own button does on the view you are on (SPEC_plan_week_meals_switch D11:
+  // one rule everywhere — the pill's + does what the header button above it
+  // did): on This Week, "+ Add" → Meals; on Meals, "+ New" → the New Meal sheet
+  // (signed in only, like the button). The labels are the buttons' aria-labels.
+  // Home → absent, so no + ever renders there (D12). The + never becomes a menu.
   const doorAdd = {
     list:  { label: "Add something", run: openAddSheet },
     input: { label: "Add to your list", run: openAddSheet },
     ...(MEALS_ENABLED
       ? (planScreen === "library"
-        ? (isSignedIn ? { plan: { label: "New meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {})
-        : { plan: { label: "Add a meal", run: () => setPlanScreen("library") } })
+        ? (isSignedIn ? { plan: { label: "Create a new meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {})
+        : { plan: { label: "Add a meal to this week", run: () => setPlanScreen("library") } })
       : {}),
   };
   // "added here" and the added_in_store event are Shop semantics: the same sheet
