@@ -1,3 +1,5 @@
+> **Superseded in part 2026-10-04 by `SPEC_plan_week_meals_switch.md`:** the head row (A3/A4), the week line (A5), the "✓ Planned" pill copy (A1 → "✓ This week", live for un-plan) and "+ Create" (→ "+ New"). The toast (A7), the Plan-stays-on-Meals rule (A2/A6), the row gap (A9) and no-photos (A10) stand. This file was folded into `SPEC_meal_library_v1.md` on 2026-10-03 and retired; the folded rows are v1 decisions 15–18.
+
 # SPEC AMENDMENT — Meal Library v1 → v1.1: "What sounds good?" header, Plan label, quieter toast
 
 **Scope:** OurProvisions
