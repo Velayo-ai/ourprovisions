@@ -1721,6 +1721,31 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
   );
 }
 
+// SHEET CLOSE (2026-10-04, found with VoiceOver on the dev walk: the Profile
+// sheet could not be closed). There is no shared sheet component — every modal
+// is an inline `.modal-overlay > .modal` pair, and the Profile sheet is a bespoke
+// bottom sheet — so the shared level is this button plus the dialog attributes
+// on each container. Rules: a real <button>, 44px target, aria-label "Close",
+// focused on open so it is the first VoiceOver stop (a button takes focus
+// without raising the keyboard — the no-autoFocus rule is about inputs), and on
+// unmount focus returns to whatever had it when the sheet opened. Backdrop taps
+// and the existing Cancel buttons stay for sighted users.
+function SheetClose({ onClose, disabled = false, label = "Close" }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const opener = document.activeElement;
+    if (ref.current) ref.current.focus({ preventScroll: true });
+    return () => {
+      if (opener && typeof opener.focus === "function" && document.contains(opener)) opener.focus({ preventScroll: true });
+    };
+  }, []);
+  return (
+    <button ref={ref} type="button" className="sheet-close" aria-label={label} disabled={disabled} onClick={onClose}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+    </button>
+  );
+}
+
 // PLAN'S TITLE SWITCH (SPEC_plan_week_meals_switch, D1–D3, D10). This Week and
 // Meals are two views of ONE activity, so both names are always on screen at
 // the size of a page title: two serif links, the active one ink with a 3px clay
@@ -1925,7 +1950,8 @@ function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onShow, on
   const n = countFor(draft);
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" role="dialog" aria-label="Filter meals" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Filter meals" onClick={(e) => e.stopPropagation()}>
+        <SheetClose onClose={onClose} />
         <h2>Filter meals</h2>
         <div className="lib-sheet-lbl">From</div>
         {fromMembers.length > 0 && (
@@ -2621,7 +2647,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     // lands on the overlay as a click, and one of those used to throw away the whole
     // draft with no confirmation. The overlay is scenery now.
     <div className="modal-overlay">
-      <div className="modal" style={{ maxHeight: "88vh", overflowY: "auto" }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={isEdit ? "Edit meal" : "New meal"} style={{ maxHeight: "88vh", overflowY: "auto" }}>
+        <SheetClose onClose={onCancel} disabled={saving || deleting} />
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
 
         <div className="modal-field" style={aiDim}>
@@ -6611,8 +6638,14 @@ function ProvisionsApp() {
 
         /* Modals */
         .modal-overlay { position: fixed; inset: 0; background: rgba(44,26,14,0.55); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
-        .modal { background: #FAF4EC; border-radius: 12px; padding: 28px 24px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-        .modal h2 { font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
+        .modal { position: relative; background: #FAF4EC; border-radius: 12px; padding: 28px 24px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        .modal h2 { font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: #2C1A0E; margin-bottom: 8px; padding-right: 40px; }
+        /* Every sheet's Close (SheetClose): 44px target, top-right, the first VoiceOver stop. Backdrop + Cancel remain for sighted users. */
+        .sheet-close { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border-radius: 50%; border: none; background: transparent; color: #8a7a60; cursor: pointer;
+                       display: flex; align-items: center; justify-content: center; padding: 0; z-index: 1; }
+        .sheet-close:hover { background: rgba(44,26,14,0.06); color: #2C1A0E; }
+        .sheet-close:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
+        .sheet-close:disabled { opacity: 0.4; cursor: default; }
         .modal-subtitle { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 20px; }
         .modal-field { margin-bottom: 16px; }
         .modal-label { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; margin-bottom: 6px; display: block; }
@@ -8406,7 +8439,8 @@ function ProvisionsApp() {
       {/* No-shop sheet (v2, 055) — one optional field, then "Hold the night". */}
       {MEALS_ENABLED && noShopSheet && (
         <div className="modal-overlay" onClick={() => { if (!noShopBusy) setNoShopSheet(null); }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label={NO_SHOP_LABELS[noShopSheet.kind] || "Something else"} onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => { if (!noShopBusy) setNoShopSheet(null); }} disabled={noShopBusy} />
             <h2>{NO_SHOP_LABELS[noShopSheet.kind] || "Something else"}</h2>
             <div className="noshop-sub">Holds the night on the board. Nothing goes on your list.</div>
             {noShopSheet.kind === "leftovers" ? (
@@ -8468,7 +8502,8 @@ function ProvisionsApp() {
           friction without a safety benefit (decided in-spec). */}
       {onHandPrompt && (
         <div className="modal-overlay" onClick={() => setOnHandPrompt(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Already on hand" onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => setOnHandPrompt(null)} />
             <h2>Already on hand</h2>
             <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
               color: "#5c4a36", lineHeight: 1.5, marginBottom: "14px" }}>
@@ -8577,7 +8612,8 @@ function ProvisionsApp() {
       {/* Add Item Modal */}
       {showAddModal && (
         <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Add new item" onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => setShowAddModal(false)} />
             <h2>Add New Item</h2>
             <div className="modal-field">
               <label className="modal-label">Item Name</label>
@@ -8649,7 +8685,8 @@ function ProvisionsApp() {
       {/* Budget Goal Modal */}
       {showBudgetModal && (
         <div className="modal-overlay" onClick={() => setShowBudgetModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Set budget goal" onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => setShowBudgetModal(false)} />
             <h2>Set Budget Goal</h2>
             <p className="modal-subtitle">Get alerts when your cart is approaching or over your limit.</p>
             <div className="modal-field">
@@ -8680,7 +8717,8 @@ function ProvisionsApp() {
 
       {removeConfirmItem && (
         <div className="modal-overlay" onClick={() => setRemoveConfirmItem(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Remove from list?" onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => setRemoveConfirmItem(null)} />
             <h2>Remove from list?</h2>
             <p className="modal-subtitle">
               "{removeConfirmItem.name}" was added by {removeConfirmItem.addedByName}. Removing it takes it off the shared list for everyone.
@@ -8704,7 +8742,8 @@ function ProvisionsApp() {
       {/* Edit Item Modal */}
       {editModalItem && (
         <div className="modal-overlay" onClick={() => setEditModalItem(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Edit item" onClick={e => e.stopPropagation()}>
+            <SheetClose onClose={() => setEditModalItem(null)} />
             <h2>Edit Item</h2>
 
             {editModalItem.isCustom && (
@@ -8789,7 +8828,8 @@ function ProvisionsApp() {
       {/* Manage Categories Modal */}
       {showManageCategoriesModal && (
         <div className="modal-overlay" onClick={() => setShowManageCategoriesModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Manage categories" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
+            <SheetClose onClose={() => setShowManageCategoriesModal(false)} />
             <h2>Manage Categories</h2>
 
             {/* Create */}
@@ -8999,9 +9039,14 @@ function ProvisionsApp() {
           onClick={() => setShowProfileSheet(false)}
         >
           <div
-            style={{ background: "#FDF8F2", borderRadius: "20px 20px 0 0", width: "100%", paddingBottom: "32px" }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Account and preferences"
+            style={{ position: "relative", background: "#FDF8F2", borderRadius: "20px 20px 0 0", width: "100%", paddingBottom: "32px" }}
             onClick={e => e.stopPropagation()}
           >
+            {/* Close — the one way out VoiceOver can reach (the backdrop is a plain div). */}
+            <SheetClose onClose={() => setShowProfileSheet(false)} />
             {/* Handle */}
             <div style={{ width: "36px", height: "4px", background: "#c8b89a", borderRadius: "2px", margin: "10px auto 0" }} />
 
@@ -9120,7 +9165,8 @@ function ProvisionsApp() {
 
       {showWrapUpModal && (
         <div className="modal-overlay" onClick={() => !wrappingUp && closeWrapUp()}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "360px" }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Wrap up this trip" onClick={e => e.stopPropagation()} style={{ maxWidth: "360px" }}>
+            <SheetClose onClose={closeWrapUp} disabled={wrappingUp} />
 
             {/* Header */}
             <div style={{ marginBottom: "16px" }}>
@@ -9249,7 +9295,8 @@ function ProvisionsApp() {
         const dot = <>&nbsp;&nbsp;&middot;&nbsp;&nbsp;</>;
         return (
           <div className="modal-overlay" onClick={dismissTripSummary}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "340px" }}>
+            <div className="modal" role="dialog" aria-modal="true" aria-label="Trip wrapped" onClick={e => e.stopPropagation()} style={{ maxWidth: "340px" }}>
+              <SheetClose onClose={dismissTripSummary} />
               <div className="all-done" style={{ padding: "4px 0 0" }}>
                 <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
                 <h2>Trip wrapped.</h2>
