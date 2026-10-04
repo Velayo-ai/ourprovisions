@@ -32,13 +32,13 @@ const CHROME_ALLOW_LIST = [
   '.board-cook',     // Plan board "Cooked it"
   '.board-more',     // Plan board ⋯ menu trigger
   '.plan-addall',    // Plan header "+ Add N to Shop"
-  '.plan-meals',     // Plan header "+ Add a meal" → library
+  '.plan-meals',     // Plan (This Week) switch row "+ Add" → Meals (SPEC_plan_week_meals_switch D4)
+  '.plan-view',      // Plan title switch links: "This Week" / "Meals" (D1; fixed copy)
   '.plan-noshop',    // Hold a night: "Leftovers" / "Eating out" / "Something else" (board foot + welcome)
   '.lib-occ',        // Library occasion rail pills: All / Dinner / Breakfast / … (Meal Library v1)
   '.lib-fbtn',       // Library Filter button (icon only)
-  '.lib-plan',       // Library card pill: "Plan" / "Planned" — fixed copy; the meal name is in the SIBLING card-body button, never here
-  '.lib-create',     // Library "+ Create" (head row and the Create tile)
-  '.lib-week',       // Library week line: "{N} meals planned this week" / "No meals planned yet this week"
+  '.lib-plan',       // Library card pill: "Plan" / "This week" — fixed copy (a tap on "This week" un-plans); the meal name is in the SIBLING card-body button, never here
+  '.lib-create',     // Library "+ New" (switch row) and "+ Create" (the coaching tile)
   '.lib-show',       // Library filter sheet: "Show N meals"
   '.lib-clear',      // Library filter sheet: "Clear"
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
