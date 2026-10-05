@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-10-05] — [OurProvisions] — Second SESSION END: the Plan-switch design chat's handoff merged — switch walk 12/12 incl. VoiceOver (as reported), the swipe "regression" corrected, sheet-audit item queued
+**Goal:** Consume a second design handoff that arrived after the first pass (from the Plan title-switch chat, the 2026-10-04 work): fold its design rationale and new facts into the record without duplicating the 10-04 entry. No code this pass.
+**Completed:**
+- **Recorded the switch's design rationale** (design chat): the cause was the library's only route back ("{N} meals planned this week ›") reading as a footnote, so the library felt like it *was* Plan; three directions mocked (segmented toggle, week card on the library, title-as-switch), the toggle rejected (~60 px, repeated the title); verbs and copy locked (+ Add vs + New, "✓ This week", "What sounds good? · {N} meals", no back arrow or breadcrumb, Meals not a fifth door); the switch tied to the Helm. Spec and mockup were filed and built 10-04 (`730acdd` → `3baa071`).
+- **New fact, as reported by the design chat:** the switch's **12 verification steps all PASS on Dan's phone, VoiceOver included** — step 12 was owed in the 10-04 entry (addendum added there). The coaching tile "+ New meal" landed (`a4a1a17`).
+- **Corrected the handoff's framing of the Profile sheet:** it calls swipe-down a regression from the X (`c0ab68b`) and says the Shop Add sheet still swipes. Neither holds — no sheet ever had a swipe handler (established this morning, `9c0e3d5`); the gesture is now built on the Profile sheet via `SheetPanel` + `useSheetDrag`, phone walk owed. The handoff's "does the profile sheet use the shared sheet component?" is answered: there was none; `SheetPanel` is the first, and the Profile sheet is its first user.
+- **Decisions:** two new rows (planning on Meals never navigates away; the switch's distinct-verb ruling as the origin of the Add/New rule). The other five were already in the log from 10-04 (title is the switch; "✓ This week" stays live; PLAN door landing; no back arrow / not a fifth door; every sheet closable by assistive tech).
+- **Roadmap moves applied:** NEXT gains the P2 a11y item "every sheet onto `SheetPanel`" (the X / dialog / aria / focus-return half is already done for all twelve by `c0ab68b`); the switch stays in NOW/NEXT until prod (not DONE); the amendment spec in `retired/` already carries the superseded note from 10-04 — no spec content touched.
+- **Architecture:** the handoff's Plan-surfaces block was already recorded 10-04 (the Helm section's D10–D12 text and the view-effect landing rule); one new design principle added — *a sheet must be closable by something you can see and select*.
+**Unfinished:**
+- Everything in the first 2026-10-05 entry stands: real trip with the Wrap Up bar, the Profile-sheet swipe walk, the Text size + SheetClose walks, then promotions (allow-list 29 to prove; 061 first for the library set).
+- **The handoff's promotion gate is honoured:** the Plan switch ships with the Profile-sheet fix, never without it — "don't ship the regression alongside it" becomes "ship the built gesture with it".
+- Copy-pass candidate carried from the handoff: two "Plan"s on one screen (card button vs Helm door) — revisit only if it trips someone.
+- **Both 2026-10-05 docs commits are local-only on dev** and ride the next `git push origin dev`.
+**Next session:**
+SESSION START
+Goal: Unchanged from the first 2026-10-05 entry — the Wrap Up bar on a real trip, the Profile-sheet swipe walk (plus Text size and SheetClose), the progress-line decision, then the promotions; the Plan switch rides the same promotion as the Profile-sheet gesture.
+State: Dev tip `9c0e3d5` + two local docs commits. Switch walked 12/12 on dev (VoiceOver included, per the design chat). Prod `ef4b802`.
+Done when: as the first 2026-10-05 entry, plus a prod re-walk of switch steps 1, 2, 5 and 9a after promotion.
+**Files updated:** Docs only (this commit): `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** None.
+
 ### [2026-10-05] — [OurProvisions] — Add/New button pass + the Wrap Up bar that earns its teal + Profile-sheet swipe-down, all BUILT ON DEV; real trip and the swipe walk owed
 **Goal:** Make the add actions and Wrap Up consistent across Shop, Plan and Browse after phone testing surfaced four different add buttons and "Add" meaning two things on Browse; then fix the Profile sheet's swipe-down. (Design chat: the audit, the Add/New rule, the vocabulary, the empty-state pattern, "teal = celebrate" and the Wrap Up bar mockup. Claude Code: three builds, every bundle proof, the phone-width harness, the swipe archaeology and tests. Dan: the phone checks on dev. Morning, machine = desktop.)
 **Completed:**
@@ -51,6 +73,7 @@ Done when: trip findings are captured and the progress-line decision is a DECISI
 **DB changes:** None.
 
 ### [2026-10-04] — [OurProvisions] — Plan title switch BUILT ON DEV and WALKED; every sheet gets a Close (VoiceOver); beta feedback → one global Text size BUILT ON DEV, phone walk owed
+> **Addendum 2026-10-05:** the Plan-switch design chat's handoff reports the walk's step 12 (VoiceOver) PASS on Dan's phone — the switch is 12/12 on dev. The "Profile sheet swipe-down regression" it names was not a regression: no sheet ever had the gesture (see the 2026-10-05 entries); it is now built (`9c0e3d5`), walk owed.
 **Goal:** Build `SPEC_plan_week_meals_switch.md` (This Week · Meals as the page title) and walk it; fix the VoiceOver trap found on the walk; then turn demo-day beta feedback into one global Text size control and take it from design to a dev build ready for a phone walkthrough. (Design chat: the switch spec and its 9b ruling, the text-size design and canvas, five inventory rulings, the recipe-import direction. Claude Code: three builds, the inventory, every bundle and layout proof. Dan: the switch walk on dev, DH + DT. Daytime; machine switch Surface → desktop at the end.)
 **Completed:**
 - **Plan title switch built in five scoped commits and walked.** `c8014b2` `PlanSwitch` on both views (26 px serif links, 3 px clay underline, `nav` "Plan views" + `aria-current`, ≥ 44 px targets, banner → row 30 px, controlRowRef on the row); `3709674` + Add / + New, "✓ This week", the week line and `.lib-week` gone; `7f33363` `doorAdd.plan` labels follow the view; `170589e` `CHROME_ALLOW_LIST` 30 → 30 (`.lib-week` out, `.plan-view` in); `b435934` D12 same-door PLAN re-tap → This Week scrolled to the top (both scroll roots). Two spec-vs-code conflicts raised before building and ruled by Dan: **"✓ This week" stays live** for un-plan (the spec predated it) and the cross-door reset stays off (`a4a1a17`, with the coaching tile → "+ New meal"). **Walk: steps 1–8 and 9a PASS; 9b showed the PLAN door always lands on This Week — adopted** (`3baa071`): the landing comes from the existing view effect, Home's "Add a meal" opens Meals because it sets the library in the same batched update. Step 10 proven at 390/430 with Playfair loaded; 11 by read; 12 (VoiceOver) owed. Filed `SPEC_meal_photos_v1.md` unbuilt (`730acdd`).
