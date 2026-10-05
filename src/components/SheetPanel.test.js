@@ -89,3 +89,54 @@ test("a tap on the scrim still reaches the scrim", () => {
   fireEvent.click(screen.getByTestId("scrim"));
   expect(onBackdrop).toHaveBeenCalledTimes(1);
 });
+
+// Scrolling sheets (the cap + the scrollTop guard, 2026-10-05). jsdom does not
+// lay out, so scrollTop is set by hand on the element.
+const scrolledTo = (el, px) => Object.defineProperty(el, "scrollTop", { value: px, writable: true, configurable: true });
+
+test("the panel is capped to the screen and scrolls inside itself", () => {
+  const { sheet } = mount();
+  expect(sheet.style.maxHeight).toBe("calc(100dvh - 24px - env(safe-area-inset-top))");
+  expect(sheet.style.overflowY).toBe("auto");
+  expect(sheet.style.overscrollBehavior).toBe("contain");
+});
+
+test("a drag that starts at scrollTop 0 arms and closes", () => {
+  const { onClose, sheet } = mount();
+  scrolledTo(sheet, 0);
+  fireEvent.pointerDown(sheet, pt(100));
+  fireEvent.pointerMove(sheet, pt(200));
+  expect(sheet.style.transform).toBe("translateY(100px)");
+  fireEvent.pointerUp(sheet, pt(200));
+  act(() => { jest.advanceTimersByTime(200); });
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
+test("a drag that starts scrolled down never arms, even after it reaches the top", () => {
+  const { onClose, sheet } = mount();
+  scrolledTo(sheet, 40);
+  fireEvent.scroll(sheet);
+  expect(sheet.style.touchAction).toBe("pan-y");       // the browser scrolls natively
+  fireEvent.pointerDown(sheet, pt(100));
+  fireEvent.pointerMove(sheet, pt(160));
+  scrolledTo(sheet, 0);                                 // the scroll hits the top mid-drag
+  fireEvent.pointerMove(sheet, pt(260));
+  expect(sheet.style.transform).toBe("none");
+  fireEvent.pointerUp(sheet, pt(260));
+  act(() => { jest.advanceTimersByTime(500); });
+  expect(onClose).not.toHaveBeenCalled();
+  fireEvent.scroll(sheet);                              // back at the top: the hook owns touches again
+  expect(sheet.style.touchAction).toBe("none");
+});
+
+test("at the top, dragging up scrolls the content instead of arming", () => {
+  const { onClose, sheet } = mount();
+  scrolledTo(sheet, 0);
+  fireEvent.pointerDown(sheet, pt(200));
+  fireEvent.pointerMove(sheet, pt(150));
+  expect(sheet.scrollTop).toBe(50);
+  expect(sheet.style.transform).toBe("none");
+  fireEvent.pointerUp(sheet, pt(150));
+  act(() => { jest.advanceTimersByTime(500); });
+  expect(onClose).not.toHaveBeenCalled();
+});

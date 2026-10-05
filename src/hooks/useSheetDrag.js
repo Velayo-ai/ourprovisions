@@ -21,26 +21,37 @@ import { useRef, useState } from "react";
 // backdrop tap and the Close button run, so focus return and everything else
 // on unmount are untouched. Under the threshold it springs back.
 //
-// The container needs `touch-action: none` (in `style`): otherwise the browser
-// claims a vertical touch as a scroll gesture and cancels the pointer stream.
-// The sheets this is for do not scroll internally; a sheet that does should
-// arm only at scrollTop 0 (not needed yet, so not built).
+// Scrolling sheets (2026-10-05, the Profile sheet at XXL on a 320px screen):
+// a drag arms ONLY if the container's scrollTop was 0 when the press started.
+// A press that starts scrolled down is a scroll, never a dismiss — even if it
+// reaches the top during that same drag. `touch-action` is what makes the
+// scroll real: with `none` the browser hands every touch to the pointer
+// stream and never scrolls, so it is `none` only while the sheet sits at the
+// top (the hook owns the gesture: down = dismiss, up = the hook scrolls the
+// content by hand for that one drag) and `pan-y` once scrolled (the browser
+// scrolls natively, with momentum, and cancels the pointer stream — which is
+// fine, the press never arms). `onScroll` keeps the two in step. A sheet that
+// does not scroll has scrollTop 0 forever and behaves exactly as before.
 export function useSheetDrag(onClose, { threshold = 72 } = {}) {
   const [dy, setDy] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const press = useRef(null); // { id, x0, y0, t0, armed }
+  const [atTop, setAtTop] = useState(true);
+  const press = useRef(null); // { id, x0, y0, t0, armed, canArm }
 
   const onPointerDown = (e) => {
     if (leaving) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    press.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now(), armed: false };
+    const canArm = (e.currentTarget.scrollTop || 0) === 0;
+    press.current = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now(), armed: false, canArm };
   };
   const onPointerMove = (e) => {
     const p = press.current;
     if (!p || p.id !== e.pointerId) return;
     const d = e.clientY - p.y0;
     if (!p.armed) {
+      if (!p.canArm) return;
+      if (d < 0) { e.currentTarget.scrollTop = -d; return; } // up from the top: scroll, by hand
       if (d < 8 || Math.abs(e.clientX - p.x0) > d) return;
       p.armed = true;
       try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_err) { /* capture is best-effort */ }
@@ -63,10 +74,14 @@ export function useSheetDrag(onClose, { threshold = 72 } = {}) {
       setDy(0);
     }
   };
+  const onScroll = (e) => {
+    const top = (e.currentTarget.scrollTop || 0) === 0;
+    if (top !== atTop) setAtTop(top);
+  };
 
-  const handlers = { onPointerDown, onPointerMove, onPointerUp: onPointerEnd, onPointerCancel: onPointerEnd };
+  const handlers = { onPointerDown, onPointerMove, onPointerUp: onPointerEnd, onPointerCancel: onPointerEnd, onScroll };
   const style = {
-    touchAction: "none",
+    touchAction: atTop ? "none" : "pan-y",
     transform: leaving ? "translateY(110%)" : dy ? `translateY(${dy}px)` : "none",
     transition: dragging ? "none" : "transform 0.2s ease",
   };
