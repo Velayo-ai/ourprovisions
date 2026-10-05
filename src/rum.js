@@ -24,7 +24,7 @@ const CHROME_ALLOW_LIST = [
   '.helm-plus',      // the compact pill's +
   '.shop-seg',       // Shop lens toggle: Aisles | A–Z
   '.hdr-action',     // THE header action pill: Shop "+ Add", This Week "+ Add", Meals "+ New" (src/components/HeaderAction.js)
-  '.wrapup',         // Shop header "Wrap up"
+  '.wrapbar',        // Shop Wrap Up bar above the Helm: "Leaving early? Wrap up →" / "N of M · K carry forward Wrap up" (counts only, never a name)
   '.all-done-btn',   // All done card's "Wrap up trip →"
   '.add-btn',        // row "Add" buttons (Browse, search, meal sheet)
   '.board-lock',     // Plan board "Add to Shop" (v2; the class keeps the hook's name)

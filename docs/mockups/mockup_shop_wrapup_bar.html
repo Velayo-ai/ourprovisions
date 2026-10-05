@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shop Wrap-Up Bar</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --page:#e9e2d8; --ink:#2a1a0f; --muted:#8a7660; --cream:#f8f2ea; --line:#e8ddce;
+  --head:#1a0f08; --nav:#3a281c; --nav-on:#4a3627; --tan:#d4bc8e; --tan-ink:#3a281c;
+  --brown:#6b5848; --ring:#c9ad7f; --check:#9a7350; --note:#5b4a3a;
+  --teal:#13877c; --teal-soft:#e3f1ee;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --page:#14100c; --note:#cbbba6; --muted:#b7a48c; } }
+:root[data-theme="dark"]{ --page:#14100c; --note:#cbbba6; --muted:#b7a48c; }
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--page);font-family:Lato,system-ui,sans-serif;color:var(--ink);padding:32px 16px 48px}
+h1{font-family:"Playfair Display",serif;font-size:28px;text-align:center;color:var(--note)}
+.sub{text-align:center;color:var(--muted);margin:6px auto 28px;max-width:640px;line-height:1.5}
+.row{display:flex;gap:28px;justify-content:center;flex-wrap:wrap}
+.state{width:320px}
+.label{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--note);margin-bottom:10px;font-weight:700}
+.phone{width:320px;height:640px;background:var(--cream);border-radius:28px;overflow:hidden;position:relative;box-shadow:0 12px 40px rgba(0,0,0,.25);display:flex;flex-direction:column}
+.top{background:var(--head);height:56px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;flex:none}
+.av{width:30px;height:30px;border-radius:50%;background:var(--teal);color:#fff;font-size:12px;font-weight:700;display:grid;place-items:center}
+.store{color:var(--tan);font-size:12px;letter-spacing:.14em}
+.dots{color:var(--tan);font-size:18px;letter-spacing:-2px}
+.body{padding:16px 18px 0;flex:1;overflow:hidden}
+.count{font-size:11px;letter-spacing:.16em;color:var(--muted);text-transform:uppercase}
+.ctrls{display:flex;justify-content:flex-end;gap:10px;margin-top:10px;align-items:center}
+.seg{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:12px;font-weight:700;background:#fff}
+.seg span{padding:9px 12px;color:var(--brown)} .seg .on{background:var(--check);color:#fff}
+.pill{background:var(--tan);color:var(--tan-ink);border-radius:999px;padding:9px 18px;font-weight:700;font-size:15px}
+.prog{height:3px;background:var(--line);border-radius:2px;margin:14px 0 12px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--check)}
+.sec{font-size:10px;letter-spacing:.18em;color:var(--muted);text-transform:uppercase;margin:10px 0 2px}
+.item{display:flex;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid var(--line);font-size:15px}
+.c{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--ring);flex:none}
+.done{color:var(--muted);text-decoration:line-through}
+.done .c{background:var(--check);border-color:var(--check)}
+.bar{position:absolute;left:14px;right:14px;bottom:78px;border-radius:16px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+.bar{background:var(--cream);border:1.5px solid var(--line);overflow:hidden;box-shadow:0 4px 14px rgba(0,0,0,.08)}
+.bar .fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#cfe8e3,#b5ddd5);border-right:2px solid rgba(19,135,124,.45)}
+.bar .t,.bar .a{position:relative}
+.bar .t{color:var(--muted);font-size:13px} .bar .t b{color:var(--ink)}
+.bar .a{color:var(--teal);font-weight:700;font-size:14px}
+.bar.p0{border-style:dashed}
+.nav{position:absolute;left:12px;right:12px;bottom:12px;height:56px;background:var(--nav);border-radius:28px;display:flex;align-items:center;justify-content:space-around;color:var(--tan);font-size:10px;letter-spacing:.14em}
+.nav span{padding:10px 12px;border-radius:20px} .nav .on{background:var(--nav-on);color:#fff}
+.fade{position:absolute;left:0;right:0;bottom:70px;height:70px;background:linear-gradient(transparent,var(--cream))}
+.hero{text-align:center;padding-top:22px}
+.swoosh{width:120px;height:2px;background:var(--teal);border-radius:50%;margin:0 auto 18px;opacity:.8}
+.hero h2{font-family:"Playfair Display",serif;font-weight:400;font-size:32px}
+.hero em{display:block;font-family:"Playfair Display",serif;color:var(--muted);font-size:15px;margin-top:8px}
+.hero .stats{font-size:13px;color:var(--muted);margin-top:12px} .hero .stats b{color:var(--ink)}
+.cta{display:inline-block;margin-top:18px;background:var(--teal);color:#fff;border-radius:999px;padding:13px 26px;font-size:12px;font-weight:700;letter-spacing:.14em;box-shadow:0 6px 18px rgba(19,135,124,.3)}
+.cartrow{margin-top:26px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;font-weight:700;font-size:14px}
+.cartrow .ck{width:20px;height:20px;border-radius:50%;background:#c08a3e;color:#fff;font-size:11px;display:grid;place-items:center}
+.cartrow small{color:var(--muted);font-weight:400;font-size:11px}
+.why{font-size:13px;line-height:1.5;color:var(--note);margin-top:12px}
+.notes{max-width:1020px;margin:36px auto 0;color:var(--note);font-size:14px;line-height:1.6}
+@media (max-width:360px){.state,.phone{width:100%}}
+</style>
+</head>
+<body>
+<h1>Shop — Wrap Up earns its teal</h1>
+<p class="sub">Header keeps list tools only (sort + "+ Add"). The Wrap Up bar fills with soft teal as the trip progresses; full saturated teal is saved for "All done."</p>
+
+<div class="row">
+
+  <div class="state">
+    <div class="label">1 · Nothing picked up</div>
+    <div class="phone">
+      <div class="top"><div class="av">DH</div><div class="store">⚓ MADBURY ⚓</div><div class="dots">•••</div></div>
+      <div class="body">
+        <div class="count">0 of 11 in cart</div>
+        <div class="ctrls"><div class="seg"><span>Aisles</span><span class="on">A–Z</span></div><div class="pill">+ Add</div></div>
+        <div class="prog"><i style="width:0"></i></div>
+        <div class="sec">11 to find</div>
+        <div class="item"><span class="c"></span>Butter</div>
+        <div class="item"><span class="c"></span>Canned tomatoes</div>
+        <div class="item"><span class="c"></span>Chicken breast</div>
+        <div class="item"><span class="c"></span>Garlic</div>
+        <div class="item"><span class="c"></span>Heavy cream</div>
+        <div class="item"><span class="c"></span>Mozzarella cheese</div>
+        <div class="item"><span class="c"></span>Olive oil</div>
+        <div class="item"><span class="c"></span>Onions</div>
+      </div>
+      <div class="fade"></div>
+      <div class="bar p0"><span class="t">Leaving early?</span><span class="a">Wrap up →</span></div>
+      <div class="nav"><span>HOME</span><span>PLAN</span><span>BROWSE</span><span class="on">SHOP</span></div>
+    </div>
+    <p class="why">Empty bar, no teal. Reachable if the store's closed, but nothing to celebrate yet.</p>
+  </div>
+
+  <div class="state">
+    <div class="label">2 · Trip in progress</div>
+    <div class="phone">
+      <div class="top"><div class="av">DH</div><div class="store">⚓ MADBURY ⚓</div><div class="dots">•••</div></div>
+      <div class="body">
+        <div class="count">4 of 11 in cart</div>
+        <div class="ctrls"><div class="seg"><span>Aisles</span><span class="on">A–Z</span></div><div class="pill">+ Add</div></div>
+        <div class="prog"><i style="width:36%"></i></div>
+        <div class="sec">7 to find</div>
+        <div class="item"><span class="c"></span>Chicken breast</div>
+        <div class="item"><span class="c"></span>Heavy cream</div>
+        <div class="item"><span class="c"></span>Mozzarella cheese</div>
+        <div class="item"><span class="c"></span>Olive oil</div>
+        <div class="item"><span class="c"></span>Pasta</div>
+        <div class="sec">In the cart</div>
+        <div class="item done"><span class="c"></span>Butter</div>
+        <div class="item done"><span class="c"></span>Garlic</div>
+      </div>
+      <div class="fade"></div>
+      <div class="bar"><span class="fill" style="width:36%"></span><span class="t"><b>4 of 11</b> · 7 carry forward</span><span class="a">Wrap up</span></div>
+      <div class="nav"><span>HOME</span><span>PLAN</span><span>BROWSE</span><span class="on">SHOP</span></div>
+    </div>
+    <p class="why">Soft teal fills to 36% — a little inspiration, earned by what's actually in the cart.</p>
+  </div>
+
+  <div class="state">
+    <div class="label">3 · Almost there</div>
+    <div class="phone">
+      <div class="top"><div class="av">DH</div><div class="store">⚓ MADBURY ⚓</div><div class="dots">•••</div></div>
+      <div class="body">
+        <div class="count">9 of 11 in cart</div>
+        <div class="ctrls"><div class="seg"><span>Aisles</span><span class="on">A–Z</span></div><div class="pill">+ Add</div></div>
+        <div class="prog"><i style="width:82%"></i></div>
+        <div class="sec">2 to find</div>
+        <div class="item"><span class="c"></span>Pasta</div>
+        <div class="item"><span class="c"></span>Vodka</div>
+        <div class="sec">In the cart</div>
+        <div class="item done"><span class="c"></span>Butter</div>
+        <div class="item done"><span class="c"></span>Canned tomatoes</div>
+        <div class="item done"><span class="c"></span>Chicken breast</div>
+        <div class="item done"><span class="c"></span>Garlic</div>
+        <div class="item done"><span class="c"></span>Heavy cream</div>
+      </div>
+      <div class="fade"></div>
+      <div class="bar"><span class="fill" style="width:82%"></span><span class="t"><b>9 of 11</b> · 2 carry forward</span><span class="a">Wrap up</span></div>
+      <div class="nav"><span>HOME</span><span>PLAN</span><span>BROWSE</span><span class="on">SHOP</span></div>
+    </div>
+    <p class="why">Mostly full. The bar itself says "two more" — the pull is to finish, not to stop.</p>
+  </div>
+
+  <div class="state">
+    <div class="label">4 · All found (existing view)</div>
+    <div class="phone">
+      <div class="top"><div class="av">DH</div><div class="store">⚓ MADBURY ⚓</div><div class="dots">•••</div></div>
+      <div class="body">
+        <div class="count">11 of 11 in cart</div>
+        <div class="ctrls"><div class="seg"><span>Aisles</span><span class="on">A–Z</span></div><div class="pill">+ Add</div></div>
+        <div class="prog"><i style="width:100%"></i></div>
+        <div class="hero">
+          <div class="swoosh"></div>
+          <h2>All done.</h2>
+          <em>Everything on your list is in the cart.</em>
+          <div class="stats"><b>11</b> items · <b>under a minute</b></div>
+          <div class="cta">WRAP UP TRIP →</div>
+        </div>
+        <div class="cartrow"><span class="ck">✓</span>In cart <small>11 items</small><span style="margin-left:auto;color:var(--muted);font-size:10px">▾</span></div>
+      </div>
+      <div class="nav"><span>HOME</span><span>PLAN</span><span>BROWSE</span><span class="on">SHOP</span></div>
+    </div>
+    <p class="why">Unchanged except: header pill gone, no bottom bar, "under a minute" instead of "0 minutes".</p>
+  </div>
+
+</div>
+
+<p class="notes"><b>Teal = celebrate.</b> Celebration is proportional to progress: soft teal fill mid-trip, full teal only when the trip is done. Exactly one Wrap Up is visible in every state.</p>
+</body>
+</html>

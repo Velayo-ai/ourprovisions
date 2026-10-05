@@ -6,6 +6,7 @@ import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHo
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
 import { HeaderAction } from './components/HeaderAction';
+import { WrapUpBar } from './components/WrapUpBar';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { trace } from '@opentelemetry/api';
@@ -6453,12 +6454,25 @@ function ProvisionsApp() {
         .list-header.empty { justify-content: flex-end; }
         .list-progress { flex: 1 0 auto; white-space: nowrap; }
         .list-controls { flex: none; display: flex; align-items: center; gap: 8px; margin-left: auto; }
-        .wrapup { flex: none; border: none; cursor: pointer; padding: 9px 12px; border-radius: 18px; white-space: nowrap;
-                  font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
-                  transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
-        .wrapup.muted { background: transparent; color: #8A5F3A; box-shadow: inset 0 0 0 1.5px #C9A97A; }
-        /* Emphasized = teal fill, white text — the same colour as the All done card's "Wrap up trip →" button, because it is the same action. Amber is the badge's alone. */
-        .wrapup.full { background: #0D9488; color: #fff; box-shadow: none; }
+        /* ── The Wrap Up bar (src/components/WrapUpBar.js; docs/mockups/mockup_shop_wrapup_bar.html) ──
+           Pinned above the Helm: bottom = the Helm's 18px + its 56px + a 10px gap (+ safe area); 16px sides = the container's
+           content edge. z 900 = the Helm's (they never overlap) and above .helm-fade (899). Cream, hairline border, soft shadow.
+           The fill is SOFT teal (#CFE8E3 → #B5DDD5, a 45% teal rule at its edge) and animates on every check — saturated
+           #0D9488 is the All done card's alone. The text and the action sit above the fill (position: relative). */
+        .wrapbar { position: fixed; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 900;
+                   display: flex; align-items: center; justify-content: space-between; gap: 12px; overflow: hidden;
+                   min-height: 46px; padding: 12px 16px; border-radius: 16px; border: 1.5px solid #E8DDCE; background: #FAF4EC;
+                   box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer; text-align: left; }
+        .wrapbar.p0 { border-style: dashed; }
+        .wrapbar:disabled { cursor: default; opacity: 0.7; }
+        .wrapbar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #CFE8E3, #B5DDD5);
+                        border-right: 2px solid rgba(13,148,136,0.45); transition: width 0.2s ease; }
+        .wrapbar.p0 .wrapbar-fill { border-right: none; }
+        .wrapbar-t { position: relative; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); color: #6E5A4A; }
+        .wrapbar-t b { color: #2C1A0E; font-weight: 700; }
+        .wrapbar-a { position: relative; flex: none; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #0D9488; white-space: nowrap; }
+        /* The list's last rows scroll clear of the bar: its height + the 10px gap, on top of .app-root's Helm padding. */
+        .wrapbar-spacer { height: 58px; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
@@ -8351,14 +8365,11 @@ function ProvisionsApp() {
                   <ShopLensSegment lens={shopLens} onChange={setShopLens} />
                   {/* D4′ (v2): the trip's controls are part of the list — this row
                       scrolls away with it; the pill is chrome. "+ Add" opens the
-                      Add sheet (add-from-the-aisle). Wrap up is muted at 0 in cart and
-                      amber once one item is checked; tappable in both states (D10). */}
+                      Add sheet (add-from-the-aisle). The header holds LIST TOOLS
+                      only (2026-10-05): Wrap up left this row for the WrapUpBar
+                      above the Helm — one Wrap Up control per state, the All
+                      done card's teal button at 100% (what D9 guards against). */}
                   <HeaderAction verb="add" label="Add something" onClick={openAddSheet} />
-                  {/* D10 (amended 2026-09-12): three states — muted at 0 in cart, teal while
-                      anything remains to find, muted again at 100%. At 100% the All done card's
-                      teal button carries the emphasis; two emphasized exits on one screen is
-                      what D9 guards against. Tappable in every state. */}
-                  <button type="button" className={`wrapup ${checkedCount > 0 && checkedCount < totalItems ? "full" : "muted"}`} onClick={openWrapUp} disabled={wrappingUp}>Wrap up</button>
                   </div>
                 </div>
                 <div className="progress-bar">
@@ -8374,6 +8385,7 @@ function ProvisionsApp() {
                      use, teal) is the same slot later, once the Phase 2 query
                      applies for this (household, store) — reserved, not built. */
                   const startedAt = activeSession?.started_at ? new Date(activeSession.started_at).getTime() : null;
+                  // Under a minute reads as words, never "0 minutes" (mockup_shop_wrapup_bar.html, state 4).
                   const minutes = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null;
                   const learning = !!activeSession?.store_name_raw;
                   return (
@@ -8383,7 +8395,9 @@ function ProvisionsApp() {
                       <p className="all-done-sub">Everything on your list is in the cart.</p>
                       <div className="all-done-meta">
                         <b>{totalItems}</b> {totalItems === 1 ? "item" : "items"}
-                        {minutes !== null && <>&nbsp;&nbsp;·&nbsp;&nbsp;<b>{minutes}</b> {minutes === 1 ? "minute" : "minutes"}</>}
+                        {minutes !== null && (minutes < 1
+                          ? <>&nbsp;&nbsp;·&nbsp;&nbsp;<b>under a minute</b></>
+                          : <>&nbsp;&nbsp;·&nbsp;&nbsp;<b>{minutes}</b> {minutes === 1 ? "minute" : "minutes"}</>)}
                       </div>
                       {learning && <div className="all-done-learn">We're learning how you shop this store.</div>}
                       {/* At 100% there is nothing to roll forward, so this goes
@@ -8473,6 +8487,11 @@ function ProvisionsApp() {
                   <div className={`lt-amount ${overBudget ? "over" : ""}`}>{hasEstimatedPrices ? "~" : ""}${totalCost.toFixed(2)}</div>
                 </div>
                 )}
+                {/* The Wrap Up bar — the trip's one exit until 100%, when it hands
+                    off to the All done card (the bar renders nothing there). The
+                    spacer keeps the last rows above it; both go with the list. */}
+                {checkedCount < totalItems && <div className="wrapbar-spacer" aria-hidden="true" />}
+                <WrapUpBar checked={checkedCount} total={totalItems} onWrapUp={openWrapUp} busy={wrappingUp} />
               </>
             )}
           </>
