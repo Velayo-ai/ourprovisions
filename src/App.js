@@ -6676,7 +6676,13 @@ function ProvisionsApp() {
         .lt-budget-row.over { color: #e05c5c; }
 
         /* Modals */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(44,26,14,0.55); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+        /* Scroll, never clip (2026-10-05: at XXL on a 375×553 screen Already on hand, Add new item,
+           Filter meals and Hold a night ran past the overlay and lost their title, Close AND
+           Save/Cancel). The overlay scrolls; the dialog is centred by margin: auto instead of
+           align-items: center — a dialog that fits is centred exactly as before, a taller one
+           starts at the 20px padding and the overlay scrolls to its footer. No JS, no swipe. */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(44,26,14,0.55); display: flex; justify-content: center; z-index: 100; padding: 20px; overflow-y: auto; overscroll-behavior: contain; }
+        .modal-overlay > * { margin: auto; }
         .modal { position: relative; background: #FAF4EC; border-radius: 12px; padding: 28px 24px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
         .modal h2 { font-family: 'Playfair Display', serif; font-size: calc(1.4rem * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; color: #2C1A0E; margin-bottom: 8px; padding-right: 40px; }
         /* Every sheet's Close (SheetClose): 44px target, top-right, the first VoiceOver stop. Backdrop + Cancel remain for sighted users. */
