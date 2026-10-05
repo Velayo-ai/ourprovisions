@@ -23,7 +23,7 @@ const CHROME_ALLOW_LIST = [
   '.helm-label',     // the label span inside a door, when it is the tap target
   '.helm-plus',      // the compact pill's +
   '.shop-seg',       // Shop lens toggle: Aisles | A–Z
-  '.hdr-plus',       // Shop header +
+  '.hdr-action',     // THE header action pill: Shop "+ Add", This Week "+ Add", Meals "+ New" (src/components/HeaderAction.js)
   '.wrapup',         // Shop header "Wrap up"
   '.all-done-btn',   // All done card's "Wrap up trip →"
   '.add-btn',        // row "Add" buttons (Browse, search, meal sheet)
@@ -32,13 +32,12 @@ const CHROME_ALLOW_LIST = [
   '.board-cook',     // Plan board "Cooked it"
   '.board-more',     // Plan board ⋯ menu trigger
   '.plan-addall',    // Plan header "+ Add N to Shop"
-  '.plan-meals',     // Plan (This Week) switch row "+ Add" → Meals (SPEC_plan_week_meals_switch D4)
   '.plan-view',      // Plan title switch links: "This Week" / "Meals" (D1; fixed copy)
   '.plan-noshop',    // Hold a night: "Leftovers" / "Eating out" / "Something else" (board foot + welcome)
   '.lib-occ',        // Library occasion rail pills: All / Dinner / Breakfast / … (Meal Library v1)
   '.lib-fbtn',       // Library Filter button (icon only)
   '.lib-plan',       // Library card pill: "Plan" / "This week" — fixed copy (a tap on "This week" un-plans); the meal name is in the SIBLING card-body button, never here
-  '.lib-create',     // Library "+ New" (switch row) and "+ Create" (the coaching tile)
+  '.lib-create',     // Library coaching tile "+ New meal" (the switch row's "+ New" is .hdr-action)
   '.lib-show',       // Library filter sheet: "Show N meals"
   '.lib-clear',      // Library filter sheet: "Clear"
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)

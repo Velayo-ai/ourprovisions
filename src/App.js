@@ -5,6 +5,7 @@ import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_U
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
+import { HeaderAction } from './components/HeaderAction';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { trace } from '@opentelemetry/api';
@@ -1808,7 +1809,7 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
 // ✓ Cooked afterglow card reads Plan again. Favorites is OMITTED, not disabled:
 // no data exists yet and a greyed pill promises a table that hasn't been decided.
 // RUM: .lib-occ / .lib-fbtn / .lib-plan / .lib-create / .lib-show / .lib-clear
-// (and the switch row's .plan-view / .plan-meals) carry fixed copy only; the
+// (and the switch row's .plan-view / .hdr-action) carry fixed copy only; the
 // card body (meal name) and the From chips
 // (first names) are NOT allow-listed — keep names out of those classes.
 // OCCASIONS (061). Fixed display order for the rail and the Good-for chips:
@@ -6065,8 +6066,11 @@ function ProvisionsApp() {
                      border-bottom: 3px solid transparent; }
         .plan-view.on { color: #2A170C; border-bottom-color: #A0714A; cursor: default; }
         .plan-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
-        .plan-meals { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 44px; padding: 0 18px; cursor: pointer;
+        /* .hdr-action — THE header action pill (src/components/HeaderAction.js): one style on Shop, This Week and Meals.
+           "+ Add" brings an existing thing into the view; "+ New" creates one. Deep sand (--op-add) = adding things. */
+        .hdr-action { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 44px; padding: 0 18px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
+        .hdr-action:disabled { opacity: 0.6; cursor: default; }
         /* "add to Shop →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
            hit box; the matching negative margins keep the line box exactly where it was. Not a bar, not teal. */
         .plan-addall { display: inline-block; vertical-align: baseline; border: none; background: none; color: #6f5a45; cursor: pointer;
@@ -6178,7 +6182,6 @@ function ProvisionsApp() {
            chips use the filled-espresso on-state. Clay's 11.5px word is the known AA miss (tracked in LATER). */
         .lib-create { flex: none; height: 44px; padding: 0 18px; border-radius: 22px; cursor: pointer; white-space: nowrap;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
-        .lib-create.fill { border: none; background: #6f5a45; color: #FAF4EC; }
         .lib-create.outline { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
         .lib-search-row { display: flex; gap: 8px; margin: 0 0 12px; }
         .lib-search { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 12px;
@@ -6441,10 +6444,15 @@ function ProvisionsApp() {
         .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; text-align: right; }
         .list-empty { text-align: center; padding: 60px 20px; }
         .list-empty h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: #8a7a60; }
-        .list-empty p { font-family: 'Lato', sans-serif; color: #a89878; margin-top: 8px; font-size: 0.9rem; }
-        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 8px; }
-        .hdr-plus { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid #C9A97A; background: transparent; color: #A0724A; cursor: pointer;
-                    display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 1.3rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
+        .list-empty-line { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 6px; margin-top: 12px;
+                           font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; color: #2C1A0E; }
+        /* Wrap, never squeeze (SPEC_global_text_size decision 9): the count keeps its one line; when the three controls
+           don't fit beside it (phone width, "+ Add" is wider than the old round +), they drop to a second line as ONE
+           group, right-aligned — never split, never a count ellipsed to "4 …". */
+        .list-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px 8px; }
+        .list-header.empty { justify-content: flex-end; }
+        .list-progress { flex: 1 0 auto; white-space: nowrap; }
+        .list-controls { flex: none; display: flex; align-items: center; gap: 8px; margin-left: auto; }
         .wrapup { flex: none; border: none; cursor: pointer; padding: 9px 12px; border-radius: 18px; white-space: nowrap;
                   font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
                   transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
@@ -7820,7 +7828,7 @@ function ProvisionsApp() {
                 </>
               ) : null}
               action={boardReady && !showWelcome ? (
-                <button type="button" className="plan-meals" aria-label="Add a meal to this week" onClick={() => setPlanScreen("library")}>+ Add</button>
+                <HeaderAction verb="add" label="Add a meal to this week" onClick={() => setPlanScreen("library")} />
               ) : null}
             />
             {!boardReady ? null : showWelcome ? (
@@ -7904,7 +7912,7 @@ function ProvisionsApp() {
               className="meals"
               subtitle={<>What sounds good? · {libraryMeals.length} {libraryMeals.length === 1 ? "meal" : "meals"}</>}
               action={MEALS_ENABLED && isSignedIn ? (
-                <button type="button" className="lib-create fill" aria-label="Create a new meal" onClick={() => setMealSheet({ mode: "create", meal: null })}><PlusGlyph />New</button>
+                <HeaderAction verb="new" label="Create a new meal" onClick={() => setMealSheet({ mode: "create", meal: null })} />
               ) : null}
             />
             <MealsLens
@@ -8235,7 +8243,7 @@ function ProvisionsApp() {
                           fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
                           letterSpacing: "0.5px", padding: "0",
                         }}
-                      >＋ Add item</button>
+                      >＋ New item</button>
                     </div>
                     <div className="items-grid">
                       {cat.items.map((item) => {
@@ -8308,34 +8316,50 @@ function ProvisionsApp() {
             )}
             {totalItems === 0 ? (
               <>
-                {/* Empty form of the header row: count text and the same round +
-                    (Add sheet, in-store paths) — no lens, no Wrap up. Still the
-                    compact sentinel (ref), though the page is too short to scroll. */}
-                <div className="list-header" ref={controlRowRef}>
-                  <span className="list-progress" style={{ flex: 1 }}>Nothing in the cart yet</span>
-                  <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
+                {/* Empty form of the header row: the "+ Add" pill alone (Add sheet,
+                    in-store paths) — no count line (there is no trip to count), no
+                    lens, no Wrap up. Still the compact sentinel (ref), though the
+                    page is too short to scroll. */}
+                <div className="list-header empty" ref={controlRowRef}>
+                  <HeaderAction verb="add" label="Add something" onClick={openAddSheet} />
                 </div>
+                {/* Empty state — Home's list-line pattern (status · link). Planned
+                    meals not yet on the list (boardStats.stillToAdd, the board
+                    subtitle's N) point at This Week; otherwise at Browse — the
+                    same door Home's "Start a list →" opens. The count sits in the
+                    text span, never in the link (RUM: the link is fixed copy). */}
                 <div className="list-empty">
                   <h2>Your list is empty</h2>
-                  <p>Go to "Add Items" and set quantities for what you need.</p>
+                  <div className="list-empty-line">
+                    {boardStats.stillToAdd.length > 0 ? (
+                      <>
+                        <span>{boardStats.stillToAdd.length} {boardStats.stillToAdd.length === 1 ? "meal" : "meals"} to</span>
+                        <button type="button" className="home-line-link" onClick={() => goToDoor("plan")}>add to Shop →</button>
+                      </>
+                    ) : (
+                      <button type="button" className="home-line-link" onClick={() => goToDoor("input")}>Browse items →</button>
+                    )}
+                  </div>
                 </div>
               </>
             ) : (
               <>
                 <div className="list-header" ref={controlRowRef}>
-                  <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} in cart</span>
+                  <span className="list-progress">{checkedCount} of {totalItems} in cart</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
+                  <div className="list-controls">
                   <ShopLensSegment lens={shopLens} onChange={setShopLens} />
                   {/* D4′ (v2): the trip's controls are part of the list — this row
-                      scrolls away with it; the pill is chrome. Header + opens the
+                      scrolls away with it; the pill is chrome. "+ Add" opens the
                       Add sheet (add-from-the-aisle). Wrap up is muted at 0 in cart and
                       amber once one item is checked; tappable in both states (D10). */}
-                  <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
+                  <HeaderAction verb="add" label="Add something" onClick={openAddSheet} />
                   {/* D10 (amended 2026-09-12): three states — muted at 0 in cart, teal while
                       anything remains to find, muted again at 100%. At 100% the All done card's
                       teal button carries the emphasis; two emphasized exits on one screen is
                       what D9 guards against. Tappable in every state. */}
                   <button type="button" className={`wrapup ${checkedCount > 0 && checkedCount < totalItems ? "full" : "muted"}`} onClick={openWrapUp} disabled={wrappingUp}>Wrap up</button>
+                  </div>
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
@@ -8655,7 +8679,7 @@ function ProvisionsApp() {
                 )}
               </label>
               {/* This modal is only ever reached from a section header's
-                  "＋ Add item", so the category is already known — the user
+                  "＋ New item", so the category is already known — the user
                   answered by choosing where they tapped. The step is a
                   confirmation, not a question. */}
               <div className="picker-sub">
@@ -8708,7 +8732,7 @@ function ProvisionsApp() {
           <div className="modal" role="dialog" aria-modal="true" aria-label="Set budget goal" onClick={(e) => e.stopPropagation()}>
             <SheetClose onClose={() => setShowBudgetModal(false)} />
             <h2>Set Budget Goal</h2>
-            <p className="modal-subtitle">Get alerts when your cart is approaching or over your limit.</p>
+            <p className="modal-subtitle">Get alerts when your list is approaching or over your limit.</p>
             <div className="modal-field">
               <label className="modal-label">My Budget</label>
               <div className="modal-input-prefix">
