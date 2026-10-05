@@ -7,6 +7,7 @@ import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
+import { SheetPanel } from './components/SheetPanel';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { trace } from '@opentelemetry/api';
@@ -9095,18 +9096,19 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {/* Profile Sheet */}
+      {/* Profile Sheet — three ways out, all running the same close: backdrop
+          tap (the scrim's onClick), the Close button (SheetClose: VoiceOver's
+          way, focus returns to the avatar on unmount) and swipe-down
+          (SheetPanel → useSheetDrag, 2026-10-05). */}
       {showProfileSheet && (
         <div
           style={{ position: "fixed", inset: 0, background: "rgba(2,15,26,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-end" }}
           onClick={() => setShowProfileSheet(false)}
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Account and preferences"
+          <SheetPanel
+            onClose={() => setShowProfileSheet(false)}
+            label="Account and preferences"
             style={{ position: "relative", background: "#FDF8F2", borderRadius: "20px 20px 0 0", width: "100%", paddingBottom: "32px" }}
-            onClick={e => e.stopPropagation()}
           >
             {/* Close — the one way out VoiceOver can reach (the backdrop is a plain div). */}
             <SheetClose onClose={() => setShowProfileSheet(false)} />
@@ -9222,7 +9224,7 @@ function ProvisionsApp() {
             <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.5px", color: "#8a7a60", padding: "6px 20px 16px" }}>
               A Velayo app
             </div>
-          </div>
+          </SheetPanel>
         </div>
       )}
 
