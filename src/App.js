@@ -9115,12 +9115,19 @@ function ProvisionsApp() {
             {/* Handle */}
             <div style={{ width: "36px", height: "4px", background: "#c8b89a", borderRadius: "2px", margin: "10px auto 0" }} />
 
+            {/* Text in this sheet follows the text-size knob by role (the 10-04 role table):
+                row text 14 and captions / eyebrows 12.5 at k 1, nothing under 12.5 at Default;
+                the avatar monogram is chrome, fixed. No small text here is #A0724A any more. */}
             {/* User row */}
             <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 20px 12px", borderBottom: "0.5px solid #e8ddd0" }}>
               <div style={{ width: "44px", height: "44px", borderRadius: "50%", background: "#0D9488", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: 600, color: "white", fontFamily: "'Lato', sans-serif", flexShrink: 0 }}>
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </div>
-              <div>
+              {/* Name + edit input (fontSize: inherit) — body, 16 px at k 1. The sheet has no
+                  .modal h2; this row is its heading and stays 16 (not promoted to a sheet title).
+                  paddingRight keeps the row clear of the 44 px Close at XXL (the .modal h2 rule's
+                  40 px, same job); minWidth 0 lets a long name / email wrap instead of overflow. */}
+              <div style={{ fontSize: ts(16), minWidth: 0, paddingRight: "36px" }}>
                 {editingName ? (
               <input
                 autoFocus
@@ -9166,19 +9173,19 @@ function ProvisionsApp() {
                   || user?.primaryEmailAddress?.emailAddress}
               </div>
             )}
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "2px" }}>{user?.primaryEmailAddress?.emailAddress}</div>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", marginTop: "2px", overflowWrap: "anywhere" }}>{user?.primaryEmailAddress?.emailAddress}</div>
               </div>
             </div>
 
             {/* Preferences */}
             <div style={{ padding: "14px 20px 8px" }}>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "12px" }}>Preferences</div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "2px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "12px" }}>Preferences</div>
 
               {/* Show prices toggle */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "12px", borderBottom: "0.5px solid #e8ddd0" }}>
                 <div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>Show prices &amp; budget</div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "2px" }}>Display item prices and estimated total</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#2C1A0E" }}>Show prices &amp; budget</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", marginTop: "2px" }}>Display item prices and estimated total</div>
                 </div>
                 <div
                   onClick={() => setShowPrices(p => !p)}
@@ -9188,23 +9195,25 @@ function ProvisionsApp() {
                 </div>
               </div>
 
-              {/* Text size stepper (SPEC_global_text_size decision 6: one knob, every surface) */}
+              {/* Text size stepper (SPEC_global_text_size decision 6: one knob, every surface).
+                  The two A glyphs are the control's iconography — chrome, fixed (k 0) like the
+                  glyph-only .qty-btn; the step readout is status text and follows the knob. */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "12px" }}>
                 <div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>Text size</div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "2px" }}>Bigger text across the app, on this device</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#2C1A0E" }}>Text size</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", marginTop: "2px" }}>Bigger text across the app, on this device</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", border: "1px solid #E8D5B7", borderRadius: "7px", background: "#fff", padding: "5px 10px", flexShrink: 0 }}>
                   <button
                     onClick={() => setTextSizeIdx(i => Math.max(0, i - 1))}
                     disabled={textSizeIdx === 0}
-                    style={{ background: "none", border: "none", cursor: textSizeIdx === 0 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "0.78rem", color: textSizeIdx === 0 ? "#d8c8aa" : "#8A5F3A", lineHeight: 1, padding: 0 }}
+                    style={{ background: "none", border: "none", cursor: textSizeIdx === 0 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "12.5px", color: textSizeIdx === 0 ? "#d8c8aa" : "#8A5F3A", lineHeight: 1, padding: 0 }}
                   >A</button>
-                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", textTransform: "uppercase", letterSpacing: "1.5px", color: "#8A5F3A", minWidth: "56px", textAlign: "center" }}>{TEXT_LABELS[textSizeIdx]}</span>
+                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), textTransform: "uppercase", letterSpacing: "1.5px", color: "#8A5F3A", minWidth: "56px", textAlign: "center" }}>{TEXT_LABELS[textSizeIdx]}</span>
                   <button
                     onClick={() => setTextSizeIdx(i => Math.min(TEXT_STEPS.length - 1, i + 1))}
                     disabled={textSizeIdx === TEXT_STEPS.length - 1}
-                    style={{ background: "none", border: "none", cursor: textSizeIdx === TEXT_STEPS.length - 1 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "1.05rem", color: textSizeIdx === TEXT_STEPS.length - 1 ? "#d8c8aa" : "#8A5F3A", lineHeight: 1, padding: 0 }}
+                    style={{ background: "none", border: "none", cursor: textSizeIdx === TEXT_STEPS.length - 1 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "16.8px", color: textSizeIdx === TEXT_STEPS.length - 1 ? "#d8c8aa" : "#8A5F3A", lineHeight: 1, padding: 0 }}
                   >A</button>
                 </div>
               </div>
@@ -9217,11 +9226,11 @@ function ProvisionsApp() {
               style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", width: "100%" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#c0392b" }}>Sign out</span>
+              <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#c0392b" }}>Sign out</span>
             </button>
             {/* Attribution lives here now, not in a footer on every door — the doors
                 carry no brand chrome; the mark stays on the landing page and sign-in. */}
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.5px", color: "#8a7a60", padding: "6px 20px 16px" }}>
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "0.5px", color: "#8a7a60", padding: "6px 20px 16px" }}>
               A Velayo app
             </div>
           </SheetPanel>
