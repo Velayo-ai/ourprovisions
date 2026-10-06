@@ -402,6 +402,7 @@
 | **Shop empty-state copy still says "Add Items"** *(noticed 2026-09-30; absorbed 2026-10-02 into NEXT "Shop's empty state waits on `householdReady`"; **DONE 2026-10-05** in `0da4d04` — "Browse items →" / "N meals to add to Shop →")* | The tab is now Browse. One string. |
 | **Clerk-down welcome copy** *(2026-10-02)* | With Clerk blocked, the welcome's greyed pair waits forever with no words. Consider one quiet line ("Still connecting…") after the failsafe. Copy only. |
 | **UP NEXT vs ON DECK** *(2026-10-02)* | The same slot has two names: the board's rail word "UP NEXT" and Home's eyebrow "ON DECK". Decide one, or decide they are different jobs (position vs invitation). Copy only. |
+| **Four dead CSS rules in `src/App.js`** *(found 2026-10-05 by the Text size pass 2 inventory)* | `.hint`, `.add-item-btn`, `.cat-toggle`, `.clear-btn` — no class use anywhere in `src/`. Delete together in one cleanup commit when the style block is next touched; not part of pass 2 (Dan, 2026-10-06). |
 | **Create React App dependency + vulnerability review** *(opened 2026-09-30)* | 73 `npm audit` findings, mostly CRA build tooling (not shipped runtime). **Parked deliberately — do NOT run `npm audit fix --force`**, which would force-upgrade `react-scripts` and break the build. Right time is alongside moving off CRA, as one planned piece of work rather than an audit chase. |
 
 ---
