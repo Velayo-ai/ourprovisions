@@ -7028,8 +7028,11 @@ function ProvisionsApp() {
 
             {/* ── Zone 1: Your Households (name-only rows; bare pencil on the active row) ── */}
             <div>
+              {/* Manage place on the knob (pass 2): eyebrows 12.5 k 1; place + member names body 15
+                  (wrapping, never colliding with Edit / the badge); Edit, Create = button 14 k .8,
+                  the pencil scaling with Edit; YOU badge = eyebrow 12.5. Avatar stays 36px. */}
               <div style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2.5px",
+                fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "2.5px",
                 textTransform: "uppercase", color: "#8A5F3A", marginBottom: "10px",
               }}>Your Places</div>
               {/* A5b (Addendum 2026-09-27): "Your places" is never drawn empty
@@ -7078,16 +7081,16 @@ function ProvisionsApp() {
                       }}
                     >
                       <span style={{
-                        fontFamily: "'Lato', sans-serif", fontSize: "0.95rem",
-                        color: "#FAF4EC", fontWeight: 700,
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+                        color: "#FAF4EC", fontWeight: 700, flex: 1, minWidth: 0, overflowWrap: "anywhere",
                       }}>{hh.name}</span>
                       {/* Bare pencil + "Edit" label (no container/plate), per FINAL3 */}
                       <span style={{
-                        display: "flex", alignItems: "center", gap: "6px", flexShrink: 0,
-                        fontFamily: "'Lato', sans-serif", fontSize: "13.5px", fontWeight: 700,
+                        display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, marginLeft: "10px",
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
                         color: "#FAF4EC", opacity: 0.82,
                       }}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
+                        <svg style={{ width: ts(15, 0.8), height: ts(15, 0.8) }} viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
                           strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
                         </svg>
@@ -7108,8 +7111,8 @@ function ProvisionsApp() {
                     }}
                   >
                     <span style={{
-                      fontFamily: "'Lato', sans-serif", fontSize: "0.95rem",
-                      color: "#2C1A0E", fontWeight: 400,
+                      fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+                      color: "#2C1A0E", fontWeight: 400, minWidth: 0, overflowWrap: "anywhere",
                     }}>{hh.name}</span>
                   </button>
                 );
@@ -7122,7 +7125,7 @@ function ProvisionsApp() {
                   style={{
                     width: "100%", background: "none", border: "1.5px dashed #A0724A",
                     borderRadius: "8px", padding: "11px 14px", marginTop: "2px",
-                    fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8A5F3A",
+                    fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), color: "#8A5F3A",
                     cursor: "pointer", textAlign: "center", boxSizing: "border-box",
                   }}
                 >+ Create new place</button>
@@ -7188,7 +7191,7 @@ function ProvisionsApp() {
             {/* ── Zone 2: {household} · Members (roster + Invite; no count, no monogram) ── */}
             <div>
               <div style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2.5px",
+                fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "2.5px",
                 textTransform: "uppercase", color: "#8A5F3A", marginBottom: "14px",
               }}>{(household?.name || "This place")} · Members</div>
 
@@ -7220,13 +7223,13 @@ function ProvisionsApp() {
                           {displayName[0].toUpperCase()}
                         </div>
                       )}
-                      <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E", flex: 1 }}>
+                      <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#2C1A0E", flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
                         {displayName}
                       </span>
                       {isMe && (
                         <span style={{
-                          fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1px",
-                          textTransform: "uppercase", color: "#8a7a60",
+                          fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1px",
+                          textTransform: "uppercase", color: "#6E5A4A", flexShrink: 0,
                           background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
                         }}>you</span>
                       )}
