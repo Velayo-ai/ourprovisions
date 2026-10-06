@@ -2913,7 +2913,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                         Add <strong>"{trimmedQuery}"</strong> to {name.trim() || "this meal"}
                       </div>
-                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A", marginTop: "2px" }}>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
                         Tap to choose a category
                       </div>
                     </div>
