@@ -712,7 +712,8 @@ function CatalogSearchBox({ value, onChange, onClear, placeholder = "Search your
   );
 }
 
-const SEARCH_EYEBROW_STYLE = { padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" };
+// Eyebrow role (SPEC_global_text_size): 12.5 at the floor, k 1, #8A5F3A. Was 10px #C9A97A.
+const SEARCH_EYEBROW_STYLE = { padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A" };
 
 const normalizeSearchName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -2851,22 +2852,30 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               {results.map((it) => {
                 const stagedRow = rows.find((r) => r.catalog_item_id === it.id);
                 return (
+                /* Same shape as Shop Add's .add-result row (the reference pattern, pass 2):
+                   the name wins the width and WRAPS — never ellipsises — and the category
+                   pill sits below it; the Add button keeps its size. The old row put the
+                   pill beside a nowrap name, and at XXL the pill and button took the width
+                   and the name went to one letter ("G…" for Ground beef). */
                 <div key={it.id} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  gap: "10px", padding: "8px 2px",
+                  display: "flex", alignItems: "center", gap: "10px", padding: "8px 2px",
                 }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
-                      color: "#2C1A0E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#2C1A0E",
+                      overflowWrap: "anywhere" }}>
                       {it.name}
-                    </span>
-                    <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: "3px",
-                      fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7a60",
-                      background: "rgba(201,169,122,0.16)", borderRadius: "999px", padding: "2px 8px" }}>
-                      <span aria-hidden="true">{categoryGlyph(it.category)}</span>
+                    </div>
+                    <span style={{ display: "inline-block", marginTop: "3px",
+                      fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A",
+                      background: "rgba(201,169,122,0.16)", borderRadius: "999px", padding: "2px 8px",
+                      // inline-block, not inline-flex: the label wraps at its spaces first. A
+                      // one-word category ("Uncategorised") at XXL on 320 is wider than the
+                      // column, so the pill may break the word rather than run under Add.
+                      maxWidth: "100%", boxSizing: "border-box", overflowWrap: "anywhere" }}>
+                      <span aria-hidden="true">{categoryGlyph(it.category)}</span>{" "}
                       {CATEGORY_LABEL[it.category] || it.category || "Uncategorised"}
                     </span>
-                  </span>
+                  </div>
                   {stagedRow ? (
                     <button
                       className="add-btn"
@@ -6587,8 +6596,8 @@ function ProvisionsApp() {
         .add-sheet-results { overflow-y: auto; margin-top: 10px; min-height: 0; }
         .add-result { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #E8D5B7; cursor: pointer; }
         .add-result .ar-main { flex: 1; min-width: 0; }
-        .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: 0.92rem; color: #2C1A0E; }
-        .add-result .ar-cat { font-family: 'Lato', sans-serif; font-size: 0.7rem; color: #8a7a60; margin-top: 2px; }
+        .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
+        .add-result .ar-cat { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 2px; }
         .add-result .ar-go { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; }
         .add-result.create { border-bottom: none; }
         .add-result.create .ar-name { color: #8A5F3A; }
