@@ -698,7 +698,9 @@ function CatalogSearchBox({ value, onChange, onClear, placeholder = "Search your
         placeholder={placeholder}
         style={{
           flex: 1, minWidth: 0, border: "none", background: "none",
-          fontFamily: "'Lato', sans-serif", fontSize: "15px",
+          // Body role, k 1 (pass 2). The box keeps its 46px height: 26px text at XXL
+          // still fits; a long placeholder clips at the input's edge, as inputs do.
+          fontFamily: "'Lato', sans-serif", fontSize: ts(15),
           color: "#2C1A0E", outline: "none",
         }}
       />
@@ -6593,7 +6595,10 @@ function ProvisionsApp() {
         .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; }
         .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; }
         .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; }
-        .add-sheet-title { font-family: 'Playfair Display', serif; font-size: 1.15rem; color: #2C1A0E; margin-bottom: 12px; }
+        /* Add sheet on the knob (pass 2, Shop slice 2): title = sheet-title rate k .5 at its
+           current 18.4 (not promoted to 22.4 — not a .modal h2, same call as the Profile sheet);
+           hint = meta 14 #8A5F3A. The search input is CatalogSearchBox (body 15, shared with Browse). */
+        .add-sheet-title { font-family: 'Playfair Display', serif; font-size: calc(18.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; margin-bottom: 12px; }
         .add-sheet-results { overflow-y: auto; margin-top: 10px; min-height: 0; }
         .add-result { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #E8D5B7; cursor: pointer; }
         .add-result .ar-main { flex: 1; min-width: 0; }
@@ -6603,7 +6608,7 @@ function ProvisionsApp() {
         .add-result.create { border-bottom: none; }
         .add-result.create .ar-name { color: #8A5F3A; }
         .add-result.create .ar-name b { color: #2C1A0E; }
-        .add-sheet-hint { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 12px; line-height: 1.45; }
+        .add-sheet-hint { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 12px; line-height: 1.45; }
         .op-later-badge { position: absolute; top: -8px; right: -8px; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 700; letter-spacing: .5px; background: #0D9488; color: #fff; padding: 2px 6px; border-radius: 8px; }
         .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
         /* Names in the filter descriptor read as content, not as voice. */
