@@ -7282,8 +7282,10 @@ function ProvisionsApp() {
                     <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                   </svg>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14.5px", fontWeight: 900, color: "#FAF4EC" }}>
+                {/* Both share cards on the same roles (pass 2): title = body 15 bold, sub-line =
+                    meta 14, both k 1 so the title stays above its sub-line at every step. */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), fontWeight: 900, color: "#FAF4EC" }}>
                     {invitePreparing ? "Preparing…" : "Invite aboard"}
                   </div>
                   {/* Light-on-espresso: the sand stays — #8A5F3A on #2C1A0E would be ~2.6:1 (gold copy sweep, 2026-10-06). */}
@@ -7320,11 +7322,11 @@ function ProvisionsApp() {
                       <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
                     </svg>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "13px", fontWeight: 700, color: "#2C1A0E" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), fontWeight: 700, color: "#2C1A0E" }}>
                       Share the app
                     </div>
-                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px", color: "#8a7968", marginTop: "1px" }}>
+                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "1px" }}>
                       Recommend the app — not this place
                     </div>
                   </div>
