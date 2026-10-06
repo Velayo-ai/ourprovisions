@@ -6570,14 +6570,16 @@ function ProvisionsApp() {
         .tray-body .list-item.collapsing { animation-name: opRowOutTray; }
         @media (prefers-reduced-motion: reduce) { .list-item.collapsing { animation: none; } }
         .store-prompt { margin: 0 0 22px; padding: 14px 14px 12px; background: #fff; border: 1px solid #E3D4BC; border-radius: 12px; }
-        .store-prompt-q { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: #2C1A0E; margin-bottom: 10px; }
+        /* Store prompt card on the Text size knob (pass 2, Shop): question = card title k .5,
+           chips = button k .8, Skip = meta, STORE NAME = eyebrow, input = body. Colours to #8A5F3A. */
+        .store-prompt-q { font-family: 'Playfair Display', serif; font-size: calc(16.8px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; margin-bottom: 10px; }
         .store-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-        .store-chip { font-family: 'Lato', sans-serif; font-size: 0.8rem; font-weight: 700; padding: 8px 13px; border-radius: 20px; border: 1px solid #E8D5B7; background: #FAF4EC; color: #2C1A0E; cursor: pointer; }
+        .store-chip { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; padding: 8px 13px; border-radius: 20px; border: 1px solid #E8D5B7; background: #FAF4EC; color: #2C1A0E; cursor: pointer; }
         .store-chip:disabled { opacity: .5; cursor: default; }
         .store-chip.other { color: #8A5F3A; border-style: dashed; font-weight: 400; }
-        .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 10px; cursor: pointer; text-decoration: underline; }
-        .store-field-label { font-family: 'Lato', sans-serif; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #C9A97A; margin-bottom: 7px; }
-        .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: 0.85rem; color: #2C1A0E; background: #F5EDE0; outline: none; }
+        .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 10px; cursor: pointer; text-decoration: underline; text-align: left; }
+        .store-field-label { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 7px; }
+        .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; background: #F5EDE0; outline: none; }
         .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; }
         .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; }
         .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; }
