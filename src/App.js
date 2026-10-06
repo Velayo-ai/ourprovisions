@@ -3047,13 +3047,24 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.35)",
             borderRadius: "14px", padding: "16px", marginBottom: "16px" }} aria-live="polite">
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
-              <div className="op-ember" />
-              <div>
-                <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(15), color: "#2C1A0E" }}>
-                  The galley's working on it…
+              {/* The ember is the one thing that moves while the galley works: a pulsing
+                  core plus a ring that expands and fades (both pseudo-elements, so the
+                  ring is not scaled by the core's own pulse). Sized by ts() so it follows
+                  the Text size knob with the headline beside it. Decorative — the live
+                  region above carries the words. */}
+              <div className="op-ember" style={{ width: ts(14), height: ts(14) }} aria-hidden="true" />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                {/* The typed request IS the subject of the wait — one line, ellipsised,
+                    the full text still echoed in the quote block below. */}
+                <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(15), color: "#2C1A0E",
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {aiText.trim() ? `Building ${aiText.trim()}…` : "The galley's working on it…"}
                 </div>
+                {/* Measured on dev 2026-10-05 from the function's edge logs: eight real
+                    runs 7.6–16.9 s, median ~11 s (one Opus call at low effort behind a
+                    JWKS verify). "A few seconds" was a guess and read as a stall. */}
                 <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7968", marginTop: "2px" }}>
-                  Usually a few seconds.
+                  Usually 10 to 20 seconds.
                 </div>
               </div>
             </div>
@@ -6412,9 +6423,21 @@ function ProvisionsApp() {
         .op-skel-badge.square { border-radius: 6px; }
         .op-skel-lines { flex: 1; padding-top: 4px; }
         .op-skel-row .op-skel-lines { padding-top: 0; }
-        .op-ember { width: 10px; height: 10px; border-radius: 50%; background: #A0724A; flex: none; animation: opEmber 1.6s ease-in-out infinite; }
-        @keyframes opEmber { 0%, 100% { opacity: .35; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
-        @media (prefers-reduced-motion: reduce) { .op-skel, .op-ember { animation: none; } .op-ember { opacity: .8; } }
+        /* Ember: the wrapper is sized inline by ts(14) and never transforms; ::before is
+           the core (opacity .6↔1, scale .8↔1.1), ::after the 2px ring (0.6× → 2.4×, fading
+           out). Both ride the same 1.6 s clock. The ring overshoots the box by ~10px
+           on purpose — it lives inside the panel's 16px padding. */
+        .op-ember { position: relative; flex: none; }
+        .op-ember::before, .op-ember::after { content: ""; position: absolute; inset: 0; border-radius: 50%; }
+        .op-ember::before { background: #8A5F3A; animation: opEmber 1.6s ease-in-out infinite; }
+        .op-ember::after { border: 2px solid #8A5F3A; animation: opEmberRing 1.6s ease-out infinite; }
+        @keyframes opEmber { 0%, 100% { opacity: .6; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.1); } }
+        @keyframes opEmberRing { 0% { opacity: .7; transform: scale(.6); } 100% { opacity: 0; transform: scale(2.4); } }
+        @media (prefers-reduced-motion: reduce) {
+          .op-skel, .op-ember::before { animation: none; }
+          .op-ember::before { opacity: 1; transform: none; }
+          .op-ember::after { display: none; }
+        }
         .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #6f5a45; cursor: pointer; }
         .op-recipe { background: #fff; border: 1.5px solid rgba(44,26,14,.10); border-radius: 14px; padding: 16px 16px 14px; }
         .op-recipe.galley { border-color: rgba(160,114,74,.3); }
