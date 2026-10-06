@@ -2318,6 +2318,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // has settled and the ingredient loop is still running when abort is pressed.
   const aiAbortRef = useRef(null);
   const aiSnapshotRef = useRef(null);
+  const aiCardRef = useRef(null);   // the thinking card, scrolled into view on Ask
 
   // Voice. `micBlocked` is sticky for the life of the sheet: a denied permission does
   // not resolve itself, so re-offering the button would just reproduce the same refusal.
@@ -2607,6 +2608,20 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   useEffect(() => {
     if (fromGalley && !name.trim() && !instructions.trim() && rows.length === 0) setFromGalley(false);
   }, [fromGalley, name, instructions, rows]);
+
+  // On Ask, bring the thinking card into view so the ember and Never mind are both
+  // on screen while the draft is built. The ask block sits below the (now skeleton)
+  // manual fields, and the Ask button is at its bottom — on a phone the card lands
+  // under the keyboard's former footprint or off the bottom of the sheet. `nearest`
+  // moves the overlay only as far as it must; reduced motion jumps instead.
+  useEffect(() => {
+    if (!aiBusy) return;
+    const el = aiCardRef.current;
+    if (!el || typeof el.scrollIntoView !== "function") return;
+    const reduced = typeof window !== "undefined" && window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+  }, [aiBusy]);
 
   // Screen 3 of the mockup: the manual fields dim and stop accepting input while a
   // suggestion is in flight, because they are about to be replaced by the draft.
@@ -3044,7 +3059,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
         {/* Thinking. Single ember, no spinner; the request is echoed back so the wait
             has a subject. Never mind aborts and puts everything back. */}
         {aiBusy && (
-          <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.35)",
+          <div ref={aiCardRef} style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.35)",
             borderRadius: "14px", padding: "16px", marginBottom: "16px" }} aria-live="polite">
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
               {/* The ember is the one thing that moves while the galley works: a pulsing
