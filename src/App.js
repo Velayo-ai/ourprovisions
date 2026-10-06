@@ -7030,7 +7030,7 @@ function ProvisionsApp() {
             <div>
               {/* Manage place on the knob (pass 2): eyebrows 12.5 k 1; place + member names body 15
                   (wrapping, never colliding with Edit / the badge); Edit, Create = button 14 k .8,
-                  the pencil scaling with Edit; YOU badge = eyebrow 12.5. Avatar stays 36px. */}
+                  the pencil scaling with Edit; YOU badge = eyebrow 12.5 in #8A5F3A on #F1E7D8. Avatar stays 36px. */}
               <div style={{
                 fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "2.5px",
                 textTransform: "uppercase", color: "#8A5F3A", marginBottom: "10px",
@@ -7229,8 +7229,10 @@ function ProvisionsApp() {
                       {isMe && (
                         <span style={{
                           fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1px",
-                          textTransform: "uppercase", color: "#6E5A4A", flexShrink: 0,
-                          background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
+                          // One brown: #8A5F3A, so the chip lightens to #F1E7D8 (the deck card's tan) —
+                          // 4.54:1 for the text, 1.12:1 against the sheet. #E8D5B7 gave 3.87:1.
+                          textTransform: "uppercase", color: "#8A5F3A", flexShrink: 0,
+                          background: "#F1E7D8", borderRadius: "4px", padding: "2px 7px",
                         }}>you</span>
                       )}
                       {!isMe && m.role !== 'owner' && (
