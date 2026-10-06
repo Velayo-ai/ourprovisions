@@ -6449,13 +6449,13 @@ function ProvisionsApp() {
         .op-skel-lines { flex: 1; padding-top: 4px; }
         .op-skel-row .op-skel-lines { padding-top: 0; }
         /* Ember: the wrapper is sized inline by ts(14) and never transforms; ::before is
-           the core (opacity .6↔1, scale .8↔1.1), ::after the 2px ring (0.6× → 2.4×, fading
-           out). Both ride the same 1.6 s clock. The ring overshoots the box by ~10px
+           the core in #8A5F3A (opacity .6↔1, scale .8↔1.1), ::after the 2px ring in brand
+           teal #0D9488 (0.6× → 2.4×, fading out). Both ride the same 1.6 s clock. The ring overshoots the box by ~10px
            on purpose — it lives inside the panel's 16px padding. */
         .op-ember { position: relative; flex: none; }
         .op-ember::before, .op-ember::after { content: ""; position: absolute; inset: 0; border-radius: 50%; }
         .op-ember::before { background: #8A5F3A; animation: opEmber 1.6s ease-in-out infinite; }
-        .op-ember::after { border: 2px solid #8A5F3A; animation: opEmberRing 1.6s ease-out infinite; }
+        .op-ember::after { border: 2px solid #0D9488; animation: opEmberRing 1.6s ease-out infinite; }
         @keyframes opEmber { 0%, 100% { opacity: .6; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.1); } }
         @keyframes opEmberRing { 0% { opacity: .7; transform: scale(.6); } 100% { opacity: 0; transform: scale(2.4); } }
         @media (prefers-reduced-motion: reduce) {
