@@ -6494,9 +6494,13 @@ function ProvisionsApp() {
         .price-save-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; background: #c8973a; color: white; border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; }
         .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; text-align: right; }
         .list-empty { text-align: center; padding: 60px 20px; }
-        .list-empty h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: #8a7a60; }
+        /* Shop empty state on the knob (pass 2): heading = page-title rate k .4 at its 24, espresso;
+           line = body 15; the link scales here only (.home-line-link is shared with Home's list line,
+           which is not on the knob yet). */
+        .list-empty h2 { font-family: 'Playfair Display', serif; font-size: calc(24px * (1 + (var(--op-text-scale) - 1) * 0.4)); color: #2C1A0E; }
         .list-empty-line { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 6px; margin-top: 12px;
-                           font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; color: #2C1A0E; }
+                           font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; }
+        .list-empty-line .home-line-link { font-size: calc(15px * var(--op-text-scale)); }
         /* Wrap, never squeeze (SPEC_global_text_size decision 9): the count keeps its one line; when the three controls
            don't fit beside it (phone width, "+ Add" is wider than the old round +), they drop to a second line as ONE
            group, right-aligned — never split, never a count ellipsed to "4 …". */
