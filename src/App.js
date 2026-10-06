@@ -6191,10 +6191,14 @@ function ProvisionsApp() {
         .hold-night-rule { display: flex; align-items: center; gap: 12px; }
         .hold-night-rule > span:not(.hold-night-label) { flex: 1 1 auto; height: 1px; background: #E2D3BD; }
         .hold-night-label { flex: none; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.14em; color: #7A6656; }
-        .hold-night-btns { margin-top: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+        /* A wrapping flex row, no breakpoint: each button's basis is its own min-content (the
+           width of its longest word), so three sit in a row when they fit and the third drops
+           to a full-width line when they don't (320 XXL). Labels never break mid-word; items
+           stretch, so heights match within a row. */
+        .hold-night-btns { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
         /* min-height, not height: the label grows with the knob and the three buttons share
            the tallest row (grid items stretch). Vertical padding keeps a two-line label off the border. */
-        .plan-noshop { min-width: 0; min-height: 64px; border: 1.5px solid #D8C3A5; background: transparent; color: #4A3226; border-radius: 16px; padding: 8px 4px; cursor: pointer;
+        .plan-noshop { flex: 1 1 min-content; min-height: 64px; border: 1.5px solid #D8C3A5; background: transparent; color: #4A3226; border-radius: 16px; padding: 8px 4px; cursor: pointer;
                        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
                        font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.1; text-align: center; }
         .plan-noshop svg { width: 20px; height: 20px; flex: none; }
