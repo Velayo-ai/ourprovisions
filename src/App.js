@@ -707,7 +707,7 @@ function CatalogSearchBox({ value, onChange, onClear, placeholder = "Search your
       {value && (
         <span
           onClick={onClear}
-          style={{ color: "#C9A97A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
+          style={{ color: "#8A5F3A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
         >✕</span>
       )}
     </div>
@@ -2801,7 +2801,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   <button
                     onClick={() => removeRow(r.catalog_item_id)}
                     aria-label={`Remove ${r.name}`}
-                    style={{ background: "none", border: "none", color: "#C9A97A", fontSize: "18px",
+                    style={{ background: "none", border: "none", color: "#8A5F3A", fontSize: "18px",
                       cursor: "pointer", padding: "0 2px", flexShrink: 0, lineHeight: 1 }}
                   >×</button>
                   </div>
@@ -8213,7 +8213,7 @@ function ProvisionsApp() {
                             <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                               Add <strong>"{searchQuery}"</strong> to your list
                             </div>
-                            <span style={{ color: "#C9A97A", fontSize: "18px" }}>−</span>
+                            <span style={{ color: "#8A5F3A", fontSize: "18px" }}>−</span>
                           </div>
                           {/* Global entry — no section context, so nothing is
                               pre-selected and the copy asks rather than confirms. */}
