@@ -6691,13 +6691,16 @@ function ProvisionsApp() {
         .all-done { text-align: center; padding: 8px 12px 26px; }
         .all-done-arc { width: 150px; height: 12px; margin: 0 auto 14px; display: block; }
         .all-done-arc path { fill: none; stroke: #0D9488; stroke-width: 1.6; stroke-linecap: round; }
-        .all-done h2 { font-family: 'Playfair Display', serif; font-weight: 400; font-size: 2.1rem; margin: 0 0 6px; letter-spacing: -0.01em; color: #2C1A0E; }
-        .all-done-sub { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1rem; color: #8a7a60; margin: 0 0 16px; }
-        .all-done-meta { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; letter-spacing: 0.5px; }
+        /* All done on the knob (pass 2, Shop slice 2): heading = page-title rate k .4 at its
+           33.6; subline = meta k 1 at its 16; stats + learning line = meta 14; the button = button
+           k .8 raised from 11.5 to the 12.5 floor. Muted #8a7a60 → #8A5F3A. */
+        .all-done h2 { font-family: 'Playfair Display', serif; font-weight: 400; font-size: calc(33.6px * (1 + (var(--op-text-scale) - 1) * 0.4)); margin: 0 0 6px; letter-spacing: -0.01em; color: #2C1A0E; }
+        .all-done-sub { font-family: 'Playfair Display', serif; font-style: italic; font-size: calc(16px * var(--op-text-scale)); color: #8A5F3A; margin: 0 0 16px; }
+        .all-done-meta { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; letter-spacing: 0.5px; }
         .all-done-meta b { color: #2C1A0E; font-weight: 700; }
-        .all-done-learn { font-family: 'Lato', sans-serif; font-size: 12.5px; color: #8A5F3A; margin-top: 6px; }
+        .all-done-learn { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 6px; }
         .all-done-btn { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
-                        font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
+                        font-family: 'Lato', sans-serif; font-size: calc(12.5px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
                         padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
         /* The trip summary's dismiss. Same look as .all-done-btn, deliberately
            NOT that class: .all-done-btn is on the RUM prod unmask allow-list as
