@@ -6338,8 +6338,11 @@ function ProvisionsApp() {
         @media (prefers-reduced-motion: reduce) { .helm, .helm * { transition: none !important; } }
         /* HOME v1 — greeting, date, the Tonight card. */
         .home { padding: 12px 2px 0; }
-        .home-greeting { font-family: 'Playfair Display', serif; font-size: 1.4rem; line-height: 1.2; color: #2C1A0E; }
-        .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
+        /* Home on the knob (pass 2): greeting = page-title rate k .4 at its 22.4; date = meta 14;
+           deck eyebrow 12.5 #8A5F3A, title = card-title rate k .5 at its 24, status = meta at its 14.7,
+           buttons = button 14 k .8 in a wrapping row; list line + link = body 15; budget caption = meta. */
+        .home-greeting { font-family: 'Playfair Display', serif; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.4)); line-height: 1.2; color: #2C1A0E; }
+        .home-date { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 3px; }
         /* D4 — the signed-out welcome variant: the splash wordmark's face (Playfair italic, Our light / Provisions bold) in espresso on the page cream;
            one line in the Tonight card's body tone; the header's two buttons in the sheet's espresso and sand. */
         .home-welcome { padding-top: 64px; text-align: center; }
@@ -6357,25 +6360,25 @@ function ProvisionsApp() {
         .deck { margin-top: 22px; background: #F1E7D8; border-radius: 16px; padding: 18px 20px 16px; }
         .deck.busy { opacity: 0.5; }
         .deck.noshop { background: transparent; outline: 1.5px dashed #C9A97A; outline-offset: -1.5px; }
-        .deck-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.6rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; }
+        .deck-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; }
         .deck-body { margin: 6px -6px 0; padding: 0 6px; border-radius: 10px; }
         .deck-body.tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
         .deck-body.tap:focus-visible { outline: 2px solid #c8973a; outline-offset: 2px; }
-        .deck-title { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
-        .deck-status { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: 0.92rem; line-height: 1.45; color: #6E5A4A; }
+        .deck-title { margin: 0; font-family: 'Playfair Display', serif; font-size: calc(24px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
+        .deck-status { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: calc(14.7px * var(--op-text-scale)); line-height: 1.45; color: #6E5A4A; }
         .deck.cooked .deck-title { opacity: 0.55; }
-        .deck-actions { display: flex; align-items: center; gap: 18px; margin-top: 16px; }
+        .deck-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 16px; }
         /* Primary: espresso outline (Add to Shop); teal fill ONLY for Cooked it — the household finished something; deep sand (--op-add) for
            Add a meal, the same as both of Plan's add buttons. */
         .deck-primary { flex: none; min-height: 44px; padding: 0 22px; border-radius: 22px; cursor: pointer; white-space: nowrap;
                         border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45;
-                        font-family: 'Lato', sans-serif; font-size: 0.8rem; font-weight: 900; letter-spacing: 0.5px; }
+                        font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; letter-spacing: 0.5px; }
         .deck-primary.teal { border-color: #0D9488; background: #0D9488; color: #fff; }
         .deck-primary.add { border-color: var(--op-add); background: var(--op-add); color: var(--op-add-ink); }
         .deck-primary.done, .deck-primary.done:disabled { border-color: #0D9488; background: transparent; color: #0D9488; opacity: 1; cursor: default; }
         .deck-primary:disabled { opacity: 0.5; cursor: default; }
         .deck-switch { flex: none; min-height: 44px; padding: 0 4px; border: none; background: none; cursor: pointer; color: #6f5a45;
-                       font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; }
+                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .deck-switch:disabled { opacity: 0.5; cursor: default; }
         .deck-x { flex: none; width: 36px; height: 36px; border-radius: 50%; border: none; background: transparent; color: #b5a58f; cursor: pointer;
                   font-family: 'Lato', sans-serif; font-size: 1.4rem; font-weight: 300; line-height: 1; padding: 0 0 3px; }
@@ -6385,14 +6388,14 @@ function ProvisionsApp() {
         /* THE LIST LINE and THE BUDGET LINE — one ruled block under the card. The line reads as one sentence; only the link is a tap
            target (a leaf button with fixed copy — RUM). The budget bar is the budget banner's bar at 6px, on the page. */
         .home-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; margin-top: 16px; padding: 8px 0 4px; border-top: 1px solid #EADCC6;
-                     font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; }
+                     font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; }
         .home-line-text { color: #2C1A0E; overflow-wrap: anywhere; }
         .home-line-link { padding: 10px 0; margin: -10px 0; border: none; background: none; cursor: pointer; white-space: nowrap;
-                          font-family: 'Lato', sans-serif; font-size: 0.95rem; font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
+                          font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
         .home-budget { margin-top: 10px; padding-top: 14px; border-top: 1px solid #EADCC6; }
         .home-budget-bar { height: 6px; background: #F1E6D6; border-radius: 3px; overflow: hidden; }
         .home-budget-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease, background 0.3s; }
-        .home-budget-label { margin-top: 8px; font-family: 'Lato', sans-serif; font-size: 0.9rem; color: #6E5A4A; }
+        .home-budget-label { margin-top: 8px; font-family: 'Lato', sans-serif; font-size: calc(14.4px * var(--op-text-scale)); color: #6E5A4A; }
         .home-budget-label.over { color: #e05c5c; }
         /* §6 — every scrolling root clears the pill. The pill is present at EVERY width (rail retired 2026-09-20);
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
@@ -6496,12 +6499,10 @@ function ProvisionsApp() {
         .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; text-align: right; }
         .list-empty { text-align: center; padding: 60px 20px; }
         /* Shop empty state on the knob (pass 2): heading = page-title rate k .4 at its 24, #8A5F3A (espresso tried 7b1e0b4, too heavy for an empty state);
-           line = body 15; the link scales here only (.home-line-link is shared with Home's list line,
-           which is not on the knob yet). */
+           line = body 15; the shared .home-line-link scales on its own rule since Home joined. */
         .list-empty h2 { font-family: 'Playfair Display', serif; font-size: calc(24px * (1 + (var(--op-text-scale) - 1) * 0.4)); color: #8A5F3A; }
         .list-empty-line { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 6px; margin-top: 12px;
                            font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; }
-        .list-empty-line .home-line-link { font-size: calc(15px * var(--op-text-scale)); }
         /* Wrap, never squeeze (SPEC_global_text_size decision 9): the count keeps its one line; when the three controls
            don't fit beside it (phone width, "+ Add" is wider than the old round +), they drop to a second line as ONE
            group, right-aligned — never split, never a count ellipsed to "4 …". */
