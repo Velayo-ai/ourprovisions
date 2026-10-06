@@ -6512,9 +6512,10 @@ function ProvisionsApp() {
                    box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer; text-align: left; }
         .wrapbar.p0 { border-style: dashed; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
+        /* No hard edge on the fill: its 2px right border was the line through the "W" of
+           the label at XXL (pass 2, Shop). The soft tint alone marks progress. */
         .wrapbar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #CFE8E3, #B5DDD5);
-                        border-right: 2px solid rgba(13,148,136,0.45); transition: width 0.2s ease; }
-        .wrapbar.p0 .wrapbar-fill { border-right: none; }
+                        transition: width 0.2s ease; }
         .wrapbar-t { position: relative; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); color: #6E5A4A; }
         .wrapbar-t b { color: #2C1A0E; font-weight: 700; }
         .wrapbar-a { position: relative; flex: none; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #0D9488; white-space: nowrap; }
