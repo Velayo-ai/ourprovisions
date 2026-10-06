@@ -8801,7 +8801,7 @@ function ProvisionsApp() {
                       setAddModalResetDone(true);
                       setTimeout(() => setAddModalResetDone(false), 2000);
                     }}
-                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block" }}
+                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block", textAlign: "left" }}
                   >
                     Unhide {hiddenCatalogItems.filter(h => h.category === newItemCategory).length} hidden {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} {hiddenCatalogItems.filter(h => h.category === newItemCategory).length === 1 ? "item" : "items"}
                   </button>
