@@ -1043,19 +1043,21 @@ function HomeListLine({ openCount, firstItem, shopping, onStartList, onShop }) {
   if (!openCount) {
     return (
       <div className="home-line">
-        <span className="home-line-text">Nothing on your list ·</span>
-        <button type="button" className="home-line-link" onClick={onStartList}>Start a list →</button>
+        <span className="home-line-text">Nothing on your list</span>
+        {/* The separator travels with the link as one non-wrapping unit, so a wrap never
+            strands a trailing dot at the end of the text. */}
+        <span className="home-line-tail">· <button type="button" className="home-line-link" onClick={onStartList}>Start a list →</button></span>
       </div>
     );
   }
   const n = openCount;
   const text = shopping
-    ? `${n} left to find ·`
-    : `${n} thing${n === 1 ? "" : "s"} to get${firstItem ? ` · ${firstItem}` : ""} ·`;
+    ? `${n} left to find`
+    : `${n} thing${n === 1 ? "" : "s"} to get${firstItem ? ` · ${firstItem}` : ""}`;
   return (
     <div className="home-line">
       <span className="home-line-text">{text}</span>
-      <button type="button" className="home-line-link" onClick={onShop}>Let's shop →</button>
+      <span className="home-line-tail">· <button type="button" className="home-line-link" onClick={onShop}>Let's shop →</button></span>
     </div>
   );
 }
@@ -6190,7 +6192,9 @@ function ProvisionsApp() {
         .hold-night-rule > span:not(.hold-night-label) { flex: 1 1 auto; height: 1px; background: #E2D3BD; }
         .hold-night-label { flex: none; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.14em; color: #7A6656; }
         .hold-night-btns { margin-top: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-        .plan-noshop { min-width: 0; height: 64px; border: 1.5px solid #D8C3A5; background: transparent; color: #4A3226; border-radius: 16px; padding: 0 4px; cursor: pointer;
+        /* min-height, not height: the label grows with the knob and the three buttons share
+           the tallest row (grid items stretch). Vertical padding keeps a two-line label off the border. */
+        .plan-noshop { min-width: 0; min-height: 64px; border: 1.5px solid #D8C3A5; background: transparent; color: #4A3226; border-radius: 16px; padding: 8px 4px; cursor: pointer;
                        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
                        font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.1; text-align: center; }
         .plan-noshop svg { width: 20px; height: 20px; flex: none; }
@@ -6390,6 +6394,7 @@ function ProvisionsApp() {
         .home-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; margin-top: 16px; padding: 8px 0 4px; border-top: 1px solid #EADCC6;
                      font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; }
         .home-line-text { color: #2C1A0E; overflow-wrap: anywhere; }
+        .home-line-tail { white-space: nowrap; color: #2C1A0E; }
         .home-line-link { padding: 10px 0; margin: -10px 0; border: none; background: none; cursor: pointer; white-space: nowrap;
                           font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
         .home-budget { margin-top: 10px; padding-top: 14px; border-top: 1px solid #EADCC6; }
