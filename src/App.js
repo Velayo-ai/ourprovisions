@@ -707,7 +707,8 @@ function CatalogSearchBox({ value, onChange, onClear, placeholder = "Search your
       {value && (
         <span
           onClick={onClear}
-          style={{ color: "#8A5F3A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
+          // Full strength: at .7 over the field's #F5EDE0 the glyph measured 2.75:1; it is 4.78:1 as is.
+          style={{ color: "#8A5F3A", fontSize: "16px", cursor: "pointer", flexShrink: 0 }}
         >✕</span>
       )}
     </div>
