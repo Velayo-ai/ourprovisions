@@ -8765,7 +8765,9 @@ function ProvisionsApp() {
               <label className="modal-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>Category</span>
                 {isSignedIn && !newItemName.trim() && hiddenCatalogItems.some(h => h.category === newItemCategory) && (
-                  <span style={{ fontStyle: "italic", fontSize: ts(14), color: "#8A5F3A", fontWeight: 400 }}>tap below to unhide</span>
+                  <span style={{ fontStyle: "italic", fontSize: ts(14), color: "#8A5F3A", fontWeight: 400,
+                    // A hint, not a label: clears .modal-label's uppercase + tracking so it reads sentence-case.
+                    textTransform: "none", letterSpacing: "normal" }}>tap below to unhide</span>
                 )}
               </label>
               {/* This modal is only ever reached from a section header's
