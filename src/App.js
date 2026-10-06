@@ -746,10 +746,11 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
             }}
           >
             <div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
+              {/* Body 15 on the knob so the name stays above the 14 hint below it at every step. */}
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                 <strong>{hiddenMatch.item.name}</strong>{hiddenMatch.live ? ` ×${hiddenMatch.qty}` : ""}
               </div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
                 {hiddenMatch.live ? "Hidden from your view — tap to reveal" : "Hidden from your view — tap to reveal and add"}
               </div>
             </div>
@@ -2091,7 +2092,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         <div style={{ textAlign: "center" }}>
           <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic",
             fontSize: ts(19.2, 0.5), color: "#8a7a60", margin: 0 }}>No meals yet.</p>
-          <p style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A",
+          <p style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A",
             marginTop: "8px", letterSpacing: "0.5px" }}>
             Create one, plan it, and its ingredients are one tap from your list.
           </p>
@@ -2844,7 +2845,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
           {!aiBusy && !trimmedQuery && (
             <div style={{ padding: "10px 2px 0", fontFamily: "'Lato', sans-serif",
-              fontSize: ts(14), color: "#C9A97A" }}>
+              fontSize: ts(14), color: "#8A5F3A" }}>
               Start typing to find an ingredient.
             </div>
           )}
@@ -2935,7 +2936,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     {/* ── New category inline input — revealed by the tile ── */}
                     {newCatOpen && (
                       <div style={{ padding: "0 14px 14px" }}>
-                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
+                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "7px" }}>
                           Name the new category
                         </div>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -7280,7 +7281,8 @@ function ProvisionsApp() {
                   <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14.5px", fontWeight: 900, color: "#FAF4EC" }}>
                     {invitePreparing ? "Preparing…" : "Invite aboard"}
                   </div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11.5px", color: "#C9A97A", marginTop: "1px" }}>
+                  {/* Light-on-espresso: the sand stays — #8A5F3A on #2C1A0E would be ~2.6:1 (gold copy sweep, 2026-10-06). */}
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A", marginTop: "1px" }}>
                     Add someone to this place’s shared list
                   </div>
                 </div>
@@ -8225,7 +8227,7 @@ function ProvisionsApp() {
                           {/* ── New category inline input — revealed by the tile ── */}
                           {searchNewCatOpen && (
                           <div style={{ padding: "0 14px 14px" }}>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "7px" }}>
                               Name the new category
                             </div>
                             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -8763,7 +8765,7 @@ function ProvisionsApp() {
               <label className="modal-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>Category</span>
                 {isSignedIn && !newItemName.trim() && hiddenCatalogItems.some(h => h.category === newItemCategory) && (
-                  <span style={{ fontStyle: "italic", fontSize: "10px", color: "#C9A97A", fontWeight: 400 }}>tap below to unhide</span>
+                  <span style={{ fontStyle: "italic", fontSize: ts(14), color: "#8A5F3A", fontWeight: 400 }}>tap below to unhide</span>
                 )}
               </label>
               {/* This modal is only ever reached from a section header's
