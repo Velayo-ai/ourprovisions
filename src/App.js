@@ -1,10 +1,13 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { useProvisions, isPendingCatalogId } from './hooks/useProvisions';
+import { useProvisions, isPendingCatalogId, normalizeOccasion } from './hooks/useProvisions';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { ConnectivityPill } from './components/ConnectivityPill';
+import { HeaderAction } from './components/HeaderAction';
+import { WrapUpBar } from './components/WrapUpBar';
+import { SheetPanel } from './components/SheetPanel';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { trace } from '@opentelemetry/api';
@@ -115,9 +118,22 @@ function CategoryPickerGrid({ categories, selected, onSelect, onNewCategory }) {
 
 const SWIPE_THRESHOLD = 60;
 
-// Device-local list text-size steps. Index (0–4) is persisted; scale drives --op-list-scale.
+// Device-local text-size steps (SPEC_global_text_size: one knob, every surface). Index (0–4)
+// is persisted under the ORIGINAL key op_list_text_size — the key is internal and existing
+// users keep their step; the scale drives --op-text-scale on documentElement.
 const TEXT_STEPS = [0.9, 1.0, 1.2, 1.45, 1.75];
 const TEXT_LABELS = ["Compact", "Default", "Large", "XL", "XXL"];
+// ts(px, k) — the one way an inline style follows the text-size knob
+// (SPEC_global_text_size §2). k is how strongly the role follows the knob:
+// small text (eyebrow, meta, body) k = 1; buttons 0.8; card titles 0.5;
+// page titles 0.4; chrome k = 0 is simply a plain px value. CSS rules write the
+// same expressions by hand — see the role table in ARCHITECTURE.
+//   ts(16)      → "calc(16px * var(--op-text-scale))"
+//   ts(20, 0.5) → "calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5))"
+const ts = (px, k = 1) =>
+  k === 1
+    ? `calc(${px}px * var(--op-text-scale))`
+    : `calc(${px}px * (1 + (var(--op-text-scale) - 1) * ${k}))`;
 
 function SwipeToRemove({ onRemove, onEdit, onStaple, isStaple, canEdit = true, removeLabel = "Hide", style: outerStyle, children }) {
   // Reveal width scales with the number of actions the caller actually wired,
@@ -727,14 +743,14 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
             }}
           >
             <div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
                 <strong>{hiddenMatch.item.name}</strong>{hiddenMatch.live ? ` ×${hiddenMatch.qty}` : ""}
               </div>
               <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
                 {hiddenMatch.live ? "Hidden from your view — tap to reveal" : "Hidden from your view — tap to reveal and add"}
               </div>
             </div>
-            <span style={{ color: "#A0724A", fontSize: "18px" }}>↺</span>
+            <span style={{ color: "#8A5F3A", fontSize: "18px" }}>↺</span>
           </div>
         </>
       )}
@@ -896,6 +912,8 @@ function HomeWelcome({ signUpInitialValues, ready }) {
 //   0  boardCards[0] cooked this load   name · ✓ Cooked (teal outline, disabled) · no Switch
 //      — the afterglow (D6): cookedHere is cleared by the meals load effect on
 //      view entry, so the next card is on deck on the next Home load. No timer.
+//      Since 2026-10-03 the set drawn is afterglowIds — an id leaves the moment
+//      its placement reopens (re-plan), so an open placement always wins.
 //   1  no open card                     "What sounds good?" · Add a meal (deep sand,
 //      the library) · Hold-a-night buttons ("OR HOLD A NIGHT")
 //   2  no-shop (held night)             the board's title + context line · × and
@@ -1719,52 +1737,339 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
   );
 }
 
-// THE LIBRARY — where you decide WHAT. One action per card: Plan (the round
-// +), which places the meal at max+1 and touches nothing else. Add is gone
-// from here (v2 decision 1): pick and commit happen at different moments, and
-// the board's Add all absorbs the double tap. A meal already on the board
-// reads ON THE BOARD with the + disabled. Filters: All · Made before (any
-// placement carrying cooked_at) · Ours (household-owned — which, until seed or
-// shared meals exist, is every meal this read returns; the pill is correct by
-// construction and waits for the day it isn't trivial). Favorites is OMITTED,
-// not disabled: no data exists yet and a greyed pill promises a table that
-// hasn't been decided (per-user vs per-household). Every control is
-// espresso/outline — no teal in the library.
-function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, isSignedIn, onBoardIds, madeBefore, householdId }) {
-  const [filter, setFilter] = useState("all");
-  // Terminal ghost row — matches the "+ Create new place" convention (same
-  // 1.5px dashed border, same terminal position). It renders in the EMPTY
-  // state too, deliberately: it is the only entry point to meal creation, so
-  // a household with no meals could otherwise never make its first one.
-  // Signed out, this row becomes a sign-in prompt rather than a live control.
-  // Creating a meal is an identity-requiring write, and every such write silently
-  // no-ops when signed out (no Supabase client is ever built without a Clerk token),
-  // so a clickable row here promises something the app cannot deliver. It is NOT
-  // hidden: an absent control with no explanation is the same "state is invisible"
-  // defect in a smaller costume. Same box, same dashed border, same terminal slot —
-  // only the affordance and the words change, so there is no layout shift.
-  const createRow = isSignedIn ? (
-    <button
-      onClick={onCreate}
-      style={{
-        width: "100%", background: "none", border: "1.5px dashed #A0724A",
-        borderRadius: "12px", padding: "14px", marginTop: "2px",
-        fontFamily: "'Lato', sans-serif", fontSize: "0.92rem", fontWeight: 700,
-        color: "#A0724A", cursor: "pointer", textAlign: "center", boxSizing: "border-box",
-      }}
-    >+ Create new meal</button>
+// SHEET CLOSE (2026-10-04, found with VoiceOver on the dev walk: the Profile
+// sheet could not be closed). There is no shared sheet component — every modal
+// is an inline `.modal-overlay > .modal` pair, and the Profile sheet is a bespoke
+// bottom sheet — so the shared level is this button plus the dialog attributes
+// on each container. Rules: a real <button>, 44px target, aria-label "Close",
+// focused on open so it is the first VoiceOver stop (a button takes focus
+// without raising the keyboard — the no-autoFocus rule is about inputs), and on
+// unmount focus returns to whatever had it when the sheet opened. Backdrop taps
+// and the existing Cancel buttons stay for sighted users.
+function SheetClose({ onClose, disabled = false, label = "Close" }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const opener = document.activeElement;
+    if (ref.current) ref.current.focus({ preventScroll: true });
+    return () => {
+      if (opener && typeof opener.focus === "function" && document.contains(opener)) opener.focus({ preventScroll: true });
+    };
+  }, []);
+  return (
+    <button ref={ref} type="button" className="sheet-close" aria-label={label} disabled={disabled} onClick={onClose}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+    </button>
+  );
+}
+
+// PLAN'S TITLE SWITCH (SPEC_plan_week_meals_switch, D1–D3, D10). This Week and
+// Meals are two views of ONE activity, so both names are always on screen at
+// the size of a page title: two serif links, the active one ink with a 3px clay
+// underline the width of the word, the other muted. No segmented pill (it cost
+// ~60px and repeated the title), no back arrow, no breadcrumb, and Meals is not
+// a fifth door. Rendered ONCE for both views so they cannot drift. The row is
+// also the Helm's compact sentinel (controlRowRef) on both views. Real buttons
+// inside a labelled nav, aria-current on the active one; the vertical padding
+// (not smaller type) makes the ≥44px tap target.
+function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
+  const link = (key, label) => {
+    const on = screen === key;
+    return (
+      <button
+        type="button"
+        className={`plan-view${on ? " on" : ""}`}
+        aria-current={on ? "page" : undefined}
+        onClick={() => { if (!on) onSwitch(key); }}
+      >{label}</button>
+    );
+  };
+  return (
+    <div className={`plan-ctl${className ? ` ${className}` : ""}`} ref={rowRef}>
+      <div className="plan-ctl-text">
+        <nav className="plan-switch" aria-label="Plan views">
+          {link("board", "This Week")}
+          {link("library", "Meals")}
+        </nav>
+        {subtitle && <div className="plan-sub">{subtitle}</div>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+// THE LIBRARY — "What sounds good?" (SPEC_meal_library_v1 + the v1.1 amendment).
+// Where you decide WHAT; This Week (the board) decides WHEN. A two-column card
+// grid: a coloured top (the first occasion word + the name; tone by dominant
+// ingredient category, exactly as on the board) over a white strip ("{n}
+// ingredients" + the ONE action, Plan → ✓ Planned). The card body opens Edit
+// Meal, planned or not. Above the grid: search, a Filter button (From / Made
+// before / Ours live in a sheet; active ones show as removable chips) and the
+// occasion rail — All plus only the occasions some meal carries; with none
+// tagged the rail hides behind a one-line prompt until the first tag. Below:
+// one Create tile (one door — the New Meal sheet, Galley inside). ZERO TEAL:
+// planning isn't finishing. "Planned" = an open placement (onBoardIds), so a
+// ✓ Cooked afterglow card reads Plan again. Favorites is OMITTED, not disabled:
+// no data exists yet and a greyed pill promises a table that hasn't been decided.
+// RUM: .lib-occ / .lib-fbtn / .lib-plan / .lib-create / .lib-show / .lib-clear
+// (and the switch row's .plan-view / .hdr-action) carry fixed copy only; the
+// card body (meal name) and the From chips
+// (first names) are NOT allow-listed — keep names out of those classes.
+// OCCASIONS (061). Fixed display order for the rail and the Good-for chips:
+// Dinner first because most meals are dinners. The singular word is what the
+// card and the chips show; the rail pluralises Snacks / Sides / Appetizers.
+const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appetizer", "dessert"];
+const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert" };
+const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appetizer: "Appetizers" };
+const NO_LIB_FILTERS = { from: null, made: false, ours: false };
+// The "Something new?" tile coaches until the library has this many meals.
+const LIBRARY_COACH_MAX = 6;
+// The one search predicate (spec): case-insensitive substring on the name and on
+// the occasion words, singular and plural ("dessert", "snacks"). Smarter search
+// replaces this function, not the UI. `q` arrives trimmed and lower-cased.
+function matchesQuery(meal, q) {
+  if (!q) return true;
+  if ((meal?.name || "").toLowerCase().includes(q)) return true;
+  return (meal?.occasion || []).some((o) => o.includes(q)
+    || (OCCASION_WORD[o] || "").toLowerCase().includes(q)
+    || (OCCASION_PILL[o] || "").toLowerCase().includes(q));
+}
+
+// Browse's rail, reused: the same .cat-rail-wrap / .cat-rail classes (scroll-snap,
+// pan-x, the styled scrollbar, the edge fades), so the scroll behaviour is not
+// forked — only the pills differ (.lib-occ: espresso on-state, no glyph). The
+// edge sync mirrors Browse's syncRailEdges for this rail's own node; the resting
+// position is keyed off the PILL SET (not the selection) exactly as Browse does,
+// so it never yanks a rail the user is mid-scroll.
+function OccasionRail({ present, value, onChange }) {
+  const node = useRef(null);
+  const [edges, setEdges] = useState({ atStart: true, atEnd: true });
+  const sync = useCallback(() => {
+    const rail = node.current;
+    if (!rail) return;
+    const max = rail.scrollWidth - rail.clientWidth;
+    const atStart = rail.scrollLeft <= 1;
+    const atEnd = rail.scrollLeft >= max - 1;
+    setEdges((prev) => (prev.atStart === atStart && prev.atEnd === atEnd ? prev : { atStart, atEnd }));
+  }, []);
+  const presentKey = present.join(",");
+  useLayoutEffect(() => {
+    const rail = node.current;
+    if (!rail) return;
+    const active = rail.querySelector('[data-active="1"]');
+    rail.scrollLeft = active ? Math.max(0, active.offsetLeft - rail.offsetLeft) : 0;
+    sync();
+  }, [presentKey, sync]);
+  useEffect(() => {
+    const rail = node.current;
+    if (!rail) return;
+    rail.addEventListener("scroll", sync, { passive: true });
+    window.addEventListener("resize", sync);
+    return () => { rail.removeEventListener("scroll", sync); window.removeEventListener("resize", sync); };
+  }, [sync]);
+  const pills = [["all", "All"], ...present.map((k) => [k, OCCASION_PILL[k]])];
+  return (
+    <div className={`cat-rail-wrap lib-rail${edges.atStart ? " at-start" : ""}${edges.atEnd ? " at-end" : ""}`}>
+      <div className="cat-rail" ref={node} role="tablist" aria-label="Good for">
+        {pills.map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={value === k}
+            data-active={value === k ? "1" : undefined}
+            className={`lib-occ${value === k ? " on" : ""}`}
+            onClick={() => onChange(k)}
+          >{label}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// One card. Two real buttons, never nested: the coloured top ("Open {meal}")
+// and the pill. The pill's slot follows the meal's STAGE (SPEC_meal_library_unplan,
+// "one step back, never two"), read from boardCardState so This Week, Home and
+// the library can never disagree:
+//   none     → Plan (outline pill)            rows 1 and 6 — no open placement,
+//                                             or cooked this load (afterglow)
+//   planned  → ✓ This week (sand pill, LIVE)  rows 2–3 — Plan is still the latest
+//                                             step; tapping UN-PLANS (skipMeal,
+//                                             the board's Remove path, no list
+//                                             links to zero). aria-label is fixed
+//                                             copy, never the meal name.
+//   toBuy    → "To buy" (text, inert, no ✓)   row 4 — the board's chip word;
+//                                             changes happen on This Week
+//   ready    → "✓ Ready" (text, inert)        row 5
+// Pill = action, text = status: the shape says whether it does something. The
+// occasion row keeps its height when untagged so names align across a row; the
+// name wraps and is never truncated to one line. The on-hand suffix lives in
+// the meal sheet, not here (the card is too narrow and it is subordinate).
+const CheckGlyph = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
+);
+const PlusGlyph = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+);
+function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
+  const tone = mealTone(meal);
+  const count = (meal.meal_ingredients || []).length;
+  const first = (meal.occasion || [])[0];
+  return (
+    <div className="lib-gcard">
+      <button
+        type="button"
+        className="lib-gtop"
+        style={{ background: tone.bg, color: tone.fg }}
+        aria-label={`Open ${meal.name}`}
+        onClick={() => onOpen(meal)}
+      >
+        <span className="lib-gocc">{first ? OCCASION_WORD[first] : ""}</span>
+        <span className="lib-gname">{meal.name}</span>
+      </button>
+      <div className="lib-gstrip">
+        <span className="lib-gcount">{count} {count === 1 ? "ingredient" : "ingredients"}</span>
+        {canPlan && (stage === "toBuy" ? (
+          <span className="lib-stage">To buy</span>
+        ) : stage === "ready" ? (
+          <span className="lib-stage"><CheckGlyph />Ready</span>
+        ) : stage === "planned" ? (
+          <button
+            type="button"
+            className="lib-plan planned"
+            disabled={busy}
+            aria-label="Remove from this week"
+            onClick={() => { if (!busy) onUnplan(meal.id); }}
+          ><CheckGlyph />This week</button>
+        ) : (
+          <button
+            type="button"
+            className="lib-plan"
+            disabled={busy}
+            aria-label={`Plan ${meal.name}`}
+            onClick={() => { if (!busy) onPlan(meal.id); }}
+          >{busy ? "…" : "Plan"}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// FILTER SHEET (mockup screen 3). FROM = current household members with ≥ 1
+// library meal (created_by — who ADDED it to this library, not whose recipe it
+// is), single-select, tapping the selected chip clears it; a member who left
+// takes their chip with them, never the meals. HISTORY = Made before (the cook
+// log, 058) and Ours (v2's predicate, unchanged). Applies on Show; Clear resets
+// these three in the draft only — never the occasion or the search. The count
+// on Show is the live grid count with the draft applied (occasion and search
+// included), so a chip that would return nothing says so before it does.
+function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onShow, onClose }) {
+  const n = countFor(draft);
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Filter meals" onClick={(e) => e.stopPropagation()}>
+        <SheetClose onClose={onClose} />
+        <h2>Filter meals</h2>
+        <div className="lib-sheet-lbl">From</div>
+        {fromMembers.length > 0 && (
+          <div className="lib-chips">
+            {fromMembers.map((mb) => {
+              const on = draft.from === mb.id;
+              return (
+                <button
+                  key={mb.id}
+                  type="button"
+                  className={`lib-chef${on ? " on" : ""}`}
+                  aria-pressed={on}
+                  onClick={() => setDraft({ ...draft, from: on ? null : mb.id })}
+                ><span className="lib-mini" aria-hidden="true">{mb.initial}</span>{mb.firstName}</button>
+              );
+            })}
+          </div>
+        )}
+        <div className="lib-sheet-note">Only people with meals in your library show here.</div>
+        <div className="lib-sheet-lbl">History</div>
+        <button type="button" role="switch" aria-checked={draft.made} className="lib-sw" onClick={() => setDraft({ ...draft, made: !draft.made })}>
+          <span><span className="lib-sw-l">Made before</span><span className="lib-sw-d">Meals you've cooked from This Week</span></span>
+          <span className="lib-track" aria-hidden="true" />
+        </button>
+        <button type="button" role="switch" aria-checked={draft.ours} className="lib-sw" onClick={() => setDraft({ ...draft, ours: !draft.ours })}>
+          <span><span className="lib-sw-l">Ours</span><span className="lib-sw-d">Made in this household, not shared in</span></span>
+          <span className="lib-track" aria-hidden="true" />
+        </button>
+        <div className="lib-sheet-btns">
+          <button type="button" className="lib-clear" onClick={() => setDraft({ ...NO_LIB_FILTERS })}>Clear</button>
+          <button type="button" className="lib-show" onClick={onShow}>Show {n} {n === 1 ? "meal" : "meals"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members }) {
+  const [query, setQuery] = useState("");
+  const [occ, setOcc] = useState("all");
+  const [filters, setFilters] = useState(NO_LIB_FILTERS);
+  // null while closed; the sheet's draft (a copy of `filters`) while open.
+  const [draft, setDraft] = useState(null);
+
+  // The rail shows only occasions some meal carries, in the fixed order. If the
+  // selected one stops being present (last meal untagged or deleted), fall back
+  // to All rather than filter to nothing.
+  const present = useMemo(() => OCCASION_ORDER.filter((k) => meals.some((m) => (m.occasion || []).includes(k))), [meals]);
+  const anyTagged = present.length > 0;
+  useEffect(() => { if (occ !== "all" && !present.includes(occ)) setOcc("all"); }, [occ, present]);
+
+  // From chips: current members with ≥ 1 library meal. First name from the
+  // profile's full name (else the email's local part); the monogram is the
+  // roster's sand circle — the app has no per-member colour, and the header's
+  // teal monogram is the one colour this surface forbids.
+  const fromMembers = useMemo(() => (members || [])
+    .filter((mb) => mb.user_id && meals.some((m) => m.created_by === mb.user_id))
+    .map((mb) => {
+      const full = (mb.users?.full_name || "").trim();
+      const firstName = full.split(/\s+/)[0] || (mb.users?.email ? mb.users.email.split("@")[0] : "Member");
+      return { id: mb.user_id, firstName, initial: firstName[0].toUpperCase() };
+    }), [members, meals]);
+  // An applied From whose member left (or whose meals are gone) clears itself.
+  useEffect(() => {
+    if (filters.from && !fromMembers.some((mb) => mb.id === filters.from)) setFilters((f) => ({ ...f, from: null }));
+  }, [filters.from, fromMembers]);
+
+  const q = query.trim().toLowerCase();
+  const passes = useCallback((m, f, o) => (o === "all" || (m.occasion || []).includes(o))
+    && matchesQuery(m, q)
+    && (!f.from || m.created_by === f.from)
+    && (!f.made || !!madeBefore?.has(m.id))
+    && (!f.ours || !m.household_id || m.household_id === householdId), [q, madeBefore, householdId]);
+  const shown = useMemo(() => meals.filter((m) => passes(m, filters, occ)), [meals, filters, occ, passes]);
+  const countFor = (f) => meals.filter((m) => passes(m, f, occ)).length;
+  const activeCount = (filters.from ? 1 : 0) + (filters.made ? 1 : 0) + (filters.ours ? 1 : 0);
+  const fromMember = filters.from ? fromMembers.find((mb) => mb.id === filters.from) : null;
+
+  // The Create tile is a COACHING surface (Dan, 2026-10-03): it shows only
+  // while the household's whole library — `meals` here is every live
+  // kind='meal' row, never the filtered or searched result — has fewer than
+  // LIBRARY_COACH_MAX meals. From there the head-row + Create and the Helm's
+  // + are the doors. Derived on every render; no stored flag. Rendered in the
+  // empty state too: a household with no meals could otherwise never make its
+  // first one. Signed out it is a sign-in prompt, not a live control (every
+  // identity-requiring write silently no-ops without a Clerk token); the whole
+  // Plan view sits behind the signed-out welcome since 2026-10-02, so that
+  // branch is kept as belt-and-braces, not walked.
+  const coaching = meals.length < LIBRARY_COACH_MAX;
+  const createTile = !coaching ? null : isSignedIn ? (
+    <div className="lib-create-tile">
+      <div className="lib-create-text">
+        <div className="lib-create-t">Something new?</div>
+        <div className="lib-create-s">Build your own, or let the Galley help.</div>
+      </div>
+      <button type="button" className="lib-create outline" aria-label="Create a new meal" onClick={onCreate}><PlusGlyph />New meal</button>
+    </div>
   ) : (
-    <div
-      style={{
-        width: "100%", background: "none", border: "1.5px dashed #C9A97A",
-        borderRadius: "12px", padding: "14px", marginTop: "2px",
-        fontFamily: "'Lato', sans-serif", fontSize: "0.92rem", fontWeight: 700,
-        color: "#9a8a78", cursor: "default", textAlign: "center", boxSizing: "border-box",
-      }}
-    >
-      Sign in to create meals
-      <div style={{ fontWeight: 400, fontSize: "0.78rem", marginTop: "4px", fontStyle: "italic" }}>
-        Meals are saved to your place, so they need your account.
+    <div className="lib-create-tile gated">
+      <div className="lib-create-text">
+        <div className="lib-create-t">Sign in to create meals</div>
+        <div className="lib-create-s">Meals are saved to your place, so they need your account.</div>
       </div>
     </div>
   );
@@ -1772,99 +2077,106 @@ function MealsLens({ meals, loading, onPlan, planningMealId, onCreate, onEdit, i
   if (loading && meals.length === 0) {
     return (
       <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7a60",
-        fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "1.05rem" }}>
+        fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(16.8, 0.5) }}>
         Loading meals…
       </div>
     );
   }
   if (meals.length === 0) {
     return (
-      <div style={{ padding: "44px 24px 0" }}>
+      <div style={{ padding: "32px 0 0" }}>
         <div style={{ textAlign: "center" }}>
           <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic",
-            fontSize: "1.2rem", color: "#8a7a60", margin: 0 }}>No meals yet.</p>
-          <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.8rem", color: "#C9A97A",
+            fontSize: ts(19.2, 0.5), color: "#8a7a60", margin: 0 }}>No meals yet.</p>
+          <p style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A",
             marginTop: "8px", letterSpacing: "0.5px" }}>
             Create one, plan it, and its ingredients are one tap from your list.
           </p>
         </div>
-        <div style={{ marginTop: "22px" }}>{createRow}</div>
+        <div style={{ marginTop: "6px" }}>{createTile}</div>
       </div>
     );
   }
-  const FILTERS = [
-    { key: "all", label: "All" },
-    { key: "made", label: "Made before" },
-    { key: "ours", label: "Ours" },
-  ];
-  const shown = meals.filter((m) => {
-    if (filter === "made") return !!madeBefore?.has(m.id);
-    if (filter === "ours") return !m.household_id || m.household_id === householdId;
-    return true;
-  });
+
+  // Made before alone emptying the grid keeps its own line; everything else
+  // is "Nothing matches that yet."
+  const madeAlone = filters.made && !filters.from && !filters.ours && !q && occ === "all";
   return (
-    <div style={{ paddingTop: "2px" }}>
-      <div className="lib-filters" role="tablist" aria-label="Filter meals">
-        {FILTERS.map((f) => (
-          <button
-            key={f.key}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.key}
-            className={`lib-filter${filter === f.key ? " on" : ""}`}
-            onClick={() => setFilter(f.key)}
-          >{f.label}</button>
-        ))}
+    <div className="lib">
+      <div className="lib-search-row">
+        <label className="lib-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search your meals…"
+            aria-label="Search your meals"
+          />
+        </label>
+        <button
+          type="button"
+          className="lib-fbtn"
+          aria-label={activeCount ? `Filter meals, ${activeCount} active` : "Filter meals"}
+          onClick={() => setDraft({ ...filters })}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
+          {activeCount > 0 && <span className="lib-fdot" aria-hidden="true" />}
+        </button>
       </div>
-      {shown.length === 0 && (
-        <div className="lib-empty">
-          {filter === "made" ? "Nothing cooked from the board yet — Cooked it fills this." : "Nothing here yet."}
+
+      {/* Active filters are always visible (decision 10): a filtered grid must never read as a short library. */}
+      {activeCount > 0 && (
+        <div className="lib-active">
+          {fromMember && (
+            <button type="button" className="lib-chip-x" aria-label={`Remove filter: ${fromMember.firstName}'s`} onClick={() => setFilters((f) => ({ ...f, from: null }))}>
+              <span className="lib-mini" aria-hidden="true">{fromMember.initial}</span>{fromMember.firstName}'s <span aria-hidden="true">×</span>
+            </button>
+          )}
+          {filters.made && (
+            <button type="button" className="lib-chip-x" aria-label="Remove filter: Made before" onClick={() => setFilters((f) => ({ ...f, made: false }))}>Made before <span aria-hidden="true">×</span></button>
+          )}
+          {filters.ours && (
+            <button type="button" className="lib-chip-x" aria-label="Remove filter: Ours" onClick={() => setFilters((f) => ({ ...f, ours: false }))}>Ours <span aria-hidden="true">×</span></button>
+          )}
         </div>
       )}
-      {shown.map((m) => {
-        const count = (m.meal_ingredients || []).length;
-        // "6 ingredients · 2 on hand": the recipe total and what Add will skip.
-        // The suffix appears ONLY when a meal actually has on-hand rows.
-        const onHandCount = (m.meal_ingredients || []).filter((mi) => mi.on_hand).length;
-        const busy = planningMealId === m.id;
-        const onBoard = !!onBoardIds?.has(m.id);
-        const tone = mealTone(m);
-        return (
-          // Face-button-plus-swipe, same as catalog rows: Plan is the one face
-          // action; Edit lives behind the swipe (Staple and Hide have no meaning
-          // for a meal, so the panel reveals a single button).
-          <SwipeToRemove
+
+      {anyTagged
+        ? <OccasionRail present={present} value={occ} onChange={setOcc} />
+        : <div className="lib-hint">Sort meals by when you eat them — open any meal to mark it Dinner, Lunch…</div>}
+
+      {shown.length === 0 && (
+        <div className="lib-empty">
+          {madeAlone ? "Nothing cooked from This Week yet — Cooked it fills this." : "Nothing matches that yet."}
+        </div>
+      )}
+      <div className="lib-grid">
+        {shown.map((m) => (
+          <LibraryCard
             key={m.id}
-            onEdit={() => onEdit && onEdit(m)}
-            style={{ borderRadius: "12px", marginBottom: "9px" }}
-          >
-          <div className={`lib-card${onBoard ? " on-board" : ""}`}>
-            <div className="lib-tile" style={{ background: tone.bg, color: tone.fg }} aria-hidden="true">
-              <span className="lib-tile-word">{mealCategoryWord(m)}</span>
-              {onBoard && <span className="lib-tile-tag">On the board</span>}
-            </div>
-            <div className="lib-main">
-              <div className="lib-name">{m.name}</div>
-              <div className="lib-meta">
-                {count} {count === 1 ? "ingredient" : "ingredients"}
-                {onHandCount > 0 && ` · ${onHandCount} on hand`}
-                {onBoard && " · on the board"}
-              </div>
-            </div>
-            {isSignedIn && onPlan && (
-              <button
-                type="button"
-                className="lib-plan"
-                aria-label={onBoard ? `${m.name} is on the board` : `Plan ${m.name}`}
-                disabled={busy || onBoard}
-                onClick={() => { if (!busy && !onBoard) onPlan(m.id); }}
-              >{busy ? "…" : "+"}</button>
-            )}
-          </div>
-          </SwipeToRemove>
-        );
-      })}
-      {createRow}
+            meal={m}
+            stage={stages?.[m.id] || "none"}
+            busy={planningMealId === m.id}
+            canPlan={!!(isSignedIn && onPlan)}
+            onPlan={onPlan}
+            onUnplan={onUnplan}
+            onOpen={(meal) => onEdit && onEdit(meal)}
+          />
+        ))}
+      </div>
+      {createTile}
+
+      {draft && (
+        <LibraryFilterSheet
+          draft={draft}
+          setDraft={setDraft}
+          fromMembers={fromMembers}
+          countFor={countFor}
+          onShow={() => { setFilters(draft); setDraft(null); }}
+          onClose={() => setDraft(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1907,6 +2219,32 @@ const GalleyGlyph = ({ size = 12 }) => (
   </svg>
 );
 
+// GOOD FOR — the meal sheet's occasion picker (Meal Library v1 decision 13).
+// Seven chips in a fixed order, multi-select, STORED IN TAP ORDER: the first
+// picked carries ON CARD and is the word the library card shows; deselecting
+// it promotes the next. Flexible discovery tags, not a classification —
+// "choose any that fit". Espresso on-state, no teal (planning isn't finishing).
+function GoodForChips({ value, onChange, style }) {
+  const toggle = (k) => onChange(value.includes(k) ? value.filter((x) => x !== k) : [...value, k]);
+  return (
+    <div className="modal-field" style={style}>
+      <label className="modal-label">Good for</label>
+      <div className="gf-chips" role="group" aria-label="Good for">
+        {OCCASION_ORDER.map((k) => {
+          const on = value.includes(k);
+          return (
+            <button key={k} type="button" className={`gf-chip${on ? " on" : ""}`} aria-pressed={on} onClick={() => toggle(k)}>
+              {OCCASION_WORD[k]}
+              {on && value[0] === k && <span className="gf-oncard">On card</span>}
+            </button>
+          );
+        })}
+      </div>
+      <div className="gf-help">Choose any that fit. The first appears on the card.</div>
+    </div>
+  );
+}
+
 // One parameterized sheet for BOTH create and edit (mode: 'create' | 'edit').
 // Built as one component from the start rather than retrofitting edit onto a
 // create-only sheet later — the seam is nearly free now and expensive after.
@@ -1945,10 +2283,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // until 2026-09-09 the field only appeared once it had content, so a manual meal
   // had no way to get steps at all. Edit mode loads whatever is already stored.
   const [instructions, setInstructions] = useState(isEdit ? (meal?.instructions || "") : "");
+  // Good for (061) — the ordered occasion list. Edit loads what is stored
+  // (normalised: the client never trusts an array it did not write); create
+  // starts untagged. Galley drafts arrive untagged in v1 and are tagged here.
+  const [occasion, setOccasion] = useState(() => (isEdit ? normalizeOccasion(meal?.occasion) : []));
   // What the sheet opened with — the baseline `isDirty` compares against. Lazy
-  // initialiser: captured on the first render, when the three states above still
+  // initialiser: captured on the first render, when the four states above still
   // hold their initial values, and never updated afterwards.
-  const [openedWith] = useState(() => ({ name, instructions, rows }));
+  const [openedWith] = useState(() => ({ name, instructions, rows, occasion }));
   // Read renders the recipe card (or, with nothing stored, the empty chip that
   // points at both paths); edit is the textarea + Done. Opens in read — the card
   // for a meal that has steps, the chip for one that does not — and returns to
@@ -2272,6 +2614,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // The ask block dims while the steps are being hand-edited: a draft would
   // replace what is being typed. Same shape as aiDim, different trigger.
   const galleyDim = stepsMode === "edit" ? { opacity: 0.55, pointerEvents: "none" } : undefined;
+  // THE GALLEY HIDES ON MANUAL BUILDING (Dan, 2026-10-03). The ask block shows
+  // only while the draft has no ingredients and no steps, or the draft came
+  // from the Galley (its "Not quite it? Ask the galley again" handle is
+  // unchanged). It leaves in the same render as the first hand-added
+  // ingredient or typed step, and returns if every one is removed; editing an
+  // existing meal with ingredients opens without it. Reason: a leftover Ask
+  // control would draft over hand-entered work.
+  const galleyAvailable = fromGalley || (rows.length === 0 && !instructions.trim());
   // Ask AI needs a real Clerk identity: the Edge Function verifies the token
   // against Clerk JWKS, so signed out it can only ever fail. Gate the control
   // rather than letting the attempt through to a generic error.
@@ -2291,6 +2641,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const isDirty = name !== openedWith.name
     || instructions !== openedWith.instructions
     || rowsKey(rows) !== rowsKey(openedWith.rows)
+    || occasion.join(",") !== openedWith.occasion.join(",")   // a changed tag is unsaved work (spec)
     || fromGalley
     || aiBusy;
 
@@ -2312,7 +2663,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     // lands on the overlay as a click, and one of those used to throw away the whole
     // draft with no confirmation. The overlay is scenery now.
     <div className="modal-overlay">
-      <div className="modal" style={{ maxHeight: "88vh", overflowY: "auto" }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={isEdit ? "Edit meal" : "New meal"} style={{ maxHeight: "88vh", overflowY: "auto" }}>
+        <SheetClose onClose={onCancel} disabled={saving || deleting} />
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
 
         <div className="modal-field" style={aiDim}>
@@ -2328,6 +2680,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             placeholder="Taco Night"
           />
         </div>
+
+        <GoodForChips value={occasion} onChange={setOccasion} style={aiDim} />
 
         <div className="modal-field" style={aiBusy ? undefined : aiDim}>
           <label className="modal-label">Ingredients</label>
@@ -2360,16 +2714,17 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   borderRadius: "8px", marginBottom: "6px",
                   background: r.on_hand ? "rgba(250,244,236,0.55)" : "#FAF4EC",
                 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                  {/* flexWrap (SPEC_global_text_size decision 9): at XL / XXL the control drops below the name instead of squeezing it. */}
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px" }}>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
                     gap: "7px", flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                       color: r.on_hand ? "#8a7a60" : "#2C1A0E" }}>
                       {r.name}
                     </span>
                     {r.on_hand && (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "4px",
-                        fontFamily: "'Lato', sans-serif", fontSize: "0.66rem", fontWeight: 700,
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 700,
                         letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B4E1F",
                         background: "rgba(201,169,122,0.22)", borderRadius: "999px", padding: "2px 8px" }}>
                         On hand · {r.quantity_per_serving}
@@ -2379,7 +2734,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                         that go?", which is only a live question for a brand-new item. */}
                     {r.isNew && (
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "3px",
-                        fontFamily: "'Lato', sans-serif", fontSize: "0.66rem", color: "#8a7a60",
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7a60",
                         background: "rgba(160,114,74,0.12)", borderRadius: "999px", padding: "2px 7px" }}>
                         <span aria-hidden="true">{categoryGlyph(r.category)}</span>
                         new in {CATEGORY_LABEL[r.category] || r.category || "Household"}
@@ -2404,8 +2759,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       aria-label={`Need ${r.name} again`}
                       style={{
                         background: "none", border: "1.5px solid #C9A97A", borderRadius: "999px",
-                        padding: "6px 13px", fontFamily: "'Lato', sans-serif", fontSize: "0.74rem",
-                        fontWeight: 700, color: "#A0724A", cursor: "pointer", flexShrink: 0,
+                        padding: "6px 13px", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8),
+                        fontWeight: 700, color: "#8A5F3A", cursor: "pointer", flexShrink: 0,
                         whiteSpace: "nowrap",
                       }}
                     >Need it</button>
@@ -2449,7 +2804,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                         aria-label={`I already have ${r.name} — keep it in the meal but do not add it`}
                         style={{
                           background: "none", border: "none", padding: "2px 0", cursor: "pointer",
-                          fontFamily: "'Lato', sans-serif", fontSize: "0.68rem", fontWeight: 400,
+                          fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 400,
                           color: "#9a8a78", textDecoration: "underline", textUnderlineOffset: "2px",
                         }}
                       >I have this</button>
@@ -2471,7 +2826,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
           {!aiBusy && !trimmedQuery && (
             <div style={{ padding: "10px 2px 0", fontFamily: "'Lato', sans-serif",
-              fontSize: "0.78rem", color: "#C9A97A" }}>
+              fontSize: ts(14), color: "#C9A97A" }}>
               Start typing to find an ingredient.
             </div>
           )}
@@ -2486,12 +2841,12 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   gap: "10px", padding: "8px 2px",
                 }}>
                   <span style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                       color: "#2C1A0E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {it.name}
                     </span>
                     <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: "3px",
-                      fontFamily: "'Lato', sans-serif", fontSize: "0.68rem", color: "#8a7a60",
+                      fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7a60",
                       background: "rgba(201,169,122,0.16)", borderRadius: "999px", padding: "2px 8px" }}>
                       <span aria-hidden="true">{categoryGlyph(it.category)}</span>
                       {CATEGORY_LABEL[it.category] || it.category || "Uncategorised"}
@@ -2500,13 +2855,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   {stagedRow ? (
                     <button
                       className="add-btn"
-                      style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 14px",
+                      style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 14px",
                         background: "#E8D5B7", color: "#6b5a45" }}
                       onClick={() => stageItem(it)}
                       aria-label={`${it.name} already added — add another`}
                     >Added ×{stagedRow.quantity_per_serving}</button>
                   ) : (
-                    <button className="add-btn" style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 16px" }}
+                    <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 16px" }}
                       onClick={() => stageItem(it)}>+ Add</button>
                   )}
                 </div>
@@ -2518,7 +2873,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           {/* No match → inline create, matching Browse's live pattern. */}
           {!aiBusy && showNoResults && (
             <div style={{ marginTop: "8px" }}>
-              <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px",
+              <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5),
                 letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
                 No results for "{trimmedQuery}"
               </div>
@@ -2529,14 +2884,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
                       padding: "12px 14px", cursor: "pointer" }}>
                     <div>
-                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                         Add <strong>"{trimmedQuery}"</strong> to {name.trim() || "this meal"}
                       </div>
-                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A", marginTop: "2px" }}>
                         Tap to choose a category
                       </div>
                     </div>
-                    <button className="add-btn" style={{ flexShrink: 0, fontSize: "0.8rem", padding: "6px 16px" }}>Add</button>
+                    <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 16px" }}>Add</button>
                   </div>
                 ) : (
                   <div>
@@ -2554,7 +2909,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     {/* ── New category inline input — revealed by the tile ── */}
                     {newCatOpen && (
                       <div style={{ padding: "0 14px 14px" }}>
-                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
+                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
                           Name the new category
                         </div>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -2568,7 +2923,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                             placeholder="e.g. Pet Supplies"
                             style={{
                               flex: 1, border: "1.5px solid #E8D5B7", borderRadius: "20px",
-                              padding: "6px 14px", fontFamily: "'Lato', sans-serif", fontSize: "12px",
+                              padding: "6px 14px", fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                               color: "#2C1A0E", background: "#F5EDE0", outline: "none",
                             }}
                           />
@@ -2628,7 +2983,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 placeholder={"1. Whisk the dry ingredients.\n2. Fold in the wet."}
                 style={{ resize: "vertical", lineHeight: 1.55, fontFamily: "'Lato', sans-serif" }}
               />
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px", color: "#8a7968",
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7968",
                 marginTop: "7px", lineHeight: 1.5 }}>
                 One step per line, numbered. Blank lines are ignored.
               </div>
@@ -2658,7 +3013,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             // Mockup state 1: the empty state points at both paths, and the Galley
             // below stays live — which is why empty is not edit mode.
             <button type="button" className="op-steps-empty" onClick={() => setStepsMode("edit")}>
-              No steps yet — write them, or ask the galley.
+              {galleyAvailable ? "No steps yet — write them, or ask the galley." : "No steps yet — write them."}
             </button>
           )}
 
@@ -2677,10 +3032,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             in this same row. ── */}
         {/* Divider only makes sense between two live paths — gone while the galley is
             thinking (the manual fields are skeletons) and once its block has collapsed. */}
-        {!aiBusy && !galleyCollapsed && (
+        {!aiBusy && !galleyCollapsed && galleyAvailable && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "22px 0 14px" }}>
             <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", fontWeight: 900,
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 900,
               letterSpacing: "0.1em", textTransform: "uppercase", color: "#b5a48d" }}>or</div>
             <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
           </div>
@@ -2694,15 +3049,15 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
               <div className="op-ember" />
               <div>
-                <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "15px", color: "#2C1A0E" }}>
+                <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(15), color: "#2C1A0E" }}>
                   The galley's working on it…
                 </div>
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#8a7968", marginTop: "2px" }}>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7968", marginTop: "2px" }}>
                   Usually a few seconds.
                 </div>
               </div>
             </div>
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#6f5a45", fontStyle: "italic",
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#6f5a45", fontStyle: "italic",
               background: "#FFFDF9", border: "1.5px solid rgba(44,26,14,0.10)", borderRadius: "9px",
               padding: "9px 11px", marginBottom: "14px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
               "{aiText.trim()}"
@@ -2711,12 +3066,12 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           </div>
         )}
 
-        {!aiBusy && !galleyCollapsed && (
+        {!aiBusy && !galleyCollapsed && galleyAvailable && (
         <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.22)",
           borderRadius: "14px", padding: "14px", marginBottom: "16px", ...galleyDim }}>
           <div style={{ display: "flex", alignItems: "center", gap: "7px", fontFamily: "'Lato', sans-serif",
-            fontSize: "10.5px", fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase",
-            color: "#A0724A", marginBottom: "10px" }}>
+            fontSize: ts(12.5), fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase",
+            color: "#8A5F3A", marginBottom: "10px" }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A0724A" strokeWidth="1.8"
               strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
@@ -2742,7 +3097,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 width: "100%", boxSizing: "border-box", minHeight: "44px", maxHeight: "110px",
                 padding: "12px 13px", paddingRight: "34px", borderRadius: "10px",
                 border: "1.5px solid #E8D5B7",
-                background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem",
+                background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                 color: "#2C1A0E", outline: "none", resize: "vertical",
                 opacity: (aiBusy || saving) ? 0.6 : 1,
               }}
@@ -2799,7 +3154,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             )}
           </div>
 
-          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px",
+          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
             color: micHint ? "#b3261e" : "#8a7968", marginTop: "8px", lineHeight: 1.5 }}>
             {!isSignedIn
               ? "Sign in to use Ask the Galley — it builds the meal against your account."
@@ -2819,7 +3174,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               marginTop: "12px", width: "100%", border: "none", borderRadius: "12px", padding: "12px",
               background: aiInert ? "#E8D5B7" : "#A0724A",
               color: aiInert ? "#9a8a78" : "#FFFDF9",
-              fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
+              fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
               cursor: aiInert ? "default" : "pointer",
               transition: "background 0.15s",
             }}
@@ -2829,7 +3184,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
         {/* States the locked decision plainly rather than leaving it inferred. */}
         {isEdit && (
-          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.76rem", color: "#8a7a60",
+          <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7a60",
             fontStyle: "italic", marginBottom: "14px" }}>
             Changes here won't update items already on your list.
           </div>
@@ -2848,7 +3203,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center", gap: "9px", width: "100%",
                   background: "none", border: "1.5px solid rgba(179,38,30,0.4)", borderRadius: "14px", padding: "13px",
-                  color: "#c0392b", fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
+                  color: "#c0392b", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
                   cursor: (saving || deleting) ? "default" : "pointer", opacity: (saving || deleting) ? 0.5 : 1,
                 }}
               >
@@ -2860,16 +3215,16 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 <button
                   onClick={() => setConfirmDelete(false)}
                   disabled={deleting}
-                  style={{ flex: 1, background: "#E8D5B7", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", color: "#2C1A0E", cursor: deleting ? "default" : "pointer" }}
+                  style={{ flex: 1, background: "#E8D5B7", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), color: "#2C1A0E", cursor: deleting ? "default" : "pointer" }}
                 >Keep</button>
                 <button
                   onClick={() => { if (!deleting) onDelete(); }}
                   disabled={deleting}
-                  style={{ flex: 2, background: "#c0392b", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: "0.82rem", fontWeight: 700, color: "#fff", cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1 }}
+                  style={{ flex: 2, background: "#c0392b", border: "none", borderRadius: "12px", padding: "13px", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700, color: "#fff", cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1 }}
                 >{deleting ? "Deleting…" : "Yes, delete meal"}</button>
               </div>
             )}
-            <div style={{ fontSize: "0.7rem", color: "#9a8a78", textAlign: "center", marginTop: "8px", lineHeight: 1.4 }}>
+            <div style={{ fontSize: ts(14), color: "#9a8a78", textAlign: "center", marginTop: "8px", lineHeight: 1.4 }}>
               Removes this meal for everyone. Anything already bought stays on your list.
             </div>
           </div>
@@ -2881,7 +3236,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             className="modal-confirm"
             disabled={!canSave || saving}
             style={{ opacity: (!canSave || saving) ? 0.5 : 1, cursor: (!canSave || saving) ? "default" : "pointer" }}
-            onClick={() => onCommit({ name, instructions, ingredients: rows })}
+            onClick={() => onCommit({ name, instructions, ingredients: rows, occasion })}
           >{saving ? "Saving…" : "Save Meal"}</button>
         </div>
       </div>
@@ -3358,13 +3713,28 @@ function ProvisionsApp() {
   // what's left to cook; the week's record is a Home/history feature (ROADMAP
   // NEXT), not the queue.
   const [cookedHere, setCookedHere] = useState(() => new Set());
+  // AN OPEN PLACEMENT ALWAYS WINS OVER THE AFTERGLOW (walk 8b, 2026-10-03).
+  // cookedHere records "cooked on this device this load"; afterglowIds is the
+  // set the board and Home actually DRAW, keeping an id only while its
+  // placement is still closed as cooked. Re-plan a meal straight after Cooked
+  // it (the library's Plan, or a partner's arriving by poll) and the placement
+  // reopens (cookedAt null), so the id drops out here and the card is a
+  // planned card again — no reload. A plain cook keeps its ✓ Cooked, as before:
+  // the placements map holds closed rows with their stamp (loadPlacements has
+  // no cooked/skipped filter; markCooked's optimistic write keeps the entry).
+  const afterglowIds = useMemo(() => {
+    if (cookedHere.size === 0) return cookedHere;
+    const next = new Set();
+    cookedHere.forEach((id) => { if (placements[id]?.cookedAt) next.add(id); });
+    return next;
+  }, [cookedHere, placements]);
   const boardCards = useMemo(() => {
-    if (cookedHere.size === 0) return boardMeals;
+    if (afterglowIds.size === 0) return boardMeals;
     const byCreated = (a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0);
     return (meals || [])
-      .filter((m) => { const p = placements[m.id]; return !!p && !p.skippedAt && (!p.cookedAt || cookedHere.has(m.id)); })
+      .filter((m) => { const p = placements[m.id]; return !!p && !p.skippedAt && (!p.cookedAt || afterglowIds.has(m.id)); })
       .sort((a, b) => (placements[a.id].sortOrder - placements[b.id].sortOrder) || byCreated(a, b));
-  }, [meals, placements, boardMeals, cookedHere]);
+  }, [meals, placements, boardMeals, afterglowIds]);
 
   // Per-meal live list rows { total, bought }, from the same provenance map as
   // the ×n count — no new query. This is the card's STATE while it is to-buy
@@ -3631,7 +4001,9 @@ function ProvisionsApp() {
   }, [boardMeals, reorderBoard, deckSwitching]);
 
   // Plan (library): the placement only — the one door out of the library. The
-  // toast points at the board, where Add to Shop lives. Add to Shop (board):
+  // toast names the meal and carries no action (v1.1 A7: the week line is the
+  // persistent route to This Week); showToast replaces, never stacks, so a
+  // second Plan inside the window swaps the text. Add to Shop (board):
   // the SAME add handler as before (so a meal with on-hand ingredients gets
   // the on-hand prompt). Add all: the hook's batch over the Planned cards in
   // queue order, default quantity 1, on-hand skipped — one toast at the end.
@@ -3640,12 +4012,41 @@ function ProvisionsApp() {
     setPlanningMealId(mealId);
     try {
       const ok = await planMeal(mealId);
-      if (ok) showToast("Added to your week ✓", { label: "View week", onClick: () => setPlanScreen("board") }, { line: true });
+      if (ok) showToast(`${mealById[mealId]?.name || "Meal"} added to your week ✓`);
     } finally {
       setPlanningMealId(null);
     }
-  }, [planMeal, showToast]);
+  }, [planMeal, showToast, mealById]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
+  // The library's stage per meal (SPEC_meal_library_unplan D4): the board's own
+  // derivation, so the pill can never disagree with This Week or Home. A meal
+  // outside onBoardIds — never planned, removed, or cooked (afterglow included:
+  // afterglowIds is not an open placement) — is "none" and offers Plan.
+  const libraryStages = useMemo(() => {
+    const map = {};
+    libraryMeals.forEach((m) => {
+      if (!onBoardIds.has(m.id)) { map[m.id] = "none"; return; }
+      const st = boardCardState(m, { placements, rows: mealRowCounts, mealById, cookedIds: afterglowIds });
+      map[m.id] = st.ready ? "ready" : st.toBuy ? "toBuy" : "planned";
+    });
+    return map;
+  }, [libraryMeals, onBoardIds, placements, mealRowCounts, mealById, afterglowIds]);
+  // Un-plan (the library's one step back): the board's Remove path for a
+  // PLANNED card, unchanged — skipMeal with zeroList false, because in the
+  // un-plannable window nothing is on the list to zero (Step 0, 2026-10-04:
+  // every reader of skipped_at is an "is it open?" predicate; none reads a skip
+  // as a preference; the stamp is cleared by the next re-plan). closePlacement
+  // is optimistic, so the pill, the week line and the queue move in the same
+  // render as the tap; a failure reloads the rows and the card comes back.
+  const handleUnplanMeal = useCallback(async (mealId) => {
+    setPlanningMealId(mealId);
+    try {
+      const ok = await skipMeal(mealId, { zeroList: false });
+      if (ok) showToast(`${mealById[mealId]?.name || "Meal"} removed from your week`);
+    } finally {
+      setPlanningMealId(null);
+    }
+  }, [skipMeal, showToast, mealById]);
 
   // No-shop cards (055/056/057): Leftovers / Eating out / Something else. The
   // foot buttons open a one-field sheet — leftovers: a multi-select (no
@@ -3734,7 +4135,7 @@ function ProvisionsApp() {
   const [mealSaving, setMealSaving] = useState(false);
   const [mealDeleting, setMealDeleting] = useState(false);
 
-  const commitMealSheet = useCallback(async ({ name, instructions, ingredients }) => {
+  const commitMealSheet = useCallback(async ({ name, instructions, ingredients, occasion }) => {
     if (!mealSheet) return;
     setMealSaving(true);
     try {
@@ -3748,6 +4149,7 @@ function ProvisionsApp() {
       const payload = {
         name,
         instructions,
+        occasion,   // 061 — ordered Good-for list; the hook normalises it
         // flat: the servings dial is deferred. NOTE the AI draft also reports its own
         // baseServings and it is deliberately DISCARDED here — quantity_per_serving only
         // reads as a flat quantity while base_servings is 1 (migration 025). Storing the
@@ -3837,10 +4239,10 @@ function ProvisionsApp() {
     const mealLine = mealNames ? `For ${mealNames}` : null;
 
     if (!catalogLine && !mealLine) return null;
-    const base = { fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.3px", marginTop: "3px" };
+    const base = { fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "0.3px", marginTop: "3px" };
     return (
       <>
-        {catalogLine && <div style={{ ...base, color: "#A0724A" }}>{catalogLine}</div>}
+        {catalogLine && <div style={{ ...base, color: "#8A5F3A" }}>{catalogLine}</div>}
         {mealLine && <div style={{ ...base, color: "#0D9488" }}>{mealLine}</div>}
       </>
     );
@@ -3931,6 +4333,14 @@ function ProvisionsApp() {
   //               by replaceState: a route-change span, no history entry.
   // The RUM agent emits routeChange on both hashchange and replaceState, so
   // every door change is a page view. Sheets and other modals write no hash.
+  // The two scroll roots: on phones the window scrolls; inside the desktop phone
+  // frame the .phone-scroll column scrolls and the document does not. Scroll
+  // both — the one that isn't scrolling is a no-op.
+  const scrollToTop = () => {
+    window.scrollTo(0, 0);
+    const col = document.querySelector(".phone-scroll");
+    if (col) col.scrollTop = 0;
+  };
   const goToDoor = useCallback((v) => {
     // D4 (SPEC_auth_state_ui_gating): without a live session, every door but Home
     // opens the sign-in modal instead of switching view — no household-shaped
@@ -3939,10 +4349,19 @@ function ProvisionsApp() {
     // to show.) A tap is a landing decision (§Landing).
     if (isLoaded && !sessionLive && v !== "home") { openSignIn(); return; }
     setLandingDecided(true);
+    // D12 (SPEC_plan_week_meals_switch): tapping PLAN while already on Plan
+    // returns to This Week, scrolled to the top — the way back when the switch
+    // row is off-screen and the Helm is compact (the iOS re-tap convention). A
+    // SAME-door tap only: coming from another door is left as it was — leaving
+    // Plan already resets planScreen to the board (the view effect), and Home's
+    // "Add a meal" deliberately sets the library before calling goToDoor("plan"),
+    // a route a cross-door reset here would break. Before this, a same-door tap
+    // did nothing (same view, hash already equal).
+    if (v === "plan" && view === "plan") { setPlanScreen("board"); scrollToTop(); }
     setView(v);
     const h = hashForView(v);
     if (h && window.location.hash !== h) window.location.hash = h;
-  }, [isLoaded, sessionLive, openSignIn]);
+  }, [isLoaded, sessionLive, openSignIn, view]);
   // Not live — signed_out, session_lost, AND booting (Clerk still loading) —
   // every door shows the Home welcome variant, never the signed-in shell
   // (Signed-out entry cleanup, 2026-10-02: past the splash's 5 s failsafe a
@@ -4042,7 +4461,7 @@ function ProvisionsApp() {
   });
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--op-list-scale", TEXT_STEPS[textSizeIdx]);
+    document.documentElement.style.setProperty("--op-text-scale", TEXT_STEPS[textSizeIdx]);
     localStorage.setItem("op_list_text_size", String(textSizeIdx));
   }, [textSizeIdx]);
 
@@ -5000,18 +5419,19 @@ function ProvisionsApp() {
     setSearchQuery("");
   };
   // D11 — the + does the DOOR's add. Shop → the Add sheet (add-from-the-aisle,
-  // "added here"); Browse → the same sheet, plain; Plan → what the header's own
-  // + does on the screen you are on: from the board, open the library (v2 —
-  // the header's "+ Add a meal"); inside the library, New meal (the create sheet,
-  // which like its library row needs an account); Home → absent, so no + ever
-  // renders there (D12). The + never becomes a menu.
+  // "added here"); Browse → the same sheet, plain; Plan → what the switch row's
+  // own button does on the view you are on (SPEC_plan_week_meals_switch D11:
+  // one rule everywhere — the pill's + does what the header button above it
+  // did): on This Week, "+ Add" → Meals; on Meals, "+ New" → the New Meal sheet
+  // (signed in only, like the button). The labels are the buttons' aria-labels.
+  // Home → absent, so no + ever renders there (D12). The + never becomes a menu.
   const doorAdd = {
     list:  { label: "Add something", run: openAddSheet },
     input: { label: "Add to your list", run: openAddSheet },
     ...(MEALS_ENABLED
       ? (planScreen === "library"
-        ? (isSignedIn ? { plan: { label: "New meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {})
-        : { plan: { label: "Add a meal", run: () => setPlanScreen("library") } })
+        ? (isSignedIn ? { plan: { label: "Create a new meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {})
+        : { plan: { label: "Add a meal to this week", run: () => setPlanScreen("library") } })
       : {}),
   };
   // "added here" and the added_in_store event are Shop semantics: the same sheet
@@ -5603,7 +6023,7 @@ function ProvisionsApp() {
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         /* --op-add: deep sand = adding things (both "Add a meal" buttons). Dark brown stays the Helm's; teal = the household finished something. */
-        :root { --op-list-scale: 1; --op-add: #D9BC8C; --op-add-ink: #2B1E16; }
+        :root { --op-text-scale: 1; --op-add: #D9BC8C; --op-add-ink: #2B1E16; }
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
@@ -5620,7 +6040,7 @@ function ProvisionsApp() {
         }
         .helm-door { position: relative; flex: 1; min-width: 0; margin: 5px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
                      background: none; border: none; padding: 0; cursor: pointer; color: #C9A97A; border-radius: 22px;
-                     font-family: 'Lato', sans-serif; font-size: 0.58rem; letter-spacing: 1.2px; text-transform: uppercase;
+                     font-family: 'Lato', sans-serif; font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; /* chrome: fixed at 12px, never follows the knob (SPEC_global_text_size) */
                      transition: color .2s ease, background .2s ease, margin .2s ease; -webkit-tap-highlight-color: transparent; }
         .helm-door svg { width: 18px; height: 18px; display: block; transition: width .2s ease, height .2s ease; }
         .helm.compact .helm-door { margin: 4px 0; }
@@ -5631,14 +6051,28 @@ function ProvisionsApp() {
         .control-row-end { height: 0; margin: 0; padding: 0; }
         /* ── Plan (SPEC_meal_planning_v2_pick_commit_cook.md): Meals → Board → List → Cook. TEAL = the household finished something —
            on this surface only Cooked it (then ✓ Cooked) and the stocked banner. Everything else is espresso (#6f5a45) or outline. ── */
-        .plan-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-        .plan-head-text { flex: 1; min-width: 0; }
-        .plan-title { font-family: 'Playfair Display', serif; font-size: 1.45rem; font-weight: 700; color: #2C1A0E; margin: 0; line-height: 1.1; }
-        .plan-sub { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; margin-top: 3px; }
-        .plan-back { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; cursor: pointer;
-                     font-family: 'Lato', sans-serif; font-size: 1.5rem; line-height: 1; padding: 0 0 4px; display: flex; align-items: center; justify-content: center; }
-        .plan-meals { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 40px; padding: 0 16px; cursor: pointer;
-                      font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; white-space: nowrap; }
+        /* ── Plan's title switch (SPEC_plan_week_meals_switch, D1–D3, D10): "This Week" · "Meals" ARE the page title, both always visible;
+           active = ink + 3px clay underline the width of the word, inactive = muted. The row is the Helm's compact sentinel on both views.
+           Spacing: banner → row 30px (the container's 24 + 6 here), title → subtitle 8px, then 18px to the first card / 20px to the search.
+           The add button is top-aligned with the title line, 44px tall. ── */
+        .plan-ctl { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 6px 0 20px; }
+        .plan-ctl.board { margin-bottom: 18px; }
+        .plan-ctl.board.with-hint { margin-bottom: 8px; }
+        .plan-ctl.meals { margin-bottom: 20px; }
+        .plan-ctl-text { flex: 1; min-width: 0; }
+        .plan-switch { display: flex; gap: 18px; }
+        /* 8px top + 5px bottom padding + the line + the underline ≈ 46px tap target; the negative top margin keeps the title's
+           visual top on the row's top edge so the add button aligns with the title line, not the padded box. */
+        .plan-view { border: none; background: none; padding: 8px 0 5px; margin: -8px 0 0; cursor: pointer; white-space: nowrap;
+                     font-family: 'Playfair Display', serif; font-size: calc(26px * (1 + (var(--op-text-scale) - 1) * 0.4)); font-weight: 700; line-height: 1.15; color: #8C7660;
+                     border-bottom: 3px solid transparent; }
+        .plan-view.on { color: #2A170C; border-bottom-color: #A0714A; cursor: default; }
+        .plan-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
+        /* .hdr-action — THE header action pill (src/components/HeaderAction.js): one style on Shop, This Week and Meals.
+           "+ Add" brings an existing thing into the view; "+ New" creates one. Deep sand (--op-add) = adding things. */
+        .hdr-action { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 44px; padding: 0 18px; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
+        .hdr-action:disabled { opacity: 0.6; cursor: default; }
         /* "add to Shop →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
            hit box; the matching negative margins keep the line box exactly where it was. Not a bar, not teal. */
         .plan-addall { display: inline-block; vertical-align: baseline; border: none; background: none; color: #6f5a45; cursor: pointer;
@@ -5647,20 +6081,18 @@ function ProvisionsApp() {
         .plan-addall:disabled { opacity: 0.6; cursor: default; }
         /* Board head → first card: 20px. With the drag hint (2+ cards, no banner): 8px to the hint, 20px from the hint to the first card.
            The hint sits flush with "This Week" (no side margin). */
-        .plan-head.board-head { margin-bottom: 20px; }
-        .plan-head.board-head.with-hint { margin-bottom: 8px; }
-        .plan-prompt { margin: 0 0 20px; font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; }
+        .plan-prompt { margin: 0 0 20px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         .plan-banner { display: flex; align-items: center; gap: 12px; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
         .plan-banner.set { background: rgba(201,169,122,0.22); }
         .plan-banner.stocked { background: rgba(13,148,136,0.10); }
         .plan-banner-check { flex: none; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 900; }
         .plan-banner.set .plan-banner-check { background: #C9A97A; color: #2C1A0E; }
         .plan-banner.stocked .plan-banner-check { background: #0D9488; color: #fff; }
-        .plan-banner-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 0.98rem; color: #2C1A0E; }
-        .plan-banner-sub { font-family: 'Lato', sans-serif; font-size: 0.76rem; color: #6f5a45; margin-top: 1px; }
+        .plan-banner-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(0.98rem * var(--op-text-scale)); color: #2C1A0E; }
+        .plan-banner-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #6f5a45; margin-top: 1px; }
         .board { position: relative; margin-bottom: 14px; }
         .board-empty { height: 52px; display: flex; align-items: center; justify-content: center; border: 1.5px dashed #C9A97A; border-radius: 14px;
-                       font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; }
+                       font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         /* Two columns: the numbered tile, then everything else. No third column, so nothing wraps at 390–430px (the ROADMAP bug). */
         .board-card { display: flex; align-items: stretch; background: #fff; border-radius: 12px; box-shadow: 0 3px 10px rgba(44,26,14,0.13);
                       cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-y; position: relative;
@@ -5680,17 +6112,17 @@ function ProvisionsApp() {
         .board-top { display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 28px; }
         .board-grip { flex: none; fill: #b5a58f; margin-left: 2px; cursor: grab; }
         .board-card.lifted .board-grip { cursor: grabbing; }
-        .board-card-title { flex: 1; min-width: 0; font-family: 'Playfair Display', serif; font-size: 0.98rem; font-weight: 700; color: #2C1A0E; line-height: 1.15;
+        .board-card-title { flex: 1; min-width: 0; font-family: 'Playfair Display', serif; font-size: calc(0.98rem * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; color: #2C1A0E; line-height: 1.15;
                             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .board-chip { flex: none; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60;
                       border: 1px solid #E8D5B7; border-radius: 999px; padding: 2px 7px; }
-        .board-line { font-family: 'Lato', sans-serif; font-size: 0.76rem; color: #8a7a60; line-height: 1.25; }
+        .board-line { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; line-height: 1.25; }
         .board-card.ready .board-line { color: #6f5a45; }
         .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .board-actions-gap { flex: 1; }
         /* One primary per state. Add to Shop / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
         .board-lock, .board-see, .board-cook { flex: none; border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
-                      font-family: 'Lato', sans-serif; font-size: 0.7rem; font-weight: 900; letter-spacing: 0.5px; }
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; letter-spacing: 0.5px; }
         .board-lock { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
         .board-see { border: 1.5px solid #C9A97A; background: transparent; color: #6f5a45; }
         .board-cook { border: 1.5px solid #0D9488; background: #0D9488; color: #fff; }
@@ -5710,7 +6142,7 @@ function ProvisionsApp() {
         .board-menu { position: absolute; right: 6px; bottom: 40px; z-index: 5; background: #fff; border: 1px solid #E8D5B7; border-radius: 10px;
                       box-shadow: 0 8px 24px rgba(44,26,14,0.18); padding: 4px; min-width: 150px; }
         .board-menu button { display: block; width: 100%; text-align: left; border: none; background: transparent; padding: 9px 12px; border-radius: 7px;
-                             font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #2C1A0E; cursor: pointer; }
+                             font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; cursor: pointer; }
         .board-menu button:hover { background: #F5EDE0; }
         .board-menu button:disabled { opacity: 0.5; cursor: default; }
         .plan-foot { margin: 10px 0 18px; }
@@ -5718,11 +6150,11 @@ function ProvisionsApp() {
         .hold-night { width: 100%; }
         .hold-night-rule { display: flex; align-items: center; gap: 12px; }
         .hold-night-rule > span:not(.hold-night-label) { flex: 1 1 auto; height: 1px; background: #E2D3BD; }
-        .hold-night-label { flex: none; font-family: 'Lato', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; color: #7A6656; }
+        .hold-night-label { flex: none; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.14em; color: #7A6656; }
         .hold-night-btns { margin-top: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
         .plan-noshop { min-width: 0; height: 64px; border: 1.5px solid #D8C3A5; background: transparent; color: #4A3226; border-radius: 16px; padding: 0 4px; cursor: pointer;
                        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
-                       font-family: 'Lato', sans-serif; font-size: 13px; font-weight: 700; line-height: 1.1; text-align: center; }
+                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.1; text-align: center; }
         .plan-noshop svg { width: 20px; height: 20px; flex: none; }
         /* The empty-week welcome (mockup_plan_tab_welcome.html). Ghost cards fade 1 → .7 → .4; generous vertical air on purpose. */
         .plan-welcome { display: flex; flex-direction: column; align-items: center; padding: 0 4px; }
@@ -5740,51 +6172,120 @@ function ProvisionsApp() {
         .plan-ghost-lines span + span { height: 8px; border-radius: 4px; background: #F1E7D8; }
         .plan-ghost:nth-child(n+2) .plan-ghost-lines span { background: #EBDFCD; }
         .plan-ghost:nth-child(n+2) .plan-ghost-lines span + span { background: #F3EADD; }
-        .plan-welcome-title { margin: 32px 0 0; font-family: 'Playfair Display', serif; font-size: 28px; font-weight: 700; line-height: 1.15; color: #2C1A0E; text-align: center; }
-        .plan-welcome-sub { margin: 10px 0 0; font-family: 'Lato', sans-serif; font-size: 15px; line-height: 22px; color: #6E5A4A; text-align: center; }
+        .plan-welcome-title { margin: 32px 0 0; font-family: 'Playfair Display', serif; font-size: calc(28px * (1 + (var(--op-text-scale) - 1) * 0.4)); font-weight: 700; line-height: 1.15; color: #2C1A0E; text-align: center; }
+        .plan-welcome-sub { margin: 10px 0 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 22px; color: #6E5A4A; text-align: center; }
         .plan-welcome-add { margin-top: 28px; width: 100%; height: 54px; border-radius: 27px; border: none; background: var(--op-add); color: var(--op-add-ink); cursor: pointer;
-                            display: flex; align-items: center; justify-content: center; gap: 10px; font-family: 'Lato', sans-serif; font-size: 16px; font-weight: 700; }
+                            display: flex; align-items: center; justify-content: center; gap: 10px; font-family: 'Lato', sans-serif; font-size: calc(16px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .plan-welcome-add svg { width: 18px; height: 18px; flex: none; }
         .plan-welcome .hold-night { margin-top: 36px; }
-        /* Library (v2): category tile · name · meta · one round + (Plan). Filters are espresso pills. */
-        .lib-filters { display: flex; gap: 6px; margin: 0 0 12px; flex-wrap: wrap; }
-        .lib-filter { border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; border-radius: 999px; padding: 6px 12px; cursor: pointer;
-                      font-family: 'Lato', sans-serif; font-size: 0.74rem; font-weight: 700; }
-        .lib-filter.on { border-color: #6f5a45; background: #6f5a45; color: #FAF4EC; }
-        .lib-card { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 8px; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 12px; }
-        .lib-card.on-board { background: #FAF4EC; }
-        .lib-tile { flex: none; width: 54px; height: 54px; border-radius: 9px; display: flex; align-items: center; justify-content: center; text-align: center;
-                    padding: 4px; overflow: hidden; position: relative; }
-        .lib-tile-word { font-family: 'Lato', sans-serif; font-size: 0.5rem; font-weight: 900; letter-spacing: 0.8px; text-transform: uppercase; line-height: 1.2;
-                         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-        .lib-tile-tag { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(44,26,14,0.82); color: #FAF4EC; font-family: 'Lato', sans-serif;
-                        font-size: 0.4rem; font-weight: 900; letter-spacing: 0.5px; text-transform: uppercase; padding: 2px 0; }
-        .lib-main { flex: 1; min-width: 0; }
-        .lib-name { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; color: #2C1A0E; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .lib-meta { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 2px; }
-        .lib-plan { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
-                    font-family: 'Lato', sans-serif; font-size: 1.35rem; font-weight: 300; line-height: 1; padding: 0 0 2px; display: flex; align-items: center; justify-content: center; }
-        .lib-plan:disabled { opacity: 0.35; cursor: default; }
-        .lib-empty { padding: 24px 12px; text-align: center; font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; font-style: italic; }
+        /* Library — "What sounds good?" (SPEC_meal_library_v1 + v1.1). Two-column grid, 16px row / 12px column gap, one column
+           below 340px. Card = coloured top (first occasion word + 20px serif name; tone = mealTone, the board's rule) over a
+           white strip (count + the Plan pill). ZERO TEAL: Plan is espresso outline, ✓ Planned is sand/espresso, the rail and
+           chips use the filled-espresso on-state. Clay's 11.5px word is the known AA miss (tracked in LATER). */
+        .lib-create { flex: none; height: 44px; padding: 0 18px; border-radius: 22px; cursor: pointer; white-space: nowrap;
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+        .lib-create.outline { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
+        .lib-search-row { display: flex; gap: 8px; margin: 0 0 12px; }
+        .lib-search { flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: 12px;
+                      border: 1.5px solid #E8D5B7; background: #F5EDE0; color: #8a7a60; }
+        .lib-search input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
+        .lib-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+        .lib-fbtn { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+                    display: flex; align-items: center; justify-content: center; position: relative; padding: 0; }
+        .lib-fdot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #A0724A; border: 1.5px solid #FFFDF9; }
+        .lib-active { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+        .lib-chip-x { height: 32px; padding: 0 10px 0 6px; border-radius: 16px; border: 1.5px solid #6f5a45; background: #FFFDF9; color: #2C1A0E; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
+        .lib-chip-x > span:last-child { color: #8a7a60; font-weight: 400; }
+        .lib-chip-x .lib-mini { width: 22px; height: 22px; font-size: 0.62rem; }
+        .lib-rail { margin: 0 0 14px; }
+        .lib-occ { flex: none; height: 36px; padding: 0 16px; border-radius: 18px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
+        .lib-occ.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
+        .lib-hint { margin: 0 0 14px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
+        .lib-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; align-items: stretch; }
+        @media (max-width: 339px) { .lib-grid { grid-template-columns: minmax(0, 1fr); } }
+        .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1.5px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
+        .lib-gtop { flex: 1; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; text-align: left; width: 100%; min-height: 92px;
+                    padding: 11px 12px 14px; border: none; cursor: pointer; font: inherit; }
+        .lib-gocc { display: block; min-height: 14px; line-height: 14px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
+        .lib-gname { display: block; font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
+        /* The strip WRAPS rather than shrinks (SPEC_global_text_size decision 9): the count keeps its natural width and the pill
+           drops below it when the two no longer fit — flex wraps before it shrinks, so the count is never squeezed into an ellipsis
+           at Large / XL / XXL (or at Default on a long count). Row gap 6px when stacked. */
+        .lib-gstrip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 8px 8px 12px; }
+        .lib-gcount { flex: 0 1 auto; max-width: 100%; }
+        /* The count stays on ONE line (walk 2026-10-03: "11 ingredients" wrapped beside ✓ Planned in the 430px column).
+           Measured in headless Edge with the Arial fallback (Lato is not web-loaded): 430px needs 168 of 171; under 400px
+           the strip, count and ✓ Planned pill trim a little so 390px needs 152 of 155. The unplanned Plan pill has 30px of
+           slack and keeps its padding. Ellipsis is the safety net for a wider system font — one line, never an overlap. */
+        .lib-gcount { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
+        .lib-plan { flex: none; height: 34px; padding: 0 14px; border-radius: 17px; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
+                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+        .lib-plan:disabled { cursor: default; opacity: 0.6; }
+        .lib-plan.planned { border-color: transparent; background: #EFE6D6; color: #3A2A20; font-weight: 600; padding: 0 9px; opacity: 1; cursor: pointer; }
+        .lib-plan.planned:disabled { cursor: default; opacity: 0.6; }
+        /* Stage label (un-plan rows 4–5): text, not a control — no border, no fill, no hover, no focus ring; the pill's height so the strip doesn't jump. */
+        .lib-stage { flex: none; height: 34px; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+                     font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 600; color: #6f5a45; }
+        @media (max-width: 399px) {
+          .lib-gstrip { padding: 8px 6px 8px 10px; gap: 4px; }
+          .lib-plan.planned { padding: 0 6px; }
+        }
+        .lib-create-tile { margin-top: 16px; border: 1.5px dashed #C9A97A; border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 14px; }
+        .lib-create-tile.gated { border-color: #C9A97A; opacity: 0.8; }
+        .lib-create-text { flex: 1; min-width: 0; }
+        .lib-create-t { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(1rem * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; }
+        .lib-create-s { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 2px; }
+        /* Filter sheet (mockup screen 3) in the app's modal chrome. */
+        .lib-sheet-lbl { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: #8A5F3A; margin: 20px 0 10px; }
+        .lib-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .lib-chef { height: 40px; padding: 0 14px 0 6px; border-radius: 20px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #2C1A0E; cursor: pointer;
+                    font-family: 'Lato', sans-serif; font-size: calc(0.88rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 8px; }
+        .lib-chef.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
+        .lib-mini { flex: none; width: 28px; height: 28px; border-radius: 50%; background: #E8D5B7; color: #8a7a60; display: inline-flex; align-items: center; justify-content: center;
+                    font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; }
+        .lib-sheet-note { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
+        .lib-sw { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 0; border: none; border-bottom: 1px solid #EFE6D6; background: transparent; text-align: left; cursor: pointer; }
+        .lib-sw > span:first-child { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .lib-sw-l { font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; }
+        .lib-sw-d { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 2px; }
+        .lib-track { flex: none; width: 44px; height: 26px; border-radius: 13px; background: #D9C9AE; position: relative; transition: background 0.15s; }
+        .lib-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #FFFDF9; transition: left 0.15s; }
+        .lib-sw[aria-checked="true"] .lib-track { background: #6f5a45; }
+        .lib-sw[aria-checked="true"] .lib-track::after { left: 21px; }
+        .lib-sheet-btns { display: flex; gap: 10px; margin-top: 24px; }
+        .lib-clear { flex: none; height: 48px; padding: 0 20px; border-radius: 24px; border: 1.5px solid #E8D5B7; background: transparent; color: #6f5a45; cursor: pointer;
+                     font-family: 'Lato', sans-serif; font-size: calc(0.95rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .lib-show { flex: 1; height: 48px; border-radius: 24px; border: none; background: #6f5a45; color: #FAF4EC; cursor: pointer;
+                    font-family: 'Lato', sans-serif; font-size: calc(0.95rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .lib-empty { padding: 24px 12px; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; font-style: italic; }
+        /* Good for (061) — the meal sheet's occasion chips. Espresso on-state, zero teal; ON CARD marks the first pick. */
+        .gf-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .gf-chip { height: 38px; padding: 0 14px; border-radius: 19px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: calc(0.88rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
+        .gf-chip.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
+        .gf-oncard { font-size: 0.56rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase; color: #D9BC8C; }
+        .gf-help { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
         /* No-shop sheet */
-        .noshop-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #6f5a45; margin-bottom: 14px; }
-        .noshop-label { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
+        .noshop-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #6f5a45; margin-bottom: 14px; }
+        .noshop-label { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
         .noshop-label span { font-weight: 400; color: #8a7a60; }
         .noshop-checks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; max-height: 40vh; overflow-y: auto; }
         .noshop-check { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 1.5px solid #E8D5B7; border-radius: 10px; cursor: pointer;
-                        font-family: 'Lato', sans-serif; font-size: 0.84rem; color: #2C1A0E; }
+                        font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
         .noshop-check.on { border-color: #6f5a45; background: #FAF4EC; }
         .noshop-check input { position: absolute; opacity: 0; width: 0; height: 0; }
         .noshop-check-box { flex: none; width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid #C9A97A; display: flex; align-items: center; justify-content: center;
                             font-size: 0.7rem; font-weight: 900; color: #FAF4EC; background: transparent; }
         .noshop-check.on .noshop-check-box { background: #6f5a45; border-color: #6f5a45; }
         .noshop-check-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .noshop-check-meta { flex: none; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #8a7a60; }
-        .noshop-none { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; font-style: italic; margin-bottom: 14px; }
+        .noshop-check-meta { flex: none; font-size: 12.5px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #8a7a60; }
+        .noshop-none { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; font-style: italic; margin-bottom: 14px; }
         .noshop-input { width: 100%; box-sizing: border-box; padding: 12px 13px; border-radius: 10px; border: 1.5px solid #E8D5B7; background: #FFFDF9;
-                        font-family: 'Lato', sans-serif; font-size: 0.92rem; color: #2C1A0E; outline: none; margin-bottom: 14px; }
+                        font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; outline: none; margin-bottom: 14px; }
         .noshop-commit { width: 100%; border: none; background: #6f5a45; color: #FAF4EC; border-radius: 10px; padding: 12px; cursor: pointer;
-                         font-family: 'Lato', sans-serif; font-size: 0.88rem; font-weight: 900; }
+                         font-family: 'Lato', sans-serif; font-size: calc(0.88rem * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; }
         .noshop-commit:disabled { opacity: 0.6; cursor: default; }
         /* Compact (D9′): icons only, pulled in from the sides; labels stay in the DOM at font-size 0. */
         .helm.compact .helm-door { gap: 0; }
@@ -5809,7 +6310,7 @@ function ProvisionsApp() {
         .home-welcome-line { margin: 14px 0 0; font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; color: #6E5A4A; }
         .home-welcome-actions { display: flex; gap: 10px; justify-content: center; margin-top: 28px; }
         .home-welcome-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 11px 22px; border-radius: 6px; cursor: pointer; }
-        .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #A0724A; }
+        .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #8A5F3A; }
         .home-welcome-btn.solid { background: #2C1A0E; border: 1.5px solid #2C1A0E; color: #FAF4EC; }
         .home-welcome-btn:disabled { opacity: 0.5; cursor: default; }
         /* THE ON-DECK CARD in the board's language: the welcome's warm cream, no shadow, no photo (the household photo asserts
@@ -5874,7 +6375,7 @@ function ProvisionsApp() {
         .budget-goal-section { text-align: right; }
         .budget-goal-label { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 1.5px; text-transform: uppercase; color: #c8b89a; }
         .budget-goal-remaining { font-family: 'Playfair Display', serif; font-size: 1.1rem; font-weight: 700; margin-top: 2px; }
-        .budget-goal-remaining.ok { color: #A0724A; }
+        .budget-goal-remaining.ok { color: #8A5F3A; }
         .budget-goal-remaining.over { color: #e05c5c; }
         .budget-bar-wrap { width: 100%; height: 4px; background: rgba(255,255,255,0.15); border-radius: 2px; margin-top: 6px; overflow: hidden; }
         .budget-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease, background 0.3s; }
@@ -5886,7 +6387,7 @@ function ProvisionsApp() {
         .add-item-btn { font-family: 'Lato', sans-serif; font-size: 0.78rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 14px; background: #A0724A; color: #FAF4EC; border: none; border-radius: 5px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
         .add-item-btn:hover { background: #6B4423; }
         .category-block { margin-bottom: 28px; }
-        .cat-title { font-family: 'Lato', sans-serif; font-size: 0.72rem; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: #A0724A; border-bottom: 2px solid #E8D5B7; padding-bottom: 8px; margin-bottom: 12px; }
+        .cat-title { font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; border-bottom: 2px solid #E8D5B7; padding-bottom: 8px; margin-bottom: 12px; }
         .items-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         /* One column on phones, and one column inside the desktop phone column (it is 430px wide, whatever the window is). */
         @media (max-width: 520px), (min-width: ${COLUMN_MIN_WIDTH}px) { .items-grid { grid-template-columns: 1fr; } }
@@ -5894,7 +6395,7 @@ function ProvisionsApp() {
         @media (hover: hover) { .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); } }
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
-        .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-list-scale)); color: #2C1A0E; flex: 1; }
+        .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-text-scale)); color: #2C1A0E; flex: 1; }
         .op-mic-btn { flex: none; width: 44px; height: 44px; border-radius: 10px; background: #2C1A0E; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
         .op-mic-btn svg { width: 19px; height: 19px; stroke: #FFFDF9; fill: none; }
         .op-mic-btn:disabled { opacity: .45; cursor: default; }
@@ -5914,67 +6415,85 @@ function ProvisionsApp() {
         .op-ember { width: 10px; height: 10px; border-radius: 50%; background: #A0724A; flex: none; animation: opEmber 1.6s ease-in-out infinite; }
         @keyframes opEmber { 0%, 100% { opacity: .35; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
         @media (prefers-reduced-motion: reduce) { .op-skel, .op-ember { animation: none; } .op-ember { opacity: .8; } }
-        .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; color: #6f5a45; cursor: pointer; }
+        .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #6f5a45; cursor: pointer; }
         .op-recipe { background: #fff; border: 1.5px solid rgba(44,26,14,.10); border-radius: 14px; padding: 16px 16px 14px; }
         .op-recipe.galley { border-color: rgba(160,114,74,.3); }
-        .op-recipe-eyebrow { display: flex; align-items: center; gap: 6px; font-family: 'Lato', sans-serif; font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #A0724A; margin-bottom: 8px; }
-        .op-recipe-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: 21px; line-height: 1.15; color: #2C1A0E; margin-bottom: 4px; }
-        .op-recipe-meta { font-family: 'Lato', sans-serif; font-size: 11.5px; color: #8a7968; margin-bottom: 14px; }
+        .op-recipe-eyebrow { display: flex; align-items: center; gap: 6px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #8A5F3A; margin-bottom: 8px; }
+        .op-recipe-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(21px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; margin-bottom: 4px; }
+        .op-recipe-meta { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; margin-bottom: 14px; }
         .op-steps { list-style: none; margin: 0; padding: 0; }
         .op-steps li { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 12px; }
         .op-steps li:last-child { margin-bottom: 0; }
-        .op-step-badge { flex: none; width: 24px; height: 24px; border-radius: 50%; background: rgba(160,114,74,.13); color: #A0724A; font-family: 'Lato', sans-serif; font-size: 11.5px; font-weight: 900; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
-        .op-steps p { margin: 0; font-family: 'Lato', sans-serif; font-size: 13px; line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; }
-        .op-steps-action { background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-weight: 700; font-size: 12px; letter-spacing: 0; text-transform: none; color: #A0724A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; }
+        .op-step-badge { flex: none; width: 24px; height: 24px; border-radius: 50%; background: rgba(160,114,74,.13); color: #8A5F3A; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 900; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+        .op-steps p { margin: 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; }
+        .op-steps-action { background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-weight: 700; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: 0; text-transform: none; color: #8A5F3A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; }
         .op-ask-again { display: block; width: 100%; text-align: center; margin-top: 12px; }
-        .op-steps-done { width: 100%; margin-top: 10px; padding: 11px; background: #A0724A; border: none; border-radius: 10px; font-family: 'Lato', sans-serif; font-size: 13px; font-weight: 900; color: #fff; cursor: pointer; }
-        .op-steps-empty { width: 100%; padding: 12px 11px; background: none; border: 1.5px dashed #C9A97A; border-radius: 9px; font-family: 'Lato', sans-serif; font-size: 12px; color: #8a7968; cursor: pointer; text-align: center; }
+        .op-steps-done { width: 100%; margin-top: 10px; padding: 11px; background: #A0724A; border: none; border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; color: #fff; cursor: pointer; }
+        .op-steps-empty { width: 100%; padding: 12px 11px; background: none; border: 1.5px dashed #C9A97A; border-radius: 9px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; cursor: pointer; text-align: center; }
         .qty-controls { display: inline-flex; align-items: center; background: transparent; border: 1px solid #C9A97A; border-radius: 999px; overflow: hidden; flex-shrink: 0; }
         .qty-btn { width: 38px; height: 34px; border: 0; background: transparent; color: #A0724A; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; line-height: 1; transition: background 0.12s; }
         .qty-btn:active { background: #F5EDE0; }
         .qty-display { font-family: 'Playfair Display', serif; font-size: 1rem; font-weight: 700; min-width: 30px; text-align: center; color: #2C1A0E; border-left: 1px solid #C9A97A; border-right: 1px solid #C9A97A; padding: 8px 0; }
         .qty-display.zero { color: #c8b89a; font-weight: 400; }
-        .add-btn { border: 1px solid #C9A97A; background: transparent; color: #A0724A; font-family: 'Lato', sans-serif; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.02em; padding: 9px 22px; border-radius: 999px; cursor: pointer; transition: all 0.14s; }
-        .add-btn:active { background: #A0724A; border-color: #A0724A; color: #fff; }
-        @media (hover: hover) { .add-btn:hover { background: #A0724A; border-color: #A0724A; color: #fff; } }
+        .add-btn { border: 1px solid #C9A97A; background: transparent; color: #8A5F3A; font-family: 'Lato', sans-serif; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.02em; padding: 9px 22px; border-radius: 999px; cursor: pointer; transition: all 0.14s; }
+        .add-btn:active { background: #A0724A; border-color: #8A5F3A; color: #fff; }
+        @media (hover: hover) { .add-btn:hover { background: #A0724A; border-color: #8A5F3A; color: #fff; } }
         .price-row { display: flex; align-items: center; gap: 8px; }
-        .price-display { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-list-scale)); color: #8a7a60; }
+        .price-display { font-family: 'Lato', sans-serif; font-size: calc(0.78rem * var(--op-text-scale)); color: #8a7a60; }
         .price-edit-wrap { display: flex; align-items: center; gap: 4px; width: 100%; }
         .price-input { font-family: 'Lato', sans-serif; font-size: 0.82rem; border: 1.5px solid #c8973a; border-radius: 4px; padding: 3px 6px; width: 70px; color: #2C1A0E; background: #F5EDE0; outline: none; }
         .price-save-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; background: #c8973a; color: white; border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; }
-        .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-list-scale)); color: #c8973a; font-weight: 700; text-align: right; }
+        .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; text-align: right; }
         .list-empty { text-align: center; padding: 60px 20px; }
         .list-empty h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: #8a7a60; }
-        .list-empty p { font-family: 'Lato', sans-serif; color: #a89878; margin-top: 8px; font-size: 0.9rem; }
-        .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 8px; }
-        .hdr-plus { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid #C9A97A; background: transparent; color: #A0724A; cursor: pointer;
-                    display: flex; align-items: center; justify-content: center; font-family: 'Lato', sans-serif; font-size: 1.3rem; font-weight: 300; line-height: 1; padding: 0 0 2px; }
-        .wrapup { flex: none; border: none; cursor: pointer; padding: 9px 12px; border-radius: 18px; white-space: nowrap;
-                  font-family: 'Lato', sans-serif; font-size: 0.66rem; font-weight: 900; letter-spacing: 1.2px; text-transform: uppercase;
-                  transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
-        .wrapup.muted { background: transparent; color: #A0724A; box-shadow: inset 0 0 0 1.5px #C9A97A; }
-        /* Emphasized = teal fill, white text — the same colour as the All done card's "Wrap up trip →" button, because it is the same action. Amber is the badge's alone. */
-        .wrapup.full { background: #0D9488; color: #fff; box-shadow: none; }
+        .list-empty-line { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 6px; margin-top: 12px;
+                           font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; color: #2C1A0E; }
+        /* Wrap, never squeeze (SPEC_global_text_size decision 9): the count keeps its one line; when the three controls
+           don't fit beside it (phone width, "+ Add" is wider than the old round +), they drop to a second line as ONE
+           group, right-aligned — never split, never a count ellipsed to "4 …". */
+        .list-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px 8px; }
+        .list-header.empty { justify-content: flex-end; }
+        .list-progress { flex: 1 0 auto; white-space: nowrap; }
+        .list-controls { flex: none; display: flex; align-items: center; gap: 8px; margin-left: auto; }
+        /* ── The Wrap Up bar (src/components/WrapUpBar.js; docs/mockups/mockup_shop_wrapup_bar.html) ──
+           Pinned above the Helm: bottom = the Helm's 18px + its 56px + a 10px gap (+ safe area); 16px sides = the container's
+           content edge. z 900 = the Helm's (they never overlap) and above .helm-fade (899). Cream, hairline border, soft shadow.
+           The fill is SOFT teal (#CFE8E3 → #B5DDD5, a 45% teal rule at its edge) and animates on every check — saturated
+           #0D9488 is the All done card's alone. The text and the action sit above the fill (position: relative). */
+        .wrapbar { position: fixed; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 900;
+                   display: flex; align-items: center; justify-content: space-between; gap: 12px; overflow: hidden;
+                   min-height: 46px; padding: 12px 16px; border-radius: 16px; border: 1.5px solid #E8DDCE; background: #FAF4EC;
+                   box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer; text-align: left; }
+        .wrapbar.p0 { border-style: dashed; }
+        .wrapbar:disabled { cursor: default; opacity: 0.7; }
+        .wrapbar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #CFE8E3, #B5DDD5);
+                        border-right: 2px solid rgba(13,148,136,0.45); transition: width 0.2s ease; }
+        .wrapbar.p0 .wrapbar-fill { border-right: none; }
+        .wrapbar-t { position: relative; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); color: #6E5A4A; }
+        .wrapbar-t b { color: #2C1A0E; font-weight: 700; }
+        .wrapbar-a { position: relative; flex: none; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #0D9488; white-space: nowrap; }
+        /* The list's last rows scroll clear of the bar: its height + the 10px gap, on top of .app-root's Helm padding. */
+        .wrapbar-spacer { height: 58px; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
         .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
         .cyc-ico { flex: none; width: 46px; height: 46px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; color: #A0724A; cursor: pointer; padding: 0; transition: background 0.18s, border-color 0.18s, color 0.18s; }
-        .cyc-ico.on { background: #A0724A; border-color: #A0724A; color: #fff; }
+        .cyc-ico.on { background: #A0724A; border-color: #8A5F3A; color: #fff; }
         .cyc-ico svg { width: 22px; height: 22px; display: block; }
         /* ── Shop tab: lens · In cart tray · in-store Add · store prompt (SPEC_shop_lens_instore_capture.md) ── */
         .shop-seg { flex: none; height: 46px; border-radius: 11px; border: 1px solid #E8D5B7; background: #fff; display: flex; overflow: hidden; }
-        .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #A0724A; cursor: pointer; transition: background .15s, color .15s; }
+        .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; cursor: pointer; transition: background .15s, color .15s; }
         .shop-seg button.on { background: #A0724A; color: #fff; }
         .store-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: -6px 2px 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
         .store-line b { color: #2C1A0E; font-weight: 700; }
-        .store-line .chev { font-size: 0.7rem; color: #A0724A; }
-        .store-line .store-set { color: #A0724A; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
+        .store-line .chev { font-size: 0.7rem; color: #8A5F3A; }
+        .store-line .store-set { color: #8A5F3A; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
         .az-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin: 2px 0 6px; }
         /* A–Z is a different MODE, not the same rows minus headers: one flat list, small circle, no provenance, no prices.
            Padding is set so a single-line row lands at roughly an Aisles row's tap height. */
         .list-item.az { padding: 13px 4px; gap: 12px; border-bottom: 1px solid #F0E6D6; }
         .list-item.az .checkbox { width: 18px; height: 18px; }
-        .list-item.az .li-name { font-size: calc(0.9rem * var(--op-list-scale)); }
+        .list-item.az .li-name { font-size: calc(0.9rem * var(--op-text-scale)); }
         .added-here-tag { display: inline-block; margin-left: 6px; font-family: 'Lato', sans-serif; font-size: 0.62rem; font-weight: 700; color: #0D9488; border: 1px solid #0D9488; border-radius: 4px; padding: 1px 5px; vertical-align: middle; letter-spacing: .3px; }
         .in-cart-tray { margin-top: 26px; border-radius: 12px; background: #fff; border: 1px solid #E3D4BC; overflow: hidden; }
         .tray-head { display: flex; align-items: center; gap: 10px; padding: 13px 14px; cursor: pointer; background: none; border: none; width: 100%; text-align: left; }
@@ -5986,7 +6505,7 @@ function ProvisionsApp() {
         .in-cart-tray { margin-bottom: 8px; }
         .tray-body .list-item { padding: 11px 0; opacity: 0.55; }
         .tray-body .list-item:last-child { border-bottom: none; }
-        .tray-body .li-name { text-decoration: line-through; color: #a89878; font-size: calc(0.88rem * var(--op-list-scale)); }
+        .tray-body .li-name { text-decoration: line-through; color: #a89878; font-size: calc(0.88rem * var(--op-text-scale)); }
         .tray-initial { width: 20px; height: 20px; border-radius: 50%; background: #E8D5B7; color: #2C1A0E; font-family: 'Lato', sans-serif; font-size: 0.6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         /* Rows animate INTO wherever they land — down into the tray, back up into an aisle — so the person sees where the item went. */
         @keyframes opRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
@@ -6018,7 +6537,7 @@ function ProvisionsApp() {
         .store-chips { display: flex; flex-wrap: wrap; gap: 8px; }
         .store-chip { font-family: 'Lato', sans-serif; font-size: 0.8rem; font-weight: 700; padding: 8px 13px; border-radius: 20px; border: 1px solid #E8D5B7; background: #FAF4EC; color: #2C1A0E; cursor: pointer; }
         .store-chip:disabled { opacity: .5; cursor: default; }
-        .store-chip.other { color: #A0724A; border-style: dashed; font-weight: 400; }
+        .store-chip.other { color: #8A5F3A; border-style: dashed; font-weight: 400; }
         .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 10px; cursor: pointer; text-decoration: underline; }
         .store-field-label { font-family: 'Lato', sans-serif; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #C9A97A; margin-bottom: 7px; }
         .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: 0.85rem; color: #2C1A0E; background: #F5EDE0; outline: none; }
@@ -6031,15 +6550,15 @@ function ProvisionsApp() {
         .add-result .ar-main { flex: 1; min-width: 0; }
         .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: 0.92rem; color: #2C1A0E; }
         .add-result .ar-cat { font-family: 'Lato', sans-serif; font-size: 0.7rem; color: #8a7a60; margin-top: 2px; }
-        .add-result .ar-go { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #A0724A; }
+        .add-result .ar-go { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; }
         .add-result.create { border-bottom: none; }
-        .add-result.create .ar-name { color: #A0724A; }
+        .add-result.create .ar-name { color: #8A5F3A; }
         .add-result.create .ar-name b { color: #2C1A0E; }
         .add-sheet-hint { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 12px; line-height: 1.45; }
         .op-later-badge { position: absolute; top: -8px; right: -8px; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 700; letter-spacing: .5px; background: #0D9488; color: #fff; padding: 2px 6px; border-radius: 8px; }
         .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
         /* Names in the filter descriptor read as content, not as voice. */
-        .declutter-desc b { font-style: normal; font-weight: 700; color: #A0724A; }
+        .declutter-desc b { font-style: normal; font-weight: 700; color: #8A5F3A; }
         /* ── Browse category rail ──
            Bleeds to the container edges (.container pads 16px) so pills scroll
            UNDER the fade rather than clipping at it, while resting flush with the
@@ -6088,7 +6607,7 @@ function ProvisionsApp() {
           .cat-rail { scrollbar-width: thin; scrollbar-color: #E8D5B7 transparent; }
         }
         .cat-rail > * { scroll-snap-align: start; flex: 0 0 auto; white-space: nowrap; }
-        .cat-pill { display: flex; align-items: center; gap: 7px; padding: 9px 16px 9px 13px; border-radius: 999px; border: 1px solid #E8D5B7; background: #F5EADA; color: #A0724A; font-family: 'Lato', sans-serif; font-size: 0.82rem; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+        .cat-pill { display: flex; align-items: center; gap: 7px; padding: 9px 16px 9px 13px; border-radius: 999px; border: 1px solid #E8D5B7; background: #F5EADA; color: #8A5F3A; font-family: 'Lato', sans-serif; font-size: 0.82rem; cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
         /* The load-bearing detail: a fixed glyph box makes a wide emoji and a
            narrow one produce identical pill geometry. */
         .cat-pill .cat-em { font-size: 0.92rem; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
@@ -6107,10 +6626,10 @@ function ProvisionsApp() {
         .checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
         .checkbox.checked { background: #c8973a; border-color: #c8973a; }
         .checkmark { color: white; font-size: 0.7rem; font-weight: bold; }
-        .li-name { font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-list-scale)); flex: 1; cursor: pointer; }
+        .li-name { font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-text-scale)); flex: 1; cursor: pointer; }
         .li-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
-        .li-qty { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-list-scale)); color: #8a7a60; }
-        .li-subtotal { font-family: 'Playfair Display', serif; font-size: calc(0.95rem * var(--op-list-scale)); color: #c8973a; font-weight: 700; }
+        .li-qty { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #8a7a60; }
+        .li-subtotal { font-family: 'Playfair Display', serif; font-size: calc(0.95rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; }
         .li-subtotal.done { color: #a89878; }
         .clear-btn { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1px; text-transform: uppercase; padding: 8px 16px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
         .clear-btn:hover { border-color: #e05c5c; color: #e05c5c; }
@@ -6122,7 +6641,7 @@ function ProvisionsApp() {
         .all-done-sub { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1rem; color: #8a7a60; margin: 0 0 16px; }
         .all-done-meta { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; letter-spacing: 0.5px; }
         .all-done-meta b { color: #2C1A0E; font-weight: 700; }
-        .all-done-learn { font-family: 'Lato', sans-serif; font-size: 0.74rem; color: #A0724A; margin-top: 6px; }
+        .all-done-learn { font-family: 'Lato', sans-serif; font-size: 12.5px; color: #8A5F3A; margin-top: 6px; }
         .all-done-btn { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
                         font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
                         padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
@@ -6139,7 +6658,7 @@ function ProvisionsApp() {
            left-aligned inside the centred card, as drawn. Two EQUAL outlined
            buttons, no primary — the app has no preferred answer. No teal. */
         .trip-reality-ask { margin: 16px 0 18px; padding: 18px 16px; border-radius: 14px; background: #F5EADA; border: 1px solid #E8D5B7; text-align: left; }
-        .trip-reality-ask .tr-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: #A0724A; font-weight: 700; margin: 0 0 8px; }
+        .trip-reality-ask .tr-eyebrow { font-family: 'Lato', sans-serif; font-size: 12.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #8A5F3A; font-weight: 700; margin: 0 0 8px; }
         .trip-reality-ask .tr-q { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: 1.15rem; line-height: 1.25; margin: 0 0 6px; color: #2C1A0E; }
         .trip-reality-ask .tr-why { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: 0 0 14px; line-height: 1.4; }
         .trip-reality-ask .tr-btns { display: flex; gap: 10px; }
@@ -6157,13 +6676,25 @@ function ProvisionsApp() {
         .lt-budget-row.over { color: #e05c5c; }
 
         /* Modals */
-        .modal-overlay { position: fixed; inset: 0; background: rgba(44,26,14,0.55); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
-        .modal { background: #FAF4EC; border-radius: 12px; padding: 28px 24px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-        .modal h2 { font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: #2C1A0E; margin-bottom: 8px; }
+        /* Scroll, never clip (2026-10-05: at XXL on a 375×553 screen Already on hand, Add new item,
+           Filter meals and Hold a night ran past the overlay and lost their title, Close AND
+           Save/Cancel). The overlay scrolls; the dialog is centred by margin: auto instead of
+           align-items: center — a dialog that fits is centred exactly as before, a taller one
+           starts at the 20px padding and the overlay scrolls to its footer. No JS, no swipe. */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(44,26,14,0.55); display: flex; justify-content: center; z-index: 100; padding: 20px; overflow-y: auto; overscroll-behavior: contain; }
+        .modal-overlay > * { margin: auto; }
+        .modal { position: relative; background: #FAF4EC; border-radius: 12px; padding: 28px 24px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        .modal h2 { font-family: 'Playfair Display', serif; font-size: calc(1.4rem * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; color: #2C1A0E; margin-bottom: 8px; padding-right: 40px; }
+        /* Every sheet's Close (SheetClose): 44px target, top-right, the first VoiceOver stop. Backdrop + Cancel remain for sighted users. */
+        .sheet-close { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; border-radius: 50%; border: none; background: transparent; color: #8a7a60; cursor: pointer;
+                       display: flex; align-items: center; justify-content: center; padding: 0; z-index: 1; }
+        .sheet-close:hover { background: rgba(44,26,14,0.06); color: #2C1A0E; }
+        .sheet-close:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
+        .sheet-close:disabled { opacity: 0.4; cursor: default; }
         .modal-subtitle { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 20px; }
         .modal-field { margin-bottom: 16px; }
-        .modal-label { font-family: 'Lato', sans-serif; font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; margin-bottom: 6px; display: block; }
-        .modal-input { width: 100%; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: 1.5px solid #E8D5B7; border-radius: 6px; padding: 9px 12px; color: #2C1A0E; background: #F5EDE0; outline: none; transition: border-color 0.2s; }
+        .modal-label { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; margin-bottom: 6px; display: block; }
+        .modal-input { width: 100%; font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-text-scale)); border: 1.5px solid #E8D5B7; border-radius: 6px; padding: 9px 12px; color: #2C1A0E; background: #F5EDE0; outline: none; transition: border-color 0.2s; }
         .modal-input:focus { border-color: #c8973a; }
         .modal-input-prefix { display: flex; align-items: center; border: 1.5px solid #E8D5B7; border-radius: 6px; background: #F5EDE0; overflow: hidden; transition: border-color 0.2s; }
         .modal-input-prefix:focus-within { border-color: #c8973a; }
@@ -6171,11 +6702,15 @@ function ProvisionsApp() {
         .modal-input-inner { flex: 1; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: none; padding: 9px 12px; color: #2C1A0E; background: transparent; outline: none; }
         .modal-select { width: 100%; font-family: 'Lato', sans-serif; font-size: 0.95rem; border: 1.5px solid #E8D5B7; border-radius: 6px; padding: 9px 12px; color: #2C1A0E; background: #F5EDE0; outline: none; cursor: pointer; }
         .modal-error { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #e05c5c; margin-bottom: 12px; }
-        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+        /* Pinned footer (SPEC_global_text_size decision 9): the meal sheet's .modal scrolls (88vh), so its actions stick to the
+           bottom edge and the list scrolls beneath; a cream fill and a soft top shadow keep the rows from showing through. Inert
+           on sheets that don't scroll. */
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; position: sticky; bottom: -28px; padding: 10px 0 28px; margin-bottom: -28px;
+                         background: #FAF4EC; box-shadow: 0 -10px 10px -10px rgba(44,26,14,0.18); z-index: 1; }
         .modal-actions-spaced { display: flex; gap: 10px; justify-content: space-between; align-items: center; margin-top: 8px; }
-        .modal-cancel { font-family: 'Lato', sans-serif; font-size: 0.8rem; padding: 9px 18px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
+        .modal-cancel { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); padding: 9px 18px; border: 1.5px solid #c8b89a; background: transparent; color: #8a7a60; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
         .modal-cancel:hover { border-color: #2C1A0E; color: #2C1A0E; }
-        .modal-confirm { font-family: 'Lato', sans-serif; font-size: 0.8rem; padding: 9px 18px; background: #A0724A; color: #FAF4EC; border: none; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
+        .modal-confirm { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); padding: 9px 18px; background: #A0724A; color: #FAF4EC; border: none; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
         .modal-confirm:hover { background: #c8973a; }
         .modal-remove { font-family: 'Lato', sans-serif; font-size: 0.8rem; padding: 9px 18px; border: 1.5px solid #e8d5d5; background: transparent; color: #e05c5c; cursor: pointer; border-radius: 5px; transition: all 0.2s; }
         .modal-remove:hover { background: #fff0f0; border-color: #e05c5c; }
@@ -6427,8 +6962,8 @@ function ProvisionsApp() {
             {/* ── Zone 1: Your Households (name-only rows; bare pencil on the active row) ── */}
             <div>
               <div style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
-                textTransform: "uppercase", color: "#A0724A", marginBottom: "10px",
+                fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2.5px",
+                textTransform: "uppercase", color: "#8A5F3A", marginBottom: "10px",
               }}>Your Places</div>
               {/* A5b (Addendum 2026-09-27): "Your places" is never drawn empty
                   before it has loaded. Until the context's read has SUCCEEDED for
@@ -6447,7 +6982,7 @@ function ProvisionsApp() {
                       style={{
                         background: "none", border: "none", cursor: "pointer", marginLeft: "10px",
                         fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", fontWeight: 700,
-                        color: "#A0724A", letterSpacing: "1px", padding: 0,
+                        color: "#8A5F3A", letterSpacing: "1px", padding: 0,
                       }}
                     >Retry</button>
                   </div>
@@ -6520,7 +7055,7 @@ function ProvisionsApp() {
                   style={{
                     width: "100%", background: "none", border: "1.5px dashed #A0724A",
                     borderRadius: "8px", padding: "11px 14px", marginTop: "2px",
-                    fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#A0724A",
+                    fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8A5F3A",
                     cursor: "pointer", textAlign: "center", boxSizing: "border-box",
                   }}
                 >+ Create new place</button>
@@ -6586,8 +7121,8 @@ function ProvisionsApp() {
             {/* ── Zone 2: {household} · Members (roster + Invite; no count, no monogram) ── */}
             <div>
               <div style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "2.5px",
-                textTransform: "uppercase", color: "#A0724A", marginBottom: "14px",
+                fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2.5px",
+                textTransform: "uppercase", color: "#8A5F3A", marginBottom: "14px",
               }}>{(household?.name || "This place")} · Members</div>
 
               {/* Member list. A5 (Amendment 2026-09-27): until this place's members
@@ -6840,7 +7375,7 @@ function ProvisionsApp() {
 
               <div style={{
                 fontFamily: "'Lato', sans-serif", fontSize: "10px", fontWeight: 900,
-                letterSpacing: "0.16em", textTransform: "uppercase", color: "#A0724A",
+                letterSpacing: "0.16em", textTransform: "uppercase", color: "#8A5F3A",
                 marginBottom: "8px", textAlign: "center",
               }}>Welcome aboard</div>
 
@@ -7012,7 +7547,7 @@ function ProvisionsApp() {
             />
             {/* Header: Cancel · title · Save */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px 10px" }}>
-              <button onClick={closeEditHousehold} style={{ background: "none", border: "none", color: "#A0724A", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+              <button onClick={closeEditHousehold} style={{ background: "none", border: "none", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", fontWeight: 700, cursor: "pointer" }}>Cancel</button>
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: "1.05rem", color: "#2C1A0E" }}>Edit place</div>
               <button
                 onClick={saveEditHousehold}
@@ -7086,7 +7621,7 @@ function ProvisionsApp() {
               {/* Photo controls — only when a photo exists (spec D3) */}
               {edHasPhoto && (
                 <>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Zoom</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", margin: "18px 0 8px" }}>Zoom</div>
                   <input
                     type="range" min="100" max="320" value={edZoom}
                     onChange={(e) => setEdZoom(Number(e.target.value))}
@@ -7104,7 +7639,7 @@ function ProvisionsApp() {
                     >Remove photo</button>
                   </div>
 
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Wordmark</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", margin: "18px 0 8px" }}>Wordmark</div>
                   <div style={{ display: "flex", background: "#FBF7F0", border: "1px solid rgba(44,26,14,0.10)", borderRadius: "12px", overflow: "hidden" }}>
                     {["large", "small", "hidden"].map((opt) => (
                       <button
@@ -7123,7 +7658,7 @@ function ProvisionsApp() {
               )}
 
               {/* Household name */}
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#A0724A", margin: "18px 0 8px" }}>Place name</div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", fontWeight: 900, letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", margin: "18px 0 8px" }}>Place name</div>
               <input
                 value={edName}
                 onChange={(e) => setEdName(e.target.value)}
@@ -7255,7 +7790,7 @@ function ProvisionsApp() {
             ready={homeReady}
             deck={{
               // The board's inputs, verbatim (D3) — the same props PlanBoard gets.
-              boardMeals, boardCards, placements, rows: mealRowCounts, mealById, cookedIds: cookedHere,
+              boardMeals, boardCards, placements, rows: mealRowCounts, mealById, cookedIds: afterglowIds,
               busyMealId: busyMealId || addingMealId, switching: deckSwitching,
               holdNight: MEALS_ENABLED && isSignedIn,
               onAdd: () => { setPlanScreen("library"); goToDoor("plan"); },
@@ -7284,38 +7819,39 @@ function ProvisionsApp() {
 
         {view === "plan" && planScreen === "board" && !signedOutWelcome && (
           <>
-            {/* THE BOARD (v2). Header follows the Browse/Shop pattern: title, the
-                counts line, and ONE control top-right — "+ Add a meal" (filled,
-                --op-add: deep sand = adding things) into the library. The header
-                is the door's control row, so it is the compact sentinel
+            {/* THE BOARD (v2) under the title switch (SPEC_plan_week_meals_switch):
+                "This Week" active, "Meals" one tap away, the subtitle carrying the
+                count AND the batch action ("4 nights · 2 meals to add to Shop →" —
+                see boardSubtitle), and ONE control top-right — the add button
+                (--op-add: deep sand = adding things) into the library. The switch
+                row is the door's control row, so it is the compact sentinel
                 (controlRowRef): when it scrolls off, the Helm compacts and its +
-                does the door's add — here, open the library (doorAdd.plan). The
-                subtitle carries the count AND the batch action ("4 nights · 2
-                meals to add to Shop →" — see boardSubtitle). Under the header, a
-                banner when the week is set or stocked, else (2+ cards) the drag
-                hint. No bar, no teal until the household has finished something.
-                Three states (PATCH_plan_tab_welcome): until this household's
-                meals and placements have loaded, the title alone; loaded with
-                nothing on the board, the welcome — title, no subtitle, no add
-                button, no foot; otherwise the working board. */}
-            <div className={`plan-head board-head${showDragHint ? " with-hint" : ""}`} ref={controlRowRef}>
-              <div className="plan-head-text">
-                <h2 className="plan-title">This Week</h2>
-                {boardReady && !showWelcome && (
-                  <div className="plan-sub">
-                    {boardSubtitle.head}{boardSubtitle.tail}
-                    {boardSubtitle.link > 0 && (isSignedIn ? (
-                      <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
-                        {lockingAll ? "adding…" : "add to Shop →"}
-                      </button>
-                    ) : "add to Shop")}
-                  </div>
-                )}
-              </div>
-              {boardReady && !showWelcome && (
-                <button type="button" className="plan-meals" onClick={() => setPlanScreen("library")}>+ Add a meal</button>
-              )}
-            </div>
+                does the door's add — here, open the library (doorAdd.plan). Under
+                the row, a banner when the week is set or stocked, else (2+ cards)
+                the drag hint. No bar, no teal until the household has finished
+                something. Three states (PATCH_plan_tab_welcome): until this
+                household's meals and placements have loaded, the switch alone;
+                loaded with nothing on the board, the welcome — switch, no
+                subtitle, no add button, no foot; otherwise the working board. */}
+            <PlanSwitch
+              screen="board"
+              onSwitch={setPlanScreen}
+              rowRef={controlRowRef}
+              className={`board${showDragHint ? " with-hint" : ""}`}
+              subtitle={boardReady && !showWelcome ? (
+                <>
+                  {boardSubtitle.head}{boardSubtitle.tail}
+                  {boardSubtitle.link > 0 && (isSignedIn ? (
+                    <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
+                      {lockingAll ? "adding…" : "add to Shop →"}
+                    </button>
+                  ) : "add to Shop")}
+                </>
+              ) : null}
+              action={boardReady && !showWelcome ? (
+                <HeaderAction verb="add" label="Add a meal to this week" onClick={() => setPlanScreen("library")} />
+              ) : null}
+            />
             {!boardReady ? null : showWelcome ? (
               <PlanWelcome firstMeal={!everCooked} onAdd={() => setPlanScreen("library")}>
                 {MEALS_ENABLED && isSignedIn && (
@@ -7353,7 +7889,7 @@ function ProvisionsApp() {
                   rows={mealRowCounts}
                   placements={placements}
                   mealById={mealById}
-                  cookedIds={cookedHere}
+                  cookedIds={afterglowIds}
                   onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
                   onSkip={handleSkipMeal}
                   onCooked={handleCookedMeal}
@@ -7379,31 +7915,40 @@ function ProvisionsApp() {
 
         {view === "plan" && planScreen === "library" && !signedOutWelcome && (
           <>
-            {/* THE LIBRARY (v2). Back chevron to the board; no "This Week" chip —
-                the board is one tap away and the nav tab is already lit. The + is
-                New meal (signed in only: creating a meal is an identity-requiring
-                write; the library's terminal row says why). */}
-            <div className="plan-head" ref={controlRowRef}>
-              <button type="button" className="plan-back" aria-label="Back to the board" onClick={() => setPlanScreen("board")}>‹</button>
-              <div className="plan-head-text">
-                <h2 className="plan-title">Meal Library</h2>
-                <div className="plan-sub">Discover. Save. Plan for your week.</div>
-              </div>
-              {MEALS_ENABLED && isSignedIn && (
-                <button type="button" className="hdr-plus" aria-label="New meal" onClick={() => setMealSheet({ mode: "create", meal: null })}>+</button>
-              )}
-            </div>
+            {/* THE LIBRARY under the title switch (SPEC_plan_week_meals_switch):
+                "Meals" active, "This Week" one tap away — the switch is the route
+                back (the v1.1 week line is gone, D8); no back arrow (location is the
+                Helm's, PLAN lit). + New (D4) opens the New Meal sheet; Plan on a card
+                never leaves Meals (D6) — add two or three, then tap This Week. The subtitle
+                is "What sounds good? · {N} meals" (D3) — the invitation plus the
+                library's size, N = the whole library (kind = 'meal'), never the
+                filtered result. The create button opens the existing New Meal
+                sheet unchanged (signed in only: creating a meal is an
+                identity-requiring write). The switch row is the Helm's compact
+                sentinel (controlRowRef). */}
+            <PlanSwitch
+              screen="library"
+              onSwitch={setPlanScreen}
+              rowRef={controlRowRef}
+              className="meals"
+              subtitle={<>What sounds good? · {libraryMeals.length} {libraryMeals.length === 1 ? "meal" : "meals"}</>}
+              action={MEALS_ENABLED && isSignedIn ? (
+                <HeaderAction verb="new" label="Create a new meal" onClick={() => setMealSheet({ mode: "create", meal: null })} />
+              ) : null}
+            />
             <MealsLens
               meals={libraryMeals}
               loading={mealsLoading}
               onPlan={handlePlanMeal}
+              onUnplan={handleUnplanMeal}
               planningMealId={planningMealId}
               onCreate={() => setMealSheet({ mode: "create", meal: null })}
               isSignedIn={isSignedIn}
               onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
-              onBoardIds={onBoardIds}
+              stages={libraryStages}
               madeBefore={madeBefore}
               householdId={household?.id}
+              members={householdMembers}
             />
           </>
         )}
@@ -7582,7 +8127,7 @@ function ProvisionsApp() {
                           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", cursor: "pointer" }}
                         >
                           <div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
                               Add <strong>"{searchQuery}"</strong> to your list
                             </div>
                             <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
@@ -7597,7 +8142,7 @@ function ProvisionsApp() {
                             onClick={() => setSearchPickerOpen(false)}
                             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px 8px", cursor: "pointer" }}
                           >
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#A0724A" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
                               Add <strong>"{searchQuery}"</strong> to your list
                             </div>
                             <span style={{ color: "#C9A97A", fontSize: "18px" }}>−</span>
@@ -7716,10 +8261,10 @@ function ProvisionsApp() {
                         }}
                         style={{
                           background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                          fontSize: "0.72rem", color: "#A0724A", cursor: "pointer",
+                          fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
                           letterSpacing: "0.5px", padding: "0",
                         }}
-                      >＋ Add item</button>
+                      >＋ New item</button>
                     </div>
                     <div className="items-grid">
                       {cat.items.map((item) => {
@@ -7759,7 +8304,7 @@ function ProvisionsApp() {
                     onClick={() => setShowManageCategoriesModal(true)}
                     style={{
                       background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                      fontSize: "0.75rem", color: "#A0724A", cursor: "pointer",
+                      fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
                       letterSpacing: "1px", textDecoration: "underline",
                     }}
                   >Manage Categories</button>
@@ -7792,34 +8337,47 @@ function ProvisionsApp() {
             )}
             {totalItems === 0 ? (
               <>
-                {/* Empty form of the header row: count text and the same round +
-                    (Add sheet, in-store paths) — no lens, no Wrap up. Still the
-                    compact sentinel (ref), though the page is too short to scroll. */}
-                <div className="list-header" ref={controlRowRef}>
-                  <span className="list-progress" style={{ flex: 1 }}>Nothing in the cart yet</span>
-                  <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
+                {/* Empty form of the header row: the "+ Add" pill alone (Add sheet,
+                    in-store paths) — no count line (there is no trip to count), no
+                    lens, no Wrap up. Still the compact sentinel (ref), though the
+                    page is too short to scroll. */}
+                <div className="list-header empty" ref={controlRowRef}>
+                  <HeaderAction verb="add" label="Add something" onClick={openAddSheet} />
                 </div>
+                {/* Empty state — Home's list-line pattern (status · link). Planned
+                    meals not yet on the list (boardStats.stillToAdd, the board
+                    subtitle's N) point at This Week; otherwise at Browse — the
+                    same door Home's "Start a list →" opens. The count sits in the
+                    text span, never in the link (RUM: the link is fixed copy). */}
                 <div className="list-empty">
                   <h2>Your list is empty</h2>
-                  <p>Go to "Add Items" and set quantities for what you need.</p>
+                  <div className="list-empty-line">
+                    {boardStats.stillToAdd.length > 0 ? (
+                      <>
+                        <span>{boardStats.stillToAdd.length} {boardStats.stillToAdd.length === 1 ? "meal" : "meals"} to</span>
+                        <button type="button" className="home-line-link" onClick={() => goToDoor("plan")}>add to Shop →</button>
+                      </>
+                    ) : (
+                      <button type="button" className="home-line-link" onClick={() => goToDoor("input")}>Browse items →</button>
+                    )}
+                  </div>
                 </div>
               </>
             ) : (
               <>
                 <div className="list-header" ref={controlRowRef}>
-                  <span className="list-progress" style={{ flex: 1 }}>{checkedCount} of {totalItems} in cart</span>
+                  <span className="list-progress">{checkedCount} of {totalItems} in cart</span>
                   {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
+                  <div className="list-controls">
                   <ShopLensSegment lens={shopLens} onChange={setShopLens} />
                   {/* D4′ (v2): the trip's controls are part of the list — this row
-                      scrolls away with it; the pill is chrome. Header + opens the
-                      Add sheet (add-from-the-aisle). Wrap up is muted at 0 in cart and
-                      amber once one item is checked; tappable in both states (D10). */}
-                  <button type="button" className="hdr-plus" aria-label="Add something" onClick={openAddSheet}>+</button>
-                  {/* D10 (amended 2026-09-12): three states — muted at 0 in cart, teal while
-                      anything remains to find, muted again at 100%. At 100% the All done card's
-                      teal button carries the emphasis; two emphasized exits on one screen is
-                      what D9 guards against. Tappable in every state. */}
-                  <button type="button" className={`wrapup ${checkedCount > 0 && checkedCount < totalItems ? "full" : "muted"}`} onClick={openWrapUp} disabled={wrappingUp}>Wrap up</button>
+                      scrolls away with it; the pill is chrome. "+ Add" opens the
+                      Add sheet (add-from-the-aisle). The header holds LIST TOOLS
+                      only (2026-10-05): Wrap up left this row for the WrapUpBar
+                      above the Helm — one Wrap Up control per state, the All
+                      done card's teal button at 100% (what D9 guards against). */}
+                  <HeaderAction verb="add" label="Add something" onClick={openAddSheet} />
+                  </div>
                 </div>
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
@@ -7834,6 +8392,7 @@ function ProvisionsApp() {
                      use, teal) is the same slot later, once the Phase 2 query
                      applies for this (household, store) — reserved, not built. */
                   const startedAt = activeSession?.started_at ? new Date(activeSession.started_at).getTime() : null;
+                  // Under a minute reads as words, never "0 minutes" (mockup_shop_wrapup_bar.html, state 4).
                   const minutes = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null;
                   const learning = !!activeSession?.store_name_raw;
                   return (
@@ -7843,7 +8402,9 @@ function ProvisionsApp() {
                       <p className="all-done-sub">Everything on your list is in the cart.</p>
                       <div className="all-done-meta">
                         <b>{totalItems}</b> {totalItems === 1 ? "item" : "items"}
-                        {minutes !== null && <>&nbsp;&nbsp;·&nbsp;&nbsp;<b>{minutes}</b> {minutes === 1 ? "minute" : "minutes"}</>}
+                        {minutes !== null && (minutes < 1
+                          ? <>&nbsp;&nbsp;·&nbsp;&nbsp;<b>under a minute</b></>
+                          : <>&nbsp;&nbsp;·&nbsp;&nbsp;<b>{minutes}</b> {minutes === 1 ? "minute" : "minutes"}</>)}
                       </div>
                       {learning && <div className="all-done-learn">We're learning how you shop this store.</div>}
                       {/* At 100% there is nothing to roll forward, so this goes
@@ -7933,6 +8494,11 @@ function ProvisionsApp() {
                   <div className={`lt-amount ${overBudget ? "over" : ""}`}>{hasEstimatedPrices ? "~" : ""}${totalCost.toFixed(2)}</div>
                 </div>
                 )}
+                {/* The Wrap Up bar — the trip's one exit until 100%, when it hands
+                    off to the All done card (the bar renders nothing there). The
+                    spacer keeps the last rows above it; both go with the list. */}
+                {checkedCount < totalItems && <div className="wrapbar-spacer" aria-hidden="true" />}
+                <WrapUpBar checked={checkedCount} total={totalItems} onWrapUp={openWrapUp} busy={wrappingUp} />
               </>
             )}
           </>
@@ -7943,7 +8509,8 @@ function ProvisionsApp() {
       {/* No-shop sheet (v2, 055) — one optional field, then "Hold the night". */}
       {MEALS_ENABLED && noShopSheet && (
         <div className="modal-overlay" onClick={() => { if (!noShopBusy) setNoShopSheet(null); }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label={NO_SHOP_LABELS[noShopSheet.kind] || "Something else"} onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => { if (!noShopBusy) setNoShopSheet(null); }} disabled={noShopBusy} />
             <h2>{NO_SHOP_LABELS[noShopSheet.kind] || "Something else"}</h2>
             <div className="noshop-sub">Holds the night on the board. Nothing goes on your list.</div>
             {noShopSheet.kind === "leftovers" ? (
@@ -8005,9 +8572,10 @@ function ProvisionsApp() {
           friction without a safety benefit (decided in-spec). */}
       {onHandPrompt && (
         <div className="modal-overlay" onClick={() => setOnHandPrompt(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Already on hand" onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => setOnHandPrompt(null)} />
             <h2>Already on hand</h2>
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.85rem",
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
               color: "#5c4a36", lineHeight: 1.5, marginBottom: "14px" }}>
               <strong>{onHandPrompt.mealName}</strong> has ingredients you marked as on hand.
               Include any of them this time?
@@ -8032,7 +8600,7 @@ function ProvisionsApp() {
               }));
               return (
                 <div key={it.catalog_item_id} style={{ marginBottom: "16px" }}>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.88rem",
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                     fontWeight: 700, color: "#2C1A0E", marginBottom: "6px" }}>{it.name}</div>
                   <div style={{ display: "flex", gap: "6px", opacity: removing ? 0.4 : 1 }}>
                     {opts.map((o) => {
@@ -8044,7 +8612,7 @@ function ProvisionsApp() {
                           aria-pressed={on}
                           style={{
                             flex: 1, padding: "8px 4px", borderRadius: "999px", cursor: "pointer",
-                            fontFamily: "'Lato', sans-serif", fontSize: "0.74rem", fontWeight: 700,
+                            fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 700,
                             border: on ? "1.5px solid #A0724A" : "1.5px solid #E8D5B7",
                             background: on ? "#A0724A" : "transparent",
                             color: on ? "#FAF4EC" : "#8a7a60",
@@ -8062,7 +8630,7 @@ function ProvisionsApp() {
                       aria-pressed={removing}
                       style={{
                         background: "none", border: "none", padding: "2px 0", cursor: "pointer",
-                        fontFamily: "'Lato', sans-serif", fontSize: "0.68rem",
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(14),
                         fontWeight: removing ? 700 : 400,
                         color: removing ? "#b3261e" : "#9a8a78",
                         textDecoration: "underline", textUnderlineOffset: "2px",
@@ -8073,7 +8641,7 @@ function ProvisionsApp() {
               );
             })}
 
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.72rem",
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
               color: "#8a7a60", fontStyle: "italic", marginBottom: "12px", lineHeight: 1.5 }}>
               Including is just for this time — the ingredient stays on hand for next time.
               Removing takes it out of the meal for good.
@@ -8114,7 +8682,8 @@ function ProvisionsApp() {
       {/* Add Item Modal */}
       {showAddModal && (
         <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Add new item" onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => setShowAddModal(false)} />
             <h2>Add New Item</h2>
             <div className="modal-field">
               <label className="modal-label">Item Name</label>
@@ -8136,7 +8705,7 @@ function ProvisionsApp() {
                 )}
               </label>
               {/* This modal is only ever reached from a section header's
-                  "＋ Add item", so the category is already known — the user
+                  "＋ New item", so the category is already known — the user
                   answered by choosing where they tapped. The step is a
                   confirmation, not a question. */}
               <div className="picker-sub">
@@ -8153,7 +8722,7 @@ function ProvisionsApp() {
               />
               {isSignedIn && !newItemName.trim() && (
                 addModalResetDone ? (
-                  <div style={{ fontSize: "12px", color: "#A0724A", fontStyle: "italic", marginTop: "6px" }}>
+                  <div style={{ fontSize: "12.5px", color: "#8A5F3A", fontStyle: "italic", marginTop: "6px" }}>
                     ✓ {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} items unhidden
                   </div>
                 ) : hiddenCatalogItems.some(h => h.category === newItemCategory) ? (
@@ -8163,7 +8732,7 @@ function ProvisionsApp() {
                       setAddModalResetDone(true);
                       setTimeout(() => setAddModalResetDone(false), 2000);
                     }}
-                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#A0724A", fontFamily: "'Lato', sans-serif", fontSize: "12px", padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block" }}
+                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block" }}
                   >
                     Unhide {hiddenCatalogItems.filter(h => h.category === newItemCategory).length} hidden {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} {hiddenCatalogItems.filter(h => h.category === newItemCategory).length === 1 ? "item" : "items"}
                   </button>
@@ -8186,9 +8755,10 @@ function ProvisionsApp() {
       {/* Budget Goal Modal */}
       {showBudgetModal && (
         <div className="modal-overlay" onClick={() => setShowBudgetModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Set budget goal" onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => setShowBudgetModal(false)} />
             <h2>Set Budget Goal</h2>
-            <p className="modal-subtitle">Get alerts when your cart is approaching or over your limit.</p>
+            <p className="modal-subtitle">Get alerts when your list is approaching or over your limit.</p>
             <div className="modal-field">
               <label className="modal-label">My Budget</label>
               <div className="modal-input-prefix">
@@ -8217,7 +8787,8 @@ function ProvisionsApp() {
 
       {removeConfirmItem && (
         <div className="modal-overlay" onClick={() => setRemoveConfirmItem(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Remove from list?" onClick={(e) => e.stopPropagation()}>
+            <SheetClose onClose={() => setRemoveConfirmItem(null)} />
             <h2>Remove from list?</h2>
             <p className="modal-subtitle">
               "{removeConfirmItem.name}" was added by {removeConfirmItem.addedByName}. Removing it takes it off the shared list for everyone.
@@ -8241,7 +8812,8 @@ function ProvisionsApp() {
       {/* Edit Item Modal */}
       {editModalItem && (
         <div className="modal-overlay" onClick={() => setEditModalItem(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Edit item" onClick={e => e.stopPropagation()}>
+            <SheetClose onClose={() => setEditModalItem(null)} />
             <h2>Edit Item</h2>
 
             {editModalItem.isCustom && (
@@ -8326,7 +8898,8 @@ function ProvisionsApp() {
       {/* Manage Categories Modal */}
       {showManageCategoriesModal && (
         <div className="modal-overlay" onClick={() => setShowManageCategoriesModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Manage categories" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
+            <SheetClose onClose={() => setShowManageCategoriesModal(false)} />
             <h2>Manage Categories</h2>
 
             {/* Create */}
@@ -8361,7 +8934,7 @@ function ProvisionsApp() {
                     <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                   ))}
                 </select>
-                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "6px", fontStyle: "italic" }}>
+                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
                   Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
                 </p>
                 {renamingCategory && (
@@ -8401,7 +8974,7 @@ function ProvisionsApp() {
                     <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
                   ))}
                 </select>
-                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "6px", fontStyle: "italic" }}>
+                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
                   Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
                 </p>
                 {deletingCategory && (
@@ -8434,7 +9007,7 @@ function ProvisionsApp() {
 
             {isSignedIn && (
               <div style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#A0724A", marginBottom: "8px" }}>Danger Zone</div>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "8px" }}>Danger Zone</div>
                 {!showResetConfirm ? (
                   <button
                     onClick={() => setShowResetConfirm(true)}
@@ -8529,25 +9102,38 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {/* Profile Sheet */}
+      {/* Profile Sheet — three ways out, all running the same close: backdrop
+          tap (the scrim's onClick), the Close button (SheetClose: VoiceOver's
+          way, focus returns to the avatar on unmount) and swipe-down
+          (SheetPanel → useSheetDrag, 2026-10-05). */}
       {showProfileSheet && (
         <div
           style={{ position: "fixed", inset: 0, background: "rgba(2,15,26,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-end" }}
           onClick={() => setShowProfileSheet(false)}
         >
-          <div
-            style={{ background: "#FDF8F2", borderRadius: "20px 20px 0 0", width: "100%", paddingBottom: "32px" }}
-            onClick={e => e.stopPropagation()}
+          <SheetPanel
+            onClose={() => setShowProfileSheet(false)}
+            label="Account and preferences"
+            style={{ position: "relative", background: "#FDF8F2", borderRadius: "20px 20px 0 0", width: "100%", paddingBottom: "32px" }}
           >
+            {/* Close — the one way out VoiceOver can reach (the backdrop is a plain div). */}
+            <SheetClose onClose={() => setShowProfileSheet(false)} />
             {/* Handle */}
             <div style={{ width: "36px", height: "4px", background: "#c8b89a", borderRadius: "2px", margin: "10px auto 0" }} />
 
+            {/* Text in this sheet follows the text-size knob by role (the 10-04 role table):
+                row text 14 and captions / eyebrows 12.5 at k 1, nothing under 12.5 at Default;
+                the avatar monogram is chrome, fixed. No small text here is #A0724A any more. */}
             {/* User row */}
             <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "14px 20px 12px", borderBottom: "0.5px solid #e8ddd0" }}>
               <div style={{ width: "44px", height: "44px", borderRadius: "50%", background: "#0D9488", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: 600, color: "white", fontFamily: "'Lato', sans-serif", flexShrink: 0 }}>
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </div>
-              <div>
+              {/* Name + edit input (fontSize: inherit) — body, 16 px at k 1. The sheet has no
+                  .modal h2; this row is its heading and stays 16 (not promoted to a sheet title).
+                  paddingRight keeps the row clear of the 44 px Close at XXL (the .modal h2 rule's
+                  40 px, same job); minWidth 0 lets a long name / email wrap instead of overflow. */}
+              <div style={{ fontSize: ts(16), minWidth: 0, paddingRight: "36px" }}>
                 {editingName ? (
               <input
                 autoFocus
@@ -8593,19 +9179,19 @@ function ProvisionsApp() {
                   || user?.primaryEmailAddress?.emailAddress}
               </div>
             )}
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#A0724A", marginTop: "2px" }}>{user?.primaryEmailAddress?.emailAddress}</div>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", marginTop: "2px", overflowWrap: "anywhere" }}>{user?.primaryEmailAddress?.emailAddress}</div>
               </div>
             </div>
 
             {/* Preferences */}
             <div style={{ padding: "14px 20px 8px" }}>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "2px", textTransform: "uppercase", color: "#A0724A", marginBottom: "12px" }}>Preferences</div>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "2px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "12px" }}>Preferences</div>
 
               {/* Show prices toggle */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "12px", borderBottom: "0.5px solid #e8ddd0" }}>
                 <div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>Show prices &amp; budget</div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "2px" }}>Display item prices and estimated total</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#2C1A0E" }}>Show prices &amp; budget</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", marginTop: "2px" }}>Display item prices and estimated total</div>
                 </div>
                 <div
                   onClick={() => setShowPrices(p => !p)}
@@ -8615,23 +9201,25 @@ function ProvisionsApp() {
                 </div>
               </div>
 
-              {/* List text size stepper */}
+              {/* Text size stepper (SPEC_global_text_size decision 6: one knob, every surface).
+                  The two A glyphs are the control's iconography — chrome, fixed (k 0) like the
+                  glyph-only .qty-btn; the step readout is status text and follows the knob. */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "12px" }}>
                 <div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#2C1A0E" }}>List text size</div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11px", color: "#A0724A", marginTop: "2px" }}>Bigger text for the list, on this device</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#2C1A0E" }}>Text size</div>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", marginTop: "2px" }}>Bigger text across the app, on this device</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", border: "1px solid #E8D5B7", borderRadius: "7px", background: "#fff", padding: "5px 10px", flexShrink: 0 }}>
                   <button
                     onClick={() => setTextSizeIdx(i => Math.max(0, i - 1))}
                     disabled={textSizeIdx === 0}
-                    style={{ background: "none", border: "none", cursor: textSizeIdx === 0 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "0.78rem", color: textSizeIdx === 0 ? "#d8c8aa" : "#A0724A", lineHeight: 1, padding: 0 }}
+                    style={{ background: "none", border: "none", cursor: textSizeIdx === 0 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "12.5px", color: textSizeIdx === 0 ? "#d8c8aa" : "#8A5F3A", lineHeight: 1, padding: 0 }}
                   >A</button>
-                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", textTransform: "uppercase", letterSpacing: "1.5px", color: "#A0724A", minWidth: "56px", textAlign: "center" }}>{TEXT_LABELS[textSizeIdx]}</span>
+                  <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), textTransform: "uppercase", letterSpacing: "1.5px", color: "#8A5F3A", minWidth: "56px", textAlign: "center" }}>{TEXT_LABELS[textSizeIdx]}</span>
                   <button
                     onClick={() => setTextSizeIdx(i => Math.min(TEXT_STEPS.length - 1, i + 1))}
                     disabled={textSizeIdx === TEXT_STEPS.length - 1}
-                    style={{ background: "none", border: "none", cursor: textSizeIdx === TEXT_STEPS.length - 1 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "1.05rem", color: textSizeIdx === TEXT_STEPS.length - 1 ? "#d8c8aa" : "#A0724A", lineHeight: 1, padding: 0 }}
+                    style={{ background: "none", border: "none", cursor: textSizeIdx === TEXT_STEPS.length - 1 ? "default" : "pointer", fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: "16.8px", color: textSizeIdx === TEXT_STEPS.length - 1 ? "#d8c8aa" : "#8A5F3A", lineHeight: 1, padding: 0 }}
                   >A</button>
                 </div>
               </div>
@@ -8644,20 +9232,21 @@ function ProvisionsApp() {
               style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", width: "100%" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#c0392b" }}>Sign out</span>
+              <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#c0392b" }}>Sign out</span>
             </button>
             {/* Attribution lives here now, not in a footer on every door — the doors
                 carry no brand chrome; the mark stays on the landing page and sign-in. */}
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", letterSpacing: "0.5px", color: "#8a7a60", padding: "6px 20px 16px" }}>
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "0.5px", color: "#8a7a60", padding: "6px 20px 16px" }}>
               A Velayo app
             </div>
-          </div>
+          </SheetPanel>
         </div>
       )}
 
       {showWrapUpModal && (
         <div className="modal-overlay" onClick={() => !wrappingUp && closeWrapUp()}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "360px" }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Wrap up this trip" onClick={e => e.stopPropagation()} style={{ maxWidth: "360px" }}>
+            <SheetClose onClose={closeWrapUp} disabled={wrappingUp} />
 
             {/* Header */}
             <div style={{ marginBottom: "16px" }}>
@@ -8722,13 +9311,13 @@ function ProvisionsApp() {
                 <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
                   <button
                     onClick={() => setWrapUpRollItems(new Set(pendingItems.map(i => i.name)))}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", color: "#A0724A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                   >
                     Select all
                   </button>
                   <button
                     onClick={() => setWrapUpRollItems(new Set())}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", color: "#A0724A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                   >
                     Clear all
                   </button>
@@ -8786,7 +9375,8 @@ function ProvisionsApp() {
         const dot = <>&nbsp;&nbsp;&middot;&nbsp;&nbsp;</>;
         return (
           <div className="modal-overlay" onClick={dismissTripSummary}>
-            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: "340px" }}>
+            <div className="modal" role="dialog" aria-modal="true" aria-label="Trip wrapped" onClick={e => e.stopPropagation()} style={{ maxWidth: "340px" }}>
+              <SheetClose onClose={dismissTripSummary} />
               <div className="all-done" style={{ padding: "4px 0 0" }}>
                 <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
                 <h2>Trip wrapped.</h2>

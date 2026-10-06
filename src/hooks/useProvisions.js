@@ -23,6 +23,21 @@ const tracer = trace.getTracer("ourprovisions-app");
 // a pending id may ever reach meal_ingredients.
 const normCatalogName = (str) => (str || "").trim().toLowerCase().replace(/\s+/g, " ");
 const PENDING_CATALOG_PREFIX = "pending:";
+// Meal occasions (061, Meal Library v1): the seven values meals.occasion may
+// hold, in the CHECK constraint's vocabulary. The column is an ORDERED list —
+// occasion[0] is the word on the library card; the rail matches any element.
+// normalizeOccasion is the one client-side gate before a write: unknown values
+// dropped, duplicates removed (the CHECK cannot test uniqueness), order kept.
+export const MEAL_OCCASIONS = ["breakfast", "lunch", "dinner", "snack", "side", "appetizer", "dessert"];
+export const normalizeOccasion = (list) => {
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach((o) => {
+    const v = String(o || "").trim().toLowerCase();
+    if (MEAL_OCCASIONS.includes(v) && !out.includes(v)) out.push(v);
+  });
+  return out;
+};
+
 export const isPendingCatalogId = (id) =>
   typeof id === "string" && id.startsWith(PENDING_CATALOG_PREFIX);
 
@@ -2608,12 +2623,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!db || !hh) return [];
     const { data, error: err, status: mealsStatus } = await db
       .from("meals")
-      // 055/056: kind + from_meal_ids ride along. This read returns EVERY kind — the
+      // 055/056: kind + from_meal_ids ride along; 061: occasion (the library's
+      // Good-for tags, ordered). This read returns EVERY kind — the
       // board's meal lookup must include no-shop rows (leftovers, out). The
       // library set is kind === 'meal' only, split from this array by the
       // caller (libraryMeals in App); miss that and Leftovers rows show up as
       // recipes. One read, not two, because both consumers poll on the same tick.
-      .select("id, name, kind, from_meal_ids, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
+      .select("id, name, kind, from_meal_ids, occasion, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -2634,7 +2650,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // `instructions` (migration 043) is optional and defaults to null. NOT AI-only: a
   // hand-made meal can carry steps too, and nothing in the schema records the author.
   // Empty string is coerced to null so "no steps" is one value, not two.
-  const createMeal = useCallback(async ({ name, baseServings = 1, instructions = null, ingredients = [] }) => {
+  // `occasion` (061) is the ordered Good-for list; normalised here so a bad value
+  // never reaches the CHECK. Omitted → '{}' (untagged), the column default.
+  const createMeal = useCallback(async ({ name, baseServings = 1, instructions = null, ingredients = [], occasion = [] }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
@@ -2648,6 +2666,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           name: trimmed,
           base_servings: baseServings,
           instructions: (instructions || "").trim() || null,
+          occasion: normalizeOccasion(occasion),
           created_by: internalUserIdRef.current,
         })
         .select("id")
@@ -2686,7 +2705,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // NOT an RPC (see SPEC_create_meal_ui.md): edit is household-owned,
   // RLS-protected, and carries no cross-cutting concern like the advisory lock
   // or cycle resolution that justify add_meal_to_list's SECURITY DEFINER shape.
-  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, instructions = null, ingredients = [] }) => {
+  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, instructions = null, ingredients = [], occasion = [] }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
@@ -2695,7 +2714,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     try {
       const { error: mErr } = await db
         .from("meals")
-        .update({ name: trimmed, base_servings: baseServings, instructions: (instructions || "").trim() || null })
+        .update({ name: trimmed, base_servings: baseServings, instructions: (instructions || "").trim() || null, occasion: normalizeOccasion(occasion) })
         .eq("id", mealId)
         .eq("household_id", hh.id); // belt-and-suspenders; RLS already scopes this
       if (mErr) throw mErr;
