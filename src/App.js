@@ -2900,7 +2900,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           {!aiBusy && showNoResults && (
             <div style={{ marginTop: "8px" }}>
               <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5),
-                letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
+                letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A" }}>
                 No results for "{trimmedQuery}"
               </div>
               <div style={{ borderRadius: "10px", border: "1.5px dashed #C9A97A",
