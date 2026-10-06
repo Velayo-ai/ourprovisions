@@ -3069,11 +3069,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   region above carries the words. */}
               <div className="op-ember" style={{ width: ts(14), height: ts(14) }} aria-hidden="true" />
               <div style={{ minWidth: 0, flex: 1 }}>
-                {/* The typed request IS the subject of the wait — one line, ellipsised,
-                    the full text still echoed in the quote block below. */}
-                <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(15), color: "#2C1A0E",
-                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {aiText.trim() ? `Building ${aiText.trim()}…` : "The galley's working on it…"}
+                {/* Fixed headline: the quoted request below already echoes what was asked,
+                    so the subject of the wait is never repeated up here. */}
+                <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(15), color: "#2C1A0E" }}>
+                  The galley's working on it…
                 </div>
                 {/* Measured on dev 2026-10-05 from the function's edge logs: eight real
                     runs 7.6–16.9 s, median ~11 s (one Opus call at low effort behind a
