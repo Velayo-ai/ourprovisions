@@ -8767,17 +8767,9 @@ function ProvisionsApp() {
             </div>
             )}
             <div className="modal-field">
-              {/* The row wraps: at XXL inside the modal's 287px (375) / 232px (320) the hint
-                  cannot share the line with CATEGORY, so it drops whole onto its own line
-                  below the label rather than breaking beside it. */}
-              <label className="modal-label" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", columnGap: "8px" }}>
-                <span>Category</span>
-                {isSignedIn && !newItemName.trim() && hiddenCatalogItems.some(h => h.category === newItemCategory) && (
-                  <span style={{ fontStyle: "italic", fontSize: ts(14), color: "#8A5F3A", fontWeight: 400, flex: "none",
-                    // A hint, not a label: clears .modal-label's uppercase + tracking so it reads sentence-case.
-                    textTransform: "none", letterSpacing: "normal" }}>tap below to unhide</span>
-                )}
-              </label>
+              {/* No "tap below to unhide" hint here (removed 2026-10-06): the "Unhide N hidden
+                  {category} items" link under the picker carries the action on its own. */}
+              <label className="modal-label">Category</label>
               {/* This modal is only ever reached from a section header's
                   "＋ New item", so the category is already known — the user
                   answered by choosing where they tapped. The step is a
