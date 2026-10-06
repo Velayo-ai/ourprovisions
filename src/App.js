@@ -8186,15 +8186,17 @@ function ProvisionsApp() {
                           onClick={() => setSearchPickerOpen(true)}
                           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", cursor: "pointer" }}
                         >
+                          {/* On the knob (pass 2): line = body 15, hint = meta 14 #8A5F3A, Add =
+                              button k .8 — the same roles the meal sheet's copy of this card uses. */}
                           <div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                               Add <strong>"{searchQuery}"</strong> to your list
                             </div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
                               Tap to choose a category
                             </div>
                           </div>
-                          <button className="add-btn" style={{ flexShrink: 0 }}>Add</button>
+                          <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8) }}>Add</button>
                         </div>
                       ) : (
                         <div>
@@ -8202,7 +8204,7 @@ function ProvisionsApp() {
                             onClick={() => setSearchPickerOpen(false)}
                             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px 8px", cursor: "pointer" }}
                           >
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                               Add <strong>"{searchQuery}"</strong> to your list
                             </div>
                             <span style={{ color: "#C9A97A", fontSize: "18px" }}>−</span>
