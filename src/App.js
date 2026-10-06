@@ -6525,19 +6525,22 @@ function ProvisionsApp() {
         .wrapbar-spacer { height: 58px; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
-        .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
+        /* List header + In-cart tray on the knob (pass 2, Shop slice 2): progress = eyebrow k 1 at
+           its 12.8; lens toggle = button 14 k .8 (the 46px segment keeps its height); aisle + A–Z
+           eyebrows 11.2 → 12.5; tray title = body 15, tray count = meta 14. Muted → #8A5F3A. */
+        .list-progress { font-family: 'Lato', sans-serif; font-size: calc(12.8px * var(--op-text-scale)); color: #8A5F3A; letter-spacing: 1px; text-transform: uppercase; }
         .cyc-ico { flex: none; width: 46px; height: 46px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; color: #A0724A; cursor: pointer; padding: 0; transition: background 0.18s, border-color 0.18s, color 0.18s; }
         .cyc-ico.on { background: #A0724A; border-color: #8A5F3A; color: #fff; }
         .cyc-ico svg { width: 22px; height: 22px; display: block; }
         /* ── Shop tab: lens · In cart tray · in-store Add · store prompt (SPEC_shop_lens_instore_capture.md) ── */
         .shop-seg { flex: none; height: 46px; border-radius: 11px; border: 1px solid #E8D5B7; background: #fff; display: flex; overflow: hidden; }
-        .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; cursor: pointer; transition: background .15s, color .15s; }
+        .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A; cursor: pointer; transition: background .15s, color .15s; }
         .shop-seg button.on { background: #A0724A; color: #fff; }
         .store-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: -6px 2px 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
         .store-line b { color: #2C1A0E; font-weight: 700; }
         .store-line .chev { font-size: 0.7rem; color: #8A5F3A; }
         .store-line .store-set { color: #8A5F3A; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
-        .az-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin: 2px 0 6px; }
+        .az-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; margin: 2px 0 6px; }
         /* A–Z is a different MODE, not the same rows minus headers: one flat list, small circle, no provenance, no prices.
            Padding is set so a single-line row lands at roughly an Aisles row's tap height. */
         .list-item.az { padding: 13px 4px; gap: 12px; border-bottom: 1px solid #F0E6D6; }
@@ -6547,8 +6550,8 @@ function ProvisionsApp() {
         .in-cart-tray { margin-top: 26px; border-radius: 12px; background: #fff; border: 1px solid #E3D4BC; overflow: hidden; }
         .tray-head { display: flex; align-items: center; gap: 10px; padding: 13px 14px; cursor: pointer; background: none; border: none; width: 100%; text-align: left; }
         .tray-cb { width: 22px; height: 22px; border-radius: 50%; background: #c8973a; color: #fff; font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .tray-title { flex: 1; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; color: #2C1A0E; }
-        .tray-sub { font-size: 0.72rem; color: #8a7a60; font-weight: 400; margin-left: 6px; }
+        .tray-title { flex: 1; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; }
+        .tray-sub { font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; font-weight: 400; margin-left: 6px; }
         .tray-chev { color: #8a7a60; font-size: 0.8rem; }
         .tray-body { border-top: 1px solid #E3D4BC; padding: 0 14px 12px; }
         .in-cart-tray { margin-bottom: 8px; }
@@ -6673,7 +6676,7 @@ function ProvisionsApp() {
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
-        .list-cat-title { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #c8973a; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
+        .list-cat-title { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
         .list-item { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; -webkit-tap-highlight-color: transparent; }
         .list-item.done { opacity: 0.45; }
         .list-item.done .li-name { text-decoration: line-through; color: #a89878; }
