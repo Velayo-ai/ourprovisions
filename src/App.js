@@ -1033,13 +1033,24 @@ function OnDeckCard({
 // checked), so Home and the badge can never disagree. `firstItem` is the first
 // unchecked row in Shop's Aisles order (pendingItems[0]: CATEGORY_ORDER, then
 // name) — what you'd reach first. `shopping` = this user has an open session.
-//   0 open             "Nothing on your list · Start a list →"   (Browse)
+//   0 open, 0 in cart  "Nothing on your list · Start a list →"   (Browse)
+//   0 open, N in cart  "N in the cart · Finish the trip →"       (Shop — SPEC_list_counts D3 row 4:
+//                      the list is NOT empty, it is fully in the cart; Home never wraps up, the
+//                      one Wrap Up at 100% is Shop's All done card, so the link only opens Shop)
 //   shopping           "N left to find · Let's shop →"
 //   otherwise          "N thing(s) to get · {first item} · Let's shop →"
 // The link is a LEAF button carrying fixed copy only — the RUM unmask rule
 // matches the tapped element and its ancestors, so the count and the item name
 // sit beside it in .home-line-text (masked), never inside it.
-function HomeListLine({ openCount, firstItem, shopping, onStartList, onShop }) {
+function HomeListLine({ openCount, checkedCount, firstItem, shopping, onStartList, onShop }) {
+  if (!openCount && checkedCount > 0) {
+    return (
+      <div className="home-line">
+        <span className="home-line-text">{checkedCount} in the cart</span>
+        <span className="home-line-tail">· <button type="button" className="home-line-link" onClick={onShop}>Finish the trip →</button></span>
+      </div>
+    );
+  }
   if (!openCount) {
     return (
       <div className="home-line">
@@ -7902,6 +7913,7 @@ function ProvisionsApp() {
             }}
             list={{
               openCount: totalItems - checkedCount,
+              checkedCount,
               firstItem: pendingItems[0]?.name || "",
               shopping: !!activeSession,
               onStartList: () => goToDoor("input"),
