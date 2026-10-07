@@ -4007,13 +4007,25 @@ function ProvisionsApp() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToastMessage(null), action ? 4000 : 2500);
   }, []);
-  // "{n} items on the list." — the LIVE count after an add, read from the
-  // hook's ref (set synchronously by loadListItems) rather than the `listRows`
-  // state this render closed over.
-  const itemsOnListText = useCallback(() => {
-    const n = (_listRows?.current || []).length;
-    return `${n} item${n === 1 ? "" : "s"} on the list.`;
+  // SPEC_list_counts D4: "{Meal} added · N to get" / "N meals added · M to get", N/M = `open`
+  // AFTER the add. The number is read from the hook's row ref, not from this render's
+  // `totalItems - checkedCount` (a closure over pre-add state): addMealToList awaits
+  // loadListItems before returning, and a successful load always assigns the ref a NEW
+  // array. So `rowsBefore` (the array captured before the add) !== the ref now proves the
+  // list was refreshed; if it is the same array, loadListItems skipped its tick (another
+  // load in flight, or a wrap-up) and the count is unknowable here — the copy drops it:
+  // "{Meal} added to your list." A missing number beats a wrong one. Same copy when
+  // `open` is 0 (everything was already on the list). D2: listRows.length — every row the
+  // RPC returned, bought and quantity-zero ones included — never reaches a person.
+  const openAfterAdd = useCallback((rowsBefore) => {
+    const rows = _listRows?.current;
+    if (!rows || rows === rowsBefore) return null;
+    return rows.filter((r) => (r.quantity || 0) > 0 && r.status !== "bought").length;
   }, [_listRows]);
+  const addedToast = useCallback((what, rowsBefore) => {
+    const open = openAfterAdd(rowsBefore);
+    return open ? `${what} added · ${open} to get` : `${what} added to your list.`;
+  }, [openAfterAdd]);
 
   // The two exits (050). Skip on a to-buy card zeroes the meal's pending rows
   // first (removeMealFromList: never un-buys, leaves shared ingredients to the
@@ -4157,9 +4169,10 @@ function ProvisionsApp() {
       try {
         // flat: servings = 1 (dial deferred). The hook places the card (050):
         // a closed placement reopens at the end, an open one keeps its slot.
+        const rowsBefore = _listRows?.current;
         const count = await addMealToList(mealId, 1);
         await refreshProvenance();        // reflect the card state immediately
-        if (count) showToast(`${meal?.name || "Meal"} added. ${itemsOnListText()}`);
+        if (count) showToast(addedToast(meal?.name || "Meal", rowsBefore));
       } finally {
         setAddingMealId(null);
       }
@@ -4178,7 +4191,7 @@ function ProvisionsApp() {
       })),
       choices: Object.fromEntries(onHand.map((mi) => [mi.catalog_item_id, "skip"])),
     });
-  }, [meals, addMealToList, refreshProvenance, showToast, itemsOnListText]);
+  }, [meals, addMealToList, refreshProvenance, showToast, addedToast, _listRows]);
 
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
@@ -4533,13 +4546,14 @@ function ProvisionsApp() {
     if (!ids.length) return;
     setLockingAll(true);
     try {
+      const rowsBefore = _listRows?.current;
       const n = await lockInAll(ids);
       await refreshProvenance();
-      showToast(`${n} meal${n === 1 ? "" : "s"} added. ${itemsOnListText()}`, { label: "Shop", onClick: () => goToDoor("list") });
+      showToast(addedToast(`${n} meal${n === 1 ? "" : "s"}`, rowsBefore), { label: "Shop", onClick: () => goToDoor("list") });
     } finally {
       setLockingAll(false);
     }
-  }, [boardStats, lockInAll, refreshProvenance, showToast, itemsOnListText, goToDoor]);
+  }, [boardStats, lockInAll, refreshProvenance, showToast, addedToast, _listRows, goToDoor]);
 
   // Defined here, below showToast, rather than beside handleAddMealToList where it
   // logically belongs: it needs showToast, and CI=true turns no-use-before-define
@@ -4559,6 +4573,7 @@ function ProvisionsApp() {
       // already be gone before the add runs, or it would be evaluated as on-hand
       // and could still be included by a stale id in the include list.
       if (removeIds.length > 0) await removeMealIngredients(mealId, removeIds);
+      const rowsBefore = _listRows?.current;
       const count = await addMealToList(mealId, 1, includeIds);
       await refreshProvenance();
       // A removal changes the recipe itself, so PLAN's count is now stale.
@@ -4567,11 +4582,11 @@ function ProvisionsApp() {
       // ingredients are all on hand and all skipped adds nothing. Silence would read
       // as a broken button, so say what happened.
       if (!count) showToast("Nothing added — you have it all on hand");
-      else showToast(`${mealName} added. ${itemsOnListText()}`);
+      else showToast(addedToast(mealName, rowsBefore));
     } finally {
       setAddingMealId(null);
     }
-  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast, itemsOnListText]);
+  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast, addedToast, _listRows]);
 
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
