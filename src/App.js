@@ -6199,7 +6199,9 @@ function ProvisionsApp() {
         /* Cooked this load: muted in place (tile + text at 55%), ✓ Cooked as a teal outline, disabled at full weight. */
         .board-card.cooked { cursor: default; }
         .board-card.cooked .board-tile, .board-card.cooked .board-top, .board-card.cooked .board-line { opacity: 0.55; }
-        .board-cook.done, .board-cook.done:disabled { background: transparent; color: #0D9488; border-color: #0D9488; opacity: 1; cursor: default; }
+        /* Teal text sweep (ruling 2026-10-07): text at body size and below is #0A776D; the border is a
+           stroke and keeps brand #0D9488. Same split on .deck-primary.done, .added-here-tag, .wrapbar-a. */
+        .board-cook.done, .board-cook.done:disabled { background: transparent; color: #0A776D; border-color: #0D9488; opacity: 1; cursor: default; }
         .board-lock:disabled, .board-see:disabled, .board-cook:disabled { opacity: 0.5; cursor: default; }
         .board-more { flex: none; width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent; color: #8a7a60; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 1.1rem; font-weight: 700; line-height: 1; padding: 0 0 6px; }
@@ -6416,7 +6418,7 @@ function ProvisionsApp() {
                         font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; letter-spacing: 0.5px; }
         .deck-primary.teal { border-color: #0D9488; background: #0D9488; color: #fff; }
         .deck-primary.add { border-color: var(--op-add); background: var(--op-add); color: var(--op-add-ink); }
-        .deck-primary.done, .deck-primary.done:disabled { border-color: #0D9488; background: transparent; color: #0D9488; opacity: 1; cursor: default; }
+        .deck-primary.done, .deck-primary.done:disabled { border-color: #0D9488; background: transparent; color: #0A776D; opacity: 1; cursor: default; }
         .deck-primary:disabled { opacity: 0.5; cursor: default; }
         .deck-switch { flex: none; min-height: 44px; padding: 0 4px; border: none; background: none; cursor: pointer; color: #6f5a45;
                        font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
@@ -6569,7 +6571,7 @@ function ProvisionsApp() {
                         transition: width 0.2s ease; }
         .wrapbar-t { position: relative; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); color: #6E5A4A; }
         .wrapbar-t b { color: #2C1A0E; font-weight: 700; }
-        .wrapbar-a { position: relative; flex: none; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #0D9488; white-space: nowrap; }
+        .wrapbar-a { position: relative; flex: none; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #0A776D; white-space: nowrap; }
         /* The list's last rows scroll clear of the bar: its height + the 10px gap, on top of .app-root's Helm padding. */
         .wrapbar-spacer { height: 58px; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
@@ -6598,7 +6600,7 @@ function ProvisionsApp() {
         .list-item.az { padding: 13px 4px; gap: 12px; border-bottom: 1px solid #F0E6D6; }
         .list-item.az .checkbox { width: 18px; height: 18px; }
         .list-item.az .li-name { font-size: calc(0.9rem * var(--op-text-scale)); }
-        .added-here-tag { display: inline-block; margin-left: 6px; font-family: 'Lato', sans-serif; font-size: 0.62rem; font-weight: 700; color: #0D9488; border: 1px solid #0D9488; border-radius: 4px; padding: 1px 5px; vertical-align: middle; letter-spacing: .3px; }
+        .added-here-tag { display: inline-block; margin-left: 6px; font-family: 'Lato', sans-serif; font-size: 0.62rem; font-weight: 700; color: #0A776D; border: 1px solid #0D9488; border-radius: 4px; padding: 1px 5px; vertical-align: middle; letter-spacing: .3px; }
         .in-cart-tray { margin-top: 26px; border-radius: 12px; background: #fff; border: 1px solid #E3D4BC; overflow: hidden; }
         .tray-head { display: flex; align-items: center; gap: 10px; padding: 13px 14px; cursor: pointer; background: none; border: none; width: 100%; text-align: left; }
         .tray-cb { width: 22px; height: 22px; border-radius: 50%; background: #c8973a; color: #fff; font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -7622,7 +7624,7 @@ function ProvisionsApp() {
                       display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
                       width: "100%", background: "none", border: "none",
                       fontFamily: "'Lato', sans-serif", fontSize: "13px", fontWeight: 700,
-                      color: "#0D9488", cursor: "pointer", padding: "6px",
+                      color: "#0A776D", cursor: "pointer", padding: "6px",
                     }}
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0D9488" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
