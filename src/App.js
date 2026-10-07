@@ -9339,10 +9339,14 @@ function ProvisionsApp() {
 
             {/* Header */}
             <div style={{ marginBottom: "16px" }}>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "1.1rem", color: "#3D2B1F", marginBottom: "4px" }}>
+              {/* Text size pass 2, slice 3: the title keeps 17.6 at the sheet-title rate (k 0.5,
+                  the Profile-sheet call — it is not a .modal h2); paddingRight keeps it clear of
+                  the 44 px Close at XXL. Sub-line and eyebrow are meta 14 / eyebrow 12.5 at k 1
+                  in #8A5F3A (#8B6B4A read 4.47:1 on cream). */}
+              <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(17.6, 0.5), color: "#3D2B1F", marginBottom: "4px", paddingRight: "40px" }}>
                 Wrap up this trip
               </div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", color: "#8B6B4A", letterSpacing: "0.5px" }}>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", letterSpacing: "0.5px" }}>
                 {boughtItems.length} item{boughtItems.length !== 1 ? "s" : ""} bought
                 {pendingItems.length > 0 && ` · ${pendingItems.length} still pending`}
               </div>
@@ -9351,10 +9355,11 @@ function ProvisionsApp() {
             {/* Pending items — roll-forward selection */}
             {pendingItems.length > 0 && (
               <div style={{ marginBottom: "16px" }}>
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", textTransform: "uppercase", color: "#8B6B4A", marginBottom: "8px" }}>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "0.14em", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "8px" }}>
                   Roll onto next list?
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "200px", overflowY: "auto" }}>
+                {/* The cap scales with the knob so about five rows show at every size. */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "calc(200px * var(--op-text-scale))", overflowY: "auto" }}>
                   {pendingItems.map(item => {
                     const selected = wrapUpRollItems.has(item.name);
                     return (
@@ -9368,8 +9373,11 @@ function ProvisionsApp() {
                             return next;
                           });
                         }}
+                        // flex-wrap + the name at a min-content basis: the name wins the width and
+                        // the ×qty drops below it, right-aligned, when a long word at XXL on a
+                        // 320 phone would otherwise push the qty off the row (the search-row pattern).
                         style={{
-                          display: "flex", alignItems: "center", gap: "8px",
+                          display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px",
                           padding: "6px 8px", borderRadius: "4px", cursor: "pointer",
                           background: selected ? "rgba(13,148,136,0.08)" : "transparent",
                           border: `1px solid ${selected ? "#0D9488" : "rgba(160,114,74,0.2)"}`,
@@ -9384,11 +9392,11 @@ function ProvisionsApp() {
                         }}>
                           {selected && <span style={{ color: "white", fontSize: "10px", lineHeight: 1 }}>✓</span>}
                         </div>
-                        <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#3D2B1F" }}>
+                        <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#3D2B1F", flex: "1 1 min-content" }}>
                           {item.name}
                         </span>
                         {item.qty > 1 && (
-                          <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", color: "#8B6B4A", marginLeft: "auto" }}>
+                          <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginLeft: "auto", flexShrink: 0 }}>
                             ×{item.qty}
                           </span>
                         )}
@@ -9400,13 +9408,13 @@ function ProvisionsApp() {
                 <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
                   <button
                     onClick={() => setWrapUpRollItems(new Set(pendingItems.map(i => i.name)))}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                   >
                     Select all
                   </button>
                   <button
                     onClick={() => setWrapUpRollItems(new Set())}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                   >
                     Clear all
                   </button>
@@ -9414,12 +9422,19 @@ function ProvisionsApp() {
               </div>
             )}
 
-            {/* Action buttons */}
-            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+            {/* Action buttons — deliberately NOT .modal-actions (ruling 2026-10-06): the sheet is
+                short enough not to need a sticky footer. A wrapping flex row on the Hold-a-night
+                pattern, with an auto basis rather than min-content: the confirm's label is three
+                words ("Roll 12 forward"), and a min-content basis let it wrap inside the button at
+                every width (harnessed 2026-10-06). With basis auto and no-wrap labels, Cancel and
+                the confirm share a row when both fit and the confirm drops to a full-width line of
+                its own at XXL on a narrow phone instead of overrunning the sheet. */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "flex-end" }}>
               <button
                 className="modal-cancel"
                 onClick={closeWrapUp}
                 disabled={wrappingUp}
+                style={{ flex: "1 1 auto", whiteSpace: "nowrap" }}
               >
                 Cancel
               </button>
@@ -9427,7 +9442,7 @@ function ProvisionsApp() {
                 className="modal-confirm"
                 onClick={handleWrapUp}
                 disabled={wrappingUp}
-                style={{ minWidth: "100px" }}
+                style={{ flex: "1 1 auto", whiteSpace: "nowrap" }}
               >
                 {wrappingUp
                   ? "Saving..."
