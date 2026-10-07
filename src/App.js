@@ -698,21 +698,25 @@ function CatalogSearchBox({ value, onChange, onClear, placeholder = "Search your
         placeholder={placeholder}
         style={{
           flex: 1, minWidth: 0, border: "none", background: "none",
-          fontFamily: "'Lato', sans-serif", fontSize: "15px",
+          // Body role, k 1 (pass 2). The box keeps its 46px height: 26px text at XXL
+          // still fits; a long placeholder clips at the input's edge, as inputs do.
+          fontFamily: "'Lato', sans-serif", fontSize: ts(15),
           color: "#2C1A0E", outline: "none",
         }}
       />
       {value && (
         <span
           onClick={onClear}
-          style={{ color: "#C9A97A", fontSize: "16px", cursor: "pointer", opacity: 0.7, flexShrink: 0 }}
+          // Full strength: at .7 over the field's #F5EDE0 the glyph measured 2.75:1; it is 4.78:1 as is.
+          style={{ color: "#8A5F3A", fontSize: "16px", cursor: "pointer", flexShrink: 0 }}
         >✕</span>
       )}
     </div>
   );
 }
 
-const SEARCH_EYEBROW_STYLE = { padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" };
+// Eyebrow role (SPEC_global_text_size): 12.5 at the floor, k 1, #8A5F3A. Was 10px #C9A97A.
+const SEARCH_EYEBROW_STYLE = { padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A" };
 
 const normalizeSearchName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -743,10 +747,11 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
             }}
           >
             <div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
+              {/* Body 15 on the knob so the name stays above the 14 hint below it at every step. */}
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                 <strong>{hiddenMatch.item.name}</strong>{hiddenMatch.live ? ` ×${hiddenMatch.qty}` : ""}
               </div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
                 {hiddenMatch.live ? "Hidden from your view — tap to reveal" : "Hidden from your view — tap to reveal and add"}
               </div>
             </div>
@@ -1028,29 +1033,42 @@ function OnDeckCard({
 // checked), so Home and the badge can never disagree. `firstItem` is the first
 // unchecked row in Shop's Aisles order (pendingItems[0]: CATEGORY_ORDER, then
 // name) — what you'd reach first. `shopping` = this user has an open session.
-//   0 open             "Nothing on your list · Start a list →"   (Browse)
+//   0 open, 0 in cart  "Nothing on your list · Start a list →"   (Browse)
+//   0 open, N in cart  "N in the cart · Finish the trip →"       (Shop — SPEC_list_counts D3 row 4:
+//                      the list is NOT empty, it is fully in the cart; Home never wraps up, the
+//                      one Wrap Up at 100% is Shop's All done card, so the link only opens Shop)
 //   shopping           "N left to find · Let's shop →"
 //   otherwise          "N thing(s) to get · {first item} · Let's shop →"
 // The link is a LEAF button carrying fixed copy only — the RUM unmask rule
 // matches the tapped element and its ancestors, so the count and the item name
 // sit beside it in .home-line-text (masked), never inside it.
-function HomeListLine({ openCount, firstItem, shopping, onStartList, onShop }) {
+function HomeListLine({ openCount, checkedCount, firstItem, shopping, onStartList, onShop }) {
+  if (!openCount && checkedCount > 0) {
+    return (
+      <div className="home-line">
+        <span className="home-line-text">{checkedCount} in the cart</span>
+        <span className="home-line-tail">· <button type="button" className="home-line-link" onClick={onShop}>Finish the trip →</button></span>
+      </div>
+    );
+  }
   if (!openCount) {
     return (
       <div className="home-line">
-        <span className="home-line-text">Nothing on your list ·</span>
-        <button type="button" className="home-line-link" onClick={onStartList}>Start a list →</button>
+        <span className="home-line-text">Nothing on your list</span>
+        {/* The separator travels with the link as one non-wrapping unit, so a wrap never
+            strands a trailing dot at the end of the text. */}
+        <span className="home-line-tail">· <button type="button" className="home-line-link" onClick={onStartList}>Start a list →</button></span>
       </div>
     );
   }
   const n = openCount;
   const text = shopping
-    ? `${n} left to find ·`
-    : `${n} thing${n === 1 ? "" : "s"} to get${firstItem ? ` · ${firstItem}` : ""} ·`;
+    ? `${n} left to find`
+    : `${n} thing${n === 1 ? "" : "s"} to get${firstItem ? ` · ${firstItem}` : ""}`;
   return (
     <div className="home-line">
       <span className="home-line-text">{text}</span>
-      <button type="button" className="home-line-link" onClick={onShop}>Let's shop →</button>
+      <span className="home-line-tail">· <button type="button" className="home-line-link" onClick={onShop}>Let's shop →</button></span>
     </div>
   );
 }
@@ -1407,7 +1425,7 @@ function PlanWelcome({ firstMeal, onAdd, children }) {
         ))}
       </div>
       <h3 className="plan-welcome-title">Let's plan your week.</h3>
-      <p className="plan-welcome-sub">Pick a few meals you'd like to make.<br />We'll turn them into your shopping list.</p>
+      <p className="plan-welcome-sub">Pick a few meals you'd like to make. We'll turn them into your shopping list.</p>
       <button type="button" className="plan-welcome-add" onClick={onAdd}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
         {firstMeal ? "Add your first meal" : "Add a meal"}
@@ -2088,7 +2106,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         <div style={{ textAlign: "center" }}>
           <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic",
             fontSize: ts(19.2, 0.5), color: "#8a7a60", margin: 0 }}>No meals yet.</p>
-          <p style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A",
+          <p style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A",
             marginTop: "8px", letterSpacing: "0.5px" }}>
             Create one, plan it, and its ingredients are one tap from your list.
           </p>
@@ -2318,6 +2336,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // has settled and the ingredient loop is still running when abort is pressed.
   const aiAbortRef = useRef(null);
   const aiSnapshotRef = useRef(null);
+  const aiCardRef = useRef(null);   // the thinking card, scrolled into view on Ask
 
   // Voice. `micBlocked` is sticky for the life of the sheet: a denied permission does
   // not resolve itself, so re-offering the button would just reproduce the same refusal.
@@ -2608,6 +2627,20 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     if (fromGalley && !name.trim() && !instructions.trim() && rows.length === 0) setFromGalley(false);
   }, [fromGalley, name, instructions, rows]);
 
+  // On Ask, bring the thinking card into view so the ember and Never mind are both
+  // on screen while the draft is built. The ask block sits below the (now skeleton)
+  // manual fields, and the Ask button is at its bottom — on a phone the card lands
+  // under the keyboard's former footprint or off the bottom of the sheet. `nearest`
+  // moves the overlay only as far as it must; reduced motion jumps instead.
+  useEffect(() => {
+    if (!aiBusy) return;
+    const el = aiCardRef.current;
+    if (!el || typeof el.scrollIntoView !== "function") return;
+    const reduced = typeof window !== "undefined" && window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
+  }, [aiBusy]);
+
   // Screen 3 of the mockup: the manual fields dim and stop accepting input while a
   // suggestion is in flight, because they are about to be replaced by the draft.
   const aiDim = aiBusy ? { opacity: 0.45, pointerEvents: "none" } : undefined;
@@ -2782,7 +2815,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   <button
                     onClick={() => removeRow(r.catalog_item_id)}
                     aria-label={`Remove ${r.name}`}
-                    style={{ background: "none", border: "none", color: "#C9A97A", fontSize: "18px",
+                    style={{ background: "none", border: "none", color: "#8A5F3A", fontSize: "18px",
                       cursor: "pointer", padding: "0 2px", flexShrink: 0, lineHeight: 1 }}
                   >×</button>
                   </div>
@@ -2826,7 +2859,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
           {!aiBusy && !trimmedQuery && (
             <div style={{ padding: "10px 2px 0", fontFamily: "'Lato', sans-serif",
-              fontSize: ts(14), color: "#C9A97A" }}>
+              fontSize: ts(14), color: "#8A5F3A" }}>
               Start typing to find an ingredient.
             </div>
           )}
@@ -2836,22 +2869,30 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               {results.map((it) => {
                 const stagedRow = rows.find((r) => r.catalog_item_id === it.id);
                 return (
+                /* Same shape as Shop Add's .add-result row (the reference pattern, pass 2):
+                   the name wins the width and WRAPS — never ellipsises — and the category
+                   pill sits below it; the Add button keeps its size. The old row put the
+                   pill beside a nowrap name, and at XXL the pill and button took the width
+                   and the name went to one letter ("G…" for Ground beef). */
                 <div key={it.id} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  gap: "10px", padding: "8px 2px",
+                  display: "flex", alignItems: "center", gap: "10px", padding: "8px 2px",
                 }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
-                      color: "#2C1A0E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#2C1A0E",
+                      overflowWrap: "anywhere" }}>
                       {it.name}
-                    </span>
-                    <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: "3px",
-                      fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7a60",
-                      background: "rgba(201,169,122,0.16)", borderRadius: "999px", padding: "2px 8px" }}>
-                      <span aria-hidden="true">{categoryGlyph(it.category)}</span>
+                    </div>
+                    <span style={{ display: "inline-block", marginTop: "3px",
+                      fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A",
+                      background: "rgba(201,169,122,0.16)", borderRadius: "999px", padding: "2px 8px",
+                      // inline-block, not inline-flex: the label wraps at its spaces first. A
+                      // one-word category ("Uncategorised") at XXL on 320 is wider than the
+                      // column, so the pill may break the word rather than run under Add.
+                      maxWidth: "100%", boxSizing: "border-box", overflowWrap: "anywhere" }}>
+                      <span aria-hidden="true">{categoryGlyph(it.category)}</span>{" "}
                       {CATEGORY_LABEL[it.category] || it.category || "Uncategorised"}
                     </span>
-                  </span>
+                  </div>
                   {stagedRow ? (
                     <button
                       className="add-btn"
@@ -2874,7 +2915,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           {!aiBusy && showNoResults && (
             <div style={{ marginTop: "8px" }}>
               <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5),
-                letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A" }}>
+                letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A" }}>
                 No results for "{trimmedQuery}"
               </div>
               <div style={{ borderRadius: "10px", border: "1.5px dashed #C9A97A",
@@ -2887,7 +2928,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                         Add <strong>"{trimmedQuery}"</strong> to {name.trim() || "this meal"}
                       </div>
-                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A", marginTop: "2px" }}>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
                         Tap to choose a category
                       </div>
                     </div>
@@ -2909,7 +2950,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     {/* ── New category inline input — revealed by the tile ── */}
                     {newCatOpen && (
                       <div style={{ padding: "0 14px 14px" }}>
-                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
+                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "7px" }}>
                           Name the new category
                         </div>
                         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -3044,16 +3085,26 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
         {/* Thinking. Single ember, no spinner; the request is echoed back so the wait
             has a subject. Never mind aborts and puts everything back. */}
         {aiBusy && (
-          <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.35)",
+          <div ref={aiCardRef} style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.35)",
             borderRadius: "14px", padding: "16px", marginBottom: "16px" }} aria-live="polite">
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
-              <div className="op-ember" />
-              <div>
+              {/* The ember is the one thing that moves while the galley works: a pulsing
+                  core plus a ring that expands and fades (both pseudo-elements, so the
+                  ring is not scaled by the core's own pulse). Sized by ts() so it follows
+                  the Text size knob with the headline beside it. Decorative — the live
+                  region above carries the words. */}
+              <div className="op-ember" style={{ width: ts(14), height: ts(14) }} aria-hidden="true" />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                {/* Fixed headline: the quoted request below already echoes what was asked,
+                    so the subject of the wait is never repeated up here. */}
                 <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(15), color: "#2C1A0E" }}>
                   The galley's working on it…
                 </div>
+                {/* Measured on dev 2026-10-05 from the function's edge logs: eight real
+                    runs 7.6–16.9 s, median ~11 s (one Opus call at low effort behind a
+                    JWKS verify). "A few seconds" was a guess and read as a stall. */}
                 <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8a7968", marginTop: "2px" }}>
-                  Usually a few seconds.
+                  Usually 10 to 20 seconds.
                 </div>
               </div>
             </div>
@@ -3956,13 +4007,25 @@ function ProvisionsApp() {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     toastTimerRef.current = setTimeout(() => setToastMessage(null), action ? 4000 : 2500);
   }, []);
-  // "{n} items on the list." — the LIVE count after an add, read from the
-  // hook's ref (set synchronously by loadListItems) rather than the `listRows`
-  // state this render closed over.
-  const itemsOnListText = useCallback(() => {
-    const n = (_listRows?.current || []).length;
-    return `${n} item${n === 1 ? "" : "s"} on the list.`;
+  // SPEC_list_counts D4: "{Meal} added · N to get" / "N meals added · M to get", N/M = `open`
+  // AFTER the add. The number is read from the hook's row ref, not from this render's
+  // `totalItems - checkedCount` (a closure over pre-add state): addMealToList awaits
+  // loadListItems before returning, and a successful load always assigns the ref a NEW
+  // array. So `rowsBefore` (the array captured before the add) !== the ref now proves the
+  // list was refreshed; if it is the same array, loadListItems skipped its tick (another
+  // load in flight, or a wrap-up) and the count is unknowable here — the copy drops it:
+  // "{Meal} added to your list." A missing number beats a wrong one. Same copy when
+  // `open` is 0 (everything was already on the list). D2: listRows.length — every row the
+  // RPC returned, bought and quantity-zero ones included — never reaches a person.
+  const openAfterAdd = useCallback((rowsBefore) => {
+    const rows = _listRows?.current;
+    if (!rows || rows === rowsBefore) return null;
+    return rows.filter((r) => (r.quantity || 0) > 0 && r.status !== "bought").length;
   }, [_listRows]);
+  const addedToast = useCallback((what, rowsBefore) => {
+    const open = openAfterAdd(rowsBefore);
+    return open ? `${what} added · ${open} to get` : `${what} added to your list.`;
+  }, [openAfterAdd]);
 
   // The two exits (050). Skip on a to-buy card zeroes the meal's pending rows
   // first (removeMealFromList: never un-buys, leaves shared ingredients to the
@@ -4106,9 +4169,10 @@ function ProvisionsApp() {
       try {
         // flat: servings = 1 (dial deferred). The hook places the card (050):
         // a closed placement reopens at the end, an open one keeps its slot.
+        const rowsBefore = _listRows?.current;
         const count = await addMealToList(mealId, 1);
         await refreshProvenance();        // reflect the card state immediately
-        if (count) showToast(`${meal?.name || "Meal"} added. ${itemsOnListText()}`);
+        if (count) showToast(addedToast(meal?.name || "Meal", rowsBefore));
       } finally {
         setAddingMealId(null);
       }
@@ -4127,7 +4191,7 @@ function ProvisionsApp() {
       })),
       choices: Object.fromEntries(onHand.map((mi) => [mi.catalog_item_id, "skip"])),
     });
-  }, [meals, addMealToList, refreshProvenance, showToast, itemsOnListText]);
+  }, [meals, addMealToList, refreshProvenance, showToast, addedToast, _listRows]);
 
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
@@ -4239,11 +4303,15 @@ function ProvisionsApp() {
     const mealLine = mealNames ? `For ${mealNames}` : null;
 
     if (!catalogLine && !mealLine) return null;
-    const base = { fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "0.3px", marginTop: "3px" };
+    // Text size pass 2: both sub-lines are meta 14 at k 1 (they sat fixed at 12.5 px, the same
+    // size at Default and XXL). The "For {meal}" line is teal TEXT at body size, so it takes the
+    // text teal #0A776D (4.96:1 on cream; brand #0D9488 read 3.43:1) — ruling 2026-10-07: brand
+    // teal stays on fills, strokes and large text only.
+    const base = { fontFamily: "'Lato', sans-serif", fontSize: ts(14), letterSpacing: "0.3px", marginTop: "3px" };
     return (
       <>
         {catalogLine && <div style={{ ...base, color: "#8A5F3A" }}>{catalogLine}</div>}
-        {mealLine && <div style={{ ...base, color: "#0D9488" }}>{mealLine}</div>}
+        {mealLine && <div style={{ ...base, color: "#0A776D" }}>{mealLine}</div>}
       </>
     );
   }, [mealProvenance, user?.id]);
@@ -4482,13 +4550,14 @@ function ProvisionsApp() {
     if (!ids.length) return;
     setLockingAll(true);
     try {
+      const rowsBefore = _listRows?.current;
       const n = await lockInAll(ids);
       await refreshProvenance();
-      showToast(`${n} meal${n === 1 ? "" : "s"} added. ${itemsOnListText()}`, { label: "Shop", onClick: () => goToDoor("list") });
+      showToast(addedToast(`${n} meal${n === 1 ? "" : "s"}`, rowsBefore), { label: "Shop", onClick: () => goToDoor("list") });
     } finally {
       setLockingAll(false);
     }
-  }, [boardStats, lockInAll, refreshProvenance, showToast, itemsOnListText, goToDoor]);
+  }, [boardStats, lockInAll, refreshProvenance, showToast, addedToast, _listRows, goToDoor]);
 
   // Defined here, below showToast, rather than beside handleAddMealToList where it
   // logically belongs: it needs showToast, and CI=true turns no-use-before-define
@@ -4508,6 +4577,7 @@ function ProvisionsApp() {
       // already be gone before the add runs, or it would be evaluated as on-hand
       // and could still be included by a stale id in the include list.
       if (removeIds.length > 0) await removeMealIngredients(mealId, removeIds);
+      const rowsBefore = _listRows?.current;
       const count = await addMealToList(mealId, 1, includeIds);
       await refreshProvenance();
       // A removal changes the recipe itself, so PLAN's count is now stale.
@@ -4516,11 +4586,11 @@ function ProvisionsApp() {
       // ingredients are all on hand and all skipped adds nothing. Silence would read
       // as a broken button, so say what happened.
       if (!count) showToast("Nothing added — you have it all on hand");
-      else showToast(`${mealName} added. ${itemsOnListText()}`);
+      else showToast(addedToast(mealName, rowsBefore));
     } finally {
       setAddingMealId(null);
     }
-  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast, itemsOnListText]);
+  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast, addedToast, _listRows]);
 
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
@@ -6129,7 +6199,9 @@ function ProvisionsApp() {
         /* Cooked this load: muted in place (tile + text at 55%), ✓ Cooked as a teal outline, disabled at full weight. */
         .board-card.cooked { cursor: default; }
         .board-card.cooked .board-tile, .board-card.cooked .board-top, .board-card.cooked .board-line { opacity: 0.55; }
-        .board-cook.done, .board-cook.done:disabled { background: transparent; color: #0D9488; border-color: #0D9488; opacity: 1; cursor: default; }
+        /* Teal text sweep (ruling 2026-10-07): text at body size and below is #0A776D; the border is a
+           stroke and keeps brand #0D9488. Same split on .deck-primary.done, .added-here-tag, .wrapbar-a. */
+        .board-cook.done, .board-cook.done:disabled { background: transparent; color: #0A776D; border-color: #0D9488; opacity: 1; cursor: default; }
         .board-lock:disabled, .board-see:disabled, .board-cook:disabled { opacity: 0.5; cursor: default; }
         .board-more { flex: none; width: 30px; height: 30px; border-radius: 50%; border: none; background: transparent; color: #8a7a60; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: 1.1rem; font-weight: 700; line-height: 1; padding: 0 0 6px; }
@@ -6151,8 +6223,14 @@ function ProvisionsApp() {
         .hold-night-rule { display: flex; align-items: center; gap: 12px; }
         .hold-night-rule > span:not(.hold-night-label) { flex: 1 1 auto; height: 1px; background: #E2D3BD; }
         .hold-night-label { flex: none; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.14em; color: #7A6656; }
-        .hold-night-btns { margin-top: 14px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-        .plan-noshop { min-width: 0; height: 64px; border: 1.5px solid #D8C3A5; background: transparent; color: #4A3226; border-radius: 16px; padding: 0 4px; cursor: pointer;
+        /* A wrapping flex row, no breakpoint: each button's basis is its own min-content (the
+           width of its longest word), so three sit in a row when they fit and the third drops
+           to a full-width line when they don't (320 XXL). Labels never break mid-word; items
+           stretch, so heights match within a row. */
+        .hold-night-btns { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+        /* min-height, not height: the label grows with the knob and the three buttons share
+           the tallest row (grid items stretch). Vertical padding keeps a two-line label off the border. */
+        .plan-noshop { flex: 1 1 min-content; min-height: 64px; border: 1.5px solid #D8C3A5; background: transparent; color: #4A3226; border-radius: 16px; padding: 8px 4px; cursor: pointer;
                        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
                        font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.1; text-align: center; }
         .plan-noshop svg { width: 20px; height: 20px; flex: none; }
@@ -6173,7 +6251,10 @@ function ProvisionsApp() {
         .plan-ghost:nth-child(n+2) .plan-ghost-lines span { background: #EBDFCD; }
         .plan-ghost:nth-child(n+2) .plan-ghost-lines span + span { background: #F3EADD; }
         .plan-welcome-title { margin: 32px 0 0; font-family: 'Playfair Display', serif; font-size: calc(28px * (1 + (var(--op-text-scale) - 1) * 0.4)); font-weight: 700; line-height: 1.15; color: #2C1A0E; text-align: center; }
-        .plan-welcome-sub { margin: 10px 0 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 22px; color: #6E5A4A; text-align: center; }
+        /* Unitless line-height so the leading follows the knob (a fixed 22px stacked 26 px lines on
+           top of each other at XXL); 1.47 keeps Default at the same 22 px. One flowing paragraph,
+           balanced, instead of a hard break between the two sentences. */
+        .plan-welcome-sub { margin: 10px 0 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.47; color: #6E5A4A; text-align: center; text-wrap: balance; }
         .plan-welcome-add { margin-top: 28px; width: 100%; height: 54px; border-radius: 27px; border: none; background: var(--op-add); color: var(--op-add-ink); cursor: pointer;
                             display: flex; align-items: center; justify-content: center; gap: 10px; font-family: 'Lato', sans-serif; font-size: calc(16px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .plan-welcome-add svg { width: 18px; height: 18px; flex: none; }
@@ -6300,8 +6381,11 @@ function ProvisionsApp() {
         @media (prefers-reduced-motion: reduce) { .helm, .helm * { transition: none !important; } }
         /* HOME v1 — greeting, date, the Tonight card. */
         .home { padding: 12px 2px 0; }
-        .home-greeting { font-family: 'Playfair Display', serif; font-size: 1.4rem; line-height: 1.2; color: #2C1A0E; }
-        .home-date { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-top: 3px; }
+        /* Home on the knob (pass 2): greeting = page-title rate k .4 at its 22.4; date = meta 14;
+           deck eyebrow 12.5 #8A5F3A, title = card-title rate k .5 at its 24, status = meta at its 14.7,
+           buttons = button 14 k .8 in a wrapping row; list line + link = body 15; budget caption = meta. */
+        .home-greeting { font-family: 'Playfair Display', serif; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.4)); line-height: 1.2; color: #2C1A0E; }
+        .home-date { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 3px; }
         /* D4 — the signed-out welcome variant: the splash wordmark's face (Playfair italic, Our light / Provisions bold) in espresso on the page cream;
            one line in the Tonight card's body tone; the header's two buttons in the sheet's espresso and sand. */
         .home-welcome { padding-top: 64px; text-align: center; }
@@ -6319,25 +6403,25 @@ function ProvisionsApp() {
         .deck { margin-top: 22px; background: #F1E7D8; border-radius: 16px; padding: 18px 20px 16px; }
         .deck.busy { opacity: 0.5; }
         .deck.noshop { background: transparent; outline: 1.5px dashed #C9A97A; outline-offset: -1.5px; }
-        .deck-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.6rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; }
+        .deck-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; }
         .deck-body { margin: 6px -6px 0; padding: 0 6px; border-radius: 10px; }
         .deck-body.tap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
         .deck-body.tap:focus-visible { outline: 2px solid #c8973a; outline-offset: 2px; }
-        .deck-title { margin: 0; font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
-        .deck-status { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: 0.92rem; line-height: 1.45; color: #6E5A4A; }
+        .deck-title { margin: 0; font-family: 'Playfair Display', serif; font-size: calc(24px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
+        .deck-status { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: calc(14.7px * var(--op-text-scale)); line-height: 1.45; color: #6E5A4A; }
         .deck.cooked .deck-title { opacity: 0.55; }
-        .deck-actions { display: flex; align-items: center; gap: 18px; margin-top: 16px; }
+        .deck-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 16px; }
         /* Primary: espresso outline (Add to Shop); teal fill ONLY for Cooked it — the household finished something; deep sand (--op-add) for
            Add a meal, the same as both of Plan's add buttons. */
         .deck-primary { flex: none; min-height: 44px; padding: 0 22px; border-radius: 22px; cursor: pointer; white-space: nowrap;
                         border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45;
-                        font-family: 'Lato', sans-serif; font-size: 0.8rem; font-weight: 900; letter-spacing: 0.5px; }
+                        font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; letter-spacing: 0.5px; }
         .deck-primary.teal { border-color: #0D9488; background: #0D9488; color: #fff; }
         .deck-primary.add { border-color: var(--op-add); background: var(--op-add); color: var(--op-add-ink); }
-        .deck-primary.done, .deck-primary.done:disabled { border-color: #0D9488; background: transparent; color: #0D9488; opacity: 1; cursor: default; }
+        .deck-primary.done, .deck-primary.done:disabled { border-color: #0D9488; background: transparent; color: #0A776D; opacity: 1; cursor: default; }
         .deck-primary:disabled { opacity: 0.5; cursor: default; }
         .deck-switch { flex: none; min-height: 44px; padding: 0 4px; border: none; background: none; cursor: pointer; color: #6f5a45;
-                       font-family: 'Lato', sans-serif; font-size: 0.82rem; font-weight: 700; }
+                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .deck-switch:disabled { opacity: 0.5; cursor: default; }
         .deck-x { flex: none; width: 36px; height: 36px; border-radius: 50%; border: none; background: transparent; color: #b5a58f; cursor: pointer;
                   font-family: 'Lato', sans-serif; font-size: 1.4rem; font-weight: 300; line-height: 1; padding: 0 0 3px; }
@@ -6347,14 +6431,15 @@ function ProvisionsApp() {
         /* THE LIST LINE and THE BUDGET LINE — one ruled block under the card. The line reads as one sentence; only the link is a tap
            target (a leaf button with fixed copy — RUM). The budget bar is the budget banner's bar at 6px, on the page. */
         .home-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; margin-top: 16px; padding: 8px 0 4px; border-top: 1px solid #EADCC6;
-                     font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; }
+                     font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; }
         .home-line-text { color: #2C1A0E; overflow-wrap: anywhere; }
+        .home-line-tail { white-space: nowrap; color: #2C1A0E; }
         .home-line-link { padding: 10px 0; margin: -10px 0; border: none; background: none; cursor: pointer; white-space: nowrap;
-                          font-family: 'Lato', sans-serif; font-size: 0.95rem; font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
+                          font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); font-weight: 700; color: #6f5a45; text-decoration: underline; text-underline-offset: 3px; }
         .home-budget { margin-top: 10px; padding-top: 14px; border-top: 1px solid #EADCC6; }
         .home-budget-bar { height: 6px; background: #F1E6D6; border-radius: 3px; overflow: hidden; }
         .home-budget-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease, background 0.3s; }
-        .home-budget-label { margin-top: 8px; font-family: 'Lato', sans-serif; font-size: 0.9rem; color: #6E5A4A; }
+        .home-budget-label { margin-top: 8px; font-family: 'Lato', sans-serif; font-size: calc(14.4px * var(--op-text-scale)); color: #6E5A4A; }
         .home-budget-label.over { color: #e05c5c; }
         /* §6 — every scrolling root clears the pill. The pill is present at EVERY width (rail retired 2026-09-20);
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
@@ -6412,9 +6497,21 @@ function ProvisionsApp() {
         .op-skel-badge.square { border-radius: 6px; }
         .op-skel-lines { flex: 1; padding-top: 4px; }
         .op-skel-row .op-skel-lines { padding-top: 0; }
-        .op-ember { width: 10px; height: 10px; border-radius: 50%; background: #A0724A; flex: none; animation: opEmber 1.6s ease-in-out infinite; }
-        @keyframes opEmber { 0%, 100% { opacity: .35; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
-        @media (prefers-reduced-motion: reduce) { .op-skel, .op-ember { animation: none; } .op-ember { opacity: .8; } }
+        /* Ember: the wrapper is sized inline by ts(14) and never transforms; ::before is
+           the core in #8A5F3A (opacity .6↔1, scale .8↔1.1), ::after the 2px ring in brand
+           teal #0D9488 (0.6× → 2.4×, fading out). Both ride the same 1.6 s clock. The ring overshoots the box by ~10px
+           on purpose — it lives inside the panel's 16px padding. */
+        .op-ember { position: relative; flex: none; }
+        .op-ember::before, .op-ember::after { content: ""; position: absolute; inset: 0; border-radius: 50%; }
+        .op-ember::before { background: #8A5F3A; animation: opEmber 1.6s ease-in-out infinite; }
+        .op-ember::after { border: 2px solid #0D9488; animation: opEmberRing 1.6s ease-out infinite; }
+        @keyframes opEmber { 0%, 100% { opacity: .6; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.1); } }
+        @keyframes opEmberRing { 0% { opacity: .7; transform: scale(.6); } 100% { opacity: 0; transform: scale(2.4); } }
+        @media (prefers-reduced-motion: reduce) {
+          .op-skel, .op-ember::before { animation: none; }
+          .op-ember::before { opacity: 1; transform: none; }
+          .op-ember::after { display: none; }
+        }
         .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #6f5a45; cursor: pointer; }
         .op-recipe { background: #fff; border: 1.5px solid rgba(44,26,14,.10); border-radius: 14px; padding: 16px 16px 14px; }
         .op-recipe.galley { border-color: rgba(160,114,74,.3); }
@@ -6445,9 +6542,11 @@ function ProvisionsApp() {
         .price-save-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; background: #c8973a; color: white; border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; }
         .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; text-align: right; }
         .list-empty { text-align: center; padding: 60px 20px; }
-        .list-empty h2 { font-family: 'Playfair Display', serif; font-size: 1.5rem; color: #8a7a60; }
+        /* Shop empty state on the knob (pass 2): heading = page-title rate k .4 at its 24, #8A5F3A (espresso tried 7b1e0b4, too heavy for an empty state);
+           line = body 15; the shared .home-line-link scales on its own rule since Home joined. */
+        .list-empty h2 { font-family: 'Playfair Display', serif; font-size: calc(24px * (1 + (var(--op-text-scale) - 1) * 0.4)); color: #8A5F3A; }
         .list-empty-line { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 6px; margin-top: 12px;
-                           font-family: 'Lato', sans-serif; font-size: 0.95rem; line-height: 1.45; color: #2C1A0E; }
+                           font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; }
         /* Wrap, never squeeze (SPEC_global_text_size decision 9): the count keeps its one line; when the three controls
            don't fit beside it (phone width, "+ Add" is wider than the old round +), they drop to a second line as ONE
            group, right-aligned — never split, never a count ellipsed to "4 …". */
@@ -6466,40 +6565,47 @@ function ProvisionsApp() {
                    box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer; text-align: left; }
         .wrapbar.p0 { border-style: dashed; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
+        /* No hard edge on the fill: its 2px right border was the line through the "W" of
+           the label at XXL (pass 2, Shop). The soft tint alone marks progress. */
         .wrapbar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #CFE8E3, #B5DDD5);
-                        border-right: 2px solid rgba(13,148,136,0.45); transition: width 0.2s ease; }
-        .wrapbar.p0 .wrapbar-fill { border-right: none; }
+                        transition: width 0.2s ease; }
         .wrapbar-t { position: relative; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); color: #6E5A4A; }
         .wrapbar-t b { color: #2C1A0E; font-weight: 700; }
-        .wrapbar-a { position: relative; flex: none; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #0D9488; white-space: nowrap; }
+        .wrapbar-a { position: relative; flex: none; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #0A776D; white-space: nowrap; }
         /* The list's last rows scroll clear of the bar: its height + the 10px gap, on top of .app-root's Helm padding. */
         .wrapbar-spacer { height: 58px; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
-        .list-progress { font-family: 'Lato', sans-serif; font-size: 0.8rem; color: #8a7a60; letter-spacing: 1px; text-transform: uppercase; }
+        /* List header + In-cart tray on the knob (pass 2, Shop slice 2): progress = eyebrow k 1 at
+           its 12.8; lens toggle = button 14 k .8 (the 46px segment keeps its height); aisle + A–Z
+           eyebrows 11.2 → 12.5; tray title = body 15, tray count = meta 14. Muted → #8A5F3A. */
+        .list-progress { font-family: 'Lato', sans-serif; font-size: calc(12.8px * var(--op-text-scale)); color: #8A5F3A; letter-spacing: 1px; text-transform: uppercase; }
         .cyc-ico { flex: none; width: 46px; height: 46px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; color: #A0724A; cursor: pointer; padding: 0; transition: background 0.18s, border-color 0.18s, color 0.18s; }
         .cyc-ico.on { background: #A0724A; border-color: #8A5F3A; color: #fff; }
         .cyc-ico svg { width: 22px; height: 22px; display: block; }
         /* ── Shop tab: lens · In cart tray · in-store Add · store prompt (SPEC_shop_lens_instore_capture.md) ── */
         .shop-seg { flex: none; height: 46px; border-radius: 11px; border: 1px solid #E8D5B7; background: #fff; display: flex; overflow: hidden; }
-        .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; cursor: pointer; transition: background .15s, color .15s; }
+        .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A; cursor: pointer; transition: background .15s, color .15s; }
         .shop-seg button.on { background: #A0724A; color: #fff; }
-        .store-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: -6px 2px 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+        /* Text size pass 2, slice 3: meta 14 at k 1 in #8A5F3A (the #8a7a60 it replaced read 3.82:1 on
+           cream). flex-wrap lets a long store name drop below "Shopping at" at XXL instead of
+           wrapping inside its own word-box; the chevron is a glyph at the 12.5 floor. */
+        .store-line { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin: -6px 2px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; cursor: pointer; }
         .store-line b { color: #2C1A0E; font-weight: 700; }
-        .store-line .chev { font-size: 0.7rem; color: #8A5F3A; }
+        .store-line .chev { font-size: calc(12.5px * var(--op-text-scale)); color: #8A5F3A; }
         .store-line .store-set { color: #8A5F3A; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
-        .az-eyebrow { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin: 2px 0 6px; }
+        .az-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; margin: 2px 0 6px; }
         /* A–Z is a different MODE, not the same rows minus headers: one flat list, small circle, no provenance, no prices.
            Padding is set so a single-line row lands at roughly an Aisles row's tap height. */
         .list-item.az { padding: 13px 4px; gap: 12px; border-bottom: 1px solid #F0E6D6; }
         .list-item.az .checkbox { width: 18px; height: 18px; }
         .list-item.az .li-name { font-size: calc(0.9rem * var(--op-text-scale)); }
-        .added-here-tag { display: inline-block; margin-left: 6px; font-family: 'Lato', sans-serif; font-size: 0.62rem; font-weight: 700; color: #0D9488; border: 1px solid #0D9488; border-radius: 4px; padding: 1px 5px; vertical-align: middle; letter-spacing: .3px; }
+        .added-here-tag { display: inline-block; margin-left: 6px; font-family: 'Lato', sans-serif; font-size: 0.62rem; font-weight: 700; color: #0A776D; border: 1px solid #0D9488; border-radius: 4px; padding: 1px 5px; vertical-align: middle; letter-spacing: .3px; }
         .in-cart-tray { margin-top: 26px; border-radius: 12px; background: #fff; border: 1px solid #E3D4BC; overflow: hidden; }
         .tray-head { display: flex; align-items: center; gap: 10px; padding: 13px 14px; cursor: pointer; background: none; border: none; width: 100%; text-align: left; }
         .tray-cb { width: 22px; height: 22px; border-radius: 50%; background: #c8973a; color: #fff; font-size: 0.78rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        .tray-title { flex: 1; font-family: 'Lato', sans-serif; font-size: 0.9rem; font-weight: 700; color: #2C1A0E; }
-        .tray-sub { font-size: 0.72rem; color: #8a7a60; font-weight: 400; margin-left: 6px; }
+        .tray-title { flex: 1; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; }
+        .tray-sub { font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; font-weight: 400; margin-left: 6px; }
         .tray-chev { color: #8a7a60; font-size: 0.8rem; }
         .tray-body { border-top: 1px solid #E3D4BC; padding: 0 14px 12px; }
         .in-cart-tray { margin-bottom: 8px; }
@@ -6533,28 +6639,33 @@ function ProvisionsApp() {
         .tray-body .list-item.collapsing { animation-name: opRowOutTray; }
         @media (prefers-reduced-motion: reduce) { .list-item.collapsing { animation: none; } }
         .store-prompt { margin: 0 0 22px; padding: 14px 14px 12px; background: #fff; border: 1px solid #E3D4BC; border-radius: 12px; }
-        .store-prompt-q { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: #2C1A0E; margin-bottom: 10px; }
+        /* Store prompt card on the Text size knob (pass 2, Shop): question = card title k .5,
+           chips = button k .8, Skip = meta, STORE NAME = eyebrow, input = body. Colours to #8A5F3A. */
+        .store-prompt-q { font-family: 'Playfair Display', serif; font-size: calc(16.8px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; margin-bottom: 10px; }
         .store-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-        .store-chip { font-family: 'Lato', sans-serif; font-size: 0.8rem; font-weight: 700; padding: 8px 13px; border-radius: 20px; border: 1px solid #E8D5B7; background: #FAF4EC; color: #2C1A0E; cursor: pointer; }
+        .store-chip { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; padding: 8px 13px; border-radius: 20px; border: 1px solid #E8D5B7; background: #FAF4EC; color: #2C1A0E; cursor: pointer; }
         .store-chip:disabled { opacity: .5; cursor: default; }
         .store-chip.other { color: #8A5F3A; border-style: dashed; font-weight: 400; }
-        .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 10px; cursor: pointer; text-decoration: underline; }
-        .store-field-label { font-family: 'Lato', sans-serif; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: #C9A97A; margin-bottom: 7px; }
-        .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: 0.85rem; color: #2C1A0E; background: #F5EDE0; outline: none; }
+        .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 10px; cursor: pointer; text-decoration: underline; text-align: left; }
+        .store-field-label { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 7px; }
+        .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; background: #F5EDE0; outline: none; }
         .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; }
         .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; }
         .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; }
-        .add-sheet-title { font-family: 'Playfair Display', serif; font-size: 1.15rem; color: #2C1A0E; margin-bottom: 12px; }
+        /* Add sheet on the knob (pass 2, Shop slice 2): title = sheet-title rate k .5 at its
+           current 18.4 (not promoted to 22.4 — not a .modal h2, same call as the Profile sheet);
+           hint = meta 14 #8A5F3A. The search input is CatalogSearchBox (body 15, shared with Browse). */
+        .add-sheet-title { font-family: 'Playfair Display', serif; font-size: calc(18.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; margin-bottom: 12px; }
         .add-sheet-results { overflow-y: auto; margin-top: 10px; min-height: 0; }
         .add-result { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #E8D5B7; cursor: pointer; }
         .add-result .ar-main { flex: 1; min-width: 0; }
-        .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: 0.92rem; color: #2C1A0E; }
-        .add-result .ar-cat { font-family: 'Lato', sans-serif; font-size: 0.7rem; color: #8a7a60; margin-top: 2px; }
+        .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
+        .add-result .ar-cat { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 2px; }
         .add-result .ar-go { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; }
         .add-result.create { border-bottom: none; }
         .add-result.create .ar-name { color: #8A5F3A; }
         .add-result.create .ar-name b { color: #2C1A0E; }
-        .add-sheet-hint { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #8a7a60; margin-top: 12px; line-height: 1.45; }
+        .add-sheet-hint { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 12px; line-height: 1.45; }
         .op-later-badge { position: absolute; top: -8px; right: -8px; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 700; letter-spacing: .5px; background: #0D9488; color: #fff; padding: 2px 6px; border-radius: 8px; }
         .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
         /* Names in the filter descriptor read as content, not as voice. */
@@ -6619,7 +6730,7 @@ function ProvisionsApp() {
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
-        .list-cat-title { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #c8973a; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
+        .list-cat-title { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
         .list-item { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; -webkit-tap-highlight-color: transparent; }
         .list-item.done { opacity: 0.45; }
         .list-item.done .li-name { text-decoration: line-through; color: #a89878; }
@@ -6637,13 +6748,16 @@ function ProvisionsApp() {
         .all-done { text-align: center; padding: 8px 12px 26px; }
         .all-done-arc { width: 150px; height: 12px; margin: 0 auto 14px; display: block; }
         .all-done-arc path { fill: none; stroke: #0D9488; stroke-width: 1.6; stroke-linecap: round; }
-        .all-done h2 { font-family: 'Playfair Display', serif; font-weight: 400; font-size: 2.1rem; margin: 0 0 6px; letter-spacing: -0.01em; color: #2C1A0E; }
-        .all-done-sub { font-family: 'Playfair Display', serif; font-style: italic; font-size: 1rem; color: #8a7a60; margin: 0 0 16px; }
-        .all-done-meta { font-family: 'Lato', sans-serif; font-size: 0.78rem; color: #8a7a60; letter-spacing: 0.5px; }
+        /* All done on the knob (pass 2, Shop slice 2): heading = page-title rate k .4 at its
+           33.6; subline = meta k 1 at its 16; stats + learning line = meta 14; the button = button
+           k .8 raised from 11.5 to the 12.5 floor. Muted #8a7a60 → #8A5F3A. */
+        .all-done h2 { font-family: 'Playfair Display', serif; font-weight: 400; font-size: calc(33.6px * (1 + (var(--op-text-scale) - 1) * 0.4)); margin: 0 0 6px; letter-spacing: -0.01em; color: #2C1A0E; }
+        .all-done-sub { font-family: 'Playfair Display', serif; font-style: italic; font-size: calc(16px * var(--op-text-scale)); color: #8A5F3A; margin: 0 0 16px; }
+        .all-done-meta { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; letter-spacing: 0.5px; }
         .all-done-meta b { color: #2C1A0E; font-weight: 700; }
-        .all-done-learn { font-family: 'Lato', sans-serif; font-size: 12.5px; color: #8A5F3A; margin-top: 6px; }
+        .all-done-learn { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 6px; }
         .all-done-btn { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
-                        font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
+                        font-family: 'Lato', sans-serif; font-size: calc(12.5px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
                         padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
         /* The trip summary's dismiss. Same look as .all-done-btn, deliberately
            NOT that class: .all-done-btn is on the RUM prod unmask allow-list as
@@ -6651,20 +6765,27 @@ function ProvisionsApp() {
            would double-count wrap-up intent. This carries .op-chrome instead
            (fixed copy, the sanctioned bucket). */
         .trip-summary-done { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
-                        font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
+                        font-family: 'Lato', sans-serif; font-size: calc(12.5px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
                         padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
         /* Trip reality (SPEC_trip_qualification_v2; mockup_trip_reality_ask.html).
            Geometry from the mockup, colours from the app's own palette. The ask is
            left-aligned inside the centred card, as drawn. Two EQUAL outlined
            buttons, no primary — the app has no preferred answer. No teal. */
         .trip-reality-ask { margin: 16px 0 18px; padding: 18px 16px; border-radius: 14px; background: #F5EADA; border: 1px solid #E8D5B7; text-align: left; }
-        .trip-reality-ask .tr-eyebrow { font-family: 'Lato', sans-serif; font-size: 12.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #8A5F3A; font-weight: 700; margin: 0 0 8px; }
-        .trip-reality-ask .tr-q { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: 1.15rem; line-height: 1.25; margin: 0 0 6px; color: #2C1A0E; }
-        .trip-reality-ask .tr-why { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: 0 0 14px; line-height: 1.4; }
-        .trip-reality-ask .tr-btns { display: flex; gap: 10px; }
-        .trip-reality-ask .tr-btns button { flex: 1; padding: 13px 10px; border-radius: 12px; border: 1.5px solid #C9A97A; background: transparent; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: 0.88rem; cursor: pointer; }
-        .trip-reality-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; text-align: center; margin: 10px 0 14px; }
-        .trip-reality-line .trip-reality-countit { background: none; border: 0; padding: 0 0 0 4px; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: 0.82rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+        /* Text size pass 2, slice 3: eyebrow 12.5 k 1; the question keeps 18.4 at k 0.5 (card-title
+           rate); "why" and the Counted / Not counted line are meta 14 k 1 in #8A5F3A (#8a7a60 read
+           3.51:1 on the card, 3.82:1 on cream); the two answer buttons are 14 k 0.8 in a wrapping
+           row, the same pattern as the Wrap-up sheet's action row: auto basis + no-wrap labels
+           (a min-content basis let both two-word labels break into two lines side by side), so
+           they share a row when both fit and "Just testing" drops to a full line of its own at
+           XXL. The three control class names are on CHROME_ALLOW_LIST (rum.js) and do not change. */
+        .trip-reality-ask .tr-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; color: #8A5F3A; font-weight: 700; margin: 0 0 8px; }
+        .trip-reality-ask .tr-q { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(18.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.25; margin: 0 0 6px; color: #2C1A0E; }
+        .trip-reality-ask .tr-why { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin: 0 0 14px; line-height: 1.4; }
+        .trip-reality-ask .tr-btns { display: flex; flex-wrap: wrap; gap: 10px; }
+        .trip-reality-ask .tr-btns button { flex: 1 1 auto; white-space: nowrap; padding: 13px 10px; border-radius: 12px; border: 1.5px solid #C9A97A; background: transparent; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); cursor: pointer; }
+        .trip-reality-line { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; text-align: center; margin: 10px 0 14px; }
+        .trip-reality-line .trip-reality-countit { background: none; border: 0; padding: 0 0 0 4px; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
         .list-total { background: #F5EDE0; border: 2px solid #c8973a; border-radius: 10px; padding: 16px 18px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
         .list-total.over { border-color: #e05c5c; }
         .lt-left .lt-label { font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
@@ -6961,8 +7082,11 @@ function ProvisionsApp() {
 
             {/* ── Zone 1: Your Households (name-only rows; bare pencil on the active row) ── */}
             <div>
+              {/* Manage place on the knob (pass 2): eyebrows 12.5 k 1; place + member names body 15
+                  (wrapping, never colliding with Edit / the badge); Edit, Create = button 14 k .8,
+                  the pencil scaling with Edit; YOU badge = eyebrow 12.5 in #8A5F3A on #F1E7D8. Avatar stays 36px. */}
               <div style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2.5px",
+                fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "2.5px",
                 textTransform: "uppercase", color: "#8A5F3A", marginBottom: "10px",
               }}>Your Places</div>
               {/* A5b (Addendum 2026-09-27): "Your places" is never drawn empty
@@ -7011,16 +7135,16 @@ function ProvisionsApp() {
                       }}
                     >
                       <span style={{
-                        fontFamily: "'Lato', sans-serif", fontSize: "0.95rem",
-                        color: "#FAF4EC", fontWeight: 700,
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+                        color: "#FAF4EC", fontWeight: 700, flex: 1, minWidth: 0, overflowWrap: "anywhere",
                       }}>{hh.name}</span>
                       {/* Bare pencil + "Edit" label (no container/plate), per FINAL3 */}
                       <span style={{
-                        display: "flex", alignItems: "center", gap: "6px", flexShrink: 0,
-                        fontFamily: "'Lato', sans-serif", fontSize: "13.5px", fontWeight: 700,
+                        display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, marginLeft: "10px",
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
                         color: "#FAF4EC", opacity: 0.82,
                       }}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
+                        <svg style={{ width: ts(15, 0.8), height: ts(15, 0.8) }} viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
                           strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
                         </svg>
@@ -7041,8 +7165,8 @@ function ProvisionsApp() {
                     }}
                   >
                     <span style={{
-                      fontFamily: "'Lato', sans-serif", fontSize: "0.95rem",
-                      color: "#2C1A0E", fontWeight: 400,
+                      fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+                      color: "#2C1A0E", fontWeight: 400, minWidth: 0, overflowWrap: "anywhere",
                     }}>{hh.name}</span>
                   </button>
                 );
@@ -7055,7 +7179,7 @@ function ProvisionsApp() {
                   style={{
                     width: "100%", background: "none", border: "1.5px dashed #A0724A",
                     borderRadius: "8px", padding: "11px 14px", marginTop: "2px",
-                    fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#8A5F3A",
+                    fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), color: "#8A5F3A",
                     cursor: "pointer", textAlign: "center", boxSizing: "border-box",
                   }}
                 >+ Create new place</button>
@@ -7121,7 +7245,7 @@ function ProvisionsApp() {
             {/* ── Zone 2: {household} · Members (roster + Invite; no count, no monogram) ── */}
             <div>
               <div style={{
-                fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2.5px",
+                fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "2.5px",
                 textTransform: "uppercase", color: "#8A5F3A", marginBottom: "14px",
               }}>{(household?.name || "This place")} · Members</div>
 
@@ -7153,14 +7277,16 @@ function ProvisionsApp() {
                           {displayName[0].toUpperCase()}
                         </div>
                       )}
-                      <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.9rem", color: "#2C1A0E", flex: 1 }}>
+                      <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#2C1A0E", flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
                         {displayName}
                       </span>
                       {isMe && (
                         <span style={{
-                          fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1px",
-                          textTransform: "uppercase", color: "#8a7a60",
-                          background: "#E8D5B7", borderRadius: "4px", padding: "2px 7px",
+                          fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1px",
+                          // One brown: #8A5F3A, so the chip lightens to #F1E7D8 (the deck card's tan) —
+                          // 4.54:1 for the text, 1.12:1 against the sheet. #E8D5B7 gave 3.87:1.
+                          textTransform: "uppercase", color: "#8A5F3A", flexShrink: 0,
+                          background: "#F1E7D8", borderRadius: "4px", padding: "2px 7px",
                         }}>you</span>
                       )}
                       {!isMe && m.role !== 'owner' && (
@@ -7216,11 +7342,14 @@ function ProvisionsApp() {
                     <path d="M16 3.13a4 4 0 0 1 0 7.75" />
                   </svg>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14.5px", fontWeight: 900, color: "#FAF4EC" }}>
+                {/* Both share cards on the same roles (pass 2): title = body 15 bold, sub-line =
+                    meta 14, both k 1 so the title stays above its sub-line at every step. */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), fontWeight: 900, color: "#FAF4EC" }}>
                     {invitePreparing ? "Preparing…" : "Invite aboard"}
                   </div>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "11.5px", color: "#C9A97A", marginTop: "1px" }}>
+                  {/* Light-on-espresso: the sand stays — #8A5F3A on #2C1A0E would be ~2.6:1 (gold copy sweep, 2026-10-06). */}
+                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#C9A97A", marginTop: "1px" }}>
                     Add someone to this place’s shared list
                   </div>
                 </div>
@@ -7253,11 +7382,11 @@ function ProvisionsApp() {
                       <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
                     </svg>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "13px", fontWeight: 700, color: "#2C1A0E" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), fontWeight: 700, color: "#2C1A0E" }}>
                       Share the app
                     </div>
-                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10.5px", color: "#8a7968", marginTop: "1px" }}>
+                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "1px" }}>
                       Recommend the app — not this place
                     </div>
                   </div>
@@ -7495,7 +7624,7 @@ function ProvisionsApp() {
                       display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
                       width: "100%", background: "none", border: "none",
                       fontFamily: "'Lato', sans-serif", fontSize: "13px", fontWeight: 700,
-                      color: "#0D9488", cursor: "pointer", padding: "6px",
+                      color: "#0A776D", cursor: "pointer", padding: "6px",
                     }}
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0D9488" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
@@ -7805,6 +7934,7 @@ function ProvisionsApp() {
             }}
             list={{
               openCount: totalItems - checkedCount,
+              checkedCount,
               firstItem: pendingItems[0]?.name || "",
               shopping: !!activeSession,
               onStartList: () => goToDoor("input"),
@@ -8126,15 +8256,17 @@ function ProvisionsApp() {
                           onClick={() => setSearchPickerOpen(true)}
                           style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", cursor: "pointer" }}
                         >
+                          {/* On the knob (pass 2): line = body 15, hint = meta 14 #8A5F3A, Add =
+                              button k .8 — the same roles the meal sheet's copy of this card uses. */}
                           <div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                               Add <strong>"{searchQuery}"</strong> to your list
                             </div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", color: "#C9A97A", marginTop: "2px" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
                               Tap to choose a category
                             </div>
                           </div>
-                          <button className="add-btn" style={{ flexShrink: 0 }}>Add</button>
+                          <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8) }}>Add</button>
                         </div>
                       ) : (
                         <div>
@@ -8142,10 +8274,10 @@ function ProvisionsApp() {
                             onClick={() => setSearchPickerOpen(false)}
                             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px 8px", cursor: "pointer" }}
                           >
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "14px", color: "#8A5F3A" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
                               Add <strong>"{searchQuery}"</strong> to your list
                             </div>
-                            <span style={{ color: "#C9A97A", fontSize: "18px" }}>−</span>
+                            <span style={{ color: "#8A5F3A", fontSize: "18px" }}>−</span>
                           </div>
                           {/* Global entry — no section context, so nothing is
                               pre-selected and the copy asks rather than confirms. */}
@@ -8163,7 +8295,7 @@ function ProvisionsApp() {
                           {/* ── New category inline input — revealed by the tile ── */}
                           {searchNewCatOpen && (
                           <div style={{ padding: "0 14px 14px" }}>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "10px", letterSpacing: "1.5px", textTransform: "uppercase", color: "#C9A97A", marginBottom: "7px" }}>
+                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "7px" }}>
                               Name the new category
                             </div>
                             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -8330,9 +8462,12 @@ function ProvisionsApp() {
             {!storePromptVisible && activeSession && (
               <div className="store-line" onClick={() => setStorePromptOpen(true)} role="button" tabIndex={0}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setStorePromptOpen(true); }}>
-                Shopping at {activeSession.store_name_raw
+                {/* The name and its chevron are ONE flex item: with flex-wrap on the line, a long
+                    name drops below "Shopping at" at XXL and the chevron stays on the name's last
+                    word instead of landing alone on a line of its own. */}
+                Shopping at <span>{activeSession.store_name_raw
                   ? <b>{activeSession.store_name_raw}</b>
-                  : <span className="store-set">Set store</span>} <span className="chev">▾</span>
+                  : <span className="store-set">Set store</span>} <span className="chev">▾</span></span>
               </div>
             )}
             {totalItems === 0 ? (
@@ -8698,12 +8833,9 @@ function ProvisionsApp() {
             </div>
             )}
             <div className="modal-field">
-              <label className="modal-label" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>Category</span>
-                {isSignedIn && !newItemName.trim() && hiddenCatalogItems.some(h => h.category === newItemCategory) && (
-                  <span style={{ fontStyle: "italic", fontSize: "10px", color: "#C9A97A", fontWeight: 400 }}>tap below to unhide</span>
-                )}
-              </label>
+              {/* No "tap below to unhide" hint here (removed 2026-10-06): the "Unhide N hidden
+                  {category} items" link under the picker carries the action on its own. */}
+              <label className="modal-label">Category</label>
               {/* This modal is only ever reached from a section header's
                   "＋ New item", so the category is already known — the user
                   answered by choosing where they tapped. The step is a
@@ -8732,7 +8864,7 @@ function ProvisionsApp() {
                       setAddModalResetDone(true);
                       setTimeout(() => setAddModalResetDone(false), 2000);
                     }}
-                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block" }}
+                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block", textAlign: "left" }}
                   >
                     Unhide {hiddenCatalogItems.filter(h => h.category === newItemCategory).length} hidden {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} {hiddenCatalogItems.filter(h => h.category === newItemCategory).length === 1 ? "item" : "items"}
                   </button>
@@ -9250,10 +9382,14 @@ function ProvisionsApp() {
 
             {/* Header */}
             <div style={{ marginBottom: "16px" }}>
-              <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: "1.1rem", color: "#3D2B1F", marginBottom: "4px" }}>
+              {/* Text size pass 2, slice 3: the title keeps 17.6 at the sheet-title rate (k 0.5,
+                  the Profile-sheet call — it is not a .modal h2); paddingRight keeps it clear of
+                  the 44 px Close at XXL. Sub-line and eyebrow are meta 14 / eyebrow 12.5 at k 1
+                  in #8A5F3A (#8B6B4A read 4.47:1 on cream). */}
+              <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(17.6, 0.5), color: "#3D2B1F", marginBottom: "4px", paddingRight: "40px" }}>
                 Wrap up this trip
               </div>
-              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.75rem", color: "#8B6B4A", letterSpacing: "0.5px" }}>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", letterSpacing: "0.5px" }}>
                 {boughtItems.length} item{boughtItems.length !== 1 ? "s" : ""} bought
                 {pendingItems.length > 0 && ` · ${pendingItems.length} still pending`}
               </div>
@@ -9262,10 +9398,11 @@ function ProvisionsApp() {
             {/* Pending items — roll-forward selection */}
             {pendingItems.length > 0 && (
               <div style={{ marginBottom: "16px" }}>
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.65rem", letterSpacing: "1px", textTransform: "uppercase", color: "#8B6B4A", marginBottom: "8px" }}>
+                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "0.14em", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "8px" }}>
                   Roll onto next list?
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "200px", overflowY: "auto" }}>
+                {/* The cap scales with the knob so about five rows show at every size. */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px", maxHeight: "calc(200px * var(--op-text-scale))", overflowY: "auto" }}>
                   {pendingItems.map(item => {
                     const selected = wrapUpRollItems.has(item.name);
                     return (
@@ -9279,8 +9416,11 @@ function ProvisionsApp() {
                             return next;
                           });
                         }}
+                        // flex-wrap + the name at a min-content basis: the name wins the width and
+                        // the ×qty drops below it, right-aligned, when a long word at XXL on a
+                        // 320 phone would otherwise push the qty off the row (the search-row pattern).
                         style={{
-                          display: "flex", alignItems: "center", gap: "8px",
+                          display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px",
                           padding: "6px 8px", borderRadius: "4px", cursor: "pointer",
                           background: selected ? "rgba(13,148,136,0.08)" : "transparent",
                           border: `1px solid ${selected ? "#0D9488" : "rgba(160,114,74,0.2)"}`,
@@ -9295,11 +9435,11 @@ function ProvisionsApp() {
                         }}>
                           {selected && <span style={{ color: "white", fontSize: "10px", lineHeight: 1 }}>✓</span>}
                         </div>
-                        <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.85rem", color: "#3D2B1F" }}>
+                        <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#3D2B1F", flex: "1 1 min-content" }}>
                           {item.name}
                         </span>
                         {item.qty > 1 && (
-                          <span style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.7rem", color: "#8B6B4A", marginLeft: "auto" }}>
+                          <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginLeft: "auto", flexShrink: 0 }}>
                             ×{item.qty}
                           </span>
                         )}
@@ -9311,13 +9451,13 @@ function ProvisionsApp() {
                 <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>
                   <button
                     onClick={() => setWrapUpRollItems(new Set(pendingItems.map(i => i.name)))}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                   >
                     Select all
                   </button>
                   <button
                     onClick={() => setWrapUpRollItems(new Set())}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), color: "#8A5F3A", cursor: "pointer", padding: 0, textDecoration: "underline" }}
                   >
                     Clear all
                   </button>
@@ -9325,12 +9465,19 @@ function ProvisionsApp() {
               </div>
             )}
 
-            {/* Action buttons */}
-            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+            {/* Action buttons — deliberately NOT .modal-actions (ruling 2026-10-06): the sheet is
+                short enough not to need a sticky footer. A wrapping flex row on the Hold-a-night
+                pattern, with an auto basis rather than min-content: the confirm's label is three
+                words ("Roll 12 forward"), and a min-content basis let it wrap inside the button at
+                every width (harnessed 2026-10-06). With basis auto and no-wrap labels, Cancel and
+                the confirm share a row when both fit and the confirm drops to a full-width line of
+                its own at XXL on a narrow phone instead of overrunning the sheet. */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "flex-end" }}>
               <button
                 className="modal-cancel"
                 onClick={closeWrapUp}
                 disabled={wrappingUp}
+                style={{ flex: "1 1 auto", whiteSpace: "nowrap" }}
               >
                 Cancel
               </button>
@@ -9338,7 +9485,7 @@ function ProvisionsApp() {
                 className="modal-confirm"
                 onClick={handleWrapUp}
                 disabled={wrappingUp}
-                style={{ minWidth: "100px" }}
+                style={{ flex: "1 1 auto", whiteSpace: "nowrap" }}
               >
                 {wrappingUp
                   ? "Saving..."
