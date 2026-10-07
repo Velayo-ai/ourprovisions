@@ -6730,20 +6730,27 @@ function ProvisionsApp() {
            would double-count wrap-up intent. This carries .op-chrome instead
            (fixed copy, the sanctioned bucket). */
         .trip-summary-done { display: inline-block; margin-top: 20px; background: #0D9488; color: #fff; border: none; cursor: pointer;
-                        font-family: 'Lato', sans-serif; font-size: 0.72rem; letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
+                        font-family: 'Lato', sans-serif; font-size: calc(12.5px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: 1.6px; text-transform: uppercase; font-weight: 900;
                         padding: 13px 26px; border-radius: 24px; box-shadow: 0 6px 16px rgba(13,148,136,0.28); }
         /* Trip reality (SPEC_trip_qualification_v2; mockup_trip_reality_ask.html).
            Geometry from the mockup, colours from the app's own palette. The ask is
            left-aligned inside the centred card, as drawn. Two EQUAL outlined
            buttons, no primary — the app has no preferred answer. No teal. */
         .trip-reality-ask { margin: 16px 0 18px; padding: 18px 16px; border-radius: 14px; background: #F5EADA; border: 1px solid #E8D5B7; text-align: left; }
-        .trip-reality-ask .tr-eyebrow { font-family: 'Lato', sans-serif; font-size: 12.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #8A5F3A; font-weight: 700; margin: 0 0 8px; }
-        .trip-reality-ask .tr-q { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: 1.15rem; line-height: 1.25; margin: 0 0 6px; color: #2C1A0E; }
-        .trip-reality-ask .tr-why { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: 0 0 14px; line-height: 1.4; }
-        .trip-reality-ask .tr-btns { display: flex; gap: 10px; }
-        .trip-reality-ask .tr-btns button { flex: 1; padding: 13px 10px; border-radius: 12px; border: 1.5px solid #C9A97A; background: transparent; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: 0.88rem; cursor: pointer; }
-        .trip-reality-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; text-align: center; margin: 10px 0 14px; }
-        .trip-reality-line .trip-reality-countit { background: none; border: 0; padding: 0 0 0 4px; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: 0.82rem; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+        /* Text size pass 2, slice 3: eyebrow 12.5 k 1; the question keeps 18.4 at k 0.5 (card-title
+           rate); "why" and the Counted / Not counted line are meta 14 k 1 in #8A5F3A (#8a7a60 read
+           3.51:1 on the card, 3.82:1 on cream); the two answer buttons are 14 k 0.8 in a wrapping
+           row, the same pattern as the Wrap-up sheet's action row: auto basis + no-wrap labels
+           (a min-content basis let both two-word labels break into two lines side by side), so
+           they share a row when both fit and "Just testing" drops to a full line of its own at
+           XXL. The three control class names are on CHROME_ALLOW_LIST (rum.js) and do not change. */
+        .trip-reality-ask .tr-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; color: #8A5F3A; font-weight: 700; margin: 0 0 8px; }
+        .trip-reality-ask .tr-q { font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(18.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.25; margin: 0 0 6px; color: #2C1A0E; }
+        .trip-reality-ask .tr-why { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin: 0 0 14px; line-height: 1.4; }
+        .trip-reality-ask .tr-btns { display: flex; flex-wrap: wrap; gap: 10px; }
+        .trip-reality-ask .tr-btns button { flex: 1 1 auto; white-space: nowrap; padding: 13px 10px; border-radius: 12px; border: 1.5px solid #C9A97A; background: transparent; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); cursor: pointer; }
+        .trip-reality-line { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; text-align: center; margin: 10px 0 14px; }
+        .trip-reality-line .trip-reality-countit { background: none; border: 0; padding: 0 0 0 4px; color: #2C1A0E; font-family: 'Lato', sans-serif; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
         .list-total { background: #F5EDE0; border: 2px solid #c8973a; border-radius: 10px; padding: 16px 18px; margin-top: 24px; display: flex; justify-content: space-between; align-items: center; }
         .list-total.over { border-color: #e05c5c; }
         .lt-left .lt-label { font-family: 'Lato', sans-serif; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; color: #8a7a60; }
