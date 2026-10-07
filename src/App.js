@@ -4303,7 +4303,9 @@ function ProvisionsApp() {
     const mealLine = mealNames ? `For ${mealNames}` : null;
 
     if (!catalogLine && !mealLine) return null;
-    const base = { fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "0.3px", marginTop: "3px" };
+    // Text size pass 2: both sub-lines are meta 14 at k 1 (they sat fixed at 12.5 px, the same
+    // size at Default and XXL). The teal of the "For {meal}" line is a separate ruling.
+    const base = { fontFamily: "'Lato', sans-serif", fontSize: ts(14), letterSpacing: "0.3px", marginTop: "3px" };
     return (
       <>
         {catalogLine && <div style={{ ...base, color: "#8A5F3A" }}>{catalogLine}</div>}
