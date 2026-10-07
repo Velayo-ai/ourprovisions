@@ -1414,7 +1414,7 @@ function PlanWelcome({ firstMeal, onAdd, children }) {
         ))}
       </div>
       <h3 className="plan-welcome-title">Let's plan your week.</h3>
-      <p className="plan-welcome-sub">Pick a few meals you'd like to make.<br />We'll turn them into your shopping list.</p>
+      <p className="plan-welcome-sub">Pick a few meals you'd like to make. We'll turn them into your shopping list.</p>
       <button type="button" className="plan-welcome-add" onClick={onAdd}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
         {firstMeal ? "Add your first meal" : "Add a meal"}
@@ -6219,7 +6219,10 @@ function ProvisionsApp() {
         .plan-ghost:nth-child(n+2) .plan-ghost-lines span { background: #EBDFCD; }
         .plan-ghost:nth-child(n+2) .plan-ghost-lines span + span { background: #F3EADD; }
         .plan-welcome-title { margin: 32px 0 0; font-family: 'Playfair Display', serif; font-size: calc(28px * (1 + (var(--op-text-scale) - 1) * 0.4)); font-weight: 700; line-height: 1.15; color: #2C1A0E; text-align: center; }
-        .plan-welcome-sub { margin: 10px 0 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 22px; color: #6E5A4A; text-align: center; }
+        /* Unitless line-height so the leading follows the knob (a fixed 22px stacked 26 px lines on
+           top of each other at XXL); 1.47 keeps Default at the same 22 px. One flowing paragraph,
+           balanced, instead of a hard break between the two sentences. */
+        .plan-welcome-sub { margin: 10px 0 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.47; color: #6E5A4A; text-align: center; text-wrap: balance; }
         .plan-welcome-add { margin-top: 28px; width: 100%; height: 54px; border-radius: 27px; border: none; background: var(--op-add); color: var(--op-add-ink); cursor: pointer;
                             display: flex; align-items: center; justify-content: center; gap: 10px; font-family: 'Lato', sans-serif; font-size: calc(16px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .plan-welcome-add svg { width: 18px; height: 18px; flex: none; }
