@@ -4304,12 +4304,14 @@ function ProvisionsApp() {
 
     if (!catalogLine && !mealLine) return null;
     // Text size pass 2: both sub-lines are meta 14 at k 1 (they sat fixed at 12.5 px, the same
-    // size at Default and XXL). The teal of the "For {meal}" line is a separate ruling.
+    // size at Default and XXL). The "For {meal}" line is teal TEXT at body size, so it takes the
+    // text teal #0A776D (4.96:1 on cream; brand #0D9488 read 3.43:1) — ruling 2026-10-07: brand
+    // teal stays on fills, strokes and large text only.
     const base = { fontFamily: "'Lato', sans-serif", fontSize: ts(14), letterSpacing: "0.3px", marginTop: "3px" };
     return (
       <>
         {catalogLine && <div style={{ ...base, color: "#8A5F3A" }}>{catalogLine}</div>}
-        {mealLine && <div style={{ ...base, color: "#0D9488" }}>{mealLine}</div>}
+        {mealLine && <div style={{ ...base, color: "#0A776D" }}>{mealLine}</div>}
       </>
     );
   }, [mealProvenance, user?.id]);
