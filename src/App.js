@@ -6552,9 +6552,12 @@ function ProvisionsApp() {
         .shop-seg { flex: none; height: 46px; border-radius: 11px; border: 1px solid #E8D5B7; background: #fff; display: flex; overflow: hidden; }
         .shop-seg button { border: none; background: none; padding: 0 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A; cursor: pointer; transition: background .15s, color .15s; }
         .shop-seg button.on { background: #A0724A; color: #fff; }
-        .store-line { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin: -6px 2px 12px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+        /* Text size pass 2, slice 3: meta 14 at k 1 in #8A5F3A (the #8a7a60 it replaced read 3.82:1 on
+           cream). flex-wrap lets a long store name drop below "Shopping at" at XXL instead of
+           wrapping inside its own word-box; the chevron is a glyph at the 12.5 floor. */
+        .store-line { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin: -6px 2px 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; cursor: pointer; }
         .store-line b { color: #2C1A0E; font-weight: 700; }
-        .store-line .chev { font-size: 0.7rem; color: #8A5F3A; }
+        .store-line .chev { font-size: calc(12.5px * var(--op-text-scale)); color: #8A5F3A; }
         .store-line .store-set { color: #8A5F3A; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
         .az-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; margin: 2px 0 6px; }
         /* A–Z is a different MODE, not the same rows minus headers: one flat list, small circle, no provenance, no prices.
@@ -8416,9 +8419,12 @@ function ProvisionsApp() {
             {!storePromptVisible && activeSession && (
               <div className="store-line" onClick={() => setStorePromptOpen(true)} role="button" tabIndex={0}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setStorePromptOpen(true); }}>
-                Shopping at {activeSession.store_name_raw
+                {/* The name and its chevron are ONE flex item: with flex-wrap on the line, a long
+                    name drops below "Shopping at" at XXL and the chevron stays on the name's last
+                    word instead of landing alone on a line of its own. */}
+                Shopping at <span>{activeSession.store_name_raw
                   ? <b>{activeSession.store_name_raw}</b>
-                  : <span className="store-set">Set store</span>} <span className="chev">▾</span>
+                  : <span className="store-set">Set store</span>} <span className="chev">▾</span></span>
               </div>
             )}
             {totalItems === 0 ? (
