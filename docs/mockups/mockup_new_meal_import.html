@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New Meal Import</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,600&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cream:#FAF3EC; --sheet:#FBF4EE; --fieldbg:#F4EBDD; --card:#F1E7D8; --line:#E8D5B7; --sand:#D9BC8C;
+  --esp:#2B1E16; --esp-deep:#1E130C; --ink:#2B1E16; --brown:#8A5F3A; --muted:#A8957F; --note:#5C4A3C;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#E9E0D4;font-family:Lato,system-ui,sans-serif;color:var(--ink);padding:24px 16px 64px}
+header.doc{max-width:1200px;margin:0 auto 24px}
+header.doc h1{font-family:"Playfair Display",serif;font-size:28px;margin-bottom:6px}
+header.doc p{color:var(--note);font-size:15px;line-height:1.5;max-width:780px}
+.row{display:flex;flex-wrap:wrap;gap:28px;justify-content:center;max-width:1200px;margin:0 auto}
+.frame{width:360px;max-width:100%}
+.label{font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--brown);font-weight:700;margin-bottom:4px}
+.title{font-family:"Playfair Display",serif;font-size:19px;margin-bottom:10px}
+.note{font-size:13.5px;line-height:1.5;color:var(--note);margin-top:12px;background:#F6EFE6;border-left:3px solid var(--sand);padding:10px 12px;border-radius:0 8px 8px 0}
+.note b{color:var(--ink)}
+
+/* phone */
+.phone{background:#8C7D72;border-radius:28px;overflow:hidden;box-shadow:0 10px 30px rgba(43,30,22,.18);height:780px;position:relative;display:flex;flex-direction:column}
+.topbar{background:var(--esp-deep);color:var(--brown);display:flex;align-items:center;justify-content:space-between;padding:12px 14px;font-size:13px;letter-spacing:.14em;flex:none}
+.avatar{width:30px;height:30px;border-radius:50%;background:#1F5F55;color:#E8D5B7;display:grid;place-items:center;font-size:11.5px;letter-spacing:0;font-weight:700}
+.sheet{background:var(--sheet);margin:6px 10px 0;border-radius:20px 20px 0 0;flex:1;padding:16px 16px 0;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.shead{display:flex;justify-content:space-between;align-items:flex-start}
+.h2{font-family:"Playfair Display",serif;font-weight:700;font-size:24px}
+.x{font-size:18px;color:var(--esp)}
+.body{flex:1;overflow:hidden}
+.lab{font-size:11.5px;letter-spacing:.16em;color:var(--brown);margin-top:14px;text-transform:uppercase}
+.inp{background:var(--fieldbg);border:1.5px solid var(--line);border-radius:9px;padding:9px 11px;font-size:14.5px;color:var(--muted);margin-top:6px}
+.inp.filled{color:var(--ink)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.chips span{border:1.5px solid var(--line);border-radius:999px;padding:4px 11px;font-size:13px;font-weight:700;color:#5A3E28;background:var(--sheet)}
+.chips span.on{background:var(--esp);color:var(--cream);border-color:var(--esp)}
+.hint{font-size:12.5px;color:var(--brown);margin-top:6px}
+.dashed{border:1.5px dashed var(--line);border-radius:9px;padding:10px;text-align:center;font-size:13px;color:var(--brown);margin-top:6px}
+.or{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:11.5px;letter-spacing:.16em;color:var(--muted);font-weight:700}
+.or:before,.or:after{content:"";flex:1;height:1px;background:var(--line)}
+/* bring row */
+.bring{display:flex;align-items:center;gap:8px;margin-top:12px;border:1.5px solid var(--line);border-radius:12px;padding:9px 10px;background:var(--card)}
+.bring .t{flex:1}
+.eb{font-size:11.5px;letter-spacing:.14em;font-weight:700;color:var(--brown);text-transform:uppercase}
+.bring small{display:block;font-size:12px;color:var(--note);margin-top:2px}
+.pill{border:1.5px solid var(--sand);border-radius:999px;padding:6px 11px;font-size:13px;font-weight:700;background:var(--sheet);display:flex;align-items:center;gap:5px;white-space:nowrap}
+.pill svg{width:15px;height:15px;stroke:var(--esp);fill:none;stroke-width:1.7}
+/* ai block */
+.ai{margin-top:12px;border:1.5px solid var(--line);border-radius:12px;padding:11px;background:var(--card)}
+.ai .row2{display:flex;gap:8px;margin-top:8px}
+.ai .ta{flex:1;background:#FFFDFA;border:1.5px solid var(--line);border-radius:9px;padding:8px 10px;font-size:13.5px;color:var(--muted);height:46px}
+.mic{width:46px;height:46px;border-radius:10px;background:var(--esp);display:grid;place-items:center}
+.mic svg{width:18px;height:18px;stroke:var(--cream);fill:none;stroke-width:1.8}
+.ai p{font-size:12px;color:var(--note);margin-top:7px;line-height:1.4}
+/* collapsed */
+.gone{margin-top:14px;font-size:12.5px;color:var(--muted);text-align:center;font-style:italic}
+/* picked */
+.picked{margin-top:12px;border:1.5px solid var(--sand);border-radius:12px;padding:10px;background:var(--card)}
+.thumbs{display:flex;gap:7px;margin-top:9px}
+.th{width:58px;height:78px;border-radius:7px;background:linear-gradient(#fff,#f2ebe2);border:1px solid var(--line);position:relative;padding:8px 6px;display:flex;flex-direction:column;gap:4px}
+.th i{display:block;height:4px;border-radius:2px;background:#E3D6C4}
+.th b{position:absolute;top:-6px;left:-6px;width:19px;height:19px;border-radius:50%;background:var(--esp);color:var(--cream);font-size:11px;display:grid;place-items:center}
+.th.add{border-style:dashed;background:var(--sheet);display:grid;place-items:center;font-size:22px;color:var(--brown)}
+.prow{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+.txt{font-size:13.5px;color:var(--brown);font-weight:700}
+.dark{background:var(--esp);color:var(--cream);border-radius:999px;padding:8px 16px;font-size:13.5px;font-weight:700}
+/* reading */
+.reading{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 10px}
+.stack{position:relative;width:120px;height:150px}
+.stack .th{position:absolute;width:96px;height:128px}
+.ember{position:relative;width:13px;height:13px;border-radius:50%;background:var(--brown);margin:30px auto 14px}
+.ember:after{content:"";position:absolute;inset:-7px;border-radius:50%;border:2px solid var(--sand);opacity:.7}
+.reading h3{font-family:"Playfair Display",serif;font-size:20px}
+.reading p{font-size:13.5px;color:var(--brown);margin-top:5px}
+/* filled */
+.banner{display:flex;justify-content:space-between;align-items:center;background:var(--card);border-radius:10px;padding:8px 10px;margin-top:10px;font-size:12.5px;color:var(--note)}
+.banner b{color:var(--ink)}
+.banner a{color:var(--brown);font-weight:700;text-decoration:underline;text-underline-offset:3px}
+.ing{list-style:none;margin-top:6px;border-top:1px solid var(--line)}
+.ing li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.ing .q{color:var(--brown);font-size:12.5px;white-space:nowrap}
+.chip{font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.chip.new{border:1px solid var(--brown);color:var(--brown)}
+.chip.check{background:#F3DFC8;color:#7A4A1E}
+.flag{display:block;font-size:11.5px;color:#7A4A1E}
+.steps{font-size:13px;color:var(--brown);margin-top:6px;border:1.5px solid var(--line);border-radius:9px;padding:7px 10px;display:flex;justify-content:space-between}
+.quote{background:#FFFDFA;border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin-top:8px;font-size:13.5px;line-height:1.4}
+.quote i{font-family:"Playfair Display",serif;font-style:italic;font-weight:600}
+.quote small{display:block;color:var(--brown);font-size:12px;margin-top:2px}
+/* footer */
+.foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 0 14px;background:var(--sheet);border-top:1px solid var(--line);flex:none}
+.cancel{border:1.5px solid var(--sand);border-radius:9px;padding:9px 18px;font-size:14.5px;color:var(--note);background:var(--sheet)}
+.save{border-radius:9px;padding:9px 20px;font-size:14.5px;background:#D8BFA4;color:#FFF7EE}
+.save.live{background:var(--sand);color:var(--esp);font-weight:700}
+.helm{background:var(--esp);margin:0 10px 10px;border-radius:999px;display:flex;justify-content:space-around;padding:11px 0;color:var(--sand);font-size:11px;letter-spacing:.14em;flex:none}
+.helm b{color:var(--cream);font-weight:400}
+.legend{max-width:1200px;margin:36px auto 0;background:var(--cream);border-radius:16px;padding:20px;font-size:14.5px;line-height:1.55}
+.legend h2{font-family:"Playfair Display",serif;font-size:21px;margin-bottom:8px}
+.legend li{margin:6px 0 0 18px}
+</style>
+</head>
+<body>
+
+<header class="doc">
+  <h1>New Meal — three ways in, one form</h1>
+  <p>Drawn against the live New Meal sheet. Ask AI keeps its place under the first OR; import adds one compact row under a second OR, below it. A recipe that arrives — from screenshots, pasted text, or later from Andrew — <b>fills this same form</b>, exactly as Ask AI already does. One editor, one Save Meal. Supersedes frames 1–3 and 6 of <code>mockup_recipe_arrival.html</code>; frames 4–5 there (share code, Home notice) still stand.</p>
+</header>
+
+<div class="row">
+
+<!-- 1 -->
+<div class="frame">
+  <div class="label">1 · Opens</div>
+  <div class="title">Type it — or ask for it — or bring it</div>
+  <div class="phone">
+    <div class="topbar"><span class="avatar">DT</span><span>⚓ NO MEALS ⚓</span><span>•••</span></div>
+    <div class="sheet">
+      <div class="shead"><div class="h2">New Meal</div><div class="x">✕</div></div>
+      <div class="body">
+        <div class="lab">Meal name</div><div class="inp">Taco Night</div>
+        <div class="lab">Good for</div>
+        <div class="chips"><span>Dinner</span><span>Breakfast</span><span>Lunch</span><span>Snack</span><span>Side</span><span>Appetizer</span><span>Dessert</span></div>
+        <div class="lab">Ingredients</div><div class="inp">Search your catalog…</div>
+        <div class="lab">Steps</div><div class="dashed">No steps yet — write them, or ask the galley.</div>
+        <div class="or">OR</div>
+        <div class="ai">
+          <div class="eb">✧ Ask AI to build it</div>
+          <div class="row2"><div class="ta">Tell me what you're in the mood for…</div><div class="mic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></div></div>
+          <p>You'll get one meal, filled into the fields above to review and edit before saving. This replaces what's there now.</p>
+          <div style="margin-top:9px;border-radius:12px;padding:10px;text-align:center;background:#E8D5B7;color:#9a8a78;font-weight:700;font-size:13.5px">Ask the Galley</div>
+        </div>
+        <div class="or">OR</div>
+        <div class="bring">
+          <div class="t"><div class="eb">Bring a recipe</div><small>Screenshots or copied text</small></div>
+          <span class="pill"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>Photo</span>
+          <span class="pill"><svg viewBox="0 0 24 24"><rect x="6" y="4" width="12" height="17" rx="2"/><path d="M9 4V3h6v1M9 10h6M9 14h6"/></svg>Paste</span>
+        </div>
+      </div>
+      <div class="foot"><span class="cancel">Cancel</span><span class="save">Save Meal</span></div>
+    </div>
+    <div class="helm"><span>HOME</span><b>PLAN</b><span>BROWSE</span><span>SHOP</span></div>
+  </div>
+  <div class="note"><b>Ask AI stays second</b> — the Galley keeps its place and its muscle memory. Bring is <b>one row</b> under it, so it adds little height, but it sits below the fold on a phone: you scroll past Ask AI to reach it. The Ask AI block is <b>exactly as live</b> — fine print, then the Ask the Galley button.</div>
+</div>
+
+<!-- 2 -->
+<div class="frame">
+  <div class="label">2 · Building by hand</div>
+  <div class="title">Doors step aside once you start</div>
+  <div class="phone">
+    <div class="topbar"><span class="avatar">DT</span><span>⚓ NO MEALS ⚓</span><span>•••</span></div>
+    <div class="sheet">
+      <div class="shead"><div class="h2">New Meal</div><div class="x">✕</div></div>
+      <div class="body">
+        <div class="lab">Meal name</div><div class="inp filled">Taco Night</div>
+        <div class="lab">Good for</div>
+        <div class="chips"><span class="on">Dinner</span><span>Breakfast</span><span>Lunch</span><span>Snack</span><span>Side</span><span>Appetizer</span><span>Dessert</span></div>
+        <div class="lab">Ingredients</div><div class="inp">Search your catalog…</div>
+        <ul class="ing"><li><span>Ground beef</span><span class="q">1 lb</span></li><li><span>Taco shells</span><span class="q">1 box</span></li><li><span>Cheddar</span><span class="q">1 cup</span></li></ul>
+        <div class="lab">Steps</div><div class="dashed">No steps yet — write them, or ask the galley.</div>
+        <div class="gone">Both OR blocks are hidden — they return if you clear the form.</div>
+      </div>
+      <div class="foot"><span class="cancel">Cancel</span><span class="save live">Save Meal</span></div>
+    </div>
+    <div class="helm"><span>HOME</span><b>PLAN</b><span>BROWSE</span><span>SHOP</span></div>
+  </div>
+  <div class="note"><b>The 10-03 rule, now covering both doors.</b> Anything hand-built hides Bring and Ask AI; an emptied form brings them back. Typing the name alone does <i>not</i> hide them — a name is often the prompt for the Galley.</div>
+</div>
+
+<!-- 3 -->
+<div class="frame">
+  <div class="label">3 · Photo picked</div>
+  <div class="title">Several screenshots, read as one recipe</div>
+  <div class="phone">
+    <div class="topbar"><span class="avatar">DT</span><span>⚓ NO MEALS ⚓</span><span>•••</span></div>
+    <div class="sheet">
+      <div class="shead"><div class="h2">New Meal</div><div class="x">✕</div></div>
+      <div class="body">
+        <div class="lab">Meal name</div><div class="inp">Taco Night</div>
+        <div class="lab">Good for</div>
+        <div class="chips"><span>Dinner</span><span>Breakfast</span><span>Lunch</span><span>Snack</span><span>Side</span><span>Appetizer</span><span>Dessert</span></div>
+        <div class="lab">Ingredients</div><div class="inp">Search your catalog…</div>
+        <div class="or">OR</div>
+        <div class="picked">
+          <div class="eb">Bring a recipe · 3 screenshots</div>
+          <div class="thumbs">
+            <div class="th"><b>1</b><i></i><i style="width:70%"></i><i></i><i style="width:80%"></i><i></i></div>
+            <div class="th"><b>2</b><i style="width:60%"></i><i></i><i></i><i style="width:75%"></i></div>
+            <div class="th"><b>3</b><i></i><i style="width:85%"></i><i style="width:50%"></i></div>
+            <div class="th add">+</div>
+          </div>
+          <div class="hint">Up to 4, read together as one recipe — any order is fine.</div>
+          <div class="prow"><span class="txt">Clear</span><span class="dark">Read these</span></div>
+        </div>
+      </div>
+      <div class="foot"><span class="cancel">Cancel</span><span class="save">Save Meal</span></div>
+    </div>
+    <div class="helm"><span>HOME</span><b>PLAN</b><span>BROWSE</span><span>SHOP</span></div>
+  </div>
+  <div class="note"><b>The row grows only after you pick.</b> Ask AI hides while photos are waiting — one door in play at a time. <b>Paste</b> works the same way: the row opens into a text box with <b>Read this</b>. Reading replaces what's in the form, as Ask AI's fine print already says.</div>
+</div>
+
+<!-- 4 -->
+<div class="frame">
+  <div class="label">4 · Reading</div>
+  <div class="title">The Ask AI wait, reused</div>
+  <div class="phone">
+    <div class="topbar"><span class="avatar">DT</span><span>⚓ NO MEALS ⚓</span><span>•••</span></div>
+    <div class="sheet">
+      <div class="shead"><div class="h2">New Meal</div><div class="x">✕</div></div>
+      <div class="reading">
+        <div class="stack">
+          <div class="th" style="left:0;top:14px;transform:rotate(-6deg)"><i></i><i></i></div>
+          <div class="th" style="left:12px;top:6px;transform:rotate(-1deg)"><i></i><i style="width:70%"></i></div>
+          <div class="th" style="left:24px;top:0;transform:rotate(5deg)"><i></i><i style="width:80%"></i><i></i><i style="width:60%"></i><i></i></div>
+        </div>
+        <div class="ember"></div>
+        <h3>Reading 3 screenshots…</h3>
+        <p>Usually 10 to 20 seconds.</p>
+        <p class="txt" style="margin-top:18px">Cancel</p>
+      </div>
+      <div class="foot"><span class="cancel">Cancel</span><span class="save">Save Meal</span></div>
+    </div>
+    <div class="helm"><span>HOME</span><b>PLAN</b><span>BROWSE</span><span>SHOP</span></div>
+  </div>
+  <div class="note"><b>D4/D5.</b> Screenshots go to the reader and are then discarded — never a meal photo. Cancel returns to frame 3 with the picks intact. Wait time to be measured on dev.</div>
+</div>
+
+<!-- 5 -->
+<div class="frame">
+  <div class="label">5 · Filled from screenshots</div>
+  <div class="title">The same form — checked, then saved</div>
+  <div class="phone">
+    <div class="topbar"><span class="avatar">DT</span><span>⚓ NO MEALS ⚓</span><span>•••</span></div>
+    <div class="sheet">
+      <div class="shead"><div class="h2">New Meal</div><div class="x">✕</div></div>
+      <div class="banner"><span><b>Filled from your screenshots.</b> Check it over.</span><a>Start over</a></div>
+      <div class="body">
+        <div class="lab">Meal name</div><div class="inp filled">Lemony Skillet Chicken Thighs</div>
+        <div class="lab">From</div><div class="inp filled">@saltandsunday on Instagram</div>
+        <div class="lab">Good for</div>
+        <div class="chips"><span class="on">Dinner</span><span>Breakfast</span><span>Lunch</span><span>Snack</span></div>
+        <div class="lab">Ingredients</div>
+        <ul class="ing">
+          <li><span>Chicken thighs</span><span class="q">8</span></li>
+          <li><span>Lemons</span><span class="q">2</span></li>
+          <li><span>Garlic</span><span class="q">4 cloves</span></li>
+          <li><span>Castelvetrano olives</span><span class="chip new">New item</span></li>
+          <li><span>Sumac<span class="flag">Couldn't read the amount</span></span><span class="chip check">Check this</span></li>
+        </ul>
+        <div class="lab">Steps</div><div class="steps"><span>5 steps</span><span>Edit ›</span></div>
+      </div>
+      <div class="foot"><span class="cancel">Cancel</span><span class="save live">Save Meal</span></div>
+    </div>
+    <div class="helm"><span>HOME</span><b>PLAN</b><span>BROWSE</span><span>SHOP</span></div>
+  </div>
+  <div class="note"><b>D3.</b> “New item” rows aren't in the catalog yet. <b>Save Meal</b> writes new items + meal + ingredients in one transaction; Cancel or Start over leaves zero rows. <b>D6:</b> “From” appears only when a recipe arrived, filled by the reader, editable. <b>Start over</b> clears to frame 1.</div>
+</div>
+
+<!-- 6 -->
+<div class="frame">
+  <div class="label">6 · Later: shared by Andrew</div>
+  <div class="title">Sharing opens this form too</div>
+  <div class="phone">
+    <div class="topbar"><span class="avatar">DT</span><span>⚓ NO MEALS ⚓</span><span>•••</span></div>
+    <div class="sheet">
+      <div class="shead"><div class="h2">New Meal</div><div class="x">✕</div></div>
+      <div class="banner"><span><b>Shared by Andrew.</b> It's your copy to change.</span></div>
+      <div class="quote"><i>“Easton's favourite. Don't skip the pickle.”</i><small>— Andrew</small></div>
+      <div class="body">
+        <div class="lab">Meal name</div><div class="inp filled">Easton's Famous Grilled Cheese &amp; Pickle</div>
+        <div class="lab">From</div><div class="inp filled">Easton</div>
+        <div class="lab">Good for</div>
+        <div class="chips"><span class="on">Lunch</span><span>Dinner</span><span>Snack</span></div>
+        <div class="lab">Ingredients</div>
+        <ul class="ing">
+          <li><span>Sourdough bread</span><span class="q">4 slices</span></li>
+          <li><span>Sharp cheddar</span><span class="q">4 slices</span></li>
+          <li><span>Butter</span><span class="q">2 tbsp</span></li>
+          <li><span>Dill pickles</span><span class="chip new">New item</span></li>
+        </ul>
+      </div>
+      <div class="foot"><span class="cancel">Not for us</span><span class="save live">Add to our meals</span></div>
+    </div>
+    <div class="helm"><span>HOME</span><b>PLAN</b><span>BROWSE</span><span>SHOP</span></div>
+  </div>
+  <div class="note"><b>For SPEC_meal_sharing_v2, not this build.</b> Same form, same save path, plus a banner and Andrew's note (not editable — his words). Button wording here is the open question: Save Meal vs Add to our meals.</div>
+</div>
+
+</div>
+
+<section class="legend">
+  <h2>What this mockup decides</h2>
+  <ul>
+    <li><b>No separate arrival sheet.</b> Every outside recipe fills the New Meal form, the contract Ask AI already set (“filled into the fields above… replaces what's there now”).</li>
+    <li><b>Order: Type it → OR → Ask AI → OR → Bring a recipe.</b> Bring is one row The row expands only after a pick.</li>
+    <li><b>Photo takes up to 4 screenshots</b>, read as one recipe in the chosen order. A visible creator handle fills From as “@handle on Instagram”.</li>
+    <li><b>One door in play at a time:</b> hand-building hides both doors; picking photos hides Ask AI; a filled form shows no doors, only Start over.</li>
+    <li><b>Additions to the form, only when a recipe arrived:</b> the banner with Start over, the From field, and New item / Check this chips. A hand-built meal looks exactly as it does today.</li>
+    <li><b>No teal</b> — nothing here is a completion.</li>
+    <li><b>Ask AI block unchanged</b> — label, mic, fine print and the Ask the Galley button stay as shipped (reviewed 10-07; both alternatives declined).</li>
+    <li><b>Open:</b> eyebrow for pasted text (“Filled from what you pasted”?); the sharing button wording (frame 6).</li>
+  </ul>
+</section>
+
+</body>
+</html>

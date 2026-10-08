@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask AI Send</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,600&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --sheet:#FBF4EE; --fieldbg:#F4EBDD; --card:#F1E7D8; --line:#E8D5B7; --sand:#D9BC8C;
+  --esp:#2B1E16; --esp-deep:#1E130C; --ink:#2B1E16; --brown:#8A5F3A; --clay:#A0724A; --muted:#A8957F; --note:#5C4A3C;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#E9E0D4;font-family:Lato,system-ui,sans-serif;color:var(--ink);padding:24px 16px 64px}
+header.doc{max-width:1200px;margin:0 auto 24px}
+header.doc h1{font-family:"Playfair Display",serif;font-size:28px;margin-bottom:6px}
+header.doc p{color:var(--note);font-size:15px;line-height:1.5;max-width:780px}
+.row{display:flex;flex-wrap:wrap;gap:28px;justify-content:center;max-width:1200px;margin:0 auto}
+.frame{width:360px;max-width:100%}
+.label{font-size:12.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--brown);font-weight:700;margin-bottom:4px}
+.title{font-family:"Playfair Display",serif;font-size:19px;margin-bottom:10px}
+.note{font-size:13.5px;line-height:1.5;color:var(--note);margin-top:12px;background:#F6EFE6;border-left:3px solid var(--sand);padding:10px 12px;border-radius:0 8px 8px 0}
+.note b{color:var(--ink)}
+.note.bad{border-left-color:#B5643C}
+.note.lean{border-left-color:var(--esp)}
+
+.phone{background:#8C7D72;border-radius:28px;overflow:hidden;box-shadow:0 10px 30px rgba(43,30,22,.18);height:700px;position:relative;display:flex;flex-direction:column}
+.topbar{background:var(--esp-deep);color:var(--brown);display:flex;align-items:center;justify-content:space-between;padding:12px 14px;font-size:13px;letter-spacing:.14em;flex:none}
+.avatar{width:30px;height:30px;border-radius:50%;background:#1F5F55;color:#E8D5B7;display:grid;place-items:center;font-size:11.5px;letter-spacing:0;font-weight:700}
+.sheet{background:var(--sheet);margin:6px 10px 0;border-radius:20px 20px 0 0;flex:1;padding:0 16px;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.body{flex:1;overflow:hidden;position:relative}
+.scrolled{position:absolute;left:0;right:0;bottom:0}
+.lab{font-size:11.5px;letter-spacing:.16em;color:var(--brown);margin-top:14px;text-transform:uppercase}
+.dashed{border:1.5px dashed var(--line);border-radius:9px;padding:10px;text-align:center;font-size:13px;color:var(--brown);margin-top:6px}
+.or{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:11.5px;letter-spacing:.16em;color:var(--muted);font-weight:700}
+.or:before,.or:after{content:"";flex:1;height:1px;background:var(--line)}
+.ai{margin-top:12px;border:1.5px solid rgba(160,114,74,.22);border-radius:14px;padding:12px;background:rgba(160,114,74,.06)}
+.eb{font-size:11.5px;letter-spacing:.12em;font-weight:900;color:var(--brown);text-transform:uppercase}
+.row2{display:flex;gap:8px;margin-top:9px;align-items:flex-start}
+.ta{flex:1;background:#FFFDF9;border:1.5px solid var(--clay);border-radius:10px;padding:10px 11px;font-size:14px;color:var(--ink);min-height:46px;line-height:1.35;position:relative}
+.ta .caret{display:inline-block;width:1.5px;height:15px;background:var(--esp);vertical-align:-2px;margin-left:1px}
+.sqbtn{width:46px;height:46px;border-radius:10px;background:var(--esp);display:grid;place-items:center;flex:none}
+.sqbtn svg{width:18px;height:18px;stroke:#FAF3EC;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.sqbtn.send{background:var(--clay)}
+.sqbtn.ghost{background:transparent;border:1.5px solid var(--line)}
+.sqbtn.ghost svg{stroke:var(--esp)}
+.fine{font-size:12px;color:var(--note);margin-top:8px;line-height:1.4}
+.askbtn{margin-top:10px;width:100%;border-radius:12px;padding:11px;text-align:center;background:var(--clay);color:#FFFDF9;font-weight:700;font-size:14px}
+.bring{display:flex;align-items:center;gap:8px;margin-top:12px;border:1.5px solid var(--line);border-radius:12px;padding:9px 10px;background:var(--card)}
+.bring .t{flex:1}
+.bring small{display:block;font-size:12px;color:var(--note);margin-top:2px}
+.pill{border:1.5px solid var(--sand);border-radius:999px;padding:6px 11px;font-size:13px;font-weight:700;background:var(--sheet)}
+.foot{display:flex;justify-content:flex-end;gap:10px;padding:12px 0 12px;background:var(--sheet);border-top:1px solid var(--line);flex:none;position:relative;z-index:2;box-shadow:0 -10px 14px -6px rgba(251,244,238,1)}
+.cancel{border:1.5px solid var(--sand);border-radius:9px;padding:9px 18px;font-size:14.5px;color:var(--note);background:var(--sheet)}
+.save{border-radius:9px;padding:9px 20px;font-size:14.5px;background:#D8BFA4;color:#FFF7EE}
+.kb{background:#D1D3D9;height:236px;flex:none;padding:8px 4px;display:flex;flex-direction:column;gap:9px}
+.kb div{display:flex;gap:5px;justify-content:center}
+.kb span{background:#fff;border-radius:5px;height:40px;flex:1;max-width:30px;box-shadow:0 1px 0 #999}
+.kb .wide span{max-width:none}
+.hidden-under{position:absolute;left:0;right:0;bottom:-30px;z-index:1}
+.hidden-under .askbtn{outline:2px dashed #B5643C;outline-offset:3px;opacity:.9}
+.tag{position:absolute;right:6px;bottom:58px;z-index:3;background:#B5643C;color:#fff;font-size:11.5px;font-weight:700;border-radius:6px;padding:3px 7px}
+.legend{max-width:1200px;margin:36px auto 0;background:#FAF3EC;border-radius:16px;padding:20px;font-size:14.5px;line-height:1.55}
+.legend h2{font-family:"Playfair Display",serif;font-size:21px;margin-bottom:8px}
+.legend li{margin:6px 0 0 18px}
+</style>
+</head>
+<body>
+
+<header class="doc">
+  <h1>Ask AI — where's the send?</h1>
+  <p>Each frame is the moment that matters: you've typed a request, the keyboard is up, and you're looking for the way to send it. Same request in all three. Order is the settled one: Type it → OR → Ask AI → OR → Bring a recipe.</p>
+</header>
+
+<div class="row">
+
+<!-- TODAY -->
+<div class="frame">
+  <div class="label">Today</div>
+  <div class="title">The button is under the footer</div>
+  <div class="phone">
+    <div class="topbar"><span class="avatar">DT</span><span>⚓ NO MEALS ⚓</span><span>•••</span></div>
+    <div class="sheet">
+      <div class="body"><div class="scrolled" style="bottom:-62px">
+        <div class="lab">Steps</div><div class="dashed">No steps yet — write them, or ask the galley.</div>
+        <div class="or">OR</div>
+        <div class="ai">
+          <div class="eb">✧ Ask AI to build it</div>
+          <div class="row2">
+            <div class="ta">something quick with salmon<span class="caret"></span></div>
+            <div class="sqbtn"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></div>
+          </div>
+          <div class="fine">You'll get one meal, filled into the fields above to review and edit before saving. This replaces what's there now.</div>
+          <div class="askbtn">Ask the Galley</div>
+        </div>
+      </div></div>
+      <span class="tag">Ask the Galley is here ↓</span>
+      <div class="foot"><span class="cancel">Cancel</span><span class="save">Save Meal</span></div>
+    </div>
+    <div class="kb"><div><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="wide"><span style="max-width:80px"></span><span></span><span style="max-width:80px"></span></div></div>
+  </div>
+  <div class="note bad"><b>What you hit tonight.</b> The fine print pushes the button down, and the sticky footer covers it. Enter adds a new line. You type, then you hunt.</div>
+</div>
+
+<!-- OPTION 1 -->
+<div class="frame">
+  <div class="label">Option 1 · Button moves up</div>
+  <div class="title">Type, and the button is right there</div>
+  <div class="phone">
+    <div class="topbar"><span class="avatar">DT</span><span>⚓ NO MEALS ⚓</span><span>•••</span></div>
+    <div class="sheet">
+      <div class="body"><div class="scrolled" style="bottom:4px">
+        <div class="lab">Steps</div><div class="dashed">No steps yet — write them, or ask the galley.</div>
+        <div class="or">OR</div>
+        <div class="ai">
+          <div class="eb">✧ Ask AI to build it</div>
+          <div class="row2">
+            <div class="ta">something quick with salmon<span class="caret"></span></div>
+            <div class="sqbtn"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></div>
+          </div>
+          <div class="askbtn">Ask the Galley</div>
+          <div class="fine">One meal, filled into the fields above. Replaces what's there now.</div>
+        </div>
+      </div></div>
+      <div class="foot"><span class="cancel">Cancel</span><span class="save">Save Meal</span></div>
+    </div>
+    <div class="kb"><div><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="wide"><span style="max-width:80px"></span><span></span><span style="max-width:80px"></span></div></div>
+  </div>
+  <div class="note lean"><b>Lean.</b> Two changes: the button moves above the fine print, and the fine print shortens to one line. Mic, type-then-speak and the Galley name are all untouched. When you scroll on, Bring a recipe sits under the next OR.</div>
+</div>
+
+<!-- OPTION 2 -->
+<div class="frame">
+  <div class="label">Option 2 · Send arrow in the row</div>
+  <div class="title">Mic and arrow, side by side</div>
+  <div class="phone">
+    <div class="topbar"><span class="avatar">DT</span><span>⚓ NO MEALS ⚓</span><span>•••</span></div>
+    <div class="sheet">
+      <div class="body"><div class="scrolled" style="bottom:4px">
+        <div class="lab">Steps</div><div class="dashed">No steps yet — write them, or ask the galley.</div>
+        <div class="or">OR</div>
+        <div class="ai">
+          <div class="eb">✧ Ask AI to build it</div>
+          <div class="row2">
+            <div class="ta">something quick with salmon<span class="caret"></span></div>
+            <div class="sqbtn ghost"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/></svg></div>
+            <div class="sqbtn send"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></div>
+          </div>
+          <div class="fine">One meal, filled into the fields above. Replaces what's there now.</div>
+        </div>
+        <div class="or">OR</div>
+        <div class="bring">
+          <div class="t"><div class="eb">Bring a recipe</div><small>Screenshots or copied text</small></div>
+          <span class="pill">Photo</span><span class="pill">Paste</span>
+        </div>
+      </div></div>
+      <div class="foot"><span class="cancel">Cancel</span><span class="save">Save Meal</span></div>
+    </div>
+    <div class="kb"><div><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="wide"><span style="max-width:80px"></span><span></span><span style="max-width:80px"></span></div></div>
+  </div>
+  <div class="note"><b>Most compact</b> — the full-width button is gone, so Bring a recipe comes into view too. Mic stays visible for type-then-speak. <b>Costs:</b> the text box loses ~54px of width, tight at XXL text; and “Ask the Galley” leaves the screen, replaced by an unlabelled arrow.</div>
+</div>
+
+</div>
+
+<section class="legend">
+  <h2>What to decide</h2>
+  <ul>
+    <li><b>Option 1</b> is a small reorder inside the existing block — a plain instruction to Claude Code, no spec, can ship before import.</li>
+    <li><b>Option 2</b> changes the control itself and drops the Galley's name from the screen. Worth it only if vertical space on New Meal matters more than the label.</li>
+    <li><b>Either way, not doing:</b> Enter-to-send. On a phone Enter is the only way to make a new line, and a request read back by the mic can run long.</li>
+  </ul>
+</section>
+
+</body>
+</html>
