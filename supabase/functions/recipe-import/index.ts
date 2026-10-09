@@ -54,7 +54,10 @@ const CORS_HEADERS = {
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    // charset is explicit so a client that honours it (PowerShell's Invoke-WebRequest
+    // defaults to ISO-8859-1 without one) does not double-encode en-dashes and degree
+    // signs. fetch().json() is UTF-8 either way. Seen on the 2026-10-09 probe run.
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json; charset=utf-8" },
   });
 }
 
@@ -179,8 +182,10 @@ type Ingredient = {
  * answer — not guesses at the recipe:
  *
  * 0. Literal backslash-n → real newline (the 2026-09-01 lesson, same as the Galley).
- * 1. baseServings null → DEFAULT_SERVINGS. The recipe did not say; the form needs a
- *    number; 4 is what the Galley uses for the same silence. Logged.
+ * 1. baseServings null → DEFAULT_SERVINGS, and `servingsAssumed: true` so the client can
+ *    say so (ruling 2026-10-09). The recipe did not say; the form needs a number; 4 is
+ *    what the Galley uses for the same silence. A stated count gets `servingsAssumed:
+ *    false`. Logged either way.
  * 2. A readable quantity is rounded UP to a whole number (the stepper only holds whole
  *    numbers — see meal-suggestion for the full reasoning). A null quantity stays null
  *    and FORCES `uncertain` — a missing amount with no flag would be a silent guess of
@@ -208,10 +213,13 @@ function validateAndNormalizeDraft(d: Record<string, unknown>): string | null {
   if (d.baseServings === null || d.baseServings === undefined) {
     console.log(`baseServings not stated; defaulting to ${DEFAULT_SERVINGS}`);
     d.baseServings = DEFAULT_SERVINGS;
+    d.servingsAssumed = true;
   } else if (
     typeof d.baseServings !== "number" || !Number.isInteger(d.baseServings) || d.baseServings < 1
   ) {
     return `baseServings must be a whole number >= 1 or null, got ${JSON.stringify(d.baseServings)}`;
+  } else {
+    d.servingsAssumed = false;
   }
 
   if (!Array.isArray(d.ingredients) || d.ingredients.length === 0) {
@@ -587,7 +595,8 @@ Deno.serve(async (req: Request) => {
   console.log(
     `recipe-import ok sub=${caller.sub} kind=${parsed.kind} ${parsed.sizeNote} ` +
       `ingredients=${(d.ingredients as unknown[]).length} flagged=${flagged} ` +
-      `attribution=${d.attribution ? "yes" : "no"} occasion=${(d.occasion as unknown[]).length} ${usage}`,
+      `servingsAssumed=${d.servingsAssumed} attribution=${d.attribution ? "yes" : "no"} ` +
+      `occasion=${(d.occasion as unknown[]).length} ${usage}`,
   );
 
   return json({ ok: true, ...d });
