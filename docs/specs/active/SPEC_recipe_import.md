@@ -144,3 +144,42 @@ commit;
 - Wait time for 3–4 images: measure on dev; if it's routinely >20s, change the copy to what's true, don't pad.
 - Whether the Galley's "Not quite it? Ask the galley again" collapse needs an import equivalent ("Read something else") or whether Start over is enough. Lean: Start over is enough.
 - Per-user rate limit: mirror whatever `meal-suggestion` does today; if it does nothing, note it rather than inventing one here.
+
+---
+
+## Amendment — 2026-10-09 (chunk 1 build, dev; Dan's rulings during the probe)
+
+Recorded at build. Earlier sections stand as written; where this block differs, this block wins.
+
+- **`category` is in the output shape**, per ingredient, nullable. The Galley draft already
+  carries it and the client reads it on the NEW-item path (`createCatalogItem(ing.name, ing.category)`);
+  import lands through the same path. Null when the reader cannot tell.
+- **`servingsAssumed`** (boolean) is in the output shape. The reader emits `baseServings: null`
+  when the recipe states no count; the function substitutes 4 (the Galley's default for the same
+  silence) and sets `servingsAssumed: true`. **A stated count is never overridden** and carries
+  `servingsAssumed: false`.
+- **Eggs / countables rule.** A countable ingredient keeps the recipe's own count in `each`
+  (1 egg → `1 each`, 8 thighs → `8 each`). Never rounded to a package unit — no `dozen` for one
+  egg. Rounding to a package is the shopping list's job, not the import's.
+- **`asWritten`** (string | null) is in the output shape, per ingredient: the source line exactly
+  as shown, in the author's own spelling, abbreviations and units (`"2¼ c. flour"`,
+  `"4 teas. B.P."`, `"Juice of 1 lime"`); null when the line carries no amount. **Captured, not
+  modelled.** Three quantities exist in this product — shopping count, recipe amount with unit,
+  servings scaling — and only the shopping count is modelled today. Recipe quantity / servings /
+  units is deferred to its own design session; **no schema change** here. (This supersedes the
+  v3 build's prompt rule that wrote ingredient-list amounts into the steps; that is reverted.)
+- **Steps are byte-faithful.** Copied verbatim, including any amounts the author wrote in them.
+  Never add an amount to a step that didn't have one.
+- **Interim save (Dan, 2026-10-09; chunk 2 builds it).** The client puts the `asWritten` lines
+  into the meal's existing `instructions` text as one verbatim "As written" block at the top,
+  with the author's steps untouched below it. `meals.instructions` is a single nullable `text`
+  column (043); the Galley draft lands it with `setInstructions(draft.instructions)` and Save
+  writes it through `createMeal` / `updateMeal` unchanged.
+- **Edge Function ordering and timeout.** The handler reads the whole request body before
+  anything that can respond (an early 401 with a 1.25 MB body still in flight hung 161 s to a
+  platform 503 on 2026-10-09; the worker was killed at the 150 s wall clock and the relay
+  replayed). The Anthropic call is capped at 75 s with no SDK retries: a timeout is a clean
+  `504`, a connection failure a `502`, never a platform 503/504. `meal-suggestion` shares the
+  ordering hazard, latent at its body sizes; fixing it there is its own commit.
+- **Model literal stays shared with `meal-suggestion`** (`claude-opus-5`, effort low). Moving
+  both is a separate decision; neither moves alone.
