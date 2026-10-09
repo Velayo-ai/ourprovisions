@@ -105,6 +105,12 @@ const EMIT_RECIPE_TOOL = {
           type: "object",
           properties: {
             name: { type: "string", description: "Plain generic name, title case, singular, no amount. Never empty." },
+            asWritten: nullable({
+              type: "string",
+              description:
+                "The ingredient line exactly as the source shows it, author's own spelling and units " +
+                "('2¼ c. flour', 'Juice of 1 lime'). null when the source line carries no amount.",
+            }),
             quantity: nullable({
               type: "integer",
               description:
@@ -125,7 +131,7 @@ const EMIT_RECIPE_TOOL = {
               description: "One short plain sentence saying what could not be read. null when uncertain is false.",
             }),
           },
-          required: ["name", "quantity", "unit", "category", "uncertain", "note"],
+          required: ["name", "asWritten", "quantity", "unit", "category", "uncertain", "note"],
           additionalProperties: false,
         },
       },
@@ -166,6 +172,7 @@ const DEFAULT_SERVINGS = 4; // the Galley's documented default when a recipe sta
 
 type Ingredient = {
   name: string;
+  asWritten: string | null;
   quantity: number | null;
   unit: string | null;
   category?: string | null;
@@ -192,7 +199,10 @@ type Ingredient = {
  *    "the person will notice", which is exactly what the spec forbids.
  * 3. `uncertain`/`note` are emitted ONLY on flagged rows (spec's example shape); a clean
  *    row carries neither key. `category` null is dropped so the client's
- *    createCatalogItem default applies.
+ *    createCatalogItem default applies. `asWritten` is trimmed; empty → null. It is
+ *    CAPTURED, NOT MODELLED (ruling 2026-10-09): the recipe's own measure, kept as the
+ *    author's text so nothing is lost, until recipe quantity / servings / units gets
+ *    its own design session. No schema holds it; chunk 2 folds it into instructions.
  * 4. `occasion` is filtered to the seven 061 values and de-duplicated (the schema enum
  *    already pins it — this is the guarantee behind the keyword).
  * 5. `attribution` is trimmed; empty → null.
@@ -231,6 +241,7 @@ function validateAndNormalizeDraft(d: Record<string, unknown>): string | null {
     const ing = raw as Record<string, unknown>;
     if (!nonEmpty(ing.name)) return `ingredient ${i} has an empty name`;
     ing.name = (ing.name as string).trim();
+    ing.asWritten = nonEmpty(ing.asWritten) ? (ing.asWritten as string).trim() : null;
 
     let uncertain = ing.uncertain === true;
     let note = typeof ing.note === "string" && ing.note.trim() ? ing.note.trim() : null;

@@ -6,7 +6,7 @@ Spec: [`docs/specs/active/SPEC_recipe_import.md`](../../../docs/specs/active/SPE
 | | |
 |---|---|
 | **Contract** | `POST` → `{ kind: "images", images: [{ media_type, data_base64 }] }` (1–4) **or** `{ kind: "text", text }` (≤ 20,000 chars) |
-| **Returns** | `{ ok: true, name, baseServings, servingsAssumed, instructions, ingredients: [{ name, quantity, unit, category?, uncertain?, note? }], attribution, occasion }` — the Galley's draft shape plus three fields — **or** `{ ok: false, reason: "not_a_recipe" \| "unreadable" }` |
+| **Returns** | `{ ok: true, name, baseServings, servingsAssumed, instructions, ingredients: [{ name, asWritten, quantity, unit, category?, uncertain?, note? }], attribution, occasion }` — the Galley's draft shape plus three fields — **or** `{ ok: false, reason: "not_a_recipe" \| "unreadable" }` |
 | **Model** | `claude-opus-5`, effort `low` — **the same literal as `meal-suggestion`**; change both or neither |
 | **Tools** | Two `strict` tools: `emit_recipe`, `decline`. `disable_parallel_tool_use`, so exactly one call. |
 | **State** | None. No service-role key, no database reads, **no storage**. Screenshots are read and discarded (spec D5). |
@@ -44,10 +44,18 @@ recipe states no serving count (it is told not to estimate). The form needs a nu
 the Galley's default for the same silence, and the flag lets the client say "assumed"
 rather than present it as the recipe's own. A stated count carries `servingsAssumed: false`.
 
-**Amounts as written travel in the steps.** The ingredient row is a *shopping* count in the
-app's units, so "2¼ c. flour" has no home there. The prompt carries each ingredient's
-as-written amount into the step where it is first used, verbatim, when the author's own
-step does not already say it ("Comb. 2¼ c. flour - ½ t. salt w/ whisk"). Never converted.
+**`asWritten` — captured, not modelled** (ruling 2026-10-09, supersedes v3's step
+injection). Three quantities exist in this product: the shopping count, the recipe amount
+with its unit, and servings scaling. Only the shopping count is modelled today; recipe
+quantity / servings / units is its own future design session, and nothing here changes the
+schema. So each row carries the source line verbatim — `"2¼ c. flour"`, `"4 teas. B.P."`,
+`"Juice of 1 lime"` — or `null` when the line has no amount. Steps are copied byte-faithful
+and **never** gain an amount the author did not write. Chunk 2's interim save puts the
+`asWritten` lines into `meals.instructions` as one "As written" block above the untouched
+steps.
+
+**Countables keep the recipe's count, in `each`.** 1 egg is `1 each`, never `1 dozen`;
+8 thighs is `8 each`. Rounding to a package is the shopping list's job, not the import's.
 
 **`unit` may be `null`**, unlike the Galley, where a matched catalog item's unit wins and an
 unmatched one gets `each`. There is no catalog in this request; the client does the
