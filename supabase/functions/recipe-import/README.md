@@ -12,6 +12,18 @@ Spec: [`docs/specs/active/SPEC_recipe_import.md`](../../../docs/specs/active/SPE
 | **State** | None. No service-role key, no database reads, **no storage**. Screenshots are read and discarded (spec D5). |
 | **Auth** | `verifyCaller` copied verbatim from `meal-suggestion` — Clerk RS256 verified in-function against Clerk's JWKS. `verify_jwt = false` in `config.toml` for the same reason. |
 | **Rate limit** | **None**, mirroring `meal-suggestion` (which has none). Size caps only: 4 images, ~5 MB each, 20k chars of text, 6000 output tokens. |
+| **Timeout** | Anthropic call capped at 75 s, no SDK retries → clean `504` (`APIConnectionTimeoutError`). The platform wall clock is 150 s (free) and the gateway idle timeout 150 s; a function still waiting there dies as a bare 503/504. |
+
+## Read the body before you answer (2026-10-09)
+
+Version 1 verified the JWT before reading the body and returned 401 in 165 ms — the client
+got a **503 after 160 s**. A response sent while a large request body (1.25 MB here) is
+still in flight never leaves the relay; the worker sat until the 150 s wall clock killed
+it, the relay replayed the request to a fresh worker, same result, and the client saw a
+platform 503. Reproduced with a garbage token: 200-byte body → 401 in 0.5 s; same request
+with a 1.25 MB body → hang. The handler now drains `req.arrayBuffer()` first, then
+verifies, then parses. `meal-suggestion` has the same ordering and the same latent hang;
+its bodies are a few KB so it has never shown.
 
 ## What is logged, and what is not
 

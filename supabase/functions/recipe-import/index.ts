@@ -35,6 +35,13 @@ const MAX_TEXT_CHARS = 20_000;                // spec: paste cap, client trims +
 const MAX_IMAGE_B64_CHARS = 7_000_000;        // ~5 MB decoded — Anthropic's per-image ceiling
 const MAX_BODY_BYTES = 30_000_000;            // 4 images at the cap, plus JSON overhead
 const MAX_TOKENS = 6000;                      // a long recipe with 30 ingredients never needs more
+// Hard ceiling on the Anthropic round trip, with NO SDK retries. The platform's wall
+// clock is 150s on the free plan (400s paid) and the gateway's request idle timeout is
+// 150s regardless — a function still waiting at that point is killed and the client
+// sees a bare 503/504 with nothing in the body. 75s leaves room for boot, the JWKS
+// fetch and body parsing, and is well past the spec's "usually 10 to 20 seconds".
+// A legitimately slower read returns a clean 504 the client can show and retry.
+const ANTHROPIC_TIMEOUT_MS = 75_000;
 const ALLOWED_MEDIA_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 type MediaType = typeof ALLOWED_MEDIA_TYPES[number];
 
@@ -429,6 +436,24 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
+  // ⚠️ READ THE WHOLE BODY BEFORE ANYTHING THAT CAN RESPOND. Learned 2026-10-09, the
+  // hard way: version 1 verified the JWT first and returned 401 in 165 ms — and the
+  // client got a 503 after 160 s. With a 1.25 MB body still in flight, a response sent
+  // before the body is consumed never leaves the relay; the worker sat until the 150 s
+  // wall clock killed it, the relay replayed the request to a fresh worker (same
+  // result), and the client saw a platform 503. Reproduced with a garbage token: a
+  // 200-byte body answers 401 in 0.5 s, the same request with a 1.25 MB body hangs.
+  // meal-suggestion has the same ordering and the same latent hang; it never showed
+  // because its bodies are a few KB. Every early return below is safe ONLY because
+  // this read has already drained the stream.
+  let raw: Uint8Array;
+  try {
+    raw = new Uint8Array(await req.arrayBuffer());
+  } catch {
+    return json({ error: "Could not read request body" }, 400);
+  }
+  if (raw.byteLength > MAX_BODY_BYTES) return json({ error: "Request body too large" }, 400);
+
   const caller = await verifyCaller(req);
   if (!caller.ok) {
     // Logged at the one funnel point so a 401 is diagnosable from the logs — the
@@ -443,17 +468,9 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Server misconfigured" }, 500);
   }
 
-  // Cheap pre-read size gate. Content-Length is advisory (a client may omit it), so the
-  // per-image cap in parseInput is the real guarantee; this just refuses the obvious
-  // before buffering 30 MB of JSON.
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
-    return json({ error: "Request body too large" }, 400);
-  }
-
   let body: Record<string, unknown>;
   try {
-    body = await req.json();
+    body = JSON.parse(new TextDecoder().decode(raw));
     if (typeof body !== "object" || body === null || Array.isArray(body)) throw new Error("not an object");
   } catch {
     return json({ error: "Body must be a JSON object" }, 400);
@@ -462,7 +479,9 @@ Deno.serve(async (req: Request) => {
   const parsed = parseInput(body);
   if (!parsed.ok) return json({ error: parsed.reason }, 400);
 
-  const client = new Anthropic({ apiKey });
+  // maxRetries 0: the SDK's default of 2 retries on 408/429/5xx would stack three
+  // attempts inside one wall clock. One attempt, one clean answer; the person retries.
+  const client = new Anthropic({ apiKey, timeout: ANTHROPIC_TIMEOUT_MS, maxRetries: 0 });
   const started = Date.now();
 
   let response;
@@ -483,6 +502,16 @@ Deno.serve(async (req: Request) => {
       messages: [{ role: "user", content: parsed.content }],
     });
   } catch (err) {
+    // Most specific first. APIConnectionTimeoutError extends APIConnectionError extends
+    // APIError, so these two must be checked before the APIError catch-all below.
+    if (err instanceof Anthropic.APIConnectionTimeoutError) {
+      console.error(`anthropic timeout after ${Date.now() - started}ms ${parsed.sizeNote}`);
+      return json({ error: "The reading service took too long. Try again." }, 504);
+    }
+    if (err instanceof Anthropic.APIConnectionError) {
+      console.error("anthropic connection error", err.message);
+      return json({ error: "Could not reach the reading service." }, 502);
+    }
     if (err instanceof Anthropic.RateLimitError) {
       console.error("anthropic rate limited", err.message);
       return json({ error: "The reading service is busy. Try again in a moment." }, 429);
