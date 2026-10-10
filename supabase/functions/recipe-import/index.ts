@@ -26,6 +26,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.123.0";
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify } from "npm:jose@6.2.10";
 import { ALLOWED_OCCASIONS, ALLOWED_UNITS, SYSTEM_PROMPT } from "./prompt.ts";
+import { numberSteps } from "./steps.ts";
 
 // ---------------------------------------------------------------------------
 // Limits — cost control, since nothing else rate-limits this (mirrors meal-suggestion)
@@ -189,6 +190,11 @@ type Ingredient = {
  * answer — not guesses at the recipe:
  *
  * 0. Literal backslash-n → real newline (the 2026-09-01 lesson, same as the Galley).
+ *    Then THE FUNCTION NUMBERS THE STEPS (v5, ruling 2026-10-09): `numberSteps` strips any
+ *    marker the model wrote, joins a lowercase-led continuation line onto its step, and
+ *    writes "1. … 2. …" with no gaps. The words are the author's; the digits are ours.
+ *    This is the guarantee behind the client's preamble rule — a draft can never arrive
+ *    with its steps unnumbered and be swallowed into the preamble.
  * 1. baseServings null → DEFAULT_SERVINGS, and `servingsAssumed: true` so the client can
  *    say so (ruling 2026-10-09). The recipe did not say; the form needs a number; 4 is
  *    what the Galley uses for the same silence. A stated count gets `servingsAssumed:
@@ -214,11 +220,13 @@ function validateAndNormalizeDraft(d: Record<string, unknown>): string | null {
   d.name = (d.name as string).trim();
 
   if (!nonEmpty(d.instructions)) return "instructions are empty";
-  d.instructions = (d.instructions as string)
-    .replace(/\\r\\n/g, "\n")
-    .replace(/\\n/g, "\n")
-    .replace(/\\t/g, " ")
-    .trim();
+  d.instructions = numberSteps(
+    (d.instructions as string)
+      .replace(/\\r\\n/g, "\n")
+      .replace(/\\n/g, "\n")
+      .replace(/\\t/g, " "),
+  );
+  if (!nonEmpty(d.instructions)) return "instructions are empty after numbering";
 
   if (d.baseServings === null || d.baseServings === undefined) {
     console.log(`baseServings not stated; defaulting to ${DEFAULT_SERVINGS}`);

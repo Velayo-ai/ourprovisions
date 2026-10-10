@@ -9,6 +9,7 @@ Spec: [`docs/specs/active/SPEC_recipe_import.md`](../../../docs/specs/active/SPE
 | **Returns** | `{ ok: true, name, baseServings, servingsAssumed, instructions, ingredients: [{ name, asWritten, quantity, unit, category?, uncertain?, note? }], attribution, occasion }` — the Galley's draft shape plus three fields — **or** `{ ok: false, reason: "not_a_recipe" \| "unreadable" }` |
 | **Model** | `claude-opus-5`, effort `low` — **the same literal as `meal-suggestion`**; change both or neither |
 | **Tools** | Two `strict` tools: `emit_recipe`, `decline`. `disable_parallel_tool_use`, so exactly one call. |
+| **Steps** | **The function numbers them** (`steps.ts`, pure; `node --test steps_test.mjs`). The model emits one step per line, unnumbered; any marker it writes anyway is stripped, a lowercase-led line joins the step above, and the result is `1. … 2. …` with no gaps. Guarantee behind the client's preamble rule. |
 | **State** | None. No service-role key, no database reads, **no storage**. Screenshots are read and discarded (spec D5). |
 | **Auth** | `verifyCaller` copied verbatim from `meal-suggestion` — Clerk RS256 verified in-function against Clerk's JWKS. `verify_jwt = false` in `config.toml` for the same reason. |
 | **Rate limit** | **None**, mirroring `meal-suggestion` (which has none). Size caps only: 4 images, ~5 MB each, 20k chars of text, 6000 output tokens. |
@@ -53,6 +54,8 @@ schema. So each row carries the source line verbatim — `"2¼ c. flour"`, `"4 t
 and **never** gain an amount the author did not write. Chunk 2's interim save puts the
 `asWritten` lines into `meals.instructions` as one "As written" block above the untouched
 steps.
+
+**Fidelity in `asWritten` (v5).** Glyphs stay glyphs (`¾`, never `3/4`), abbreviations stay ("til cmy", "1 c. firm b. sugar"), and a hedged line is copied whole ("sumac (I think it was like 1 tbsp?? …)") — the hedge is the author's information, and the row is still flagged.
 
 **Countables keep the recipe's count, in `each`.** 1 egg is `1 each`, never `1 dozen`;
 8 thighs is `8 each`. Rounding to a package is the shopping list's job, not the import's.
@@ -102,4 +105,5 @@ await window.Clerk.session.getToken({ template: "supabase" })
 ## Follow-ups this function does not solve
 
 - **No rate limiting** — inherited from `meal-suggestion`, spec says mirror, not invent.
+- **Unit tests:** `node --test supabase/functions/recipe-import/steps_test.mjs` (Node 24, no Deno needed). The CLI deploys `index.ts`'s import graph only, so the test file never ships.
 - **Pins:** `npm:@anthropic-ai/sdk@0.123.0`, `npm:jose@6.2.10` — the same as `meal-suggestion`.
