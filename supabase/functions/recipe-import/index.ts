@@ -191,8 +191,8 @@ type Ingredient = {
  *
  * 0. Literal backslash-n → real newline (the 2026-09-01 lesson, same as the Galley).
  *    Then THE FUNCTION NUMBERS THE STEPS (v5, ruling 2026-10-09): `numberSteps` strips any
- *    marker the model wrote, joins a lowercase-led continuation line onto its step, and
- *    writes "1. … 2. …" with no gaps. The words are the author's; the digits are ours.
+ *    marker the model wrote (a bare "3." takes the next line as its body) and writes
+ *    "1. … 2. …" with no gaps — one line in, one step out, no joining heuristics. The words are the author's; the digits are ours.
  *    This is the guarantee behind the client's preamble rule — a draft can never arrive
  *    with its steps unnumbered and be swallowed into the preamble.
  * 1. baseServings null → DEFAULT_SERVINGS, and `servingsAssumed: true` so the client can

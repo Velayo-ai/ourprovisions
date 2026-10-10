@@ -26,15 +26,24 @@ test("a gap in the numbering closes", () => {
   assert.equal(numberSteps("1. A\n2. B\n4. C"), "1. A\n2. B\n3. C");
 });
 
-test("a sentence split across screens joins into one step", () => {
+test("a sentence split across screens arrives already joined by the model and stays one step", () => {
+  // The model stitches the two screenshots (set4's "Blend the Crema", 2026-10-09); the
+  // function must not re-split a long line, and must not join lines on its own either.
   const input =
-    "1. Blend the Crema: While the fish bakes, add the avocados, cottage cheese, avocado oil, lime juice, fresh parsley, and cumin to a\n" +
-    "blender or food processor. Blend on high until the sauce is incredibly smooth.\n" +
-    "2. Mix the Slaw: In a medium bowl, toss the shredded green and red cabbage.";
+    "Blend the Crema: While the fish bakes, add the avocados, cottage cheese, avocado oil, lime juice, fresh parsley, and cumin to a blender or food processor. Blend on high until the sauce is incredibly smooth.\n" +
+    "Mix the Slaw: In a medium bowl, toss the shredded green and red cabbage.";
   assert.equal(
     numberSteps(input),
     "1. Blend the Crema: While the fish bakes, add the avocados, cottage cheese, avocado oil, lime juice, fresh parsley, and cumin to a blender or food processor. Blend on high until the sauce is incredibly smooth.\n" +
     "2. Mix the Slaw: In a medium bowl, toss the shredded green and red cabbage.",
+  );
+});
+
+test("four all-lowercase steps with no terminal punctuation come back as four steps", () => {
+  const input = "pat the thighs dry\nbrown them skin side down\nadd the garlic and the stock\nslide into the oven";
+  assert.equal(
+    numberSteps(input),
+    "1. pat the thighs dry\n2. brown them skin side down\n3. add the garlic and the stock\n4. slide into the oven",
   );
 });
 

@@ -9,27 +9,26 @@
 // swallowed whole into the preamble. This is the guarantee behind that rule: every
 // draft that leaves this function has every step numbered 1..N, in order, with no gaps.
 //
-// WHAT IT DOES NOT DO: change the author's words. It strips a leading marker ("3.",
-// "3)", "Step 3:") if the model wrote one, joins a continuation line onto the step it
-// continues, and writes "N. " in front. Nothing else is touched — byte-faithful steps
-// (the 2026-10-09 ruling) are the words, not the digits.
+// WHAT IT DOES NOT DO: change the author's words, or decide where a step ends. It
+// strips a leading marker ("3.", "3)", "Step 3:") if the model wrote one and writes
+// "N. " in front. One line in, one step out. Nothing else is touched — byte-faithful
+// steps (the 2026-10-09 ruling) are the words, not the digits.
+//
+// NO CONTINUATION HEURISTIC (Dan, 2026-10-09). An earlier draft joined a lowercase-led
+// line onto the step above it, to re-stitch a sentence split across two screenshots.
+// Removed: the model already returns such a sentence on one line (set4's "Blend the
+// Crema" proved it), and a recipe whose author writes four lowercase steps with no
+// full stops would have collapsed into one. Joining is the model's job; this function
+// only numbers. The one line-shape rule kept is the bare marker — a line that is
+// ONLY "3." takes the next line as its body — because that one is unambiguous.
 
 const MARKER = /^(?:step\s*)?(\d{1,3})\s*[.):]\s*(.*)$/i;
-
-/** A line that starts with a lowercase letter continues the step above it — the only
- *  way a sentence split across two screenshots (or two model lines) comes back as one
- *  step: "…and cumin to a" / "blender or food processor." */
-function isContinuation(line: string): boolean {
-  const c = line.charAt(0);
-  return c !== "" && c === c.toLowerCase() && c !== c.toUpperCase();
-}
 
 /**
  * Normalise a block of instructions into "1. …\n2. …\n…".
  * - CRLF/CR → LF; blank lines dropped; each line trimmed.
  * - An existing marker is stripped and the step renumbered (gaps close: 1, 2, 4 → 1, 2, 3).
- * - An unmarked line starts a new step, unless it begins lowercase, in which case it
- *   joins the step above with one space.
+ * - Every other non-blank line is one step, whatever it starts with.
  * - A marker with no body ("3.") takes the next line as its body.
  * - Empty input → "".
  */
@@ -59,11 +58,6 @@ export function numberSteps(text: string): string {
     if (pendingEmptyMarker) {
       steps[steps.length - 1] = line;
       pendingEmptyMarker = false;
-      continue;
-    }
-
-    if (steps.length > 0 && isContinuation(line)) {
-      steps[steps.length - 1] = `${steps[steps.length - 1]} ${line}`.trim();
       continue;
     }
 
