@@ -12,6 +12,7 @@ import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { parseSteps } from './lib/parseSteps';
 import { downscaleToJpeg } from './lib/image';
+import { filesFromPicker, stagePhotos, PHOTO_CAP, HINT_UNREADABLE } from './lib/stagePhotos';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -2211,7 +2212,6 @@ const IMPORT_HINTS = {
   unreachable: "Couldn't reach the reader. Try again in a moment.",
 };
 const PASTE_CAP = 20000;   // the function's own ceiling on kind: "text"
-const PHOTO_CAP = 4;       // spec D7: up to 4 images, read together as one recipe
 
 // A Blob → the base64 the function wants in data_base64 (no data: prefix).
 const blobToBase64 = (blob) => new Promise((resolve, reject) => {
@@ -2805,32 +2805,30 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     setBringMode(null);
   };
 
-  // Photo: the picker's files, capped at 4 (extras ignored with the spec's hint),
-  // each downscaled before it is staged. An image the browser cannot decode (a
-  // HEIC the picker did not convert, a non-image) is dropped with its own hint and
-  // the others are kept. Sizes are logged per image for the build's measurement.
-  const addPhotos = async (fileList) => {
-    const files = Array.from(fileList || []);
-    if (files.length === 0) return;
-    const room = Math.max(0, PHOTO_CAP - photosRef.current.length);
-    const take = files.slice(0, room);
-    const hints = [];
-    if (files.length > room) hints.push("Up to 4 at a time.");
-    const made = [];
-    for (const f of take) {
-      try {
-        const blob = await downscaleToJpeg(f);
-        made.push({ id: ++photoIdRef.current, blob, url: URL.createObjectURL(blob),
-          bytes: blob.size, originalBytes: f.size });
-        console.info(`[recipe import] screenshot ${Math.round(f.size / 1024)} KB → ${Math.round(blob.size / 1024)} KB`);
-      } catch (err) {
-        console.warn("[recipe import] could not open an image:", err?.message || err);
-        hints.push("Couldn't open that image");
-      }
-    }
-    if (made.length > 0) setPhotos((prev) => [...prev, ...made].slice(0, PHOTO_CAP));
-    setBringHint([...new Set(hints)].join(" "));
+  // Photo: the picker's files (already snapshotted — see filesFromPicker), capped
+  // at 4 with the spec's hint, each downscaled before it is staged. An image the
+  // browser cannot decode is dropped with its own hint and the others are kept.
+  // src/lib/stagePhotos.js owns the rules and never throws; the try/catch here is
+  // the last line of defence so that NOTHING on this path can fail silently
+  // (2026-10-11: a pick staged nothing and said nothing — the live FileList had
+  // been emptied by the value reset before it was read).
+  const addPhotos = async (files) => {
+    if (!files || files.length === 0) return;   // the picker was dismissed
     setBringMode("photo");
+    try {
+      const { made, hints } = await stagePhotos(files, {
+        room: PHOTO_CAP - photosRef.current.length,
+        downscale: downscaleToJpeg,
+        createUrl: (blob) => URL.createObjectURL(blob),
+        nextId: () => ++photoIdRef.current,
+      });
+      for (const m of made) console.info(`[recipe import] screenshot ${Math.round(m.originalBytes / 1024)} KB → ${Math.round(m.bytes / 1024)} KB`);
+      if (made.length > 0) setPhotos((prev) => [...prev, ...made].slice(0, PHOTO_CAP));
+      setBringHint(hints.join(" "));
+    } catch (err) {
+      console.warn("[recipe import] staging threw:", err && (err.message || err));
+      setBringHint("Couldn't open that image");
+    }
   };
 
   const removePhoto = (id) => {
@@ -2842,11 +2840,19 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     if (next.length === 0) setBringMode(null);   // the row shrinks back to its compact form
   };
 
-  // Read these: base64 what is staged and send it as one request.
+  // Read these: base64 what is staged and send it as one request. A blob that
+  // will not read (revoked, out of memory) is a hint, not a silent no-op.
   const readPhotos = async () => {
     if (photos.length === 0 || importBusy) return;
-    const images = [];
-    for (const p of photos) images.push({ media_type: "image/jpeg", data_base64: await blobToBase64(p.blob) });
+    let images;
+    try {
+      images = [];
+      for (const p of photos) images.push({ media_type: "image/jpeg", data_base64: await blobToBase64(p.blob) });
+    } catch (err) {
+      console.warn("[recipe import] could not read a staged image:", err && (err.message || err));
+      setBringHint(HINT_UNREADABLE);
+      return;
+    }
     await runImport({ kind: "images", images }, "photo");
   };
 
@@ -2897,8 +2903,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // time: staged Bring input hides Ask AI; a busy Galley hides Bring (in `busy`).
   // Edit Meal never shows Bring (spec: Visibility).
   const bringStaged = pasteText.trim().length > 0 || photos.length > 0;
-  // The two limit notices are advisory; everything else in the hint is an error.
-  const bringHintIsError = !!bringHint && bringHint !== "Up to 4 at a time.";
+  // The cap notice is advisory; everything else in the hint is an error.
+  const bringHintIsError = !!bringHint && !bringHint.startsWith("Up to 4 at a time.");
   const draftDoorsAvailable = galleyAvailable && !busy && !galleyCollapsed;
   const showAskAI = draftDoorsAvailable && !bringStaged;
   const showBring = draftDoorsAvailable && !isEdit;
@@ -3565,7 +3571,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           <div className="op-bring" style={galleyDim}>
             {/* The picker. Hidden and driven by the Photo door and the + tile; the
                 value is reset after every pick so the same file can be chosen again
-                after a remove. */}
+                after a remove — AFTER the list is copied: e.target.files is live and
+                the reset empties it (the 2026-10-11 silent failure). */}
             <input
               ref={photoInputRef}
               type="file"
@@ -3574,7 +3581,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               style={{ display: "none" }}
               aria-hidden="true"
               tabIndex={-1}
-              onChange={(e) => { const files = e.target.files; e.target.value = ""; addPhotos(files); }}
+              onChange={(e) => addPhotos(filesFromPicker(e.target))}
             />
             {bringMode === "photo" ? (
               <div>
