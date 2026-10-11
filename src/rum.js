@@ -52,6 +52,7 @@ const CHROME_ALLOW_LIST = [
   '.op-bring-read',  // Bring a recipe: "Read this" / "Read these" — never the pasted text, which is in a sibling textarea
   '.op-bring-x',     // Bring a recipe: × on a staged screenshot thumbnail (aria-label "Remove screenshot N")
   '.op-bring-add',   // Bring a recipe: the dashed + tile ("Add another screenshot")
+  '.op-start-over',  // New Meal import banner: "Start over" — the banner's text and the From field beside it are never in this element
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 

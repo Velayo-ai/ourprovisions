@@ -2629,7 +2629,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // library set is kind === 'meal' only, split from this array by the
       // caller (libraryMeals in App); miss that and Leftovers rows show up as
       // recipes. One read, not two, because both consumers poll on the same tick.
-      .select("id, name, kind, from_meal_ids, occasion, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
+      .select("id, name, kind, from_meal_ids, occasion, attribution, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -2652,7 +2652,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Empty string is coerced to null so "no steps" is one value, not two.
   // `occasion` (061) is the ordered Good-for list; normalised here so a bad value
   // never reaches the CHECK. Omitted → '{}' (untagged), the column default.
-  const createMeal = useCallback(async ({ name, baseServings = 1, instructions = null, ingredients = [], occasion = [] }) => {
+  // `attribution` (062) is the free-text "From" credit; empty saves NULL, never ''.
+  const createMeal = useCallback(async ({ name, baseServings = 1, instructions = null, ingredients = [], occasion = [], attribution = null }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
@@ -2667,6 +2668,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           base_servings: baseServings,
           instructions: (instructions || "").trim() || null,
           occasion: normalizeOccasion(occasion),
+          attribution: (attribution || "").trim() || null,
           created_by: internalUserIdRef.current,
         })
         .select("id")
@@ -2705,7 +2707,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // NOT an RPC (see SPEC_create_meal_ui.md): edit is household-owned,
   // RLS-protected, and carries no cross-cutting concern like the advisory lock
   // or cycle resolution that justify add_meal_to_list's SECURITY DEFINER shape.
-  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, instructions = null, ingredients = [], occasion = [] }) => {
+  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, instructions = null, ingredients = [], occasion = [], attribution = null }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
@@ -2714,7 +2716,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     try {
       const { error: mErr } = await db
         .from("meals")
-        .update({ name: trimmed, base_servings: baseServings, instructions: (instructions || "").trim() || null, occasion: normalizeOccasion(occasion) })
+        .update({ name: trimmed, base_servings: baseServings, instructions: (instructions || "").trim() || null, occasion: normalizeOccasion(occasion), attribution: (attribution || "").trim() || null })
         .eq("id", mealId)
         .eq("household_id", hh.id); // belt-and-suspenders; RLS already scopes this
       if (mErr) throw mErr;

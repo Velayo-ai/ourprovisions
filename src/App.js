@@ -2297,10 +2297,19 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // (normalised: the client never trusts an array it did not write); create
   // starts untagged. Galley drafts arrive untagged in v1 and are tagged here.
   const [occasion, setOccasion] = useState(() => (isEdit ? normalizeOccasion(meal?.occasion) : []));
+  // From (062 `meals.attribution`, SPEC_recipe_import D6): free text, editable,
+  // never validated; '' saves NULL. The FIELD shows only when a draft carried an
+  // attribution or the meal already has one — a hand-built meal never shows it.
+  const [attribution, setAttribution] = useState(isEdit ? (meal?.attribution || "") : "");
+  const [fromVisible, setFromVisible] = useState(isEdit && !!(meal?.attribution || "").trim());
+  // The reader could not find a serving count and the function substituted 4
+  // (servingsAssumed) — shown as an advisory chip, since "flag, don't guess"
+  // applies to servings too (ruling 2026-10-09). Session-only.
+  const [servingsAssumed, setServingsAssumed] = useState(false);
   // What the sheet opened with — the baseline `isDirty` compares against. Lazy
-  // initialiser: captured on the first render, when the four states above still
+  // initialiser: captured on the first render, when the states above still
   // hold their initial values, and never updated afterwards.
-  const [openedWith] = useState(() => ({ name, instructions, rows, occasion }));
+  const [openedWith] = useState(() => ({ name, instructions, rows, occasion, attribution }));
   // Read renders the recipe card (or, with nothing stored, the empty chip that
   // points at both paths); edit is the textarea + Done. Opens in read — the card
   // for a meal that has steps, the chip for one that does not — and returns to
@@ -2356,6 +2365,9 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const [importBusy, setImportBusy] = useState(null);
   const importAbortRef = useRef(null);
   const importSnapshotRef = useRef(null);
+  // The fields as they were before an import landed, kept for Start over (the
+  // banner's one way back): normally the empty form. Cleared when Start over runs.
+  const startOverRef = useRef(null);
   // A draft is on its way through either door: the manual fields dim and turn to
   // skeletons, search steps aside, both doors hide behind the thinking card.
   const busy = aiBusy || !!importBusy;
@@ -2450,9 +2462,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     createAndStage(newCat);
   };
 
+  // Any edit to a row clears its "Check this" chip — the person has looked.
   const setQty = (id, next) => {
     setRows((prev) => prev.map((r) =>
-      r.catalog_item_id === id ? { ...r, quantity_per_serving: Math.max(1, next) } : r));
+      r.catalog_item_id === id ? { ...r, quantity_per_serving: Math.max(1, next), check: null } : r));
   };
 
   // ── Three states, three controls (SPEC_meal_ondhand_ingredients.md) ────────
@@ -2474,11 +2487,11 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // the stepper is plain arithmetic again at every value, 1 included.
   const shelve = (id) => {
     setRows((prev) => prev.map((r) =>
-      r.catalog_item_id === id ? { ...r, on_hand: true } : r));
+      r.catalog_item_id === id ? { ...r, on_hand: true, check: null } : r));
   };
   const needAgain = (id) => {
     setRows((prev) => prev.map((r) =>
-      r.catalog_item_id === id ? { ...r, on_hand: false } : r));
+      r.catalog_item_id === id ? { ...r, on_hand: false, check: null } : r));
   };
 
   const removeRow = (id) => setRows((prev) => prev.filter((r) => r.catalog_item_id !== id));
@@ -2575,8 +2588,27 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // `controller` is the request's own; a landing that was cancelled mid-loop stops
   // before it writes the rows (the caller's Never mind has already restored).
   const landDraft = async (draft, source, controller) => {
+    const ingredients = draft.ingredients || [];
     setName(draft.name || "");
-    setInstructions(draft.instructions || "");
+    // THE INTERIM SAVE (ruling 2026-10-09; the three-quantity model is its own
+    // design session, no schema change): the reader's verbatim `asWritten` lines go
+    // into `instructions` as one "As written" block ABOVE the function's numbered
+    // steps, which stay untouched. parseSteps renders it as a preamble — never
+    // step 1 — because the function numbers every step 1..N itself. Both lines of
+    // a duplicate row stay here even though the rows below merge. The Galley has
+    // no asWritten, so its drafts land exactly as before.
+    const asWritten = ingredients.map((ing) => (typeof ing.asWritten === "string" ? ing.asWritten.trim() : "")).filter(Boolean);
+    const steps = draft.instructions || "";
+    setInstructions(asWritten.length > 0 ? `As written\n${asWritten.join("\n")}\n\n${steps}`.trim() : steps);
+    // Occasion: only when the draft carries a valid one (the hook's normaliser
+    // drops anything outside the seven); otherwise the person's own tags stand.
+    const occ = normalizeOccasion(draft.occasion);
+    if (occ.length > 0) setOccasion(occ);
+    // From: filled from the draft when it names a source; hidden otherwise.
+    const credit = typeof draft.attribution === "string" ? draft.attribution.trim() : "";
+    setAttribution(credit);
+    setFromVisible(!!credit);
+    setServingsAssumed(draft.servingsAssumed === true);
 
     // Every suggested ingredient goes through the SAME resolver the manual
     // no-results panel uses: exact-normalized match, or a pending placeholder
@@ -2584,7 +2616,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     // Decisions) — and no catalog write until the meal is committed.
     const staged = [];
     const known = new Set(Object.values(catalogMap).map((it) => norm(it.name)));
-    for (const ing of draft.ingredients || []) {
+    for (const ing of ingredients) {
       // Snapshot BEFORE the call: "was it already there?" is a property of the
       // catalog, not of what the resolver hands back — a hidden-set match returns
       // an existing row that was never in catalogMap, and the badge should still
@@ -2592,15 +2624,35 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
       const wasKnown = known.has(norm(ing.name));
       const item = await onCreateCatalogItem(ing.name, ing.category);
       if (!item) continue;   // resolver failed and said why; keep the rest
-      if (staged.some((r) => r.catalog_item_id === item.id)) continue;
+      // Whole numbers only — the stepper cannot hold anything else. The Edge
+      // Function already rounds up; this is the client-side floor, not a repeat.
+      const qty = Math.max(1, Math.ceil(Number(ing.quantity) || 1));
+      const unit = typeof ing.unit === "string" && ing.unit.trim() ? ing.unit.trim().toLowerCase() : "each";
+      // "Check this" (spec: Filled): the reader flagged the line — advisory, never
+      // blocks Save, cleared by editing the row.
+      const check = ing.uncertain === true ? (typeof ing.note === "string" && ing.note.trim() ? ing.note.trim() : "Check this line") : null;
+      // MERGE ON LANDING (ruling 2026-10-09; set4 listed olive oil twice): two rows
+      // resolving to the same catalog item — or the same normalised NEW name, which
+      // is the same pending id — become one. Counts add when both are `each`;
+      // otherwise the larger stands (a "2 tbsp" and a "¼ cup" of the same thing is
+      // not 2 + 1). A flag on either row survives the merge. Mirrors the sheet's
+      // own already-staged behaviour (tap again → bump, never a second row).
+      const dup = staged.find((r) => r.catalog_item_id === item.id);
+      if (dup) {
+        dup.quantity_per_serving = (dup.unit === "each" && unit === "each")
+          ? dup.quantity_per_serving + qty
+          : Math.max(dup.quantity_per_serving, qty);
+        if (check && !dup.check) dup.check = check;
+        continue;
+      }
       staged.push({
         catalog_item_id: item.id,
         name: item.name,
-        // Whole numbers only — the stepper cannot hold anything else. The Edge
-        // Function already rounds up; this is the client-side floor, not a repeat.
-        quantity_per_serving: Math.max(1, Math.ceil(Number(ing.quantity) || 1)),
+        quantity_per_serving: qty,
+        unit,
         category: item.category || ing.category || null,
         isNew: !wasKnown,
+        check,
       });
     }
     if (controller.signal.aborted) return;
@@ -2620,7 +2672,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     if (listening) stopListening();
     const controller = new AbortController();
     aiAbortRef.current = controller;
-    aiSnapshotRef.current = { name, instructions, rows, occasion };
+    aiSnapshotRef.current = { name, instructions, rows, occasion, attribution, fromVisible };
     setAiBusy(true);
     try {
       const draft = await onRequestSuggestion(text, { signal: controller.signal });
@@ -2645,9 +2697,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     controller.abort();
     aiAbortRef.current = null;
     const snap = aiSnapshotRef.current;
-    if (snap) { setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows); setOccasion(snap.occasion); }
+    if (snap) {
+      setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows); setOccasion(snap.occasion);
+      setAttribution(snap.attribution); setFromVisible(snap.fromVisible);
+    }
     aiSnapshotRef.current = null;
     setDraftSource(null);
+    setServingsAssumed(false);
     setAiBusy(false);
   };
 
@@ -2660,7 +2716,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     if (importBusy || aiBusy || !onRequestImport || !isSignedIn || saving) return;
     const controller = new AbortController();
     importAbortRef.current = controller;
-    importSnapshotRef.current = { name, instructions, rows, occasion, pasteText, photos };
+    importSnapshotRef.current = { name, instructions, rows, occasion, attribution, fromVisible, pasteText, photos };
     setBringHint("");
     setImportBusy(source === "paste" ? { kind: "paste" } : { kind: "photo", count: input.images.length });
     try {
@@ -2675,8 +2731,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
       }
       await landDraft(result.draft, source, controller);
       if (controller.signal.aborted) return;
-      // Landed: the staged input has done its job. Screenshots are read and
-      // discarded (spec D5) — nothing is kept, not even in memory.
+      // Landed: keep the pre-import fields for Start over. The staged input has
+      // done its job — screenshots are read and discarded (spec D5), nothing is
+      // kept, not even in memory.
+      const snap = importSnapshotRef.current;
+      startOverRef.current = snap
+        ? { name: snap.name, instructions: snap.instructions, rows: snap.rows, occasion: snap.occasion,
+            attribution: snap.attribution, fromVisible: snap.fromVisible }
+        : null;
       setPasteText("");
       revokePhotos(photos);
       setPhotos([]);
@@ -2699,11 +2761,32 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     const snap = importSnapshotRef.current;
     if (snap) {
       setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows);
-      setOccasion(snap.occasion); setPasteText(snap.pasteText); setPhotos(snap.photos);
+      setOccasion(snap.occasion); setAttribution(snap.attribution); setFromVisible(snap.fromVisible);
+      setPasteText(snap.pasteText); setPhotos(snap.photos);
     }
     importSnapshotRef.current = null;
     setDraftSource(null);
+    setServingsAssumed(false);
     setImportBusy(null);
+  };
+
+  // Start over (the banner): back to the pre-import snapshot — normally the empty
+  // form — with both doors returned. Nothing was written, so this leaves zero
+  // rows (D3): pending placeholders simply go out of state.
+  const startOver = () => {
+    const snap = startOverRef.current;
+    startOverRef.current = null;
+    if (snap) {
+      setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows);
+      setOccasion(snap.occasion); setAttribution(snap.attribution); setFromVisible(snap.fromVisible);
+    } else {
+      setName(""); setInstructions(""); setRows([]); setOccasion([]); setAttribution(""); setFromVisible(false);
+    }
+    setDraftSource(null);
+    setServingsAssumed(false);
+    setGalleyCollapsed(false);
+    setStepsMode("read");
+    setBringHint("");
   };
 
   const revokePhotos = (list) => {
@@ -2835,6 +2918,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     || instructions !== openedWith.instructions
     || rowsKey(rows) !== rowsKey(openedWith.rows)
     || occasion.join(",") !== openedWith.occasion.join(",")   // a changed tag is unsaved work (spec)
+    || attribution !== openedWith.attribution
     || draftSource !== null
     || busy;   // either door's request in flight (09-09 rule, extended to import)
 
@@ -2860,6 +2944,18 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
         <SheetClose onClose={onCancel} disabled={saving || deleting} />
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
 
+        {/* The import banner (spec: Filled). One line, card-tinted, NO teal — nothing
+            here is a completion. Start over is the import's one way back; the
+            Galley keeps its own "Ask the galley again" handle below. */}
+        {(draftSource === "photo" || draftSource === "paste") && !busy && (
+          <div className="op-import-banner" role="status">
+            <span>
+              <b>{draftSource === "photo" ? "Filled from your screenshots." : "Filled from what you pasted."}</b> Check it over.
+            </span>
+            <button type="button" className="op-start-over" onClick={startOver} disabled={saving}>Start over</button>
+          </div>
+        )}
+
         <div className="modal-field" style={aiDim}>
           <label className="modal-label">Meal Name</label>
           {/* NO autoFocus. On iOS an autofocused field opens the keyboard the instant
@@ -2874,10 +2970,34 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           />
         </div>
 
+        {/* From (D6). Only when a recipe arrived with a source, or the meal already
+            carries one. Free text; clearing it saves null. */}
+        {fromVisible && (
+          <div className="modal-field" style={aiDim}>
+            <label className="modal-label">From</label>
+            <input
+              className="modal-input"
+              value={attribution}
+              onChange={(e) => setAttribution(e.target.value)}
+              placeholder="NYT Cooking · @handle on Instagram · Grandma's card"
+              aria-label="Where this recipe came from"
+            />
+          </div>
+        )}
+
         <GoodForChips value={occasion} onChange={setOccasion} style={aiDim} />
 
         <div className="modal-field" style={busy ? undefined : aiDim}>
           <label className="modal-label">Ingredients</label>
+
+          {/* The reader found no serving count and the function assumed 4 — said
+              plainly, in the same advisory chip the flagged rows use. */}
+          {servingsAssumed && !busy && (
+            <div className="op-check-line">
+              <span className="op-check-chip">Check this</span>
+              <span className="op-check-note">The recipe didn't say how many it serves</span>
+            </div>
+          )}
 
           {/* Thinking: skeleton rows sit where the ingredients will land, so arrival
               is a fill rather than a layout jump. Search and results step aside —
@@ -2933,6 +3053,9 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                         new in {CATEGORY_LABEL[r.category] || r.category || "Household"}
                       </span>
                     )}
+                    {/* The reader flagged this line. Advisory: Save is never blocked;
+                        the chip and its reason clear on the row's next edit. */}
+                    {r.check && <span className="op-check-chip">Check this</span>}
                   </span>
                   {/* Full Browse stepper: .qty-controls is the wrapper that gives
                       the group its geometry and containment, not just a border.
@@ -2979,6 +3102,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       cursor: "pointer", padding: "0 2px", flexShrink: 0, lineHeight: 1 }}
                   >×</button>
                   </div>
+                  {/* The flag's reason, on its own full-width line under the row: inside
+                      the name column it shared the width with the stepper and broke
+                      mid-word at XXL on 320 px (harness 2026-10-11). */}
+                  {r.check && <div className="op-check-note" style={{ marginTop: "4px" }}>{r.check}</div>}
                   {/* Its own control, deliberately NOT folded into the stepper. Sits on
                       its own line so the stepper keeps its geometry and the shelve action
                       is reachable at ANY quantity without first editing the number —
@@ -3191,10 +3318,15 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               <button type="button" className="op-steps-done" onClick={() => setStepsMode("read")}>Done</button>
             </div>
           ) : hasSteps ? (
-            <div className={`op-recipe${draftSource === "galley" ? " galley" : ""}`}>
+            <div className={`op-recipe${draftSource ? " galley" : ""}`}>
               {draftSource === "galley" && (
                 <div className="op-recipe-eyebrow"><GalleyGlyph />From the galley</div>
               )}
+              {/* "photos", not "screenshots": the eyebrow's uppercase 900 at XXL on
+                  320 px cannot hold SCREENSHOTS without growing the modal (harness
+                  2026-10-10). */}
+              {draftSource === "photo" && <div className="op-recipe-eyebrow">From your photos</div>}
+              {draftSource === "paste" && <div className="op-recipe-eyebrow">From what you pasted</div>}
               {/* Mirrors the Meal Name field above; absent rather than "Untitled" when
                   the name is still empty, because the field is right there. */}
               {name.trim() && <div className="op-recipe-title">{name.trim()}</div>}
@@ -3590,7 +3722,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             className="modal-confirm"
             disabled={!canSave || saving}
             style={{ opacity: (!canSave || saving) ? 0.5 : 1, cursor: (!canSave || saving) ? "default" : "pointer" }}
-            onClick={() => onCommit({ name, instructions, ingredients: rows, occasion })}
+            onClick={() => onCommit({ name, instructions, ingredients: rows, occasion, attribution })}
           >{saving ? "Saving…" : "Save Meal"}</button>
         </div>
       </div>
@@ -4503,7 +4635,7 @@ function ProvisionsApp() {
   const [mealSaving, setMealSaving] = useState(false);
   const [mealDeleting, setMealDeleting] = useState(false);
 
-  const commitMealSheet = useCallback(async ({ name, instructions, ingredients, occasion }) => {
+  const commitMealSheet = useCallback(async ({ name, instructions, ingredients, occasion, attribution }) => {
     if (!mealSheet) return;
     setMealSaving(true);
     try {
@@ -4518,6 +4650,7 @@ function ProvisionsApp() {
         name,
         instructions,
         occasion,   // 061 — ordered Good-for list; the hook normalises it
+        attribution,   // 062 — the From field; the hook saves '' as null
         // flat: the servings dial is deferred. NOTE the AI draft also reports its own
         // baseServings and it is deliberately DISCARDED here — quantity_per_serving only
         // reads as a flat quantity while base_servings is 1 (migration 025). Storing the
@@ -6816,6 +6949,14 @@ function ProvisionsApp() {
           .op-ember::before { opacity: 1; transform: none; }
           .op-ember::after { display: none; }
         }
+        .op-import-banner { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 10px; padding: 9px 12px; margin: -6px 0 16px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #6f5a45; }
+        .op-import-banner b { color: #2C1A0E; font-weight: 700; }
+        .op-import-banner > span { flex: 1 1 180px; min-width: 0; }
+        .op-start-over { background: none; border: none; padding: 4px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
+        .op-start-over:disabled { opacity: .5; cursor: default; }
+        .op-check-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 10px; }
+        .op-check-chip { display: inline-flex; align-items: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: .02em; color: #7A4A1E; background: #F3DFC8; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+        .op-check-note { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #7A4A1E; line-height: 1.4; overflow-wrap: anywhere; }
         .op-bring { background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 14px; padding: 12px 14px; margin-bottom: 16px; }
         .op-bring-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
         .op-bring-t { flex: 1 1 150px; min-width: 0; }
