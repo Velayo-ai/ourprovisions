@@ -11,6 +11,7 @@ import { SheetPanel } from './components/SheetPanel';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { parseSteps } from './lib/parseSteps';
+import { downscaleToJpeg } from './lib/image';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -2210,6 +2211,15 @@ const IMPORT_HINTS = {
   unreachable: "Couldn't reach the reader. Try again in a moment.",
 };
 const PASTE_CAP = 20000;   // the function's own ceiling on kind: "text"
+const PHOTO_CAP = 4;       // spec D7: up to 4 images, read together as one recipe
+
+// A Blob → the base64 the function wants in data_base64 (no data: prefix).
+const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || "").replace(/^data:[^,]*,/, ""));
+  reader.onerror = () => reject(reader.error || new Error("Could not read image"));
+  reader.readAsDataURL(blob);
+});
 
 // Galley glyph — the eyebrow on the recipe card and the header of the ask block.
 const GalleyGlyph = ({ size = 12 }) => (
@@ -2334,6 +2344,15 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const [bringMode, setBringMode] = useState(null);
   const [pasteText, setPasteText] = useState("");
   const [bringHint, setBringHint] = useState("");
+  // Staged screenshots, ALREADY downscaled at pick time (longest edge 1600 px, JPEG
+  // q0.8 — src/lib/image.js, the OurBanner pipeline): [{ id, blob, url, bytes,
+  // originalBytes }]. Downscaling at the pick rather than at Read these means the
+  // row holds the real payload and a HEIC the browser cannot decode is caught the
+  // moment it is chosen. Object URLs are revoked on remove / Clear / unmount.
+  const [photos, setPhotos] = useState([]);
+  const photosRef = useRef([]);
+  const photoInputRef = useRef(null);
+  const photoIdRef = useRef(0);
   const [importBusy, setImportBusy] = useState(null);
   const importAbortRef = useRef(null);
   const importSnapshotRef = useRef(null);
@@ -2641,7 +2660,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     if (importBusy || aiBusy || !onRequestImport || !isSignedIn || saving) return;
     const controller = new AbortController();
     importAbortRef.current = controller;
-    importSnapshotRef.current = { name, instructions, rows, occasion, pasteText };
+    importSnapshotRef.current = { name, instructions, rows, occasion, pasteText, photos };
     setBringHint("");
     setImportBusy(source === "paste" ? { kind: "paste" } : { kind: "photo", count: input.images.length });
     try {
@@ -2656,7 +2675,11 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
       }
       await landDraft(result.draft, source, controller);
       if (controller.signal.aborted) return;
+      // Landed: the staged input has done its job. Screenshots are read and
+      // discarded (spec D5) — nothing is kept, not even in memory.
       setPasteText("");
+      revokePhotos(photos);
+      setPhotos([]);
       setBringMode(null);
     } finally {
       if (importAbortRef.current === controller) {
@@ -2676,18 +2699,75 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     const snap = importSnapshotRef.current;
     if (snap) {
       setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows);
-      setOccasion(snap.occasion); setPasteText(snap.pasteText);
+      setOccasion(snap.occasion); setPasteText(snap.pasteText); setPhotos(snap.photos);
     }
     importSnapshotRef.current = null;
     setDraftSource(null);
     setImportBusy(null);
   };
 
+  const revokePhotos = (list) => {
+    for (const p of list || []) { try { URL.revokeObjectURL(p.url); } catch { /* already gone */ } }
+  };
+
   const clearBring = () => {
     setPasteText("");
+    revokePhotos(photos);
+    setPhotos([]);
     setBringHint("");
     setBringMode(null);
   };
+
+  // Photo: the picker's files, capped at 4 (extras ignored with the spec's hint),
+  // each downscaled before it is staged. An image the browser cannot decode (a
+  // HEIC the picker did not convert, a non-image) is dropped with its own hint and
+  // the others are kept. Sizes are logged per image for the build's measurement.
+  const addPhotos = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) return;
+    const room = Math.max(0, PHOTO_CAP - photosRef.current.length);
+    const take = files.slice(0, room);
+    const hints = [];
+    if (files.length > room) hints.push("Up to 4 at a time.");
+    const made = [];
+    for (const f of take) {
+      try {
+        const blob = await downscaleToJpeg(f);
+        made.push({ id: ++photoIdRef.current, blob, url: URL.createObjectURL(blob),
+          bytes: blob.size, originalBytes: f.size });
+        console.info(`[recipe import] screenshot ${Math.round(f.size / 1024)} KB → ${Math.round(blob.size / 1024)} KB`);
+      } catch (err) {
+        console.warn("[recipe import] could not open an image:", err?.message || err);
+        hints.push("Couldn't open that image");
+      }
+    }
+    if (made.length > 0) setPhotos((prev) => [...prev, ...made].slice(0, PHOTO_CAP));
+    setBringHint([...new Set(hints)].join(" "));
+    setBringMode("photo");
+  };
+
+  const removePhoto = (id) => {
+    const gone = photos.find((p) => p.id === id);
+    if (gone) revokePhotos([gone]);
+    const next = photos.filter((p) => p.id !== id);
+    setPhotos(next);
+    setBringHint("");
+    if (next.length === 0) setBringMode(null);   // the row shrinks back to its compact form
+  };
+
+  // Read these: base64 what is staged and send it as one request.
+  const readPhotos = async () => {
+    if (photos.length === 0 || importBusy) return;
+    const images = [];
+    for (const p of photos) images.push({ media_type: "image/jpeg", data_base64: await blobToBase64(p.blob) });
+    await runImport({ kind: "images", images }, "photo");
+  };
+
+  // Mirror for the unmount cleanup and the picker (both read outside render).
+  useEffect(() => { photosRef.current = photos; }, [photos]);
+  useEffect(() => () => {
+    for (const p of photosRef.current) { try { URL.revokeObjectURL(p.url); } catch { /* already gone */ } }
+  }, []);
 
   // "When the user clears all fields" — with nothing left in the sheet there is
   // nothing for the eyebrow to be the provenance of.
@@ -2729,7 +2809,9 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // three-way rule for Ask AI, now applied to both. Then one door in play at a
   // time: staged Bring input hides Ask AI; a busy Galley hides Bring (in `busy`).
   // Edit Meal never shows Bring (spec: Visibility).
-  const bringStaged = pasteText.trim().length > 0;
+  const bringStaged = pasteText.trim().length > 0 || photos.length > 0;
+  // The two limit notices are advisory; everything else in the hint is an error.
+  const bringHintIsError = !!bringHint && bringHint !== "Up to 4 at a time.";
   const draftDoorsAvailable = galleyAvailable && !busy && !galleyCollapsed;
   const showAskAI = draftDoorsAvailable && !bringStaged;
   const showBring = draftDoorsAvailable && !isEdit;
@@ -3332,7 +3414,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
         {/* ── Bring a recipe (SPEC_recipe_import D1). One compact row under a SECOND
             "or", BELOW Ask AI — nothing above it moves. Photo · Paste. The row grows
             only after a pick: Paste opens into a textarea with Clear / Read this;
-            Photo (next commit) into thumbnails with Clear / Read these. Reading reuses
+            Photo into numbered thumbnails (× each, a dashed + while under 4) with
+            Clear / Read these. Reading reuses
             the Galley's thinking card above; the result fills the same form. ── */}
         {showBring && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "6px 0 14px" }}>
@@ -3344,7 +3427,61 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
         )}
         {showBring && (
           <div className="op-bring" style={galleyDim}>
-            {bringMode === "paste" ? (
+            {/* The picker. Hidden and driven by the Photo door and the + tile; the
+                value is reset after every pick so the same file can be chosen again
+                after a remove. */}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              style={{ display: "none" }}
+              aria-hidden="true"
+              tabIndex={-1}
+              onChange={(e) => { const files = e.target.files; e.target.value = ""; addPhotos(files); }}
+            />
+            {bringMode === "photo" ? (
+              <div>
+                {/* "photos", not "screenshots", in the eyebrow: the door is called Photo, and
+                    SCREENSHOTS in the eyebrow's uppercase 900 at XXL on 320 px is wider than
+                    the row and had to break mid-word (harness 2026-10-10). Body copy keeps
+                    "screenshots". */}
+                <div className="op-bring-eyebrow">Bring a recipe · {plural(photos.length, "photo")}</div>
+                <div className="op-bring-thumbs">
+                  {photos.map((p, i) => (
+                    <div key={p.id} className="op-bring-th">
+                      <img src={p.url} alt={`Screenshot ${i + 1}`} />
+                      {/* Numbered for reference only — there is no reorder control
+                          (spec D7): the reader is told the images may arrive in any
+                          order and stitches them. */}
+                      <span className="op-bring-n" aria-hidden="true">{i + 1}</span>
+                      <button type="button" className="op-bring-x" aria-label={`Remove screenshot ${i + 1}`}
+                        onClick={() => removePhoto(p.id)} disabled={saving}>×</button>
+                    </div>
+                  ))}
+                  {photos.length < PHOTO_CAP && (
+                    <button type="button" className="op-bring-add" aria-label="Add another screenshot"
+                      onClick={() => photoInputRef.current && photoInputRef.current.click()} disabled={saving}>+</button>
+                  )}
+                </div>
+                <div className={`op-bring-hint${bringHintIsError ? " err" : ""}`}>
+                  {bringHint
+                    ? bringHint
+                    : !isSignedIn
+                      ? "Sign in to bring a recipe — it's read against your account."
+                      : "Up to 4, read together as one recipe — any order is fine."}
+                </div>
+                <div className="op-bring-actions">
+                  <button type="button" className="op-bring-clear" onClick={clearBring} disabled={saving}>Clear</button>
+                  <button
+                    type="button"
+                    className="op-bring-read"
+                    disabled={photos.length === 0 || !isSignedIn || saving}
+                    onClick={readPhotos}
+                  >Read these</button>
+                </div>
+              </div>
+            ) : bringMode === "paste" ? (
               <div>
                 <div className="op-bring-eyebrow">Bring a recipe · Pasted text</div>
                 <textarea
@@ -3360,7 +3497,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   placeholder="Paste the recipe here…"
                   aria-label="Pasted recipe"
                 />
-                <div className={`op-bring-hint${bringHint ? " err" : ""}`}>
+                <div className={`op-bring-hint${bringHintIsError ? " err" : ""}`}>
                   {bringHint
                     ? bringHint
                     : !isSignedIn
@@ -3385,8 +3522,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   <div className="op-bring-eyebrow">Bring a recipe</div>
                   <small>Screenshots or copied text</small>
                 </div>
-                {/* Photo lands in the next commit; the door is drawn, not yet wired. */}
-                <button type="button" className="op-bring-door" disabled aria-label="Photo — coming in the next build">
+                <button type="button" className="op-bring-door" disabled={saving}
+                  onClick={() => { setBringHint(""); if (photoInputRef.current) photoInputRef.current.click(); }}>
                   <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3" /><circle cx="12" cy="13" r="3.5" /><path d="M8 6l1.5-2h5L16 6" /></svg>
                   Photo
                 </button>
@@ -6689,6 +6826,13 @@ function ProvisionsApp() {
         .op-bring-door svg { width: 15px; height: 15px; stroke: #2C1A0E; fill: none; stroke-width: 1.7; flex: none; }
         .op-bring-ta { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; min-height: 120px; padding: 12px 13px; border-radius: 10px; border: 1.5px solid #E8D5B7; background: #FFFDF9; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; outline: none; resize: vertical; }
         .op-bring-ta:disabled { opacity: .6; }
+        .op-bring-thumbs { display: flex; flex-wrap: wrap; gap: 14px 18px; margin-top: 12px; padding: 8px 8px 0 6px; }
+        .op-bring-th { position: relative; width: 58px; height: 78px; border-radius: 7px; border: 1px solid #E8D5B7; background: #fff; flex: none; }
+        .op-bring-th img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 7px; }
+        .op-bring-n { position: absolute; top: -6px; left: -6px; width: 20px; height: 20px; border-radius: 50%; background: #2B1E16; color: #FAF4EC; font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+        .op-bring-x { position: absolute; top: -8px; right: -8px; width: 26px; height: 26px; border-radius: 50%; border: 1px solid #E8D5B7; background: #FAF4EC; color: #8A5F3A; font-size: 17px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+        .op-bring-add { width: 58px; height: 78px; border-radius: 7px; border: 1.5px dashed #C9A97A; background: #FFFDF9; color: #8A5F3A; font-size: 24px; line-height: 1; cursor: pointer; flex: none; padding: 0; }
+        .op-bring-add:disabled, .op-bring-x:disabled { opacity: .5; cursor: default; }
         .op-bring-hint { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; margin-top: 8px; line-height: 1.5; }
         .op-bring-hint.err { color: #b3261e; }
         .op-bring-actions { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; margin-top: 12px; }

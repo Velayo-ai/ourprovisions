@@ -50,6 +50,8 @@ const CHROME_ALLOW_LIST = [
   '.op-bring-door',  // New Meal Bring a recipe doors: "Photo" / "Paste" (SPEC_recipe_import; fixed copy)
   '.op-bring-clear', // Bring a recipe: "Clear"
   '.op-bring-read',  // Bring a recipe: "Read this" / "Read these" — never the pasted text, which is in a sibling textarea
+  '.op-bring-x',     // Bring a recipe: × on a staged screenshot thumbnail (aria-label "Remove screenshot N")
+  '.op-bring-add',   // Bring a recipe: the dashed + tile ("Add another screenshot")
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 

@@ -63,16 +63,18 @@ async function decodeUpright(file) {
   }
 }
 
-// Normalize a household photo File for storage:
-//   1. decode upright (EXIF baked into pixels)
-//   2. downscale long edge to MAX_EDGE
-//   3. re-encode JPEG q80, orientation 1, no EXIF tag
-// Returns a Blob ready to upload as {household_id}/header.jpg.
-export async function normalizeHouseholdPhoto(file) {
+// Decode upright, downscale the long edge to `maxEdge`, re-encode JPEG at
+// `quality` (orientation 1, no EXIF tag). The one pipeline behind both the
+// OurBanner upload and recipe import's screenshots (SPEC_recipe_import: client
+// downscale before upload, longest edge ≤ 1600 px, JPEG ~0.8 — same numbers, so
+// the defaults are shared rather than copied). Throws when the browser cannot
+// decode the file (a HEIC the picker did not convert, a non-image) — the caller
+// decides what to say. Returns a Blob.
+export async function downscaleToJpeg(file, { maxEdge = MAX_EDGE, quality = JPEG_Q } = {}) {
   const decoded = await decodeUpright(file);
   try {
     const { src, width, height } = decoded;
-    const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
     const w = Math.max(1, Math.round(width * scale));
     const h = Math.max(1, Math.round(height * scale));
 
@@ -87,11 +89,22 @@ export async function normalizeHouseholdPhoto(file) {
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error('Image encode failed'))),
         'image/jpeg',
-        JPEG_Q
+        quality
       );
     });
     return blob;
   } finally {
     decoded.close && decoded.close();
   }
+}
+
+// Normalize a household photo File for storage:
+//   1. decode upright (EXIF baked into pixels)
+//   2. downscale long edge to MAX_EDGE
+//   3. re-encode JPEG q80, orientation 1, no EXIF tag
+// Returns a Blob ready to upload as {household_id}/header.jpg. Unchanged
+// behaviour since the 2026-10-10 refactor: the body moved into downscaleToJpeg
+// with these exact defaults.
+export function normalizeHouseholdPhoto(file) {
+  return downscaleToJpeg(file);
 }
