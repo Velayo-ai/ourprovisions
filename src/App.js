@@ -2604,10 +2604,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     // drops anything outside the seven); otherwise the person's own tags stand.
     const occ = normalizeOccasion(draft.occasion);
     if (occ.length > 0) setOccasion(occ);
-    // From: filled from the draft when it names a source; hidden otherwise.
-    const credit = typeof draft.attribution === "string" ? draft.attribution.trim() : "";
-    setAttribution(credit);
-    setFromVisible(!!credit);
+    // From: filled from the draft when it names a source; hidden otherwise. Only
+    // the import carries the key (null when nothing was visible); a Galley draft
+    // has no opinion and leaves an existing From alone.
+    if (draft.attribution !== undefined) {
+      const credit = typeof draft.attribution === "string" ? draft.attribution.trim() : "";
+      setAttribution(credit);
+      setFromVisible(!!credit);
+    }
     setServingsAssumed(draft.servingsAssumed === true);
 
     // Every suggested ingredient goes through the SAME resolver the manual
@@ -3361,7 +3365,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           {/* Once a Galley draft has landed the ask block is folded away; this is its
               handle. An imported draft has no handle here — Start over is its one
               way back (spec, Open: "Start over is enough"). */}
-          {galleyCollapsed && !busy && draftSource === "galley" && (
+          {galleyCollapsed && !busy && draftSource !== "photo" && draftSource !== "paste" && (
             <button type="button" className="op-steps-action op-ask-again"
               onClick={() => setGalleyCollapsed(false)}>
               Not quite it? Ask the galley again
