@@ -10,6 +10,7 @@ import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
+import { parseSteps } from './lib/parseSteps';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -2199,36 +2200,6 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
   );
 }
 
-// Steps read-mode parser. `meals.instructions` stays free text (043); this is a
-// pure render over it, never a data change. A step begins at a line starting
-// "N." — continuation lines fold into the step above, blank lines are dropped.
-// Text with no numbered line at all (someone typed a paragraph) comes back as one
-// unnumbered step so the card always has something to show. Never throws.
-function parseSteps(text) {
-  const src = String(text || "").replace(/\r\n?/g, "\n").trim();
-  if (!src) return { steps: [], numbered: false };
-  const steps = [];
-  let current = null;
-  let numbered = false;
-  for (const raw of src.split("\n")) {
-    const line = raw.trim();
-    if (!line) continue;
-    const m = line.match(/^\d+\.\s*(.*)$/);
-    if (m) {
-      numbered = true;
-      if (current) steps.push(current);
-      current = m[1].trim();
-    } else if (current !== null) {
-      current = `${current} ${line}`.trim();
-    } else {
-      current = line;
-    }
-  }
-  if (current) steps.push(current);
-  if (!numbered) return { steps: [src], numbered: false };
-  return { steps: steps.filter(Boolean), numbered: true };
-}
-
 // Galley glyph — the eyebrow on the recipe card and the header of the ask block.
 const GalleyGlyph = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -3041,6 +3012,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               <div className="op-recipe-meta">
                 {plural(rows.length, "ingredient")} · {onHandCount} on hand · {plural(parsedSteps.steps.length, "step")}
               </div>
+              {/* The preamble: unnumbered lines before the first "1." (src/lib/parseSteps.js).
+                  Today that is the import's verbatim "As written" block; rendered above
+                  the steps as plain lines, never badged, never counted in the meta. */}
+              {parsedSteps.preamble.length > 0 && (
+                <div className="op-recipe-preamble">
+                  {parsedSteps.preamble.map((line, i) => <p key={i}>{line}</p>)}
+                </div>
+              )}
               <ol className="op-steps">
                 {parsedSteps.steps.map((s, i) => (
                   <li key={i}>
@@ -6518,6 +6497,8 @@ function ProvisionsApp() {
         .op-recipe-eyebrow { display: flex; align-items: center; gap: 6px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #8A5F3A; margin-bottom: 8px; }
         .op-recipe-title { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(21px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; margin-bottom: 4px; }
         .op-recipe-meta { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; margin-bottom: 14px; }
+        .op-recipe-preamble { margin: 0 0 14px; padding: 0 0 12px; border-bottom: 1px solid rgba(44,26,14,.10); }
+        .op-recipe-preamble p { margin: 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; overflow-wrap: anywhere; }
         .op-steps { list-style: none; margin: 0; padding: 0; }
         .op-steps li { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 12px; }
         .op-steps li:last-child { margin-bottom: 0; }
