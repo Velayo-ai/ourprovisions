@@ -47,6 +47,9 @@ const CHROME_ALLOW_LIST = [
   '.trip-reality-real',    // trip summary ask: "Real trip"     (SPEC_trip_qualification_v2 — these three ARE the D11 ask-rate metric)
   '.trip-reality-testing', // trip summary ask: "Just testing"
   '.trip-reality-countit', // trip summary excluded line: "Count it"
+  '.op-bring-door',  // New Meal Bring a recipe doors: "Photo" / "Paste" (SPEC_recipe_import; fixed copy)
+  '.op-bring-clear', // Bring a recipe: "Clear"
+  '.op-bring-read',  // Bring a recipe: "Read this" / "Read these" — never the pasted text, which is in a sibling textarea
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 

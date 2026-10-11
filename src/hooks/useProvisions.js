@@ -3120,6 +3120,82 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [failWith, clearErrorFrom]);
 
+  // requestRecipeImport: read a recipe out of screenshots or pasted text through the
+  // recipe-import Edge Function (SPEC_recipe_import, chunk 2). Same identity and
+  // transport as requestMealSuggestion; the draft comes back in the Galley's shape
+  // plus attribution / servingsAssumed / asWritten / uncertain, so MealSheet lands
+  // both through one function.
+  //
+  // `input` is the function's own contract: { kind: "text", text } or
+  // { kind: "images", images: [{ media_type, data_base64 }] }. Nothing is logged
+  // here and nothing is kept — the images go up, the draft comes back (spec D5).
+  //
+  // Returns one of:
+  //   { draft }            — ok
+  //   { reason }           — a hint the SHEET shows in the Bring row, no toast:
+  //                          "not_a_recipe" | "unreadable" (the function declined),
+  //                          "timeout" (504: the 75 s model cap), "unreachable" (502)
+  //   { reason: "failed" } — anything else; the toast has already said why (failWith)
+  //   null                 — the person pressed Never mind (AbortError, swallowed)
+  // The split exists because the four hint cases have a next move the person can
+  // make in the row (sharper screenshot, fewer of them, try again) and the staged
+  // input is kept for it; a toast would put the reason in the wrong place.
+  const requestRecipeImport = useCallback(async (input, { signal } = {}) => {
+    if (!input || (input.kind !== "text" && input.kind !== "images")) return { reason: "failed" };
+    clearErrorFrom("import");
+    const getToken = getTokenRef.current;
+    if (!getToken) { failWith("import", "You need to be signed in to bring a recipe."); return { reason: "failed" }; }
+    try {
+      const token = await getToken({ template: "supabase" });
+      if (!token) { failWith("import", "Your session has expired. Please sign in again."); return { reason: "failed" }; }
+
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/recipe-import`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+          signal,
+        },
+      );
+
+      const payload = await res.json().catch(() => null);
+      // The function's own clean failures (its Anthropic call is capped at 75 s with
+      // no retries, so these are never the platform's bare 503/504).
+      if (res.status === 504) return { reason: "timeout" };
+      if (res.status === 502) return { reason: "unreachable" };
+      if (!res.ok) {
+        failWith("import", payload?.error || `Could not read the recipe (${res.status}).`);
+        return { reason: "failed" };
+      }
+      if (payload && payload.ok === false) {
+        if (payload.reason === "not_a_recipe" || payload.reason === "unreadable") return { reason: payload.reason };
+        failWith("import", "The reader came back with an unexpected answer.");
+        return { reason: "failed" };
+      }
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)
+          || typeof payload.name !== "string" || !Array.isArray(payload.ingredients)) {
+        failWith("import", "The recipe came back in an unexpected shape.");
+        return { reason: "failed" };
+      }
+      // Same escape-sequence repair as the Galley path, at the same boundary. The
+      // function already does this before numbering; a second pass is a no-op on a
+      // clean string and a guard against a draft that slipped through.
+      const unescapeSteps = (v) => (typeof v === "string" ? v : "")
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, " ")
+        .trim();
+      clearErrorFrom("import");
+      return { draft: { ...payload, instructions: unescapeSteps(payload.instructions) } };
+    } catch (err) {
+      if (err?.name === "AbortError") return null;
+      console.error("requestRecipeImport error:", err.message);
+      failWith("import", `Could not read the recipe: ${err.message}`);
+      return { reason: "failed" };
+    }
+  }, [failWith, clearErrorFrom]);
+
   // includeOnHandIds: CATALOG_ITEM_IDs of on-hand ingredients to add THIS TIME
   // only (045). Deliberately a call argument rather than a stored flag — the RPC
   // does not touch meal_ingredients.on_hand, so "include this time" never quietly
@@ -3639,7 +3715,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,

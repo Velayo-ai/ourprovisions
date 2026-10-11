@@ -2200,6 +2200,17 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
   );
 }
 
+// Bring a recipe — the row's hint copy for the four outcomes that have a next move
+// in the row (SPEC_recipe_import "Client errors" + the 2026-10-10 build brief for
+// the function's two clean failures). Everything else is a toast via the hook.
+const IMPORT_HINTS = {
+  not_a_recipe: "Couldn't find a recipe in that. Try a clearer screenshot, or paste the text.",
+  unreadable: "Couldn't read that clearly enough. A sharper screenshot usually works.",
+  timeout: "That took too long. Try again, or try fewer screenshots.",
+  unreachable: "Couldn't reach the reader. Try again in a moment.",
+};
+const PASTE_CAP = 20000;   // the function's own ceiling on kind: "text"
+
 // Galley glyph — the eyebrow on the recipe card and the header of the ask block.
 const GalleyGlyph = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
@@ -2246,7 +2257,7 @@ function GoodForChips({ value, onChange, style }) {
 // written the moment a category pill was tapped so the draft could hold a real
 // id, and every Cancel left it behind as an orphan. Staged rows can now carry a
 // placeholder, so the write waits for Save (SPEC_defer_catalog_write).
-function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, isSignedIn }) {
+function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -2287,11 +2298,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // Galley live, which is why "empty" is not "edit": edit dims the Galley, and a
   // brand-new meal must be able to ask it.
   const [stepsMode, setStepsMode] = useState("read");
-  // "From the galley" provenance. Session-only, not persisted (Phase B question):
-  // set when a Galley draft fills the sheet, cleared on Never mind or when every
+  // Draft provenance — where the fields were filled from: null (typed by hand),
+  // "galley", "photo" or "paste" (SPEC_recipe_import: the old fromGalley flag,
+  // generalised to a source value so the banner and the Steps eyebrow can say
+  // where it came from). Session-only, not persisted (Galley Phase B question):
+  // set when a draft lands, cleared on Never mind / Start over or when every
   // field is emptied. A hand-edit of the steps does NOT clear it — provenance is
   // per meal, not per edit.
-  const [fromGalley, setFromGalley] = useState(false);
+  const [draftSource, setDraftSource] = useState(null);
   // Once a draft lands the ask block collapses to one link; the "or" divider
   // between a finished recipe and "ask AI to build it" made no sense. The link
   // re-expands it with the request text intact.
@@ -2307,7 +2321,25 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // has settled and the ingredient loop is still running when abort is pressed.
   const aiAbortRef = useRef(null);
   const aiSnapshotRef = useRef(null);
-  const aiCardRef = useRef(null);   // the thinking card, scrolled into view on Ask
+  const aiCardRef = useRef(null);   // the thinking card, scrolled into view on Ask (either door)
+
+  // Bring a recipe (SPEC_recipe_import, chunk 2). `bringMode` is which door is open
+  // (null = the compact row); `pasteText` is the staged paste; `bringHint` is the
+  // row's one hint line — the function's decline reasons and its two clean failures
+  // land HERE, never as a toast, because the next move (sharper screenshot, fewer of
+  // them, try again) is in this row and the staged input is kept for it. `importBusy`
+  // is the in-flight read, { kind: "paste" } or { kind: "photo", count }: its own flag
+  // beside aiBusy so each door keeps its own copy and controls, with `busy` below
+  // for everything that only cares that a draft is on its way.
+  const [bringMode, setBringMode] = useState(null);
+  const [pasteText, setPasteText] = useState("");
+  const [bringHint, setBringHint] = useState("");
+  const [importBusy, setImportBusy] = useState(null);
+  const importAbortRef = useRef(null);
+  const importSnapshotRef = useRef(null);
+  // A draft is on its way through either door: the manual fields dim and turn to
+  // skeletons, search steps aside, both doors hide behind the thinking card.
+  const busy = aiBusy || !!importBusy;
 
   // Voice. `micBlocked` is sticky for the life of the sheet: a denied permission does
   // not resolve itself, so re-offering the button would just reproduce the same refusal.
@@ -2515,11 +2547,51 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     }
   }, []);
 
-  // Ask AI: one request, one meal, straight into the fields the manual path uses.
+  // ONE landing for every draft that arrives from outside — the Galley, a photo
+  // read, a paste (SPEC_recipe_import D2: one editor, one Save, one landing).
   // REPLACES name/instructions/ingredients rather than merging. Merging sounds kinder
   // but compounds: ask twice and you accumulate two meals' worth of ingredients with
   // no way to tell them apart. The hint under the box says so plainly, and everything
   // stays editable afterwards, so a replace is recoverable and a silent merge is not.
+  // `controller` is the request's own; a landing that was cancelled mid-loop stops
+  // before it writes the rows (the caller's Never mind has already restored).
+  const landDraft = async (draft, source, controller) => {
+    setName(draft.name || "");
+    setInstructions(draft.instructions || "");
+
+    // Every suggested ingredient goes through the SAME resolver the manual
+    // no-results panel uses: exact-normalized match, or a pending placeholder
+    // that Save turns into a real row. No parallel matching path (spec,
+    // Decisions) — and no catalog write until the meal is committed.
+    const staged = [];
+    const known = new Set(Object.values(catalogMap).map((it) => norm(it.name)));
+    for (const ing of draft.ingredients || []) {
+      // Snapshot BEFORE the call: "was it already there?" is a property of the
+      // catalog, not of what the resolver hands back — a hidden-set match returns
+      // an existing row that was never in catalogMap, and the badge should still
+      // say where it went. Asked beforehand or the answer drifts.
+      const wasKnown = known.has(norm(ing.name));
+      const item = await onCreateCatalogItem(ing.name, ing.category);
+      if (!item) continue;   // resolver failed and said why; keep the rest
+      if (staged.some((r) => r.catalog_item_id === item.id)) continue;
+      staged.push({
+        catalog_item_id: item.id,
+        name: item.name,
+        // Whole numbers only — the stepper cannot hold anything else. The Edge
+        // Function already rounds up; this is the client-side floor, not a repeat.
+        quantity_per_serving: Math.max(1, Math.ceil(Number(ing.quantity) || 1)),
+        category: item.category || ing.category || null,
+        isNew: !wasKnown,
+      });
+    }
+    if (controller.signal.aborted) return;
+    setRows(staged);
+    setDraftSource(source);
+    setGalleyCollapsed(true);
+    setStepsMode("read");
+  };
+
+  // Ask AI: one request, one meal, straight into the fields the manual path uses.
   const handleAskAI = async () => {
     const text = aiText.trim();
     if (!text || aiBusy || !onRequestSuggestion) return;
@@ -2529,7 +2601,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     if (listening) stopListening();
     const controller = new AbortController();
     aiAbortRef.current = controller;
-    aiSnapshotRef.current = { name, instructions, rows };
+    aiSnapshotRef.current = { name, instructions, rows, occasion };
     setAiBusy(true);
     try {
       const draft = await onRequestSuggestion(text, { signal: controller.signal });
@@ -2537,39 +2609,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
       // that with a draft that arrived a beat after the person gave up on it.
       if (controller.signal.aborted) return;
       if (!draft) return;   // the hook already surfaced the reason via setError
-      setName(draft.name || "");
-      setInstructions(draft.instructions || "");
-
-      // Every suggested ingredient goes through the SAME resolver the manual
-      // no-results panel uses: exact-normalized match, or a pending placeholder
-      // that Save turns into a real row. No parallel matching path (spec,
-      // Decisions) — and no catalog write until the meal is committed.
-      const staged = [];
-      const known = new Set(Object.values(catalogMap).map((it) => norm(it.name)));
-      for (const ing of draft.ingredients || []) {
-        // Snapshot BEFORE the call: "was it already there?" is a property of the
-        // catalog, not of what the resolver hands back — a hidden-set match returns
-        // an existing row that was never in catalogMap, and the badge should still
-        // say where it went. Asked beforehand or the answer drifts.
-        const wasKnown = known.has(norm(ing.name));
-        const item = await onCreateCatalogItem(ing.name, ing.category);
-        if (!item) continue;   // resolver failed and said why; keep the rest
-        if (staged.some((r) => r.catalog_item_id === item.id)) continue;
-        staged.push({
-          catalog_item_id: item.id,
-          name: item.name,
-          // Whole numbers only — the stepper cannot hold anything else. The Edge
-          // Function already rounds up; this is the client-side floor, not a repeat.
-          quantity_per_serving: Math.max(1, Math.ceil(Number(ing.quantity) || 1)),
-          category: item.category || ing.category || null,
-          isNew: !wasKnown,
-        });
-      }
-      if (controller.signal.aborted) return;
-      setRows(staged);
-      setFromGalley(true);
-      setGalleyCollapsed(true);
-      setStepsMode("read");
+      await landDraft(draft, "galley", controller);
     } finally {
       if (aiAbortRef.current === controller) {
         aiAbortRef.current = null;
@@ -2586,17 +2626,74 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     controller.abort();
     aiAbortRef.current = null;
     const snap = aiSnapshotRef.current;
-    if (snap) { setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows); }
+    if (snap) { setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows); setOccasion(snap.occasion); }
     aiSnapshotRef.current = null;
-    setFromGalley(false);
+    setDraftSource(null);
     setAiBusy(false);
+  };
+
+  // Bring a recipe: the same shape as handleAskAI with the staged input in place of
+  // the request text. The snapshot holds the fields AND the staged input, so Never
+  // mind puts both back and the person can try again without re-pasting or
+  // re-picking. A decline or a clean failure sets the row's hint and keeps the
+  // staged input; only a landed draft clears it.
+  const runImport = async (input, source) => {
+    if (importBusy || aiBusy || !onRequestImport || !isSignedIn || saving) return;
+    const controller = new AbortController();
+    importAbortRef.current = controller;
+    importSnapshotRef.current = { name, instructions, rows, occasion, pasteText };
+    setBringHint("");
+    setImportBusy(source === "paste" ? { kind: "paste" } : { kind: "photo", count: input.images.length });
+    try {
+      const result = await onRequestImport(input, { signal: controller.signal });
+      // Never mind already restored the fields and cleared busy; a response that
+      // arrives a beat later lands nothing.
+      if (controller.signal.aborted) return;
+      if (!result) return;
+      if (result.reason) {
+        setBringHint(IMPORT_HINTS[result.reason] || "");
+        return;   // staged input kept for the retry
+      }
+      await landDraft(result.draft, source, controller);
+      if (controller.signal.aborted) return;
+      setPasteText("");
+      setBringMode(null);
+    } finally {
+      if (importAbortRef.current === controller) {
+        importAbortRef.current = null;
+        importSnapshotRef.current = null;
+        setImportBusy(null);
+      }
+    }
+  };
+
+  // Never mind for an import: abort, put the fields and the staged input back.
+  const cancelImport = () => {
+    const controller = importAbortRef.current;
+    if (!controller) return;
+    controller.abort();
+    importAbortRef.current = null;
+    const snap = importSnapshotRef.current;
+    if (snap) {
+      setName(snap.name); setInstructions(snap.instructions); setRows(snap.rows);
+      setOccasion(snap.occasion); setPasteText(snap.pasteText);
+    }
+    importSnapshotRef.current = null;
+    setDraftSource(null);
+    setImportBusy(null);
+  };
+
+  const clearBring = () => {
+    setPasteText("");
+    setBringHint("");
+    setBringMode(null);
   };
 
   // "When the user clears all fields" — with nothing left in the sheet there is
   // nothing for the eyebrow to be the provenance of.
   useEffect(() => {
-    if (fromGalley && !name.trim() && !instructions.trim() && rows.length === 0) setFromGalley(false);
-  }, [fromGalley, name, instructions, rows]);
+    if (draftSource && !name.trim() && !instructions.trim() && rows.length === 0) setDraftSource(null);
+  }, [draftSource, name, instructions, rows]);
 
   // On Ask, bring the thinking card into view so the ember and Never mind are both
   // on screen while the draft is built. The ask block sits below the (now skeleton)
@@ -2604,17 +2701,17 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // under the keyboard's former footprint or off the bottom of the sheet. `nearest`
   // moves the overlay only as far as it must; reduced motion jumps instead.
   useEffect(() => {
-    if (!aiBusy) return;
+    if (!busy) return;
     const el = aiCardRef.current;
     if (!el || typeof el.scrollIntoView !== "function") return;
     const reduced = typeof window !== "undefined" && window.matchMedia
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollIntoView({ block: "nearest", behavior: reduced ? "auto" : "smooth" });
-  }, [aiBusy]);
+  }, [busy]);
 
   // Screen 3 of the mockup: the manual fields dim and stop accepting input while a
   // suggestion is in flight, because they are about to be replaced by the draft.
-  const aiDim = aiBusy ? { opacity: 0.45, pointerEvents: "none" } : undefined;
+  const aiDim = busy ? { opacity: 0.45, pointerEvents: "none" } : undefined;
   // The ask block dims while the steps are being hand-edited: a draft would
   // replace what is being typed. Same shape as aiDim, different trigger.
   const galleyDim = stepsMode === "edit" ? { opacity: 0.55, pointerEvents: "none" } : undefined;
@@ -2625,7 +2722,17 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // ingredient or typed step, and returns if every one is removed; editing an
   // existing meal with ingredients opens without it. Reason: a leftover Ask
   // control would draft over hand-entered work.
-  const galleyAvailable = fromGalley || (rows.length === 0 && !instructions.trim());
+  const galleyAvailable = draftSource !== null || (rows.length === 0 && !instructions.trim());
+  // Both doors share ONE predicate and leave together (SPEC_recipe_import D8): the
+  // sheet still empty (or holding a draft that came through a door), nothing in
+  // flight, the Galley not folded away behind its handle — the tree's existing
+  // three-way rule for Ask AI, now applied to both. Then one door in play at a
+  // time: staged Bring input hides Ask AI; a busy Galley hides Bring (in `busy`).
+  // Edit Meal never shows Bring (spec: Visibility).
+  const bringStaged = pasteText.trim().length > 0;
+  const draftDoorsAvailable = galleyAvailable && !busy && !galleyCollapsed;
+  const showAskAI = draftDoorsAvailable && !bringStaged;
+  const showBring = draftDoorsAvailable && !isEdit;
   // Ask AI needs a real Clerk identity: the Edge Function verifies the token
   // against Clerk JWKS, so signed out it can only ever fail. Gate the control
   // rather than letting the attempt through to a generic error.
@@ -2639,15 +2746,15 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const canSave = name.trim().length > 0;
 
   // Unsaved changes: anything that differs from what the sheet opened with, or a
-  // Galley draft in the fields (fromGalley), or a request still in flight. Rows
+  // draft from either door in the fields (draftSource), or a request still in flight. Rows
   // compare by identity + quantity + on-hand, not by object reference.
   const rowsKey = (rs) => rs.map((r) => `${r.catalog_item_id}|${r.quantity_per_serving}|${r.on_hand ? 1 : 0}`).join(",");
   const isDirty = name !== openedWith.name
     || instructions !== openedWith.instructions
     || rowsKey(rows) !== rowsKey(openedWith.rows)
     || occasion.join(",") !== openedWith.occasion.join(",")   // a changed tag is unsaved work (spec)
-    || fromGalley
-    || aiBusy;
+    || draftSource !== null
+    || busy;   // either door's request in flight (09-09 rule, extended to import)
 
   // Escape closes a CLEAN sheet only. A dirty one ignores the key rather than
   // asking "discard?" — with no tap-outside path left, the only way to lose work
@@ -2687,13 +2794,13 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
         <GoodForChips value={occasion} onChange={setOccasion} style={aiDim} />
 
-        <div className="modal-field" style={aiBusy ? undefined : aiDim}>
+        <div className="modal-field" style={busy ? undefined : aiDim}>
           <label className="modal-label">Ingredients</label>
 
           {/* Thinking: skeleton rows sit where the ingredients will land, so arrival
               is a fill rather than a layout jump. Search and results step aside —
               nothing typed now would survive the replace anyway. */}
-          {aiBusy && (
+          {busy && (
             <div aria-busy="true" aria-label="Building ingredients">
               {[60, 45, 55].map((w) => (
                 <div key={w} className="op-skel-step op-skel-row">
@@ -2704,7 +2811,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             </div>
           )}
 
-          {!aiBusy && rows.length > 0 && (
+          {!busy && rows.length > 0 && (
             <div style={{ marginBottom: "10px" }}>
               {/* Row styling matches .item-row.has-qty. Applied unconditionally:
                   every row in this list carries quantity ≥ 1 by definition, so a
@@ -2819,7 +2926,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             </div>
           )}
 
-          {!aiBusy && (
+          {!busy && (
             <input
               className="modal-input"
               value={query}
@@ -2828,14 +2935,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             />
           )}
 
-          {!aiBusy && !trimmedQuery && (
+          {!busy && !trimmedQuery && (
             <div style={{ padding: "10px 2px 0", fontFamily: "'Lato', sans-serif",
               fontSize: ts(14), color: "#8A5F3A" }}>
               Start typing to find an ingredient.
             </div>
           )}
 
-          {!aiBusy && results.length > 0 && (
+          {!busy && results.length > 0 && (
             <div style={{ marginTop: "8px" }}>
               {results.map((it) => {
                 const stagedRow = rows.find((r) => r.catalog_item_id === it.id);
@@ -2883,7 +2990,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           )}
 
           {/* No match → inline create, matching Browse's live pattern. */}
-          {!aiBusy && showNoResults && (
+          {!busy && showNoResults && (
             <div style={{ marginTop: "8px" }}>
               <div style={{ padding: "0 0 8px", fontFamily: "'Lato', sans-serif", fontSize: ts(12.5),
                 letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A" }}>
@@ -2969,12 +3076,12 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
         <div className="modal-field">
           <label className="modal-label" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span>Steps</span>
-            {stepsMode === "read" && hasSteps && !aiBusy && (
+            {stepsMode === "read" && hasSteps && !busy && (
               <button type="button" className="op-steps-action" onClick={() => setStepsMode("edit")}>Edit steps</button>
             )}
           </label>
 
-          {aiBusy ? (
+          {busy ? (
             <div aria-busy="true" aria-label="Building steps">
               {[[100, 80], [100, 65], [90]].map((ws, i) => (
                 <div key={i} className="op-skel-step">
@@ -3002,8 +3109,8 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               <button type="button" className="op-steps-done" onClick={() => setStepsMode("read")}>Done</button>
             </div>
           ) : hasSteps ? (
-            <div className={`op-recipe${fromGalley ? " galley" : ""}`}>
-              {fromGalley && (
+            <div className={`op-recipe${draftSource === "galley" ? " galley" : ""}`}>
+              {draftSource === "galley" && (
                 <div className="op-recipe-eyebrow"><GalleyGlyph />From the galley</div>
               )}
               {/* Mirrors the Meal Name field above; absent rather than "Untitled" when
@@ -3037,8 +3144,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             </button>
           )}
 
-          {/* Once a draft has landed the ask block is folded away; this is its handle. */}
-          {galleyCollapsed && !aiBusy && (
+          {/* Once a Galley draft has landed the ask block is folded away; this is its
+              handle. An imported draft has no handle here — Start over is its one
+              way back (spec, Open: "Start over is enough"). */}
+          {galleyCollapsed && !busy && draftSource === "galley" && (
             <button type="button" className="op-steps-action op-ask-again"
               onClick={() => setGalleyCollapsed(false)}>
               Not quite it? Ask the galley again
@@ -3052,7 +3161,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             in this same row. ── */}
         {/* Divider only makes sense between two live paths — gone while the galley is
             thinking (the manual fields are skeletons) and once its block has collapsed. */}
-        {!aiBusy && !galleyCollapsed && galleyAvailable && (
+        {showAskAI && (
           <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "22px 0 14px" }}>
             <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
             <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 900,
@@ -3063,7 +3172,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
         {/* Thinking. Single ember, no spinner; the request is echoed back so the wait
             has a subject. Never mind aborts and puts everything back. */}
-        {aiBusy && (
+        {busy && (
           <div ref={aiCardRef} style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.35)",
             borderRadius: "14px", padding: "16px", marginBottom: "16px" }} aria-live="polite">
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
@@ -3077,7 +3186,11 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 {/* Fixed headline: the quoted request below already echoes what was asked,
                     so the subject of the wait is never repeated up here. */}
                 <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(15), color: "#2C1A0E" }}>
-                  The galley's working on it…
+                  {aiBusy
+                    ? "The galley's working on it…"
+                    : importBusy.kind === "paste"
+                      ? "Reading your recipe…"
+                      : `Reading ${importBusy.count} screenshot${importBusy.count === 1 ? "" : "s"}…`}
                 </div>
                 {/* Measured on dev 2026-10-05 from the function's edge logs: eight real
                     runs 7.6–16.9 s, median ~11 s (one Opus call at low effort behind a
@@ -3087,16 +3200,20 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 </div>
               </div>
             </div>
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#6f5a45", fontStyle: "italic",
-              background: "#FFFDF9", border: "1.5px solid rgba(44,26,14,0.10)", borderRadius: "9px",
-              padding: "9px 11px", marginBottom: "14px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-              "{aiText.trim()}"
-            </div>
-            <button type="button" onClick={cancelAskAI} className="op-never-mind">Never mind</button>
+            {/* The request is echoed back for the Galley only — an import's subject is
+                the staged input, already named in the headline. */}
+            {aiBusy && (
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#6f5a45", fontStyle: "italic",
+                background: "#FFFDF9", border: "1.5px solid rgba(44,26,14,0.10)", borderRadius: "9px",
+                padding: "9px 11px", marginBottom: "14px", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                "{aiText.trim()}"
+              </div>
+            )}
+            <button type="button" onClick={aiBusy ? cancelAskAI : cancelImport} className="op-never-mind">Never mind</button>
           </div>
         )}
 
-        {!aiBusy && !galleyCollapsed && galleyAvailable && (
+        {showAskAI && (
         <div style={{ background: "rgba(160,114,74,0.06)", border: "1.5px solid rgba(160,114,74,0.22)",
           borderRadius: "14px", padding: "14px", marginBottom: "16px", ...galleyDim }}>
           <div style={{ display: "flex", alignItems: "center", gap: "7px", fontFamily: "'Lato', sans-serif",
@@ -3210,6 +3327,76 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             }}
           >{aiBusy ? "Asking the galley…" : "Ask the Galley"}</button>
         </div>
+        )}
+
+        {/* ── Bring a recipe (SPEC_recipe_import D1). One compact row under a SECOND
+            "or", BELOW Ask AI — nothing above it moves. Photo · Paste. The row grows
+            only after a pick: Paste opens into a textarea with Clear / Read this;
+            Photo (next commit) into thumbnails with Clear / Read these. Reading reuses
+            the Galley's thinking card above; the result fills the same form. ── */}
+        {showBring && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", margin: "6px 0 14px" }}>
+            <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
+            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 900,
+              letterSpacing: "0.1em", textTransform: "uppercase", color: "#b5a48d" }}>or</div>
+            <div style={{ flex: 1, height: "1px", background: "rgba(44,26,14,0.12)" }} />
+          </div>
+        )}
+        {showBring && (
+          <div className="op-bring" style={galleyDim}>
+            {bringMode === "paste" ? (
+              <div>
+                <div className="op-bring-eyebrow">Bring a recipe · Pasted text</div>
+                <textarea
+                  className="op-bring-ta"
+                  value={pasteText}
+                  onChange={(e) => {
+                    // Hard cap, trimmed on the way in (the function rejects > 20,000).
+                    setPasteText(e.target.value.slice(0, PASTE_CAP));
+                    if (bringHint) setBringHint("");   // typing is "I've moved on"
+                  }}
+                  disabled={saving}
+                  rows={6}
+                  placeholder="Paste the recipe here…"
+                  aria-label="Pasted recipe"
+                />
+                <div className={`op-bring-hint${bringHint ? " err" : ""}`}>
+                  {bringHint
+                    ? bringHint
+                    : !isSignedIn
+                      ? "Sign in to bring a recipe — it's read against your account."
+                      : pasteText.length >= PASTE_CAP
+                        ? "That's the limit — 20,000 characters."
+                        : "Up to 20,000 characters. Reading replaces what's in the form."}
+                </div>
+                <div className="op-bring-actions">
+                  <button type="button" className="op-bring-clear" onClick={clearBring} disabled={saving}>Clear</button>
+                  <button
+                    type="button"
+                    className="op-bring-read"
+                    disabled={!bringStaged || !isSignedIn || saving}
+                    onClick={() => runImport({ kind: "text", text: pasteText.trim() }, "paste")}
+                  >Read this</button>
+                </div>
+              </div>
+            ) : (
+              <div className="op-bring-row">
+                <div className="op-bring-t">
+                  <div className="op-bring-eyebrow">Bring a recipe</div>
+                  <small>Screenshots or copied text</small>
+                </div>
+                {/* Photo lands in the next commit; the door is drawn, not yet wired. */}
+                <button type="button" className="op-bring-door" disabled aria-label="Photo — coming in the next build">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3" /><circle cx="12" cy="13" r="3.5" /><path d="M8 6l1.5-2h5L16 6" /></svg>
+                  Photo
+                </button>
+                <button type="button" className="op-bring-door" onClick={() => { setBringHint(""); setBringMode("paste"); }}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4" width="12" height="17" rx="2" /><path d="M9 4V3h6v1M9 10h6M9 14h6" /></svg>
+                  Paste
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {/* States the locked decision plainly rather than leaving it inferred. */}
@@ -3380,6 +3567,7 @@ function ProvisionsApp() {
     createMeal,
     updateMeal,
     requestMealSuggestion,
+    requestRecipeImport,
     deleteMeal,
     onListChangedRef,
     createCatalogItem,
@@ -6491,6 +6679,23 @@ function ProvisionsApp() {
           .op-ember::before { opacity: 1; transform: none; }
           .op-ember::after { display: none; }
         }
+        .op-bring { background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 14px; padding: 12px 14px; margin-bottom: 16px; }
+        .op-bring-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+        .op-bring-t { flex: 1 1 150px; min-width: 0; }
+        .op-bring-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #8A5F3A; overflow-wrap: anywhere; }
+        .op-bring-t small { display: block; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; margin-top: 2px; line-height: 1.4; }
+        .op-bring-door { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border: 1.5px solid #C9A97A; border-radius: 999px; background: #FFFDF9; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #2C1A0E; cursor: pointer; white-space: nowrap; flex: none; }
+        .op-bring-door:disabled { opacity: .45; cursor: default; }
+        .op-bring-door svg { width: 15px; height: 15px; stroke: #2C1A0E; fill: none; stroke-width: 1.7; flex: none; }
+        .op-bring-ta { display: block; width: 100%; box-sizing: border-box; margin-top: 10px; min-height: 120px; padding: 12px 13px; border-radius: 10px; border: 1.5px solid #E8D5B7; background: #FFFDF9; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; outline: none; resize: vertical; }
+        .op-bring-ta:disabled { opacity: .6; }
+        .op-bring-hint { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; margin-top: 8px; line-height: 1.5; }
+        .op-bring-hint.err { color: #b3261e; }
+        .op-bring-actions { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; margin-top: 12px; }
+        .op-bring-clear { background: none; border: none; padding: 8px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; }
+        .op-bring-clear:disabled { opacity: .5; cursor: default; }
+        .op-bring-read { border: none; border-radius: 999px; padding: 10px 18px; background: #2B1E16; color: #FAF4EC; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .op-bring-read:disabled { background: #E8D5B7; color: #9a8a78; cursor: default; }
         .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #6f5a45; cursor: pointer; }
         .op-recipe { background: #fff; border: 1.5px solid rgba(44,26,14,.10); border-radius: 14px; padding: 16px 16px 14px; }
         .op-recipe.galley { border-color: rgba(160,114,74,.3); }
@@ -8791,6 +8996,7 @@ function ProvisionsApp() {
           onCreateCatalogItem={createCatalogItem}
           onRegisterCategory={(cat) => setHouseholdCategories((prev) => new Set([...prev, cat]))}
           onRequestSuggestion={requestMealSuggestion}
+          onRequestImport={requestRecipeImport}
           isSignedIn={isSignedIn}
         />
       )}
