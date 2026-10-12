@@ -6908,6 +6908,15 @@ function ProvisionsApp() {
                      background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
         /* Bottom status stack rides above the pill — at every width now. */
         .bottom-stack { bottom: calc(92px + env(safe-area-inset-bottom)); }
+        /* While ANY modal sheet is open the stack anchors at the TOP of the viewport
+           instead — just under the safe area, still centred, same look — so the
+           pill and the toasts never sit over a sheet's pinned footer (Cancel / Save
+           Meal; found offline on the phone 2026-10-11). Keyed off the document, not
+           a flag: eleven surfaces own a .modal-overlay (ten in ProvisionsApp plus
+           LibraryFilterSheet's own state) and the next one would miss a flag.
+           Position stays with the stack; the pill carries none (ConnectivityPill.js).
+           Engines without :has() (Safari < 15.4) keep today's bottom anchor. */
+        body:has(.modal-overlay) .bottom-stack { bottom: auto; top: calc(10px + env(safe-area-inset-top)); }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
         /* Budget banner */
