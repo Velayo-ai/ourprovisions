@@ -3467,10 +3467,15 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                 if (micHint && !micBlocked) setMicHint("");
               }}
               disabled={aiBusy || saving}
-              rows={2}
+              rows={3}
               placeholder="Tell me what you're in the mood for…"
               style={{
-                width: "100%", boxSizing: "border-box", minHeight: "44px", maxHeight: "110px",
+                // Three line-heights plus the box's own padding and border, NOT a fixed
+                // px: at XXL the 15 px body is 26 px and the old 44–110 px band cut the
+                // placeholder's third line (pre-existing from text-size pass 2; found
+                // 2026-10-11). The box follows the knob with the text it holds.
+                width: "100%", boxSizing: "border-box", lineHeight: 1.45,
+                minHeight: `calc(3 * 1.45 * ${ts(15)} + 27px)`,
                 padding: "12px 13px", paddingRight: "34px", borderRadius: "10px",
                 border: "1.5px solid #E8D5B7",
                 background: "#FFFDF9", fontFamily: "'Lato', sans-serif", fontSize: ts(15),
@@ -6942,7 +6947,7 @@ function ProvisionsApp() {
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
         .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-text-scale)); color: #2C1A0E; flex: 1; }
-        .op-mic-btn { flex: none; width: 44px; height: 44px; border-radius: 10px; background: #2C1A0E; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
+        .op-mic-btn { flex: none; align-self: flex-start; width: 44px; height: 44px; border-radius: 10px; background: #2C1A0E; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
         .op-mic-btn svg { width: 19px; height: 19px; stroke: #FFFDF9; fill: none; }
         .op-mic-btn:disabled { opacity: .45; cursor: default; }
         .op-mic-btn.listening { background: #c0392b; animation: opMicPulse 1.2s ease-in-out infinite; }
