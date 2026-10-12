@@ -6917,6 +6917,13 @@ function ProvisionsApp() {
            Position stays with the stack; the pill carries none (ConnectivityPill.js).
            Engines without :has() (Safari < 15.4) keep today's bottom anchor. */
         body:has(.modal-overlay) .bottom-stack { bottom: auto; top: calc(10px + env(safe-area-inset-top)); }
+        /* …and the Helm with its fade leave entirely. A sheet is modal, so the nav
+           cannot be used anyway, and at z 900 / 899 over the overlay's 100 the pill
+           and the fade drew across the sheet's pinned Cancel / Save Meal, which were
+           partly covered and hard to hit (iPhone, the 2026-10-11 walk). Hidden, not
+           lowered: a lowered Helm would still read as reachable. SAME SIGNAL as the
+           stack rule above, so the two cannot disagree. Restored on close. */
+        body:has(.modal-overlay) .helm, body:has(.modal-overlay) .helm-fade { display: none; }
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
         /* Budget banner */
