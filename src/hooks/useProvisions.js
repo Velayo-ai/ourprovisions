@@ -1,5 +1,6 @@
 // src/hooks/useProvisions.js
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { classifyFetchFailure, IMPORT_FAILED_TOAST } from "../lib/importErrors";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
@@ -3191,9 +3192,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       clearErrorFrom("import");
       return { draft: { ...payload, instructions: unescapeSteps(payload.instructions) } };
     } catch (err) {
-      if (err?.name === "AbortError") return null;
-      console.error("requestRecipeImport error:", err.message);
-      failWith("import", `Could not read the recipe: ${err.message}`);
+      // Thrown around fetch — classified by name, never by message, and the
+      // message goes to the console only (2026-10-11: "Could not read the recipe:
+      // Load failed" reached a phone that had gone offline mid-read).
+      const kind = classifyFetchFailure(err);
+      if (kind === "aborted") return null;                 // Never mind — silent
+      console.error("requestRecipeImport error:", err?.message || err);
+      if (kind === "offline") return { reason: "offline" }; // the row's hint; staged input kept
+      failWith("import", IMPORT_FAILED_TOAST);
       return { reason: "failed" };
     }
   }, [failWith, clearErrorFrom]);

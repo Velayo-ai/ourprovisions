@@ -14,6 +14,7 @@ import { parseSteps } from './lib/parseSteps';
 import { downscaleToJpeg } from './lib/image';
 import { filesFromPicker, stagePhotos, PHOTO_CAP, HINT_UNREADABLE } from './lib/stagePhotos';
 import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
+import { IMPORT_HINTS } from './lib/importErrors';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -2203,15 +2204,8 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
   );
 }
 
-// Bring a recipe — the row's hint copy for the four outcomes that have a next move
-// in the row (SPEC_recipe_import "Client errors" + the 2026-10-10 build brief for
-// the function's two clean failures). Everything else is a toast via the hook.
-const IMPORT_HINTS = {
-  not_a_recipe: "Couldn't find a recipe in that. Try a clearer screenshot, or paste the text.",
-  unreadable: "Couldn't read that clearly enough. A sharper screenshot usually works.",
-  timeout: "That took too long. Try again, or try fewer screenshots.",
-  unreachable: "Couldn't reach the reader. Try again in a moment.",
-};
+// Bring a recipe — the row's hint copy (IMPORT_HINTS) lives in src/lib/importErrors.js
+// with the error classifier the hook uses, so the two cannot drift apart.
 const PASTE_CAP = 20000;   // the function's own ceiling on kind: "text"
 
 // A Blob → the base64 the function wants in data_base64 (no data: prefix).
