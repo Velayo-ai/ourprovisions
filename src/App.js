@@ -3670,15 +3670,21 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   <div className="op-bring-eyebrow">Bring a recipe</div>
                   <small>Screenshots or copied text</small>
                 </div>
-                <button type="button" className="op-bring-door" disabled={saving}
-                  onClick={() => { setBringHint(""); if (photoInputRef.current) photoInputRef.current.click(); }}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3" /><circle cx="12" cy="13" r="3.5" /><path d="M8 6l1.5-2h5L16 6" /></svg>
-                  Photo
-                </button>
-                <button type="button" className="op-bring-door" onClick={() => { setBringHint(""); setBringMode("paste"); }}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4" width="12" height="17" rx="2" /><path d="M9 4V3h6v1M9 10h6M9 14h6" /></svg>
-                  Paste
-                </button>
+                {/* ONE wrapper for the pair, the only sibling of the text block: together
+                    on the right when they fit, both under the subtitle when they don't.
+                    As three siblings, Photo fit beside the eyebrow and Paste wrapped alone
+                    at every text size (Dan, 2026-10-11). */}
+                <div className="op-bring-doors">
+                  <button type="button" className="op-bring-door" disabled={saving}
+                    onClick={() => { setBringHint(""); if (photoInputRef.current) photoInputRef.current.click(); }}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3" /><circle cx="12" cy="13" r="3.5" /><path d="M8 6l1.5-2h5L16 6" /></svg>
+                    Photo
+                  </button>
+                  <button type="button" className="op-bring-door" onClick={() => { setBringHint(""); setBringMode("paste"); }}>
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4" width="12" height="17" rx="2" /><path d="M9 4V3h6v1M9 10h6M9 14h6" /></svg>
+                    Paste
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -6976,6 +6982,7 @@ function ProvisionsApp() {
         .op-bring { background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 14px; padding: 12px 14px; margin-bottom: 16px; }
         .op-bring-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
         .op-bring-t { flex: 1 1 150px; min-width: 0; }
+        .op-bring-doors { display: flex; flex-wrap: wrap; gap: 8px; flex: none; max-width: 100%; }   /* the pair wraps as whole buttons only where both cannot share a line (320 px at XXL) */
         .op-bring-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: #8A5F3A; overflow-wrap: anywhere; }
         .op-bring-t small { display: block; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; margin-top: 2px; line-height: 1.4; }
         .op-bring-door { display: inline-flex; align-items: center; gap: 5px; padding: 7px 12px; border: 1.5px solid #C9A97A; border-radius: 999px; background: #FFFDF9; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #2C1A0E; cursor: pointer; white-space: nowrap; flex: none; }
