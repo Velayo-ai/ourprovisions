@@ -13,6 +13,7 @@ import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, 
 import { parseSteps } from './lib/parseSteps';
 import { downscaleToJpeg } from './lib/image';
 import { filesFromPicker, stagePhotos, PHOTO_CAP, HINT_UNREADABLE } from './lib/stagePhotos';
+import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -2956,11 +2957,15 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
         {/* The import banner (spec: Filled). One line, card-tinted, NO teal — nothing
             here is a completion. Start over is the import's one way back; the
-            Galley keeps its own "Ask the galley again" handle below. */}
+            Galley keeps its own "Ask the galley again" handle below. The second
+            sentence counts the rows still wearing a "Check this" chip (2026-10-11):
+            live, so it falls as the person edits them; "Check it over." at zero.
+            Ingredient rows only — the servings chip is not counted. Advisory. */}
         {(draftSource === "photo" || draftSource === "paste") && !busy && (
           <div className="op-import-banner" role="status">
             <span>
-              <b>{draftSource === "photo" ? "Filled from your screenshots." : "Filled from what you pasted."}</b> Check it over.
+              <b>{draftSource === "photo" ? "Filled from your screenshots." : "Filled from what you pasted."}</b>{" "}
+              {bannerCheckLine(countFlaggedRows(rows))}
             </span>
             <button type="button" className="op-start-over" onClick={startOver} disabled={saving}>Start over</button>
           </div>
