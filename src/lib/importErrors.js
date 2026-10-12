@@ -21,6 +21,12 @@ export const IMPORT_HINTS = {
 // the toast. The raw message goes to the console only.
 export const IMPORT_FAILED_TOAST = "Couldn't read the recipe. Try again.";
 
+// The Galley (requestMealSuggestion) had the same leak — "Could not get a
+// suggestion: Load failed" — and shares the classifier. It has no row hint line,
+// so both outcomes are toasts, in the same plain English (fixed 2026-10-11).
+export const GALLEY_OFFLINE_TOAST = "Couldn't reach the galley. Check your connection and try again.";
+export const GALLEY_FAILED_TOAST = "Couldn't get a suggestion. Try again.";
+
 // Classify an error thrown around fetch():
 //   "aborted" — the person pressed Never mind (swallowed, no copy at all)
 //   "offline" — fetch rejected with no response: a TypeError in every engine

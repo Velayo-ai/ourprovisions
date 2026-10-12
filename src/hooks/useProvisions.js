@@ -1,6 +1,6 @@
 // src/hooks/useProvisions.js
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { classifyFetchFailure, IMPORT_FAILED_TOAST } from "../lib/importErrors";
+import { classifyFetchFailure, IMPORT_FAILED_TOAST, GALLEY_OFFLINE_TOAST, GALLEY_FAILED_TOAST } from "../lib/importErrors";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
@@ -3116,9 +3116,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // Never mind. Swallowed on purpose — see the note above the function. Checked by
       // name rather than `signal?.aborted` so a request that was aborted after the
       // fetch settled (in res.json()) is still recognised as the user's own cancel.
-      if (err?.name === "AbortError") return null;
-      console.error("requestMealSuggestion error:", err.message);
-      failWith("ai", `Could not get a suggestion: ${err.message}`);
+      const kind = classifyFetchFailure(err);
+      if (kind === "aborted") return null;
+      // Plain copy only; the browser's own text ("Load failed", "Failed to fetch")
+      // is for the console (2026-10-11, the same leak the import had).
+      console.error("requestMealSuggestion error:", err?.message || err);
+      failWith("ai", kind === "offline" ? GALLEY_OFFLINE_TOAST : GALLEY_FAILED_TOAST);
       return null;
     }
   }, [failWith, clearErrorFrom]);

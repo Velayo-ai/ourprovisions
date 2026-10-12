@@ -1,5 +1,5 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/lib/importErrors
-import { classifyFetchFailure, IMPORT_HINTS, IMPORT_FAILED_TOAST } from "./importErrors";
+import { classifyFetchFailure, IMPORT_HINTS, IMPORT_FAILED_TOAST, GALLEY_OFFLINE_TOAST, GALLEY_FAILED_TOAST } from "./importErrors";
 
 // What the hook shows for a thrown error, as plain data: null for a cancel, the
 // row hint for offline, the plain toast for anything else.
@@ -47,4 +47,20 @@ test("the five hints are fixed copy and distinct", () => {
   expect(values.length).toBe(5);
   expect(new Set(values).size).toBe(5);
   expect(IMPORT_HINTS.offline).not.toBe(IMPORT_HINTS.unreachable);
+});
+
+// The Galley's toast, as the hook now picks it: offline → connection copy, else plain.
+const galleyToastFor = (err) => {
+  const kind = classifyFetchFailure(err);
+  if (kind === "aborted") return null;
+  return kind === "offline" ? GALLEY_OFFLINE_TOAST : GALLEY_FAILED_TOAST;
+};
+
+test("Galley (pre-existing leak): a TypeError becomes the connection toast, raw text absent", () => {
+  const out = galleyToastFor(new TypeError("Load failed"));
+  expect(out).toBe("Couldn't reach the galley. Check your connection and try again.");
+  expect(out).not.toContain("Load failed");
+  expect(galleyToastFor(new Error("boom"))).toBe("Couldn't get a suggestion. Try again.");
+  const abort = new Error("x"); abort.name = "AbortError";
+  expect(galleyToastFor(abort)).toBeNull();
 });
