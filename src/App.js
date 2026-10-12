@@ -3594,7 +3594,9 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     SCREENSHOTS in the eyebrow's uppercase 900 at XXL on 320 px is wider than
                     the row and had to break mid-word (harness 2026-10-10). Body copy keeps
                     "screenshots". */}
-                <div className="op-bring-eyebrow">Bring a recipe · {plural(photos.length, "photo")}</div>
+                {/* Non-breaking space between the count and its noun: "4 PHOTOS" is one
+                    unit and never splits across lines (Dan, 2026-10-11). */}
+                <div className="op-bring-eyebrow">Bring a recipe · {photos.length}{"\u00A0"}{photos.length === 1 ? "photo" : "photos"}</div>
                 <div className="op-bring-thumbs">
                   {photos.map((p, i) => (
                     <div key={p.id} className="op-bring-th">
