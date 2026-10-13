@@ -7064,12 +7064,15 @@ function ProvisionsApp() {
         .op-galley-foot .op-mic-btn.listening { background: #2C1A0E; color: #FFFDF9; }   /* filled while listening — plus the pulse the rule above keeps */
         .op-galley-photo:disabled, .op-galley-foot .op-mic-btn:disabled { opacity: .45; cursor: default; }
         .op-galley-photo:focus-visible, .op-galley-foot .op-mic-btn:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
-        .op-galley-thumbs { display: flex; flex-wrap: wrap; gap: 14px 18px; padding: 10px 8px 2px 8px; }
-        .op-galley-th { position: relative; width: 58px; height: 78px; border-radius: 7px; border: 1px solid #E8D5B7; background: #fff; flex: none; }
+        /* Thumbnails (walk steps 8/20): four tiles — or three + the add tile — on ONE line wherever they fit: 48 × 64 tiles, an 11 px
+           column gap that the number badge (hangs 5 px left) and the × (hangs 6 px right) share without touching. Four need 225 px;
+           the box offers 225 at 375 and 240 at 390. At 320 it offers 170, so they wrap 2 + 2 there — they truly cannot fit. */
+        .op-galley-thumbs { display: flex; flex-wrap: wrap; gap: 12px 11px; padding: 8px 4px 2px 6px; }
+        .op-galley-th { position: relative; width: 48px; height: 64px; border-radius: 7px; border: 1px solid #E8D5B7; background: #fff; flex: none; }
         .op-galley-th img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 7px; }
-        .op-galley-n { position: absolute; top: -6px; left: -6px; width: 20px; height: 20px; border-radius: 50%; background: #2B1E16; color: #FAF4EC; font-family: 'Lato', sans-serif; font-size: 12.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
-        .op-galley-x { position: absolute; top: -8px; right: -8px; width: 26px; height: 26px; border-radius: 50%; border: 1px solid #E8D5B7; background: #FAF4EC; color: #8A5F3A; font-size: 17px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
-        .op-galley-add { width: 58px; height: 78px; border-radius: 7px; border: 1.5px dashed #C9A97A; background: #FFFDF9; color: #8A5F3A; font-size: 24px; line-height: 1; cursor: pointer; flex: none; padding: 0; }
+        .op-galley-n { position: absolute; top: -5px; left: -5px; width: 18px; height: 18px; border-radius: 50%; background: #2B1E16; color: #FAF4EC; font-family: 'Lato', sans-serif; font-size: 11.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+        .op-galley-x { position: absolute; top: -7px; right: -6px; width: 24px; height: 24px; border-radius: 50%; border: 1px solid #E8D5B7; background: #FAF4EC; color: #8A5F3A; font-size: 16px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+        .op-galley-add { width: 48px; height: 64px; border-radius: 7px; border: 1.5px dashed #C9A97A; background: #FFFDF9; color: #8A5F3A; font-size: 22px; line-height: 1; cursor: pointer; flex: none; padding: 0; }
         .op-galley-add:disabled, .op-galley-x:disabled { opacity: .5; cursor: default; }
         .op-galley-clear { background: none; border: none; min-height: 44px; padding: 8px 4px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; }
         .op-galley-clear:disabled { opacity: .5; cursor: default; }
