@@ -1,5 +1,7 @@
 // src/hooks/useProvisions.js
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { classifyFetchFailure } from "../lib/importErrors";
+import { isMalformedGalleyDraft, measureSteps } from "../lib/galleyDraft";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
@@ -2629,7 +2631,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // library set is kind === 'meal' only, split from this array by the
       // caller (libraryMeals in App); miss that and Leftovers rows show up as
       // recipes. One read, not two, because both consumers poll on the same tick.
-      .select("id, name, kind, from_meal_ids, occasion, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
+      .select("id, name, kind, from_meal_ids, occasion, attribution, base_servings, instructions, created_by, created_at, meal_ingredients(id, catalog_item_id, quantity_per_serving, on_hand, deleted_at, catalog_items(name, category))")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
@@ -2652,7 +2654,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Empty string is coerced to null so "no steps" is one value, not two.
   // `occasion` (061) is the ordered Good-for list; normalised here so a bad value
   // never reaches the CHECK. Omitted → '{}' (untagged), the column default.
-  const createMeal = useCallback(async ({ name, baseServings = 1, instructions = null, ingredients = [], occasion = [] }) => {
+  // `attribution` (062) is the free-text "From" credit; empty saves NULL, never ''.
+  const createMeal = useCallback(async ({ name, baseServings = 1, instructions = null, ingredients = [], occasion = [], attribution = null }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
@@ -2667,6 +2670,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           base_servings: baseServings,
           instructions: (instructions || "").trim() || null,
           occasion: normalizeOccasion(occasion),
+          attribution: (attribution || "").trim() || null,
           created_by: internalUserIdRef.current,
         })
         .select("id")
@@ -2705,7 +2709,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // NOT an RPC (see SPEC_create_meal_ui.md): edit is household-owned,
   // RLS-protected, and carries no cross-cutting concern like the advisory lock
   // or cycle resolution that justify add_meal_to_list's SECURITY DEFINER shape.
-  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, instructions = null, ingredients = [], occasion = [] }) => {
+  const updateMeal = useCallback(async (mealId, { name, baseServings = 1, instructions = null, ingredients = [], occasion = [], attribution = null }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
@@ -2714,7 +2718,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     try {
       const { error: mErr } = await db
         .from("meals")
-        .update({ name: trimmed, base_servings: baseServings, instructions: (instructions || "").trim() || null, occasion: normalizeOccasion(occasion) })
+        .update({ name: trimmed, base_servings: baseServings, instructions: (instructions || "").trim() || null, occasion: normalizeOccasion(occasion), attribution: (attribution || "").trim() || null })
         .eq("id", mealId)
         .eq("household_id", hh.id); // belt-and-suspenders; RLS already scopes this
       if (mErr) throw mErr;
@@ -3039,31 +3043,25 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // is not evidence the database is unreachable, and folding it in would make the
   // connection indicator lie.
   //
-  // `signal` (optional AbortSignal) lets the sheet's "Never mind" cancel a request in
-  // flight. An abort is the user's own decision, not a failure — it returns null with
-  // NO toast, so the caller sees exactly what it sees for any other null and the
-  // person sees nothing at all.
+  // Returns one of (walk defect 16, 2026-10-12 — ONE error location on the card):
+  //   { draft }    — ok
+  //   { reason }   — "offline" | "session_expired" | "failed": a key into GALLEY_HINTS,
+  //                  shown by the SHEET in the card's hint line, never a toast; the
+  //                  request text is kept for the retry
+  //   null         — the person pressed Never mind (AbortError, swallowed, no copy)
+  // `signal` (optional AbortSignal) is how Never mind cancels a request in flight.
+  // This hook sets no error for the Galley any more: the card owns its own copy.
   const requestMealSuggestion = useCallback(async (promptText, { signal } = {}) => {
     const text = (promptText || "").trim();
     if (!text) return null;
-    // A new attempt clears the previous attempt's error. Without this, a failure toast
-    // ("Could not get a suggestion: Failed to fetch") survives into the next request and
-    // sits underneath a successful draft — the surface then shows a working result and an
-    // error at the same time, which reads as "it worked but something is still wrong".
-    // Cleared here rather than in the caller: this hook owns `error`, MealSheet never
-    // receives `dismissError`, and doing it here covers every caller for free.
-    // Scoped as of the error-ownership work: this clears a previous Ask AI failure,
-    // not an unrelated poll error that happens to be showing. The earlier unscoped
-    // version was a documented tradeoff; ownership makes the tradeoff unnecessary.
-    clearErrorFrom("ai");
     const getToken = getTokenRef.current;
-    if (!getToken) { failWith("ai", "You need to be signed in to ask for a suggestion."); return null; }
+    if (!getToken) return { reason: "session_expired" };
     try {
       const token = await getToken({ template: "supabase" });
       // Clerk was asked and came back empty: the session is gone, not the network.
       // "Try again" was the wrong instruction — retrying a dead session never works,
       // and it read as a transient glitch to the one beta tester who hit it.
-      if (!token) { failWith("ai", "Your session has expired. Please sign in again."); return null; }
+      if (!token) return { reason: "session_expired" };
 
       const catalog = Object.values(catalogRef.current || {})
         .filter((it) => it && it.name)
@@ -3081,16 +3079,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
-        failWith("ai", payload?.error || `Could not get a suggestion (${res.status}).`);
-        return null;
+        console.warn(`[galley] meal-suggestion ${res.status}:`, payload?.error || "(no body)");
+        return { reason: "failed" };
       }
       // The function already validates and normalises, but it is across a network
       // boundary — a shape check here is cheap and keeps a bad payload from reaching
       // the modal's setState. Fail loudly rather than half-populating the fields.
       if (!payload || typeof payload !== "object" || Array.isArray(payload)
           || typeof payload.name !== "string" || !Array.isArray(payload.ingredients)) {
-        failWith("ai", "The suggestion came back in an unexpected shape.");
-        return null;
+        console.warn("[galley] the suggestion came back in an unexpected shape");
+        return { reason: "failed" };
       }
 
       // Some drafts come back with the ESCAPE SEQUENCE "\n" as two literal characters
@@ -3104,21 +3102,108 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .replace(/\\n/g, "\n")
         .replace(/\\t/g, " ")
         .trim();
-      // Belt and braces: an older request must never leave its error sitting over a
-      // newer success. `aiBusy` already blocks concurrent submits, so this should be
-      // unreachable — one call is a cheap price for keeping it that way.
-      clearErrorFrom("ai");
-      return { ...payload, instructions: unescapeSteps(payload.instructions) };
+      const instructions = unescapeSteps(payload.instructions);
+      // THE DRAFT GUARD (Dan, 2026-10-12, walk B6: a draft landed with instructions
+      // "x"; the 2026-09-02 log saw the same once). The function only checks that
+      // instructions are non-empty. Fewer than 2 parsed steps AND fewer than 40
+      // characters is malformed: fail loudly with the plain hint, never land it.
+      // The warn carries counts only, never recipe text. Thresholds: src/lib/galleyDraft.js.
+      if (isMalformedGalleyDraft(instructions)) {
+        const m = measureSteps(instructions);
+        console.warn(`[galley] malformed draft refused: name=${JSON.stringify(payload.name)} steps=${m.steps} chars=${m.chars} ingredients=${payload.ingredients.length}`);
+        return { reason: "failed" };
+      }
+      return { draft: { ...payload, instructions } };
     } catch (err) {
       // Never mind. Swallowed on purpose — see the note above the function. Checked by
       // name rather than `signal?.aborted` so a request that was aborted after the
       // fetch settled (in res.json()) is still recognised as the user's own cancel.
-      if (err?.name === "AbortError") return null;
-      console.error("requestMealSuggestion error:", err.message);
-      failWith("ai", `Could not get a suggestion: ${err.message}`);
-      return null;
+      const kind = classifyFetchFailure(err);
+      if (kind === "aborted") return null;
+      // Plain copy only; the browser's own text ("Load failed", "Failed to fetch")
+      // is for the console (2026-10-11, the same leak the import had).
+      console.error("requestMealSuggestion error:", err?.message || err);
+      return { reason: kind === "offline" ? "offline" : "failed" };
     }
-  }, [failWith, clearErrorFrom]);
+  }, []);
+
+  // requestRecipeImport: read a recipe out of screenshots or pasted text through the
+  // recipe-import Edge Function (SPEC_recipe_import, chunk 2). Same identity and
+  // transport as requestMealSuggestion; the draft comes back in the Galley's shape
+  // plus attribution / servingsAssumed / asWritten / uncertain, so MealSheet lands
+  // both through one function.
+  //
+  // `input` is the function's own contract: { kind: "text", text } or
+  // { kind: "images", images: [{ media_type, data_base64 }] }. Nothing is logged
+  // here and nothing is kept — the images go up, the draft comes back (spec D5).
+  //
+  // Returns one of:
+  //   { draft }    — ok
+  //   { reason }   — a key into IMPORT_HINTS, shown by the SHEET in the card's hint
+  //                  line, never a toast (walk defect 16): "not_a_recipe" |
+  //                  "unreadable" (the function declined), "timeout" (504: the 75 s
+  //                  model cap), "unreachable" (502), "offline", "session_expired",
+  //                  "failed" (anything else — the reason is on the console)
+  //   null         — the person pressed Never mind (AbortError, swallowed)
+  // Every one has a next move the person can make in the card (sharper screenshot,
+  // fewer of them, try again) and the staged input is kept for it.
+  const requestRecipeImport = useCallback(async (input, { signal } = {}) => {
+    if (!input || (input.kind !== "text" && input.kind !== "images")) return { reason: "failed" };
+    const getToken = getTokenRef.current;
+    if (!getToken) return { reason: "session_expired" };
+    try {
+      const token = await getToken({ template: "supabase" });
+      if (!token) return { reason: "session_expired" };
+
+      const res = await fetch(
+        `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/recipe-import`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+          signal,
+        },
+      );
+
+      const payload = await res.json().catch(() => null);
+      // The function's own clean failures (its Anthropic call is capped at 75 s with
+      // no retries, so these are never the platform's bare 503/504).
+      if (res.status === 504) return { reason: "timeout" };
+      if (res.status === 502) return { reason: "unreachable" };
+      if (!res.ok) {
+        console.warn(`[galley] recipe-import ${res.status}:`, payload?.error || "(no body)");
+        return { reason: "failed" };
+      }
+      if (payload && payload.ok === false) {
+        if (payload.reason === "not_a_recipe" || payload.reason === "unreadable") return { reason: payload.reason };
+        console.warn("[galley] the reader came back with an unexpected answer:", payload.reason);
+        return { reason: "failed" };
+      }
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)
+          || typeof payload.name !== "string" || !Array.isArray(payload.ingredients)) {
+        console.warn("[galley] the recipe came back in an unexpected shape");
+        return { reason: "failed" };
+      }
+      // Same escape-sequence repair as the Galley path, at the same boundary. The
+      // function already does this before numbering; a second pass is a no-op on a
+      // clean string and a guard against a draft that slipped through.
+      const unescapeSteps = (v) => (typeof v === "string" ? v : "")
+        .replace(/\\r\\n/g, "\n")
+        .replace(/\\n/g, "\n")
+        .replace(/\\t/g, " ")
+        .trim();
+      return { draft: { ...payload, instructions: unescapeSteps(payload.instructions) } };
+    } catch (err) {
+      // Thrown around fetch — classified by name, never by message, and the
+      // message goes to the console only (2026-10-11: "Could not read the recipe:
+      // Load failed" reached a phone that had gone offline mid-read).
+      const kind = classifyFetchFailure(err);
+      if (kind === "aborted") return null;                 // Never mind — silent
+      console.error("requestRecipeImport error:", err?.message || err);
+      if (kind === "offline") return { reason: "offline" }; // the card's hint; staged input kept
+      return { reason: "failed" };
+    }
+  }, []);
 
   // includeOnHandIds: CATALOG_ITEM_IDs of on-hand ingredients to add THIS TIME
   // only (045). Deliberately a call argument rather than a stored flag — the RPC
@@ -3639,7 +3724,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,

@@ -47,6 +47,15 @@ const CHROME_ALLOW_LIST = [
   '.trip-reality-real',    // trip summary ask: "Real trip"     (SPEC_trip_qualification_v2 — these three ARE the D11 ask-rate metric)
   '.trip-reality-testing', // trip summary ask: "Just testing"
   '.trip-reality-countit', // trip summary excluded line: "Count it"
+  '.op-galley-photo', // New Meal Ask the Galley card: the camera (icon only, aria-label "Add a photo" — its text content is empty, like .op-galley-x; the textarea is never in this element)
+  '.op-galley-clear', // Ask the Galley, photo state: "Clear"
+  '.op-galley-x',     // Ask the Galley: × on a staged screenshot thumbnail (aria-label "Remove screenshot N")
+  '.op-galley-add',   // Ask the Galley: the dashed + tile ("Add another screenshot")
+  '.op-galley-chip',  // Ask the Galley starter chips on the empty card: "Something cozy with chicken" / "Quick weeknight dinner" / "Read a recipe card" (fixed copy)
+  '.op-galley-switch', // Ask the Galley, under a paste: "Want ideas instead?" (the one-tap override; fixed copy)
+  '.op-galley-go',    // Ask the Galley primary: "Create a meal" / "Read these" / "Read this recipe" — the mode label, fixed copy; its data-galley-mode carries the enum (invent / read_photos / read_paste), never text
+  '.op-galley-about', // Ask the Galley: "About the Galley" — the one honest touchpoint (fixed copy); the sentence it opens is a sibling, never in this element
+  '.op-start-over',  // New Meal import banner: "Start over" — the banner's text and the From field beside it are never in this element
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 

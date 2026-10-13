@@ -22,3 +22,8 @@ project_id = "ourprovisions"
 # the issuer's JWKS, pinned algorithm, issuer allowlist (see verifyCaller in index.ts).
 # That is strictly MORE verification than the platform gate performed, not less.
 verify_jwt = false
+
+[functions.recipe-import]
+# Same reasoning as meal-suggestion above, same tokens, same verifier (verifyCaller
+# in recipe-import/index.ts is a copy). FALSE ON PURPOSE. SPEC_recipe_import.md.
+verify_jwt = false
