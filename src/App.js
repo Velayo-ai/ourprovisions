@@ -2959,7 +2959,9 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // instead?" flipped it; anything else → Create a meal. The button label says
   // which before anyone taps, the echo above it says what will happen, and the
   // button's data-galley-mode carries the fixed enum for RUM, never text.
-  const galleyModeNow = galleyMode(aiText, photos.length, ideasOverride ? MODES.invent : null);
+  // Edit Meal is words only (ruling 2026-10-12): no camera, and detection forced to
+  // Invent so a long paste there never reads as a recipe it cannot bring.
+  const galleyModeNow = galleyMode(aiText, photos.length, (isEdit || ideasOverride) ? MODES.invent : null);
   const galleyHasInput = photosStaged || aiText.trim().length > 0;
   // Invent past meal-suggestion's 600-character ceiling: said in the echo, button
   // inert, nothing cut. The override can steer a long paste here, so this is live.
@@ -3511,7 +3513,11 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               </svg>
               Ask the Galley
             </div>
-            <div className="op-galley-sub">Tell it what you're in the mood for, or bring a recipe you already have.</div>
+            {/* Edit Meal has no reading (no camera, Invent forced — walk step 18): the
+                sub-line and the placeholder promise nothing about bringing a recipe. */}
+            <div className="op-galley-sub">
+              {canPhoto ? "Tell it what you're in the mood for, or bring a recipe you already have." : "Tell it what you're in the mood for."}
+            </div>
 
             {/* The picker. Hidden and driven by Photo and the + tile; the value is
                 reset after every pick so the same file can be chosen again after a
@@ -3578,7 +3584,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       ref={taRef}
                       disabled={aiBusy || saving}
                       rows={taRows}
-                      placeholder="Something cozy with chicken… or paste a recipe"
+                      placeholder={canPhoto ? "Something cozy with chicken… or paste a recipe" : "Something cozy with chicken…"}
                       aria-label="Ask the Galley"
                     />
                     {/* Clear. Append-on-mic is right for building a request up in pieces, but
