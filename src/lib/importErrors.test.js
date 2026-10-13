@@ -58,7 +58,7 @@ const galleyToastFor = (err) => {
 
 test("Galley (pre-existing leak): a TypeError becomes the connection toast, raw text absent", () => {
   const out = galleyToastFor(new TypeError("Load failed"));
-  expect(out).toBe("Couldn't reach the galley. Check your connection and try again.");
+  expect(out).toBe("Couldn't reach the Galley. Check your connection and try again.");
   expect(out).not.toContain("Load failed");
   expect(galleyToastFor(new Error("boom"))).toBe("Couldn't get a suggestion. Try again.");
   const abort = new Error("x"); abort.name = "AbortError";

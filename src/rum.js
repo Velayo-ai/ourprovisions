@@ -54,6 +54,7 @@ const CHROME_ALLOW_LIST = [
   '.op-galley-chip',  // Ask the Galley starter chips on the empty card: "Something cozy with chicken" / "Quick weeknight dinner" / "Read a recipe card" (fixed copy)
   '.op-galley-switch', // Ask the Galley, under a paste: "Want ideas instead?" (the one-tap override; fixed copy)
   '.op-galley-go',    // Ask the Galley primary: "Create a meal" / "Read these" / "Read this recipe" — the mode label, fixed copy; its data-galley-mode carries the enum (invent / read_photos / read_paste), never text
+  '.op-galley-about', // Ask the Galley: "About the Galley" — the one honest touchpoint (fixed copy); the sentence it opens is a sibling, never in this element
   '.op-start-over',  // New Meal import banner: "Start over" — the banner's text and the From field beside it are never in this element
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];

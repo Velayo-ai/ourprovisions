@@ -2352,6 +2352,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // the text is cleared — by the ×, by deleting it, by a landed draft — so a paste
   // that was overridden does not snap back to Read on the next keystroke.
   const [ideasOverride, setIdeasOverride] = useState(false);
+  // About the Galley (G9): the one honest touchpoint — a quiet link on the card
+  // opens one inline sentence. Hide the jargon, never the fact: this is the only
+  // place the word "AI" appears in the app.
+  const [aboutOpen, setAboutOpen] = useState(false);
   useEffect(() => { if (!aiText.trim()) setIdeasOverride(false); }, [aiText]);
   // Staged screenshots, ALREADY downscaled at pick time (longest edge 1600 px, JPEG
   // q0.8 — src/lib/image.js, the OurBanner pipeline): [{ id, blob, url, bytes,
@@ -3380,7 +3384,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           ) : hasSteps ? (
             <div className={`op-recipe${draftSource ? " galley" : ""}`}>
               {draftSource === "galley" && (
-                <div className="op-recipe-eyebrow"><GalleyGlyph />From the galley</div>
+                <div className="op-recipe-eyebrow"><GalleyGlyph />From the Galley</div>
               )}
               {/* "photos", not "screenshots": the eyebrow's uppercase 900 at XXL on
                   320 px cannot hold SCREENSHOTS without growing the modal (harness
@@ -3414,7 +3418,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             // Mockup state 1: the empty state points at both paths, and the Galley
             // below stays live — which is why empty is not edit mode.
             <button type="button" className="op-steps-empty" onClick={() => setStepsMode("edit")}>
-              {galleyAvailable ? "No steps yet — write them, or ask the galley." : "No steps yet — write them."}
+              {galleyAvailable ? "No steps yet — write them, or ask the Galley." : "No steps yet — write them."}
             </button>
           )}
 
@@ -3424,7 +3428,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
           {galleyCollapsed && !busy && draftSource !== "photo" && draftSource !== "paste" && (
             <button type="button" className="op-steps-action op-ask-again"
               onClick={() => setGalleyCollapsed(false)}>
-              Not quite it? Ask the galley again
+              Not quite it? Ask the Galley again
             </button>
           )}
         </div>
@@ -3446,7 +3450,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     so the subject of the wait is never repeated up here. */}
                 <div style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(15), color: "#2C1A0E" }}>
                   {aiBusy
-                    ? "The galley's working on it…"
+                    ? "The Galley's working on it…"
                     : importBusy.kind === "paste"
                       ? "Reading your recipe…"
                       : `Reading ${importBusy.count} screenshot${importBusy.count === 1 ? "" : "s"}…`}
@@ -3693,6 +3697,11 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             <div className="op-galley-fine">
               You'll get one meal, filled into the fields above to review and edit before saving. This replaces what's there now.
             </div>
+            <button type="button" className="op-galley-about" aria-expanded={aboutOpen}
+              onClick={() => setAboutOpen((v) => !v)}>About the Galley</button>
+            {aboutOpen && (
+              <div className="op-galley-about-line">The Galley is OurProvisions' AI cook. It drafts, you decide.</div>
+            )}
           </div>
         )}
 
@@ -7050,6 +7059,9 @@ function ProvisionsApp() {
                         font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; transition: background .15s; }
         .op-galley-go:disabled { background: #E8D5B7; color: #9a8a78; cursor: default; }
         .op-galley-fine { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; margin-top: 8px; line-height: 1.5; }
+        .op-galley-about { background: none; border: none; padding: 6px 0; margin-top: 2px; font-family: 'Lato', sans-serif; font-size: calc(13px * (1 + (var(--op-text-scale) - 1) * 0.8)); color: #8a7968;
+                           text-decoration: underline; text-decoration-color: rgba(138,121,104,.5); text-underline-offset: 3px; cursor: pointer; }
+        .op-galley-about-line { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #4E3A28; line-height: 1.5; margin-top: 2px; }
         .op-never-mind { width: 100%; margin-top: 6px; padding: 10px; background: none; border: 1.5px solid rgba(44,26,14,.10); border-radius: 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #6f5a45; cursor: pointer; }
         .op-recipe { background: #fff; border: 1.5px solid rgba(44,26,14,.10); border-radius: 14px; padding: 16px 16px 14px; }
         .op-recipe.galley { border-color: rgba(160,114,74,.3); }
