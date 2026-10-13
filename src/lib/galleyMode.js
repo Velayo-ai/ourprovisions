@@ -69,6 +69,11 @@ export const MODE_RUM = Object.freeze({
   readPaste: "read_paste",
 });
 
+// G8 — the starter chips on the empty card. These two FILL the box (and must read
+// as Invent, see the jest case); the third, "Read a recipe card", opens the photo
+// picker and lives in the sheet. "Use what's on hand" waits for pantry context.
+export const STARTER_PROMPTS = Object.freeze(["Something cozy with chicken", "Quick weeknight dinner"]);
+
 // Invent past the function's ceiling: the echo says so and the button is inert.
 // Nothing is cut — the person decides what to trim.
 export const inventTooLong = (text) => (text || "").trim().length > INVENT_MAX_CHARS;

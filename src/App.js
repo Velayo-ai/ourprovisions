@@ -15,7 +15,7 @@ import { downscaleToJpeg } from './lib/image';
 import { filesFromPicker, stagePhotos, PHOTO_CAP, HINT_UNREADABLE } from './lib/stagePhotos';
 import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
 import { IMPORT_HINTS } from './lib/importErrors';
-import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO } from './lib/galleyMode';
+import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -3656,6 +3656,33 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               </div>
             )}
 
+            {/* Starter chips (G8): only on the EMPTY card. Two fill the box; "Read a
+                recipe card" opens the picker (never in Edit Meal, where nothing points
+                at photos). They teach the range of asks without a tutorial and leave
+                the moment there is any input. "Use what's on hand" is held back until
+                the Galley gets pantry context. */}
+            {!galleyHasInput && (
+              <div className="op-galley-try">
+                <span className="op-galley-try-l">Try one:</span>
+                <div className="op-galley-chips">
+                  {STARTER_PROMPTS.map((p) => (
+                    <button key={p} type="button" className="op-galley-chip" disabled={aiBusy || saving}
+                      onClick={() => {
+                        setAiText(p);
+                        aiTextBaseRef.current = p;   // the mic appends to this, like typed text
+                        if (micHint && !micBlocked) setMicHint("");
+                      }}>{p}</button>
+                  ))}
+                  {canPhoto && (
+                    <button type="button" className="op-galley-chip" disabled={saving}
+                      onClick={() => { setGalleyHint(""); if (photoInputRef.current) photoInputRef.current.click(); }}>
+                      Read a recipe card
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             <button
               type="button"
               className="op-galley-go"
@@ -7013,6 +7040,12 @@ function ProvisionsApp() {
         .op-galley-switch { margin-left: 24px; background: none; border: none; min-height: 40px; padding: 6px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A;
                             text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; text-align: left; }
         .op-galley-switch:disabled { opacity: .5; cursor: default; }
+        .op-galley-try { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+        .op-galley-try-l { font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); color: #8a7968; }
+        .op-galley-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .op-galley-chip { min-height: 36px; padding: 6px 12px; border: 1px solid #D9C4A4; border-radius: 999px; background: #FFFDF9; font-family: 'Lato', sans-serif; font-size: calc(13.5px * (1 + (var(--op-text-scale) - 1) * 0.8));
+                          line-height: 1.3; color: #5E4630; cursor: pointer; text-align: left; max-width: 100%; }   /* wraps as whole words where a chip is wider than the card (320 px at XXL) */
+        .op-galley-chip:disabled { opacity: .5; cursor: default; }
         .op-galley-go { display: block; width: 100%; margin-top: 12px; border: none; border-radius: 12px; padding: 12px; min-height: 48px; background: #2B1E16; color: #FAF4EC; font-family: 'Lato', sans-serif;
                         font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; transition: background .15s; }
         .op-galley-go:disabled { background: #E8D5B7; color: #9a8a78; cursor: default; }

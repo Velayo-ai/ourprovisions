@@ -51,6 +51,7 @@ const CHROME_ALLOW_LIST = [
   '.op-galley-clear', // Ask the Galley, photo state: "Clear"
   '.op-galley-x',     // Ask the Galley: × on a staged screenshot thumbnail (aria-label "Remove screenshot N")
   '.op-galley-add',   // Ask the Galley: the dashed + tile ("Add another screenshot")
+  '.op-galley-chip',  // Ask the Galley starter chips on the empty card: "Something cozy with chicken" / "Quick weeknight dinner" / "Read a recipe card" (fixed copy)
   '.op-galley-switch', // Ask the Galley, under a paste: "Want ideas instead?" (the one-tap override; fixed copy)
   '.op-galley-go',    // Ask the Galley primary: "Create a meal" / "Read these" / "Read this recipe" — the mode label, fixed copy; its data-galley-mode carries the enum (invent / read_photos / read_paste), never text
   '.op-start-over',  // New Meal import banner: "Start over" — the banner's text and the From field beside it are never in this element

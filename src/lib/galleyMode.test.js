@@ -2,7 +2,7 @@
 import {
   galleyMode, looksLikeRecipe, inventTooLong,
   RECIPE_MIN_LINES, RECIPE_MIN_CHARS, INVENT_MAX_CHARS, TEXT_CAP,
-  MODE_LABEL, MODE_ECHO, MODE_RUM, MODES,
+  MODE_LABEL, MODE_ECHO, MODE_RUM, MODES, STARTER_PROMPTS,
 } from "./galleyMode";
 
 const SHORT_CRAVING = "chicken tacos with lime";
@@ -90,6 +90,14 @@ test("Invent past meal-suggestion's 600 is flagged, never cut", () => {
   expect(inventTooLong("x".repeat(INVENT_MAX_CHARS + 1))).toBe(true);
   expect(inventTooLong(`  ${"x".repeat(INVENT_MAX_CHARS)}  `)).toBe(false);   // trimmed
   expect(inventTooLong("")).toBe(false);
+});
+
+test("the two filling starter chips are cravings: Invent, well under the Galley's ceiling (G8)", () => {
+  expect(STARTER_PROMPTS).toEqual(["Something cozy with chicken", "Quick weeknight dinner"]);
+  for (const p of STARTER_PROMPTS) {
+    expect(galleyMode(p)).toBe("invent");
+    expect(inventTooLong(p)).toBe(false);
+  }
 });
 
 test("label, echo and RUM enum cover every mode and are fixed copy (G3, G4)", () => {
