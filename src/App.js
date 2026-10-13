@@ -3676,7 +3676,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   )}
                   <span>{galleyEcho}</span>
                 </div>
-                {galleyModeNow === MODES.readPaste && (
+                {/* Hidden past meal-suggestion's 600 characters: the override would only
+                    lead to a dead button. Still offered for short multi-line text misread
+                    as a recipe. */}
+                {galleyModeNow === MODES.readPaste && !inventTooLong(aiText) && (
                   <button type="button" className="op-galley-switch" onClick={() => setIdeasOverride(true)} disabled={saving}>
                     Want ideas instead?
                   </button>
