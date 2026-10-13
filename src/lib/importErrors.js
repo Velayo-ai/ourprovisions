@@ -1,13 +1,12 @@
-// Recipe import — the row's hint copy and the one place a thrown error is turned
-// into something the person can read (SPEC_recipe_import "Client errors";
-// 2026-10-11 ruling: browser error text never reaches the UI — Safari's "Load
-// failed" and Chrome's "Failed to fetch" are for the console).
+// The Galley card's error copy — ONE place on the card (walk defect 16, Dan,
+// 2026-10-12): every failure on either path lands in the hint line under the box,
+// never as a toast. Input is kept for the retry; the hint clears on the next edit
+// or tap. Browser error text never reaches the UI — Safari's "Load failed" and
+// Chrome's "Failed to fetch" are for the console (2026-10-11 ruling).
 //
-// Four function outcomes have a next move in the Bring row, so they are hints
-// there and never a toast: the two declines, the model timeout (504), the
-// unreachable reader (502). A fetch that never got a response (the phone went
-// offline mid-read) is the fifth: same row, same tone. Staged input is kept for
-// every one of them.
+// Read path (recipe-import): the two declines, the model timeout (504), the
+// unreachable reader (502), a fetch that never got a response, a dead session,
+// and the plain "anything else".
 
 export const IMPORT_HINTS = {
   not_a_recipe: "Couldn't find a recipe in that. Try a clearer screenshot, or paste the text.",
@@ -15,24 +14,28 @@ export const IMPORT_HINTS = {
   timeout: "That took too long. Try again, or try fewer screenshots.",
   unreachable: "Couldn't reach the reader. Try again in a moment.",
   offline: "Couldn't reach the reader. Check your connection and try again.",
+  session_expired: "Your session has expired. Please sign in again.",
+  failed: "Couldn't read the recipe. Try again.",
 };
+export const IMPORT_FAILED_HINT = IMPORT_HINTS.failed;
 
-// Anything else that throws on the way (a token call, a bug) gets plain copy in
-// the toast. The raw message goes to the console only.
-export const IMPORT_FAILED_TOAST = "Couldn't read the recipe. Try again.";
-
-// The Galley (requestMealSuggestion) had the same leak — "Could not get a
-// suggestion: Load failed" — and shares the classifier. It has no row hint line,
-// so both outcomes are toasts, in the same plain English (fixed 2026-10-11).
-export const GALLEY_OFFLINE_TOAST = "Couldn't reach the Galley. Check your connection and try again.";
-export const GALLEY_FAILED_TOAST = "Couldn't get a suggestion. Try again.";
+// Invent path (meal-suggestion): the same slot, the same tone. "failed" covers a
+// 5xx, an unexpected shape, and a malformed draft refused by the guard
+// (src/lib/galleyDraft.js) — the person's next move is the same for all three.
+export const GALLEY_HINTS = {
+  offline: "Couldn't reach the Galley. Check your connection and try again.",
+  session_expired: IMPORT_HINTS.session_expired,
+  failed: "Couldn't get a suggestion. Try again.",
+};
+export const GALLEY_OFFLINE_HINT = GALLEY_HINTS.offline;
+export const GALLEY_FAILED_HINT = GALLEY_HINTS.failed;
 
 // Classify an error thrown around fetch():
 //   "aborted" — the person pressed Never mind (swallowed, no copy at all)
 //   "offline" — fetch rejected with no response: a TypeError in every engine
 //               ("Failed to fetch", "Load failed", "NetworkError when attempting
-//               to fetch resource.") — the hint, not a toast
-//   "failed"  — anything else — the plain toast
+//               to fetch resource.") — the connection hint
+//   "failed"  — anything else — the plain hint
 // Checked by name/shape, never by message text: the text is the thing we must
 // not depend on or repeat. Deliberately NOT classifyFetchError (src/lib): that
 // one answers "retry quietly or toast?" for the pollers and reads message

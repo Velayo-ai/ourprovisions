@@ -1,6 +1,6 @@
 // src/hooks/useProvisions.js
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { classifyFetchFailure, IMPORT_FAILED_TOAST, GALLEY_OFFLINE_TOAST, GALLEY_FAILED_TOAST } from "../lib/importErrors";
+import { classifyFetchFailure } from "../lib/importErrors";
 import { isMalformedGalleyDraft, measureSteps } from "../lib/galleyDraft";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
@@ -3043,31 +3043,25 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // is not evidence the database is unreachable, and folding it in would make the
   // connection indicator lie.
   //
-  // `signal` (optional AbortSignal) lets the sheet's "Never mind" cancel a request in
-  // flight. An abort is the user's own decision, not a failure — it returns null with
-  // NO toast, so the caller sees exactly what it sees for any other null and the
-  // person sees nothing at all.
+  // Returns one of (walk defect 16, 2026-10-12 — ONE error location on the card):
+  //   { draft }    — ok
+  //   { reason }   — "offline" | "session_expired" | "failed": a key into GALLEY_HINTS,
+  //                  shown by the SHEET in the card's hint line, never a toast; the
+  //                  request text is kept for the retry
+  //   null         — the person pressed Never mind (AbortError, swallowed, no copy)
+  // `signal` (optional AbortSignal) is how Never mind cancels a request in flight.
+  // This hook sets no error for the Galley any more: the card owns its own copy.
   const requestMealSuggestion = useCallback(async (promptText, { signal } = {}) => {
     const text = (promptText || "").trim();
     if (!text) return null;
-    // A new attempt clears the previous attempt's error. Without this, a failure toast
-    // ("Could not get a suggestion: Failed to fetch") survives into the next request and
-    // sits underneath a successful draft — the surface then shows a working result and an
-    // error at the same time, which reads as "it worked but something is still wrong".
-    // Cleared here rather than in the caller: this hook owns `error`, MealSheet never
-    // receives `dismissError`, and doing it here covers every caller for free.
-    // Scoped as of the error-ownership work: this clears a previous Ask AI failure,
-    // not an unrelated poll error that happens to be showing. The earlier unscoped
-    // version was a documented tradeoff; ownership makes the tradeoff unnecessary.
-    clearErrorFrom("ai");
     const getToken = getTokenRef.current;
-    if (!getToken) { failWith("ai", "You need to be signed in to ask for a suggestion."); return null; }
+    if (!getToken) return { reason: "session_expired" };
     try {
       const token = await getToken({ template: "supabase" });
       // Clerk was asked and came back empty: the session is gone, not the network.
       // "Try again" was the wrong instruction — retrying a dead session never works,
       // and it read as a transient glitch to the one beta tester who hit it.
-      if (!token) { failWith("ai", "Your session has expired. Please sign in again."); return null; }
+      if (!token) return { reason: "session_expired" };
 
       const catalog = Object.values(catalogRef.current || {})
         .filter((it) => it && it.name)
@@ -3085,16 +3079,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
       const payload = await res.json().catch(() => null);
       if (!res.ok) {
-        failWith("ai", payload?.error || `Could not get a suggestion (${res.status}).`);
-        return null;
+        console.warn(`[galley] meal-suggestion ${res.status}:`, payload?.error || "(no body)");
+        return { reason: "failed" };
       }
       // The function already validates and normalises, but it is across a network
       // boundary — a shape check here is cheap and keeps a bad payload from reaching
       // the modal's setState. Fail loudly rather than half-populating the fields.
       if (!payload || typeof payload !== "object" || Array.isArray(payload)
           || typeof payload.name !== "string" || !Array.isArray(payload.ingredients)) {
-        failWith("ai", "The suggestion came back in an unexpected shape.");
-        return null;
+        console.warn("[galley] the suggestion came back in an unexpected shape");
+        return { reason: "failed" };
       }
 
       // Some drafts come back with the ESCAPE SEQUENCE "\n" as two literal characters
@@ -3112,19 +3106,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // THE DRAFT GUARD (Dan, 2026-10-12, walk B6: a draft landed with instructions
       // "x"; the 2026-09-02 log saw the same once). The function only checks that
       // instructions are non-empty. Fewer than 2 parsed steps AND fewer than 40
-      // characters is malformed: fail loudly with the plain toast, never land it.
+      // characters is malformed: fail loudly with the plain hint, never land it.
       // The warn carries counts only, never recipe text. Thresholds: src/lib/galleyDraft.js.
       if (isMalformedGalleyDraft(instructions)) {
         const m = measureSteps(instructions);
         console.warn(`[galley] malformed draft refused: name=${JSON.stringify(payload.name)} steps=${m.steps} chars=${m.chars} ingredients=${payload.ingredients.length}`);
-        failWith("ai", GALLEY_FAILED_TOAST);
-        return null;
+        return { reason: "failed" };
       }
-      // Belt and braces: an older request must never leave its error sitting over a
-      // newer success. `aiBusy` already blocks concurrent submits, so this should be
-      // unreachable — one call is a cheap price for keeping it that way.
-      clearErrorFrom("ai");
-      return { ...payload, instructions };
+      return { draft: { ...payload, instructions } };
     } catch (err) {
       // Never mind. Swallowed on purpose — see the note above the function. Checked by
       // name rather than `signal?.aborted` so a request that was aborted after the
@@ -3134,10 +3123,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // Plain copy only; the browser's own text ("Load failed", "Failed to fetch")
       // is for the console (2026-10-11, the same leak the import had).
       console.error("requestMealSuggestion error:", err?.message || err);
-      failWith("ai", kind === "offline" ? GALLEY_OFFLINE_TOAST : GALLEY_FAILED_TOAST);
-      return null;
+      return { reason: kind === "offline" ? "offline" : "failed" };
     }
-  }, [failWith, clearErrorFrom]);
+  }, []);
 
   // requestRecipeImport: read a recipe out of screenshots or pasted text through the
   // recipe-import Edge Function (SPEC_recipe_import, chunk 2). Same identity and
@@ -3150,23 +3138,22 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // here and nothing is kept — the images go up, the draft comes back (spec D5).
   //
   // Returns one of:
-  //   { draft }            — ok
-  //   { reason }           — a hint the SHEET shows in the Bring row, no toast:
-  //                          "not_a_recipe" | "unreadable" (the function declined),
-  //                          "timeout" (504: the 75 s model cap), "unreachable" (502)
-  //   { reason: "failed" } — anything else; the toast has already said why (failWith)
-  //   null                 — the person pressed Never mind (AbortError, swallowed)
-  // The split exists because the four hint cases have a next move the person can
-  // make in the row (sharper screenshot, fewer of them, try again) and the staged
-  // input is kept for it; a toast would put the reason in the wrong place.
+  //   { draft }    — ok
+  //   { reason }   — a key into IMPORT_HINTS, shown by the SHEET in the card's hint
+  //                  line, never a toast (walk defect 16): "not_a_recipe" |
+  //                  "unreadable" (the function declined), "timeout" (504: the 75 s
+  //                  model cap), "unreachable" (502), "offline", "session_expired",
+  //                  "failed" (anything else — the reason is on the console)
+  //   null         — the person pressed Never mind (AbortError, swallowed)
+  // Every one has a next move the person can make in the card (sharper screenshot,
+  // fewer of them, try again) and the staged input is kept for it.
   const requestRecipeImport = useCallback(async (input, { signal } = {}) => {
     if (!input || (input.kind !== "text" && input.kind !== "images")) return { reason: "failed" };
-    clearErrorFrom("import");
     const getToken = getTokenRef.current;
-    if (!getToken) { failWith("import", "You need to be signed in to bring a recipe."); return { reason: "failed" }; }
+    if (!getToken) return { reason: "session_expired" };
     try {
       const token = await getToken({ template: "supabase" });
-      if (!token) { failWith("import", "Your session has expired. Please sign in again."); return { reason: "failed" }; }
+      if (!token) return { reason: "session_expired" };
 
       const res = await fetch(
         `${process.env.REACT_APP_SUPABASE_URL}/functions/v1/recipe-import`,
@@ -3184,17 +3171,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       if (res.status === 504) return { reason: "timeout" };
       if (res.status === 502) return { reason: "unreachable" };
       if (!res.ok) {
-        failWith("import", payload?.error || `Could not read the recipe (${res.status}).`);
+        console.warn(`[galley] recipe-import ${res.status}:`, payload?.error || "(no body)");
         return { reason: "failed" };
       }
       if (payload && payload.ok === false) {
         if (payload.reason === "not_a_recipe" || payload.reason === "unreadable") return { reason: payload.reason };
-        failWith("import", "The reader came back with an unexpected answer.");
+        console.warn("[galley] the reader came back with an unexpected answer:", payload.reason);
         return { reason: "failed" };
       }
       if (!payload || typeof payload !== "object" || Array.isArray(payload)
           || typeof payload.name !== "string" || !Array.isArray(payload.ingredients)) {
-        failWith("import", "The recipe came back in an unexpected shape.");
+        console.warn("[galley] the recipe came back in an unexpected shape");
         return { reason: "failed" };
       }
       // Same escape-sequence repair as the Galley path, at the same boundary. The
@@ -3205,7 +3192,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .replace(/\\n/g, "\n")
         .replace(/\\t/g, " ")
         .trim();
-      clearErrorFrom("import");
       return { draft: { ...payload, instructions: unescapeSteps(payload.instructions) } };
     } catch (err) {
       // Thrown around fetch — classified by name, never by message, and the
@@ -3214,11 +3200,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       const kind = classifyFetchFailure(err);
       if (kind === "aborted") return null;                 // Never mind — silent
       console.error("requestRecipeImport error:", err?.message || err);
-      if (kind === "offline") return { reason: "offline" }; // the row's hint; staged input kept
-      failWith("import", IMPORT_FAILED_TOAST);
+      if (kind === "offline") return { reason: "offline" }; // the card's hint; staged input kept
       return { reason: "failed" };
     }
-  }, [failWith, clearErrorFrom]);
+  }, []);
 
   // includeOnHandIds: CATALOG_ITEM_IDs of on-hand ingredients to add THIS TIME
   // only (045). Deliberately a call argument rather than a stored flag — the RPC

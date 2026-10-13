@@ -14,7 +14,7 @@ import { parseSteps } from './lib/parseSteps';
 import { downscaleToJpeg } from './lib/image';
 import { filesFromPicker, stagePhotos, PHOTO_CAP, HINT_UNREADABLE } from './lib/stagePhotos';
 import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
-import { IMPORT_HINTS } from './lib/importErrors';
+import { IMPORT_HINTS, GALLEY_HINTS } from './lib/importErrors';
 import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
 import { trace } from '@opentelemetry/api';
 
@@ -2693,14 +2693,21 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     const controller = new AbortController();
     aiAbortRef.current = controller;
     aiSnapshotRef.current = { name, instructions, rows, occasion, attribution, fromVisible };
+    setGalleyHint("");
     setAiBusy(true);
     try {
-      const draft = await onRequestSuggestion(text, { signal: controller.signal });
+      const result = await onRequestSuggestion(text, { signal: controller.signal });
       // Never mind already restored the fields and cleared busy; do not overwrite
       // that with a draft that arrived a beat after the person gave up on it.
       if (controller.signal.aborted) return;
-      if (!draft) return;   // the hook already surfaced the reason via setError
-      await landDraft(draft, "galley", controller);
+      if (!result) return;   // Never mind — silent
+      // ONE error location (walk defect 16): the card's hint line, never a toast.
+      // The request text is kept for the retry.
+      if (result.reason) {
+        setGalleyHint(GALLEY_HINTS[result.reason] || GALLEY_HINTS.failed);
+        return;
+      }
+      await landDraft(result.draft, "galley", controller);
     } finally {
       if (aiAbortRef.current === controller) {
         aiAbortRef.current = null;
@@ -2746,7 +2753,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
       if (controller.signal.aborted) return;
       if (!result) return;
       if (result.reason) {
-        setGalleyHint(IMPORT_HINTS[result.reason] || "");
+        setGalleyHint(IMPORT_HINTS[result.reason] || IMPORT_HINTS.failed);
         return;   // staged input kept for the retry
       }
       await landDraft(result.draft, source, controller);
@@ -3622,7 +3629,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       <button
                         type="button"
                         className={`op-mic-btn${listening ? " listening" : ""}`}
-                        onClick={toggleMic}
+                        onClick={() => { if (galleyHint) setGalleyHint(""); toggleMic(); }}
                         disabled={micBlocked || aiBusy || saving}
                         aria-pressed={listening}
                         aria-label={listening ? "Stop listening" : "Speak instead"}
@@ -3686,6 +3693,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                         setAiText(p);
                         aiTextBaseRef.current = p;   // the mic appends to this, like typed text
                         if (micHint && !micBlocked) setMicHint("");
+                        if (galleyHint) setGalleyHint("");
                       }}>{p}</button>
                   ))}
                   {canPhoto && (
