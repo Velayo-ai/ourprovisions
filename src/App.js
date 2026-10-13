@@ -15,7 +15,7 @@ import { downscaleToJpeg } from './lib/image';
 import { filesFromPicker, stagePhotos, PHOTO_CAP, HINT_UNREADABLE } from './lib/stagePhotos';
 import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
 import { IMPORT_HINTS } from './lib/importErrors';
-import { TEXT_CAP, MODE_LABEL } from './lib/galleyMode';
+import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO } from './lib/galleyMode';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -2348,6 +2348,11 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   // name what it is reading, with `busy` below for everything that only cares that
   // a draft is on its way.
   const [galleyHint, setGalleyHint] = useState("");
+  // "Want ideas instead?" (G6): recipe-shaped text flipped to Invent. Sticks until
+  // the text is cleared — by the ×, by deleting it, by a landed draft — so a paste
+  // that was overridden does not snap back to Read on the next keystroke.
+  const [ideasOverride, setIdeasOverride] = useState(false);
+  useEffect(() => { if (!aiText.trim()) setIdeasOverride(false); }, [aiText]);
   // Staged screenshots, ALREADY downscaled at pick time (longest edge 1600 px, JPEG
   // q0.8 — src/lib/image.js, the OurBanner pipeline): [{ id, blob, url, bytes,
   // originalBytes }]. Downscaling at the pick rather than at Read these means the
@@ -2676,6 +2681,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   const handleAskAI = async () => {
     const text = aiText.trim();
     if (!text || aiBusy || !onRequestSuggestion) return;
+    if (inventTooLong(text)) return;   // the echo has said so and the button is inert; never truncate
     if (!isSignedIn) return;   // belt-and-braces: the button is already inert below
     // Sending is an unambiguous "I'm done talking" — leaving the mic live would keep
     // appending words to a field whose contents have already been sent.
@@ -2860,6 +2866,15 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     await runImport({ kind: "images", images }, "photo");
   };
 
+  // Read this recipe: the box's text, as one request to the reader. Sending is
+  // "I'm done talking" for the mic here too.
+  const readPaste = async () => {
+    const text = aiText.trim();
+    if (!text || importBusy) return;
+    if (listening) stopListening();
+    await runImport({ kind: "text", text }, "paste");
+  };
+
   // Mirror for the unmount cleanup and the picker (both read outside render).
   useEffect(() => { photosRef.current = photos; }, [photos]);
   useEffect(() => () => {
@@ -2928,6 +2943,21 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             ? "That's the limit — 20,000 characters."
             : "";
   const galleyHintIsError = galleyHint ? !galleyHint.startsWith("Up to 4 at a time.") : (!!micHint && isSignedIn);
+  // THE MODE (G3, G4, G6 — src/lib/galleyMode.js): read from what the card holds.
+  // Photos → Read these; recipe-shaped text → Read this recipe, unless "Want ideas
+  // instead?" flipped it; anything else → Create a meal. The button label says
+  // which before anyone taps, the echo above it says what will happen, and the
+  // button's data-galley-mode carries the fixed enum for RUM, never text.
+  const galleyModeNow = galleyMode(aiText, photos.length, ideasOverride ? MODES.invent : null);
+  const galleyHasInput = photosStaged || aiText.trim().length > 0;
+  // Invent past meal-suggestion's 600-character ceiling: said in the echo, button
+  // inert, nothing cut. The override can steer a long paste here, so this is live.
+  const galleyTooLong = galleyModeNow === MODES.invent && inventTooLong(aiText);
+  const galleyEcho = galleyTooLong ? INVENT_TOO_LONG_ECHO : MODE_ECHO[galleyModeNow];
+  const galleyGo = galleyModeNow === MODES.readPhotos ? readPhotos : galleyModeNow === MODES.readPaste ? readPaste : handleAskAI;
+  const galleyGoInert = galleyModeNow === MODES.invent
+    ? (aiInert || galleyTooLong)
+    : (!isSignedIn || saving || busy || (galleyModeNow === MODES.readPaste && !aiText.trim()));
 
   const parsedSteps = useMemo(() => parseSteps(instructions), [instructions]);
   const hasSteps = parsedSteps.steps.length > 0;
@@ -3600,12 +3630,39 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               <div className={`op-galley-hint${galleyHintIsError ? " err" : ""}`}>{galleyHintLine}</div>
             )}
 
+            {/* The echo (G4): one line that says what will happen, so the two contracts
+                stay visible and the person can see the Galley understood before it
+                acts. Invent wears the sparkle; a read wears the page. Under a paste,
+                "Want ideas instead?" is the one-tap override for the misses. */}
+            {galleyHasInput && (
+              <div className="op-galley-echo-wrap">
+                <div className="op-galley-echo">
+                  {galleyModeNow === MODES.invent ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#8A5F3A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#8A5F3A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M5 3h9l5 5v13H5z" /><path d="M14 3v5h5M8.5 12h7M8.5 16h5" />
+                    </svg>
+                  )}
+                  <span>{galleyEcho}</span>
+                </div>
+                {galleyModeNow === MODES.readPaste && (
+                  <button type="button" className="op-galley-switch" onClick={() => setIdeasOverride(true)} disabled={saving}>
+                    Want ideas instead?
+                  </button>
+                )}
+              </div>
+            )}
+
             <button
               type="button"
               className="op-galley-go"
-              onClick={photosStaged ? readPhotos : handleAskAI}
-              disabled={photosStaged ? (!isSignedIn || saving) : aiInert}
-            >{photosStaged ? MODE_LABEL.readPhotos : MODE_LABEL.invent}</button>
+              data-galley-mode={MODE_RUM[galleyModeNow]}
+              onClick={galleyGo}
+              disabled={galleyGoInert}
+            >{MODE_LABEL[galleyModeNow]}</button>
             <div className="op-galley-fine">
               You'll get one meal, filled into the fields above to review and edit before saving. This replaces what's there now.
             </div>
@@ -6950,6 +7007,12 @@ function ProvisionsApp() {
         .op-galley-clear:disabled { opacity: .5; cursor: default; }
         .op-galley-hint { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7968; margin-top: 8px; line-height: 1.5; }
         .op-galley-hint.err { color: #b3261e; }
+        .op-galley-echo-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin-top: 12px; }
+        .op-galley-echo { display: flex; align-items: flex-start; gap: 8px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #4E3A28; }
+        .op-galley-echo svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
+        .op-galley-switch { margin-left: 24px; background: none; border: none; min-height: 40px; padding: 6px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A;
+                            text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; text-align: left; }
+        .op-galley-switch:disabled { opacity: .5; cursor: default; }
         .op-galley-go { display: block; width: 100%; margin-top: 12px; border: none; border-radius: 12px; padding: 12px; min-height: 48px; background: #2B1E16; color: #FAF4EC; font-family: 'Lato', sans-serif;
                         font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; transition: background .15s; }
         .op-galley-go:disabled { background: #E8D5B7; color: #9a8a78; cursor: default; }
