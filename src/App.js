@@ -3595,16 +3595,19 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     )}
                   </div>
                   <div className="op-galley-foot">
-                    {/* Photo sits inside the box beside the mic (G5). The pair stays in
-                        place whenever the box shows — a craving can still become a photo
-                        read. Edit Meal has no Photo: a filler keeps the mic on the right. */}
-                    {canPhoto ? (
-                      <button type="button" className="op-galley-photo" disabled={saving || aiBusy}
+                    {/* The tool row inside the box (G5): camera and mic as ghost icon
+                        buttons at rest — no border, no fill, a secondary-brown glyph sized
+                        in em so it follows the text knob, each on a 44 × 44 hit area.
+                        Colour means active: the mic fills while listening (with its pulse),
+                        the camera takes a brief pressed fill, then the picker. The pair stays
+                        whenever the box shows — a craving can still become a photo read.
+                        Edit Meal has no camera: nothing there points at photos. */}
+                    {canPhoto && (
+                      <button type="button" className="op-galley-photo" disabled={saving || aiBusy} aria-label="Add a photo"
                         onClick={() => { setGalleyHint(""); if (photoInputRef.current) photoInputRef.current.click(); }}>
                         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="14" rx="3" /><circle cx="12" cy="13" r="3.5" /><path d="M8 6l1.5-2h5L16 6" /></svg>
-                        Photo
                       </button>
-                    ) : <span />}
+                    )}
                     {/* Rendered ONLY where the browser actually supports it. On Safari/iOS the
                         button is absent entirely and this section is exactly the typed path. */}
                     {SPEECH_RECOGNITION_CTOR && (
@@ -3614,7 +3617,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                         onClick={toggleMic}
                         disabled={micBlocked || aiBusy || saving}
                         aria-pressed={listening}
-                        aria-label={listening ? "Stop listening" : "Speak your request"}
+                        aria-label={listening ? "Stop listening" : "Speak instead"}
                       >
                         <svg viewBox="0 0 24 24" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <rect x="9" y="2" width="6" height="11" rx="3" />
@@ -7027,11 +7030,18 @@ function ProvisionsApp() {
         .op-galley-ta:disabled { opacity: .6; }
         .op-galley-tx { position: absolute; top: 0; right: 0; width: 22px; height: 22px; border-radius: 50%; border: none; background: rgba(44,26,14,.10); color: #6b5a45; font-size: 14px; line-height: 1; cursor: pointer;
                         display: flex; align-items: center; justify-content: center; padding: 0; }
-        .op-galley-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
-        .op-galley-photo { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 7px 14px; border: 1.5px solid #C9A97A; border-radius: 999px; background: #FFFDF9; font-family: 'Lato', sans-serif;
-                           font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #2C1A0E; cursor: pointer; white-space: nowrap; }
-        .op-galley-photo:disabled { opacity: .45; cursor: default; }
-        .op-galley-photo svg { width: 16px; height: 16px; stroke: #2C1A0E; fill: none; stroke-width: 1.7; flex: none; }
+        /* The tool row: ghost icon buttons at rest (no border, no fill, secondary-brown glyph — #7A4E28 on #FFFDF9 is 7.6:1),
+           glyphs in em so they follow the text knob, 44 × 44 hit areas. Colour means active. Scoped to the card: the Shop
+           Add sheet's disabled "coming later" mic keeps the dark fill under its LATER badge. */
+        .op-galley-foot { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; font-size: calc(15px * var(--op-text-scale)); }
+        .op-galley-photo, .op-galley-foot .op-mic-btn { flex: none; align-self: auto; width: 44px; height: 44px; min-width: 44px; padding: 0; border: none; border-radius: 10px; background: transparent;
+                                                       display: inline-flex; align-items: center; justify-content: center; cursor: pointer; color: #7A4E28; transition: background .15s, color .15s;
+                                                       font-size: inherit; }   /* a button does not inherit font-size on its own; the em glyph below needs the row's */
+        .op-galley-photo svg, .op-galley-foot .op-mic-btn svg { width: 1.4em; height: 1.4em; max-width: 34px; max-height: 34px; stroke: currentColor; fill: none; stroke-width: 1.7; flex: none; }
+        .op-galley-photo:active { background: rgba(44,26,14,.10); color: #2C1A0E; }   /* the brief pressed fill, then the picker */
+        .op-galley-foot .op-mic-btn.listening { background: #2C1A0E; color: #FFFDF9; }   /* filled while listening — plus the pulse the rule above keeps */
+        .op-galley-photo:disabled, .op-galley-foot .op-mic-btn:disabled { opacity: .45; cursor: default; }
+        .op-galley-photo:focus-visible, .op-galley-foot .op-mic-btn:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         .op-galley-thumbs { display: flex; flex-wrap: wrap; gap: 14px 18px; padding: 10px 8px 2px 8px; }
         .op-galley-th { position: relative; width: 58px; height: 78px; border-radius: 7px; border: 1px solid #E8D5B7; background: #fff; flex: none; }
         .op-galley-th img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 7px; }
@@ -7052,8 +7062,9 @@ function ProvisionsApp() {
         .op-galley-try { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
         .op-galley-try-l { font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); color: #8a7968; }
         .op-galley-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-        .op-galley-chip { min-height: 36px; padding: 6px 12px; border: 1px solid #D9C4A4; border-radius: 999px; background: #FFFDF9; font-family: 'Lato', sans-serif; font-size: calc(13.5px * (1 + (var(--op-text-scale) - 1) * 0.8));
+        .op-galley-chip { position: relative; min-height: 36px; padding: 6px 12px; border: 1px solid #D9C4A4; border-radius: 999px; background: #FFFDF9; font-family: 'Lato', sans-serif; font-size: calc(13.5px * (1 + (var(--op-text-scale) - 1) * 0.8));
                           line-height: 1.3; color: #5E4630; cursor: pointer; text-align: left; max-width: 100%; }   /* wraps as whole words where a chip is wider than the card (320 px at XXL) */
+        .op-galley-chip::after { content: ""; position: absolute; inset: -5px 0; }   /* the only pills on the card, at their visual size; the hit area is 44 px tall (the insets measure from the padding box, inside the 1 px borders: 34 + 5 + 5); neighbouring rows, 8 px apart, never overlap */
         .op-galley-chip:disabled { opacity: .5; cursor: default; }
         .op-galley-go { display: block; width: 100%; margin-top: 12px; border: none; border-radius: 12px; padding: 12px; min-height: 48px; background: #2B1E16; color: #FAF4EC; font-family: 'Lato', sans-serif;
                         font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; transition: background .15s; }

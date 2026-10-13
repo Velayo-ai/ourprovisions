@@ -47,7 +47,7 @@ const CHROME_ALLOW_LIST = [
   '.trip-reality-real',    // trip summary ask: "Real trip"     (SPEC_trip_qualification_v2 — these three ARE the D11 ask-rate metric)
   '.trip-reality-testing', // trip summary ask: "Just testing"
   '.trip-reality-countit', // trip summary excluded line: "Count it"
-  '.op-galley-photo', // New Meal Ask the Galley card: "Photo" (SPEC_galley_composer; fixed copy — the textarea beside it is never in this element)
+  '.op-galley-photo', // New Meal Ask the Galley card: the camera (icon only, aria-label "Add a photo" — its text content is empty, like .op-galley-x; the textarea is never in this element)
   '.op-galley-clear', // Ask the Galley, photo state: "Clear"
   '.op-galley-x',     // Ask the Galley: × on a staged screenshot thumbnail (aria-label "Remove screenshot N")
   '.op-galley-add',   // Ask the Galley: the dashed + tile ("Add another screenshot")
