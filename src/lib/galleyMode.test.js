@@ -1,7 +1,8 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/lib/galleyMode
 import {
   galleyMode, looksLikeRecipe, inventTooLong,
-  RECIPE_MIN_LINES, RECIPE_MIN_CHARS, INVENT_MAX_CHARS, TEXT_CAP,
+  RECIPE_MIN_LINES, RECIPE_MIN_CHARS, RECIPE_MIN_QUANTITY_LINES, RECIPE_MIN_NUMBERED_LINES,
+  INVENT_MAX_CHARS, TEXT_CAP,
   MODE_LABEL, MODE_ECHO, MODE_RUM, MODES, STARTER_PROMPTS,
 } from "./galleyMode";
 
@@ -19,6 +20,8 @@ const EXACTLY_280 = "x".repeat(RECIPE_MIN_CHARS);
 test("the thresholds are the spec's (G6) and the functions' ceilings are mirrored", () => {
   expect(RECIPE_MIN_LINES).toBe(3);
   expect(RECIPE_MIN_CHARS).toBe(280);
+  expect(RECIPE_MIN_QUANTITY_LINES).toBe(2);
+  expect(RECIPE_MIN_NUMBERED_LINES).toBe(2);
   expect(INVENT_MAX_CHARS).toBe(600);   // meal-suggestion MAX_REQUEST_CHARS
   expect(TEXT_CAP).toBe(20000);         // recipe-import MAX_TEXT_CHARS
 });
@@ -63,9 +66,67 @@ test("empty and whitespace-only are Invent (the button is inert anyway)", () => 
 });
 
 test("a non-empty line is one with any non-whitespace; blank lines never count", () => {
-  expect(galleyMode("eggs\n   \n\nbacon")).toBe("invent");                // 2 real lines
-  expect(galleyMode("eggs\n   \n\nbacon\n\ttoast  ")).toBe("readPaste");   // 3
-  expect(galleyMode("eggs\r\nbacon\r\ntoast")).toBe("readPaste");          // CRLF too
+  expect(galleyMode("2 eggs\n   \n\n3 strips bacon")).toBe("invent");                  // 2 real lines
+  expect(galleyMode("2 eggs\n   \n\n3 strips bacon\n\ttoast  ")).toBe("readPaste");    // 3 (tab-led line trimmed)
+  expect(galleyMode("2 eggs\r\n3 strips bacon\r\ntoast")).toBe("readPaste");           // CRLF too
+});
+
+// 2026-10-13 tightening — three lines alone no longer read; a signal is needed.
+test("three plain lines with no recipe signal are a craving: Invent", () => {
+  expect(galleyMode("something warm\nwith chicken\nnot too spicy")).toBe("invent");
+  expect(galleyMode("eggs\nbacon\ntoast")).toBe("invent");
+});
+
+test("one quantity line among three is not enough: Invent", () => {
+  expect(galleyMode("2 chicken breasts\nrice\nsomething spicy")).toBe("invent");
+});
+
+test("two quantity lines among three read as a recipe", () => {
+  expect(galleyMode("2 cups flour\n1 tsp salt\n3 eggs")).toBe("readPaste");
+});
+
+test("a leading bullet (-, •, *) is stripped before the quantity is read", () => {
+  expect(galleyMode("- 2 cups flour\n- 1 tsp salt\nbutter")).toBe("readPaste");
+  expect(galleyMode("• 2 cups flour\n• 1 tsp salt\nbutter")).toBe("readPaste");
+  expect(galleyMode("* 2 cups flour\n*1 tsp salt\nbutter")).toBe("readPaste");
+});
+
+test("fraction glyphs are quantities", () => {
+  expect(galleyMode("½ cup sugar\n¼ tsp salt\nbutter")).toBe("readPaste");
+});
+
+test("N/N fractions are quantities", () => {
+  expect(galleyMode("1/2 cup milk\n3/4 cup oats\nhoney")).toBe("readPaste");
+});
+
+test("a section header line reads as a recipe (any case, optional colon)", () => {
+  expect(galleyMode("Ingredients:\nflour\nsugar")).toBe("readPaste");
+  expect(galleyMode("flour\nsugar\nMETHOD")).toBe("readPaste");
+  expect(galleyMode("Directions\nflour\nsugar")).toBe("readPaste");
+  expect(galleyMode("instructions:\nflour\nsugar")).toBe("readPaste");
+  expect(galleyMode("Steps:\nflour\nsugar")).toBe("readPaste");
+  expect(galleyMode("Ingredients for tonight\nflour\nsugar")).toBe("invent");   // the whole line, not a prefix
+});
+
+test("two numbered lines read as a recipe", () => {
+  expect(galleyMode("1. Preheat\n2. Mix\n3. Bake")).toBe("readPaste");
+  expect(galleyMode("1) Preheat\n2) Mix\nserve")).toBe("readPaste");
+});
+
+test("only two lines is Invent whatever the signals (unchanged)", () => {
+  expect(galleyMode("2 cups flour\n1 egg")).toBe("invent");
+  expect(galleyMode("Ingredients:\n2 cups flour")).toBe("invent");
+});
+
+test("a long single line with no signal still reads at 280 characters (unchanged by design)", () => {
+  const line = "a".repeat(300);
+  expect(line).not.toMatch(/\n/);
+  expect(galleyMode(line)).toBe("readPaste");
+});
+
+test("blank lines between the three plain lines change nothing: still Invent", () => {
+  expect(galleyMode("something warm\n\nwith chicken\n\nnot too spicy")).toBe("invent");
+  expect(galleyMode("2 cups flour\n\n1 egg\n\n")).toBe("invent");   // blank lines never make a third line
 });
 
 test("photos win: any staged photo is Read these, whatever the text or override says", () => {

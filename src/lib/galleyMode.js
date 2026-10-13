@@ -11,12 +11,15 @@
 // is one edit with the jest cases beside it, and so the copy the mode drives
 // (label, echo, RUM enum) cannot drift from the decision.
 
-// G6 — text is a recipe when it has at least this many non-empty lines OR at
-// least this many characters (measured on the trimmed text). Short text defaults
-// to the Galley, long or structured text to Read; the one-tap override covers
-// the misses. Report these if walk evidence argues otherwise.
+// G6 — text is a recipe when it has at least this many characters (measured on
+// the trimmed text), OR at least this many non-empty lines AND a recipe signal
+// (see `looksLikeRecipe`). Short text defaults to the Galley, long or structured
+// text to Read; the one-tap override covers the misses. Report these if walk
+// evidence argues otherwise.
 export const RECIPE_MIN_LINES = 3;
 export const RECIPE_MIN_CHARS = 280;
+export const RECIPE_MIN_QUANTITY_LINES = 2;
+export const RECIPE_MIN_NUMBERED_LINES = 2;
 
 // The functions' own ceilings, mirrored so the client never sends what will be
 // refused. recipe-import: MAX_TEXT_CHARS 20_000 (the box's hard cap, every mode).
@@ -28,13 +31,34 @@ export const INVENT_MAX_CHARS = 600;
 
 export const MODES = Object.freeze({ invent: "invent", readPhotos: "readPhotos", readPaste: "readPaste" });
 
-// A non-empty line is one with any non-whitespace in it.
-const countNonEmptyLines = (text) => text.split(/\r?\n/).filter((l) => l.trim().length > 0).length;
+// A non-empty line is one with any non-whitespace in it. Lines are trimmed
+// before any signal is read, so "\t1 cup rice" counts like "1 cup rice".
+const nonEmptyLines = (text) => text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
 
+// The three recipe signals (2026-10-13 tightening — three plain lines like
+// "something warm / with chicken / not too spicy" are a craving, not a recipe):
+//   a quantity line  — starts with a digit, N/N, or a fraction glyph, after a
+//                      leading "-", "•" or "*" bullet is stripped;
+//   a section header — ingredients / method / directions / instructions / steps,
+//                      the whole line, any case, optional trailing colon;
+//   a numbered line  — "1. " or "1) ".
+const QUANTITY_LINE = /^(?:[-•*]\s*)?(?:\d+(?:\/\d+)?|[½¼¾⅓⅔⅛])/;
+const SECTION_HEADER = /^(?:ingredients|method|directions|instructions|steps):?$/i;
+const NUMBERED_LINE = /^\d+[.)]\s/;
+
+const hasRecipeSignal = (lines) =>
+  lines.filter((l) => QUANTITY_LINE.test(l)).length >= RECIPE_MIN_QUANTITY_LINES ||
+  lines.some((l) => SECTION_HEADER.test(l)) ||
+  lines.filter((l) => NUMBERED_LINE.test(l)).length >= RECIPE_MIN_NUMBERED_LINES;
+
+// Read when: long enough on its own (>= RECIPE_MIN_CHARS), OR enough non-empty
+// lines (>= RECIPE_MIN_LINES) AND at least one of the signals above.
 export const looksLikeRecipe = (text) => {
   const t = (text || "").trim();
   if (!t) return false;
-  return countNonEmptyLines(t) >= RECIPE_MIN_LINES || t.length >= RECIPE_MIN_CHARS;
+  if (t.length >= RECIPE_MIN_CHARS) return true;
+  const lines = nonEmptyLines(t);
+  return lines.length >= RECIPE_MIN_LINES && hasRecipeSignal(lines);
 };
 
 // `override` is the one-tap "Want ideas instead?": "invent" forces the creative
