@@ -47,11 +47,11 @@ const CHROME_ALLOW_LIST = [
   '.trip-reality-real',    // trip summary ask: "Real trip"     (SPEC_trip_qualification_v2 — these three ARE the D11 ask-rate metric)
   '.trip-reality-testing', // trip summary ask: "Just testing"
   '.trip-reality-countit', // trip summary excluded line: "Count it"
-  '.op-bring-door',  // New Meal Bring a recipe doors: "Photo" / "Paste" (SPEC_recipe_import; fixed copy)
-  '.op-bring-clear', // Bring a recipe: "Clear"
-  '.op-bring-read',  // Bring a recipe: "Read this" / "Read these" — never the pasted text, which is in a sibling textarea
-  '.op-bring-x',     // Bring a recipe: × on a staged screenshot thumbnail (aria-label "Remove screenshot N")
-  '.op-bring-add',   // Bring a recipe: the dashed + tile ("Add another screenshot")
+  '.op-galley-photo', // New Meal Ask the Galley card: "Photo" (SPEC_galley_composer; fixed copy — the textarea beside it is never in this element)
+  '.op-galley-clear', // Ask the Galley, photo state: "Clear"
+  '.op-galley-x',     // Ask the Galley: × on a staged screenshot thumbnail (aria-label "Remove screenshot N")
+  '.op-galley-add',   // Ask the Galley: the dashed + tile ("Add another screenshot")
+  '.op-galley-go',    // Ask the Galley primary: "Create a meal" / "Read these" / "Read this recipe" — the mode label, fixed copy; its data-galley-mode carries the enum (invent / read_photos / read_paste), never text
   '.op-start-over',  // New Meal import banner: "Start over" — the banner's text and the From field beside it are never in this element
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
