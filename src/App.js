@@ -2964,6 +2964,14 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     : (!isSignedIn || saving || busy || (galleyModeNow === MODES.readPaste && !aiText.trim()));
 
   const parsedSteps = useMemo(() => parseSteps(instructions), [instructions]);
+  // What ACTUALLY renders in Steps while a draft is in the fields: logged on landing
+  // and on every change to the instructions after it (the 2026-09-02 theory — a lone
+  // "x" written client-side AFTER a good draft — would show here as a second line
+  // with steps=1 chars=1 following a healthy first one). Counts only, no recipe text.
+  useEffect(() => {
+    if (!draftSource) return;
+    console.info(`[galley] steps rendering: source=${draftSource} steps=${parsedSteps.steps.length} preamble=${parsedSteps.preamble.length} chars=${instructions.trim().length}`);
+  }, [draftSource, parsedSteps, instructions]);
   const hasSteps = parsedSteps.steps.length > 0;
   const onHandCount = rows.filter((r) => r.on_hand).length;
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;

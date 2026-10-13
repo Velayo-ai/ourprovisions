@@ -1,6 +1,7 @@
 // src/hooks/useProvisions.js
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { classifyFetchFailure, IMPORT_FAILED_TOAST, GALLEY_OFFLINE_TOAST, GALLEY_FAILED_TOAST } from "../lib/importErrors";
+import { isMalformedGalleyDraft, measureSteps } from "../lib/galleyDraft";
 import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
@@ -3107,11 +3108,23 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .replace(/\\n/g, "\n")
         .replace(/\\t/g, " ")
         .trim();
+      const instructions = unescapeSteps(payload.instructions);
+      // THE DRAFT GUARD (Dan, 2026-10-12, walk B6: a draft landed with instructions
+      // "x"; the 2026-09-02 log saw the same once). The function only checks that
+      // instructions are non-empty. Fewer than 2 parsed steps AND fewer than 40
+      // characters is malformed: fail loudly with the plain toast, never land it.
+      // The warn carries counts only, never recipe text. Thresholds: src/lib/galleyDraft.js.
+      if (isMalformedGalleyDraft(instructions)) {
+        const m = measureSteps(instructions);
+        console.warn(`[galley] malformed draft refused: name=${JSON.stringify(payload.name)} steps=${m.steps} chars=${m.chars} ingredients=${payload.ingredients.length}`);
+        failWith("ai", GALLEY_FAILED_TOAST);
+        return null;
+      }
       // Belt and braces: an older request must never leave its error sitting over a
       // newer success. `aiBusy` already blocks concurrent submits, so this should be
       // unreachable — one call is a cheap price for keeping it that way.
       clearErrorFrom("ai");
-      return { ...payload, instructions: unescapeSteps(payload.instructions) };
+      return { ...payload, instructions };
     } catch (err) {
       // Never mind. Swallowed on purpose — see the note above the function. Checked by
       // name rather than `signal?.aborted` so a request that was aborted after the
