@@ -3700,7 +3700,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
             <button type="button" className="op-galley-about" aria-expanded={aboutOpen}
               onClick={() => setAboutOpen((v) => !v)}>About the Galley</button>
             {aboutOpen && (
-              <div className="op-galley-about-line">The Galley is OurProvisions' AI cook. It drafts, you decide.</div>
+              <div className="op-galley-about-line">The Galley is your AI meal-planning assistant. It drafts, you decide.</div>
             )}
           </div>
         )}
