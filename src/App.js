@@ -1979,6 +1979,15 @@ function LibraryAction({ meal, stage, busy, canPlan, onPlan, onUnplan }) {
     >{busy ? <span className="lib-plan-wait" aria-hidden="true">…</span> : <PlusGlyph />}</button>
   );
 }
+// The photo path (O3): dormant until Photos v1 lands. `meal.cardPhotoUrl` is the
+// client-side seam — a resolved URL for the meal's card photo (the newest live
+// one, Photos D2). No read sets it today, so every slot is the 56px tint.
+function LibrarySlot({ meal }) {
+  if (meal.cardPhotoUrl) {
+    return <span className="lib-slot photo" aria-hidden="true"><img className="lib-slot-img" src={meal.cardPhotoUrl} alt="" /></span>;
+  }
+  return <span className="lib-slot" aria-hidden="true" />;
+}
 function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
   return (
     <div className="lib-gcard">
@@ -1988,7 +1997,7 @@ function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
         aria-label={`Open ${meal.name}`}
         onClick={() => onOpen(meal)}
       >
-        <span className="lib-slot" aria-hidden="true" />
+        <LibrarySlot meal={meal} />
         <span className="lib-gname">{meal.name}</span>
       </button>
       <div className="lib-gstrip">
@@ -6814,9 +6823,14 @@ function ProvisionsApp() {
         .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
         .lib-gbody { flex: 1; display: flex; flex-direction: column; align-items: stretch; text-align: left; width: 100%; padding: 0; border: none;
                      background: none; color: #2C1A0E; cursor: pointer; font: inherit; }
-        /* The slot (D3): a short tinted band, the occasion mark centred. 56px without a photo; a photo takes 132px. Neutral cream
-           until the occasion tint map lands; the per-occasion tints and icons are the OccasionIcon commit. */
-        .lib-slot { display: flex; align-items: center; justify-content: center; height: 56px; background: #F4EADC; }
+        /* The slot (D3): a short tinted band, the occasion mark centred — 56px without a photo; a photo takes a fixed 132px.
+           ROW MATCHING IN PURE CSS (D4, build scope 2): the grid's align-items: stretch makes the cards in a row equal height,
+           the body is flex: 1, and the icon slot is flex: 1 1 auto with a 56px floor — so whenever a neighbour is taller (a
+           photo, a longer name) the tint grows to match and the icon stays centred in it. No row math in JS, at any column count.
+           Neutral cream until the occasion tint map lands (the OccasionIcon commit). */
+        .lib-slot { flex: 1 1 auto; min-height: 56px; display: flex; align-items: center; justify-content: center; background: #F4EADC; }
+        .lib-slot.photo { flex: none; height: 132px; }
+        .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
         /* The name in the body (D2): clamped to 3 lines with an ellipsis so a long imported title never sets the card height. */
         .lib-gname { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; padding: 10px 12px 0;
                      font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
