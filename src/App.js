@@ -17,6 +17,7 @@ import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
 import { IMPORT_HINTS, GALLEY_HINTS } from './lib/importErrors';
 import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
 import { displayTitle } from './lib/displayTitle';
+import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -1835,7 +1836,7 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
 // planning isn't finishing. "Planned" = an open placement (onBoardIds), so a
 // ✓ Cooked afterglow card reads Plan again. Favorites is OMITTED, not disabled:
 // no data exists yet and a greyed pill promises a table that hasn't been decided.
-// RUM: .lib-occ / .lib-fbtn / .lib-plan / .lib-create / .lib-show / .lib-clear
+// RUM: .lib-occ / .lib-fbtn / .lib-vtog / .lib-plan / .lib-create / .lib-show / .lib-clear
 // (and the switch row's .plan-view / .hdr-action) carry fixed copy only; the
 // card body (meal name) and the From chips
 // (first names) are NOT allow-listed — keep names out of those classes.
@@ -2113,8 +2114,30 @@ function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onShow, on
   );
 }
 
-function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members }) {
+// GRID / LIST (visual v2 D8–D9). The default follows the text-size step (≥ Large
+// → list); the toggle's choice is stored on this device and then wins. One
+// state: the stored override (null = derived). The resolver is pure and tested
+// (src/lib/libraryView.js); this hook only owns the React state and the write.
+function useLibraryView(textStep) {
+  const [override, setOverride] = useState(readStoredView);
+  const view = resolveLibraryView(override, textStep);
+  const toggle = useCallback(() => {
+    const next = otherView(view);
+    writeStoredView(next);
+    setOverride(next);
+  }, [view]);
+  return [view, toggle];
+}
+const ListGlyph = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12" /><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" /><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" /></svg>
+);
+const GridGlyph = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></svg>
+);
+
+function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx }) {
   const [query, setQuery] = useState("");
+  const [libView, toggleLibView] = useLibraryView(textSizeIdx);
   const [occ, setOcc] = useState("all");
   const [filters, setFilters] = useState(NO_LIB_FILTERS);
   // null while closed; the sheet's draft (a copy of `filters`) while open.
@@ -2231,6 +2254,15 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
           {activeCount > 0 && <span className="lib-fdot" aria-hidden="true" />}
         </button>
+        {/* ONE toggle (D8): it shows the view you'd switch TO and names the action. */}
+        <button
+          type="button"
+          className="lib-vtog"
+          aria-label={TOGGLE_LABEL[libView]}
+          onClick={toggleLibView}
+        >
+          {libView === "list" ? <GridGlyph /> : <ListGlyph />}
+        </button>
       </div>
 
       {/* Active filters are always visible (decision 10): a filtered grid must never read as a short library. */}
@@ -2259,7 +2291,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
           {madeAlone ? "Nothing cooked from This Week yet — Cooked it fills this." : "Nothing matches that yet."}
         </div>
       )}
-      <div className="lib-grid">
+      <div className={libView === "list" ? "lib-list" : "lib-grid"}>
         {shown.map((m) => (
           <LibraryCard
             key={m.id}
@@ -6859,7 +6891,7 @@ function ProvisionsApp() {
                       border: 1.5px solid #E8D5B7; background: #F5EDE0; color: #8a7a60; }
         .lib-search input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
         .lib-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
-        .lib-fbtn { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+        .lib-fbtn, .lib-vtog { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
                     display: flex; align-items: center; justify-content: center; position: relative; padding: 0; }
         .lib-fdot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #A0724A; border: 1.5px solid #FFFDF9; }
         .lib-active { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
@@ -6874,6 +6906,8 @@ function ProvisionsApp() {
         .lib-hint { margin: 0 0 14px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         .lib-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; align-items: stretch; }
         @media (max-width: 339px) { .lib-grid { grid-template-columns: minmax(0, 1fr); } }
+        /* List view (D8): full-width rows, 10px apart. The row component is its own commit; until then the cards stack. */
+        .lib-list { display: flex; flex-direction: column; gap: 10px; }
         /* VISUAL v2 (SPEC_meal_library_visual_v2): a LIGHT card — cream, 1px warm border, dark text (D1). Flex column:
            slot → body (name) → strip (meta + the round "+"). */
         .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
@@ -8756,6 +8790,7 @@ function ProvisionsApp() {
               ) : null}
             />
             <MealsLens
+              textSizeIdx={textSizeIdx}
               meals={libraryMeals}
               loading={mealsLoading}
               onPlan={handlePlanMeal}

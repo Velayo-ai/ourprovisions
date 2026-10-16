@@ -36,6 +36,7 @@ const CHROME_ALLOW_LIST = [
   '.plan-noshop',    // Hold a night: "Leftovers" / "Eating out" / "Something else" (board foot + welcome)
   '.lib-occ',        // Library occasion rail pills: All / Dinner / Breakfast / … (Meal Library v1)
   '.lib-fbtn',       // Library Filter button (icon only)
+  '.lib-vtog',       // Library grid/list toggle (icon only; visual v2 D8)
   '.lib-plan',       // Library card pill: "Plan" / "This week" — fixed copy (a tap on "This week" un-plans); the meal name is in the SIBLING card-body button, never here
   '.lib-create',     // Library coaching tile "+ New meal" (the switch row's "+ New" is .hdr-action)
   '.lib-show',       // Library filter sheet: "Show N meals"
