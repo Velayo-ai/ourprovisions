@@ -2038,7 +2038,8 @@ function LibraryMeta({ meal, variant = "grid", onSetType }) {
         aria-label={`Set meal type for ${meal.name}`}
         onClick={(e) => { e.stopPropagation(); onSetType(meal); }}
       >+ {variant === "list" ? "Set meal type" : "Set type"}</button>
-      {` · ${items}`}
+      {/* The grid's half-width strip keeps the invitation alone on its line (Dan, 2026-10-16); the list has room for the count. */}
+      {variant === "list" && ` · ${items}`}
     </>
   );
 }
@@ -6875,6 +6876,11 @@ function ProvisionsApp() {
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
+/* iOS standalone: the status bar overlays the page (the header pads by env(safe-area-inset-top) since 2026-03-31), so once the
+   header scrolls away, content passes under the clock. This fixed band is the status bar's own background — the header bar's
+   colour, so it is invisible at scroll 0 and keeps the white clock legible once scrolled (a page-cream band would put white
+   on cream). Height 0 wherever there is no inset. Below every scrim (1000) so sheets dim it like everything else. */
+.safe-top { position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); background: #1a0e06; z-index: 950; pointer-events: none; }
         .header h1 { font-size: 42px; letter-spacing: 0.02em; }
         .badge { display: inline-block; background: #E8A838; color: white; font-weight: 700; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
         /* ── The Helm — floating nav pill (SPEC_nav_helm.md v2; mockup_nav_helm_v2.html is the visual authority) ── */
@@ -7818,6 +7824,7 @@ function ProvisionsApp() {
             <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 0, background: BANNER_DISSOLVE }} />
           </>
         )}
+      <div className="safe-top" aria-hidden="true" />
       <div className="header" style={{ position: "relative", zIndex: bannerHasPhoto ? 1 : undefined, background: bannerHasPhoto ? "transparent" : undefined }}>
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
         <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
