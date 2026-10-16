@@ -30,7 +30,8 @@ import { useSheetDrag } from "../hooks/useSheetDrag";
 //     …
 //   </SheetPanel>
 const CAP = {
-  maxHeight: "calc(100dvh - 24px - env(safe-area-inset-top))",
+  // --op-inset-top: the standalone status-bar inset, 0 in a browser tab (App.js :root; 2026-10-16).
+  maxHeight: "calc(100dvh - 24px - var(--op-inset-top))",
   overflowY: "auto",
   overscrollBehavior: "contain",
 };

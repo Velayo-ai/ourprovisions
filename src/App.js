@@ -6651,14 +6651,25 @@ function ProvisionsApp() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         /* --op-add: deep sand = adding things (both "Add a meal" buttons). Dark brown stays the Helm's; teal = the household finished something. */
         :root { --op-text-scale: 1; --op-add: #D9BC8C; --op-add-ink: #2B1E16; }
+        /* SAFE-AREA INSETS, gated to the installed app (2026-10-16). The viewport meta carries viewport-fit=cover so iOS
+           reports the real insets; every inset use in the app reads these variables, which are 0 in a browser tab and
+           the real env() values only under display-mode: standalone — so a Safari tab is pixel-identical to before, and
+           the home-screen app pads the header, the Helm, the sheets and the .safe-top band by what the device overlays. */
+        :root { --op-inset-top: 0px; --op-inset-bottom: 0px; }
+        @media (display-mode: standalone) {
+          :root { --op-inset-top: env(safe-area-inset-top, 0px); --op-inset-bottom: env(safe-area-inset-bottom, 0px); }
+          /* landscape with a notch: keep the gutters clear of it (0 in portrait) */
+          body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+        }
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
-/* iOS standalone: the status bar overlays the page (the header pads by env(safe-area-inset-top) since 2026-03-31), so once the
-   header scrolls away, content passes under the clock. This fixed band is the status bar's own background — the header bar's
-   colour, so it is invisible at scroll 0 and keeps the white clock legible once scrolled (a page-cream band would put white
-   on cream). Height 0 wherever there is no inset. Below every scrim (1000) so sheets dim it like everything else. */
-.safe-top { position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); background: #1a0e06; z-index: 950; pointer-events: none; }
+/* iOS standalone: the status bar overlays the page, so once the header scrolls away content passes under the clock. This
+   fixed band is the status bar's own background — PAGE CREAM, because the clock on Dan's iPhone is BLACK (the 2026-10-16
+   first cut assumed a white clock and painted it #1a0e06; the band also had no height, because without viewport-fit=cover
+   iOS reports the inset as 0 — both fixed the same day). Height = the standalone inset, 0 in a browser tab. Below every
+   scrim (1000) so sheets dim it like everything else. At scroll 0 the header's own inset padding sits under it. */
+.safe-top { position: fixed; top: 0; left: 0; right: 0; height: var(--op-inset-top); background: #FAF4EC; z-index: 950; pointer-events: none; }
 /* Visually hidden, read by assistive tech. Used for the fixed VERB half of an aria-labelledby accessible name (2026-10-16): a
    button names itself from this span plus the masked title element, so no attribute ever carries a meal name or a count —
    the session recorder copies every attribute except title / alt / on* into replay snapshots, and masks only text nodes. */
@@ -6666,7 +6677,7 @@ function ProvisionsApp() {
         .header h1 { font-size: 42px; letter-spacing: 0.02em; }
         .badge { display: inline-block; background: #E8A838; color: white; font-weight: 700; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
         /* ── The Helm — floating nav pill (SPEC_nav_helm.md v2; mockup_nav_helm_v2.html is the visual authority) ── */
-        .helm { position: fixed; left: 24px; right: 24px; bottom: calc(18px + env(safe-area-inset-bottom)); height: 56px; border-radius: 28px; z-index: 900;
+        .helm { position: fixed; left: 24px; right: 24px; bottom: calc(18px + var(--op-inset-bottom)); height: 56px; border-radius: 28px; z-index: 900;
                 background: #2C1A0E; display: flex; align-items: stretch; padding: 0 6px;
                 box-shadow: 0 8px 24px rgba(44,26,14,0.32), inset 0 0 0 1px rgba(201,169,122,0.16);
                 transition: height .2s ease, left .2s ease, right .2s ease, border-radius .2s ease; }
@@ -6909,7 +6920,7 @@ function ProvisionsApp() {
         .lib-settype::before { content: ""; position: absolute; inset: -7px -6px; }
         /* AMENDMENT A5 — the "Set meal type" picker: a small bottom sheet (SheetPanel) with the seven occasions as icon chips. */
         .lib-type-scrim { position: fixed; inset: 0; background: rgba(2,15,26,0.6); z-index: 1000; display: flex; align-items: flex-end; }
-        .lib-type-sheet { position: relative; width: 100%; background: #FDF8F2; border-radius: 20px 20px 0 0; padding: 0 20px calc(24px + env(safe-area-inset-bottom)); }
+        .lib-type-sheet { position: relative; width: 100%; background: #FDF8F2; border-radius: 20px 20px 0 0; padding: 0 20px calc(24px + var(--op-inset-bottom)); }
         .lib-type-handle { width: 36px; height: 4px; background: #c8b89a; border-radius: 2px; margin: 10px auto 0; }
         .lib-type-h { margin: 14px 0 2px; font-family: 'Playfair Display', serif; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; color: #2C1A0E; }
         .lib-type-name { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin: 0 0 14px; overflow-wrap: anywhere; }
@@ -7101,11 +7112,11 @@ function ProvisionsApp() {
         .home-budget-label.over { color: #e05c5c; }
         /* §6 — every scrolling root clears the pill. The pill is present at EVERY width (rail retired 2026-09-20);
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
-        .app-root { min-height: 100vh; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-        .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(90px + env(safe-area-inset-bottom)); pointer-events: none; z-index: 899;
+        .app-root { min-height: 100vh; padding-bottom: calc(96px + var(--op-inset-bottom)); }
+        .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(90px + var(--op-inset-bottom)); pointer-events: none; z-index: 899;
                      background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
         /* Bottom status stack rides above the pill — at every width now. */
-        .bottom-stack { bottom: calc(92px + env(safe-area-inset-bottom)); }
+        .bottom-stack { bottom: calc(92px + var(--op-inset-bottom)); }
         /* While ANY modal sheet is open the stack anchors at the TOP of the viewport
            instead — just under the safe area, still centred, same look — so the
            pill and the toasts never sit over a sheet's pinned footer (Cancel / Save
@@ -7114,7 +7125,7 @@ function ProvisionsApp() {
            LibraryFilterSheet's own state) and the next one would miss a flag.
            Position stays with the stack; the pill carries none (ConnectivityPill.js).
            Engines without :has() (Safari < 15.4) keep today's bottom anchor. */
-        body:has(.modal-overlay) .bottom-stack { bottom: auto; top: calc(10px + env(safe-area-inset-top)); }
+        body:has(.modal-overlay) .bottom-stack { bottom: auto; top: calc(10px + var(--op-inset-top)); }
         /* …and the Helm with its fade leave entirely. A sheet is modal, so the nav
            cannot be used anyway, and at z 900 / 899 over the overlay's 100 the pill
            and the fade drew across the sheet's pinned Cancel / Save Meal, which were
@@ -7306,7 +7317,7 @@ function ProvisionsApp() {
            content edge. z 900 = the Helm's (they never overlap) and above .helm-fade (899). Cream, hairline border, soft shadow.
            The fill is SOFT teal (#CFE8E3 → #B5DDD5, a 45% teal rule at its edge) and animates on every check — saturated
            #0D9488 is the All done card's alone. The text and the action sit above the fill (position: relative). */
-        .wrapbar { position: fixed; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 900;
+        .wrapbar { position: fixed; left: 16px; right: 16px; bottom: calc(84px + var(--op-inset-bottom)); z-index: 900;
                    display: flex; align-items: center; justify-content: space-between; gap: 12px; overflow: hidden;
                    min-height: 46px; padding: 12px 16px; border-radius: 16px; border: 1.5px solid #E8DDCE; background: #FAF4EC;
                    box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer; text-align: left; }
@@ -7609,7 +7620,7 @@ function ProvisionsApp() {
       <div className="safe-top" aria-hidden="true" />
       <div className="header" style={{ position: "relative", zIndex: bannerHasPhoto ? 1 : undefined, background: bannerHasPhoto ? "transparent" : undefined }}>
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
-        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
+        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px 10px", marginTop: "var(--op-inset-top)", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
           {isSignedIn && household?.name && (
             <button
               onClick={() => setShowHouseholdModal(true)}
