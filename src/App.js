@@ -16,6 +16,7 @@ import { filesFromPicker, stagePhotos, PHOTO_CAP, HINT_UNREADABLE } from './lib/
 import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
 import { IMPORT_HINTS, GALLEY_HINTS } from './lib/importErrors';
 import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
+import { displayTitle } from './lib/displayTitle';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -2051,7 +2052,7 @@ function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
         onClick={() => onOpen(meal)}
       >
         <LibrarySlot meal={meal} />
-        <span className="lib-gname">{meal.name}</span>
+        <span className="lib-gname">{displayTitle(meal.name)}</span>
       </button>
       <div className="lib-gstrip">
         <span className="lib-gmeta">{libraryMeta(meal)}</span>
@@ -3492,8 +3493,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               {draftSource === "photo" && <div className="op-recipe-eyebrow">From your photos</div>}
               {draftSource === "paste" && <div className="op-recipe-eyebrow">From what you pasted</div>}
               {/* Mirrors the Meal Name field above; absent rather than "Untitled" when
-                  the name is still empty, because the field is right there. */}
-              {name.trim() && <div className="op-recipe-title">{name.trim()}</div>}
+                  the name is still empty, because the field is right there. Display
+                  casing only (displayTitle, visual v2 D11) — the field and the row
+                  keep what was typed. */}
+              {name.trim() && <div className="op-recipe-title">{displayTitle(name.trim())}</div>}
               <div className="op-recipe-meta">
                 {plural(rows.length, "ingredient")} · {onHandCount} on hand · {plural(parsedSteps.steps.length, "step")}
               </div>

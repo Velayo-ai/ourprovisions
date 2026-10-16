@@ -75,7 +75,7 @@ Screenshots carry chrome: usernames and avatars, like and comment counts, timest
 
 ## Filling in the recipe
 
-**name** — The recipe's title as the author gave it, in title case, no leading article, no emoji. If the author gave no title, use the plainest name for what the recipe makes ("Corn Bread", "Lemon Chicken Thighs") — that is naming, not inventing.
+**name** — The recipe's title as the author gave it, in title case, no leading article, no emoji. If the author gave no title, use the plainest name for what the recipe makes ("Corn Bread", "Lemon Chicken Thighs") — that is naming, not inventing. Title case keeps these small words lower-case when they are not the first word: and, or, with, of, the, a, an, in, on, to, for, alla, al, con, de ("Lemon Garlic Shrimp and Spinach Pasta", "Chicken Penne alla Vodka with Vegetables"). Never change an all-caps token ("BLT with Avocado").
 
 **baseServings** — The number of servings the recipe states ("serves 4", "makes 12 cookies" is 12, "feeds a crowd" is not a number). If the recipe does not state one, emit null. Do not estimate.
 
