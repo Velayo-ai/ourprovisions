@@ -2037,15 +2037,21 @@ function LibraryAction({ meal, stage, busy, canPlan, onPlan, onUnplan }) {
 // one, Photos D2). No read sets it today, so every slot is the 56px tint.
 // `thumb` is the list row's 60×60 rounded square (icon at 30); otherwise the
 // card's band (icon at 32).
-function LibrarySlot({ meal, thumb = false }) {
-  const base = thumb ? "lib-thumb" : "lib-slot";
+// `chip` (grid card only): the "✓ Ready" status as a small pill in the band's
+// top-right corner, so the strip's meta line stays on one line (Dan, 2026-10-16).
+// It sits inside the open button, so it is decorative here; the card's
+// aria-label is unchanged and the list row keeps its inert text label.
+const ReadyChip = () => <span className="lib-ready" aria-hidden="true"><CheckGlyph />Ready</span>;
+function LibrarySlot({ meal, thumb = false, chip = false }) {
+  const base = (thumb ? "lib-thumb" : "lib-slot") + (chip ? " has-chip" : "");
   if (meal.cardPhotoUrl) {
-    return <span className={`${base} photo`} aria-hidden="true"><img className="lib-slot-img" src={meal.cardPhotoUrl} alt="" /></span>;
+    return <span className={`${base} photo`} aria-hidden="true"><img className="lib-slot-img" src={meal.cardPhotoUrl} alt="" />{chip && <ReadyChip />}</span>;
   }
   const tint = occasionTint(meal);
   return (
     <span className={base} style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
       <OccasionIcon occasion={(meal.occasion || [])[0]} size={thumb ? 30 : 32} />
+      {chip && <ReadyChip />}
     </span>
   );
 }
@@ -2071,6 +2077,8 @@ function LibraryRow({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
   );
 }
 function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
+  // Ready moves up into the band as a chip (grid only); the strip then carries the meta alone.
+  const readyChip = canPlan && stage === "ready";
   return (
     <div className="lib-gcard">
       <button
@@ -2079,12 +2087,12 @@ function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
         aria-label={`Open ${meal.name}`}
         onClick={() => onOpen(meal)}
       >
-        <LibrarySlot meal={meal} />
+        <LibrarySlot meal={meal} chip={readyChip} />
         <span className="lib-gname">{displayTitle(meal.name)}</span>
       </button>
       <div className="lib-gstrip">
         <span className="lib-gmeta">{libraryMeta(meal)}</span>
-        <LibraryAction meal={meal} stage={stage} busy={busy} canPlan={canPlan} onPlan={onPlan} onUnplan={onUnplan} />
+        {!readyChip && <LibraryAction meal={meal} stage={stage} busy={busy} canPlan={canPlan} onPlan={onPlan} onUnplan={onUnplan} />}
       </div>
     </div>
   );
@@ -6973,8 +6981,17 @@ function ProvisionsApp() {
            may sit at different heights); the @supports block further down is the real thing: CSS SUBGRID (polish
            2026-10-16, replacing the flex: 1 slot trick whose bands came out ragged when names differed in line count).
            No row math in JS, at any column count. */
-        .lib-slot { flex: none; height: 56px; display: flex; align-items: center; justify-content: center; background: #F4EADC; }
+        .lib-slot { position: relative; flex: none; height: 56px; display: flex; align-items: center; justify-content: center; background: #F4EADC; }
         .lib-slot.photo { height: 132px; }
+        /* "✓ Ready" as a chip in the band's top-right (grid card only, 2026-10-16): Eyebrow role (12.5px, k 1), cream on a
+           1px warm border, pill radius — so the strip's meta line stays on one line. The list row keeps its text label. */
+        .lib-ready { position: absolute; top: 6px; right: 6px; display: inline-flex; align-items: center; gap: 3px; padding: 4px 8px 4px 6px;
+                     border-radius: 999px; border: 1px solid #EADBC4; background: #FFFDF9; color: #3A2A20;
+                     font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; line-height: 1; white-space: nowrap; }
+        .lib-ready svg { width: 0.8em; height: 0.8em; }
+        /* With a chip in the band, the icon centres in the space LEFT of it: the band reserves the chip's width in the chip's own
+           em (so it tracks every text step) — no overlap at Default through XXL, no JS. */
+        .lib-slot.has-chip { font-size: calc(12.5px * var(--op-text-scale)); padding-right: calc(5.6em + 12px); }
         .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
         /* SUBGRID: the library grid's rows are the cards' rows. Each card spans 3 rows (slot / title / meta) and subgrids
            them; the open button spans the first 2 (slot / title) and subgrids them again, so the button keeps its
