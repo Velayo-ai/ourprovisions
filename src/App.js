@@ -4721,23 +4721,19 @@ function ProvisionsApp() {
   // the on-hand prompt). Add all: the hook's batch over the Planned cards in
   // queue order, default quantity 1, on-hand skipped — one toast at the end.
   const [planningMealId, setPlanningMealId] = useState(null);
-  // The first "+" of a session gets one brief toast, "Added to This Week"
-  // (polish 2026-10-16); later taps are silent — the ✓ on the card and the
-  // This Week link are the feedback. A session is this page load (a ref).
-  // Replaces v1.1 A7's per-tap "{Meal} added to your week ✓".
-  const planToastShownRef = useRef(false);
+  // Every Plan tap confirms itself: v1.1 A7's "{Meal} added to your week ✓"
+  // names the meal and teaches what "+" means. (A once-per-session "Added to
+  // This Week" toast was tried in the 2026-10-16 polish and reverted the same
+  // day — the design chat hadn't known A7 existed.)
   const handlePlanMeal = useCallback(async (mealId) => {
     setPlanningMealId(mealId);
     try {
       const ok = await planMeal(mealId);
-      if (ok && !planToastShownRef.current) {
-        planToastShownRef.current = true;
-        showToast("Added to This Week");
-      }
+      if (ok) showToast(`${mealById[mealId]?.name || "Meal"} added to your week ✓`);
     } finally {
       setPlanningMealId(null);
     }
-  }, [planMeal, showToast]);
+  }, [planMeal, showToast, mealById]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
   // The library's stage per meal (SPEC_meal_library_unplan D4): the board's own
   // derivation, so the pill can never disagree with This Week or Home. A meal
