@@ -6658,9 +6658,11 @@ function ProvisionsApp() {
         :root { --op-inset-top: 0px; --op-inset-bottom: 0px; }
         @media (display-mode: standalone) {
           :root { --op-inset-top: env(safe-area-inset-top, 0px); --op-inset-bottom: env(safe-area-inset-bottom, 0px); }
-          /* landscape with a notch: keep the gutters clear of it (0 in portrait) */
-          body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
         }
+        /* Landscape with a notch, in EVERY mode: viewport-fit=cover lets a page extend under the notch, so the side insets come
+           back as body padding — 0 in portrait, so a portrait tab is untouched; in landscape it restores exactly what iOS
+           used to inset on its own. Fixed elements (the Helm, the Wrap Up bar) sit at the bottom edge, clear of the notch. */
+        body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
