@@ -1844,6 +1844,54 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
 const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appetizer", "dessert"];
 const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert" };
 const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appetizer: "Appetizers" };
+// OCCASION MARKS (SPEC_meal_library_visual_v2 D5): one line icon + one tint per
+// occasion, keyed on occasion[1] — the same element that drives the meta word.
+// These are occasion marks, not photo placeholders: no camera glyph, no "add a
+// photo" (Photos v1 D8 holds). Untagged meals get the neutral cream and no icon.
+// The icon is decorative (aria-hidden); the meta line names the occasion.
+// Paths are 24-unit, 1.5 stroke, round caps — drawn to the mockup's artboard
+// (the airlock carried a raster, so there were no paths to copy). side and
+// appetizer are DRAFTS per O1 (salad bowl on pale green; skewer on pale
+// terracotta), shown to the design chat before any merge to main.
+const OCCASION_TINT = {
+  breakfast: { bg: "#F6EBC8", ink: "#8F7030" },
+  lunch:     { bg: "#E3E8D6", ink: "#5F7048" },
+  dinner:    { bg: "#EFE3D2", ink: "#8A6B4C" },
+  snack:     { bg: "#DCE8E4", ink: "#47766B" },
+  dessert:   { bg: "#F3E0DA", ink: "#9A5D52" },
+  side:      { bg: "#E6EDD9", ink: "#62754A" },   // DRAFT (O1)
+  appetizer: { bg: "#F2DFD0", ink: "#9A6442" },   // DRAFT (O1)
+};
+const UNTAGGED_TINT = { bg: "#F4EADC", ink: "#8A5F3A" };
+const OCCASION_PATHS = {
+  // coffee cup: body, handle, two wisps of steam
+  breakfast: ["M4 9.5h12v4.5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z", "M16 11h1.25a2.25 2.25 0 0 1 0 4.5H16", "M8.5 6.5c0-1 .7-1.25.7-2.25", "M11.75 6.5c0-1 .7-1.25.7-2.25"],
+  // sandwich: a wedge on a plate
+  lunch:     ["M4.5 14 12 6.5l7.5 7.5z", "M4 17.25h16", "M5.5 20h13"],
+  // cloche: dome, knob, tray
+  dinner:    ["M4.5 15a7.5 7.5 0 0 1 15 0z", "M12 7.5V5.75", "M3 18.25h18"],
+  // apple: body, stem, leaf
+  snack:     ["M12 8.25c-2.25-2-6-1.25-6 3.25 0 3.75 3 8 6 8s6-4.25 6-8c0-4.5-3.75-5.25-6-3.25z", "M12 8.25c0-1.75.9-2.75 2.25-3.25", "M12.5 6.75c1.25-1 2.75-.75 3.25.25-1.25 1-2.75.75-3.25-.25z"],
+  // cupcake: frosting, cup, pleats
+  dessert:   ["M6 12.5a3 3 0 0 1 1-5.75 4.25 4.25 0 0 1 8.25-1.25A3.25 3.25 0 0 1 18 12.5z", "M6 12.5h12l-1.5 7.25h-9z", "M10 12.5v7.25", "M14 12.5v7.25"],
+  // DRAFT side — salad bowl: bowl, foot, two leaves
+  side:      ["M3.5 12.5h17a8.5 8.5 0 0 1-17 0z", "M8.5 20.5h7", "M8.5 12.5c0-3 1.5-5.25 3.5-5.25s3.5 2.25 3.5 5.25", "M12 7.25v5.25"],
+  // DRAFT appetizer — skewer: the stick, two pieces, the ring at the handle
+  appetizer: ["M4 20 18.5 5.5", "M7.75 12.25 10.25 9.75 13.5 13 11 15.5z", "M12 8 14.5 5.5 17.75 8.75 15.25 11.25z", "M19 5a1.5 1.5 0 1 0 0-.01"],
+};
+function OccasionIcon({ occasion, size = 32 }) {
+  const paths = OCCASION_PATHS[occasion];
+  if (!paths) return null;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      {paths.map((d, i) => <path key={i} d={d} />)}
+    </svg>
+  );
+}
+function occasionTint(meal) {
+  const first = (meal?.occasion || [])[0];
+  return OCCASION_TINT[first] || UNTAGGED_TINT;
+}
 const NO_LIB_FILTERS = { from: null, made: false, ours: false };
 // The "Something new?" tile coaches until the library has this many meals.
 const LIBRARY_COACH_MAX = 6;
@@ -1982,11 +2030,16 @@ function LibraryAction({ meal, stage, busy, canPlan, onPlan, onUnplan }) {
 // The photo path (O3): dormant until Photos v1 lands. `meal.cardPhotoUrl` is the
 // client-side seam — a resolved URL for the meal's card photo (the newest live
 // one, Photos D2). No read sets it today, so every slot is the 56px tint.
-function LibrarySlot({ meal }) {
+function LibrarySlot({ meal, iconSize = 32 }) {
   if (meal.cardPhotoUrl) {
     return <span className="lib-slot photo" aria-hidden="true"><img className="lib-slot-img" src={meal.cardPhotoUrl} alt="" /></span>;
   }
-  return <span className="lib-slot" aria-hidden="true" />;
+  const tint = occasionTint(meal);
+  return (
+    <span className="lib-slot" style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
+      <OccasionIcon occasion={(meal.occasion || [])[0]} size={iconSize} />
+    </span>
+  );
 }
 function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
   return (
