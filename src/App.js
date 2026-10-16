@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
-import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { createElement, useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { useProvisions, isPendingCatalogId, normalizeOccasion } from './hooks/useProvisions';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
@@ -1854,9 +1854,9 @@ const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appeti
 // band read as a failed image load on dev (Dan, 2026-10-16 polish, amends D5).
 // The icon is decorative (aria-hidden); the meta line names the occasion.
 // Paths are 24-unit, 1.5 stroke, round caps — drawn to the mockup's artboard
-// (the airlock carried a raster, so there were no paths to copy). side and
-// appetizer are DRAFTS per O1 (salad bowl on pale green; skewer on pale
-// terracotta), shown to the design chat before any merge to main.
+// (the airlock carried a raster, so there were no paths to copy). side is a
+// DRAFT per O1 (salad bowl on pale green), shown to the design chat before any
+// merge to main; appetizer is Dan's A2 (settled 2026-10-16).
 const OCCASION_TINT = {
   breakfast: { bg: "#F6EBC8", ink: "#8F7030" },
   lunch:     { bg: "#E3E8D6", ink: "#5F7048" },
@@ -1864,7 +1864,7 @@ const OCCASION_TINT = {
   snack:     { bg: "#DCE8E4", ink: "#47766B" },
   dessert:   { bg: "#F3E0DA", ink: "#9A5D52" },
   side:      { bg: "#E6EDD9", ink: "#62754A" },   // DRAFT (O1)
-  appetizer: { bg: "#F2DFD0", ink: "#9A6442" },   // DRAFT (O1)
+  appetizer: { bg: "#F2DFD0", ink: "#9A6442" },   // icon = Dan's A2; tint as drafted
 };
 const UNTAGGED_TINT = { bg: "#F4EADC", ink: "#8A6B4C" };
 const OCCASION_PATHS = {
@@ -1882,14 +1882,28 @@ const OCCASION_PATHS = {
   dessert:   ["M6 12.5a3 3 0 0 1 1-5.75 4.25 4.25 0 0 1 8.25-1.25A3.25 3.25 0 0 1 18 12.5z", "M6 12.5h12l-1.5 7.25h-9z", "M10 12.5v7.25", "M14 12.5v7.25"],
   // DRAFT side — salad bowl: bowl, foot, two leaves
   side:      ["M3.5 12.5h17a8.5 8.5 0 0 1-17 0z", "M8.5 20.5h7", "M8.5 12.5c0-3 1.5-5.25 3.5-5.25s3.5 2.25 3.5 5.25", "M12 7.25v5.25"],
-  // DRAFT appetizer — skewer: the stick, two pieces, the ring at the handle
-  appetizer: ["M4 20 18.5 5.5", "M7.75 12.25 10.25 9.75 13.5 13 11 15.5z", "M12 8 14.5 5.5 17.75 8.75 15.25 11.25z", "M19 5a1.5 1.5 0 1 0 0-.01"],
+  // appetizer — Dan's A2 (2026-10-16): the stick, the ring at the handle, an olive
+  // and a cube on the pick. The olive and the cube are FILLED with the band's
+  // tint so the pick reads as passing behind them (fill: "tint" → the slot bg).
+  appetizer: [
+    "M3.5 20.5L19 5",
+    { t: "circle", cx: 19.8, cy: 4.2, r: 1.1 },
+    { t: "circle", cx: 8.6, cy: 15.4, r: 3.6, fill: "tint" },
+    { t: "circle", cx: 8.6, cy: 15.4, r: 1.1 },
+    { t: "rect", x: 11.4, y: 6.3, width: 6.4, height: 6.4, rx: 1.4, transform: "rotate(45 14.6 9.5)", fill: "tint" },
+  ],
 };
-function OccasionIcon({ occasion, size = 32 }) {
-  const paths = OCCASION_PATHS[occasion] || OCCASION_PATHS.untagged;
+// An entry is a path `d` string, or a shape descriptor { t, ...attrs } whose
+// `fill: "tint"` resolves to the band's background.
+function OccasionIcon({ occasion, size = 32, tint = "none" }) {
+  const shapes = OCCASION_PATHS[occasion] || OCCASION_PATHS.untagged;
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-      {paths.map((d, i) => <path key={i} d={d} />)}
+      {shapes.map((s, i) => {
+        if (typeof s === "string") return <path key={i} d={s} />;
+        const { t, fill, ...attrs } = s;
+        return createElement(t, { key: i, ...attrs, fill: fill === "tint" ? tint : fill });
+      })}
     </svg>
   );
 }
@@ -2050,7 +2064,7 @@ function LibrarySlot({ meal, thumb = false, chip = false }) {
   const tint = occasionTint(meal);
   return (
     <span className={base} style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
-      <OccasionIcon occasion={(meal.occasion || [])[0]} size={thumb ? 30 : 32} />
+      <OccasionIcon occasion={(meal.occasion || [])[0]} size={thumb ? 30 : 32} tint={tint.bg} />
       {chip && <ReadyChip />}
     </span>
   );
