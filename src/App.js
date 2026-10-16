@@ -1854,34 +1854,42 @@ const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appeti
 // band read as a failed image load on dev (Dan, 2026-10-16 polish, amends D5).
 // The icon is decorative (aria-hidden); the meta line names the occasion.
 // Paths are 24-unit, 1.5 stroke, round caps — drawn to the mockup's artboard
-// (the airlock carried a raster, so there were no paths to copy). side is a
-// DRAFT per O1 (salad bowl on pale green), shown to the design chat before any
-// merge to main; appetizer is Dan's A2 (settled 2026-10-16).
+// (the airlock carried a raster, so there were no paths to copy). Amendment A
+// (2026-10-16): lunch and side redrawn (A1) from Dan's reference sheet as
+// direction, not traced; appetizer is Dan's A2 SVG as given.
+// Amendment A3 (2026-10-16): tints are grouping hints, the icon is the
+// identifier — no two of the eight tiles may sit under CIE ΔE2000 6. The v2
+// set failed five pairs (lunch/side 1.5, dinner/untagged 1.9, dinner/appetizer
+// 3.7, dessert/appetizer 4.3, appetizer/untagged 4.4); this set clears every
+// pair (min 6.11, breakfast/dinner) by moving dinner deeper, dessert to a
+// cooler rose, side to a clearer green, appetizer to a deeper terracotta and
+// untagged to a greyer neutral. Snack stays seafoam — apricot collided with
+// appetizer (3.2). The pairwise table is in the harness report / ARCHITECTURE.
 const OCCASION_TINT = {
   breakfast: { bg: "#F6EBC8", ink: "#8F7030" },
   lunch:     { bg: "#E3E8D6", ink: "#5F7048" },
-  dinner:    { bg: "#EFE3D2", ink: "#8A6B4C" },
+  dinner:    { bg: "#EAD9C0", ink: "#8A6B4C" },
   snack:     { bg: "#DCE8E4", ink: "#47766B" },
-  dessert:   { bg: "#F3E0DA", ink: "#9A5D52" },
-  side:      { bg: "#E6EDD9", ink: "#62754A" },   // DRAFT (O1)
-  appetizer: { bg: "#F2DFD0", ink: "#9A6442" },   // icon = Dan's A2; tint as drafted
+  dessert:   { bg: "#F4DCE2", ink: "#9A5D52" },
+  side:      { bg: "#CFE2BE", ink: "#4F6B3C" },
+  appetizer: { bg: "#F2D0B5", ink: "#9A6442" },   // icon = Dan's A2
 };
-const UNTAGGED_TINT = { bg: "#F4EADC", ink: "#8A6B4C" };
+const UNTAGGED_TINT = { bg: "#F2EEE6", ink: "#8A6B4C" };
 const OCCASION_PATHS = {
   // the untagged fallback — a plate between a fork and a knife
   untagged:  ["M12 12m-4.75 0a4.75 4.75 0 1 0 9.5 0a4.75 4.75 0 1 0-9.5 0", "M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0", "M4 3.5v17", "M2.5 3.5v3.25a1.5 1.5 0 0 0 3 0V3.5", "M20 3.5v17", "M20 3.5c-1.75 1.5-1.75 5.75 0 7.5"],
   // coffee cup: body, handle, two wisps of steam
   breakfast: ["M4 9.5h12v4.5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z", "M16 11h1.25a2.25 2.25 0 0 1 0 4.5H16", "M8.5 6.5c0-1 .7-1.25.7-2.25", "M11.75 6.5c0-1 .7-1.25.7-2.25"],
-  // sandwich: a wedge on a plate
-  lunch:     ["M4.5 14 12 6.5l7.5 7.5z", "M4 17.25h16", "M5.5 20h13"],
+  // sandwich (Amendment A1): two rounded slices with a wavy lettuce edge between
+  lunch:     ["M5.5 5.5h13A2.5 2.5 0 0 1 21 8v1.5H3V8a2.5 2.5 0 0 1 2.5-2.5z", "M3 11.75c1 1.4 2 1.4 3 0s2-1.4 3 0 2 1.4 3 0 2-1.4 3 0 2 1.4 3 0 2-1.4 3 0", "M3 14h18v2.5a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5z"],
   // cloche: dome, knob, tray
   dinner:    ["M4.5 15a7.5 7.5 0 0 1 15 0z", "M12 7.5V5.75", "M3 18.25h18"],
   // apple: body, stem, leaf
   snack:     ["M12 8.25c-2.25-2-6-1.25-6 3.25 0 3.75 3 8 6 8s6-4.25 6-8c0-4.5-3.75-5.25-6-3.25z", "M12 8.25c0-1.75.9-2.75 2.25-3.25", "M12.5 6.75c1.25-1 2.75-.75 3.25.25-1.25 1-2.75.75-3.25-.25z"],
   // cupcake: frosting, cup, pleats
   dessert:   ["M6 12.5a3 3 0 0 1 1-5.75 4.25 4.25 0 0 1 8.25-1.25A3.25 3.25 0 0 1 18 12.5z", "M6 12.5h12l-1.5 7.25h-9z", "M10 12.5v7.25", "M14 12.5v7.25"],
-  // DRAFT side — salad bowl: bowl, foot, two leaves
-  side:      ["M3.5 12.5h17a8.5 8.5 0 0 1-17 0z", "M8.5 20.5h7", "M8.5 12.5c0-3 1.5-5.25 3.5-5.25s3.5 2.25 3.5 5.25", "M12 7.25v5.25"],
+  // side (Amendment A1): a bowl with leafy greens — bowl, foot, three leaves and a midrib
+  side:      ["M3.5 12.5h17a8.5 8.5 0 0 1-17 0z", "M8.5 20.5h7", "M8 12.5c-1-3 0-5.5 2.5-6.5 1 2.5.5 4.5-2.5 6.5z", "M12 12.5c-.5-3.5 1-6.5 3.5-7.5.5 3-1 6-3.5 7.5z", "M12 12.5l2.5-5", "M15.5 12.5c1.5-2 3-2.5 4.5-2-.5 1.5-2 2.5-4.5 2z"],
   // appetizer — Dan's A2 (2026-10-16): the stick, the ring at the handle, an olive
   // and a cube on the pick. The olive and the cube are FILLED with the band's
   // tint so the pick reads as passing behind them (fill: "tint" → the slot bg).
