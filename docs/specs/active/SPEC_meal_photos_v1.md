@@ -98,3 +98,102 @@ The crew news feed and reactions; photo on gift; Home photos; upload at meal cre
 10. **Allow-list.** Exactly the expected delta, by name, in the deployed bundle.
 
 **Done when:** all ten pass on dev, P1–P5 are confirmed or amended, Step 0's answers are recorded in ARCHITECTURE, and prod is held for its own promotion (migration and bucket first, then the client).
+
+---
+
+# SPEC — Meal Photos v1: amendment 2026-10-13
+
+**Scope:** OurProvisions
+**Amends:** `SPEC_meal_photos_v1.md` (designed 2026-10-03/04). **That spec stands as written except
+where this block differs; where it differs, this block wins.** Append this to the end of v1 rather
+than filing it as a separate spec.
+**Retires:** the standalone `SPEC_meal_photos.md` drafted in the 2026-10-13 design chat. It was
+written without v1 in view and duplicated it. Do not file it; this amendment carries its decisions.
+**Status:** Decided by Dan in the design chat, 2026-10-13 (on the phone, travelling).
+
+---
+
+## A1 — Build in two slices; the meal sheet goes first
+
+v1's capture and its fallback ship as two separate builds.
+
+- **Slice 1, the meal sheet:** v1's D7 **Add** tile, P2's attach rule (newest cook with no photo,
+  otherwise `meal_cook_id` null), D4 removal, the library card (D5, option A), the no-flash gate,
+  RUM, EXIF and Storage. This is the "edit the meal and add a photo" path Dan wants first.
+- **Slice 2, the afterglow:** v1's D6 "Add a photo" on the ✓ Cooked afterglow, plus A5's rating.
+
+Why: the meal sheet is the smallest door that puts a photo on a card, and it covers the photo you
+already have (Easton's, Grandma's). The afterglow is the second door, and it's where the rating lives.
+
+## A2 — Keep two live photos per meal per household (replaces unlimited history)
+
+After a new upload, only the **two newest live photos** for (meal, household) stay live. Anything
+older is soft-deleted (v1's `deleted_at`) and swept from Storage by v1's later sweep.
+
+- D2 and D4 are unchanged: the newest holds the card, and removing it falls back to the other one,
+  then to the tone tile.
+- D7's "From your cooks" row still lists every cook. A cook whose photo has been aged out reads
+  **No photo**.
+- Why: Dan, on cost ("keep costs down to store", "just latest −1 in case you want to delete after
+  uploading"). With photos expected on a small fraction of cooks, two per meal covers a mistaken
+  upload.
+
+## A3 — Two renditions, and the library loads only the thumbnail (replaces one ≤ 1600 px file)
+
+The client makes **two** re-encodes through the canvas, so EXIF is still dropped:
+
+- a **thumbnail** about 480 px on the long edge, for the library card;
+- a **viewing copy** about 1080 px, loaded only when the meal sheet opens.
+
+Use WebP with a JPEG fallback, quality about 0.75–0.8. **No original is ever stored.** Hi-res stays
+on the phone, and any future Instagram share goes from the phone's own copy.
+
+`meal_photos` carries both paths: `thumb_path` and `view_path` replace `storage_path`. The
+`add_meal_photo` prefix check covers both.
+
+- Why: egress, not storage, is the cost that has already bitten (over Free egress until Oct 20).
+  A library screen reloads its cards on every visit.
+- Verification adds: **a 20-card library screen loads thumbnails only.** Report its total bytes.
+
+## A4 — Photos travel with a gift (reverses P4)
+
+v1 P4 said photos never travel with a gifted recipe. Dan reversed that: *"the feeling will come
+from the photo"* (Andrew gives a meal he made with Easton).
+
+- Fits `SPEC_meal_sharing_v2.md`. A gift is a **snapshot at give time**, so the giver's current
+  card photo (both renditions) is **copied into the snapshot**. The receiving household gets its
+  own copy when it saves the meal. The receiver never reads the giver's path, and the giver later
+  removing their own photo doesn't touch the receiver's copy.
+- The copy is labelled **"from {giver}"** on the meal sheet. It is the **origin photo**: kept apart
+  from the receiver's own uploads and **never aged out by A2**.
+- **Card order:** the receiver's own newest photo first, then the origin photo, then the tone tile.
+- **Children:** a shared photo reaches only the households someone chose to give to. If a public or
+  marketplace layer ever exists, no photo goes there without a deliberate action by whoever took it.
+- **Ships with or after the giving build**, never before it. If giving is unbuilt, slices 1 and 2
+  ship without A4.
+- Open for build: whether the origin photo is a `meal_photos` row with an `origin` flag, or a field
+  on the gift copy. Lean: a row with `origin in ('own','gift')` and a `from_label`.
+
+## A5 — An optional 3-star rating on the cook (folds in recipe rating)
+
+Recipe rating, from Laddy's beta feedback, joins slice 2 on the afterglow, next to "Add a photo".
+It is just as quiet: ignorable, with no prompt and no nag.
+
+- `meal_cooks` (058) gains `rating smallint null check (rating between 1 and 3)` and
+  `note text null` (one optional line, such as "double the garlic next time").
+- **058's write shape holds.** No UPDATE policy is added. A new SECURITY DEFINER RPC,
+  `rate_cook(p_cook_id, p_rating, p_note)`, may set or clear **only** those two fields. It follows
+  the 051/058 pattern: membership first, caller from the JWT. Read `cook_meal`'s body before
+  writing it.
+- **No vote is not a rating (Dan).** A null rating is never read as 0 or as a low score. Any
+  average, "favourite" or ordering signal counts only rated cooks. A meal with no ratings shows no
+  stars, never empty stars.
+- Ratings show on the meal sheet with each cook tile. Using them in board ordering comes later;
+  the data is captured now.
+- Verification adds: cooked twice and rated once at 3★ → shows **3★, not 1.5★**. Never rated →
+  **no stars**. Skipping the rating leaves the cook logged.
+
+## Out of scope (added)
+
+The **Home activity widget** ("Dan cooked Easton's Grilled Cheese 📷") is its own design item,
+alongside who's cooking. `meal_cooks` together with `meal_photos` already feed it.
