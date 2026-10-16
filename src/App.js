@@ -6946,7 +6946,7 @@ function ProvisionsApp() {
         .lib-rtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
         .lib-rname { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
                      font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
-        .lib-rmeta { font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; }
+        .lib-rmeta { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; }
         .lib-row .lib-plan { width: 48px; height: 48px; margin-left: 0; }
         .lib-row .lib-plan::before { inset: 0; }
         /* The row's status text follows the Button role (k 0.8, the pill it replaced): at XXL on 320px a full-scale
@@ -6973,8 +6973,9 @@ function ProvisionsApp() {
            fit (Text Size decision 9 — wrap, never shrink or clip — applied to the text, so the count is never lost to an
            ellipsis and the action stays where the thumb expects it at every step). */
         .lib-gstrip { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px 8px 12px; }
-        /* The meta line (D6): "{Occasion} · {n} items", Meta role at the spec's 13px, muted #8A5F3A (Text Size D5, ≥ 4.5:1). */
-        .lib-gmeta { flex: 1 1 0; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; overflow-wrap: anywhere; }
+        /* The meta line (D6): "{Occasion} · {n} items" at the Meta role — 14px (Text Size D4's floor; the spec's 13 was
+           resolved to the role table, Dan 2026-10-16), muted #8A5F3A (Text Size D5, ≥ 4.5:1). The same expression ts(14) emits. */
+        .lib-gmeta { flex: 1 1 0; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; overflow-wrap: anywhere; }
         /* The round "+" (D7): drawn at 40px, a 44×44 touch target through the pseudo-element; soft fill, dark glyph;
            planned = sand fill with a check (tapping un-plans). */
         .lib-plan { position: relative; flex: none; margin-left: auto; width: 40px; height: 40px; border-radius: 50%; border: none; background: #F1E6D6; color: #2C1A0E; cursor: pointer;
