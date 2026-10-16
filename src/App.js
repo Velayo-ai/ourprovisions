@@ -6782,9 +6782,10 @@ function ProvisionsApp() {
         /* 8px top + 5px bottom padding + the line + the underline ≈ 46px tap target; the negative top margin keeps the title's
            visual top on the row's top edge so the add button aligns with the title line, not the padded box. */
         .plan-view { border: none; background: none; padding: 8px 0 5px; margin: -8px 0 0; cursor: pointer; white-space: nowrap;
-                     font-family: 'Playfair Display', serif; font-size: calc(26px * (1 + (var(--op-text-scale) - 1) * 0.4)); font-weight: 700; line-height: 1.15; color: #8C7660;
+                     font-family: 'Playfair Display', serif; font-size: calc(26px * (1 + (var(--op-text-scale) - 1) * 0.4)); font-weight: 400; line-height: 1.15; color: #8C7660;
                      border-bottom: 3px solid transparent; }
-        .plan-view.on { color: #2A170C; border-bottom-color: #A0714A; cursor: default; }
+        /* The active view reads by WEIGHT, not only by colour (visual v2 D12): the inactive link is regular, the active one bold + underlined. */
+        .plan-view.on { color: #2A170C; font-weight: 700; border-bottom-color: #A0714A; cursor: default; }
         .plan-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
         /* .hdr-action — THE header action pill (src/components/HeaderAction.js): one style on Shop, This Week and Meals.
            "+ Add" brings an existing thing into the view; "+ New" creates one. Deep sand (--op-add) = adding things. */
@@ -6944,7 +6945,7 @@ function ProvisionsApp() {
         .lib-thumb { flex: none; width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
         .lib-rtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
         .lib-rname { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-                     font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+                     font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
         .lib-rmeta { font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; }
         .lib-row .lib-plan { width: 48px; height: 48px; margin-left: 0; }
         .lib-row .lib-plan::before { inset: 0; }
@@ -6965,8 +6966,9 @@ function ProvisionsApp() {
         .lib-slot.photo { flex: none; height: 132px; }
         .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
         /* The name in the body (D2): clamped to 3 lines with an ellipsis so a long imported title never sets the card height. */
+        /* Card title role (D10): 17px at Default, k 0.5 — was 20. One serif moment per screen is the page title. */
         .lib-gname { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; padding: 10px 12px 0;
-                     font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+                     font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
         /* The strip never pushes the "+" below the meta: the meta WRAPS INTERNALLY beside the button when the two no longer
            fit (Text Size decision 9 — wrap, never shrink or clip — applied to the text, so the count is never lost to an
            ellipsis and the action stays where the thumb expects it at every step). */
