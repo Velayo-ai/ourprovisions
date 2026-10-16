@@ -2032,15 +2032,39 @@ function LibraryAction({ meal, stage, busy, canPlan, onPlan, onUnplan }) {
 // The photo path (O3): dormant until Photos v1 lands. `meal.cardPhotoUrl` is the
 // client-side seam — a resolved URL for the meal's card photo (the newest live
 // one, Photos D2). No read sets it today, so every slot is the 56px tint.
-function LibrarySlot({ meal, iconSize = 32 }) {
+// `thumb` is the list row's 60×60 rounded square (icon at 30); otherwise the
+// card's band (icon at 32).
+function LibrarySlot({ meal, thumb = false }) {
+  const base = thumb ? "lib-thumb" : "lib-slot";
   if (meal.cardPhotoUrl) {
-    return <span className="lib-slot photo" aria-hidden="true"><img className="lib-slot-img" src={meal.cardPhotoUrl} alt="" /></span>;
+    return <span className={`${base} photo`} aria-hidden="true"><img className="lib-slot-img" src={meal.cardPhotoUrl} alt="" /></span>;
   }
   const tint = occasionTint(meal);
   return (
-    <span className="lib-slot" style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
-      <OccasionIcon occasion={(meal.occasion || [])[0]} size={iconSize} />
+    <span className={base} style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
+      <OccasionIcon occasion={(meal.occasion || [])[0]} size={thumb ? 30 : 32} />
     </span>
+  );
+}
+// The list row (D8): thumbnail · a 2-line title + the meta line · the "+" at
+// 48px. Same two buttons as the card (open, action), same stage rule.
+function LibraryRow({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
+  return (
+    <div className="lib-row">
+      <button
+        type="button"
+        className="lib-rbody"
+        aria-label={`Open ${meal.name}`}
+        onClick={() => onOpen(meal)}
+      >
+        <LibrarySlot meal={meal} thumb />
+        <span className="lib-rtext">
+          <span className="lib-rname">{displayTitle(meal.name)}</span>
+          <span className="lib-rmeta">{libraryMeta(meal)}</span>
+        </span>
+      </button>
+      <LibraryAction meal={meal} stage={stage} busy={busy} canPlan={canPlan} onPlan={onPlan} onUnplan={onUnplan} />
+    </div>
   );
 }
 function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
@@ -2061,6 +2085,9 @@ function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
       </div>
     </div>
   );
+}
+function LibraryItem({ kind, ...props }) {
+  return kind === "list" ? <LibraryRow {...props} /> : <LibraryCard {...props} />;
 }
 
 // FILTER SHEET (mockup screen 3). FROM = current household members with ≥ 1
@@ -2293,7 +2320,8 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
       )}
       <div className={libView === "list" ? "lib-list" : "lib-grid"}>
         {shown.map((m) => (
-          <LibraryCard
+          <LibraryItem
+            kind={libView}
             key={m.id}
             meal={m}
             stage={stages?.[m.id] || "none"}
@@ -6906,8 +6934,23 @@ function ProvisionsApp() {
         .lib-hint { margin: 0 0 14px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         .lib-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; align-items: stretch; }
         @media (max-width: 339px) { .lib-grid { grid-template-columns: minmax(0, 1fr); } }
-        /* List view (D8): full-width rows, 10px apart. The row component is its own commit; until then the cards stack. */
+        /* List view (D8): full-width rows, 10px apart — a 60×60 rounded thumbnail (photo, or tint + icon at 30), a 2-line
+           title at the Card title role, the meta line, and the "+" at 48px. Grid is for browsing by picture; list is for
+           scanning by name. */
         .lib-list { display: flex; flex-direction: column; gap: 10px; }
+        .lib-row { display: flex; align-items: center; gap: 8px; border-radius: 14px; border: 1px solid #E8D5B7; background: #FFFDF9; padding: 10px; }
+        .lib-rbody { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left; padding: 0; border: none;
+                     background: none; color: #2C1A0E; cursor: pointer; font: inherit; }
+        .lib-thumb { flex: none; width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .lib-rtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+        .lib-rname { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+                     font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+        .lib-rmeta { font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; }
+        .lib-row .lib-plan { width: 48px; height: 48px; margin-left: 0; }
+        .lib-row .lib-plan::before { inset: 0; }
+        /* The row's status text follows the Button role (k 0.8, the pill it replaced): at XXL on 320px a full-scale
+           "✓ Ready" squeezed the title column until a word broke mid-word (harness 2026-10-16). */
+        .lib-row .lib-stage { height: 48px; margin-left: 0; padding: 0; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); }
         /* VISUAL v2 (SPEC_meal_library_visual_v2): a LIGHT card — cream, 1px warm border, dark text (D1). Flex column:
            slot → body (name) → strip (meta + the round "+"). */
         .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
