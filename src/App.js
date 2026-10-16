@@ -1849,7 +1849,9 @@ const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appeti
 // OCCASION MARKS (SPEC_meal_library_visual_v2 D5): one line icon + one tint per
 // occasion, keyed on occasion[1] — the same element that drives the meta word.
 // These are occasion marks, not photo placeholders: no camera glyph, no "add a
-// photo" (Photos v1 D8 holds). Untagged meals get the neutral cream and no icon.
+// photo" (Photos v1 D8 holds). Untagged meals get the neutral cream and a
+// FALLBACK mark — a plate with fork and knife — never a blank band: a blank
+// band read as a failed image load on dev (Dan, 2026-10-16 polish, amends D5).
 // The icon is decorative (aria-hidden); the meta line names the occasion.
 // Paths are 24-unit, 1.5 stroke, round caps — drawn to the mockup's artboard
 // (the airlock carried a raster, so there were no paths to copy). side and
@@ -1864,8 +1866,10 @@ const OCCASION_TINT = {
   side:      { bg: "#E6EDD9", ink: "#62754A" },   // DRAFT (O1)
   appetizer: { bg: "#F2DFD0", ink: "#9A6442" },   // DRAFT (O1)
 };
-const UNTAGGED_TINT = { bg: "#F4EADC", ink: "#8A5F3A" };
+const UNTAGGED_TINT = { bg: "#F4EADC", ink: "#8A6B4C" };
 const OCCASION_PATHS = {
+  // the untagged fallback — a plate between a fork and a knife
+  untagged:  ["M12 12m-4.75 0a4.75 4.75 0 1 0 9.5 0a4.75 4.75 0 1 0-9.5 0", "M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0", "M4 3.5v17", "M2.5 3.5v3.25a1.5 1.5 0 0 0 3 0V3.5", "M20 3.5v17", "M20 3.5c-1.75 1.5-1.75 5.75 0 7.5"],
   // coffee cup: body, handle, two wisps of steam
   breakfast: ["M4 9.5h12v4.5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z", "M16 11h1.25a2.25 2.25 0 0 1 0 4.5H16", "M8.5 6.5c0-1 .7-1.25.7-2.25", "M11.75 6.5c0-1 .7-1.25.7-2.25"],
   // sandwich: a wedge on a plate
@@ -1882,8 +1886,7 @@ const OCCASION_PATHS = {
   appetizer: ["M4 20 18.5 5.5", "M7.75 12.25 10.25 9.75 13.5 13 11 15.5z", "M12 8 14.5 5.5 17.75 8.75 15.25 11.25z", "M19 5a1.5 1.5 0 1 0 0-.01"],
 };
 function OccasionIcon({ occasion, size = 32 }) {
-  const paths = OCCASION_PATHS[occasion];
-  if (!paths) return null;
+  const paths = OCCASION_PATHS[occasion] || OCCASION_PATHS.untagged;
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
       {paths.map((d, i) => <path key={i} d={d} />)}
@@ -4718,15 +4721,23 @@ function ProvisionsApp() {
   // the on-hand prompt). Add all: the hook's batch over the Planned cards in
   // queue order, default quantity 1, on-hand skipped — one toast at the end.
   const [planningMealId, setPlanningMealId] = useState(null);
+  // The first "+" of a session gets one brief toast, "Added to This Week"
+  // (polish 2026-10-16); later taps are silent — the ✓ on the card and the
+  // This Week link are the feedback. A session is this page load (a ref).
+  // Replaces v1.1 A7's per-tap "{Meal} added to your week ✓".
+  const planToastShownRef = useRef(false);
   const handlePlanMeal = useCallback(async (mealId) => {
     setPlanningMealId(mealId);
     try {
       const ok = await planMeal(mealId);
-      if (ok) showToast(`${mealById[mealId]?.name || "Meal"} added to your week ✓`);
+      if (ok && !planToastShownRef.current) {
+        planToastShownRef.current = true;
+        showToast("Added to This Week");
+      }
     } finally {
       setPlanningMealId(null);
     }
-  }, [planMeal, showToast, mealById]);
+  }, [planMeal, showToast]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
   // The library's stage per meal (SPEC_meal_library_unplan D4): the board's own
   // derivation, so the pill can never disagree with This Week or Home. A meal
@@ -6929,6 +6940,10 @@ function ProvisionsApp() {
         .lib-chip-x > span:last-child { color: #8a7a60; font-weight: 400; }
         .lib-chip-x .lib-mini { width: 22px; height: 22px; font-size: 0.62rem; }
         .lib-rail { margin: 0 0 14px; }
+        /* The library's rail hides its scrollbar (polish 2026-10-16 — it showed on desktop); Browse's rail keeps its styled
+           one. scrollbar-width: none covers Chromium 121+ / Firefox / Safari 18.2+; the ::-webkit rule covers older WebKit. */
+        .lib-rail .cat-rail { scrollbar-width: none; }
+        .lib-rail .cat-rail::-webkit-scrollbar { display: none; }
         .lib-occ { flex: none; height: 36px; padding: 0 16px; border-radius: 18px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
         .lib-occ.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
@@ -6945,7 +6960,7 @@ function ProvisionsApp() {
         .lib-thumb { flex: none; width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
         .lib-rtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
         .lib-rname { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-                     font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+                     font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
         .lib-rmeta { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; }
         .lib-row .lib-plan { width: 48px; height: 48px; margin-left: 0; }
         .lib-row .lib-plan::before { inset: 0; }
@@ -6958,17 +6973,33 @@ function ProvisionsApp() {
         .lib-gbody { flex: 1; display: flex; flex-direction: column; align-items: stretch; text-align: left; width: 100%; padding: 0; border: none;
                      background: none; color: #2C1A0E; cursor: pointer; font: inherit; }
         /* The slot (D3): a short tinted band, the occasion mark centred — 56px without a photo; a photo takes a fixed 132px.
-           ROW MATCHING IN PURE CSS (D4, build scope 2): the grid's align-items: stretch makes the cards in a row equal height,
-           the body is flex: 1, and the icon slot is flex: 1 1 auto with a 56px floor — so whenever a neighbour is taller (a
-           photo, a longer name) the tint grows to match and the icon stays centred in it. No row math in JS, at any column count.
-           Neutral cream until the occasion tint map lands (the OccasionIcon commit). */
-        .lib-slot { flex: 1 1 auto; min-height: 56px; display: flex; align-items: center; justify-content: center; background: #F4EADC; }
-        .lib-slot.photo { flex: none; height: 132px; }
+           ROW MATCHING IN PURE CSS (D4, build scope 2) — the base rules below are the FALLBACK (fixed 56px bands, titles
+           may sit at different heights); the @supports block further down is the real thing: CSS SUBGRID (polish
+           2026-10-16, replacing the flex: 1 slot trick whose bands came out ragged when names differed in line count).
+           No row math in JS, at any column count. */
+        .lib-slot { flex: none; height: 56px; display: flex; align-items: center; justify-content: center; background: #F4EADC; }
+        .lib-slot.photo { height: 132px; }
         .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        /* SUBGRID: the library grid's rows are the cards' rows. Each card spans 3 rows (slot / title / meta) and subgrids
+           them; the open button spans the first 2 (slot / title) and subgrids them again, so the button keeps its
+           semantics and still covers slot + name. The shared slot row sizes to the tallest slot in the row (a 132px photo
+           stretches the neighbour's tint; 56px otherwise), the title row to the tallest clamped title, the meta row to the
+           tallest strip — every edge aligns across the row. The card's margin is the row gap (the grid's own row-gap would
+           also land between a card's rows). Chrome 117+, Safari 16+ (iOS 16+), Firefox 71+; older engines keep the
+           fallback above. */
+        @supports (grid-template-rows: subgrid) {
+          .lib-grid { row-gap: 0; align-items: stretch; }
+          .lib-gcard { display: grid; grid-template-rows: subgrid; grid-row: span 3; margin-bottom: 16px; }
+          .lib-gbody { display: grid; grid-template-rows: subgrid; grid-row: span 2; }
+          .lib-slot { height: auto; min-height: 56px; }
+          .lib-slot.photo { height: 132px; }
+          .lib-gstrip { align-self: end; }
+        }
         /* The name in the body (D2): clamped to 3 lines with an ellipsis so a long imported title never sets the card height. */
-        /* Card title role (D10): 17px at Default, k 0.5 — was 20. One serif moment per screen is the page title. */
+        /* Card title role (D10): 17px at Default, k 0.5 — was 20. One serif moment per screen is the page title.
+           Weight 600 (polish 2026-10-16; the 600 face is loaded in public/index.html — without it the browser would pick 700). */
         .lib-gname { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; padding: 10px 12px 0;
-                     font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+                     font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
         /* The strip never pushes the "+" below the meta: the meta WRAPS INTERNALLY beside the button when the two no longer
            fit (Text Size decision 9 — wrap, never shrink or clip — applied to the text, so the count is never lost to an
            ellipsis and the action stays where the thumb expects it at every step). */
