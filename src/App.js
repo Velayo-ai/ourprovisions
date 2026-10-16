@@ -2019,11 +2019,28 @@ const PlusGlyph = () => (
 // The meta line (D6): "{Occasion} · {n} items", or "{n} items" untagged — one
 // line of chrome where there were two (the eyebrow and the count). "items"
 // because "ingredients" does not fit the half-width card.
-function libraryMeta(meal) {
+// Untagged + a setter on hand → Amendment A4's invitation in the occasion
+// word's place: "+ Set type" (grid) / "+ Set meal type" (list), a real
+// <button> that names the meal only in its aria-label, stops propagation and
+// never sits inside the open button. It retires by behaviour — gone the moment
+// a type is set. Without a setter (signed out) the untagged meta is "{n} items".
+function LibraryMeta({ meal, variant = "grid", onSetType }) {
   const count = (meal.meal_ingredients || []).length;
   const first = (meal.occasion || [])[0];
   const items = `${count} ${count === 1 ? "item" : "items"}`;
-  return first && OCCASION_WORD[first] ? `${OCCASION_WORD[first]} · ${items}` : items;
+  if (first && OCCASION_WORD[first]) return <>{OCCASION_WORD[first]} · {items}</>;
+  if (!onSetType) return <>{items}</>;
+  return (
+    <>
+      <button
+        type="button"
+        className="lib-settype"
+        aria-label={`Set meal type for ${meal.name}`}
+        onClick={(e) => { e.stopPropagation(); onSetType(meal); }}
+      >+ {variant === "list" ? "Set meal type" : "Set type"}</button>
+      {` · ${items}`}
+    </>
+  );
 }
 // The ONE action slot, shared by the grid card and the list row. Pill = action,
 // text = status: none → the round "+" (D7, "Plan {meal}"), planned → the same
@@ -2079,26 +2096,29 @@ function LibrarySlot({ meal, thumb = false, chip = false }) {
 }
 // The list row (D8): thumbnail · a 2-line title + the meta line · the "+" at
 // 48px. Same two buttons as the card (open, action), same stage rule.
-function LibraryRow({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
+// The row is a 3-column grid (thumb · name / meta · action) so the meta line can
+// hold Amendment A4's invitation as a SIBLING of the open button — a button
+// inside a button is invalid and would bubble into "Open". The open button is
+// the name; its ::before covers the thumbnail column, so tapping the picture
+// still opens the meal. The meta text line itself is not a tap target.
+function LibraryRow({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen, onSetType }) {
   return (
     <div className="lib-row">
+      <LibrarySlot meal={meal} thumb />
       <button
         type="button"
         className="lib-rbody"
         aria-label={`Open ${meal.name}`}
         onClick={() => onOpen(meal)}
       >
-        <LibrarySlot meal={meal} thumb />
-        <span className="lib-rtext">
-          <span className="lib-rname">{displayTitle(meal.name)}</span>
-          <span className="lib-rmeta">{libraryMeta(meal)}</span>
-        </span>
+        <span className="lib-rname">{displayTitle(meal.name)}</span>
       </button>
+      <span className="lib-rmeta"><LibraryMeta meal={meal} variant="list" onSetType={onSetType} /></span>
       <LibraryAction meal={meal} stage={stage} busy={busy} canPlan={canPlan} onPlan={onPlan} onUnplan={onUnplan} />
     </div>
   );
 }
-function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
+function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen, onSetType }) {
   // Ready moves up into the band as a chip (grid only); the strip then carries the meta alone.
   const readyChip = canPlan && stage === "ready";
   return (
@@ -2113,7 +2133,7 @@ function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
         <span className="lib-gname">{displayTitle(meal.name)}</span>
       </button>
       <div className="lib-gstrip">
-        <span className="lib-gmeta">{libraryMeta(meal)}</span>
+        <span className="lib-gmeta"><LibraryMeta meal={meal} variant="grid" onSetType={onSetType} /></span>
         {!readyChip && <LibraryAction meal={meal} stage={stage} busy={busy} canPlan={canPlan} onPlan={onPlan} onUnplan={onUnplan} />}
       </div>
     </div>
@@ -2195,9 +2215,56 @@ const GridGlyph = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></svg>
 );
 
-function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx }) {
+// "SET MEAL TYPE" (Amendment A5): a small bottom sheet, not Edit Meal — the
+// seven occasions as icon chips, multi-select, the first tapped becomes
+// occasion[1] (the card word, 061), Save. The draft is local until Save; Cancel,
+// the backdrop, swipe-down and Close all discard it. Save with nothing chosen is
+// disabled (Cancel is the way to leave a meal untagged).
+function SetTypeSheet({ meal, onSave, onClose }) {
+  const [sel, setSel] = useState(() => (meal.occasion || []).slice());
+  const toggle = (k) => setSel((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
+  return (
+    <div className="lib-type-scrim" onClick={onClose}>
+      <SheetPanel onClose={onClose} label="Set meal type" className="lib-type-sheet">
+        <SheetClose onClose={onClose} />
+        <div className="lib-type-handle" aria-hidden="true" />
+        <h2 className="lib-type-h">Set meal type</h2>
+        <div className="lib-type-name">{displayTitle(meal.name)}</div>
+        <div className="lib-type-chips" role="group" aria-label="Good for">
+          {OCCASION_ORDER.map((k) => {
+            const on = sel.includes(k);
+            const tint = OCCASION_TINT[k];
+            return (
+              <button
+                key={k}
+                type="button"
+                className={`lib-type-chip${on ? " on" : ""}`}
+                aria-pressed={on}
+                onClick={() => toggle(k)}
+              >
+                <span style={{ color: on ? "#FAF4EC" : tint.ink, display: "inline-flex" }} aria-hidden="true"><OccasionIcon occasion={k} size={22} tint={on ? "#6f5a45" : "#FFFDF9"} /></span>
+                {OCCASION_WORD[k]}
+                {on && sel[0] === k && <span className="gf-oncard">On card</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div className="lib-type-help">Choose any that fit. The first appears on the card.</div>
+        <div className="lib-type-btns">
+          <button type="button" className="lib-type-cancel" onClick={onClose}>Cancel</button>
+          <button type="button" className="lib-type-save" disabled={sel.length === 0} onClick={() => { onSave(sel); onClose(); }}>Save</button>
+        </div>
+      </SheetPanel>
+    </div>
+  );
+}
+
+function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx, onSetOccasion }) {
   const [query, setQuery] = useState("");
   const [libView, toggleLibView] = useLibraryView(textSizeIdx);
+  // The meal whose "Set meal type" sheet is open (Amendment A4/A5); null when closed.
+  const [typeFor, setTypeFor] = useState(null);
+  const canSetType = !!(isSignedIn && onSetOccasion);
   const [occ, setOcc] = useState("all");
   const [filters, setFilters] = useState(NO_LIB_FILTERS);
   // null while closed; the sheet's draft (a copy of `filters`) while open.
@@ -2356,6 +2423,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
           <LibraryItem
             kind={libView}
             key={m.id}
+            onSetType={canSetType ? setTypeFor : null}
             meal={m}
             stage={stages?.[m.id] || "none"}
             busy={planningMealId === m.id}
@@ -2367,6 +2435,14 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         ))}
       </div>
       {createTile}
+
+      {typeFor && (
+        <SetTypeSheet
+          meal={typeFor}
+          onSave={(occ) => onSetOccasion(typeFor.id, occ)}
+          onClose={() => setTypeFor(null)}
+        />
+      )}
 
       {draft && (
         <LibraryFilterSheet
@@ -4079,6 +4155,7 @@ function ProvisionsApp() {
     fetchMeals,
     createMeal,
     updateMeal,
+    setMealOccasion,
     requestMealSuggestion,
     requestRecipeImport,
     deleteMeal,
@@ -4794,6 +4871,22 @@ function ProvisionsApp() {
       setPlanningMealId(null);
     }
   }, [skipMeal, showToast, mealById]);
+  // "Set meal type" (visual v2 Amendment A5): OPTIMISTIC — the card shows the
+  // new tint, icon and meta word at once; the narrow write follows; on failure
+  // the one meal reverts and the quiet toast says so. On success the quiet
+  // refresh (never the spinner) reconciles with the row the server holds.
+  const handleSetOccasion = useCallback(async (mealId, occasion) => {
+    const prev = mealById[mealId]?.occasion || [];
+    setMeals((ms) => ms.map((m) => (m.id === mealId ? { ...m, occasion } : m)));
+    const ok = await setMealOccasion(mealId, occasion);
+    if (ok) {
+      await refreshMeals();
+    } else {
+      setMeals((ms) => ms.map((m) => (m.id === mealId ? { ...m, occasion: prev } : m)));
+      showToast("Couldn't save the meal type");
+    }
+    return ok;
+  }, [mealById, setMealOccasion, refreshMeals, showToast]);
 
   // No-shop cards (055/056/057): Leftovers / Eating out / Something else. The
   // foot buttons open a one-field sheet — leftovers: a multi-select (no
@@ -6980,16 +7073,22 @@ function ProvisionsApp() {
            title at the Card title role, the meta line, and the "+" at 48px. Grid is for browsing by picture; list is for
            scanning by name. */
         .lib-list { display: flex; flex-direction: column; gap: 10px; }
-        .lib-row { display: flex; align-items: center; gap: 8px; border-radius: 14px; border: 1px solid #E8D5B7; background: #FFFDF9; padding: 10px; }
-        .lib-rbody { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; text-align: left; padding: 0; border: none;
+        /* Amendment A4 restructure: a 3-column grid — thumb (rows 1–2) · name (row 1) over meta (row 2) · action (rows 1–2).
+           The name is the open button; its ::before covers the thumbnail column (the row is the positioned ancestor), so the
+           picture still opens the meal while the meta row stays a sibling and can carry the "+ Set meal type" button. */
+        .lib-row { position: relative; display: grid; grid-template-columns: 60px minmax(0, 1fr) auto; grid-template-rows: auto auto;
+                   column-gap: 12px; row-gap: 3px; align-items: center; border-radius: 14px; border: 1px solid #E8D5B7; background: #FFFDF9; padding: 10px; }
+        .lib-thumb { grid-column: 1; grid-row: 1 / 3; width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .lib-rbody { grid-column: 2; grid-row: 1; align-self: end; min-width: 0; display: block; text-align: left; padding: 0; border: none;
                      background: none; color: #2C1A0E; cursor: pointer; font: inherit; }
-        .lib-thumb { flex: none; width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .lib-rtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+        .lib-rbody::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 82px; }
+        .lib-rmeta { grid-column: 2; grid-row: 2; align-self: start; min-width: 0; }
         .lib-rname { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
                      font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
         .lib-rmeta { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; }
-        .lib-row .lib-plan { width: 48px; height: 48px; margin-left: 0; }
+        .lib-row .lib-plan { grid-column: 3; grid-row: 1 / 3; width: 48px; height: 48px; margin-left: 0; }
         .lib-row .lib-plan::before { inset: 0; }
+        .lib-row .lib-stage { grid-column: 3; grid-row: 1 / 3; }
         /* The row's status text follows the Button role (k 0.8, the pill it replaced): at XXL on 320px a full-scale
            "✓ Ready" squeezed the title column until a word broke mid-word (harness 2026-10-16). */
         .lib-row .lib-stage { height: 48px; margin-left: 0; padding: 0; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); }
@@ -7014,6 +7113,31 @@ function ProvisionsApp() {
         /* With a chip in the band, the icon centres in the space LEFT of it: the band reserves the chip's width in the chip's own
            em (so it tracks every text step) — no overlap at Default through XXL, no JS. */
         .lib-slot.has-chip { font-size: calc(12.5px * var(--op-text-scale)); padding-right: calc(5.6em + 12px); }
+        /* AMENDMENT A4 — the untagged meal's invitation, in place of the occasion word: a real button in the Meta role, accent
+           #8A5F3A, no underline, a ≥44px hit area through the pseudo-element. It is never inside the open button (grid: the
+           strip is the open button's sibling; list: the meta row is a sibling cell), so it can never open the meal. */
+        .lib-settype { position: relative; display: inline; background: none; border: none; padding: 6px 0; margin: -6px 0; font: inherit;
+                       font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #8A5F3A; cursor: pointer; }
+        .lib-settype::before { content: ""; position: absolute; inset: -7px -6px; }
+        /* AMENDMENT A5 — the "Set meal type" picker: a small bottom sheet (SheetPanel) with the seven occasions as icon chips. */
+        .lib-type-scrim { position: fixed; inset: 0; background: rgba(2,15,26,0.6); z-index: 1000; display: flex; align-items: flex-end; }
+        .lib-type-sheet { position: relative; width: 100%; background: #FDF8F2; border-radius: 20px 20px 0 0; padding: 0 20px calc(24px + env(safe-area-inset-bottom)); }
+        .lib-type-handle { width: 36px; height: 4px; background: #c8b89a; border-radius: 2px; margin: 10px auto 0; }
+        .lib-type-h { margin: 14px 0 2px; font-family: 'Playfair Display', serif; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; color: #2C1A0E; }
+        .lib-type-name { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin: 0 0 14px; overflow-wrap: anywhere; }
+        .lib-type-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .lib-type-chip { display: inline-flex; align-items: center; gap: 7px; height: 44px; padding: 0 14px 0 10px; border-radius: 22px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+                         font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .lib-type-chip svg { width: 22px; height: 22px; }
+        .lib-type-chip.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
+        .lib-type-chip .gf-oncard { margin-left: 2px; }
+        .lib-type-help { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 10px; }
+        .lib-type-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+        .lib-type-cancel { min-height: 44px; padding: 0 18px; border-radius: 12px; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
+                           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .lib-type-save { min-height: 44px; padding: 0 20px; border-radius: 12px; border: none; background: #6f5a45; color: #FAF4EC; cursor: pointer;
+                         font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .lib-type-save:disabled { opacity: 0.5; cursor: default; }
         .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
         /* SUBGRID: the library grid's rows are the cards' rows. Each card spans 3 rows (slot / title / meta) and subgrids
            them; the open button spans the first 2 (slot / title) and subgrids them again, so the button keeps its
@@ -8903,6 +9027,7 @@ function ProvisionsApp() {
             />
             <MealsLens
               textSizeIdx={textSizeIdx}
+              onSetOccasion={handleSetOccasion}
               meals={libraryMeals}
               loading={mealsLoading}
               onPlan={handlePlanMeal}

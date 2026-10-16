@@ -37,6 +37,10 @@ const CHROME_ALLOW_LIST = [
   '.lib-occ',        // Library occasion rail pills: All / Dinner / Breakfast / … (Meal Library v1)
   '.lib-fbtn',       // Library Filter button (icon only)
   '.lib-vtog',       // Library grid/list toggle (icon only; visual v2 D8)
+  '.lib-settype',    // Untagged meal's invitation: "+ Set type" (grid) / "+ Set meal type" (list) — fixed copy; the meal name is in its aria-label only (Amendment A4)
+  '.lib-type-chip',  // "Set meal type" picker chips: the seven occasion words (Amendment A5)
+  '.lib-type-save',  // "Set meal type" picker: Save
+  '.lib-type-cancel',// "Set meal type" picker: Cancel
   '.lib-plan',       // Library card pill: "Plan" / "This week" — fixed copy (a tap on "This week" un-plans); the meal name is in the SIBLING card-body button, never here
   '.lib-create',     // Library coaching tile "+ New meal" (the switch row's "+ New" is .hdr-action)
   '.lib-show',       // Library filter sheet: "Show N meals"
