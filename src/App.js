@@ -1823,9 +1823,9 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
 
 // THE LIBRARY — "What sounds good?" (SPEC_meal_library_v1 + the v1.1 amendment).
 // Where you decide WHAT; This Week (the board) decides WHEN. A two-column card
-// grid: a coloured top (the first occasion word + the name; tone by dominant
-// ingredient category, exactly as on the board) over a white strip ("{n}
-// ingredients" + the ONE action, Plan → ✓ Planned). The card body opens Edit
+// grid of LIGHT cards (visual v2, 2026-10-16): a tinted slot (the occasion
+// mark), the name in the body, a meta line "{Occasion} · {n} items" and the
+// ONE action, the round "+" (→ ✓ when planned). The card body opens Edit
 // Meal, planned or not. Above the grid: search, a Filter button (From / Made
 // before / Ours live in a sheet; active ones show as removable chips) and the
 // occasion rail — All plus only the occasions some meal carries; with none
@@ -1924,55 +1924,76 @@ function OccasionRail({ present, value, onChange }) {
 //   toBuy    → "To buy" (text, inert, no ✓)   row 4 — the board's chip word;
 //                                             changes happen on This Week
 //   ready    → "✓ Ready" (text, inert)        row 5
-// Pill = action, text = status: the shape says whether it does something. The
-// occasion row keeps its height when untagged so names align across a row; the
-// name wraps and is never truncated to one line. The on-hand suffix lives in
-// the meal sheet, not here (the card is too narrow and it is subordinate).
+// Pill = action, text = status: the shape says whether it does something.
+// VISUAL v2 (SPEC_meal_library_visual_v2, 2026-10-16): the card is LIGHT — cream
+// with a 1px warm border, dark text; dark brown is no longer a card fill (D1).
+// Anatomy, a flex column: the SLOT (a short tinted band — the occasion mark
+// lives here; a photo, when Photos v1 lands, takes the same slot at 132px) →
+// the NAME in the card body, clamped to 3 lines with an ellipsis so a long
+// imported title never sets the card's height (D2) → the strip: the meta line
+// "{Occasion} · {n} items" (D6) and the round "+" (D7). The open button wraps
+// the slot AND the name (tap anywhere above the strip opens the meal); the
+// action is its sibling, never nested. The on-hand suffix lives in the meal
+// sheet, not here (the card is too narrow and it is subordinate).
 const CheckGlyph = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
 );
 const PlusGlyph = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
 );
-function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
-  const tone = mealTone(meal);
+// The meta line (D6): "{Occasion} · {n} items", or "{n} items" untagged — one
+// line of chrome where there were two (the eyebrow and the count). "items"
+// because "ingredients" does not fit the half-width card.
+function libraryMeta(meal) {
   const count = (meal.meal_ingredients || []).length;
   const first = (meal.occasion || [])[0];
+  const items = `${count} ${count === 1 ? "item" : "items"}`;
+  return first && OCCASION_WORD[first] ? `${OCCASION_WORD[first]} · ${items}` : items;
+}
+// The ONE action slot, shared by the grid card and the list row. Pill = action,
+// text = status: none → the round "+" (D7, "Plan {meal}"), planned → the same
+// round button in sand with a check (tapping UN-PLANS, fixed aria copy),
+// toBuy / ready → inert text. Behaviour is Meal Library v1 + un-plan, unchanged.
+function LibraryAction({ meal, stage, busy, canPlan, onPlan, onUnplan }) {
+  if (!canPlan) return null;
+  if (stage === "toBuy") return <span className="lib-stage">To buy</span>;
+  if (stage === "ready") return <span className="lib-stage"><CheckGlyph />Ready</span>;
+  if (stage === "planned") {
+    return (
+      <button
+        type="button"
+        className="lib-plan planned"
+        disabled={busy}
+        aria-label="Remove from this week"
+        onClick={() => { if (!busy) onUnplan(meal.id); }}
+      ><CheckGlyph /></button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="lib-plan"
+      disabled={busy}
+      aria-label={`Plan ${meal.name}`}
+      onClick={() => { if (!busy) onPlan(meal.id); }}
+    >{busy ? <span className="lib-plan-wait" aria-hidden="true">…</span> : <PlusGlyph />}</button>
+  );
+}
+function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
   return (
     <div className="lib-gcard">
       <button
         type="button"
-        className="lib-gtop"
-        style={{ background: tone.bg, color: tone.fg }}
+        className="lib-gbody"
         aria-label={`Open ${meal.name}`}
         onClick={() => onOpen(meal)}
       >
-        <span className="lib-gocc">{first ? OCCASION_WORD[first] : ""}</span>
+        <span className="lib-slot" aria-hidden="true" />
         <span className="lib-gname">{meal.name}</span>
       </button>
       <div className="lib-gstrip">
-        <span className="lib-gcount">{count} {count === 1 ? "ingredient" : "ingredients"}</span>
-        {canPlan && (stage === "toBuy" ? (
-          <span className="lib-stage">To buy</span>
-        ) : stage === "ready" ? (
-          <span className="lib-stage"><CheckGlyph />Ready</span>
-        ) : stage === "planned" ? (
-          <button
-            type="button"
-            className="lib-plan planned"
-            disabled={busy}
-            aria-label="Remove from this week"
-            onClick={() => { if (!busy) onUnplan(meal.id); }}
-          ><CheckGlyph />This week</button>
-        ) : (
-          <button
-            type="button"
-            className="lib-plan"
-            disabled={busy}
-            aria-label={`Plan ${meal.name}`}
-            onClick={() => { if (!busy) onPlan(meal.id); }}
-          >{busy ? "…" : "Plan"}</button>
-        ))}
+        <span className="lib-gmeta">{libraryMeta(meal)}</span>
+        <LibraryAction meal={meal} stage={stage} busy={busy} canPlan={canPlan} onPlan={onPlan} onUnplan={onUnplan} />
       </div>
     </div>
   );
@@ -6788,32 +6809,39 @@ function ProvisionsApp() {
         .lib-hint { margin: 0 0 14px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         .lib-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; align-items: stretch; }
         @media (max-width: 339px) { .lib-grid { grid-template-columns: minmax(0, 1fr); } }
-        .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1.5px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
-        .lib-gtop { flex: 1; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; text-align: left; width: 100%; min-height: 92px;
-                    padding: 11px 12px 14px; border: none; cursor: pointer; font: inherit; }
-        .lib-gocc { display: block; min-height: 14px; line-height: 14px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
-        .lib-gname { display: block; font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
-        /* The strip WRAPS rather than shrinks (SPEC_global_text_size decision 9): the count keeps its natural width and the pill
-           drops below it when the two no longer fit — flex wraps before it shrinks, so the count is never squeezed into an ellipsis
-           at Large / XL / XXL (or at Default on a long count). Row gap 6px when stacked. */
-        .lib-gstrip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 8px 8px 12px; }
-        .lib-gcount { flex: 0 1 auto; max-width: 100%; }
-        /* The count stays on ONE line (walk 2026-10-03: "11 ingredients" wrapped beside ✓ Planned in the 430px column).
-           Measured in headless Edge with the Arial fallback (Lato is not web-loaded): 430px needs 168 of 171; under 400px
-           the strip, count and ✓ Planned pill trim a little so 390px needs 152 of 155. The unplanned Plan pill has 30px of
-           slack and keeps its padding. Ellipsis is the safety net for a wider system font — one line, never an overlap. */
-        .lib-gcount { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
-        .lib-plan { flex: none; height: 34px; padding: 0 14px; border-radius: 17px; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
-                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+        /* VISUAL v2 (SPEC_meal_library_visual_v2): a LIGHT card — cream, 1px warm border, dark text (D1). Flex column:
+           slot → body (name) → strip (meta + the round "+"). */
+        .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
+        .lib-gbody { flex: 1; display: flex; flex-direction: column; align-items: stretch; text-align: left; width: 100%; padding: 0; border: none;
+                     background: none; color: #2C1A0E; cursor: pointer; font: inherit; }
+        /* The slot (D3): a short tinted band, the occasion mark centred. 56px without a photo; a photo takes 132px. Neutral cream
+           until the occasion tint map lands; the per-occasion tints and icons are the OccasionIcon commit. */
+        .lib-slot { display: flex; align-items: center; justify-content: center; height: 56px; background: #F4EADC; }
+        /* The name in the body (D2): clamped to 3 lines with an ellipsis so a long imported title never sets the card height. */
+        .lib-gname { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; padding: 10px 12px 0;
+                     font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+        /* The strip never pushes the "+" below the meta: the meta WRAPS INTERNALLY beside the button when the two no longer
+           fit (Text Size decision 9 — wrap, never shrink or clip — applied to the text, so the count is never lost to an
+           ellipsis and the action stays where the thumb expects it at every step). */
+        .lib-gstrip { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px 8px 12px; }
+        /* The meta line (D6): "{Occasion} · {n} items", Meta role at the spec's 13px, muted #8A5F3A (Text Size D5, ≥ 4.5:1). */
+        .lib-gmeta { flex: 1 1 0; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; overflow-wrap: anywhere; }
+        /* The round "+" (D7): drawn at 40px, a 44×44 touch target through the pseudo-element; soft fill, dark glyph;
+           planned = sand fill with a check (tapping un-plans). */
+        .lib-plan { position: relative; flex: none; margin-left: auto; width: 40px; height: 40px; border-radius: 50%; border: none; background: #F1E6D6; color: #2C1A0E; cursor: pointer;
+                    display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+        .lib-plan::before { content: ""; position: absolute; inset: -2px; border-radius: 50%; }
+        .lib-plan svg { width: 18px; height: 18px; }
+        .lib-plan-wait { font-family: 'Lato', sans-serif; font-size: 16px; font-weight: 700; line-height: 1; }
         .lib-plan:disabled { cursor: default; opacity: 0.6; }
-        .lib-plan.planned { border-color: transparent; background: #EFE6D6; color: #3A2A20; font-weight: 600; padding: 0 9px; opacity: 1; cursor: pointer; }
+        .lib-plan.planned { background: #EFE6D6; color: #3A2A20; opacity: 1; cursor: pointer; }
+        .lib-plan.planned svg { stroke-width: 2.6; }
         .lib-plan.planned:disabled { cursor: default; opacity: 0.6; }
-        /* Stage label (un-plan rows 4–5): text, not a control — no border, no fill, no hover, no focus ring; the pill's height so the strip doesn't jump. */
-        .lib-stage { flex: none; height: 34px; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+        /* Stage label (un-plan rows 4–5): text, not a control — no border, no fill, no hover, no focus ring; the button's height so the strip doesn't jump. */
+        .lib-stage { flex: none; margin-left: auto; height: 44px; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
                      font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 600; color: #6f5a45; }
         @media (max-width: 399px) {
-          .lib-gstrip { padding: 8px 6px 8px 10px; gap: 4px; }
-          .lib-plan.planned { padding: 0 6px; }
+          .lib-gstrip { padding: 6px 6px 8px 10px; }
         }
         .lib-create-tile { margin-top: 16px; border: 1.5px dashed #C9A97A; border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 14px; }
         .lib-create-tile.gated { border-color: #C9A97A; opacity: 0.8; }
