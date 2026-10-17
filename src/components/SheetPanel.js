@@ -30,8 +30,10 @@ import { useSheetDrag } from "../hooks/useSheetDrag";
 //     …
 //   </SheetPanel>
 const CAP = {
-  // --op-inset-top: the standalone status-bar inset, 0 in a browser tab (App.js :root; 2026-10-16).
-  maxHeight: "calc(100dvh - 24px - var(--op-inset-top))",
+  // 100dvh is the layout viewport, which in iOS standalone already starts BELOW the status bar
+  // (proven on the phone 2026-10-17). --op-inset-top is the height of the bar ABOVE the viewport
+  // and is never subtracted from layout inside it — the 2026-10-16 subtraction here was wrong.
+  maxHeight: "calc(100dvh - 24px)",
   overflowY: "auto",
   overscrollBehavior: "contain",
 };

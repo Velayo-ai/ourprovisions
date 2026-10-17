@@ -7242,7 +7242,7 @@ function ProvisionsApp() {
            LibraryFilterSheet's own state) and the next one would miss a flag.
            Position stays with the stack; the pill carries none (ConnectivityPill.js).
            Engines without :has() (Safari < 15.4) keep today's bottom anchor. */
-        body:has(.modal-overlay) .bottom-stack { bottom: auto; top: calc(10px + var(--op-inset-top)); }
+        body:has(.modal-overlay) .bottom-stack { bottom: auto; top: 10px; }   /* not + --op-inset-top: the viewport already starts below the bar (2026-10-17) */
         /* …and the Helm with its fade leave entirely. A sheet is modal, so the nav
            cannot be used anyway, and at z 900 / 899 over the overlay's 100 the pill
            and the fade drew across the sheet's pinned Cancel / Save Meal, which were
