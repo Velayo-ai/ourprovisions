@@ -4827,8 +4827,9 @@ function ProvisionsApp() {
   // env(safe-area-inset-top) reads 0 on Dan's installed app while the WebView is full height under a
   // transparent bar, so the inset is measured: standalone only, screen.height − innerHeight must be a
   // known bar height (47 / 54 / 59 / 62), latched through keyboard resizes, 0 in landscape. Written
-  // once per change onto :root; every consumer (.safe-top, the header row, the sheets, the bottom
-  // stack) reads var(--op-inset-top). A Safari tab never qualifies, so a tab stays pixel-identical.
+  // once per change onto :root. The viewport itself already starts BELOW the bar (proven on the phone
+  // 2026-10-17), so the header carries no offset; the value sizes the .safe-top band that covers the
+  // bar's region above the viewport. A Safari tab never qualifies, so a tab stays pixel-identical.
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const root = document.documentElement;
@@ -6780,11 +6781,12 @@ function ProvisionsApp() {
 /* iOS standalone: the status bar overlays the page, so once the header scrolls away content passes under the clock. This
    fixed band is the status bar's own background — PAGE CREAM, because the clock on Dan's iPhone is BLACK (the 2026-10-16
    first cut assumed a white clock and painted it #1a0e06). Height follows the MEASURED inset (0 in a browser tab, so the
-   band is 0 tall and top 0 there — nothing changes). It spans −inset…+inset on purpose: the 10-16 screenshots prove the
-   WebView paints scrolled content ABOVE the layout viewport, under the clock, and it is not known whether a fixed top:0
-   sits at the WebView's top edge or at the viewport's (one bar-height lower). Covering both candidate regions keeps
-   the clock on cream either way; the header's own marginTop clears the band. Below every scrim (1000). */
-.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: calc(2 * var(--op-inset-top)); background: #FAF4EC; z-index: 950; pointer-events: none; }
+   band is 0 tall and top 0 there — nothing changes). It sits ABOVE the layout viewport, at −inset…0: Dan's phone
+   (2026-10-17, the fourth cut's first check) showed a double-height strip when the band also covered 0…+inset, which
+   proves a fixed top:0 sits at the viewport's top edge, one bar-height BELOW the clock — the WebView lays the page out
+   below the bar at rest and only PAINTS scrolled content up into the bar's region. So the band covers exactly that
+   region and nothing in the viewport; the header needs no offset. Below every scrim (1000). */
+.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: #FAF4EC; z-index: 950; pointer-events: none; }
 /* Visually hidden, read by assistive tech. Used for the fixed VERB half of an aria-labelledby accessible name (2026-10-16): a
    button names itself from this span plus the masked title element, so no attribute ever carries a meal name or a count —
    the session recorder copies every attribute except title / alt / on* into replay snapshots, and masks only text nodes. */
@@ -7736,7 +7738,7 @@ function ProvisionsApp() {
       {INSET_DEBUG && <InsetDebug />}
       <div className="header" style={{ position: "relative", zIndex: bannerHasPhoto ? 1 : undefined, background: bannerHasPhoto ? "transparent" : undefined }}>
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
-        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px 10px", marginTop: "var(--op-inset-top)", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
+        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
           {isSignedIn && household?.name && (
             <button
               onClick={() => setShowHouseholdModal(true)}
