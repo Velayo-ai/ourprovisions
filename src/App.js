@@ -6785,10 +6785,8 @@ function ProvisionsApp() {
    (2026-10-17, the fourth cut's first check) showed a double-height strip when the band also covered 0…+inset, which
    proves a fixed top:0 sits at the viewport's top edge, one bar-height BELOW the clock — the WebView lays the page out
    below the bar at rest and only PAINTS scrolled content up into the bar's region. So the band covers exactly that
-   region and nothing in the viewport; the header needs no offset. z 998: above every page layer (the header's 1,
-   the Helm's 900) and below the splash (999), every scrim and sheet (1000+) — raised from 950 on 2026-10-17 after the
-   phone showed the scrolled header painting over the band. */
-.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: #FAF4EC; z-index: 998; pointer-events: none; }
+   region and nothing in the viewport; the header needs no offset. Below every scrim (1000). */
+.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: #FAF4EC; z-index: 950; pointer-events: none; }
 /* Visually hidden, read by assistive tech. Used for the fixed VERB half of an aria-labelledby accessible name (2026-10-16): a
    button names itself from this span plus the masked title element, so no attribute ever carries a meal name or a count —
    the session recorder copies every attribute except title / alt / on* into replay snapshots, and masks only text nodes. */
