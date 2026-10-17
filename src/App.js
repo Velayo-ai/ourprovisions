@@ -1774,75 +1774,6 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
 // without raising the keyboard — the no-autoFocus rule is about inputs), and on
 // unmount focus returns to whatever had it when the sheet opened. Backdrop taps
 // and the existing Cancel buttons stay for sighted users.
-// TEMPORARY, DEV-ONLY inset readout (2026-10-16, the standalone status-bar
-// investigation). Never on prod (hostname gate). Shows in a browser tab behind
-// ?debug=inset, and in ANY home-screen launch on dev (navigator.standalone — a
-// standalone app opens at the manifest's start_url, so a URL flag can't reach
-// it). Reads the real values, not what CSS assumes: the top inset through a probe
-// element sized by env(), the display-mode query, navigator.standalone, the
-// resolved --op-inset-* variables, the viewport vs screen height, the bundle.
-// Remove once the band is proven on the device.
-const INSET_DEBUG = typeof window !== "undefined"
-  && window.location.hostname !== "ourprovisions.velayo.ai"
-  && (new URLSearchParams(window.location.search).get("debug") === "inset" || window.navigator.standalone === true);
-// TEMPORARY, DEV-ONLY: ?inset=NN forces the measured inset in a browser tab so the band
-// geometry can be screenshotted in a harness (a tab can never measure one itself).
-// Same hostname gate as the readout; removed with it.
-const INSET_FORCE = (() => {
-  if (typeof window === "undefined" || window.location.hostname === "ourprovisions.velayo.ai") return null;
-  const v = parseInt(new URLSearchParams(window.location.search).get("inset"), 10);
-  return Number.isInteger(v) && v >= 0 && v <= 120 ? v : null;
-})();
-function InsetDebug() {
-  const [info, setInfo] = useState(null);
-  useEffect(() => {
-    const probe = document.createElement("div");
-    probe.style.cssText = "position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top, 0px);visibility:hidden;pointer-events:none";
-    const probeB = document.createElement("div");
-    probeB.style.cssText = "position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-bottom, 0px);visibility:hidden;pointer-events:none";
-    document.body.appendChild(probe); document.body.appendChild(probeB);
-    const read = () => {
-      const cs = getComputedStyle(document.documentElement);
-      const script = document.querySelector('script[src*="/static/js/main."]');
-      setInfo({
-        envTop: probe.getBoundingClientRect().height,
-        envBottom: probeB.getBoundingClientRect().height,
-        dmStandalone: window.matchMedia("(display-mode: standalone)").matches,
-        dmBrowser: window.matchMedia("(display-mode: browser)").matches,
-        navStandalone: window.navigator.standalone,
-        varTop: cs.getPropertyValue("--op-inset-top").trim(),
-        varBottom: cs.getPropertyValue("--op-inset-bottom").trim(),
-        innerH: window.innerHeight, screenH: window.screen.height, innerW: window.innerWidth,
-        scrollY: Math.round(window.scrollY), htmlTop: Math.round(document.documentElement.getBoundingClientRect().top),
-        vv: window.visualViewport ? `${Math.round(window.visualViewport.offsetTop)}/${Math.round(window.visualViewport.pageTop)}/${Math.round(window.visualViewport.height)}` : "(none)",
-        orient: (window.screen.orientation && window.screen.orientation.type) || (window.innerWidth > window.innerHeight ? "landscape?" : "portrait?"),
-        viewport: (document.querySelector('meta[name="viewport"]') || {}).content || "(none)",
-        bundle: script ? script.src.split("/").pop() : "(dev server)",
-        ua: navigator.userAgent.replace(/^.*\((.*?)\).*$/, "$1").slice(0, 60),
-      });
-    };
-    read();
-    window.addEventListener("resize", read);
-    window.addEventListener("scroll", read, { passive: true });
-    return () => { window.removeEventListener("resize", read); window.removeEventListener("scroll", read); probe.remove(); probeB.remove(); };
-  }, []);
-  if (!info) return null;
-  return (
-    <div style={{ position: "fixed", left: 6, bottom: 6, zIndex: 3000, pointerEvents: "none", padding: "6px 8px", borderRadius: 8,
-      background: "rgba(44,26,14,0.88)", color: "#FAF4EC", fontFamily: "monospace", fontSize: 11, lineHeight: 1.35, whiteSpace: "pre", maxWidth: "calc(100vw - 12px)", overflow: "hidden" }}>
-      {`env top: ${info.envTop}px  bottom: ${info.envBottom}px
-display-mode standalone: ${String(info.dmStandalone)}  browser: ${String(info.dmBrowser)}
-navigator.standalone: ${String(info.navStandalone)}
---op-inset-top: ${info.varTop || "(unset)"}  --op-inset-bottom: ${info.varBottom || "(unset)"}
-innerHeight: ${info.innerH}  screen.height: ${info.screenH}  innerWidth: ${info.innerW}  ${info.orient}
-scrollY: ${info.scrollY}  html.top: ${info.htmlTop}  visualViewport off/page/h: ${info.vv}
-viewport: ${info.viewport}
-bundle: ${info.bundle}
-${info.ua}`}
-    </div>
-  );
-}
-
 function SheetClose({ onClose, disabled = false, label = "Close" }) {
   const ref = useRef(null);
   useEffect(() => {
@@ -4835,7 +4766,7 @@ function ProvisionsApp() {
     const root = document.documentElement;
     let current = -1;
     const apply = () => {
-      const next = INSET_FORCE != null ? INSET_FORCE : nextInsetTop(Math.max(current, 0), {
+      const next = nextInsetTop(Math.max(current, 0), {
         standalone: window.navigator.standalone,
         screenHeight: window.screen.height,
         innerHeight: window.innerHeight,
@@ -7735,7 +7666,6 @@ function ProvisionsApp() {
           </>
         )}
       <div className="safe-top" aria-hidden="true" />
-      {INSET_DEBUG && <InsetDebug />}
       <div className="header" style={{ position: "relative", zIndex: bannerHasPhoto ? 1 : undefined, background: bannerHasPhoto ? "transparent" : undefined }}>
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
         <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
