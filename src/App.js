@@ -19,6 +19,7 @@ import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE
 import { displayTitle } from './lib/displayTitle';
 import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, PlusGlyph, LibraryItem } from './components/LibraryCards';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
+import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -1784,6 +1785,14 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
 const INSET_DEBUG = typeof window !== "undefined"
   && window.location.hostname !== "ourprovisions.velayo.ai"
   && (new URLSearchParams(window.location.search).get("debug") === "inset" || window.navigator.standalone === true);
+// TEMPORARY, DEV-ONLY: ?inset=NN forces the measured inset in a browser tab so the band
+// geometry can be screenshotted in a harness (a tab can never measure one itself).
+// Same hostname gate as the readout; removed with it.
+const INSET_FORCE = (() => {
+  if (typeof window === "undefined" || window.location.hostname === "ourprovisions.velayo.ai") return null;
+  const v = parseInt(new URLSearchParams(window.location.search).get("inset"), 10);
+  return Number.isInteger(v) && v >= 0 && v <= 120 ? v : null;
+})();
 function InsetDebug() {
   const [info, setInfo] = useState(null);
   useEffect(() => {
@@ -1803,7 +1812,10 @@ function InsetDebug() {
         navStandalone: window.navigator.standalone,
         varTop: cs.getPropertyValue("--op-inset-top").trim(),
         varBottom: cs.getPropertyValue("--op-inset-bottom").trim(),
-        innerH: window.innerHeight, screenH: window.screen.height,
+        innerH: window.innerHeight, screenH: window.screen.height, innerW: window.innerWidth,
+        scrollY: Math.round(window.scrollY), htmlTop: Math.round(document.documentElement.getBoundingClientRect().top),
+        vv: window.visualViewport ? `${Math.round(window.visualViewport.offsetTop)}/${Math.round(window.visualViewport.pageTop)}/${Math.round(window.visualViewport.height)}` : "(none)",
+        orient: (window.screen.orientation && window.screen.orientation.type) || (window.innerWidth > window.innerHeight ? "landscape?" : "portrait?"),
         viewport: (document.querySelector('meta[name="viewport"]') || {}).content || "(none)",
         bundle: script ? script.src.split("/").pop() : "(dev server)",
         ua: navigator.userAgent.replace(/^.*\((.*?)\).*$/, "$1").slice(0, 60),
@@ -1811,7 +1823,8 @@ function InsetDebug() {
     };
     read();
     window.addEventListener("resize", read);
-    return () => { window.removeEventListener("resize", read); probe.remove(); probeB.remove(); };
+    window.addEventListener("scroll", read, { passive: true });
+    return () => { window.removeEventListener("resize", read); window.removeEventListener("scroll", read); probe.remove(); probeB.remove(); };
   }, []);
   if (!info) return null;
   return (
@@ -1821,7 +1834,8 @@ function InsetDebug() {
 display-mode standalone: ${String(info.dmStandalone)}  browser: ${String(info.dmBrowser)}
 navigator.standalone: ${String(info.navStandalone)}
 --op-inset-top: ${info.varTop || "(unset)"}  --op-inset-bottom: ${info.varBottom || "(unset)"}
-innerHeight: ${info.innerH}  screen.height: ${info.screenH}
+innerHeight: ${info.innerH}  screen.height: ${info.screenH}  innerWidth: ${info.innerW}  ${info.orient}
+scrollY: ${info.scrollY}  html.top: ${info.htmlTop}  visualViewport off/page/h: ${info.vv}
 viewport: ${info.viewport}
 bundle: ${info.bundle}
 ${info.ua}`}
@@ -4808,6 +4822,41 @@ function ProvisionsApp() {
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
+
+  // iOS standalone status bar — the MEASURED inset (fourth cut, 2026-10-17; src/lib/standaloneInset.js).
+  // env(safe-area-inset-top) reads 0 on Dan's installed app while the WebView is full height under a
+  // transparent bar, so the inset is measured: standalone only, screen.height − innerHeight must be a
+  // known bar height (47 / 54 / 59 / 62), latched through keyboard resizes, 0 in landscape. Written
+  // once per change onto :root; every consumer (.safe-top, the header row, the sheets, the bottom
+  // stack) reads var(--op-inset-top). A Safari tab never qualifies, so a tab stays pixel-identical.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const root = document.documentElement;
+    let current = -1;
+    const apply = () => {
+      const next = INSET_FORCE != null ? INSET_FORCE : nextInsetTop(Math.max(current, 0), {
+        standalone: window.navigator.standalone,
+        screenHeight: window.screen.height,
+        innerHeight: window.innerHeight,
+        innerWidth: window.innerWidth,
+      });
+      if (next === current) return;
+      current = next;
+      root.style.setProperty("--op-inset-top", `${next}px`);
+    };
+    apply();
+    const later = window.setTimeout(apply, 300);   // iOS settles innerHeight after the first paint
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
+    const so = window.screen && window.screen.orientation;
+    if (so && so.addEventListener) so.addEventListener("change", apply);
+    return () => {
+      window.clearTimeout(later);
+      window.removeEventListener("resize", apply);
+      window.removeEventListener("orientationchange", apply);
+      if (so && so.removeEventListener) so.removeEventListener("change", apply);
+    };
+  }, []);
   const [mealSaving, setMealSaving] = useState(false);
   const [mealDeleting, setMealDeleting] = useState(false);
 
@@ -6711,11 +6760,13 @@ function ProvisionsApp() {
            reports the real insets; every inset use in the app reads these variables, which are 0 in a browser tab and
            the real env() values only under display-mode: standalone — so a Safari tab is pixel-identical to before, and
            the home-screen app pads the header, the Helm, the sheets and the .safe-top band by what the device overlays. */
-        /* TOP is UNGATED (third cut, 2026-10-16): a Safari tab reports 0 for the top inset in portrait anyway, and the
-           second cut's gate on display-mode: standalone did not match on Dan's install — so if iOS reports ANY top inset,
-           the band and the header follow it. BOTTOM stays gated: a tab's bottom inset becomes ~34px when Safari's toolbar
-           collapses, which would move the Helm. */
-        :root { --op-inset-top: env(safe-area-inset-top, 0px); --op-inset-bottom: 0px; }
+        /* TOP is MEASURED, not read (fourth cut, 2026-10-17): on Dan's installed app env(safe-area-inset-top) is 0 while
+           the WebView is full height under a transparent bar, so no CSS could ever see the inset. The variable defaults
+           to 0px here and ProvisionsApp's useEffect writes the measured value onto :root — only when navigator.standalone
+           is true and screen.height − innerHeight is a known bar height (src/lib/standaloneInset.js). A Safari tab keeps
+           0px and is pixel-identical. BOTTOM stays gated to display-mode: standalone: a tab's bottom inset becomes ~34px
+           when Safari's toolbar collapses, which would move the Helm. */
+        :root { --op-inset-top: 0px; --op-inset-bottom: 0px; }
         @media (display-mode: standalone) {
           :root { --op-inset-bottom: env(safe-area-inset-bottom, 0px); }
         }
@@ -6728,10 +6779,12 @@ function ProvisionsApp() {
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
 /* iOS standalone: the status bar overlays the page, so once the header scrolls away content passes under the clock. This
    fixed band is the status bar's own background — PAGE CREAM, because the clock on Dan's iPhone is BLACK (the 2026-10-16
-   first cut assumed a white clock and painted it #1a0e06; the band also had no height, because without viewport-fit=cover
-   iOS reports the inset as 0 — both fixed the same day). Height = the standalone inset, 0 in a browser tab. Below every
-   scrim (1000) so sheets dim it like everything else. At scroll 0 the header's own inset padding sits under it. */
-.safe-top { position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: #FAF4EC; z-index: 950; pointer-events: none; }
+   first cut assumed a white clock and painted it #1a0e06). Height follows the MEASURED inset (0 in a browser tab, so the
+   band is 0 tall and top 0 there — nothing changes). It spans −inset…+inset on purpose: the 10-16 screenshots prove the
+   WebView paints scrolled content ABOVE the layout viewport, under the clock, and it is not known whether a fixed top:0
+   sits at the WebView's top edge or at the viewport's (one bar-height lower). Covering both candidate regions keeps
+   the clock on cream either way; the header's own marginTop clears the band. Below every scrim (1000). */
+.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: calc(2 * var(--op-inset-top)); background: #FAF4EC; z-index: 950; pointer-events: none; }
 /* Visually hidden, read by assistive tech. Used for the fixed VERB half of an aria-labelledby accessible name (2026-10-16): a
    button names itself from this span plus the masked title element, so no attribute ever carries a meal name or a count —
    the session recorder copies every attribute except title / alt / on* into replay snapshots, and masks only text nodes. */
