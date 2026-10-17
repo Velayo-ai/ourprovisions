@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recipe View Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cream:#F7F2EA; --card:#FFFDF9; --border:#E6DACA; --ink:#2B1E16; --brown:#8A5F3A;
+  --muted:#8A5F3A; --sand:#D9BC8C; --sand-soft:#F1E7D8; --dessert:#F4DCE2; --dinner:#EAD9C0;
+  --teal-text:#0A776D; --page:#E9E1D5; --note:#5C4636;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--page);font-family:-apple-system,"Segoe UI",Lato,Arial,sans-serif;color:var(--ink);padding:24px 16px 60px}
+h1.page{font-family:"Playfair Display",serif;font-size:26px;font-weight:700;margin-bottom:4px}
+p.lede{color:var(--note);font-size:14px;max-width:760px;margin-bottom:24px;line-height:1.5}
+.row{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+.frame{width:375px;max-width:100%}
+.label{font-size:12px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--brown);margin-bottom:8px}
+.phone{background:var(--cream);border:1px solid var(--border);border-radius:28px;overflow:hidden;box-shadow:0 8px 24px rgba(43,30,22,.12)}
+.notes{font-size:13px;color:var(--note);line-height:1.5;margin-top:10px}
+.notes li{margin-left:18px;margin-bottom:4px}
+.serif{font-family:"Playfair Display",serif}
+
+/* sheet chrome */
+.sheet-top{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 6px;position:relative}
+.handle{position:absolute;left:50%;top:6px;transform:translateX(-50%);width:40px;height:4px;border-radius:2px;background:#D8CBB8}
+.close{width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--ink)}
+.edit{font-size:15px;font-weight:600;color:var(--brown);padding:12px 4px}
+
+/* hero */
+.band{margin:0 16px;height:132px;border-radius:14px;display:flex;align-items:center;justify-content:center}
+.band svg{width:44px;height:44px;stroke:var(--ink);opacity:.55}
+.photo{margin:0 16px;height:220px;border-radius:14px;background:linear-gradient(135deg,#C9905E 0%,#E7C08F 40%,#9C5B34 100%);position:relative;display:flex;align-items:flex-end;justify-content:center}
+.photo span{position:absolute;top:10px;left:12px;font-size:11px;background:rgba(255,253,249,.85);padding:3px 8px;border-radius:10px;color:var(--note)}
+.dots{display:flex;gap:6px;justify-content:center;margin-top:10px}
+.dots i{width:6px;height:6px;border-radius:50%;background:#D8CBB8;display:block}
+.dots i.on{background:var(--ink)}
+.caption{text-align:center;font-size:13px;color:var(--brown);margin-top:6px}
+
+/* title block */
+.title{padding:16px 20px 0}
+.title h2{font-family:"Playfair Display",serif;font-weight:600;font-size:30px;line-height:1.1}
+.byline{font-family:"Playfair Display",serif;font-style:italic;font-weight:500;font-size:18px;color:var(--brown);margin-top:6px}
+.added{font-size:13px;color:var(--brown);margin-top:4px}
+.meta{font-size:14px;color:var(--ink);margin-top:12px}
+.proof{font-size:14px;color:var(--note);margin-top:8px;line-height:1.45}
+.proof em{font-style:italic}
+.stars{color:var(--ink);letter-spacing:1px}
+.stars .off{color:#D8CBB8}
+
+.plan{margin:16px 20px 0;height:48px;border-radius:24px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px}
+.plan.add{background:var(--sand);color:var(--ink)}
+.plan.on{background:var(--sand-soft);color:var(--ink);border:1px solid var(--sand)}
+
+.seam{display:flex;align-items:center;gap:10px;margin:22px 20px 0;color:var(--brown);font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700}
+.seam:before,.seam:after{content:"";flex:1;height:1px;background:var(--border)}
+
+.cook{margin:14px 20px 0;display:flex;align-items:center;justify-content:space-between;border:1px solid var(--border);background:var(--card);border-radius:14px;padding:12px 14px}
+.cook b{font-size:16px}
+.cook small{display:block;font-size:13px;color:var(--brown);margin-top:2px}
+.cook .go{border:1px solid var(--ink);border-radius:20px;padding:8px 16px;font-weight:700;font-size:14px}
+
+h3.sec{font-family:"Playfair Display",serif;font-weight:600;font-size:22px;padding:22px 20px 10px;display:flex;justify-content:space-between;align-items:baseline}
+h3.sec span{font-family:-apple-system,"Segoe UI",Lato,Arial,sans-serif;font-size:14px;color:var(--brown);font-weight:400}
+ul.ing{list-style:none;padding:0 20px}
+ul.ing li{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:9px 0;border-bottom:1px solid #EFE6D9;font-size:16px}
+ul.ing li:last-child{border-bottom:0}
+.tag{font-size:12.5px;color:var(--brown);white-space:nowrap}
+.tag.have{color:var(--teal-text)}
+ol.steps{list-style:none;padding:0 20px;counter-reset:s}
+ol.steps li{counter-increment:s;display:flex;gap:12px;padding:8px 0;font-size:16px;line-height:1.45}
+ol.steps li:before{content:counter(s);flex:0 0 30px;height:30px;border-radius:50%;background:var(--sand-soft);color:var(--ink);font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+
+.cookrow{display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid #EFE6D9}
+.cookrow:last-child{border-bottom:0}
+.thumb{flex:0 0 52px;height:52px;border-radius:10px;background:linear-gradient(135deg,#C9905E,#9C5B34)}
+.thumb.none{background:transparent}
+.cookrow .who{font-size:15px;font-weight:600}
+.cookrow .who .stars{font-weight:400;margin-left:6px}
+.cookrow .say{font-size:14px;color:var(--note);font-style:italic;margin-top:2px}
+.cookrow .rate{font-size:13px;color:var(--brown);margin-top:2px}
+.pad{height:24px}
+.fade{height:40px;background:linear-gradient(var(--cream),rgba(247,242,234,0));margin-bottom:-40px;position:relative;z-index:1}
+.scrollnote{margin:0 16px;padding:8px 12px;border:1px dashed var(--brown);border-radius:10px;font-size:12.5px;color:var(--brown);background:#FBF7F0}
+
+/* library cards */
+.lib{padding:16px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.gcard{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.gband{height:56px;display:flex;align-items:center;justify-content:center}
+.gband svg{width:24px;height:24px;stroke:var(--ink);opacity:.6}
+.gbody{padding:10px 12px 12px;flex:1;display:flex;flex-direction:column}
+.gname{font-family:"Playfair Display",serif;font-weight:600;font-size:17px;letter-spacing:.5px;line-height:1.2}
+.gfoot{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:auto;padding-top:10px}
+.gmeta{font-size:14px;color:var(--brown);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.plus{flex:0 0 40px;height:40px;border-radius:50%;background:var(--sand);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600}
+.lrow{display:flex;gap:12px;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px;margin-top:10px}
+.lthumb{flex:0 0 60px;height:60px;border-radius:10px;display:flex;align-items:center;justify-content:center}
+.lthumb svg{width:26px;height:26px;stroke:var(--ink);opacity:.6}
+.lmid{flex:1;min-width:0}
+.lby{font-family:"Playfair Display",serif;font-style:italic;font-size:14px;color:var(--brown);margin-top:1px}
+.lmeta{font-size:14px;color:var(--brown);margin-top:2px}
+.lplus{flex:0 0 48px;height:48px;border-radius:50%;background:var(--sand);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:600}
+.sub{font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--brown);margin:18px 0 8px}
+
+/* filter sheet */
+.fsheet{padding:8px 20px 20px}
+.fsheet h4{font-family:"Playfair Display",serif;font-size:22px;font-weight:600;margin:6px 0 14px}
+.fsec{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--brown);margin:16px 0 8px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--card);border-radius:20px;padding:7px 12px;font-size:14.5px;min-height:38px}
+.chip.sel{background:var(--ink);color:var(--cream);border-color:var(--ink)}
+.chip .mono{width:22px;height:22px;border-radius:50%;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;color:#fff}
+.chip .n{font-size:12.5px;opacity:.7}
+.more{font-size:14px;color:var(--brown);font-weight:600;padding:8px 4px}
+.help{font-size:13px;color:var(--brown);margin-top:6px}
+.sw{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #EFE6D9}
+.sw b{font-size:15px;font-weight:600}.sw small{display:block;font-size:13px;color:var(--brown)}
+.tog{width:44px;height:26px;border-radius:13px;background:#D8CBB8;position:relative}
+.tog:after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff}
+.ffoot{display:flex;gap:10px;margin-top:18px}
+.ffoot div{flex:1;height:48px;border-radius:24px;display:flex;align-items:center;justify-content:center;font-weight:700}
+.ffoot .clr{border:1px solid var(--ink)}
+.ffoot .show{background:var(--ink);color:var(--cream)}
+
+/* edit field */
+.efield{padding:12px 20px 20px}
+.elabel{font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--brown);margin:14px 0 6px}
+.einput{border:1.5px solid var(--ink);border-radius:10px;padding:12px;font-size:16px;background:#fff}
+.einput .caret{display:inline-block;width:1.5px;height:18px;background:var(--ink);vertical-align:-3px;margin-left:1px}
+.suggest{border:1px solid var(--border);border-radius:10px;background:var(--card);margin-top:6px;overflow:hidden}
+.suggest div{padding:11px 12px;font-size:15px;display:flex;justify-content:space-between;border-bottom:1px solid #EFE6D9}
+.suggest div:last-child{border-bottom:0}
+.suggest small{color:var(--brown);font-size:13px}
+.suggest b{font-weight:700}
+.efaint{font-size:16px;padding:12px;border:1px solid var(--border);border-radius:10px;background:#fff;color:#A89580}
+</style>
+</head>
+<body>
+
+<h1 class="page">Recipe view — mockup</h1>
+<p class="lede">Read-only recipe page opened by tapping a library card. Top half helps you <b>decide</b>, bottom half helps you <b>make</b>. Example: Apple Pie, added by Elly, from Grandma Phyllis. Photos are stand-ins for a household's own pictures — the product never uses stock or generated food photography.</p>
+
+<div class="row">
+
+<!-- 1. No photo, not planned, never cooked -->
+<div class="frame">
+  <div class="label">1 · No photo yet, not planned</div>
+  <div class="phone">
+    <div class="sheet-top"><div class="handle"></div><div class="close">✕</div><div class="edit">Edit</div></div>
+    <div class="band" style="background:var(--dessert)">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14l-1.5 8h-11z"/><path d="M6 12a6 4 0 0 1 12 0"/><path d="M12 5v2"/><circle cx="12" cy="4" r="1"/></svg>
+    </div>
+    <div class="title">
+      <h2>Apple Pie</h2>
+      <div class="byline">from Grandma Phyllis</div>
+      <div class="added">Added by Elly</div>
+      <div class="meta">Dessert · 9 ingredients · 7 steps</div>
+    </div>
+    <div class="plan add">+ Add to This Week</div>
+
+    <div class="seam">Make it</div>
+    <div class="cook"><div><b>Cook mode</b><small>Bigger steps, screen stays on</small></div><div class="go">Start</div></div>
+
+    <h3 class="sec">Ingredients <span>9</span></h3>
+    <ul class="ing">
+      <li>6 cups sliced apples</li>
+      <li>¾ cup sugar</li>
+      <li>¼ cup brown sugar</li>
+      <li>2 tbsp flour</li>
+      <li>1 tsp cinnamon</li>
+      <li>¼ tsp nutmeg</li>
+      <li>1 tbsp lemon juice</li>
+      <li>2 tbsp butter</li>
+      <li>2 pie crusts</li>
+    </ul>
+    <h3 class="sec">Steps</h3>
+    <ol class="steps">
+      <li>Heat the oven to 425°F.</li>
+      <li>Toss the apples with both sugars, flour, cinnamon, nutmeg and lemon juice.</li>
+      <li>Line the pie dish with one crust and fill with the apples.</li>
+      <li>Dot with butter, top with the second crust, crimp and cut vents.</li>
+      <li>Bake 40–45 minutes until golden and bubbling.</li>
+      <li>Cool at least 2 hours before slicing.</li>
+      <li>Serve with vanilla ice cream.</li>
+    </ol>
+    <div class="pad"></div>
+  </div>
+  <ul class="notes">
+    <li>Hero = the occasion tint + mark, the same as the library card. No placeholder text, no camera icon (Photos D8).</li>
+    <li>Byline from <code>meals.attribution</code>; hidden when empty. Never falls back to who added it.</li>
+    <li>"Added by" only in households with 2+ members. "Shared by" replaces it once giving exists.</li>
+    <li>No "Your cooks" section and no proof line until the meal has been cooked.</li>
+    <li>Close + swipe-down (SheetPanel); Edit opens the existing Edit Meal sheet.</li>
+  </ul>
+</div>
+
+<!-- 2. With photos, planned, cooked -->
+<div class="frame">
+  <div class="label">2 · With photos, planned, cooked 5 times</div>
+  <div class="phone">
+    <div class="sheet-top"><div class="handle"></div><div class="close">✕</div><div class="edit">Edit</div></div>
+    <div class="photo"><span>your photo · 1 of 3</span></div>
+    <div class="dots"><i class="on"></i><i></i><i></i></div>
+    <div class="caption">Helen · Oct 12 · <span class="stars">★★★</span></div>
+    <div class="title">
+      <h2>Apple Pie</h2>
+      <div class="byline">from Grandma Phyllis</div>
+      <div class="added">Added by Elly</div>
+      <div class="meta">Dessert · 9 ingredients · 7 steps</div>
+      <div class="proof">Cooked 5 times · <em>"Less sugar next time, the apples were sweet"</em> — Helen</div>
+    </div>
+    <div class="plan on">✓ On This Week</div>
+
+    <div class="seam">Make it</div>
+    <div class="fade"></div>
+    <div class="scrollnote">Opened from This Week on the night it's planned → the page lands here, scrolled to Ingredients.</div>
+    <div class="cook"><div><b>Cook mode</b><small>Bigger steps, screen stays on</small></div><div class="go">Start</div></div>
+
+    <h3 class="sec">Ingredients <span>9</span></h3>
+    <ul class="ing">
+      <li>6 cups sliced apples <span class="tag">On your list</span></li>
+      <li>¾ cup sugar <span class="tag have">On hand</span></li>
+      <li>¼ cup brown sugar <span class="tag have">On hand</span></li>
+      <li>2 tbsp flour <span class="tag have">On hand</span></li>
+      <li>1 tsp cinnamon <span class="tag have">On hand</span></li>
+      <li>…</li>
+    </ul>
+    <h3 class="sec">Steps</h3>
+    <ol class="steps">
+      <li>Heat the oven to 425°F.</li>
+      <li>Toss the apples with both sugars, flour, cinnamon, nutmeg and lemon juice.</li>
+    </ol>
+    <div style="padding:0 20px;color:var(--brown);font-size:14px">…</div>
+
+    <h3 class="sec">Your cooks <span>5</span></h3>
+    <div class="cookrow"><div class="thumb"></div><div><div class="who">Oct 12 · Helen <span class="stars">★★★</span></div><div class="say">"Less sugar next time, the apples were sweet"</div></div></div>
+    <div class="cookrow"><div class="thumb none"></div><div><div class="who">Sep 28 · Dan</div><div class="rate">How was it? <span class="stars"><span class="off">★★★</span></span></div></div></div>
+    <div class="cookrow"><div class="thumb"></div><div><div class="who">Sep 14 · Elly <span class="stars">★★<span class="off">★</span></span></div></div></div>
+    <div class="cookrow"><div class="thumb"></div><div><div class="who">Aug 30 · Elly <span class="stars">★★★</span></div><div class="say">"Andrew asked for seconds"</div></div></div>
+    <div class="cookrow"><div class="thumb none"></div><div><div class="who">Aug 2 · Helen</div></div></div>
+    <div class="pad"></div>
+  </div>
+  <ul class="notes">
+    <li>Up to <b>3</b> live household photos, newest first, swipeable. Name stays on cream below, never on the photo.</li>
+    <li>Proof line: cook count + the latest note. No average — "no vote is not a rating".</li>
+    <li>"On your list" / "On hand" tags only while the meal is on This Week.</li>
+    <li>Your cooks: unrated cooks show tappable empty stars (second chance after Cooked it, never a nag).</li>
+    <li>"✓ On This Week" un-plans, same rule as the library's ✓.</li>
+  </ul>
+</div>
+
+<!-- 3. Library cards -->
+<div class="frame">
+  <div class="label">3 · DEFERRED — source on library cards (not in v1)</div>
+  <div class="phone lib" style="opacity:.45">
+    <div class="sub" style="margin-top:0">Grid — the source takes the second slot</div>
+    <div class="grid">
+      <div class="gcard"><div class="gband" style="background:var(--dessert)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round"><path d="M5 12h14l-1.5 8h-11z"/><path d="M6 12a6 4 0 0 1 12 0"/></svg></div>
+        <div class="gbody"><div class="gname">Apple Pie</div><div class="gfoot"><div class="gmeta">Dessert · from Grandma Phyllis</div><div class="plus">+</div></div></div></div>
+      <div class="gcard"><div class="gband" style="background:var(--dinner)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round"><path d="M4 15h16"/><path d="M6 15a6 6 0 0 1 12 0"/><path d="M12 7v2"/></svg></div>
+        <div class="gbody"><div class="gname">Sheet-Pan Chicken Thighs</div><div class="gfoot"><div class="gmeta">Dinner · 8 items</div><div class="plus">+</div></div></div></div>
+    </div>
+    <div class="sub">List — the source gets its own line</div>
+    <div class="lrow"><div class="lthumb" style="background:var(--dessert)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round"><path d="M5 12h14l-1.5 8h-11z"/><path d="M6 12a6 4 0 0 1 12 0"/></svg></div>
+      <div class="lmid"><div class="gname">Apple Pie</div><div class="lby">from Grandma Phyllis</div><div class="lmeta">Dessert · 9 items</div></div><div class="lplus">+</div></div>
+    <div class="lrow"><div class="lthumb" style="background:var(--dinner)"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round"><path d="M4 15h16"/><path d="M6 15a6 6 0 0 1 12 0"/></svg></div>
+      <div class="lmid"><div class="gname">Sheet-Pan Chicken Thighs</div><div class="lmeta">Dinner · 8 items</div></div><div class="lplus">+</div></div>
+    <div class="pad"></div>
+  </div>
+  <ul class="notes">
+    <li><b>Deferred 2026-10-16 (Dan): cards stay as they are in v1.</b> The source shows on the recipe view, in search and in the Filter sheet. Revisit only if people ask for it on the card. Kept here as the design of record for that day.</li>
+    <li>Grid: "{Occasion} · from {source}" replaces the item count when a source exists; ellipsis if long. No extra line, rows stay level.</li>
+    <li>List: italic source line under the name; meta keeps the count. Attributed rows grow ~18 px.</li>
+    <li>"+ Set type" keeps the first slot on untagged meals.</li>
+    <li>Tapping the card body now opens the recipe view (was Edit Meal).</li>
+  </ul>
+</div>
+
+<!-- 4. Filter sheet -->
+<div class="frame">
+  <div class="label">4 · Filter sheet — Added by + From</div>
+  <div class="phone fsheet">
+    <div class="sheet-top" style="padding:6px 0"><div class="handle"></div><div class="close">✕</div><div></div></div>
+    <h4>Filter meals</h4>
+    <div class="fsec">Added by</div>
+    <div class="chips">
+      <div class="chip"><span class="mono" style="background:#7A5C8E">D</span>Dan</div>
+      <div class="chip sel"><span class="mono" style="background:#B5654A">E</span>Elly</div>
+      <div class="chip"><span class="mono" style="background:#4F7A6A">H</span>Helen</div>
+    </div>
+    <div class="fsec">From</div>
+    <div class="chips">
+      <div class="chip sel">Grandma Phyllis <span class="n">4</span></div>
+      <div class="chip">NYT Cooking <span class="n">3</span></div>
+      <div class="chip">Andrew <span class="n">2</span></div>
+      <div class="chip">@burger.world on Instagram <span class="n">1</span></div>
+      <div class="more">More…</div>
+    </div>
+    <div class="help">Where the recipe came from, as it was saved.</div>
+    <div class="fsec">History</div>
+    <div class="sw"><div><b>Made before</b><small>Meals you've cooked from This Week</small></div><div class="tog"></div></div>
+    <div class="sw" style="border:0"><div><b>Ours</b><small>Made in this household, not shared in</small></div><div class="tog"></div></div>
+    <div class="ffoot"><div class="clr">Clear</div><div class="show">Show 2 meals</div></div>
+  </div>
+  <ul class="notes">
+    <li>"From" renamed <b>Added by</b> (<code>created_by</code>). New <b>From</b> = <code>meals.attribution</code>.</li>
+    <li>Sources group ignoring case and extra spaces; shown in the latest spelling. Different text stays separate — we don't guess.</li>
+    <li>Only sources with ≥1 meal; sorted by count, then A–Z; past 8, "More…".</li>
+    <li>Single-select per section; sections combine (AND). Shown: added by Elly AND from Grandma Phyllis.</li>
+    <li>Source chips are household content: masked in replay, never allow-listed.</li>
+  </ul>
+</div>
+
+<!-- 5. Edit Meal From field -->
+<div class="frame">
+  <div class="label">5 · Edit Meal — From suggests your sources</div>
+  <div class="phone efield">
+    <div class="elabel">Name</div>
+    <div class="efaint" style="color:var(--ink)">Apple Crumble</div>
+    <div class="elabel">From</div>
+    <div class="einput">Gr<span class="caret"></span></div>
+    <div class="suggest">
+      <div><span><b>Gr</b>andma Phyllis</span><small>4 meals</small></div>
+      <div><span><b>Gr</b>eat Aunt Ruth</span><small>1 meal</small></div>
+    </div>
+    <div class="help" style="margin-top:10px">Who or where the recipe came from.</div>
+    <div class="elabel">Good for</div>
+    <div class="chips"><div class="chip sel">Dessert</div><div class="chip">Snack</div></div>
+    <div class="pad"></div>
+  </div>
+  <ul class="notes">
+    <li>Suggestions come from this household's existing sources, matching from the start of any word; tap fills the field.</li>
+    <li>Free text still allowed — a new source just becomes a new chip.</li>
+    <li>Prevention over merging: no merge tool in v1.</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>
