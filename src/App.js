@@ -17,7 +17,7 @@ import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
 import { IMPORT_HINTS, GALLEY_HINTS } from './lib/importErrors';
 import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
 import { displayTitle } from './lib/displayTitle';
-import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, PlusGlyph, LibraryItem } from './components/LibraryCards';
+import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
@@ -1647,13 +1647,15 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
             else if (drag.to < drag.from && i >= drag.to && i < drag.from) transform = `translateY(${h}px)`;
           }
         }
-        const open = () => { if (!noShop && !cooked) onOpen(m); };
+        // A cooked card opens the recipe view too (ruling 2026-10-16: the recipe is
+        // still worth reading after the cook); only a held night has nothing to open.
+        const open = () => { if (!noShop) onOpen(m); };
         return (
           <div
             key={m.id}
             className={`board-card${lifted ? " lifted" : ""}${ready ? " ready" : ""}${noShop ? " noshop" : ""}${cooked ? " cooked" : ""}`}
-            role={noShop || cooked ? undefined : "button"}
-            tabIndex={noShop || cooked ? undefined : 0}
+            role={noShop ? undefined : "button"}
+            tabIndex={noShop ? undefined : 0}
             onClick={() => { if (swallowClickRef.current) { swallowClickRef.current = false; return; } open(); }}
             onKeyDown={(e) => { if (!noShop && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } }}
             onPointerDown={(e) => onPointerDown(e, m, i)}
@@ -1740,9 +1742,8 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
               )}
               {/* ⋯ — Remove, Cooked it (Planned only), Open recipe. Remove is the
                   skip path (on a to-buy card it zeroes the meal's pending rows first);
-                  Cooked it is the freezer-pizza exit; the read-only recipe sheet is on
-                  the record (09-14) and until it lands Open recipe opens the same
-                  sheet a card tap does. */}
+                  Cooked it is the freezer-pizza exit; Open recipe opens the recipe
+                  view, the same as a card tap (SPEC_recipe_view, 2026-10-18). */}
               {menuFor === m.id && (
                 <div className="board-menu" role="menu" onClick={(e) => e.stopPropagation()}>
                   <button type="button" role="menuitem" disabled={busy}
@@ -2025,7 +2026,166 @@ function SetTypeSheet({ meal, onSave, onClose }) {
   );
 }
 
-function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx, onSetOccasion }) {
+// THE RECIPE VIEW (SPEC_recipe_view, built 2026-10-18 — slice (a)). Tapping a meal
+// opens THIS, from every door that shows one: the library card body (grid and
+// list), the This Week card body (a cooked card too — ruling 2026-10-16; held
+// nights never) and Home's on-deck card body. Edit sits top-right and opens the
+// existing Edit Meal sheet unchanged (D1). One full-height SheetPanel — Close
+// top-left, swipe-down, handle; no back arrow, no route (D2). Two halves in this
+// order (D3): DECIDE — hero, title, byline, Added by, meta, proof, the plan
+// action; MAKE — the "Make it" seam, Ingredients, Steps, Your cooks.
+//   hero     the occasion tint + mark, as on the library card; no photo path
+//            yet (Photos v1), no placeholder text, no camera (D5)
+//   byline   "from {attribution}" — hidden when empty; never a possessive, never
+//            created_by (D6)
+//   Added by "Added by {first name}" from created_by — only in a household of
+//            2+ current members and only while the adder is still one (D7)
+//   meta     "{Occasion} · {n} ingredients · {n} steps" — occasion omitted when
+//            untagged, steps omitted at 0 (D8)
+//   proof    "Cooked {n} times" from meal_cooks; hidden at 0 (D11). No average.
+//   plan     the board's OWN derivation (boardCardState, D9): not on This Week →
+//            sand "+ Add to This Week"; planned → "✓ On This Week" (un-plans);
+//            to buy → the inert stage word; ready, or planned with nothing to
+//            shop for → teal "Cooked it" (the cook_meal path, one row, as the
+//            board); cooked this load → inert "✓ Cooked". Never Cooked it
+//            while items are still to buy, never for an unplanned meal (D9a).
+//   tags     while the meal is on This Week only: "On your list" (list_item_meals
+//            provenance) or "On hand" (on_hand, text teal) per ingredient (D13)
+//   cooks    one row per cook, newest first, DATE ONLY — meal_cooks.cooked_by
+//            is the tapper, not the cook, and is never shown (D10); 5 rows then
+//            "Show all {n}"; hidden when never cooked (D14)
+// Every gated element (photos, stars, notes, names, as_written, Shared by)
+// renders NOTHING until its data exists. Landing by door is slice (b); Cook
+// mode is slice (c).
+// RUM: .rv-edit / .rv-plan / .rv-showall are allow-listed and carry fixed copy
+// (a count at most). The title, byline, Added by, proof, ingredients and steps
+// are household content: masked, never in an attribute — the dialog is named
+// by aria-labelledby → #rv-title, never aria-label.
+// Text roles (ts): title 30 at k 0.4 (page-title rate), byline 18 at k 0.5,
+// section titles 22 at k 0.5, ingredient and step text 16 at k 1 (above the
+// body default, keeps its size at the role's k), meta / proof / Added by 14,
+// tags and the seam 12.5, the plan pill 16 at k 0.8.
+const RV_COOKS_SHOWN = 5;
+// A member's first name: the profile's full name, else the email's local part.
+const memberFirstName = (mb) => {
+  const full = (mb?.users?.full_name || "").trim();
+  return full.split(/\s+/)[0] || (mb?.users?.email ? mb.users.email.split("@")[0] : "");
+};
+// A cook's date: "Oct 12" this year, "Oct 12, 2025" otherwise. Never a person.
+const cookDate = (iso) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const thisYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, thisYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+};
+function RecipeView({ meal, state, members, cookCount, cookRows, onListIds, busy, onClose, onEdit, onPlan, onUnplan, onCooked }) {
+  const [allCooks, setAllCooks] = useState(false);
+  const tint = occasionTint(meal);
+  const first = (meal.occasion || [])[0];
+  const occasionWord = first ? OCCASION_WORD[first] : null;
+  const ingredients = meal.meal_ingredients || [];
+  const parsed = useMemo(() => parseSteps(meal.instructions), [meal.instructions]);
+  const attribution = (meal.attribution || "").trim();
+  const adder = (members || []).length >= 2 ? (members || []).find((mb) => mb.user_id && mb.user_id === meal.created_by) : null;
+  const adderName = adder ? memberFirstName(adder) : "";
+  const onWeek = !!state && !state.cooked;
+  const stepCount = parsed.steps.length;
+  const meta = [
+    occasionWord,
+    `${ingredients.length} ${ingredients.length === 1 ? "ingredient" : "ingredients"}`,
+    stepCount > 0 ? `${stepCount} ${stepCount === 1 ? "step" : "steps"}` : null,
+  ].filter(Boolean).join(" · ");
+  const rows = cookRows || [];
+  const shownCooks = allCooks ? rows : rows.slice(0, RV_COOKS_SHOWN);
+  let plan;
+  if (!state) {
+    plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Add to This Week</button>;
+  } else if (state.cooked) {
+    plan = <button type="button" className="rv-plan done" disabled>✓ Cooked</button>;
+  } else if (state.ready || !state.canAdd) {
+    plan = <button type="button" className="rv-plan teal" disabled={busy} onClick={() => { if (!busy) onCooked(meal.id); }}>Cooked it</button>;
+  } else if (state.toBuy) {
+    plan = <span className="rv-plan stage">To buy</span>;
+  } else {
+    plan = <button type="button" className="rv-plan on" disabled={busy} onClick={() => { if (!busy) onUnplan(meal.id); }}>✓ On This Week</button>;
+  }
+  return (
+    <div className="rv-scrim" onClick={onClose}>
+      <SheetPanel onClose={onClose} labelledBy="rv-title" className="rv-sheet">
+        <SheetClose onClose={onClose} />
+        <div className="lib-type-handle" aria-hidden="true" />
+        <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
+        <div className="rv-hero" style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
+          <OccasionIcon occasion={first} size={44} tint={tint.bg} />
+        </div>
+        <div className="rv-head">
+          <h2 id="rv-title" className="rv-title">{displayTitle(meal.name)}</h2>
+          {attribution && <div className="rv-byline">from {attribution}</div>}
+          {adderName && <div className="rv-added">Added by {adderName}</div>}
+          <div className="rv-meta">{meta}</div>
+          {cookCount > 0 && <div className="rv-proof">Cooked {cookCount} {cookCount === 1 ? "time" : "times"}</div>}
+        </div>
+        <div className="rv-plan-row">{plan}</div>
+
+        <div className="rv-seam">Make it</div>
+        {ingredients.length === 0 && stepCount === 0 && parsed.preamble.length === 0 && (
+          <div className="rv-empty">No ingredients or steps yet.</div>
+        )}
+        {ingredients.length > 0 && (
+          <>
+            <h3 className="rv-sec">Ingredients <span>{ingredients.length}</span></h3>
+            <ul className="rv-ing">
+              {ingredients.map((mi) => {
+                const qty = Number(mi.quantity_per_serving) || 1;
+                const name = mi.catalog_items?.name || "Unknown item";
+                const tag = !onWeek ? null : onListIds?.has(mi.catalog_item_id) ? "list" : mi.on_hand ? "hand" : null;
+                return (
+                  <li key={mi.id || mi.catalog_item_id}>
+                    <span className="rv-ing-name">{qty > 1 ? `${qty} × ` : ""}{name}</span>
+                    {tag === "list" && <span className="rv-tag">On your list</span>}
+                    {tag === "hand" && <span className="rv-tag have">On hand</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+        {(stepCount > 0 || parsed.preamble.length > 0) && (
+          <>
+            <h3 className="rv-sec">Steps</h3>
+            {/* The preamble: unnumbered lines before the first "1." (parseSteps) — today
+                the import's "As written" block; plain lines, never step 1. */}
+            {parsed.preamble.length > 0 && (
+              <div className="rv-preamble">{parsed.preamble.map((line, i) => <p key={i}>{line}</p>)}</div>
+            )}
+            <ol className="rv-steps">
+              {parsed.steps.map((s, i) => (
+                <li key={i}>
+                  {parsed.numbered && <span className="rv-step-n" aria-hidden="true">{i + 1}</span>}
+                  <p>{s}</p>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+        {rows.length > 0 && (
+          <>
+            <h3 className="rv-sec">Your cooks <span>{rows.length}</span></h3>
+            <ul className="rv-cooks">
+              {shownCooks.map((r) => <li key={r.id}>{cookDate(r.cooked_at)}</li>)}
+            </ul>
+            {!allCooks && rows.length > RV_COOKS_SHOWN && (
+              <button type="button" className="rv-showall" onClick={() => setAllCooks(true)}>Show all {rows.length}</button>
+            )}
+          </>
+        )}
+        <div className="rv-pad" />
+      </SheetPanel>
+    </div>
+  );
+}
+
+function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onOpen, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx, onSetOccasion }) {
   const [query, setQuery] = useState("");
   const [libView, toggleLibView] = useLibraryView(textSizeIdx);
   // The meal whose "Set meal type" sheet is open (Amendment A4/A5); null when closed.
@@ -2206,7 +2366,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
             canPlan={!!(isSignedIn && onPlan)}
             onPlan={onPlan}
             onUnplan={onUnplan}
-            onOpen={(meal) => onEdit && onEdit(meal)}
+            onOpen={(meal) => onOpen && onOpen(meal)}
           />
         ))}
       </div>
@@ -4754,6 +4914,57 @@ function ProvisionsApp() {
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
 
+  // THE RECIPE VIEW (SPEC_recipe_view D1–D4): { mealId, landing } while open. The view
+  // reads the LIVE row from mealById, so Edit → Save shows through at once. It renders
+  // only while no Edit sheet is open — the sheet's .modal-overlay (z 100) would sit
+  // UNDER the view's scrim (z 1000) — and comes back on Cancel / Save with the row the
+  // server now holds. A deleted meal leaves mealById and the view simply stops
+  // rendering. "Your cooks" is a PER-MEAL meal_cooks read at open (Step 0 ruling,
+  // 2026-10-16: loadCooks keeps only count + last date per meal), re-read whenever the
+  // household's count for this meal moves — this device's Cooked it, or a partner's
+  // arriving by the placements poll. SELECT only; rows arrive through cook_meal.
+  const [recipeView, setRecipeView] = useState(null);
+  const [recipeCooks, setRecipeCooks] = useState(null);   // { mealId, rows: [{ id, cooked_at }] }
+  const openRecipe = useCallback((m, landing = "top") => {
+    if (m && !isNoShop(m)) setRecipeView({ mealId: m.id, landing });
+  }, []);
+  const rvMealId = recipeView?.mealId || null;
+  const rvCookCount = rvMealId ? (cooks[rvMealId]?.count || 0) : 0;
+  useEffect(() => {
+    if (!rvMealId) { setRecipeCooks(null); return undefined; }
+    let cancelled = false;
+    (async () => {
+      const db = _supabase.current;
+      const hh = _household.current;
+      if (!db || !hh) return;
+      const { data, error: err } = await db
+        .from("meal_cooks")
+        .select("id, cooked_at")
+        .eq("household_id", hh.id)
+        .eq("meal_id", rvMealId)
+        .order("cooked_at", { ascending: false });
+      if (cancelled) return;
+      if (err) { console.warn("recipe cooks (non-fatal):", err.message); return; }
+      setRecipeCooks({ mealId: rvMealId, rows: data || [] });
+    })();
+    return () => { cancelled = true; };
+  }, [rvMealId, rvCookCount, _supabase, _household]);
+  // Switching households closes the view: the id belongs to the old place.
+  useEffect(() => { setRecipeView(null); }, [household?.id]);
+  const rvMeal = rvMealId ? mealById[rvMealId] : null;
+  // The plan action follows the board's own derivation (D9); null = not on This Week.
+  // boardCards (not boardMeals) so a card cooked this load still reads "✓ Cooked".
+  const rvState = rvMeal && boardCards.some((m) => m.id === rvMeal.id)
+    ? boardCardState(rvMeal, { placements, rows: mealRowCounts, mealById, cookedIds: afterglowIds })
+    : null;
+  // The ingredients this meal has put on the list (list_item_meals provenance, D13).
+  const rvOnList = useMemo(() => {
+    const s = new Set();
+    if (!rvMealId) return s;
+    Object.entries(mealProvenance).forEach(([ci, links]) => { if (links.some((l) => l.mealId === rvMealId)) s.add(ci); });
+    return s;
+  }, [mealProvenance, rvMealId]);
+
   // iOS standalone status bar — the MEASURED inset (fourth cut, 2026-10-17; src/lib/standaloneInset.js).
   // env(safe-area-inset-top) reads 0 on Dan's installed app while the WebView is full height under a
   // transparent bar, so the inset is measured: standalone only, screen.height − innerHeight must be a
@@ -6986,6 +7197,64 @@ function ProvisionsApp() {
                          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .lib-type-save:disabled { opacity: 0.5; cursor: default; }
         .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        /* ── The recipe view (SPEC_recipe_view, 2026-10-18). A full-height SheetPanel: the scrim is the
+           library's type-sheet scrim (z 1000, above the Helm); the panel keeps SheetPanel's cap and
+           scrolls inside itself; min-height makes it a page, not a strip, for a short recipe. Close
+           moves to the LEFT here (the mockup: Close ✕ left, Edit right); every other sheet keeps it
+           right. Text follows the role table: title 30 at k 0.4, byline 18 at k 0.5, section titles
+           22 at k 0.5, ingredient / step text 16 at k 1, meta 14, tags and the seam 12.5 (the floor),
+           the plan pill 16 at k 0.8. Teal only on Cooked it / ✓ Cooked (the household finished
+           something); "On hand" is text teal #0A776D. ── */
+        .rv-scrim { position: fixed; inset: 0; background: rgba(2,15,26,0.6); z-index: 1000; display: flex; align-items: flex-end; }
+        .rv-sheet { position: relative; width: 100%; min-height: calc(100dvh - 24px); background: #FAF4EC; border-radius: 20px 20px 0 0; padding: 0 0 calc(24px + var(--op-inset-bottom)); }
+        .rv-sheet .sheet-close { left: 8px; right: auto; }
+        .rv-edit { position: absolute; top: 8px; right: 12px; min-height: 44px; padding: 0 8px; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .rv-edit:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
+        .rv-hero { margin: 44px 16px 0; height: 132px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
+        .rv-head { padding: 16px 20px 0; }
+        .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(30px * (1 + (var(--op-text-scale) - 1) * 0.4)); line-height: 1.1; color: #2C1A0E; overflow-wrap: anywhere; }
+        .rv-byline { margin-top: 6px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(18px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.3; color: #8A5F3A; overflow-wrap: anywhere; }
+        .rv-added { margin-top: 4px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; }
+        .rv-meta { margin-top: 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
+        .rv-proof { margin-top: 8px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #5C4636; }
+        .rv-plan-row { padding: 16px 20px 0; }
+        .rv-plan { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 10px 16px; border-radius: 24px; border: 1.5px solid transparent;
+                   font-family: 'Lato', sans-serif; font-size: calc(16px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; }
+        .rv-plan.add { background: #D9BC8C; border-color: #D9BC8C; color: #2C1A0E; }
+        .rv-plan.on { background: #F1E7D8; border-color: #D9BC8C; color: #2C1A0E; }
+        .rv-plan.teal { background: #0D9488; border-color: #0D9488; color: #fff; }
+        .rv-plan.stage { background: transparent; border-color: #E8D5B7; color: #8A5F3A; cursor: default; }
+        .rv-plan:disabled { opacity: 0.5; cursor: default; }
+        .rv-plan.done, .rv-plan.done:disabled { background: transparent; border-color: #0D9488; color: #0A776D; opacity: 1; cursor: default; }
+        .rv-seam { display: flex; align-items: center; gap: 10px; margin: 22px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: #8A5F3A; }
+        .rv-seam::before, .rv-seam::after { content: ""; flex: 1; height: 1px; background: #E8D5B7; }
+        .rv-sec { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 0; padding: 22px 20px 10px; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; }
+        .rv-sec span { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 400; color: #8A5F3A; }
+        .rv-ing { list-style: none; margin: 0; padding: 0 20px; }
+        .rv-ing li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 9px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
+        .rv-ing li:last-child { border-bottom: 0; }
+        /* The name is laid out at its full (max-content) width: a short name keeps its tag beside it;
+           a name that would not fit whole beside the tag takes the row and the tag drops under it,
+           right-aligned. Not min-content: at 320 XXL that squeezed a long name to one word per line
+           beside the tag (harness 2026-10-18). */
+        .rv-ing-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+        .rv-tag { flex: none; margin-left: auto; white-space: nowrap; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8A5F3A; }
+        .rv-tag.have { color: #0A776D; }
+        .rv-preamble { margin: 0 20px 14px; padding: 0 0 12px; border-bottom: 1px solid #EFE6D9; }
+        .rv-preamble p { margin: 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .rv-steps { list-style: none; margin: 0; padding: 0 20px; }
+        .rv-steps li { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; }
+        .rv-steps p { margin: 0; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; overflow-wrap: anywhere; }
+        .rv-step-n { flex: none; width: calc(30px * (1 + (var(--op-text-scale) - 1) * 0.5)); height: calc(30px * (1 + (var(--op-text-scale) - 1) * 0.5)); border-radius: 50%; background: #F1E7D8; color: #2C1A0E;
+                     font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; display: flex; align-items: center; justify-content: center; }
+        .rv-cooks { list-style: none; margin: 0; padding: 0 20px; }
+        .rv-cooks li { padding: 12px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); font-weight: 600; color: #2C1A0E; }
+        .rv-cooks li:last-child { border-bottom: 0; }
+        .rv-showall { display: block; margin: 4px 20px 0; padding: 10px 0; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .rv-empty { margin: 14px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
+        .rv-pad { height: 24px; }
         /* SUBGRID: the library grid's rows are the cards' rows. Each card spans 3 rows (slot / title / meta) and subgrids
            them; the open button spans the first 2 (slot / title) and subgrids them again, so the button keeps its
            semantics and still covers slot + name. The shared slot row sizes to the tallest slot in the row (a 132px photo
@@ -8730,7 +8999,9 @@ function ProvisionsApp() {
               busyMealId: busyMealId || addingMealId, switching: deckSwitching,
               holdNight: MEALS_ENABLED && isSignedIn,
               onAdd: () => { setPlanScreen("library"); goToDoor("plan"); },
-              onView: (m) => { setPlanScreen("board"); goToDoor("plan"); if (!isNoShop(m)) setMealSheet({ mode: "edit", meal: m }); },
+              // The recipe view over Home (SPEC_recipe_view D1/D2): a sheet, no route change —
+              // closing it lands back here. openRecipe ignores a held night itself.
+              onView: (m) => openRecipe(m, "make"),
               onLockIn: handleAddMealToList,      // the board's Add to Shop — on-hand prompt included
               onCooked: handleCookedMeal,
               onSkip: handleSkipMeal,
@@ -8827,7 +9098,7 @@ function ProvisionsApp() {
                   placements={placements}
                   mealById={mealById}
                   cookedIds={afterglowIds}
-                  onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
+                  onOpen={(m) => openRecipe(m, "make")}
                   onSkip={handleSkipMeal}
                   onCooked={handleCookedMeal}
                   onLockIn={handleAddMealToList}
@@ -8883,7 +9154,7 @@ function ProvisionsApp() {
               planningMealId={planningMealId}
               onCreate={() => setMealSheet({ mode: "create", meal: null })}
               isSignedIn={isSignedIn}
-              onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
+              onOpen={(m) => openRecipe(m, "top")}
               stages={libraryStages}
               madeBefore={madeBefore}
               householdId={household?.id}
@@ -9621,6 +9892,25 @@ function ProvisionsApp() {
           onRequestSuggestion={requestMealSuggestion}
           onRequestImport={requestRecipeImport}
           isSignedIn={isSignedIn}
+        />
+      )}
+
+      {/* The recipe view (SPEC_recipe_view): read first. Edit opens the sheet above in
+          its place; the view returns on Cancel / Save with the live row. */}
+      {MEALS_ENABLED && rvMeal && !mealSheet && (
+        <RecipeView
+          meal={rvMeal}
+          state={rvState}
+          members={householdMembers}
+          cookCount={recipeCooks?.mealId === rvMeal.id ? Math.max(recipeCooks.rows.length, rvCookCount) : rvCookCount}
+          cookRows={recipeCooks?.mealId === rvMeal.id ? recipeCooks.rows : null}
+          onListIds={rvOnList}
+          busy={planningMealId === rvMeal.id || busyMealId === rvMeal.id || addingMealId === rvMeal.id}
+          onClose={() => setRecipeView(null)}
+          onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
+          onPlan={handlePlanMeal}
+          onUnplan={handleUnplanMeal}
+          onCooked={handleCookedMeal}
         />
       )}
 

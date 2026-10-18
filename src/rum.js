@@ -45,6 +45,9 @@ const CHROME_ALLOW_LIST = [
   '.lib-create',     // Library coaching tile "+ New meal" (the switch row's "+ New" is .hdr-action)
   '.lib-show',       // Library filter sheet: "Show N meals"
   '.lib-clear',      // Library filter sheet: "Clear"
+  '.rv-edit',        // Recipe view: "Edit" — fixed copy; the title it edits is a sibling (#rv-title, masked), never in this element (SPEC_recipe_view)
+  '.rv-plan',        // Recipe view plan action: "+ Add to This Week" / "✓ On This Week" / "To buy" / "Cooked it" / "✓ Cooked" — fixed copy, the board's own words
+  '.rv-showall',     // Recipe view, Your cooks: "Show all N" — a count, never a name
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
   '.deck-switch',    // Home on-deck card: "Switch"
   '.deck-x',         // Home on-deck card: × on a held night

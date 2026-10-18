@@ -38,13 +38,19 @@ const CAP = {
   overscrollBehavior: "contain",
 };
 
-export function SheetPanel({ onClose, label, className, style, children }) {
+// `labelledBy` (2026-10-18, the recipe view): the id of an element INSIDE the
+// sheet that names it — used when the name is household content (a meal title).
+// Session replay copies every attribute and masks only text, so a name must
+// never ride in aria-label; aria-labelledby points at the masked element
+// instead (the 10-16 rule). When given, `label` is not written.
+export function SheetPanel({ onClose, label, labelledBy, className, style, children }) {
   const drag = useSheetDrag(onClose);
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={label}
+      aria-label={labelledBy ? undefined : label}
+      aria-labelledby={labelledBy}
       className={className}
       style={{ ...CAP, ...style, ...drag.style }}
       onClick={(e) => e.stopPropagation()}
