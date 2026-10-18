@@ -96,7 +96,7 @@ const scrolledTo = (el, px) => Object.defineProperty(el, "scrollTop", { value: p
 
 test("the panel is capped to the screen and scrolls inside itself", () => {
   const { sheet } = mount();
-  expect(sheet.style.maxHeight).toBe("calc(100dvh - 24px - env(safe-area-inset-top))");
+  expect(sheet.style.maxHeight).toBe("calc(100dvh - 24px)");   // never minus --op-inset-top: the viewport already starts below the bar (2026-10-17)
   expect(sheet.style.overflowY).toBe("auto");
   expect(sheet.style.overscrollBehavior).toBe("contain");
 });

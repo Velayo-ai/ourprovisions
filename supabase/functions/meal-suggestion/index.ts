@@ -19,6 +19,7 @@
 import Anthropic from "npm:@anthropic-ai/sdk@0.123.0";
 import { createRemoteJWKSet, errors as joseErrors, jwtVerify } from "npm:jose@6.2.10";
 import { ALLOWED_UNITS, SYSTEM_PROMPT } from "./prompt.ts";
+import { instructionsUnusable, measureInstructions } from "./guard.ts";
 
 // ---------------------------------------------------------------------------
 // Limits — cost control, since nothing else rate-limits this yet (spec: open item)
@@ -26,6 +27,17 @@ import { ALLOWED_UNITS, SYSTEM_PROMPT } from "./prompt.ts";
 const MAX_REQUEST_CHARS = 600;   // a spoken craving; anything longer is not a craving
 const MAX_CATALOG_ITEMS = 400;   // bounds prompt size; households are far smaller
 const MAX_TOKENS = 4000;         // one meal never needs more
+// Byte cap on the request body, checked before anything else. 400 catalog rows as
+// {name, category, unit} plus a 600-char craving is ~40 KB; the largest prod
+// household sent ~13 KB on 2026-10-16. The client does not slice the catalog (the
+// function does, at MAX_CATALOG_ITEMS), so keep this comfortably above the real max.
+const MAX_BODY_BYTES = 64 * 1024;
+// Hard ceiling on the Anthropic round trip, with NO SDK retries. The platform wall
+// clock is 150s and the gateway idle timeout is 150s regardless — a function still
+// waiting then is killed and the client sees a bare 503 with nothing in the body.
+// 75s leaves room for boot, the JWKS fetch and parsing; a slower answer is a clean
+// 504 the client can show. Same figure as recipe-import.
+const ANTHROPIC_TIMEOUT_MS = 75_000;
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -36,7 +48,10 @@ const CORS_HEADERS = {
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    // charset is explicit so a client that honours it (PowerShell's Invoke-WebRequest
+    // defaults to ISO-8859-1 without one) does not double-encode en-dashes and degree
+    // signs. fetch().json() is UTF-8 either way. (recipe-import, 2026-10-09.)
+    headers: { ...CORS_HEADERS, "Content-Type": "application/json; charset=utf-8" },
   });
 }
 
@@ -312,6 +327,21 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS_HEADERS });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
+  // ⚠️ READ THE WHOLE BODY BEFORE ANYTHING THAT CAN RESPOND. Proven on recipe-import,
+  // 2026-10-09: a response sent while the request body is still unread never leaves
+  // the relay — the worker sits until the 150 s wall clock kills it, the relay replays
+  // the request, and the client sees a platform 503 after ~160 s. v1 of this function
+  // verified the JWT first; the hang never showed only because Galley bodies are a
+  // few KB. Every early return below is safe ONLY because this read has already
+  // drained the stream. Order: read → size → caller → key → parse.
+  let raw: Uint8Array;
+  try {
+    raw = new Uint8Array(await req.arrayBuffer());
+  } catch {
+    return json({ error: "Could not read request body" }, 400);
+  }
+  if (raw.byteLength > MAX_BODY_BYTES) return json({ error: "Request body too large" }, 413);
+
   const caller = await verifyCaller(req);
   if (!caller.ok) {
     // The reason travels in the response body, which the logs never see — so a rejection
@@ -330,9 +360,13 @@ Deno.serve(async (req: Request) => {
 
   let body: { requestText?: unknown; catalog?: unknown };
   try {
-    body = await req.json();
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(raw));
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("not an object");
+    }
+    body = parsed as { requestText?: unknown; catalog?: unknown };
   } catch {
-    return json({ error: "Body must be JSON" }, 400);
+    return json({ error: "Body must be a JSON object" }, 400);
   }
 
   const requestText = typeof body.requestText === "string" ? body.requestText.trim() : "";
@@ -365,7 +399,10 @@ Deno.serve(async (req: Request) => {
       `verbatim wherever one fits, and use the item's stated unit exactly:\n${catalog.join("\n")}`
     : `This household's catalog is empty. Name every ingredient plainly and generically.`;
 
-  const client = new Anthropic({ apiKey });
+  // maxRetries 0: the SDK's default of 2 retries on 408/429/5xx would stack three
+  // attempts inside one wall clock. One attempt, one clean answer; the person retries.
+  const client = new Anthropic({ apiKey, timeout: ANTHROPIC_TIMEOUT_MS, maxRetries: 0 });
+  const started = Date.now();
 
   let response;
   try {
@@ -375,6 +412,12 @@ Deno.serve(async (req: Request) => {
       output_config: { effort: "low" }, // single-shot extraction; depth buys nothing here
       system: SYSTEM_PROMPT,
       tools: [EMIT_MEAL_TOOL],
+      // Forced: the only acceptable answer is one emit_meal call. Under the default
+      // `auto` the model could write prose and tack on a stub call whose instructions
+      // were "x" — the live prod draft of 2026-10-12 (out=1298 tokens against 847 on
+      // the good retry: text came back beside the tool call). The draft guard below
+      // is the backstop for the stub; this removes the prose.
+      tool_choice: { type: "tool", name: "emit_meal" },
       messages: [
         {
           role: "user",
@@ -384,7 +427,16 @@ Deno.serve(async (req: Request) => {
     });
   } catch (err) {
     // Typed SDK errors, most specific first. Status is what the client needs to
-    // distinguish "try again" from "this will never work".
+    // distinguish "try again" from "this will never work". APIConnectionTimeoutError
+    // extends APIConnectionError extends APIError, so these two go before the rest.
+    if (err instanceof Anthropic.APIConnectionTimeoutError) {
+      console.error(`anthropic timeout after ${Date.now() - started}ms catalog=${catalog.length}`);
+      return json({ error: "That took too long. Try again in a moment." }, 504);
+    }
+    if (err instanceof Anthropic.APIConnectionError) {
+      console.error("anthropic connection error", err.message);
+      return json({ error: "Could not reach the suggestion service." }, 502);
+    }
     if (err instanceof Anthropic.RateLimitError) {
       console.error("anthropic rate limited", err.message);
       return json({ error: "The suggestion service is busy. Try again in a moment." }, 429);
@@ -405,6 +457,20 @@ Deno.serve(async (req: Request) => {
   if (response.stop_reason === "refusal") {
     console.error("anthropic refused", response.stop_details);
     return json({ error: "That request could not be turned into a meal." }, 422);
+  }
+
+  // With the tool forced, a text block should not arrive. If one does, record that
+  // it did — lengths and counts only, never the text — and carry on: the tool_use
+  // check below is the backstop, and the draft guard after it catches a stub.
+  const textChars = response.content.reduce(
+    (n, block) => n + (block.type === "text" ? block.text.length : 0),
+    0,
+  );
+  if (textChars > 0) {
+    console.warn("emit_meal arrived with a text block", {
+      textChars,
+      outTokens: response.usage.output_tokens,
+    });
   }
 
   const toolUse = response.content.find(
@@ -435,9 +501,20 @@ Deno.serve(async (req: Request) => {
     return json({ error: "The suggestion service returned an unusable meal." }, 502);
   }
 
+  // Draft guard (guard.ts): a stub like "x" is valid to the schema and non-empty to
+  // validateAndNormalizeDraft, and it reached prod as a one-letter recipe on
+  // 2026-10-12. Same threshold as the client guard — both must hold, so a real
+  // two-liner or a long one-liner passes. Counts only in the log, never the text.
+  const measure = measureInstructions((draft as Record<string, unknown>).instructions);
+  if (instructionsUnusable(measure)) {
+    console.error("draft guard", { ...measure, outTokens: response.usage.output_tokens });
+    return json({ error: "The suggestion service returned an unusable meal." }, 502);
+  }
+
   console.log(
     `meal-suggestion ok sub=${caller.sub} catalog=${catalog.length} ` +
-      `in=${response.usage.input_tokens} out=${response.usage.output_tokens}`,
+      `in=${response.usage.input_tokens} out=${response.usage.output_tokens} ` +
+      `ms=${Date.now() - started} lines=${measure.lines} chars=${measure.chars}`,
   );
 
   return json(draft);

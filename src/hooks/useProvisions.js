@@ -2709,6 +2709,33 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // NOT an RPC (see SPEC_create_meal_ui.md): edit is household-owned,
   // RLS-protected, and carries no cross-cutting concern like the advisory lock
   // or cycle resolution that justify add_meal_to_list's SECURITY DEFINER shape.
+  // The NARROW occasion write (Meal Library visual v2, Amendment A5; approved by
+  // Dan 2026-10-16): the "Set meal type" picker sets `occasion` and nothing else.
+  // Same table, same `meals_update` policy (025, is_member_of on using + with
+  // check), same grants, same normaliser as Edit Meal — no RPC, no new grant.
+  // Deliberately NOT routed through updateMeal, which takes the whole payload
+  // and rewrites every meal_ingredients row on each save. Returns true / false;
+  // the caller owns the optimistic update, the revert and the quiet toast, so
+  // no setError here (that would raise the shared error toast on top of it).
+  const setMealOccasion = useCallback(async (mealId, occasion) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId) return false;
+    try {
+      const { error } = await db
+        .from("meals")
+        .update({ occasion: normalizeOccasion(occasion) })
+        .eq("id", mealId)
+        .eq("household_id", hh.id); // belt-and-suspenders; RLS already scopes this
+      if (error) throw error;
+      reportSuccess();
+      return true;
+    } catch (err) {
+      console.error("setMealOccasion error:", err.message);
+      return false;
+    }
+  }, [reportSuccess]);
+
   const updateMeal = useCallback(async (mealId, { name, baseServings = 1, instructions = null, ingredients = [], occasion = [], attribution = null }) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -3724,7 +3751,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,

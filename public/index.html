@@ -3,8 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <!-- viewport-fit=cover (2026-10-16): without it iOS reports every env(safe-area-inset-*) as 0 while a
+         home-screen (standalone) launch still draws the status bar over the page, so nothing could pad
+         for the clock. With it the real insets arrive; the app applies them ONLY in standalone (the
+         --op-inset-* variables under @media (display-mode: standalone)), so a Safari tab is unchanged. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
+    <!-- Standalone status bar: "default" asks iOS for an opaque, light status bar with dark text that the
+         page lays out BELOW. Where iOS honours it, nothing can scroll under the clock and the insets are 0;
+         where it does not (manifest-only installs on some versions overlay the bar), the cream .safe-top
+         band plus the inset-padded header do the same job. Either way the clock stays black on cream. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="description" content="A smarter grocery list for your household. Live Better. Live Smarter." />
 
     <!-- Open Graph -->
@@ -39,7 +48,7 @@
     <!-- Splash horizon arc — preload so the approved raster is ready for the cold-start resolve. -->
     <link rel="preload" as="image" href="%PUBLIC_URL%/splash_arc.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,700&display=swap" rel="stylesheet">
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>

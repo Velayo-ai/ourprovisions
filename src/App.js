@@ -16,6 +16,10 @@ import { filesFromPicker, stagePhotos, PHOTO_CAP, HINT_UNREADABLE } from './lib/
 import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
 import { IMPORT_HINTS, GALLEY_HINTS } from './lib/importErrors';
 import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
+import { displayTitle } from './lib/displayTitle';
+import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, PlusGlyph, LibraryItem } from './components/LibraryCards';
+import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
+import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -1823,9 +1827,9 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
 
 // THE LIBRARY — "What sounds good?" (SPEC_meal_library_v1 + the v1.1 amendment).
 // Where you decide WHAT; This Week (the board) decides WHEN. A two-column card
-// grid: a coloured top (the first occasion word + the name; tone by dominant
-// ingredient category, exactly as on the board) over a white strip ("{n}
-// ingredients" + the ONE action, Plan → ✓ Planned). The card body opens Edit
+// grid of LIGHT cards (visual v2, 2026-10-16): a tinted slot (the occasion
+// mark), the name in the body, a meta line "{Occasion} · {n} items" and the
+// ONE action, the round "+" (→ ✓ when planned). The card body opens Edit
 // Meal, planned or not. Above the grid: search, a Filter button (From / Made
 // before / Ours live in a sheet; active ones show as removable chips) and the
 // occasion rail — All plus only the occasions some meal carries; with none
@@ -1834,16 +1838,10 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
 // planning isn't finishing. "Planned" = an open placement (onBoardIds), so a
 // ✓ Cooked afterglow card reads Plan again. Favorites is OMITTED, not disabled:
 // no data exists yet and a greyed pill promises a table that hasn't been decided.
-// RUM: .lib-occ / .lib-fbtn / .lib-plan / .lib-create / .lib-show / .lib-clear
+// RUM: .lib-occ / .lib-fbtn / .lib-vtog / .lib-plan / .lib-create / .lib-show / .lib-clear
 // (and the switch row's .plan-view / .hdr-action) carry fixed copy only; the
 // card body (meal name) and the From chips
 // (first names) are NOT allow-listed — keep names out of those classes.
-// OCCASIONS (061). Fixed display order for the rail and the Good-for chips:
-// Dinner first because most meals are dinners. The singular word is what the
-// card and the chips show; the rail pluralises Snacks / Sides / Appetizers.
-const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appetizer", "dessert"];
-const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert" };
-const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appetizer: "Appetizers" };
 const NO_LIB_FILTERS = { from: null, made: false, ours: false };
 // The "Something new?" tile coaches until the library has this many meals.
 const LIBRARY_COACH_MAX = 6;
@@ -1910,73 +1908,6 @@ function OccasionRail({ present, value, onChange }) {
   );
 }
 
-// One card. Two real buttons, never nested: the coloured top ("Open {meal}")
-// and the pill. The pill's slot follows the meal's STAGE (SPEC_meal_library_unplan,
-// "one step back, never two"), read from boardCardState so This Week, Home and
-// the library can never disagree:
-//   none     → Plan (outline pill)            rows 1 and 6 — no open placement,
-//                                             or cooked this load (afterglow)
-//   planned  → ✓ This week (sand pill, LIVE)  rows 2–3 — Plan is still the latest
-//                                             step; tapping UN-PLANS (skipMeal,
-//                                             the board's Remove path, no list
-//                                             links to zero). aria-label is fixed
-//                                             copy, never the meal name.
-//   toBuy    → "To buy" (text, inert, no ✓)   row 4 — the board's chip word;
-//                                             changes happen on This Week
-//   ready    → "✓ Ready" (text, inert)        row 5
-// Pill = action, text = status: the shape says whether it does something. The
-// occasion row keeps its height when untagged so names align across a row; the
-// name wraps and is never truncated to one line. The on-hand suffix lives in
-// the meal sheet, not here (the card is too narrow and it is subordinate).
-const CheckGlyph = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7" /></svg>
-);
-const PlusGlyph = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-);
-function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen }) {
-  const tone = mealTone(meal);
-  const count = (meal.meal_ingredients || []).length;
-  const first = (meal.occasion || [])[0];
-  return (
-    <div className="lib-gcard">
-      <button
-        type="button"
-        className="lib-gtop"
-        style={{ background: tone.bg, color: tone.fg }}
-        aria-label={`Open ${meal.name}`}
-        onClick={() => onOpen(meal)}
-      >
-        <span className="lib-gocc">{first ? OCCASION_WORD[first] : ""}</span>
-        <span className="lib-gname">{meal.name}</span>
-      </button>
-      <div className="lib-gstrip">
-        <span className="lib-gcount">{count} {count === 1 ? "ingredient" : "ingredients"}</span>
-        {canPlan && (stage === "toBuy" ? (
-          <span className="lib-stage">To buy</span>
-        ) : stage === "ready" ? (
-          <span className="lib-stage"><CheckGlyph />Ready</span>
-        ) : stage === "planned" ? (
-          <button
-            type="button"
-            className="lib-plan planned"
-            disabled={busy}
-            aria-label="Remove from this week"
-            onClick={() => { if (!busy) onUnplan(meal.id); }}
-          ><CheckGlyph />This week</button>
-        ) : (
-          <button
-            type="button"
-            className="lib-plan"
-            disabled={busy}
-            aria-label={`Plan ${meal.name}`}
-            onClick={() => { if (!busy) onPlan(meal.id); }}
-          >{busy ? "…" : "Plan"}</button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // FILTER SHEET (mockup screen 3). FROM = current household members with ≥ 1
 // library meal (created_by — who ADDED it to this library, not whose recipe it
@@ -2029,8 +1960,77 @@ function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onShow, on
   );
 }
 
-function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members }) {
+// GRID / LIST (visual v2 D8–D9). The default follows the text-size step (≥ Large
+// → list); the toggle's choice is stored on this device and then wins. One
+// state: the stored override (null = derived). The resolver is pure and tested
+// (src/lib/libraryView.js); this hook only owns the React state and the write.
+function useLibraryView(textStep) {
+  const [override, setOverride] = useState(readStoredView);
+  const view = resolveLibraryView(override, textStep);
+  const toggle = useCallback(() => {
+    const next = otherView(view);
+    writeStoredView(next);
+    setOverride(next);
+  }, [view]);
+  return [view, toggle];
+}
+const ListGlyph = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12" /><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" /><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" /></svg>
+);
+const GridGlyph = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" /></svg>
+);
+
+// "SET MEAL TYPE" (Amendment A5): a small bottom sheet, not Edit Meal — the
+// seven occasions as icon chips, multi-select, the first tapped becomes
+// occasion[1] (the card word, 061), Save. The draft is local until Save; Cancel,
+// the backdrop, swipe-down and Close all discard it. Save with nothing chosen is
+// disabled (Cancel is the way to leave a meal untagged).
+function SetTypeSheet({ meal, onSave, onClose }) {
+  const [sel, setSel] = useState(() => (meal.occasion || []).slice());
+  const toggle = (k) => setSel((s) => (s.includes(k) ? s.filter((x) => x !== k) : [...s, k]));
+  return (
+    <div className="lib-type-scrim" onClick={onClose}>
+      <SheetPanel onClose={onClose} label="Set meal type" className="lib-type-sheet">
+        <SheetClose onClose={onClose} />
+        <div className="lib-type-handle" aria-hidden="true" />
+        <h2 className="lib-type-h">Set meal type</h2>
+        <div className="lib-type-name">{displayTitle(meal.name)}</div>
+        <div className="lib-type-chips" role="group" aria-label="Good for">
+          {OCCASION_ORDER.map((k) => {
+            const on = sel.includes(k);
+            const tint = OCCASION_TINT[k];
+            return (
+              <button
+                key={k}
+                type="button"
+                className={`lib-type-chip${on ? " on" : ""}`}
+                aria-pressed={on}
+                onClick={() => toggle(k)}
+              >
+                <span style={{ color: on ? "#FAF4EC" : tint.ink, display: "inline-flex" }} aria-hidden="true"><OccasionIcon occasion={k} size={22} tint={on ? "#6f5a45" : "#FFFDF9"} /></span>
+                {OCCASION_WORD[k]}
+                {on && sel[0] === k && <span className="gf-oncard">On card</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div className="lib-type-help">Choose any that fit. The first appears on the card.</div>
+        <div className="lib-type-btns">
+          <button type="button" className="lib-type-cancel" onClick={onClose}>Cancel</button>
+          <button type="button" className="lib-type-save" disabled={sel.length === 0} onClick={() => { onSave(sel); onClose(); }}>Save</button>
+        </div>
+      </SheetPanel>
+    </div>
+  );
+}
+
+function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx, onSetOccasion }) {
   const [query, setQuery] = useState("");
+  const [libView, toggleLibView] = useLibraryView(textSizeIdx);
+  // The meal whose "Set meal type" sheet is open (Amendment A4/A5); null when closed.
+  const [typeFor, setTypeFor] = useState(null);
+  const canSetType = !!(isSignedIn && onSetOccasion);
   const [occ, setOcc] = useState("all");
   const [filters, setFilters] = useState(NO_LIB_FILTERS);
   // null while closed; the sheet's draft (a copy of `filters`) while open.
@@ -2127,6 +2127,16 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
   const madeAlone = filters.made && !filters.from && !filters.ours && !q && occ === "all";
   return (
     <div className="lib">
+      {/* The fixed VERB half of every aria-labelledby name on this screen, rendered once, outside
+          every button: "Plan {meal}", "Remove from this week", "Set meal type for {meal}",
+          "Open {meal}", "Remove filter: {name}'s". The other half is the masked title element
+          (id meal-name-{uuid} / lib-from-chip-name). Closes the v1 .lib-plan replay gap:
+          no attribute carries a meal or member name. */}
+      <span id="lib-verb-plan" className="sr-only">Plan</span>
+      <span id="lib-verb-unplan" className="sr-only">Remove from this week</span>
+      <span id="lib-verb-settype" className="sr-only">Set meal type for</span>
+      <span id="lib-verb-open" className="sr-only">Open</span>
+      <span id="lib-verb-unfilter" className="sr-only">Remove filter:</span>
       <div className="lib-search-row">
         <label className="lib-search">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
@@ -2147,14 +2157,23 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
           {activeCount > 0 && <span className="lib-fdot" aria-hidden="true" />}
         </button>
+        {/* ONE toggle (D8): it shows the view you'd switch TO and names the action. */}
+        <button
+          type="button"
+          className="lib-vtog"
+          aria-label={TOGGLE_LABEL[libView]}
+          onClick={toggleLibView}
+        >
+          {libView === "list" ? <GridGlyph /> : <ListGlyph />}
+        </button>
       </div>
 
       {/* Active filters are always visible (decision 10): a filtered grid must never read as a short library. */}
       {activeCount > 0 && (
         <div className="lib-active">
           {fromMember && (
-            <button type="button" className="lib-chip-x" aria-label={`Remove filter: ${fromMember.firstName}'s`} onClick={() => setFilters((f) => ({ ...f, from: null }))}>
-              <span className="lib-mini" aria-hidden="true">{fromMember.initial}</span>{fromMember.firstName}'s <span aria-hidden="true">×</span>
+            <button type="button" className="lib-chip-x" aria-labelledby="lib-verb-unfilter lib-from-chip-name" onClick={() => setFilters((f) => ({ ...f, from: null }))}>
+              <span className="lib-mini" aria-hidden="true">{fromMember.initial}</span><span id="lib-from-chip-name">{fromMember.firstName}'s</span> <span aria-hidden="true">×</span>
             </button>
           )}
           {filters.made && (
@@ -2175,10 +2194,12 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
           {madeAlone ? "Nothing cooked from This Week yet — Cooked it fills this." : "Nothing matches that yet."}
         </div>
       )}
-      <div className="lib-grid">
+      <div className={libView === "list" ? "lib-list" : "lib-grid"}>
         {shown.map((m) => (
-          <LibraryCard
+          <LibraryItem
+            kind={libView}
             key={m.id}
+            onSetType={canSetType ? setTypeFor : null}
             meal={m}
             stage={stages?.[m.id] || "none"}
             busy={planningMealId === m.id}
@@ -2190,6 +2211,14 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         ))}
       </div>
       {createTile}
+
+      {typeFor && (
+        <SetTypeSheet
+          meal={typeFor}
+          onSave={(occ) => onSetOccasion(typeFor.id, occ)}
+          onClose={() => setTypeFor(null)}
+        />
+      )}
 
       {draft && (
         <LibraryFilterSheet
@@ -3409,8 +3438,10 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               {draftSource === "photo" && <div className="op-recipe-eyebrow">From your photos</div>}
               {draftSource === "paste" && <div className="op-recipe-eyebrow">From what you pasted</div>}
               {/* Mirrors the Meal Name field above; absent rather than "Untitled" when
-                  the name is still empty, because the field is right there. */}
-              {name.trim() && <div className="op-recipe-title">{name.trim()}</div>}
+                  the name is still empty, because the field is right there. Display
+                  casing only (displayTitle, visual v2 D11) — the field and the row
+                  keep what was typed. */}
+              {name.trim() && <div className="op-recipe-title">{displayTitle(name.trim())}</div>}
               <div className="op-recipe-meta">
                 {plural(rows.length, "ingredient")} · {onHandCount} on hand · {plural(parsedSteps.steps.length, "step")}
               </div>
@@ -3548,11 +3579,15 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       ignored would be dishonest. Whatever was typed stays in state and
                       comes back on Clear; it is never sent with the photos. */}
                   <div className="op-galley-thumbs">
+                    {/* The × names itself by aria-labelledby — the fixed verb (one hidden span, outside every
+                        button) + the thumbnail's visible number — so no attribute carries the count (replay
+                        copies attributes verbatim; it masks only text). alt is in the recorder's skip-set. */}
+                    <span id="op-verb-remove-shot" className="sr-only">Remove screenshot</span>
                     {photos.map((p, i) => (
                       <div key={p.id} className="op-galley-th">
                         <img src={p.url} alt={`Screenshot ${i + 1}`} />
-                        <span className="op-galley-n" aria-hidden="true">{i + 1}</span>
-                        <button type="button" className="op-galley-x" aria-label={`Remove screenshot ${i + 1}`}
+                        <span id={`op-shot-${p.id}`} className="op-galley-n" aria-hidden="true">{i + 1}</span>
+                        <button type="button" className="op-galley-x" aria-labelledby={`op-verb-remove-shot op-shot-${p.id}`}
                           onClick={() => removePhoto(p.id)} disabled={saving}>×</button>
                       </div>
                     ))}
@@ -3900,6 +3935,7 @@ function ProvisionsApp() {
     fetchMeals,
     createMeal,
     updateMeal,
+    setMealOccasion,
     requestMealSuggestion,
     requestRecipeImport,
     deleteMeal,
@@ -4572,6 +4608,10 @@ function ProvisionsApp() {
   // the on-hand prompt). Add all: the hook's batch over the Planned cards in
   // queue order, default quantity 1, on-hand skipped — one toast at the end.
   const [planningMealId, setPlanningMealId] = useState(null);
+  // Every Plan tap confirms itself: v1.1 A7's "{Meal} added to your week ✓"
+  // names the meal and teaches what "+" means. (A once-per-session "Added to
+  // This Week" toast was tried in the 2026-10-16 polish and reverted the same
+  // day — the design chat hadn't known A7 existed.)
   const handlePlanMeal = useCallback(async (mealId) => {
     setPlanningMealId(mealId);
     try {
@@ -4611,6 +4651,22 @@ function ProvisionsApp() {
       setPlanningMealId(null);
     }
   }, [skipMeal, showToast, mealById]);
+  // "Set meal type" (visual v2 Amendment A5): OPTIMISTIC — the card shows the
+  // new tint, icon and meta word at once; the narrow write follows; on failure
+  // the one meal reverts and the quiet toast says so. On success the quiet
+  // refresh (never the spinner) reconciles with the row the server holds.
+  const handleSetOccasion = useCallback(async (mealId, occasion) => {
+    const prev = mealById[mealId]?.occasion || [];
+    setMeals((ms) => ms.map((m) => (m.id === mealId ? { ...m, occasion } : m)));
+    const ok = await setMealOccasion(mealId, occasion);
+    if (ok) {
+      await refreshMeals();
+    } else {
+      setMeals((ms) => ms.map((m) => (m.id === mealId ? { ...m, occasion: prev } : m)));
+      showToast("Couldn't save the meal type");
+    }
+    return ok;
+  }, [mealById, setMealOccasion, refreshMeals, showToast]);
 
   // No-shop cards (055/056/057): Leftovers / Eating out / Something else. The
   // foot buttons open a one-field sheet — leftovers: a multi-select (no
@@ -4697,6 +4753,42 @@ function ProvisionsApp() {
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
+
+  // iOS standalone status bar — the MEASURED inset (fourth cut, 2026-10-17; src/lib/standaloneInset.js).
+  // env(safe-area-inset-top) reads 0 on Dan's installed app while the WebView is full height under a
+  // transparent bar, so the inset is measured: standalone only, screen.height − innerHeight must be a
+  // known bar height (47 / 54 / 59 / 62), latched through keyboard resizes, 0 in landscape. Written
+  // once per change onto :root. The viewport itself already starts BELOW the bar (proven on the phone
+  // 2026-10-17), so the header carries no offset; the value sizes the .safe-top band that covers the
+  // bar's region above the viewport. A Safari tab never qualifies, so a tab stays pixel-identical.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const root = document.documentElement;
+    let current = -1;
+    const apply = () => {
+      const next = nextInsetTop(Math.max(current, 0), {
+        standalone: window.navigator.standalone,
+        screenHeight: window.screen.height,
+        innerHeight: window.innerHeight,
+        innerWidth: window.innerWidth,
+      });
+      if (next === current) return;
+      current = next;
+      root.style.setProperty("--op-inset-top", `${next}px`);
+    };
+    apply();
+    const later = window.setTimeout(apply, 300);   // iOS settles innerHeight after the first paint
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
+    const so = window.screen && window.screen.orientation;
+    if (so && so.addEventListener) so.addEventListener("change", apply);
+    return () => {
+      window.clearTimeout(later);
+      window.removeEventListener("resize", apply);
+      window.removeEventListener("orientationchange", apply);
+      if (so && so.removeEventListener) so.removeEventListener("change", apply);
+    };
+  }, []);
   const [mealSaving, setMealSaving] = useState(false);
   const [mealDeleting, setMealDeleting] = useState(false);
 
@@ -6596,13 +6688,44 @@ function ProvisionsApp() {
         * { box-sizing: border-box; margin: 0; padding: 0; }
         /* --op-add: deep sand = adding things (both "Add a meal" buttons). Dark brown stays the Helm's; teal = the household finished something. */
         :root { --op-text-scale: 1; --op-add: #D9BC8C; --op-add-ink: #2B1E16; }
+        /* SAFE-AREA INSETS, gated to the installed app (2026-10-16). The viewport meta carries viewport-fit=cover so iOS
+           reports the real insets; every inset use in the app reads these variables, which are 0 in a browser tab and
+           the real env() values only under display-mode: standalone — so a Safari tab is pixel-identical to before, and
+           the home-screen app pads the header, the Helm, the sheets and the .safe-top band by what the device overlays. */
+        /* TOP is MEASURED, not read (fourth cut, 2026-10-17): on Dan's installed app env(safe-area-inset-top) is 0 while
+           the WebView is full height under a transparent bar, so no CSS could ever see the inset. The variable defaults
+           to 0px here and ProvisionsApp's useEffect writes the measured value onto :root — only when navigator.standalone
+           is true and screen.height − innerHeight is a known bar height (src/lib/standaloneInset.js). A Safari tab keeps
+           0px and is pixel-identical. BOTTOM stays gated to display-mode: standalone: a tab's bottom inset becomes ~34px
+           when Safari's toolbar collapses, which would move the Helm. */
+        :root { --op-inset-top: 0px; --op-inset-bottom: 0px; }
+        @media (display-mode: standalone) {
+          :root { --op-inset-bottom: env(safe-area-inset-bottom, 0px); }
+        }
+        /* Landscape with a notch, in EVERY mode: viewport-fit=cover lets a page extend under the notch, so the side insets come
+           back as body padding — 0 in portrait, so a portrait tab is untouched; in landscape it restores exactly what iOS
+           used to inset on its own. Fixed elements (the Helm, the Wrap Up bar) sit at the bottom edge, clear of the notch. */
+        body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
+/* iOS standalone: the status bar overlays the page, so once the header scrolls away content passes under the clock. This
+   fixed band is the status bar's own background — PAGE CREAM, because the clock on Dan's iPhone is BLACK (the 2026-10-16
+   first cut assumed a white clock and painted it #1a0e06). Height follows the MEASURED inset (0 in a browser tab, so the
+   band is 0 tall and top 0 there — nothing changes). It sits ABOVE the layout viewport, at −inset…0: Dan's phone
+   (2026-10-17, the fourth cut's first check) showed a double-height strip when the band also covered 0…+inset, which
+   proves a fixed top:0 sits at the viewport's top edge, one bar-height BELOW the clock — the WebView lays the page out
+   below the bar at rest and only PAINTS scrolled content up into the bar's region. So the band covers exactly that
+   region and nothing in the viewport; the header needs no offset. Below every scrim (1000). */
+.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: #FAF4EC; z-index: 950; pointer-events: none; }
+/* Visually hidden, read by assistive tech. Used for the fixed VERB half of an aria-labelledby accessible name (2026-10-16): a
+   button names itself from this span plus the masked title element, so no attribute ever carries a meal name or a count —
+   the session recorder copies every attribute except title / alt / on* into replay snapshots, and masks only text nodes. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
         .header h1 { font-size: 42px; letter-spacing: 0.02em; }
         .badge { display: inline-block; background: #E8A838; color: white; font-weight: 700; border-radius: 10px; padding: 1px 7px; font-size: 0.7rem; margin-left: 6px; font-family: 'Lato', sans-serif; }
         /* ── The Helm — floating nav pill (SPEC_nav_helm.md v2; mockup_nav_helm_v2.html is the visual authority) ── */
-        .helm { position: fixed; left: 24px; right: 24px; bottom: calc(18px + env(safe-area-inset-bottom)); height: 56px; border-radius: 28px; z-index: 900;
+        .helm { position: fixed; left: 24px; right: 24px; bottom: calc(18px + var(--op-inset-bottom)); height: 56px; border-radius: 28px; z-index: 900;
                 background: #2C1A0E; display: flex; align-items: stretch; padding: 0 6px;
                 box-shadow: 0 8px 24px rgba(44,26,14,0.32), inset 0 0 0 1px rgba(201,169,122,0.16);
                 transition: height .2s ease, left .2s ease, right .2s ease, border-radius .2s ease; }
@@ -6636,9 +6759,10 @@ function ProvisionsApp() {
         /* 8px top + 5px bottom padding + the line + the underline ≈ 46px tap target; the negative top margin keeps the title's
            visual top on the row's top edge so the add button aligns with the title line, not the padded box. */
         .plan-view { border: none; background: none; padding: 8px 0 5px; margin: -8px 0 0; cursor: pointer; white-space: nowrap;
-                     font-family: 'Playfair Display', serif; font-size: calc(26px * (1 + (var(--op-text-scale) - 1) * 0.4)); font-weight: 700; line-height: 1.15; color: #8C7660;
+                     font-family: 'Playfair Display', serif; font-size: calc(26px * (1 + (var(--op-text-scale) - 1) * 0.4)); font-weight: 400; line-height: 1.15; color: #8C7660;
                      border-bottom: 3px solid transparent; }
-        .plan-view.on { color: #2A170C; border-bottom-color: #A0714A; cursor: default; }
+        /* The active view reads by WEIGHT, not only by colour (visual v2 D12): the inactive link is regular, the active one bold + underlined. */
+        .plan-view.on { color: #2A170C; font-weight: 700; border-bottom-color: #A0714A; cursor: default; }
         .plan-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 8px; }
         /* .hdr-action — THE header action pill (src/components/HeaderAction.js): one style on Shop, This Week and Meals.
            "+ Add" brings an existing thing into the view; "+ New" creates one. Deep sand (--op-add) = adding things. */
@@ -6773,7 +6897,7 @@ function ProvisionsApp() {
                       border: 1.5px solid #E8D5B7; background: #F5EDE0; color: #8a7a60; }
         .lib-search input { flex: 1; min-width: 0; border: none; background: transparent; outline: none; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
         .lib-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
-        .lib-fbtn { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+        .lib-fbtn, .lib-vtog { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
                     display: flex; align-items: center; justify-content: center; position: relative; padding: 0; }
         .lib-fdot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #A0724A; border: 1.5px solid #FFFDF9; }
         .lib-active { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
@@ -6782,38 +6906,129 @@ function ProvisionsApp() {
         .lib-chip-x > span:last-child { color: #8a7a60; font-weight: 400; }
         .lib-chip-x .lib-mini { width: 22px; height: 22px; font-size: 0.62rem; }
         .lib-rail { margin: 0 0 14px; }
+        /* The library's rail hides its scrollbar (polish 2026-10-16 — it showed on desktop); Browse's rail keeps its styled
+           one. scrollbar-width: none covers Chromium 121+ / Firefox / Safari 18.2+; the ::-webkit rule covers older WebKit. */
+        .lib-rail .cat-rail { scrollbar-width: none; }
+        .lib-rail .cat-rail::-webkit-scrollbar { display: none; }
         .lib-occ { flex: none; height: 36px; padding: 0 16px; border-radius: 18px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
         .lib-occ.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
         .lib-hint { margin: 0 0 14px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         .lib-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; align-items: stretch; }
         @media (max-width: 339px) { .lib-grid { grid-template-columns: minmax(0, 1fr); } }
-        .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1.5px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
-        .lib-gtop { flex: 1; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; text-align: left; width: 100%; min-height: 92px;
-                    padding: 11px 12px 14px; border: none; cursor: pointer; font: inherit; }
-        .lib-gocc { display: block; min-height: 14px; line-height: 14px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; }
-        .lib-gname { display: block; font-family: 'Playfair Display', serif; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.15; overflow-wrap: anywhere; }
-        /* The strip WRAPS rather than shrinks (SPEC_global_text_size decision 9): the count keeps its natural width and the pill
-           drops below it when the two no longer fit — flex wraps before it shrinks, so the count is never squeezed into an ellipsis
-           at Large / XL / XXL (or at Default on a long count). Row gap 6px when stacked. */
-        .lib-gstrip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 8px 8px 12px; }
-        .lib-gcount { flex: 0 1 auto; max-width: 100%; }
-        /* The count stays on ONE line (walk 2026-10-03: "11 ingredients" wrapped beside ✓ Planned in the 430px column).
-           Measured in headless Edge with the Arial fallback (Lato is not web-loaded): 430px needs 168 of 171; under 400px
-           the strip, count and ✓ Planned pill trim a little so 390px needs 152 of 155. The unplanned Plan pill has 30px of
-           slack and keeps its padding. Ellipsis is the safety net for a wider system font — one line, never an overlap. */
-        .lib-gcount { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
-        .lib-plan { flex: none; height: 34px; padding: 0 14px; border-radius: 17px; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
-                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+        /* List view (D8): full-width rows, 10px apart — a 60×60 rounded thumbnail (photo, or tint + icon at 30), a 2-line
+           title at the Card title role, the meta line, and the "+" at 48px. Grid is for browsing by picture; list is for
+           scanning by name. */
+        .lib-list { display: flex; flex-direction: column; gap: 10px; }
+        /* Amendment A4 restructure: a 3-column grid — thumb (rows 1–2) · name (row 1) over meta (row 2) · action (rows 1–2).
+           The name is the open button; its ::before covers the thumbnail column (the row is the positioned ancestor), so the
+           picture still opens the meal while the meta row stays a sibling and can carry the "+ Set meal type" button. */
+        .lib-row { position: relative; display: grid; grid-template-columns: 60px minmax(0, 1fr) auto; grid-template-rows: auto auto;
+                   column-gap: 12px; row-gap: 3px; align-items: center; border-radius: 14px; border: 1px solid #E8D5B7; background: #FFFDF9; padding: 10px; }
+        .lib-thumb { grid-column: 1; grid-row: 1 / 3; width: 60px; height: 60px; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .lib-rbody { grid-column: 2; grid-row: 1; align-self: end; min-width: 0; display: block; text-align: left; padding: 0; border: none;
+                     background: none; color: #2C1A0E; cursor: pointer; font: inherit; }
+        .lib-rbody::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 82px; }
+        .lib-rmeta { grid-column: 2; grid-row: 2; align-self: start; min-width: 0; }
+        .lib-rname { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+                     font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+        .lib-rmeta { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; }
+        .lib-row .lib-plan { grid-column: 3; grid-row: 1 / 3; width: 48px; height: 48px; margin-left: 0; }
+        .lib-row .lib-plan::before { inset: 0; }
+        .lib-row .lib-stage { grid-column: 3; grid-row: 1 / 3; }
+        /* The row's status text follows the Button role (k 0.8, the pill it replaced): at XXL on 320px a full-scale
+           "✓ Ready" squeezed the title column until a word broke mid-word (harness 2026-10-16). */
+        .lib-row .lib-stage { height: 48px; margin-left: 0; padding: 0; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); }
+        /* VISUAL v2 (SPEC_meal_library_visual_v2): a LIGHT card — cream, 1px warm border, dark text (D1). Flex column:
+           slot → body (name) → strip (meta + the round "+"). */
+        .lib-gcard { display: flex; flex-direction: column; border-radius: 14px; border: 1px solid #E8D5B7; background: #FFFDF9; overflow: hidden; }
+        .lib-gbody { flex: 1; display: flex; flex-direction: column; align-items: stretch; text-align: left; width: 100%; padding: 0; border: none;
+                     background: none; color: #2C1A0E; cursor: pointer; font: inherit; }
+        /* The slot (D3): a short tinted band, the occasion mark centred — 56px without a photo; a photo takes a fixed 132px.
+           ROW MATCHING IN PURE CSS (D4, build scope 2) — the base rules below are the FALLBACK (fixed 56px bands, titles
+           may sit at different heights); the @supports block further down is the real thing: CSS SUBGRID (polish
+           2026-10-16, replacing the flex: 1 slot trick whose bands came out ragged when names differed in line count).
+           No row math in JS, at any column count. */
+        .lib-slot { position: relative; flex: none; height: 56px; display: flex; align-items: center; justify-content: center; background: #F4EADC; }
+        .lib-slot.photo { height: 132px; }
+        /* "✓ Ready" as a chip in the band's top-right (grid card only, 2026-10-16): Eyebrow role (12.5px, k 1), cream on a
+           1px warm border, pill radius — so the strip's meta line stays on one line. The list row keeps its text label. */
+        .lib-ready { position: absolute; top: 6px; right: 6px; display: inline-flex; align-items: center; gap: 3px; padding: 4px 8px 4px 6px;
+                     border-radius: 999px; border: 1px solid #EADBC4; background: #FFFDF9; color: #3A2A20;
+                     font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; line-height: 1; white-space: nowrap; }
+        .lib-ready svg { width: 0.8em; height: 0.8em; }
+        /* With a chip in the band, the icon centres in the space LEFT of it: the band reserves the chip's width in the chip's own
+           em (so it tracks every text step) — no overlap at Default through XXL, no JS. */
+        .lib-slot.has-chip { font-size: calc(12.5px * var(--op-text-scale)); padding-right: calc(5.6em + 12px); }
+        /* AMENDMENT A4 — the untagged meal's invitation, in place of the occasion word: a real button in the Meta role, accent
+           #8A5F3A, no underline, a ≥44px hit area through the pseudo-element. It is never inside the open button (grid: the
+           strip is the open button's sibling; list: the meta row is a sibling cell), so it can never open the meal. */
+        .lib-settype { position: relative; display: inline; background: none; border: none; padding: 6px 0; margin: -6px 0; font: inherit;
+                       font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 700; color: #8A5F3A; cursor: pointer; }
+        .lib-settype::before { content: ""; position: absolute; inset: -7px -6px; }
+        /* AMENDMENT A5 — the "Set meal type" picker: a small bottom sheet (SheetPanel) with the seven occasions as icon chips. */
+        .lib-type-scrim { position: fixed; inset: 0; background: rgba(2,15,26,0.6); z-index: 1000; display: flex; align-items: flex-end; }
+        .lib-type-sheet { position: relative; width: 100%; background: #FDF8F2; border-radius: 20px 20px 0 0; padding: 0 20px calc(24px + var(--op-inset-bottom)); }
+        .lib-type-handle { width: 36px; height: 4px; background: #c8b89a; border-radius: 2px; margin: 10px auto 0; }
+        .lib-type-h { margin: 14px 0 2px; font-family: 'Playfair Display', serif; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; color: #2C1A0E; }
+        .lib-type-name { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin: 0 0 14px; overflow-wrap: anywhere; }
+        .lib-type-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+        .lib-type-chip { display: inline-flex; align-items: center; gap: 7px; height: 44px; padding: 0 14px 0 10px; border-radius: 22px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
+                         font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .lib-type-chip svg { width: 22px; height: 22px; }
+        .lib-type-chip.on { background: #6f5a45; border-color: #6f5a45; color: #FAF4EC; }
+        .lib-type-chip .gf-oncard { margin-left: 2px; }
+        .lib-type-help { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 10px; }
+        .lib-type-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+        .lib-type-cancel { min-height: 44px; padding: 0 18px; border-radius: 12px; border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; cursor: pointer;
+                           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .lib-type-save { min-height: 44px; padding: 0 20px; border-radius: 12px; border: none; background: #6f5a45; color: #FAF4EC; cursor: pointer;
+                         font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .lib-type-save:disabled { opacity: 0.5; cursor: default; }
+        .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        /* SUBGRID: the library grid's rows are the cards' rows. Each card spans 3 rows (slot / title / meta) and subgrids
+           them; the open button spans the first 2 (slot / title) and subgrids them again, so the button keeps its
+           semantics and still covers slot + name. The shared slot row sizes to the tallest slot in the row (a 132px photo
+           stretches the neighbour's tint; 56px otherwise), the title row to the tallest clamped title, the meta row to the
+           tallest strip — every edge aligns across the row. The card's margin is the row gap (the grid's own row-gap would
+           also land between a card's rows). Chrome 117+, Safari 16+ (iOS 16+), Firefox 71+; older engines keep the
+           fallback above. */
+        @supports (grid-template-rows: subgrid) {
+          .lib-grid { row-gap: 0; align-items: stretch; }
+          .lib-gcard { display: grid; grid-template-rows: subgrid; grid-row: span 3; margin-bottom: 16px; }
+          .lib-gbody { display: grid; grid-template-rows: subgrid; grid-row: span 2; }
+          .lib-slot { height: auto; min-height: 56px; }
+          .lib-slot.photo { height: 132px; }
+          .lib-gstrip { align-self: end; }
+        }
+        /* The name in the body (D2): clamped to 3 lines with an ellipsis so a long imported title never sets the card height. */
+        /* Card title role (D10): 17px at Default, k 0.5 — was 20. One serif moment per screen is the page title.
+           Weight 600 (polish 2026-10-16; the 600 face is loaded in public/index.html — without it the browser would pick 700). */
+        .lib-gname { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; padding: 10px 12px 0;
+                     font-family: 'Playfair Display', serif; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+        /* The strip never pushes the "+" below the meta: the meta WRAPS INTERNALLY beside the button when the two no longer
+           fit (Text Size decision 9 — wrap, never shrink or clip — applied to the text, so the count is never lost to an
+           ellipsis and the action stays where the thumb expects it at every step). */
+        .lib-gstrip { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px 8px 12px; }
+        /* The meta line (D6): "{Occasion} · {n} items" at the Meta role — 14px (Text Size D4's floor; the spec's 13 was
+           resolved to the role table, Dan 2026-10-16), muted #8A5F3A (Text Size D5, ≥ 4.5:1). The same expression ts(14) emits. */
+        .lib-gmeta { flex: 1 1 0; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.3; color: #8A5F3A; overflow-wrap: anywhere; }
+        /* The round "+" (D7): drawn at 40px, a 44×44 touch target through the pseudo-element; soft fill, dark glyph;
+           planned = sand fill with a check (tapping un-plans). */
+        .lib-plan { position: relative; flex: none; margin-left: auto; width: 40px; height: 40px; border-radius: 50%; border: none; background: #F1E6D6; color: #2C1A0E; cursor: pointer;
+                    display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+        .lib-plan::before { content: ""; position: absolute; inset: -2px; border-radius: 50%; }
+        .lib-plan svg { width: 18px; height: 18px; }
+        .lib-plan-wait { font-family: 'Lato', sans-serif; font-size: 16px; font-weight: 700; line-height: 1; }
         .lib-plan:disabled { cursor: default; opacity: 0.6; }
-        .lib-plan.planned { border-color: transparent; background: #EFE6D6; color: #3A2A20; font-weight: 600; padding: 0 9px; opacity: 1; cursor: pointer; }
+        .lib-plan.planned { background: #EFE6D6; color: #3A2A20; opacity: 1; cursor: pointer; }
+        .lib-plan.planned svg { stroke-width: 2.6; }
         .lib-plan.planned:disabled { cursor: default; opacity: 0.6; }
-        /* Stage label (un-plan rows 4–5): text, not a control — no border, no fill, no hover, no focus ring; the pill's height so the strip doesn't jump. */
-        .lib-stage { flex: none; height: 34px; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+        /* Stage label (un-plan rows 4–5): text, not a control — no border, no fill, no hover, no focus ring; the button's height so the strip doesn't jump. */
+        .lib-stage { flex: none; margin-left: auto; height: 44px; padding: 0 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
                      font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 600; color: #6f5a45; }
         @media (max-width: 399px) {
-          .lib-gstrip { padding: 8px 6px 8px 10px; gap: 4px; }
-          .lib-plan.planned { padding: 0 6px; }
+          .lib-gstrip { padding: 6px 6px 8px 10px; }
         }
         .lib-create-tile { margin-top: 16px; border: 1.5px dashed #C9A97A; border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 14px; }
         .lib-create-tile.gated { border-color: #C9A97A; opacity: 0.8; }
@@ -6945,11 +7160,11 @@ function ProvisionsApp() {
         .home-budget-label.over { color: #e05c5c; }
         /* §6 — every scrolling root clears the pill. The pill is present at EVERY width (rail retired 2026-09-20);
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
-        .app-root { min-height: 100vh; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-        .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(90px + env(safe-area-inset-bottom)); pointer-events: none; z-index: 899;
+        .app-root { min-height: 100vh; padding-bottom: calc(96px + var(--op-inset-bottom)); }
+        .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(90px + var(--op-inset-bottom)); pointer-events: none; z-index: 899;
                      background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
         /* Bottom status stack rides above the pill — at every width now. */
-        .bottom-stack { bottom: calc(92px + env(safe-area-inset-bottom)); }
+        .bottom-stack { bottom: calc(92px + var(--op-inset-bottom)); }
         /* While ANY modal sheet is open the stack anchors at the TOP of the viewport
            instead — just under the safe area, still centred, same look — so the
            pill and the toasts never sit over a sheet's pinned footer (Cancel / Save
@@ -6958,7 +7173,7 @@ function ProvisionsApp() {
            LibraryFilterSheet's own state) and the next one would miss a flag.
            Position stays with the stack; the pill carries none (ConnectivityPill.js).
            Engines without :has() (Safari < 15.4) keep today's bottom anchor. */
-        body:has(.modal-overlay) .bottom-stack { bottom: auto; top: calc(10px + env(safe-area-inset-top)); }
+        body:has(.modal-overlay) .bottom-stack { bottom: auto; top: 10px; }   /* not + --op-inset-top: the viewport already starts below the bar (2026-10-17) */
         /* …and the Helm with its fade leave entirely. A sheet is modal, so the nav
            cannot be used anyway, and at z 900 / 899 over the overlay's 100 the pill
            and the fade drew across the sheet's pinned Cancel / Save Meal, which were
@@ -7150,7 +7365,7 @@ function ProvisionsApp() {
            content edge. z 900 = the Helm's (they never overlap) and above .helm-fade (899). Cream, hairline border, soft shadow.
            The fill is SOFT teal (#CFE8E3 → #B5DDD5, a 45% teal rule at its edge) and animates on every check — saturated
            #0D9488 is the All done card's alone. The text and the action sit above the fill (position: relative). */
-        .wrapbar { position: fixed; left: 16px; right: 16px; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 900;
+        .wrapbar { position: fixed; left: 16px; right: 16px; bottom: calc(84px + var(--op-inset-bottom)); z-index: 900;
                    display: flex; align-items: center; justify-content: space-between; gap: 12px; overflow: hidden;
                    min-height: 46px; padding: 12px 16px; border-radius: 16px; border: 1.5px solid #E8DDCE; background: #FAF4EC;
                    box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer; text-align: left; }
@@ -7450,9 +7665,10 @@ function ProvisionsApp() {
             <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 0, background: BANNER_DISSOLVE }} />
           </>
         )}
+      <div className="safe-top" aria-hidden="true" />
       <div className="header" style={{ position: "relative", zIndex: bannerHasPhoto ? 1 : undefined, background: bannerHasPhoto ? "transparent" : undefined }}>
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
-        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + env(safe-area-inset-top)) 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
+        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
           {isSignedIn && household?.name && (
             <button
               onClick={() => setShowHouseholdModal(true)}
@@ -8658,6 +8874,8 @@ function ProvisionsApp() {
               ) : null}
             />
             <MealsLens
+              textSizeIdx={textSizeIdx}
+              onSetOccasion={handleSetOccasion}
               meals={libraryMeals}
               loading={mealsLoading}
               onPlan={handlePlanMeal}
