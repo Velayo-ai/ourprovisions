@@ -964,7 +964,7 @@ function OnDeckCard({
       <section className="deck cooked" aria-label="On deck">
         <div className="deck-eyebrow">On deck</div>
         <div className="deck-body">
-          <h3 className="deck-title">{head.name}</h3>
+          <h3 className="deck-title">{displayTitle(head.name)}</h3>
         </div>
         <div className="deck-actions">
           <button type="button" className="deck-primary done" disabled>✓ Cooked</button>
@@ -1020,7 +1020,8 @@ function OnDeckCard({
           onClick={open}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }}
         >
-          <h3 className="deck-title">{st.title}</h3>
+          {/* Display casing only (displayTitle, visual v2 D11) — the meal branch; a held night's title is its label. */}
+          <h3 className="deck-title">{displayTitle(st.title)}</h3>
           {st.line && <p className="deck-status">{st.line}</p>}
         </div>
       )}
@@ -1671,7 +1672,8 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
             </div>
             <div className="board-main">
               <div className="board-top">
-                <span className="board-card-title">{title}</span>
+                {/* Display casing only (displayTitle, visual v2 D11) on a meal; a held night's title is its label. */}
+                <span className="board-card-title">{noShop ? title : displayTitle(title)}</span>
                 {chip && <span className={`board-chip${ready ? " ready" : ""}`}>{chip}</span>}
                 {/* × at rest only on a no-shop card — it is that card's one action.
                     A meal card shows NO destructive control at rest: Remove lives
