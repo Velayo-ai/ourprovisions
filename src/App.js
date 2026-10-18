@@ -2063,10 +2063,13 @@ function SetTypeSheet({ meal, onSave, onClose }) {
 // (a count at most). The title, byline, Added by, proof, ingredients and steps
 // are household content: masked, never in an attribute — the dialog is named
 // by aria-labelledby → #rv-title, never aria-label.
-// Text roles (ts): title 30 at k 0.4 (page-title rate), byline 18 at k 0.5,
-// section titles 22 at k 0.5, ingredient and step text 16 at k 1 (above the
-// body default, keeps its size at the role's k), meta / proof / Added by 14,
-// tags and the seam 12.5, the plan pill 16 at k 0.8.
+// Text roles (the 10-04 role table, re-mapped 2026-10-18 — the mockup's pixel
+// sizes read a size too large on the phone): title = sheet title 22.4 at k 0.5;
+// section headings = the Edit Meal sheet's .modal-label (12.5 uppercase, k 1);
+// byline / Added by / meta / proof = meta 14 at k 1; ingredient rows, step text
+// and cook rows = body 16 at k 1 on 44 px rows; Edit / the plan pill / Show all
+// = button 14 at k 0.8; tags and the seam 12.5. Nothing under the 12.5 floor.
+// Cook mode (slice c) steps the step text up one size from here.
 const RV_COOKS_SHOWN = 5;
 // A member's first name: the profile's full name, else the email's local part.
 const memberFirstName = (mb) => {
@@ -7203,26 +7206,30 @@ function ProvisionsApp() {
            library's type-sheet scrim (z 1000, above the Helm); the panel keeps SheetPanel's cap and
            scrolls inside itself; min-height makes it a page, not a strip, for a short recipe. Close
            moves to the LEFT here (the mockup: Close ✕ left, Edit right); every other sheet keeps it
-           right. Text follows the role table: title 30 at k 0.4, byline 18 at k 0.5, section titles
-           22 at k 0.5, ingredient / step text 16 at k 1, meta 14, tags and the seam 12.5 (the floor),
-           the plan pill 16 at k 0.8. Teal only on Cooked it / ✓ Cooked (the household finished
-           something); "On hand" is text teal #0A776D. ── */
+           right. Text follows the 10-04 role table, not the mockup's pixels (re-mapped 2026-10-18 after
+           the phone check read a size too large): title = sheet title 22.4 at k 0.5; the section
+           headings = the Edit Meal sheet's section labels (.modal-label: 12.5 uppercase at k 1);
+           byline / Added by / meta / proof = meta 14 at k 1; ingredient rows, step text and cook rows
+           = body 16 at k 1 on 44 px rows; the step number circle 28 at k 1 with its numeral at the
+           12.5 floor; Edit, the plan pill and Show all = button 14 at k 0.8; tags and the seam 12.5.
+           Cook mode (slice c) steps the step text up one size from here. Teal only on Cooked it /
+           ✓ Cooked (the household finished something); "On hand" is text teal #0A776D. ── */
         .rv-scrim { position: fixed; inset: 0; background: rgba(2,15,26,0.6); z-index: 1000; display: flex; align-items: flex-end; }
         .rv-sheet { position: relative; width: 100%; min-height: calc(100dvh - 24px); background: #FAF4EC; border-radius: 20px 20px 0 0; padding: 0 0 calc(24px + var(--op-inset-bottom)); }
         .rv-sheet .sheet-close { left: 8px; right: auto; }
         .rv-edit { position: absolute; top: 8px; right: 12px; min-height: 44px; padding: 0 8px; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
-                   font-family: 'Lato', sans-serif; font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+                   font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .rv-edit:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
         .rv-hero { margin: 44px 16px 0; height: 132px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
         .rv-head { padding: 16px 20px 0; }
-        .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(30px * (1 + (var(--op-text-scale) - 1) * 0.4)); line-height: 1.1; color: #2C1A0E; overflow-wrap: anywhere; }
-        .rv-byline { margin-top: 6px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(18px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.3; color: #8A5F3A; overflow-wrap: anywhere; }
+        .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
+        .rv-byline { margin-top: 4px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #8A5F3A; overflow-wrap: anywhere; }
         .rv-added { margin-top: 4px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; }
         .rv-meta { margin-top: 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
         .rv-proof { margin-top: 8px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #5C4636; }
         .rv-plan-row { padding: 16px 20px 0; }
         .rv-plan { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 10px 16px; border-radius: 24px; border: 1.5px solid transparent;
-                   font-family: 'Lato', sans-serif; font-size: calc(16px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; }
+                   font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; }
         .rv-plan.add { background: #D9BC8C; border-color: #D9BC8C; color: #2C1A0E; }
         .rv-plan.on { background: #F1E7D8; border-color: #D9BC8C; color: #2C1A0E; }
         .rv-plan.teal { background: #0D9488; border-color: #0D9488; color: #fff; }
@@ -7231,10 +7238,11 @@ function ProvisionsApp() {
         .rv-plan.done, .rv-plan.done:disabled { background: transparent; border-color: #0D9488; color: #0A776D; opacity: 1; cursor: default; }
         .rv-seam { display: flex; align-items: center; gap: 10px; margin: 22px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: #8A5F3A; }
         .rv-seam::before, .rv-seam::after { content: ""; flex: 1; height: 1px; background: #E8D5B7; }
-        .rv-sec { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 0; padding: 22px 20px 10px; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; }
-        .rv-sec span { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); font-weight: 400; color: #8A5F3A; }
+        /* The section headings are the Edit Meal sheet's section labels (.modal-label), so the two sheets read as one. */
+        .rv-sec { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 0; padding: 22px 20px 6px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; }
+        .rv-sec span { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 0; color: #8A5F3A; }
         .rv-ing { list-style: none; margin: 0; padding: 0 20px; }
-        .rv-ing li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 9px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
+        .rv-ing li { display: flex; flex-wrap: wrap; align-items: baseline; align-content: center; gap: 2px 10px; box-sizing: border-box; min-height: 44px; padding: 6px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
         .rv-ing li:last-child { border-bottom: 0; }
         /* The name is laid out at its full (max-content) width: a short name keeps its tag beside it;
            a name that would not fit whole beside the tag takes the row and the tag drops under it,
@@ -7246,12 +7254,13 @@ function ProvisionsApp() {
         .rv-preamble { margin: 0 20px 14px; padding: 0 0 12px; border-bottom: 1px solid #EFE6D9; }
         .rv-preamble p { margin: 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; overflow-wrap: anywhere; }
         .rv-steps { list-style: none; margin: 0; padding: 0 20px; }
-        .rv-steps li { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; }
-        .rv-steps p { margin: 0; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; overflow-wrap: anywhere; }
-        .rv-step-n { flex: none; width: calc(30px * (1 + (var(--op-text-scale) - 1) * 0.5)); height: calc(30px * (1 + (var(--op-text-scale) - 1) * 0.5)); border-radius: 50%; background: #F1E7D8; color: #2C1A0E;
-                     font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; display: flex; align-items: center; justify-content: center; }
+        .rv-steps li { display: flex; gap: 12px; align-items: flex-start; padding: 6px 0; }
+        .rv-steps p { margin: 0; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; overflow-wrap: anywhere; }
+        /* The numeral's circle is sized to the step text (28 px beside a 24 px line at Default, k 1 so it keeps that ratio at every step). */
+        .rv-step-n { flex: none; width: calc(28px * var(--op-text-scale)); height: calc(28px * var(--op-text-scale)); border-radius: 50%; background: #F1E7D8; color: #2C1A0E;
+                     font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: calc(-2px * var(--op-text-scale)); }
         .rv-cooks { list-style: none; margin: 0; padding: 0 20px; }
-        .rv-cooks li { padding: 12px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); font-weight: 600; color: #2C1A0E; }
+        .rv-cooks li { display: flex; align-items: center; box-sizing: border-box; min-height: 44px; padding: 6px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
         .rv-cooks li:last-child { border-bottom: 0; }
         .rv-showall { display: block; margin: 4px 20px 0; padding: 10px 0; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
