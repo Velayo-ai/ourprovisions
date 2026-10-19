@@ -436,3 +436,70 @@ Status line `✓ ON THIS WEEK · Nothing to shop for`, main action Cooked it. Th
 | C · Ready (wrapped up) | ✓ ON THIS WEEK · Everything's in | Cooked it | Remove from This Week |
 | C · Nothing to shop for | ✓ ON THIS WEEK · Nothing to shop for | Cooked it | Remove from This Week |
 | D · Not planned | none | + Plan again / + Add to This Week (unchanged) | none |
+
+---
+
+## Amendment C (2026-10-19) — no Cooked it before wrap-up
+
+*Design chat, 2026-10-19. Append to `docs/specs/active/SPEC_recipe_view.md` under a dated heading; do not edit the body. **Supersedes Amendment B ruling R1 and slice (a)'s A5 revision.** Client only. Ships as Promotion 4.*
+
+---
+
+## Why
+
+Wrap-up is the habit OurProvisions is building. It's when the app learns from a trip:
+- the **receipt**;
+- **how long** the shop took;
+- **which store**;
+- **the order** items went into the cart, which feeds smart list ordering.
+
+A Cooked it that appears before wrap-up is a shortcut around that habit, so the trip's learning gets lost. Dan's rule (2026-10-19):
+
+> **A meal is ready to cook only after wrap-up,** once each of its items is either in the cart or taken off the list.
+
+This is how the board already works, so the recipe view's R1 exception goes. **B2 now holds with no exceptions:** the recipe view always agrees with the board.
+
+## Principle (record in ARCHITECTURE)
+
+**Wrap-up is the learning moment. No surface offers a shortcut around it.** When a trip's items are all in the cart, every surface points toward wrap-up, never past it.
+
+## C1 — R1 becomes a nudge to wrap up
+
+| Everything in the cart, not wrapped up | |
+|---|---|
+| Status | ✓ ON THIS WEEK · All in your cart (unchanged) |
+| Main action | **Wrap up →**. It **takes you to Shop**, where the wrap-up ritual lives (the "All done · Wrap up trip" screen and the Wrap Up bar). |
+| Quiet link | Remove (and take its items off Shop), following `state.toBuy` as now |
+
+- **One path for every door:** the recipe view never runs wrap-up itself. It sends you to the Shop wrap-up flow, so the receipt, store and timing are captured exactly as they are today.
+- The button's name is fixed copy ("Wrap up"), so it's replay-safe. Report its class, and whether it joins the allow-list (fixed copy, so it's eligible).
+
+## C2 — Cooked it, everywhere
+
+Cooked it is offered only when:
+- the placement is **Ready** (`ready_at` set by wrap-up), or
+- the meal has **nothing to shop for** (there's no trip to wrap up).
+
+Nothing else gets it.
+
+**Step 0 check, read-only:** list every surface that can offer Cooked it (board card, board ⋯ menu, Home deck card, recipe view, anything else) and its condition. Home's deck shows Cooked it on `st.ready || !st.canAdd`, so confirm `!canAdd` can't be true for a To-buy meal with everything in the cart. Any surface that breaks C2 gets fixed in this same change. Report before building.
+
+## C3 — Unchanged
+
+States A, B, C and D, the link release on Remove and Cooked it, and everything else in Amendment B stay as they are. Cooked it after wrap-up still releases links as built in `5c8afc4`.
+
+## Done when
+
+- [ ] Step 0 has listed every Cooked-it surface; any that breaks C2 is fixed.
+- [ ] The R1 state shows "Wrap up →" and opens Shop; no Cooked it appears before wrap-up on any surface.
+- [ ] Tests: the R1 action, the C2 condition per surface, and the board and recipe view agreeing in every state (the A5 exception test is removed). `ReplayLabels` is extended to cover the new button.
+- [ ] Dev walk: plan → Add to Shop → check everything → recipe view shows "Wrap up →" → Shop → wrap up (receipt and store flow as normal) → recipe view and board both show Cooked it.
+- [ ] Promotion 4 (client only), with bundle proofs, then Dan's prod walk.
+
+### C2 clarification and Step 0 rulings (2026-10-19)
+
+- **C2 now reads:** Cooked it is offered when the placement is **Ready** (after wrap-up), when there's **nothing to shop for**, or when the meal was **never added to Shop**. The last case is the freezer-pizza exit, and it lives on the **board ⋯ menu only**. Step 0 found the board ⋯ offers Cooked it on any Planned card, including one with ingredients; Dan ruled it stays, since there's no trip to wrap up.
+- **The nudge's class:** `rv-plan wrap`, a variant of the already allow-listed `.rv-plan`. The allow-list stays at 47.
+- **Style:** gold fill, the same as Add to Shop. Teal stays reserved for Cooked it.
+- **The board card at 0 left:** "See on list" becomes **"Wrap up →"**. Same door (`goToDoor("list")`), wording only, so the board and the recipe view use the same nudge.
+- **Logged as LATER:** `cook_meal` has no server-side readiness check. C2 is enforced in the client only.
