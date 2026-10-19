@@ -2141,7 +2141,9 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, l
   }
   return (
     <div className="rv-scrim" onClick={onClose}>
-      <SheetPanel onClose={onClose} labelledBy="rv-title" className="rv-sheet">
+      {/* The cap against the scrim, not the window (see .rv-sheet): SheetPanel's own calc(100dvh - 24px)
+          overruns the desktop phone-frame by 24 px. Same 24 px top offset as every other full-height sheet. */}
+      <SheetPanel onClose={onClose} labelledBy="rv-title" className="rv-sheet" style={{ maxHeight: "calc(100% - 24px)" }}>
         <SheetClose onClose={onClose} />
         <div className="lib-type-handle" aria-hidden="true" />
         <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
@@ -7295,7 +7297,12 @@ function ProvisionsApp() {
            Cook mode (slice c) steps the step text up one size from here. Teal only on Cooked it /
            ✓ Cooked (the household finished something); "On hand" is text teal #0A776D. ── */
         .rv-scrim { position: fixed; inset: 0; background: rgba(2,15,26,0.6); z-index: 1000; display: flex; align-items: flex-end; }
-        .rv-sheet { position: relative; width: 100%; min-height: calc(100dvh - 24px); background: #FAF4EC; border-radius: 20px 20px 0 0; padding: 0 0 calc(24px + var(--op-inset-bottom)); }
+        /* Sized against the SCRIM (100% of it, less SheetPanel's 24 px), not the window: on the desktop the fixed,
+           transformed .phone-frame is the containing block and sits 48 px shorter than 100dvh, so a dvh-sized sheet
+           overran the frame's top by 24 px (✕ / Edit crowded, the grabber hidden, the corner clipped — 2026-10-18).
+           On the phone the scrim IS the layout viewport, so 100% there equals 100dvh. The cap is passed to
+           SheetPanel the same way (its inline style wins over this rule). */
+        .rv-sheet { position: relative; width: 100%; min-height: calc(100% - 24px); background: #FAF4EC; border-radius: 20px 20px 0 0; padding: 0 0 calc(24px + var(--op-inset-bottom)); }
         .rv-sheet .sheet-close { left: 8px; right: auto; }
         .rv-edit { position: absolute; top: 8px; right: 12px; min-height: 44px; padding: 0 8px; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
