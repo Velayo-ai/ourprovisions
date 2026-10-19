@@ -3273,32 +3273,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // includeOnHandIds: CATALOG_ITEM_IDs of on-hand ingredients to add THIS TIME
   // only (045). Deliberately a call argument rather than a stored flag — the RPC
   // does not touch meal_ingredients.on_hand, so "include this time" never quietly
-  // becomes "include from now on".
-  // "Remove from this meal" in the Add prompt. Not new logic — the same
-  // soft-delete updateMeal performs on its rows before reinserting, narrowed to
-  // named catalog items. Soft, not hard: meal_ingredients rows are referenced by
-  // nothing, but deleted_at is what every read path already filters on, and a hard
-  // delete here would be the one place in this table that behaves differently.
-  const removeMealIngredients = useCallback(async (mealId, catalogItemIds) => {
-    const db = supabaseRef.current;
-    const hh = householdRef.current;
-    if (!db || !hh || !mealId || !catalogItemIds?.length) return false;
-    try {
-      const { error: err } = await db
-        .from("meal_ingredients")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("meal_id", mealId)
-        .in("catalog_item_id", catalogItemIds)
-        .is("deleted_at", null);
-      if (err) throw err;
-      reportSuccess();
-      return true;
-    } catch (err) {
-      console.error("removeMealIngredients error:", err.message);
-      failWith("meals", `Could not remove ingredient: ${err.message}`);
-      return false;
-    }
-  }, [reportSuccess, failWith]);
+  // becomes "include from now on". (removeMealIngredients — the prompt's "Remove from
+  // this meal" — was deleted 2026-10-19, SPEC_all_on_hand D4: the recipe changes in Edit.)
 
   // ─────────────────────────────────────────────────────────────
   // Plan board placements (migration 047). Three pieces:
@@ -3701,6 +3677,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         const open = !!cur && !cur.cookedAt && !cur.skippedAt;
         if (!open) await appendPlacement(db, hh, mealId);
         else if (cur.readyAt) await clearReady(db, hh, mealId);
+        // 064 (SPEC_all_on_hand): a count of 0 is the all-on-hand add — the RPC stamped the
+        // open placement ready. Re-read so the stamp shows on every surface at once.
+        if (!count) await loadPlacements(db, hh);
       } catch (pErr) { console.warn("placement on add (non-fatal):", pErr.message); }
       // Re-sync the active cycle (the RPC may have opened one) + refresh the
       // list so quantities and provenance reflect immediately.
@@ -3756,13 +3735,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // library's Add read as the same act.
   const lockIn = useCallback(async (mealId) => addMealToList(mealId, 1), [addMealToList]);
 
+  // Add all. { added, readyOnHand }: added = meals that put rows on the list; readyOnHand =
+  // meals with every ingredient on hand, which 064 stamped ready instead (read from the
+  // placement reload addMealToList does after a 0 count).
   const lockInAll = useCallback(async (mealIds) => {
-    let n = 0;
+    let added = 0;
+    let readyOnHand = 0;
     for (const id of mealIds || []) {
       const count = await addMealToList(id, 1);
-      if (count > 0) n += 1;
+      if (count > 0) added += 1;
+      else if (placementsRef.current[id]?.readyAt) readyOnHand += 1;
     }
-    return n;
+    return { added, readyOnHand };
   }, [addMealToList]);
 
   const fetchMealProvenance = useCallback(async () => {
@@ -3808,7 +3792,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
