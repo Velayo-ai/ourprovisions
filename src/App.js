@@ -2051,10 +2051,12 @@ function SetTypeSheet({ meal, onSave, onClose }) {
 //            (D11). No average. Your cooks shows only at 2+ cooks (A4).
 //   plan     the board's OWN derivation (boardCardState, D9): not on This Week →
 //            sand "+ Add to This Week"; planned → "✓ On This Week" (un-plans);
-//            to buy → the inert stage word; ready, or planned with nothing to
+//            to buy → "See on list", the board card's own handler (A5, 2026-10-18;
+//            was the inert stage word); ready, or planned with nothing to
 //            shop for → teal "Cooked it" (the cook_meal path, one row, as the
-//            board); cooked this load → inert "✓ Cooked". Never Cooked it
-//            while items are still to buy, never for an unplanned meal (D9a).
+//            board); cooked this load → "✓ Cooked" as plain teal text (A5: nothing
+//            inert is drawn as a pill). Never Cooked it while items are still
+//            to buy, never for an unplanned meal (D9a).
 //   tags     while the meal is on This Week only: "On your list" (list_item_meals
 //            provenance) or "On hand" (on_hand, text teal) per ingredient (D13)
 //   cooks    one row per cook, newest first, DATE ONLY — meal_cooks.cooked_by
@@ -2084,7 +2086,7 @@ const memberFirstName = (mb) => {
 // last week, weekday + date beyond it. Never a person (D10).
 // Your cooks shows only at 2+ cooks (A4): one cook is the meta line's job.
 const RV_COOKS_MIN = 2;
-function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, onListIds, busy, onClose, onEdit, onPlan, onUnplan, onCooked }) {
+function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, onListIds, busy, onClose, onEdit, onPlan, onUnplan, onCooked, onSeeList }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2110,11 +2112,13 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, o
   if (action === "add") {
     plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Add to This Week</button>;
   } else if (action === "cooked") {
-    plan = <button type="button" className="rv-plan done" disabled>✓ Cooked</button>;
+    // A5: inert, so plain teal text — never a bordered pill that does nothing.
+    plan = <span className="rv-plan done">✓ Cooked</span>;
   } else if (action === "cookIt") {
     plan = <button type="button" className="rv-plan teal" disabled={busy} onClick={() => { if (!busy) onCooked(meal.id); }}>Cooked it</button>;
   } else if (action === "toBuy") {
-    plan = <span className="rv-plan stage">To buy</span>;
+    // A5: To buy offers the board card's own exit — See on list, the same handler.
+    plan = <button type="button" className="rv-plan see" onClick={onSeeList}>See on list</button>;
   } else {
     plan = <button type="button" className="rv-plan on" disabled={busy} onClick={() => { if (!busy) onUnplan(meal.id); }}>✓ On This Week</button>;
   }
@@ -7238,9 +7242,10 @@ function ProvisionsApp() {
         .rv-plan.add { background: #D9BC8C; border-color: #D9BC8C; color: #2C1A0E; }
         .rv-plan.on { background: #F1E7D8; border-color: #D9BC8C; color: #2C1A0E; }
         .rv-plan.teal { background: #0D9488; border-color: #0D9488; color: #fff; }
-        .rv-plan.stage { background: transparent; border-color: #E8D5B7; color: #8A5F3A; cursor: default; }
+        /* A5 (2026-10-18): To buy offers the board card's "See on list" in the board's own outline; nothing inert is drawn as a pill. */
+        .rv-plan.see { background: transparent; border-color: #C9A97A; color: #6f5a45; }
         .rv-plan:disabled { opacity: 0.5; cursor: default; }
-        .rv-plan.done, .rv-plan.done:disabled { background: transparent; border-color: #0D9488; color: #0A776D; opacity: 1; cursor: default; }
+        .rv-plan.done { background: transparent; border-color: transparent; color: #0A776D; cursor: default; }
         .rv-seam { display: flex; align-items: center; gap: 10px; margin: 22px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: #8A5F3A; }
         .rv-seam::before, .rv-seam::after { content: ""; flex: 1; height: 1px; background: #E8D5B7; }
         /* The section headings are the Edit Meal sheet's section labels (.modal-label) in size and shape, so the
@@ -9929,6 +9934,8 @@ function ProvisionsApp() {
           onPlan={handlePlanMeal}
           onUnplan={handleUnplanMeal}
           onCooked={handleCookedMeal}
+          // A5: the board card's own See on list (goToDoor("list")), after the view closes.
+          onSeeList={() => { setRecipeView(null); goToDoor("list"); }}
         />
       )}
 
