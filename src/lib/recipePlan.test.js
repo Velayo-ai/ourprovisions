@@ -14,8 +14,8 @@ test("left to buy is the board's live rows minus the cart", () => {
   expect(leftToBuy(null)).toBe(0);
 });
 
-test("To buy with everything in the cart follows D9 to Cooked it (A5 revision)", () => {
-  expect(planActionFor(toBuyAllInCart)).toBe("cookIt");
+test("To buy with everything in the cart nudges to wrap up — never Cooked it before wrap-up (Amendment C, supersedes A5)", () => {
+  expect(planActionFor(toBuyAllInCart)).toBe("wrapUp");
 });
 const ready = { noShop: false, cooked: false, ready: true, planned: false, toBuy: false, canAdd: false };
 const cooked = { noShop: false, cooked: true, ready: false, planned: false, toBuy: false, canAdd: false };
@@ -65,7 +65,7 @@ describe("recipeBlockFor agrees with the board card for the same placement", () 
     ["A · planned, not on the list", M, {}, "Not on the list yet", { onWeek: true, soft: null, action: "addToShop", remove: "week" }],
     ["B · on the list, 4 left", M, { total: 6, bought: 2 }, "2 of 6 in cart", { onWeek: true, soft: null, action: "toBuy", remove: "shop" }],
     ["B · on the list, none in the cart", M, { total: 6 }, "6 to buy", { onWeek: true, soft: null, action: "toBuy", remove: "shop" }],
-    ["R1 · all in the cart, not wrapped up", M, { total: 6, bought: 6 }, "6 of 6 in cart", { onWeek: true, soft: "All in your cart", action: "cookIt", remove: "shop" }],
+    ["C1 · all in the cart, not wrapped up", M, { total: 6, bought: 6 }, "6 of 6 in cart", { onWeek: true, soft: "All in your cart", action: "wrapUp", remove: "shop" }],
     ["C · ready (wrapped up)", M, { readyAt: "2026-10-19T12:00:00Z" }, "Everything's in — go cook", { onWeek: true, soft: "Everything's in", action: "cookIt", remove: "week" }],
     ["C · nothing to shop for (R2)", EMPTY, {}, "Nothing to shop for", { onWeek: true, soft: "Nothing to shop for", action: "cookIt", remove: "week" }],
     ["D · cooked this load", M, { cooked: true }, "", { onWeek: false, soft: null, action: "cooked", remove: null }],
@@ -87,8 +87,9 @@ describe("recipeBlockFor agrees with the board card for the same placement", () 
     // Add to Shop: A → B once the meal's rows are on the list
     expect(recipeBlockFor(board(M, {})).action).toBe("addToShop");
     expect(recipeBlockFor(board(M, { total: 3 })).action).toBe("toBuy");
-    // buy everything → R1, wrap up → C
-    expect(recipeBlockFor(board(M, { total: 3, bought: 3 })).action).toBe("cookIt");
+    // buy everything → C1 (Wrap up →), wrap up → C (Cooked it)
+    expect(recipeBlockFor(board(M, { total: 3, bought: 3 })).action).toBe("wrapUp");
+    expect(recipeBlockFor(board(M, { readyAt: "2026-10-19T12:00:00Z" })).action).toBe("cookIt");
     expect(recipeBlockFor(board(M, { readyAt: "2026-10-19T12:00:00Z" })).soft).toBe("Everything's in");
     // Cooked it → D (+ Plan again); Remove → not on the week → D (+ Add to This Week)
     expect(recipeBlockFor(board(M, { cooked: true })).action).toBe("cooked");

@@ -28,7 +28,7 @@ const CHROME_ALLOW_LIST = [
   '.all-done-btn',   // All done card's "Wrap up trip →"
   '.add-btn',        // row "Add" buttons (Browse, search, meal sheet)
   '.board-lock',     // Plan board "Add to Shop" (v2; the class keeps the hook's name)
-  '.board-see',      // Plan board "See on list"
+  '.board-see',      // Plan board "See on list" / "Wrap up →" at 0 left (Amendment C) — fixed copy
   '.board-cook',     // Plan board "Cooked it"
   '.board-more',     // Plan board ⋯ menu trigger
   '.plan-addall',    // Plan header "+ Add N to Shop"
@@ -46,7 +46,7 @@ const CHROME_ALLOW_LIST = [
   '.lib-show',       // Library filter sheet: "Show N meals"
   '.lib-clear',      // Library filter sheet: "Clear"
   '.rv-edit',        // Recipe view: "Edit" — fixed copy; the title it edits is a sibling (#rv-title, masked), never in this element (SPEC_recipe_view)
-  '.rv-plan',        // Recipe view main action: "+ Add to This Week" / "+ Plan again" / "Add to Shop" / "Cooked it" — fixed copy, the board's own words. The count-bearing "{n} left to buy · See list" is .rv-see, OFF this list (SPEC_recipe_view Amendment B, R4)
+  '.rv-plan',        // Recipe view main action: "+ Add to This Week" / "+ Plan again" / "Add to Shop" / "Wrap up →" / "Cooked it" — fixed copy, the board's own words. The count-bearing "{n} left to buy · See list" is .rv-see, OFF this list (SPEC_recipe_view Amendment B, R4)
   '.rv-remove',      // Recipe view quiet link: "Remove from This Week" / "Remove (and take its items off Shop)" — fixed copy, the board's ⋯ → Remove words
   '.rv-showall',     // Recipe view, Your cooks: "Show all N" — a count, never a name
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)

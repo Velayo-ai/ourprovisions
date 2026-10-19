@@ -6,7 +6,9 @@
 // an in-memory list_items / list_item_meals pair shaped like the dev rows of the repro:
 //   - Remove with an item in the cart: this meal's link is gone, the item is still in
 //     the cart (row, quantity, status untouched), another meal's link on it survives;
-//   - Cooked it at R1: every live link of the meal is gone, the rows are untouched;
+//   - Cooked it: every live link the meal still holds is gone, the rows are untouched
+//     (Amendment C took Cooked it away from "all in the cart"; the release stays for any
+//     link a cook finds — the freezer-pizza ⋯ path, a partner's late add);
 //   - a re-plan after either reads state A on the board, the library's stage, Home's
 //     deck and the recipe view — through the real counts, derivation and renderers;
 //   - close_cycle's 052 ready_at predicate (modelled on its inputs — no migration) can
@@ -98,12 +100,12 @@ const stateAfterReplan = (db) => boardCardState(MEAL, {
 });
 
 describe("the bug, as it was (no release)", () => {
-  test("Garlic's surviving link reads R1 on re-plan, and the next wrap-up would stamp Ready", () => {
+  test(`Garlic's surviving link read "1 of 1 in cart" on re-plan, and the next wrap-up would stamp Ready`, () => {
     const db = fakeDb(seed());
     db.tables.list_item_meals = db.tables.list_item_meals.filter((l) => !(l.meal_id === MEAL.id && l.list_item_id === "ginger")); // Remove's pending loop did this
     const st = stateAfterReplan(db);
     expect(st.line).toBe("1 of 1 in cart");
-    expect(recipeBlockFor(st)).toMatchObject({ action: "cookIt", soft: "All in your cart" });
+    expect(recipeBlockFor(st)).toMatchObject({ action: "wrapUp", soft: "All in your cart" });
     expect(wouldStampReady(db, { mealId: MEAL.id, placement: openPlacement, closingCycle: NEW_CYCLE })).toBe(true);
   });
 });
@@ -126,7 +128,7 @@ describe("Remove with an item in the cart", () => {
   });
 });
 
-describe("Cooked it at R1", () => {
+describe("Cooked it with live links", () => {
   test("every live link of the meal goes; the rows are untouched", async () => {
     const db = fakeDb({
       list_items: [
@@ -135,7 +137,7 @@ describe("Cooked it at R1", () => {
       ],
       list_item_meals: [{ list_item_id: "a", meal_id: MEAL.id }, { list_item_id: "b", meal_id: MEAL.id }],
     });
-    expect(recipeBlockFor(stateAfterReplan(db))).toMatchObject({ action: "cookIt", soft: "All in your cart" });   // R1 before the cook
+    expect(recipeBlockFor(stateAfterReplan(db))).toMatchObject({ action: "wrapUp", soft: "All in your cart" });   // all in the cart: the view nudges to wrap up (C1)
     const before = JSON.stringify(db.tables.list_items);
     const live = await fetchLiveMealLinks(db, { householdId: HH, mealId: MEAL.id });
     await releaseMealLinks(db, { mealId: MEAL.id, listItemIds: linksToRelease(live) });
@@ -155,7 +157,7 @@ describe("a re-plan after either reads state A everywhere", () => {
   }
   async function afterCook() {
     const db = fakeDb(seed());
-    db.tables.list_items.find((li) => li.id === "ginger").status = "bought";   // R1: all in the cart
+    db.tables.list_items.find((li) => li.id === "ginger").status = "bought";   // all in the cart, links still live at cook time
     await releaseMealLinks(db, { mealId: MEAL.id, listItemIds: linksToRelease(await fetchLiveMealLinks(db, { householdId: HH, mealId: MEAL.id })) });
     return db;
   }

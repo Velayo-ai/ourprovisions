@@ -345,3 +345,33 @@ describe("recipe view: no name or count in any copied attribute, in every state"
     expect(container.querySelectorAll(".rv-see.rv-plan")).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------- Amendment C: the "Wrap up →" nudge
+describe("Wrap up → (Amendment C1): fixed copy, no attribute, on the allow-listed .rv-plan", () => {
+  const { RecipeView, PlanBoard } = require("./App");
+  const { boardCardState } = require("./lib/boardState");
+  const M = { id: "6b7c8d9e-0f1a-4b2c-8d3e-4f5a6b7c8d9e", kind: "meal", name: "Grilled Shrimp With Chimichurri", occasion: ["dinner"], instructions: "",
+    attribution: "", created_by: null, meal_ingredients: [{ catalog_item_id: "c1", quantity_per_serving: 1, on_hand: false, catalog_items: { name: "Shrimp" } }] };
+  const inp = { placements: { [M.id]: { sortOrder: 0, readyAt: null } }, rows: { [M.id]: { total: 4, bought: 4 } }, mealById: {}, cookedIds: new Set() };
+  test("recipe view: rv-plan wrap, text only, no aria-label, no name or count in any copied attribute", () => {
+    const { container } = render(<RecipeView meal={M} state={boardCardState(M, inp)} members={[]} cookCount={0} lastCookedAt={null} cookRows={null} links={null}
+      tagsReady={false} addedThisPlan={false} viewerUserId={null} busy={false}
+      onClose={noop} onEdit={noop} onPlan={noop} onAddToShop={noop} onCooked={noop} onRemove={noop} onSeeList={noop} />);
+    const b = container.querySelector(".rv-plan.wrap");
+    expect(b.textContent).toBe("Wrap up →");
+    expect(b.hasAttribute("aria-label")).toBe(false);
+    expect(b.getAttribute("class")).toBe("rv-plan wrap");
+    expectNoTokens(container, ["Grilled", "Shrimp", "Chimichurri"]);
+    const wordy = [];
+    container.querySelectorAll("*").forEach((el) => { for (const a of el.attributes) if (/^(aria-|id$|class$|data-)/.test(a.name)) wordy.push(a.value); });
+    expect(wordy.filter((v) => /\b4\b/.test(v))).toEqual([]);
+  });
+  test("board card: the same words on .board-see, no attribute carries the count", () => {
+    const { container } = render(<PlanBoard meals={[M]} rows={inp.rows} placements={inp.placements} mealById={{}} cookedIds={inp.cookedIds}
+      onOpen={noop} onSkip={noop} onCooked={noop} onLockIn={noop} onSeeList={noop} onReorder={noop} busyMealId={null} />);
+    const b = container.querySelector(".board-see");
+    expect(b.textContent).toBe("Wrap up →");
+    expect(b.hasAttribute("aria-label")).toBe(false);
+    expectNoTokens(container, ["Grilled", "Shrimp", "Chimichurri"]);
+  });
+});
