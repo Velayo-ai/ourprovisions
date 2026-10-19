@@ -24,7 +24,7 @@ test("not on This Week offers Add", () => {
   expect(planActionFor(notOnWeek)).toBe("add");
 });
 
-test("planned with ingredients reads On This Week (un-plans)", () => {
+test("planned with ingredients maps to onWeek (the action block offers Add to Shop there)", () => {
   expect(planActionFor(planned)).toBe("onWeek");
 });
 
@@ -44,4 +44,54 @@ test("ready offers Cooked it", () => {
 
 test("cooked this load is the inert ✓ Cooked", () => {
   expect(planActionFor(cooked)).toBe("cooked");
+});
+
+// ---------------------------------------------------------------- Amendment B: the action block
+// Built from boardCardState itself (src/lib/boardState.js, the board's ONE derivation) over the
+// board's real inputs, so the view's block and the board card's line are proven on the SAME placement.
+describe("recipeBlockFor agrees with the board card for the same placement", () => {
+  const { boardCardState } = require("./boardState");
+  const { recipeBlockFor, REMOVE_LABEL } = require("./recipePlan");
+  const M = { id: "m1", kind: "meal", name: "Big Salad", meal_ingredients: [{ id: 1 }, { id: 2 }] };
+  const EMPTY = { ...M, meal_ingredients: [] };
+  const board = (meal, { readyAt = null, total = 0, bought = 0, cooked = false } = {}) => boardCardState(meal, {
+    placements: { [meal.id]: { sortOrder: 0, readyAt } },
+    rows: total ? { [meal.id]: { total, bought } } : {},
+    mealById: {},
+    cookedIds: new Set(cooked ? [meal.id] : []),
+  });
+  test.each([
+    // [case, meal, inputs, board line, block]
+    ["A · planned, not on the list", M, {}, "Not on the list yet", { onWeek: true, soft: null, action: "addToShop", remove: "week" }],
+    ["B · on the list, 4 left", M, { total: 6, bought: 2 }, "2 of 6 in cart", { onWeek: true, soft: null, action: "toBuy", remove: "shop" }],
+    ["B · on the list, none in the cart", M, { total: 6 }, "6 to buy", { onWeek: true, soft: null, action: "toBuy", remove: "shop" }],
+    ["R1 · all in the cart, not wrapped up", M, { total: 6, bought: 6 }, "6 of 6 in cart", { onWeek: true, soft: "All in your cart", action: "cookIt", remove: "shop" }],
+    ["C · ready (wrapped up)", M, { readyAt: "2026-10-19T12:00:00Z" }, "Everything's in — go cook", { onWeek: true, soft: "Everything's in", action: "cookIt", remove: "week" }],
+    ["C · nothing to shop for (R2)", EMPTY, {}, "Nothing to shop for", { onWeek: true, soft: "Nothing to shop for", action: "cookIt", remove: "week" }],
+    ["D · cooked this load", M, { cooked: true }, "", { onWeek: false, soft: null, action: "cooked", remove: null }],
+  ])("%s", (_, meal, inputs, line, block) => {
+    const st = board(meal, inputs);
+    expect(st.line).toBe(line);
+    expect(recipeBlockFor(st)).toEqual(block);
+    // R3: the quiet link's words are keyed on the same flag the board's ⋯ → Remove reads
+    expect(block.remove === null || (block.remove === "shop") === st.toBuy).toBe(true);
+  });
+  test("D · not on This Week: no status, no remove, + Add to This Week", () => {
+    expect(recipeBlockFor(null)).toEqual({ onWeek: false, soft: null, action: "add", remove: null });
+  });
+  test("the remove words are the board's ⋯ → Remove words, word for word", () => {
+    expect(REMOVE_LABEL.shop).toBe("Remove (and take its items off Shop)");
+    expect(REMOVE_LABEL.week).toBe("Remove from This Week");
+  });
+  test("B4 transitions, on the board's own state after each action", () => {
+    // Add to Shop: A → B once the meal's rows are on the list
+    expect(recipeBlockFor(board(M, {})).action).toBe("addToShop");
+    expect(recipeBlockFor(board(M, { total: 3 })).action).toBe("toBuy");
+    // buy everything → R1, wrap up → C
+    expect(recipeBlockFor(board(M, { total: 3, bought: 3 })).action).toBe("cookIt");
+    expect(recipeBlockFor(board(M, { readyAt: "2026-10-19T12:00:00Z" })).soft).toBe("Everything's in");
+    // Cooked it → D (+ Plan again); Remove → not on the week → D (+ Add to This Week)
+    expect(recipeBlockFor(board(M, { cooked: true })).action).toBe("cooked");
+    expect(recipeBlockFor(null).action).toBe("add");
+  });
 });

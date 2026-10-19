@@ -311,3 +311,37 @@ describe("photo surfaces carry .op-replay-block", () => {
     expect(app).not.toMatch(/documentElement\.style\.setProperty\(\s*"--op-desk-bg"/);
   });
 });
+
+// ---------------------------------------------------------------- recipe view action block (Amendment B, B6 / R4)
+describe("recipe view: no name or count in any copied attribute, in every state", () => {
+  const { RecipeView } = require("./App");
+  const { boardCardState } = require("./lib/boardState");
+  const RV = {
+    id: "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d", kind: "meal", name: "Grilled Shrimp With Chimichurri", occasion: ["dinner"],
+    instructions: "1. Grill the shrimp.\n2. Spoon over the chimichurri.", attribution: "Aunt Jo", created_by: null,
+    meal_ingredients: [
+      { catalog_item_id: "c1", quantity_per_serving: 2, on_hand: false, catalog_items: { name: "Shrimp" } },
+      { catalog_item_id: "c2", quantity_per_serving: 1, on_hand: false, catalog_items: { name: "Parsley" } },
+    ],
+  };
+  const st = (o = {}) => boardCardState(RV, { placements: { [RV.id]: { sortOrder: 0, readyAt: o.readyAt || null } },
+    rows: o.total ? { [RV.id]: { total: o.total, bought: o.bought || 0 } } : {}, mealById: {}, cookedIds: new Set(o.cooked ? [RV.id] : []) });
+  test.each([
+    ["A", st()], ["B (7 left)", st({ total: 9, bought: 2 })], ["R1", st({ total: 9, bought: 9 })],
+    ["C ready", st({ readyAt: "2026-10-19T12:00:00Z" })], ["D cooked", st({ cooked: true })], ["D not planned", null],
+  ])("%s", (_, state) => {
+    const { container } = render(<RecipeView meal={RV} state={state} members={[]} cookCount={3} lastCookedAt="2026-10-12T18:00:00Z" cookRows={null}
+      links={null} tagsReady={false} addedThisPlan={false} viewerUserId={null} busy={false}
+      onClose={noop} onEdit={noop} onPlan={noop} onAddToShop={noop} onCooked={noop} onRemove={noop} onSeeList={noop} />);
+    expectNoTokens(container, ["Grilled", "Shrimp", "Chimichurri", "Parsley", "Aunt", "Jo"]);
+    container.querySelectorAll("*").forEach((el) => {
+      for (const a of el.attributes) {
+        if (!/^(aria-|id$|class$|data-)/.test(a.name)) continue;
+        expect(`${a.name}="${a.value}"`).not.toMatch(/\b(7|9|2|3) (left|items?|ingredients?|steps?)\b/);
+        expect(a.value).not.toMatch(/left to buy/);
+      }
+    });
+    // the count-bearing button is never the allow-listed class
+    expect(container.querySelectorAll(".rv-see.rv-plan")).toHaveLength(0);
+  });
+});

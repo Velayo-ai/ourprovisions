@@ -19,7 +19,7 @@ import { IMPORT_HINTS, GALLEY_HINTS } from './lib/importErrors';
 import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
 import { displayTitle } from './lib/displayTitle';
 import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
-import { planActionFor, leftToBuy } from './lib/recipePlan';
+import { leftToBuy, recipeBlockFor, REMOVE_LABEL } from './lib/recipePlan';
 import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } from './lib/boardState';
 import { cookDate, cookHistoryLine } from './lib/cookDate';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
@@ -2028,8 +2028,9 @@ function SetTypeSheet({ meal, onSave, onClose }) {
 // Every gated element (photos, stars, notes, names, as_written, Shared by)
 // renders NOTHING until its data exists. Landing by door is slice (b); Cook
 // mode is slice (c).
-// RUM: .rv-edit / .rv-plan / .rv-showall are allow-listed and carry fixed copy
-// (a count at most). The title, byline, Added by, proof, ingredients and steps
+// RUM: .rv-edit / .rv-plan / .rv-remove / .rv-showall are allow-listed and carry fixed
+// copy (Show all's count at most); .rv-see ("{n} left to buy") and .rv-status are not
+// (Amendment B, R4). The title, byline, Added by, proof, ingredients and steps
 // are household content: masked, never in an attribute — the dialog is named
 // by aria-labelledby → #rv-title, never aria-label.
 // Text roles (the 10-04 role table, re-mapped 2026-10-18 — the mockup's pixel
@@ -2049,7 +2050,7 @@ const memberFirstName = (mb) => {
 // last week, weekday + date beyond it. Never a person (D10).
 // Your cooks shows only at 2+ cooks (A4): one cook is the meta line's job.
 const RV_COOKS_MIN = 2;
-function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onUnplan, onCooked, onSeeList }) {
+export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2075,26 +2076,33 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, l
   ].filter(Boolean).join(" · ");
   const rows = cookRows || [];
   const shownCooks = allCooks ? rows : rows.slice(0, RV_COOKS_SHOWN);
-  // The board's flags → the one action (src/lib/recipePlan.js, jest-proven; the
-  // 2026-10-18 phone check caught To buy reading as Cooked it here).
-  const action = planActionFor(state);
+  // THE ACTION BLOCK (Amendment B + Step 0 rulings, 2026-10-19; src/lib/recipePlan.js,
+  // jest-proven): a status line that never acts, ONE main action, a quiet remove link.
+  // Every action is the board's own handler (B3): Add to Shop = the board's Add to Shop
+  // (handleAddMealToList, on-hand prompt included), Cooked it = handleCookedMeal, Remove =
+  // the board's ⋯ → Remove (handleSkipMeal with the card's toBuy, so a To-buy meal's items
+  // come off Shop as they do from the board). No toast on Remove, as on the board: the view
+  // moving to "+ Add to This Week" / "+ Plan again" is the feedback and the undo (B4).
+  const block = recipeBlockFor(state);
   let plan;
-  if (action === "add") {
+  if (block.action === "add") {
     plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Add to This Week</button>;
-  } else if (action === "cooked") {
+  } else if (block.action === "cooked") {
     // A5 revision: every pill acts. Cooked offers + Plan again through the same
     // handler as Add (planMeal reopens the closed placement); "Last cooked …" in
     // the meta line already says it was cooked.
     plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Plan again</button>;
-  } else if (action === "cookIt") {
+  } else if (block.action === "addToShop") {
+    plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onAddToShop(meal.id); }}>Add to Shop</button>;
+  } else if (block.action === "cookIt") {
     plan = <button type="button" className="rv-plan teal" disabled={busy} onClick={() => { if (!busy) onCooked(meal.id); }}>Cooked it</button>;
-  } else if (action === "toBuy") {
-    // A5 revision: "{n} left to buy · See list" — n is the board's own count (rc, one
-    // source); the tap is the board card's See on list handler. A count in the
-    // click text is the .lib-week precedent; never a name.
-    plan = <button type="button" className="rv-plan see" onClick={onSeeList}>{leftToBuy(state)} left to buy · See list</button>;
   } else {
-    plan = <button type="button" className="rv-plan on" disabled={busy} onClick={() => { if (!busy) onUnplan(meal.id); }}>✓ On This Week</button>;
+    // "{n} left to buy · See list →" — n is the board's own count (rc, one source); the tap
+    // is the board card's See on list. Its own class, OFF the allow-list (R4): the count
+    // never reaches click text, and the click event still names the button by class.
+    // Two unbreakable halves in ONE inline wrapper (the button is flex, which would trim the
+    // spaces around "·"): at XXL on 320 the line breaks at the "·", never before the arrow.
+    plan = <button type="button" className="rv-see" onClick={onSeeList}><span><span className="rv-nw">{leftToBuy(state)} left to buy</span> · <span className="rv-nw">See list →</span></span></button>;
   }
   return (
     <div className="rv-scrim" onClick={onClose}>
@@ -2115,7 +2123,16 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, l
           {/* A4: "Last cooked {date}", "· N times" at 2+; nothing when never cooked. */}
           {cookHistoryLine(lastCookedAt, cookCount) && <div className="rv-proof">{cookHistoryLine(lastCookedAt, cookCount)}</div>}
         </div>
-        <div className="rv-plan-row">{plan}</div>
+        <div className="rv-plan-row">
+          {/* Status is never a button (Amendment B): plain text, masked, no role, no tap. */}
+          {block.onWeek && (
+            <div className="rv-status">✓ On This Week{block.soft && <> <span className="rv-status-sep" aria-hidden="true">·</span> <span className="rv-status-soft">{block.soft}</span></>}</div>
+          )}
+          {plan}
+          {block.remove && (
+            <button type="button" className="rv-remove" disabled={busy} onClick={() => { if (!busy) onRemove(meal.id, !!state.toBuy); }}>{REMOVE_LABEL[block.remove]}</button>
+          )}
+        </div>
 
         <div className="rv-seam">Make it</div>
         {ingredients.length === 0 && stepCount === 0 && parsed.preamble.length === 0 && (
@@ -7364,14 +7381,22 @@ function ProvisionsApp() {
         .rv-meta { margin-top: 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
         .rv-proof { margin-top: 8px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #5C4636; }
         .rv-plan-row { padding: 16px 20px 0; }
-        .rv-plan { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 10px 16px; border-radius: 24px; border: 1.5px solid transparent;
+        .rv-plan, .rv-see { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 10px 16px; border-radius: 24px; border: 1.5px solid transparent;
                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; }
         .rv-plan.add { background: #D9BC8C; border-color: #D9BC8C; color: #2C1A0E; }
-        .rv-plan.on { background: #F1E7D8; border-color: #D9BC8C; color: #2C1A0E; }
         .rv-plan.teal { background: #0D9488; border-color: #0D9488; color: #fff; }
-        /* A5 (2026-10-18): To buy offers the board card's "See on list" in the board's own outline; nothing inert is drawn as a pill. */
-        .rv-plan.see { background: transparent; border-color: #C9A97A; color: #6f5a45; }
-        .rv-plan:disabled { opacity: 0.5; cursor: default; }
+        /* A5 (2026-10-18): To buy offers the board card's "See on list" in the board's own outline. Its own class
+           since Amendment B (R4): the count stays out of click text. */
+        .rv-see { background: transparent; border-color: #C9A97A; color: #6f5a45; }
+        .rv-plan:disabled, .rv-remove:disabled { opacity: 0.5; cursor: default; }
+        /* Amendment B: the status line is text, never a control; 12.5 is the floor (the seam's role). */
+        .rv-status { margin-bottom: 10px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: #8A5F3A; line-height: 1.4; }
+        .rv-status-sep { opacity: 0.5; }
+        .rv-status-soft { letter-spacing: 0.04em; text-transform: none; color: #5C4636; white-space: nowrap; }
+        .rv-nw { white-space: nowrap; }
+        /* The quiet remove link: a real button on a 44 px target, underlined text, never a pill. */
+        .rv-remove { display: block; width: 100%; min-height: 44px; margin-top: 4px; padding: 8px 12px; background: none; border: 0; font-family: 'Lato', sans-serif;
+                     font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); color: #5C4636; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: #C9A97A; cursor: pointer; }
         .rv-seam { display: flex; align-items: center; gap: 10px; margin: 22px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: #8A5F3A; }
         .rv-seam::before, .rv-seam::after { content: ""; flex: 1; height: 1px; background: #E8D5B7; }
         /* The section headings are the Edit Meal sheet's section labels (.modal-label) in size and shape, so the
@@ -10010,7 +10035,10 @@ function ProvisionsApp() {
 
       {/* The recipe view (SPEC_recipe_view): read first. Edit opens the sheet above in
           its place; the view returns on Cancel / Save with the live row. */}
-      {MEALS_ENABLED && rvMeal && !mealSheet && (
+      {/* !onHandPrompt (Amendment B, R5): the board's Add to Shop opens the "I have this" prompt, a
+          .modal-overlay (z 100) that would sit UNDER this view's scrim (z 1000) — the view steps aside
+          while it is open and returns in its new state, the same pattern as the Edit sheet. */}
+      {MEALS_ENABLED && rvMeal && !mealSheet && !onHandPrompt && (
         <RecipeView
           meal={rvMeal}
           state={rvState}
@@ -10028,8 +10056,10 @@ function ProvisionsApp() {
           onClose={() => setRecipeView(null)}
           onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
           onPlan={handlePlanMeal}
-          onUnplan={handleUnplanMeal}
+          // B3 — the board's own handlers, the same three PlanBoard takes (onLockIn / onCooked / onSkip).
+          onAddToShop={handleAddMealToList}
           onCooked={handleCookedMeal}
+          onRemove={handleSkipMeal}
           // A5: the board card's own See on list (goToDoor("list")), after the view closes.
           onSeeList={() => { setRecipeView(null); goToDoor("list"); }}
         />

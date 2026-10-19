@@ -54,7 +54,7 @@ describe("click-text privacy block is unchanged", () => {
     expect(web.privacy.maskAllText).toBe(true);
     expect(rules.slice(-2)).toEqual(CLERK);
     expect(rules.slice(0, -2).every((r) => r.rule === "unmask")).toBe(true);
-    expect(rules.slice(0, -2)).toHaveLength(46);
+    expect(rules.slice(0, -2)).toHaveLength(47);
     expect(rules.some((r) => r.selector === ".op-replay-block")).toBe(false);
   });
   test("preview: Clerk excludes only", () => {
