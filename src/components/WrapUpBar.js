@@ -25,6 +25,12 @@
 // RUM: `.wrapbar` is on CHROME_ALLOW_LIST (src/rum.js). It unmasks counts only
 // ("4 of 11 · 7 carry forward") — the same class of number the Helm's Shop
 // badge already shows — never an item name. Keep names out of it.
+//
+// Replay (2026-10-19, SPEC_replay_labels_promotion2 A2): the session recorder
+// copies every attribute verbatim, so the counts never sit in one. With a trip
+// under way the bar names itself by aria-labelledby — its own visible "Wrap up"
+// word plus its visible, masked count line — not by an aria-label template.
+// Click text (above) is unchanged: it reads text nodes, not attributes.
 export function WrapUpBar({ checked, total, onWrapUp, busy = false }) {
   if (!total || checked >= total) return null;
   const pct = Math.round((checked / total) * 100);
@@ -36,15 +42,16 @@ export function WrapUpBar({ checked, total, onWrapUp, busy = false }) {
       className={`wrapbar${empty ? " p0" : ""}`}
       onClick={onWrapUp}
       disabled={busy}
-      aria-label={empty ? "Wrap up the trip early" : `Wrap up: ${checked} of ${total} in cart, ${left} carry forward`}
+      aria-label={empty ? "Wrap up the trip early" : undefined}
+      aria-labelledby={empty ? undefined : "wrapbar-word wrapbar-count"}
     >
       <span className="wrapbar-fill" style={{ width: `${pct}%` }} aria-hidden="true" />
-      <span className="wrapbar-t">
+      <span id="wrapbar-count" className="wrapbar-t">
         {empty
           ? "Leaving early?"
           : <><b>{checked} of {total}</b> · {left} carry forward</>}
       </span>
-      <span className="wrapbar-a">{empty ? "Wrap up →" : "Wrap up"}</span>
+      <span id="wrapbar-word" className="wrapbar-a">{empty ? "Wrap up →" : "Wrap up"}</span>
     </button>
   );
 }

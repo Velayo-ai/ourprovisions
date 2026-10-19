@@ -86,6 +86,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // ACTIVE household, so a switch reads as not-loaded until the new place's
   // rows are in. Reset with the rest of the household world on sign-out.
   const [membersLoadedFor, setMembersLoadedFor] = useState(null);
+  // The household whose meal_cooks reduce (`cooks`) has been read at least once.
+  // A meal with no entry in `cooks` is "never cooked" ONLY once this says so —
+  // before that it is "unknown", and the recipe view shows no tags (2026-10-18).
+  const [cooksLoadedFor, setCooksLoadedFor] = useState(null);
   const [catalogLoadedFor, setCatalogLoadedFor] = useState(null);
   const [error, setError] = useState(null);
   // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
@@ -759,6 +763,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setPlacements({});
     placementsRef.current = {};
     setCooks({});
+    setCooksLoadedFor(null);
     errorSourceRef.current = null;
     setError(null);
     setLoading(false);
@@ -867,6 +872,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setPlacements({});
       placementsRef.current = {};
       setCooks({});
+      setCooksLoadedFor(null);
 
       try {
         // Fetch the household record. Banner columns (migration 024) are read
@@ -3319,8 +3325,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Rows close, they don't die: there is no DELETE policy, so a client delete
   // would match zero rows and raise nothing (041) — don't write one.
   // ─────────────────────────────────────────────────────────────
-  const rowToPlacement = (r) => ({ sortOrder: r.sort_order, readyAt: r.ready_at ?? null, cookedAt: r.cooked_at ?? null, skippedAt: r.skipped_at ?? null });
-  const samePlacement = (a, b) => !!a && !!b && a.sortOrder === b.sortOrder && a.readyAt === b.readyAt && a.cookedAt === b.cookedAt && a.skippedAt === b.skippedAt;
+  // plannedAt (063, 2026-10-18): when this placement was last (re)planned — stamped by
+  // appendPlacement only; null on rows older than 063 (readers fall back to the meal's
+  // last cook). Read by the recipe view's "bought for this meal" window.
+  const rowToPlacement = (r) => ({ sortOrder: r.sort_order, readyAt: r.ready_at ?? null, cookedAt: r.cooked_at ?? null, skippedAt: r.skipped_at ?? null, plannedAt: r.planned_at ?? null });
+  const samePlacement = (a, b) => !!a && !!b && a.sortOrder === b.sortOrder && a.readyAt === b.readyAt && a.cookedAt === b.cookedAt && a.skippedAt === b.skippedAt && a.plannedAt === b.plannedAt;
   const setPlacementsBoth = (next) => { placementsRef.current = next; setPlacements(next); };
   // §Polling discipline — placements backoff. The 2s meal tick keeps ticking
   // (it is App.js's interval); this ref tells the POLLED entry (refreshPlacements)
@@ -3349,12 +3358,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       else next[r.meal_id] = { lastCookedAt: r.cooked_at, count: 1 };
     });
     setCooks(next);
+    setCooksLoadedFor(hh.id);
   }
 
   async function loadPlacements(db, hh) {
     const { data, error: err, status: plStatus } = await db
       .from("meal_placements")
-      .select("meal_id, sort_order, ready_at, cooked_at, skipped_at")
+      .select("meal_id, sort_order, ready_at, cooked_at, skipped_at, planned_at")
       .eq("household_id", hh.id);
     if (err) {
       if (stopOnAuthFailure(err, plStatus)) return;
@@ -3403,6 +3413,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .maybeSingle();
     if (mErr) throw mErr;
     const sortOrder = (top?.sort_order ?? -1) + 1;
+    // 063: planned_at is stamped HERE and only here — the one write that opens (or
+    // reopens) a placement. Reorder, Ready, cook and skip never touch it.
+    const plannedAt = new Date().toISOString();
     const { error: uErr } = await db
       .from("meal_placements")
       .upsert({
@@ -3412,11 +3425,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         ready_at: null,
         cooked_at: null,
         skipped_at: null,
-        updated_at: new Date().toISOString(),
+        planned_at: plannedAt,
+        updated_at: plannedAt,
         updated_by: internalUserIdRef.current,
       }, { onConflict: "household_id,meal_id" });
     if (uErr) throw uErr;
-    setPlacementsBoth({ ...placementsRef.current, [mealId]: { sortOrder, readyAt: null, cookedAt: null, skippedAt: null } });
+    setPlacementsBoth({ ...placementsRef.current, [mealId]: { sortOrder, readyAt: null, cookedAt: null, skippedAt: null, plannedAt } });
   }
 
   async function clearReady(db, hh, mealId) {
@@ -3746,6 +3760,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hiddenCatalogItems, loading, householdReady, bootstrapped, error, dismissError,
     // A5: per active household — false until that place's rows have been read once.
     membersLoaded: !!household?.id && membersLoadedFor === household.id,
+    cooksLoaded: !!household?.id && cooksLoadedFor === household.id,
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,

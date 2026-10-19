@@ -188,7 +188,7 @@ const ReadyChip = () => <span className="lib-ready" aria-hidden="true"><CheckGly
 function LibrarySlot({ meal, thumb = false, chip = false }) {
   const base = (thumb ? "lib-thumb" : "lib-slot") + (chip ? " has-chip" : "");
   if (meal.cardPhotoUrl) {
-    return <span className={`${base} photo`} aria-hidden="true"><img className="lib-slot-img" src={meal.cardPhotoUrl} alt="" />{chip && <ReadyChip />}</span>;
+    return <span className={`${base} photo`} aria-hidden="true"><img className="lib-slot-img op-replay-block" src={meal.cardPhotoUrl} alt="" />{chip && <ReadyChip />}</span>;
   }
   const tint = occasionTint(meal);
   return (

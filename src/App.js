@@ -8,6 +8,7 @@ import { ConnectivityPill } from './components/ConnectivityPill';
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
+import { CategorySelect } from './components/CategorySelect';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { parseSteps } from './lib/parseSteps';
@@ -17,7 +18,10 @@ import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
 import { IMPORT_HINTS, GALLEY_HINTS } from './lib/importErrors';
 import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
 import { displayTitle } from './lib/displayTitle';
-import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, PlusGlyph, LibraryItem } from './components/LibraryCards';
+import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
+import { planActionFor, leftToBuy } from './lib/recipePlan';
+import { cookDate, cookHistoryLine } from './lib/cookDate';
+import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
@@ -964,7 +968,7 @@ function OnDeckCard({
       <section className="deck cooked" aria-label="On deck">
         <div className="deck-eyebrow">On deck</div>
         <div className="deck-body">
-          <h3 className="deck-title">{head.name}</h3>
+          <h3 className="deck-title">{displayTitle(head.name)}</h3>
         </div>
         <div className="deck-actions">
           <button type="button" className="deck-primary done" disabled>✓ Cooked</button>
@@ -1020,7 +1024,8 @@ function OnDeckCard({
           onClick={open}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }}
         >
-          <h3 className="deck-title">{st.title}</h3>
+          {/* Display casing only (displayTitle, visual v2 D11) — the meal branch; a held night's title is its label. */}
+          <h3 className="deck-title">{displayTitle(st.title)}</h3>
           {st.line && <p className="deck-status">{st.line}</p>}
         </div>
       )}
@@ -1533,7 +1538,7 @@ function boardCardState(m, { placements, rows, mealById, cookedIds }) {
   return { noShop, cooked, ready, planned, toBuy, canAdd, rc, chip, title, line };
 }
 
-function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
+export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
   // A card cooked THIS board load stays in place, muted, until the next load
   // (cookedIds, owned by App). It is not in the queue: no drag, no number, no
   // rail word, excluded from upNext / counts / numbering.
@@ -1626,6 +1631,12 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
   const openOrder = projected.filter((x) => !isCooked(x)).map((x) => x.id);
   return (
     <div className="board">
+      {/* The fixed VERB halves of the board's aria-labelledby names, rendered once, outside every
+          button (2026-10-19, the library's 10-16 recipe). The meal's half is the card's masked
+          title (id board-title-{uuid}); no name ever sits in an attribute the recorder copies. */}
+      <span id="board-verb-remove" className="sr-only">Remove</span>
+      <span id="board-verb-more" className="sr-only">More for</span>
+      <span id="board-verb-cooked" className="sr-only">cooked</span>
       {menuFor && <div className="board-menu-backdrop" onClick={(e) => { e.stopPropagation(); setMenuFor(null); }} />}
       {list.map((m, i) => {
         const busy = busyMealId === m.id;
@@ -1647,13 +1658,15 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
             else if (drag.to < drag.from && i >= drag.to && i < drag.from) transform = `translateY(${h}px)`;
           }
         }
-        const open = () => { if (!noShop && !cooked) onOpen(m); };
+        // A cooked card opens the recipe view too (ruling 2026-10-16: the recipe is
+        // still worth reading after the cook); only a held night has nothing to open.
+        const open = () => { if (!noShop) onOpen(m); };
         return (
           <div
             key={m.id}
             className={`board-card${lifted ? " lifted" : ""}${ready ? " ready" : ""}${noShop ? " noshop" : ""}${cooked ? " cooked" : ""}`}
-            role={noShop || cooked ? undefined : "button"}
-            tabIndex={noShop || cooked ? undefined : 0}
+            role={noShop ? undefined : "button"}
+            tabIndex={noShop ? undefined : 0}
             onClick={() => { if (swallowClickRef.current) { swallowClickRef.current = false; return; } open(); }}
             onKeyDown={(e) => { if (!noShop && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } }}
             onPointerDown={(e) => onPointerDown(e, m, i)}
@@ -1669,7 +1682,8 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
             </div>
             <div className="board-main">
               <div className="board-top">
-                <span className="board-card-title">{title}</span>
+                {/* Display casing only (displayTitle, visual v2 D11) on a meal; a held night's title is its label. */}
+                <span id={`board-title-${m.id}`} className="board-card-title">{noShop ? title : displayTitle(title)}</span>
                 {chip && <span className={`board-chip${ready ? " ready" : ""}`}>{chip}</span>}
                 {/* × at rest only on a no-shop card — it is that card's one action.
                     A meal card shows NO destructive control at rest: Remove lives
@@ -1678,7 +1692,7 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
                   <button
                     type="button"
                     className="board-x"
-                    aria-label={`Remove ${title}`}
+                    aria-labelledby={`board-verb-remove board-title-${m.id}`}
                     disabled={busy}
                     onClick={(e) => { e.stopPropagation(); if (!busy) onSkip(m.id, false); }}
                   >×</button>
@@ -1700,7 +1714,7 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
                   (teal outline, disabled). It leaves on the next board load. */}
               {cooked && (
                 <div className="board-actions">
-                  <button type="button" className="board-cook done" disabled aria-label={`${m.name} cooked`}>✓ Cooked</button>
+                  <button type="button" className="board-cook done" disabled aria-labelledby={`board-title-${m.id} board-verb-cooked`}>✓ Cooked</button>
                 </div>
               )}
               {!noShop && !cooked && (
@@ -1732,7 +1746,7 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
                 <button
                   type="button"
                   className="board-more"
-                  aria-label={`More for ${m.name}`}
+                  aria-labelledby={`board-verb-more board-title-${m.id}`}
                   aria-expanded={menuFor === m.id}
                   onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === m.id ? null : m.id); }}
                 >⋯</button>
@@ -1740,9 +1754,8 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
               )}
               {/* ⋯ — Remove, Cooked it (Planned only), Open recipe. Remove is the
                   skip path (on a to-buy card it zeroes the meal's pending rows first);
-                  Cooked it is the freezer-pizza exit; the read-only recipe sheet is on
-                  the record (09-14) and until it lands Open recipe opens the same
-                  sheet a card tap does. */}
+                  Cooked it is the freezer-pizza exit; Open recipe opens the recipe
+                  view, the same as a card tap (SPEC_recipe_view, 2026-10-18). */}
               {menuFor === m.id && (
                 <div className="board-menu" role="menu" onClick={(e) => e.stopPropagation()}>
                   <button type="button" role="menuitem" disabled={busy}
@@ -2025,7 +2038,206 @@ function SetTypeSheet({ meal, onSave, onClose }) {
   );
 }
 
-function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onEdit, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx, onSetOccasion }) {
+// THE RECIPE VIEW (SPEC_recipe_view, built 2026-10-18 — slice (a)). Tapping a meal
+// opens THIS, from every door that shows one: the library card body (grid and
+// list), the This Week card body (a cooked card too — ruling 2026-10-16; held
+// nights never) and Home's on-deck card body. Edit sits top-right and opens the
+// existing Edit Meal sheet unchanged (D1). One full-height SheetPanel — Close
+// top-left, swipe-down, handle; no back arrow, no route (D2). Two halves in this
+// order (D3): DECIDE — hero, title, byline, Added by, meta, proof, the plan
+// action; MAKE — the "Make it" seam, Ingredients, Steps, Your cooks.
+//   hero     the occasion tint + mark, as on the library card; no photo path
+//            yet (Photos v1), no placeholder text, no camera (D5)
+//   byline   "from {attribution}" — hidden when empty; never a possessive, never
+//            created_by (D6)
+//   Added by "Added by {first name}" from created_by — only in a household of
+//            2+ current members and only while the adder is still one (D7)
+//   meta     "{Occasion} · {n} ingredients · {n} steps" — occasion omitted when
+//            untagged, steps omitted at 0 (D8)
+//   proof    "Last cooked {date}", "· {N} times" at 2+ (A4, 2026-10-18 — was
+//            "Cooked {n} times"); from meal_cooks; hidden when never cooked
+//            (D11). No average. Your cooks shows only at 2+ cooks (A4).
+//   plan     the board's OWN derivation (boardCardState, D9): not on This Week →
+//            sand "+ Add to This Week"; planned → "✓ On This Week" (un-plans);
+//            to buy → "{n} left to buy · See list", n the board's own count, the
+//            tap the board card's See on list handler (A5 revision, 2026-10-18);
+//            everything in the cart (n = 0), ready, or planned with nothing to
+//            shop for → teal "Cooked it" (the cook_meal path, one row, as the
+//            board); cooked this load → "+ Plan again", the same handler as Add
+//            (A5 revision: every pill acts; information lives in text). Never
+//            Cooked it while items are still to buy, never for an unplanned
+//            meal (D9a).
+//   tags     while the meal is on This Week and not cooked only (A2 / A2-R,
+//            2026-10-18; src/lib/ingredientTags.js): "{First} bought it" / "You
+//            bought it" / "Bought" (this meal's link, status bought — archived
+//            rows included — named from the latest checked event in the window,
+//            nameless when solo or unrecorded) → "On the shopping list" (live
+//            pending link) → "Already have it" (on_hand) → nothing. The
+//            summary under INGREDIENTS: "{n} · {k} on the shopping list" /
+//            "{n} · All here", k the board's own count.
+//   cooks    one row per cook, newest first, DATE ONLY — meal_cooks.cooked_by
+//            is the tapper, not the cook, and is never shown (D10); 5 rows then
+//            "Show all {n}"; hidden when never cooked (D14)
+// Every gated element (photos, stars, notes, names, as_written, Shared by)
+// renders NOTHING until its data exists. Landing by door is slice (b); Cook
+// mode is slice (c).
+// RUM: .rv-edit / .rv-plan / .rv-showall are allow-listed and carry fixed copy
+// (a count at most). The title, byline, Added by, proof, ingredients and steps
+// are household content: masked, never in an attribute — the dialog is named
+// by aria-labelledby → #rv-title, never aria-label.
+// Text roles (the 10-04 role table, re-mapped 2026-10-18 — the mockup's pixel
+// sizes read a size too large on the phone): title = sheet title 22.4 at k 0.5;
+// section headings = the Edit Meal sheet's .modal-label (12.5 uppercase, k 1);
+// byline / Added by / meta / proof = meta 14 at k 1; ingredient rows, step text
+// and cook rows = body 16 at k 1 on 44 px rows; Edit / the plan pill / Show all
+// = button 14 at k 0.8; tags and the seam 12.5. Nothing under the 12.5 floor.
+// Cook mode (slice c) steps the step text up one size from here.
+const RV_COOKS_SHOWN = 5;
+// A member's first name: the profile's full name, else the email's local part.
+const memberFirstName = (mb) => {
+  const full = (mb?.users?.full_name || "").trim();
+  return full.split(/\s+/)[0] || (mb?.users?.email ? mb.users.email.split("@")[0] : "");
+};
+// Cook dates come from src/lib/cookDate.js (Amendment A4): relative inside the
+// last week, weekday + date beyond it. Never a person (D10).
+// Your cooks shows only at 2+ cooks (A4): one cook is the meta line's job.
+const RV_COOKS_MIN = 2;
+function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onUnplan, onCooked, onSeeList }) {
+  const [allCooks, setAllCooks] = useState(false);
+  const tint = occasionTint(meal);
+  const first = (meal.occasion || [])[0];
+  const occasionWord = first ? OCCASION_WORD[first] : null;
+  const ingredients = meal.meal_ingredients || [];
+  const parsed = useMemo(() => parseSteps(meal.instructions), [meal.instructions]);
+  const attribution = (meal.attribution || "").trim();
+  const adder = (members || []).length >= 2 ? (members || []).find((mb) => mb.user_id && mb.user_id === meal.created_by) : null;
+  const adderName = adder ? memberFirstName(adder) : "";
+  const onWeek = !!state && !state.cooked;
+  // Tags and the summary's list state only once the cook reduce and this meal's links are in
+  // (2026-10-18 correction) — before that the rows are bare and the heading is the count.
+  const tagsOn = onWeek && !!tagsReady;
+  // A2-R §3: solo = fewer than 2 current members (the earned-Our rule); a buyer is
+  // named only through the members already loaded — a user who left names nobody.
+  const solo = (members || []).length < 2;
+  const firstNameOf = (userId) => memberFirstName((members || []).find((mb) => mb.user_id === userId));
+  const stepCount = parsed.steps.length;
+  const meta = [
+    occasionWord,
+    `${ingredients.length} ${ingredients.length === 1 ? "ingredient" : "ingredients"}`,
+    stepCount > 0 ? `${stepCount} ${stepCount === 1 ? "step" : "steps"}` : null,
+  ].filter(Boolean).join(" · ");
+  const rows = cookRows || [];
+  const shownCooks = allCooks ? rows : rows.slice(0, RV_COOKS_SHOWN);
+  // The board's flags → the one action (src/lib/recipePlan.js, jest-proven; the
+  // 2026-10-18 phone check caught To buy reading as Cooked it here).
+  const action = planActionFor(state);
+  let plan;
+  if (action === "add") {
+    plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Add to This Week</button>;
+  } else if (action === "cooked") {
+    // A5 revision: every pill acts. Cooked offers + Plan again through the same
+    // handler as Add (planMeal reopens the closed placement); "Last cooked …" in
+    // the meta line already says it was cooked.
+    plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Plan again</button>;
+  } else if (action === "cookIt") {
+    plan = <button type="button" className="rv-plan teal" disabled={busy} onClick={() => { if (!busy) onCooked(meal.id); }}>Cooked it</button>;
+  } else if (action === "toBuy") {
+    // A5 revision: "{n} left to buy · See list" — n is the board's own count (rc, one
+    // source); the tap is the board card's See on list handler. A count in the
+    // click text is the .lib-week precedent; never a name.
+    plan = <button type="button" className="rv-plan see" onClick={onSeeList}>{leftToBuy(state)} left to buy · See list</button>;
+  } else {
+    plan = <button type="button" className="rv-plan on" disabled={busy} onClick={() => { if (!busy) onUnplan(meal.id); }}>✓ On This Week</button>;
+  }
+  return (
+    <div className="rv-scrim" onClick={onClose}>
+      {/* The cap against the scrim, not the window (see .rv-sheet): SheetPanel's own calc(100dvh - 24px)
+          overruns the desktop phone-frame by 24 px. Same 24 px top offset as every other full-height sheet. */}
+      <SheetPanel onClose={onClose} labelledBy="rv-title" className="rv-sheet" style={{ maxHeight: "calc(100% - 24px)" }}>
+        <SheetClose onClose={onClose} />
+        <div className="lib-type-handle" aria-hidden="true" />
+        <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
+        <div className="rv-hero" style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
+          <OccasionIcon occasion={first} size={44} tint={tint.bg} />
+        </div>
+        <div className="rv-head">
+          <h2 id="rv-title" className="rv-title">{displayTitle(meal.name)}</h2>
+          {attribution && <div className="rv-byline">from {attribution}</div>}
+          {adderName && <div className="rv-added">Added by {adderName}</div>}
+          <div className="rv-meta">{meta}</div>
+          {/* A4: "Last cooked {date}", "· N times" at 2+; nothing when never cooked. */}
+          {cookHistoryLine(lastCookedAt, cookCount) && <div className="rv-proof">{cookHistoryLine(lastCookedAt, cookCount)}</div>}
+        </div>
+        <div className="rv-plan-row">{plan}</div>
+
+        <div className="rv-seam">Make it</div>
+        {ingredients.length === 0 && stepCount === 0 && parsed.preamble.length === 0 && (
+          <div className="rv-empty">No ingredients or steps yet.</div>
+        )}
+        {ingredients.length > 0 && (
+          <>
+            {/* A2: the summary replaces the bare count — "{n} · {k} on the shopping list" /
+                "{n} · All here", k the board's own count so All here ⇔ Cooked it. */}
+            <h3 className="rv-sec">Ingredients <span>{ingredientSummary({ n: ingredients.length, onWeek: tagsOn, leftToBuy: leftToBuy(state), addedThisPlan })}</span></h3>
+            <ul className="rv-ing">
+              {ingredients.map((mi) => {
+                const qty = Number(mi.quantity_per_serving) || 1;
+                const name = mi.catalog_items?.name || "Unknown item";
+                // A2 / A2-R: bought for this meal (archived at wrap-up; named only when the
+                // trip recorded the checker; "You" for the viewer; nameless in a solo
+                // household) → in the cart (checked on the open trip, not wrapped up — the
+                // "cart vs bought" correction, same window and buyer) → on the shopping
+                // list → already have it → nothing. The name is masked text.
+                const tag = ingredientTag({
+                  onWeek: tagsOn, onHand: !!mi.on_hand, link: links?.[mi.catalog_item_id] || null,
+                  viewerUserId, solo, firstNameOf, addedThisPlan,
+                });
+                return (
+                  <li key={mi.id || mi.catalog_item_id}>
+                    <span className="rv-ing-name">{qty > 1 ? `${qty} × ` : ""}{name}</span>
+                    {tag && <span className={`rv-tag ${tag.kind}`}>{tag.text}</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+        {(stepCount > 0 || parsed.preamble.length > 0) && (
+          <>
+            <h3 className="rv-sec">Steps</h3>
+            {/* The preamble: unnumbered lines before the first "1." (parseSteps) — today
+                the import's "As written" block; plain lines, never step 1. */}
+            {parsed.preamble.length > 0 && (
+              <div className="rv-preamble">{parsed.preamble.map((line, i) => <p key={i}>{line}</p>)}</div>
+            )}
+            <ol className="rv-steps">
+              {parsed.steps.map((s, i) => (
+                <li key={i}>
+                  {parsed.numbered && <span className="rv-step-n" aria-hidden="true">{i + 1}</span>}
+                  <p>{s}</p>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+        {rows.length >= RV_COOKS_MIN && (
+          <>
+            <h3 className="rv-sec">Your cooks <span>{rows.length}</span></h3>
+            <ul className="rv-cooks">
+              {shownCooks.map((r) => <li key={r.id}>{cookDate(r.cooked_at)}</li>)}
+            </ul>
+            {!allCooks && rows.length > RV_COOKS_SHOWN && (
+              <button type="button" className="rv-showall" onClick={() => setAllCooks(true)}>Show all {rows.length}</button>
+            )}
+          </>
+        )}
+        <div className="rv-pad" />
+      </SheetPanel>
+    </div>
+  );
+}
+
+function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onOpen, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx, onSetOccasion }) {
   const [query, setQuery] = useState("");
   const [libView, toggleLibView] = useLibraryView(textSizeIdx);
   // The meal whose "Set meal type" sheet is open (Amendment A4/A5); null when closed.
@@ -2206,7 +2418,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
             canPlan={!!(isSignedIn && onPlan)}
             onPlan={onPlan}
             onUnplan={onUnplan}
-            onOpen={(meal) => onEdit && onEdit(meal)}
+            onOpen={(meal) => onOpen && onOpen(meal)}
           />
         ))}
       </div>
@@ -2292,7 +2504,7 @@ function GoodForChips({ value, onChange, style }) {
 // written the moment a category pill was tapped so the draft could hold a real
 // id, and every Cancel left it behind as an orphan. Staged rows can now carry a
 // placeholder, so the write waits for Save (SPEC_defer_catalog_write).
-function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn }) {
+export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -3048,6 +3260,18 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     <div className="modal-overlay">
       <div className="modal" role="dialog" aria-modal="true" aria-label={isEdit ? "Edit meal" : "New meal"} style={{ maxHeight: "88vh", overflowY: "auto" }}>
         <SheetClose onClose={onCancel} disabled={saving || deleting} />
+        {/* The fixed VERB halves of the ingredient rows' aria-labelledby names, rendered once,
+            outside every button (2026-10-19, the library's 10-16 recipe). The item's half is the
+            row's masked name, under an INDEX id — never catalog_item_id, which is
+            "pending:{name}" for an item this sheet just created. */}
+        <span id="ing-verb-need" className="sr-only">Need</span>
+        <span id="ing-verb-again" className="sr-only">again</span>
+        <span id="ing-verb-decrease" className="sr-only">Decrease</span>
+        <span id="ing-verb-increase" className="sr-only">Increase</span>
+        <span id="ing-verb-remove" className="sr-only">Remove</span>
+        <span id="ing-verb-have" className="sr-only">I already have</span>
+        <span id="ing-verb-have-tail" className="sr-only">— keep it in the meal but do not add it</span>
+        <span id="ing-verb-added" className="sr-only">already added — add another</span>
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
 
         {/* The import banner (spec: Filled). One line, card-tinted, NO teal — nothing
@@ -3128,7 +3352,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               {/* Row styling matches .item-row.has-qty. Applied unconditionally:
                   every row in this list carries quantity ≥ 1 by definition, so a
                   qty-check would be a branch with one reachable outcome. */}
-              {rows.map((r) => (
+              {rows.map((r, ri) => (
                 <div key={r.catalog_item_id} style={{
                   padding: "8px 10px",
                   // Dashed + faded says "still part of the recipe, just not being bought".
@@ -3141,7 +3365,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px" }}>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
                     gap: "7px", flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+                    <span id={`ing-name-${ri}`} style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                       color: r.on_hand ? "#8a7a60" : "#2C1A0E" }}>
                       {r.name}
                     </span>
@@ -3182,7 +3406,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     // to a stepper, and this is a state change, not an increment.
                     <button
                       onClick={() => needAgain(r.catalog_item_id)}
-                      aria-label={`Need ${r.name} again`}
+                      aria-labelledby={`ing-verb-need ing-name-${ri} ing-verb-again`}
                       style={{
                         background: "none", border: "1.5px solid #C9A97A", borderRadius: "999px",
                         padding: "6px 13px", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8),
@@ -3195,19 +3419,19 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       <button
                         className="qty-btn"
                         onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving - 1)}
-                        aria-label={`Decrease ${r.name}`}
+                        aria-labelledby={`ing-verb-decrease ing-name-${ri}`}
                       >−</button>
                       <span className="qty-display">{r.quantity_per_serving}</span>
                       <button
                         className="qty-btn"
                         onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving + 1)}
-                        aria-label={`Increase ${r.name}`}
+                        aria-labelledby={`ing-verb-increase ing-name-${ri}`}
                       >+</button>
                     </div>
                   )}
                   <button
                     onClick={() => removeRow(r.catalog_item_id)}
-                    aria-label={`Remove ${r.name}`}
+                    aria-labelledby={`ing-verb-remove ing-name-${ri}`}
                     style={{ background: "none", border: "none", color: "#8A5F3A", fontSize: "18px",
                       cursor: "pointer", padding: "0 2px", flexShrink: 0, lineHeight: 1 }}
                   >×</button>
@@ -3231,7 +3455,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     <div style={{ marginTop: "1px" }}>
                       <button
                         onClick={() => shelve(r.catalog_item_id)}
-                        aria-label={`I already have ${r.name} — keep it in the meal but do not add it`}
+                        aria-labelledby={`ing-verb-have ing-name-${ri} ing-verb-have-tail`}
                         style={{
                           background: "none", border: "none", padding: "2px 0", cursor: "pointer",
                           fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 400,
@@ -3263,7 +3487,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
           {!busy && results.length > 0 && (
             <div style={{ marginTop: "8px" }}>
-              {results.map((it) => {
+              {results.map((it, ii) => {
                 const stagedRow = rows.find((r) => r.catalog_item_id === it.id);
                 return (
                 /* Same shape as Shop Add's .add-result row (the reference pattern, pass 2):
@@ -3275,7 +3499,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   display: "flex", alignItems: "center", gap: "10px", padding: "8px 2px",
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#2C1A0E",
+                    <div id={`ing-result-${ii}`} style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#2C1A0E",
                       overflowWrap: "anywhere" }}>
                       {it.name}
                     </div>
@@ -3296,7 +3520,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 14px",
                         background: "#E8D5B7", color: "#6b5a45" }}
                       onClick={() => stageItem(it)}
-                      aria-label={`${it.name} already added — add another`}
+                      aria-labelledby={`ing-result-${ii} ing-verb-added`}
                     >Added ×{stagedRow.quantity_per_serving}</button>
                   ) : (
                     <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 16px" }}
@@ -3585,7 +3809,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     <span id="op-verb-remove-shot" className="sr-only">Remove screenshot</span>
                     {photos.map((p, i) => (
                       <div key={p.id} className="op-galley-th">
-                        <img src={p.url} alt={`Screenshot ${i + 1}`} />
+                        <img className="op-replay-block" src={p.url} alt={`Screenshot ${i + 1}`} />
                         <span id={`op-shot-${p.id}`} className="op-galley-n" aria-hidden="true">{i + 1}</span>
                         <button type="button" className="op-galley-x" aria-labelledby={`op-verb-remove-shot op-shot-${p.id}`}
                           onClick={() => removePhoto(p.id)} disabled={saving}>×</button>
@@ -3830,6 +4054,63 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
   );
 }
 
+// PLACE ROW — one household in the Places list, moved verbatim out of ProvisionsApp
+// (2026-10-19) so a test can render it. The active row names itself by aria-labelledby:
+// the fixed verb span "hh-verb-edit" (rendered once by the list, outside every button)
+// plus this row's masked name (id hh-name-{uuid}). The household name is text only,
+// never an attribute the session recorder copies.
+export function PlaceRow({ hh, isActive, onEdit, onSwitch }) {
+  if (isActive) {
+    // Active row: espresso fill + clay ring carry selection; a bare pencil
+    // at the right edge opens Edit. Tapping the row also opens Edit.
+    return (
+      <button
+        onClick={onEdit}
+        aria-labelledby={`hh-verb-edit hh-name-${hh.id}`}
+        style={{
+          width: "100%", background: "#2C1A0E", border: "2px solid #c8973a",
+          borderRadius: "8px", padding: "11px 14px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
+        }}
+      >
+        <span id={`hh-name-${hh.id}`} style={{
+          fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+          color: "#FAF4EC", fontWeight: 700, flex: 1, minWidth: 0, overflowWrap: "anywhere",
+        }}>{hh.name}</span>
+        {/* Bare pencil + "Edit" label (no container/plate), per FINAL3 */}
+        <span style={{
+          display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, marginLeft: "10px",
+          fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
+          color: "#FAF4EC", opacity: 0.82,
+        }}>
+          <svg style={{ width: ts(15, 0.8), height: ts(15, 0.8) }} viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
+            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+          </svg>
+          Edit
+        </span>
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={onSwitch}
+      style={{
+        width: "100%", background: "#E8D5B7", border: "2px solid transparent",
+        borderRadius: "8px", padding: "11px 14px",
+        display: "flex", alignItems: "center",
+        cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
+      }}
+    >
+      <span style={{
+        fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+        color: "#2C1A0E", fontWeight: 400, minWidth: 0, overflowWrap: "anywhere",
+      }}>{hh.name}</span>
+    </button>
+  );
+}
+
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
   // D2 (SPEC_auth_state_ui_gating.md) as amended 2026-09-24: the session is LIVE
@@ -3915,6 +4196,7 @@ function ProvisionsApp() {
     householdReady,
     bootstrapped,
     membersLoaded,
+    cooksLoaded,
     catalogLoaded,
     error,
     dismissError,
@@ -4754,6 +5036,118 @@ function ProvisionsApp() {
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
 
+  // THE RECIPE VIEW (SPEC_recipe_view D1–D4): { mealId, landing } while open. The view
+  // reads the LIVE row from mealById, so Edit → Save shows through at once. It renders
+  // only while no Edit sheet is open — the sheet's .modal-overlay (z 100) would sit
+  // UNDER the view's scrim (z 1000) — and comes back on Cancel / Save with the row the
+  // server now holds. A deleted meal leaves mealById and the view simply stops
+  // rendering. "Your cooks" is a PER-MEAL meal_cooks read at open (Step 0 ruling,
+  // 2026-10-16: loadCooks keeps only count + last date per meal), re-read whenever the
+  // household's count for this meal moves — this device's Cooked it, or a partner's
+  // arriving by the placements poll. SELECT only; rows arrive through cook_meal.
+  const [recipeView, setRecipeView] = useState(null);
+  const [recipeCooks, setRecipeCooks] = useState(null);   // { mealId, rows: [{ id, cooked_at }] }
+  const openRecipe = useCallback((m, landing = "top") => {
+    if (m && !isNoShop(m)) setRecipeView({ mealId: m.id, landing });
+  }, []);
+  const rvMealId = recipeView?.mealId || null;
+  const rvCookCount = rvMealId ? (cooks[rvMealId]?.count || 0) : 0;
+  const rvLastCookedAt = rvMealId ? (cooks[rvMealId]?.lastCookedAt || null) : null;
+  // THE ANCHOR (A2-R correction, 063): the open placement's planned_at — stamped by the plan
+  // upsert on every plan or re-plan; the meal's last cook is the backstop for rows older than 063.
+  const rvPlannedAt = rvMealId ? (placements[rvMealId]?.plannedAt || null) : null;
+  const rvAnchor = planAnchor(rvPlannedAt, rvLastCookedAt);
+  useEffect(() => {
+    if (!rvMealId) { setRecipeCooks(null); return undefined; }
+    let cancelled = false;
+    (async () => {
+      const db = _supabase.current;
+      const hh = _household.current;
+      if (!db || !hh) return;
+      const { data, error: err } = await db
+        .from("meal_cooks")
+        .select("id, cooked_at")
+        .eq("household_id", hh.id)
+        .eq("meal_id", rvMealId)
+        .order("cooked_at", { ascending: false });
+      if (cancelled) return;
+      if (err) { console.warn("recipe cooks (non-fatal):", err.message); return; }
+      setRecipeCooks({ mealId: rvMealId, rows: data || [] });
+    })();
+    return () => { cancelled = true; };
+  }, [rvMealId, rvCookCount, _supabase, _household]);
+  // Switching households closes the view: the id belongs to the old place.
+  useEffect(() => { setRecipeView(null); }, [household?.id]);
+  // A2 / A2-R (2026-10-18): the view's ingredient tags — this meal's list_item_meals
+  // links, INCLUDING rows archived as bought at wrap-up (deleted_at set, status
+  // bought; list_items_select is membership only, so RLS allows the read — Step
+  // 0b), plus the checked / unchecked events on those rows so the buyer can be
+  // named. Row 1's window starts at the ANCHOR — the placement's planned_at (063),
+  // the meal's last cook as the backstop — and runs to now (A2-R, corrected
+  // 2026-10-18: the Add-to-Shop link was the wrong anchor because a re-plan
+  // without a cook keeps the old links). One read per open + whenever the
+  // anchor or the provenance map moves. Keyed by catalog item: the live link
+  // wins over an archived one, then the newest.
+  const [recipeLinks, setRecipeLinks] = useState(null);   // { mealId, byCatalog: { [catalog_item_id]: link }, addedThisPlan }
+  useEffect(() => {
+    // Not before the household's cook reduce has loaded (2026-10-18 correction): the window's
+    // anchor is the meal's last cook, and "no entry" only means "never cooked" once it is read.
+    if (!rvMealId || !cooksLoaded) { setRecipeLinks(null); return undefined; }
+    let cancelled = false;
+    (async () => {
+      const db = _supabase.current;
+      const hh = _household.current;
+      if (!db || !hh) return;
+      const { data: links, error: lErr } = await db
+        .from("list_item_meals")
+        .select("list_item_id, created_at, list_items!inner(id, catalog_item_id, status, quantity, deleted_at, household_id)")
+        .eq("meal_id", rvMealId)
+        .eq("list_items.household_id", hh.id);
+      if (cancelled) return;
+      if (lErr) { console.warn("recipe links (non-fatal):", lErr.message); return; }
+      const ids = (links || []).map((l) => l.list_item_id);
+      let events = [];
+      if (ids.length > 0) {
+        const { data: ev, error: eErr } = await db
+          .from("list_item_events")
+          .select("list_item_id, user_id, event_type, created_at, sequence")
+          .eq("household_id", hh.id)
+          .in("list_item_id", ids)
+          .in("event_type", ["checked", "unchecked"])
+          .order("created_at", { ascending: false })
+          .order("sequence", { ascending: false })
+          .limit(500);
+        if (cancelled) return;
+        if (eErr) console.warn("recipe link events (non-fatal):", eErr.message);   // nameless "Bought" then
+        events = ev || [];
+      }
+      const byItem = {};
+      events.forEach((e) => { (byItem[e.list_item_id] = byItem[e.list_item_id] || []).push(e); });
+      const byCatalog = {};
+      (links || []).forEach((l) => {
+        const li = l.list_items;
+        if (!li?.catalog_item_id) return;
+        // Row 1's window starts at the later of the link and the meal's last cook (the
+        // re-plan edge): a purchase for the previous cook never reads as bought for this one.
+        const link = {
+          status: li.status, deletedAt: li.deleted_at ?? null, quantity: Number(li.quantity) || 0,
+          linkCreatedAt: l.created_at,
+          ...boughtForThisMeal({ status: li.status, linkCreatedAt: l.created_at }, byItem[l.list_item_id], rvAnchor),
+        };
+        const cur = byCatalog[li.catalog_item_id];
+        if (!cur || (cur.deletedAt && !link.deletedAt) || (!!cur.deletedAt === !!link.deletedAt && link.linkCreatedAt > cur.linkCreatedAt)) byCatalog[li.catalog_item_id] = link;
+      });
+      // Was THIS plan added to Shop? One link at or after the last cook (2026-10-18 correction).
+      setRecipeLinks({ mealId: rvMealId, byCatalog, addedThisPlan: wasAddedThisPlan((links || []).map((l) => ({ linkCreatedAt: l.created_at })), rvAnchor) });
+    })();
+    return () => { cancelled = true; };
+  }, [rvMealId, rvAnchor, cooksLoaded, mealProvenance, _supabase, _household]);
+  const rvMeal = rvMealId ? mealById[rvMealId] : null;
+  // The plan action follows the board's own derivation (D9); null = not on This Week.
+  // boardCards (not boardMeals) so a card cooked this load still reads "✓ Cooked".
+  const rvState = rvMeal && boardCards.some((m) => m.id === rvMeal.id)
+    ? boardCardState(rvMeal, { placements, rows: mealRowCounts, mealById, cookedIds: afterglowIds })
+    : null;
   // iOS standalone status bar — the MEASURED inset (fourth cut, 2026-10-17; src/lib/standaloneInset.js).
   // env(safe-area-inset-top) reads 0 on Dan's installed app while the WebView is full height under a
   // transparent bar, so the inset is measured: standalone only, screen.height − innerHeight must be a
@@ -6505,12 +6899,18 @@ function ProvisionsApp() {
   // column, darker toward the viewport edges, so focus comes from contrast
   // rather than uniform darkness. All on the one layer that lives OUTSIDE the
   // column (ShoppingListApp's .desk-bg), handed the whole background value
-  // through a CSS variable on <html>. No photo → the variable is absent and
+  // through a CSS variable set on that layer. No photo → the variable is absent and
   // the layer falls back to the cream field, which is every new household. The
   // photo appearing twice on desktop — cropped as the banner inside the column,
   // blurred behind it — is intentional: an echo.
+  //
+  // The variable lives on .desk-bg ITSELF, never on <html> (2026-10-19): the
+  // session recorder copies every element's style attribute, and <html> cannot
+  // be excluded, so a URL there reached every replay snapshot. .desk-bg carries
+  // .op-replay-block, so its style — and the URL in it — is never serialized.
   useEffect(() => {
-    const root = document.documentElement;
+    const root = document.querySelector(".desk-bg");
+    if (!root) return undefined;
     if (bannerPhotoUrl) {
       root.style.setProperty(
         "--op-desk-bg",
@@ -6986,6 +7386,80 @@ function ProvisionsApp() {
                          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .lib-type-save:disabled { opacity: 0.5; cursor: default; }
         .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        /* ── The recipe view (SPEC_recipe_view, 2026-10-18). A full-height SheetPanel: the scrim is the
+           library's type-sheet scrim (z 1000, above the Helm); the panel keeps SheetPanel's cap and
+           scrolls inside itself; min-height makes it a page, not a strip, for a short recipe. Close
+           moves to the LEFT here (the mockup: Close ✕ left, Edit right); every other sheet keeps it
+           right. Text follows the 10-04 role table, not the mockup's pixels (re-mapped 2026-10-18 after
+           the phone check read a size too large): title = sheet title 22.4 at k 0.5; the section
+           headings = the Edit Meal sheet's section labels (.modal-label: 12.5 uppercase at k 1);
+           byline / Added by / meta / proof = meta 14 at k 1; ingredient rows, step text and cook rows
+           = body 16 at k 1 on 44 px rows; the step number circle 28 at k 1 with its numeral at the
+           12.5 floor; Edit, the plan pill and Show all = button 14 at k 0.8; tags and the seam 12.5.
+           Cook mode (slice c) steps the step text up one size from here. Teal only on Cooked it /
+           ✓ Cooked (the household finished something); "On hand" is text teal #0A776D. ── */
+        .rv-scrim { position: fixed; inset: 0; background: rgba(2,15,26,0.6); z-index: 1000; display: flex; align-items: flex-end; }
+        /* Sized against the SCRIM (100% of it, less SheetPanel's 24 px), not the window: on the desktop the fixed,
+           transformed .phone-frame is the containing block and sits 48 px shorter than 100dvh, so a dvh-sized sheet
+           overran the frame's top by 24 px (✕ / Edit crowded, the grabber hidden, the corner clipped — 2026-10-18).
+           On the phone the scrim IS the layout viewport, so 100% there equals 100dvh. The cap is passed to
+           SheetPanel the same way (its inline style wins over this rule). */
+        .rv-sheet { position: relative; width: 100%; min-height: calc(100% - 24px); background: #FAF4EC; border-radius: 20px 20px 0 0; padding: 0 0 calc(24px + var(--op-inset-bottom)); }
+        .rv-sheet .sheet-close { left: 8px; right: auto; }
+        .rv-edit { position: absolute; top: 8px; right: 12px; min-height: 44px; padding: 0 8px; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .rv-edit:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
+        .rv-hero { margin: 44px 16px 0; height: 132px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
+        .rv-head { padding: 16px 20px 0; }
+        .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
+        .rv-byline { margin-top: 4px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #8A5F3A; overflow-wrap: anywhere; }
+        .rv-added { margin-top: 4px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; }
+        .rv-meta { margin-top: 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
+        .rv-proof { margin-top: 8px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #5C4636; }
+        .rv-plan-row { padding: 16px 20px 0; }
+        .rv-plan { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 10px 16px; border-radius: 24px; border: 1.5px solid transparent;
+                   font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; }
+        .rv-plan.add { background: #D9BC8C; border-color: #D9BC8C; color: #2C1A0E; }
+        .rv-plan.on { background: #F1E7D8; border-color: #D9BC8C; color: #2C1A0E; }
+        .rv-plan.teal { background: #0D9488; border-color: #0D9488; color: #fff; }
+        /* A5 (2026-10-18): To buy offers the board card's "See on list" in the board's own outline; nothing inert is drawn as a pill. */
+        .rv-plan.see { background: transparent; border-color: #C9A97A; color: #6f5a45; }
+        .rv-plan:disabled { opacity: 0.5; cursor: default; }
+        .rv-seam { display: flex; align-items: center; gap: 10px; margin: 22px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: #8A5F3A; }
+        .rv-seam::before, .rv-seam::after { content: ""; flex: 1; height: 1px; background: #E8D5B7; }
+        /* The section headings are the Edit Meal sheet's section labels (.modal-label) in size and shape, so the
+           two sheets read as one — on the small-text brown #8A5F3A (the 10-04 floor colour; Dan, 2026-10-18). */
+        .rv-sec { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 10px; margin: 0; padding: 22px 20px 6px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; }
+        /* The trailing span is a count or A2's summary sentence ("8 · 2 on the shopping list"): normal case, right-aligned,
+           and it drops under the label as its own line when it cannot fit beside it (320 XXL wrapped it one word per line). */
+        .rv-sec span { flex: 1 1 auto; min-width: 0; text-align: right; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 0; text-transform: none; color: #8A5F3A; }
+        .rv-ing { list-style: none; margin: 0; padding: 0 20px; }
+        .rv-ing li { display: flex; flex-wrap: wrap; align-items: baseline; align-content: center; gap: 2px 10px; box-sizing: border-box; min-height: 44px; padding: 6px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
+        .rv-ing li:last-child { border-bottom: 0; }
+        /* The name is laid out at its full (max-content) width: a short name keeps its tag beside it;
+           a name that would not fit whole beside the tag takes the row and the tag drops under it,
+           right-aligned. Not min-content: at 320 XXL that squeezed a long name to one word per line
+           beside the tag (harness 2026-10-18). */
+        .rv-ing-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+        .rv-tag { flex: none; margin-left: auto; white-space: nowrap; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8A5F3A; }
+        /* A2: "Already have it", "{Name} bought it" / "Bought" and "In {Name}'s cart" / "In cart" in text teal
+           (the household has it); "On the shopping list" brown. */
+        .rv-tag.have, .rv-tag.bought, .rv-tag.cart { color: #0A776D; }
+        .rv-preamble { margin: 0 20px 14px; padding: 0 0 12px; border-bottom: 1px solid #EFE6D9; }
+        .rv-preamble p { margin: 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .rv-steps { list-style: none; margin: 0; padding: 0 20px; }
+        .rv-steps li { display: flex; gap: 12px; align-items: flex-start; padding: 6px 0; }
+        .rv-steps p { margin: 0; min-width: 0; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; overflow-wrap: anywhere; }
+        /* The numeral's circle is sized to the step text (28 px beside a 24 px line at Default, k 1 so it keeps that ratio at every step). */
+        .rv-step-n { flex: none; width: calc(28px * var(--op-text-scale)); height: calc(28px * var(--op-text-scale)); border-radius: 50%; background: #F1E7D8; color: #2C1A0E;
+                     font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: calc(-2px * var(--op-text-scale)); }
+        .rv-cooks { list-style: none; margin: 0; padding: 0 20px; }
+        .rv-cooks li { display: flex; align-items: center; box-sizing: border-box; min-height: 44px; padding: 6px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
+        .rv-cooks li:last-child { border-bottom: 0; }
+        .rv-showall { display: block; margin: 4px 20px 0; padding: 10px 0; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
+                      font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .rv-empty { margin: 14px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
+        .rv-pad { height: 24px; }
         /* SUBGRID: the library grid's rows are the cards' rows. Each card spans 3 rows (slot / title / meta) and subgrids
            them; the open button spans the first 2 (slot / title) and subgrids them again, so the button keeps its
            semantics and still covers slot + name. The shared slot row sizes to the tallest slot in the row (a 132px photo
@@ -7654,7 +8128,8 @@ function ProvisionsApp() {
       <div style={{ position: "relative" }}>
         {bannerHasPhoto && (
           <>
-            <div aria-hidden="true" style={{
+            {/* .op-replay-block: excluded from session replay (the URL is a signed household-photo link). */}
+            <div className="op-replay-block" aria-hidden="true" style={{
               position: "absolute", inset: 0, zIndex: 0,
               backgroundColor: "#2C1A0E",
               backgroundImage: `url("${bannerPhotoUrl}")`,
@@ -7924,60 +8399,19 @@ function ProvisionsApp() {
                 )
               ) : (
               <>
-              {(myHouseholds || []).map((hh) => {
-                const isActive = hh.id === activeHouseholdId;
-                if (isActive) {
-                  // Active row: espresso fill + clay ring carry selection; a bare pencil
-                  // at the right edge opens Edit. Tapping the row also opens Edit.
-                  return (
-                    <button
-                      key={hh.id}
-                      onClick={openEditHousehold}
-                      aria-label={`Edit ${hh.name}`}
-                      style={{
-                        width: "100%", background: "#2C1A0E", border: "2px solid #c8973a",
-                        borderRadius: "8px", padding: "11px 14px",
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
-                      }}
-                    >
-                      <span style={{
-                        fontFamily: "'Lato', sans-serif", fontSize: ts(15),
-                        color: "#FAF4EC", fontWeight: 700, flex: 1, minWidth: 0, overflowWrap: "anywhere",
-                      }}>{hh.name}</span>
-                      {/* Bare pencil + "Edit" label (no container/plate), per FINAL3 */}
-                      <span style={{
-                        display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, marginLeft: "10px",
-                        fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
-                        color: "#FAF4EC", opacity: 0.82,
-                      }}>
-                        <svg style={{ width: ts(15, 0.8), height: ts(15, 0.8) }} viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
-                          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-                        </svg>
-                        Edit
-                      </span>
-                    </button>
-                  );
-                }
-                return (
-                  <button
-                    key={hh.id}
-                    onClick={() => { switchHousehold(hh.id); setShowHouseholdModal(false); }}
-                    style={{
-                      width: "100%", background: "#E8D5B7", border: "2px solid transparent",
-                      borderRadius: "8px", padding: "11px 14px",
-                      display: "flex", alignItems: "center",
-                      cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
-                    }}
-                  >
-                    <span style={{
-                      fontFamily: "'Lato', sans-serif", fontSize: ts(15),
-                      color: "#2C1A0E", fontWeight: 400, minWidth: 0, overflowWrap: "anywhere",
-                    }}>{hh.name}</span>
-                  </button>
-                );
-              })}
+              {/* The fixed VERB half of the active row's aria-labelledby name, rendered once,
+                  outside every button (2026-10-19, the library's 10-16 recipe); the household's
+                  half is the row's masked name (id hh-name-{uuid}). */}
+              <span id="hh-verb-edit" className="sr-only">Edit</span>
+              {(myHouseholds || []).map((hh) => (
+                <PlaceRow
+                  key={hh.id}
+                  hh={hh}
+                  isActive={hh.id === activeHouseholdId}
+                  onEdit={openEditHousehold}
+                  onSwitch={() => { switchHousehold(hh.id); setShowHouseholdModal(false); }}
+                />
+              ))}
 
               {/* Create new household — below the list */}
               {!creating ? (
@@ -8074,7 +8508,7 @@ function ProvisionsApp() {
                   return (
                     <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       {isMe && user.imageUrl ? (
-                        <img src={user.imageUrl} alt={displayName} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
+                        <img className="op-replay-block" src={user.imageUrl} alt={displayName} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
                       ) : (
                         <div style={{
                           width: "36px", height: "36px", borderRadius: "50%",
@@ -8496,6 +8930,7 @@ function ProvisionsApp() {
               {/* Live preview — the control (spec D7). Drag to reposition when a
                   photo exists; empty state shows the real espresso header. */}
               <div
+                className="op-replay-block"
                 onPointerDown={onEdDragStart}
                 onPointerMove={onEdDragMove}
                 onPointerUp={onEdDragEnd}
@@ -8730,7 +9165,9 @@ function ProvisionsApp() {
               busyMealId: busyMealId || addingMealId, switching: deckSwitching,
               holdNight: MEALS_ENABLED && isSignedIn,
               onAdd: () => { setPlanScreen("library"); goToDoor("plan"); },
-              onView: (m) => { setPlanScreen("board"); goToDoor("plan"); if (!isNoShop(m)) setMealSheet({ mode: "edit", meal: m }); },
+              // The recipe view over Home (SPEC_recipe_view D1/D2): a sheet, no route change —
+              // closing it lands back here. openRecipe ignores a held night itself.
+              onView: (m) => openRecipe(m, "make"),
               onLockIn: handleAddMealToList,      // the board's Add to Shop — on-hand prompt included
               onCooked: handleCookedMeal,
               onSkip: handleSkipMeal,
@@ -8827,7 +9264,7 @@ function ProvisionsApp() {
                   placements={placements}
                   mealById={mealById}
                   cookedIds={afterglowIds}
-                  onOpen={(m) => setMealSheet({ mode: "edit", meal: m })}
+                  onOpen={(m) => openRecipe(m, "make")}
                   onSkip={handleSkipMeal}
                   onCooked={handleCookedMeal}
                   onLockIn={handleAddMealToList}
@@ -8883,7 +9320,7 @@ function ProvisionsApp() {
               planningMealId={planningMealId}
               onCreate={() => setMealSheet({ mode: "create", meal: null })}
               isSignedIn={isSignedIn}
-              onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
+              onOpen={(m) => openRecipe(m, "top")}
               stages={libraryStages}
               madeBefore={madeBefore}
               householdId={household?.id}
@@ -9624,6 +10061,33 @@ function ProvisionsApp() {
         />
       )}
 
+      {/* The recipe view (SPEC_recipe_view): read first. Edit opens the sheet above in
+          its place; the view returns on Cancel / Save with the live row. */}
+      {MEALS_ENABLED && rvMeal && !mealSheet && (
+        <RecipeView
+          meal={rvMeal}
+          state={rvState}
+          members={householdMembers}
+          cookCount={recipeCooks?.mealId === rvMeal.id ? Math.max(recipeCooks.rows.length, rvCookCount) : rvCookCount}
+          lastCookedAt={cooks[rvMeal.id]?.lastCookedAt || (recipeCooks?.mealId === rvMeal.id ? recipeCooks.rows[0]?.cooked_at : null) || null}
+          cookRows={recipeCooks?.mealId === rvMeal.id ? recipeCooks.rows : null}
+          links={recipeLinks?.mealId === rvMeal.id ? recipeLinks.byCatalog : null}
+          // 2026-10-18 correction: no tags and no summary state until the cook reduce AND this
+          // meal's links have loaded; "bought" tags and "All here" only once this plan was added.
+          tagsReady={!!cooksLoaded && recipeLinks?.mealId === rvMeal.id}
+          addedThisPlan={recipeLinks?.mealId === rvMeal.id ? !!recipeLinks.addedThisPlan : false}
+          viewerUserId={_internalUserId.current || null}
+          busy={planningMealId === rvMeal.id || busyMealId === rvMeal.id || addingMealId === rvMeal.id}
+          onClose={() => setRecipeView(null)}
+          onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
+          onPlan={handlePlanMeal}
+          onUnplan={handleUnplanMeal}
+          onCooked={handleCookedMeal}
+          // A5: the board card's own See on list (goToDoor("list")), after the view closes.
+          onSeeList={() => { setRecipeView(null); goToDoor("list"); }}
+        />
+      )}
+
       {/* Add Item Modal */}
       {showAddModal && (
         <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
@@ -9868,14 +10332,14 @@ function ProvisionsApp() {
             {isSignedIn && (
               <div className="modal-field">
                 <label className="modal-label">Rename Category</label>
-                <select className="modal-select" value={renamingCategory || ""}
-                  onChange={e => { setRenamingCategory(e.target.value || null); setRenameValue(e.target.value); }}
-                  style={{ marginBottom: "8px" }}>
-                  <option value="">— select category —</option>
-                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => (
-                    <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
-                  ))}
-                </select>
+                {/* CategorySelect: option values are indexes, never the household's category names (replay, 2026-10-19). */}
+                <CategorySelect
+                  categories={categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName))}
+                  value={renamingCategory || ""}
+                  onChange={rawName => { setRenamingCategory(rawName || null); setRenameValue(rawName); }}
+                  placeholder="— select category —"
+                  style={{ marginBottom: "8px" }}
+                />
                 <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
                   Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
                 </p>
@@ -9902,20 +10366,18 @@ function ProvisionsApp() {
             {isSignedIn && (
               <div className="modal-field">
                 <label className="modal-label">Delete Category</label>
-                <select className="modal-select" value={deletingCategory?.rawName || ""}
-                  onChange={e => {
-                    const rawName = e.target.value;
+                <CategorySelect
+                  categories={categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName))}
+                  value={deletingCategory?.rawName || ""}
+                  onChange={rawName => {
                     if (!rawName) { setDeletingCategory(null); return; }
                     const itemCount = Object.values(catalogMap).filter(i => i.category === rawName).length;
                     setDeletingCategory({ rawName, itemCount });
                     setDeleteMoveTarget("");
                   }}
-                  style={{ marginBottom: "8px" }}>
-                  <option value="">— select category —</option>
-                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => (
-                    <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
-                  ))}
-                </select>
+                  placeholder="— select category —"
+                  style={{ marginBottom: "8px" }}
+                />
                 <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
                   Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
                 </p>
@@ -9926,14 +10388,13 @@ function ProvisionsApp() {
                         <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#8a7a60", marginBottom: "8px" }}>
                           {deletingCategory.itemCount} item{deletingCategory.itemCount !== 1 ? "s" : ""} in this category. Move them to:
                         </div>
-                        <select className="modal-select" value={deleteMoveTarget}
-                          onChange={e => setDeleteMoveTarget(e.target.value)}
-                          style={{ marginBottom: "8px" }}>
-                          <option value="">— delete all items too —</option>
-                          {categories.filter(c => c.rawName !== deletingCategory.rawName).map(cat => (
-                            <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
-                          ))}
-                        </select>
+                        <CategorySelect
+                          categories={categories.filter(c => c.rawName !== deletingCategory.rawName)}
+                          value={deleteMoveTarget}
+                          onChange={rawName => setDeleteMoveTarget(rawName)}
+                          placeholder="— delete all items too —"
+                          style={{ marginBottom: "8px" }}
+                        />
                       </>
                     )}
                     <button
@@ -10442,7 +10903,7 @@ export default function ShoppingListApp() {
           descendant (helm, sheets, toasts, overlays, the system message below) so
           they anchor to the column, not the window; .phone-scroll is the column's
           own scroll root. */}
-      <div className="desk-bg" aria-hidden="true" />
+      <div className="desk-bg op-replay-block" aria-hidden="true" />
       <div className="phone-frame">
         <div className="phone-scroll">
           <ActiveHouseholdProvider getToken={getToken} clerkId={sessionLive ? user?.id : undefined} sessionId={sessionId} onRemoval={onRemoval}>

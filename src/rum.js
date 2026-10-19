@@ -45,6 +45,9 @@ const CHROME_ALLOW_LIST = [
   '.lib-create',     // Library coaching tile "+ New meal" (the switch row's "+ New" is .hdr-action)
   '.lib-show',       // Library filter sheet: "Show N meals"
   '.lib-clear',      // Library filter sheet: "Clear"
+  '.rv-edit',        // Recipe view: "Edit" — fixed copy; the title it edits is a sibling (#rv-title, masked), never in this element (SPEC_recipe_view)
+  '.rv-plan',        // Recipe view plan action: "+ Add to This Week" / "✓ On This Week" / "To buy" / "Cooked it" / "✓ Cooked" — fixed copy, the board's own words
+  '.rv-showall',     // Recipe view, Your cooks: "Show all N" — a count, never a name
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
   '.deck-switch',    // Home on-deck card: "Switch"
   '.deck-x',         // Home on-deck card: × on a held night
@@ -70,6 +73,22 @@ const CHROME_ALLOW_LIST = [
 const CLERK_EXCLUDE_RULES = [
   { rule: 'exclude', selector: '[class*="cl-"]' },
   { rule: 'exclude', selector: '#clerk-components' },
+];
+
+// Photo surfaces are excluded from session replay UNCONDITIONALLY, in BOTH
+// environments (SPEC_replay_labels_promotion2 A5, 2026-10-19) — the same floor
+// as Clerk, not an environment-dependent choice. A photo element's URL is a
+// household photo: the header's is a Supabase signed URL (valid an hour), the
+// avatar's a stable link to the user's own picture. The recorder copies src and
+// style attributes verbatim and hands http(s) image URLs to Splunk to proxy; a
+// blob: image (a staged Galley screenshot, the photo editor's local preview) it
+// cannot proxy, so it DOWNLOADS it in the page and uploads the bytes. An
+// excluded element is serialized as its size alone ({ height, width,
+// isExcluded }) — no attributes, no assets — and replays as an empty box.
+// Every photo element carries .op-replay-block. Recorder only: a photo has no
+// click text.
+const REPLAY_BLOCK_RULES = [
+  { rule: 'exclude', selector: '.op-replay-block' },
 ];
 
 // D5 (SPEC_auth_state_ui_gating §PII scrub 2) — the exporter hook. Every span
@@ -171,6 +190,7 @@ if (rumToken) {
       // be in the array at all — not merely set to something weaker.
       ...(isProd ? [] : [{ rule: 'unmask', selector: 'body' }]),
       ...CLERK_EXCLUDE_RULES,
+      ...REPLAY_BLOCK_RULES,
     ],
   });
 } else {
