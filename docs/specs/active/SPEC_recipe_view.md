@@ -299,3 +299,140 @@ If row 1 can't be built without new data, ship rows 2–4 and a nameless **Bough
 - **V-A2e:** an unplanned meal and a cooked meal show no tags.
 - **V-A2f:** a solo household shows "Bought" for row 1, with no name.
 - **Privacy:** no buyer name appears in any attribute or allow-listed element. The allow-list delta is reported by name; none is expected.
+
+---
+
+## Amendment B (2026-10-19) — the action block
+
+*Design chat, 2026-10-19. Append to `docs/specs/active/SPEC_recipe_view.md` under a dated heading; do not edit the body. Save the mockup as `docs/mockups/mockup_recipe_view_actions.html`; it's the tiebreaker over this prose.*
+*Dev only. Prod comes in a later promotion.*
+
+**Precondition:** Promotion 2 is closed. Dan has confirmed the prod walk passed and `main` is pushed and verified. Don't branch this work until then.
+
+---
+
+## Why
+
+On prod, the recipe view shows **"✓ On This Week" as a full-width pill**. That's a status drawn as a button, so nobody can tell what tapping it does. With the space the recipe view has, the screen should say what the meal's state is **and** offer the one next step, in the board's own words.
+
+## Decisions
+
+**B1 — Three parts, by state.**
+- A **status line** that can't be tapped.
+- **One main action**, chosen by where the meal is.
+- A **quiet "Remove from This Week" link**.
+
+There are never two equal buttons.
+
+| State | Status line | Main action | Quiet link |
+|---|---|---|---|
+| A · Planned, not on the list | ✓ ON THIS WEEK | **Add to Shop** (gold fill) | Remove from This Week |
+| B · On the list, items left | ✓ ON THIS WEEK | **{n} left to buy · See list →** (outline) | Remove from This Week |
+| C · Everything bought | ✓ ON THIS WEEK · Everything's in | **Cooked it** (teal) | Remove from This Week |
+| D · Not planned | none | **+ Plan again** / slice (a)'s existing plan control, unchanged | none |
+
+**B2 — One source of truth for the state.** The recipe view has to agree with the board card for the same placement ("Not on the list yet" / "{n} left" / "Everything's in — go cook"). **Reuse the board's existing status logic.** Don't write a second version. If the board can't currently share it, move it into `src/lib` once and have both import it.
+
+**B3 — One path for every door (10-17 rule).** Each action calls **exactly** what the board calls:
+- **Add to Shop:** the board's Add to Shop flow, including the on-hand "I have this" step and `add_meal_to_list` with `p_include_on_hand_ids`.
+- **Cooked it:** the board's Cooked it handler, with the same writes, the same afterglow and the same "last cooked" stamp.
+- **Remove from This Week:** the board's ⋯ → Remove handler, with the same confirmation or undo the board uses. The meal stays in the Library.
+
+No new RPCs and no new writes.
+
+**B4 — The sheet stays open and follows the state.** After an action, the recipe view moves to its next state in place:
+- Add to Shop → B (or C if everything was marked on hand).
+- Cooked it → D, with "Last cooked {today}".
+- Remove → D. That makes "+ Plan again" the one-tap undo.
+
+If the board's Add to Shop opens a sheet of its own, stacking it over the recipe view is fine. When that sheet closes, the recipe view should show the new state. Report how it behaves.
+
+**B5 — Share: reserved spot, top bar.**
+- Share is about the recipe, not the plan. It sits beside **Edit** and looks the same in every state.
+- **Glyph:** a box with an up arrow, our own SVG (see the mockup) in the nav icons' line weight. 22px icon, 44px tap target, fixed accessible name "Share".
+- **Ships only if sharing a meal actually works today.** Step 0 checks. If there's a working meal-share flow in the client, wire the icon to it. If not, **don't render it.** No dead button and no placeholder code; the spot is just reserved in the design.
+
+**B6 — Replay privacy (A4 / A5 rules).**
+- No meal name, item or count of household content in any copied attribute.
+- Buttons take their names from visible text (which is masked) or from fixed copy. **No `aria-label` carrying "{n} left".**
+- Allow-list changes: fixed-copy controls only, named in the report. The B button contains a count: follow the `.wrapbar` precedent (a count in click text is acceptable) only if Dan approves it in the report. Otherwise leave it masked.
+
+**B7 — Words.** Use "Add to Shop" and "This Week" everywhere. Don't use "Shopping list" or "Plan".
+
+## Steps
+
+**Step 0 — Read-only report, then stop.**
+1. Where does the board's status logic live, and can the recipe view import it as it is?
+2. The board's rule for **Cooked it**: does the card show it only for Up Next (01), or on any "Everything's in" card? If it's Up Next only, **stop and report.** State C's rule has to match the board's, and Dan decides which.
+3. The handlers for Add to Shop, Cooked it and ⋯ → Remove, by file and line. Does Remove confirm, or offer undo?
+4. Is there a working meal-share flow in the client (B5)? Quote it, or say there isn't one.
+5. What happens to the existing `.rv-plan` pill (allow-listed in slice (a))? Map which old classes go away and which new ones arrive.
+
+**Step 1 — Build (one commit).**
+- The action block for A–D as in the mockup, plus Share if Step 0 found a working flow.
+- **Tests:**
+  - state derivation, with all four states agreeing with the board for the same placement;
+  - each action calls the board's own handler (mock the module);
+  - B4 transitions;
+  - `ReplayLabels.test.js` extended: no copied attribute carries a name or count.
+- ESLint 0, `CI=true` clean, LF line endings. Harness each state at 320 / 375 / 390, Default and XXL.
+- Push. Grep the dev bundle: the old pill's markup is gone; allow-list before → after, by name.
+
+**Step 2 — Dan's dev walk.**
+- Open one meal in each state, from every door.
+- Add to Shop → B (the board agrees). Buy everything → C. Cooked it → D with today's date (the board agrees). Remove → D, then "+ Plan again" → A.
+- VoiceOver on each button. Share if it shipped.
+
+## Done when
+
+- [ ] All four states match the mockup, from the board's own status logic and the board's own handlers.
+- [ ] Recipe view and board agree for every placement, after every action.
+- [ ] No status is drawn as a button. Share is either working or not rendered.
+- [ ] Replay: no names or counts in attributes; allow-list changes named and approved.
+- [ ] Dan's dev walk passes. Prod waits for the next promotion.
+
+### Step 0 rulings (2026-10-19)
+
+*Design chat, 2026-10-19. Append to `SPEC_recipe_view.md` under Amendment B as "### Step 0 rulings (2026-10-19)". Step 1 is GO with these.*
+
+---
+
+**R1 — Everything in the cart, not wrapped up: keep A5, option (ii).**
+
+The recipe view keeps showing **Cooked it** when every item is in the cart. This is the **one stated exception to B2.**
+
+- **Why:** the recipe view is the cooking surface. When all the items are in the cart, the food is in the house, and people cook before they remember to wrap up. A5 was a deliberate decision on 10-18 and is already live on prod. Taking Cooked it away would be a regression.
+- **Status line for this case:** `✓ ON THIS WEEK · All in your cart`. The main action is Cooked it (teal), and the quiet link follows R3.
+- **Check, don't change:** confirm from 052 / `close_cycle` that Cooked it before wrap-up leaves the list consistent: the items stay on Shop, wrap-up handles a cooked placement cleanly, and nothing is double-counted. This has already been possible on prod, so it's a check. Report it; if something's wrong, stop.
+- **Logged for later (not this build):** should the **board** also offer Cooked it at "N of N in cart"? That would bring the two surfaces back into line from the board's side. It's a design question for another session.
+
+**R2 — Nothing-to-shop meals are state C: confirmed.**
+Status line `✓ ON THIS WEEK · Nothing to shop for`, main action Cooked it. This matches Home's deck card.
+
+**R3 — Remove wording follows the board, word for word (B7).**
+- State B (To-buy): **"Remove (and take its items off Shop)"**. It does more than unplan, so it has to say so.
+- States A and C (and R1's case): **"Remove from This Week"**.
+- **The handler switches to `handleSkipMeal(id, state.toBuy)`.** This fixes a live inconsistency: today, removing a To-buy meal from the recipe view leaves its items on Shop. Record it as a finding.
+- No toast, to match the board. The visible feedback is the view moving to state D with "+ Plan again", which is the undo (B4).
+
+**R4 — No count in click text: B gets its own class, `.rv-see`, kept off the allow-list.**
+- The `.wrapbar` count exception exists because it feeds a funnel metric. A count of items left on one meal feeds nothing, and the click event still records *which* button by its class.
+- This also closes the existing prod finding: "{n} left to buy" currently goes out unmasked under `.rv-plan`. It closes for real with the next promotion.
+- Correct the outdated `rum.js` comment on `.rv-plan`.
+- Expected allow-list change: `.rv-remove` in. `.rv-plan.on` and the count-bearing `see` variant leave `.rv-plan`'s unmasked text. Report the before → after list by name.
+
+**R5 — Approved as proposed:**
+- `boardCardState` plus the four no-shop helpers move to `src/lib/boardState.js`, with no logic change, as their **own commit before Step 1**. That way the refactor diff and the behaviour diff stay separate and each can be reviewed alone.
+- The recipe view is gated on `!onHandPrompt`, the same pattern as `!mealSheet`, so the "I have this" prompt is never hidden under the view.
+- Share is not rendered. When `SPEC_meal_sharing_v2.md` ships, it adds the top-bar icon from this amendment's mockup.
+
+**Updated state table (replaces B1's):**
+
+| State | Status line | Main action | Quiet link |
+|---|---|---|---|
+| A · Planned, not on the list | ✓ ON THIS WEEK | Add to Shop | Remove from This Week |
+| B · On the list, items left | ✓ ON THIS WEEK | {n} left to buy · See list → (`.rv-see`) | Remove (and take its items off Shop) |
+| R1 · All in the cart, not wrapped up | ✓ ON THIS WEEK · All in your cart | Cooked it | Remove (and take its items off Shop) if the board treats it as To-buy, otherwise Remove from This Week. Follow `state.toBuy`. |
+| C · Ready (wrapped up) | ✓ ON THIS WEEK · Everything's in | Cooked it | Remove from This Week |
+| C · Nothing to shop for | ✓ ON THIS WEEK · Nothing to shop for | Cooked it | Remove from This Week |
+| D · Not planned | none | + Plan again / + Add to This Week (unchanged) | none |
