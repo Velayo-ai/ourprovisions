@@ -212,6 +212,59 @@ Whatever the answer, after A2 ships the pill and the summary line must derive fr
 
 **Build status (2026-10-18, Claude Code):** A5 built — the To-buy pill is "See on list", the board's own handler (`goToDoor("list")`) after the view closes; ✓ Cooked renders as plain teal text, no border (the "never a bordered pill that does nothing" rule). No allow-list change: the pill keeps `.rv-plan`.
 
+### A5 revision (2026-10-18 evening, Dan): pills act, text informs
+
+This supersedes the copy above. It became a principle after Dan's walk: "To buy" / "See on list" alone doesn't say what's outstanding, and an inert "✓ Cooked" is a dead end.
+
+**Principle (app-wide, logged in the decisions log):** a pill, meaning any rounded bordered or filled button, always acts. Information lives in text (the meta line, row tags) or in small uppercase chips like the board's TO BUY badge. A toggle that shows its own state is allowed, because tapping it changes that state.
+
+The view's pill in each state:
+
+| State | Pill |
+|---|---|
+| Not planned | **+ Add to This Week** (acts) |
+| Planned, nothing added | **✓ On This Week**, a toggle; a tap un-plans (acts) |
+| To buy | **"{n} left to buy · See list"**. n is the same toBuy count as the board's "{n} to buy" line, from one source. The tap runs the board's `goToDoor("list")`. |
+| Ready | **Cooked it** (acts) |
+| Cooked | **+ Plan again**: plans the meal onto This Week through the same handler as "+ Add to This Week". "Last cooked …" in the meta line (A4) already says it's cooked. |
+
+- When n reaches 0, the pill follows D9 to Cooked it, in the same render as A2's "All here."
+- The count in the click text is acceptable, the same precedent as `.lib-week`'s "{N} meals planned". No name ever appears in it.
+
+**Verify (replaces V-A5a/b):**
+- **V-A5a′:** Ground Beef Tacos with 2 items left shows "2 left to buy · See list". Tapping it lands where the board's "See on list" lands.
+- **V-A5b′:** Taco Night (cooked) shows "+ Plan again". Tapping it puts it on This Week; the pill becomes "✓ On This Week".
+- **V-A5c′:** no state renders a bordered pill that does nothing.
+
+**Build status (2026-10-18 evening, Claude Code):** A5 revision built — To buy reads "{n} left to buy · See list" (n = the board's live rows minus those in the cart, one source; the tap is the board's `goToDoor("list")`); Cooked reads "+ Plan again" through the same `handlePlanMeal` as "+ Add to This Week"; at n = 0 the pill follows D9 to Cooked it (`planActionFor`, jest). No allow-list change.
+
+
+---
+
+## A2-R — Ruling on Step 0 (2026-10-18, design chat)
+
+Step 0 findings (Cody): `meal_placements` has no planned-at timestamp. Checked events record the checker and survive wrap-up, but they are best-effort writes. The `list_item_meals` link survives wrap-up in the database, but the client's provenance read drops soft-deleted items.
+
+**1. Anchor row 1 on the Add-to-Shop moment, not on Plan.** Row 1's window is **`list_item_meals.created_at` through the placement's `cooked_at`**, or through now if the meal isn't cooked yet.
+- **Why this anchor is better, not a fallback:** buying something *for this meal* can only begin once it was added to Shop for this meal. Anything bought earlier was never on the list for it, so it can't be "bought for this meal." The Add-to-Shop moment is therefore a more precise match for Dan's rule ("bought between planned and cooked") than a planned-at stamp would be.
+- **No migration.** A `planned_at` column is not needed for A2. Log it LATER only if another feature needs it.
+
+**2. The tag must survive wrap-up.** The moment that matters is home from the store, about to cook, and that comes after wrap-up. The view's provenance read must therefore include items that were soft-deleted as bought (`deleted_at` set, `status = 'bought'`), linked to meals on open placements. This is a client read change only.
+- **Step 0b, read-only:** confirm RLS lets the client select those soft-deleted rows. If it doesn't, **stop and report.** Do not widen a policy without coming back here.
+
+**3. Naming the buyer.** Use the latest `checked` event for that list item inside the window, provided no later `unchecked` event exists. Map its user id to a first name through the household members already loaded.
+- No qualifying event (the event write is best-effort) → **"Bought"**, with no name.
+- Viewer is the checker → **"You bought it"**.
+- Solo household (members loaded, fewer than 2) → **"Bought"**.
+
+**4. Accepted edge.** If the same catalog item is re-added before this meal is cooked, the resurrect trigger deletes the old meal link. Row 1 then falls through to rows 3 and 4. This is rare and the result is harmless, so it is documented, not designed around.
+
+**5. Summary line:** unchanged. It counts state-2 rows only.
+
+---
+
+**Build status (2026-10-18 evening, Claude Code):** A2 built per A2-R — the per-meal link read includes soft-deleted bought rows (Step 0b: `list_items_select` is membership only, no `deleted_at` predicate); row 1's window is the link's `created_at` through now while the meal is on This Week; the buyer is the latest `checked` event in the window with no later `unchecked`, named through the loaded members; "You bought it" for the viewer, "Bought" for a solo household or no event; the summary line counts state-2 rows from the board's own count so "All here" and Cooked it land in one render.
+
 ---
 
 ## Step 0 — reads before building A2 (read-only, report first)
