@@ -1,4 +1,4 @@
-import { ingredientTag, ingredientSummary, buyerFromEvents, rowWindowStart, boughtForThisMeal, wasAddedThisPlan } from "./ingredientTags";
+import { ingredientTag, ingredientSummary, buyerFromEvents, rowWindowStart, boughtForThisMeal, wasAddedThisPlan, planAnchor } from "./ingredientTags";
 import { planActionFor } from "./recipePlan";
 
 // Re-plan edge (2026-10-18): Taco Night was added to Shop on the 10th, bought on the 11th,
@@ -91,6 +91,47 @@ test("4. a planned meal never added: summary is the bare count, no tags, no Cook
 
 test("a meal with no ingredients shows no count", () => {
   expect(ingredientSummary({ n: 0, onWeek: true, leftToBuy: 0, addedThisPlan: false })).toBe("");
+});
+
+// ── planned_at is the anchor (063, 2026-10-18); meal_cooks is the backstop ────────────────
+test("the anchor is planned_at, the last cook only when planned_at is null (rows older than 063)", () => {
+  expect(planAnchor("2026-10-19T08:00:00Z", "2026-10-18T23:10:00Z")).toBe("2026-10-19T08:00:00Z");
+  expect(planAnchor(null, "2026-10-18T23:10:00Z")).toBe("2026-10-18T23:10:00Z");
+  expect(planAnchor(null, null)).toBeNull();
+});
+
+const rePlanAt = "2026-10-19T08:00:00Z";   // the re-plan's planned_at, after tonight's old links
+const toBuyState = (total, bought) => ({ cooked: false, ready: false, toBuy: total > 0, planned: total === 0, canAdd: total === 0, rc: { total, bought } });
+
+test("re-walk, with a cook on record: clear → re-plan, not added → 13, no tags, ✓ On This Week", () => {
+  const anchor = planAnchor(rePlanAt, cookTonight);
+  const v = viewOf({ tortillas: oldLink(checkedTonight), cumin: oldLink(checkedTonight) }, anchor, 0);
+  expect(v).toEqual({ added: false, tags: { tortillas: null, cumin: null }, summary: "13" });
+  expect(planActionFor(toBuyState(0, 0))).toBe("onWeek");
+});
+
+test("re-walk, NO cook on record (removed uncooked, re-planned): the old links still predate planned_at → 13, no tags", () => {
+  const anchor = planAnchor(rePlanAt, null);
+  const v = viewOf({ tortillas: oldLink(checkedTonight) }, anchor, 0);
+  expect(v).toEqual({ added: false, tags: { tortillas: null }, summary: "13" });
+});
+
+test("re-plan + re-add + check two → two You bought it, summary 13 · 11 on the shopping list", () => {
+  const anchor = planAnchor(rePlanAt, cookTonight);
+  const added = (events, status) => ({ status, deletedAt: null, quantity: 1, linkCreatedAt: "2026-10-19T09:00:00Z", events });
+  const me = [{ event_type: "checked", user_id: "u-dan", created_at: "2026-10-19T12:00:00Z" }];
+  const v = viewOf({ tortillas: added(me, "bought"), cumin: added(me, "bought"), cheddar: added([], "pending") }, anchor, 11);
+  expect(v.added).toBe(true);
+  expect(v.tags).toEqual({ tortillas: "You bought it", cumin: "You bought it", cheddar: "On the shopping list" });
+  expect(v.summary).toBe("13 · 11 on the shopping list");
+});
+
+test("plan → add → check all → All here and Cooked it from the same inputs", () => {
+  const anchor = planAnchor("2026-10-19T08:00:00Z", null);
+  const bought = { status: "bought", deletedAt: null, quantity: 1, linkCreatedAt: "2026-10-19T09:00:00Z", events: [{ event_type: "checked", user_id: "u-dan", created_at: "2026-10-19T12:00:00Z" }] };
+  const v = viewOf({ tortillas: bought, cumin: bought }, anchor, 0);
+  expect(v.summary).toBe("13 · All here");
+  expect(planActionFor(toBuyState(13, 13))).toBe("cookIt");
 });
 
 const names = { "u-dan": "Dan", "u-elly": "Elly" };

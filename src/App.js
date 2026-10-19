@@ -20,7 +20,7 @@ import { displayTitle } from './lib/displayTitle';
 import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
 import { planActionFor, leftToBuy } from './lib/recipePlan';
 import { cookDate, cookHistoryLine } from './lib/cookDate';
-import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan } from './lib/ingredientTags';
+import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
@@ -4975,6 +4975,10 @@ function ProvisionsApp() {
   const rvMealId = recipeView?.mealId || null;
   const rvCookCount = rvMealId ? (cooks[rvMealId]?.count || 0) : 0;
   const rvLastCookedAt = rvMealId ? (cooks[rvMealId]?.lastCookedAt || null) : null;
+  // THE ANCHOR (A2-R correction, 063): the open placement's planned_at — stamped by the plan
+  // upsert on every plan or re-plan; the meal's last cook is the backstop for rows older than 063.
+  const rvPlannedAt = rvMealId ? (placements[rvMealId]?.plannedAt || null) : null;
+  const rvAnchor = planAnchor(rvPlannedAt, rvLastCookedAt);
   useEffect(() => {
     if (!rvMealId) { setRecipeCooks(null); return undefined; }
     let cancelled = false;
@@ -5000,9 +5004,12 @@ function ProvisionsApp() {
   // links, INCLUDING rows archived as bought at wrap-up (deleted_at set, status
   // bought; list_items_select is membership only, so RLS allows the read — Step
   // 0b), plus the checked / unchecked events on those rows so the buyer can be
-  // named. Row 1's window is the link's created_at through now (A2-R §1). One
-  // read per open + whenever the provenance map moves (the list changed). Keyed
-  // by catalog item: the live link wins over an archived one, then the newest.
+  // named. Row 1's window starts at the ANCHOR — the placement's planned_at (063),
+  // the meal's last cook as the backstop — and runs to now (A2-R, corrected
+  // 2026-10-18: the Add-to-Shop link was the wrong anchor because a re-plan
+  // without a cook keeps the old links). One read per open + whenever the
+  // anchor or the provenance map moves. Keyed by catalog item: the live link
+  // wins over an archived one, then the newest.
   const [recipeLinks, setRecipeLinks] = useState(null);   // { mealId, byCatalog: { [catalog_item_id]: link }, addedThisPlan }
   useEffect(() => {
     // Not before the household's cook reduce has loaded (2026-10-18 correction): the window's
@@ -5047,16 +5054,16 @@ function ProvisionsApp() {
         const link = {
           status: li.status, deletedAt: li.deleted_at ?? null, quantity: Number(li.quantity) || 0,
           linkCreatedAt: l.created_at,
-          ...boughtForThisMeal({ status: li.status, linkCreatedAt: l.created_at }, byItem[l.list_item_id], rvLastCookedAt),
+          ...boughtForThisMeal({ status: li.status, linkCreatedAt: l.created_at }, byItem[l.list_item_id], rvAnchor),
         };
         const cur = byCatalog[li.catalog_item_id];
         if (!cur || (cur.deletedAt && !link.deletedAt) || (!!cur.deletedAt === !!link.deletedAt && link.linkCreatedAt > cur.linkCreatedAt)) byCatalog[li.catalog_item_id] = link;
       });
       // Was THIS plan added to Shop? One link at or after the last cook (2026-10-18 correction).
-      setRecipeLinks({ mealId: rvMealId, byCatalog, addedThisPlan: wasAddedThisPlan((links || []).map((l) => ({ linkCreatedAt: l.created_at })), rvLastCookedAt) });
+      setRecipeLinks({ mealId: rvMealId, byCatalog, addedThisPlan: wasAddedThisPlan((links || []).map((l) => ({ linkCreatedAt: l.created_at })), rvAnchor) });
     })();
     return () => { cancelled = true; };
-  }, [rvMealId, rvLastCookedAt, cooksLoaded, mealProvenance, _supabase, _household]);
+  }, [rvMealId, rvAnchor, cooksLoaded, mealProvenance, _supabase, _household]);
   const rvMeal = rvMealId ? mealById[rvMealId] : null;
   // The plan action follows the board's own derivation (D9); null = not on This Week.
   // boardCards (not boardMeals) so a card cooked this load still reads "✓ Cooked".

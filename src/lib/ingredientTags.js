@@ -56,9 +56,9 @@ export function ingredientSummary({ n, onWeek, leftToBuy, addedThisPlan = true }
 }
 
 // Was THIS plan added to Shop? At least one of the meal's links was created
-// at or after the meal's most recent cook (any link counts when never cooked).
-export function wasAddedThisPlan(links, lastCookedAt) {
-  return (links || []).some((l) => !!l.linkCreatedAt && (!lastCookedAt || l.linkCreatedAt >= lastCookedAt));
+// at or after the anchor (any link counts when there is no anchor at all).
+export function wasAddedThisPlan(links, anchor) {
+  return (links || []).some((l) => !!l.linkCreatedAt && (!anchor || l.linkCreatedAt >= anchor));
 }
 
 // The buyer of one list item from its checked / unchecked events, newest
@@ -72,29 +72,37 @@ export function buyerFromEvents(events, windowStart) {
   return latest.user_id || null;
 }
 
-// Row 1's window starts at the LATER of the link's created_at (the Add-to-Shop
-// moment, A2-R §1) and the meal's most recent cook (meal_cooks) — the re-plan
-// edge (2026-10-18): a meal re-planned without being re-added keeps its old
-// link, and a purchase made for the previous cook must never read as bought
-// for this one. ISO strings compare as text.
-export function rowWindowStart(linkCreatedAt, lastCookedAt) {
-  if (!lastCookedAt) return linkCreatedAt || null;
-  if (!linkCreatedAt) return lastCookedAt;
-  return lastCookedAt > linkCreatedAt ? lastCookedAt : linkCreatedAt;
+// THE ANCHOR — the moment this plan began (A2-R correction, 2026-10-18, 063):
+// the placement's planned_at, stamped by the plan upsert on every plan or
+// re-plan. meal_cooks is the BACKSTOP for rows older than 063 (planned_at
+// null): the meal's most recent cook. The earlier Add-to-Shop-link anchor was
+// wrong because a re-plan without a cook kept the old links. ISO strings
+// compare as text.
+export function planAnchor(plannedAt, lastCookedAt) {
+  return plannedAt || lastCookedAt || null;
 }
 
-// Does a bought row count for THIS cook, and who bought it? Known-inside when
-// the link itself was made after the last cook (any purchase on it is later),
-// or when a checked event sits at or after the window's start. A row whose
-// link predates the last cook with no event after it is a purchase for the
-// previous cook — not row 1.
-export function boughtForThisMeal({ status, linkCreatedAt }, events, lastCookedAt) {
+// Row 1's window starts at the LATER of the link's created_at (the Add-to-Shop
+// moment) and the anchor: a purchase before this plan began never reads as
+// bought for it.
+export function rowWindowStart(linkCreatedAt, anchor) {
+  if (!anchor) return linkCreatedAt || null;
+  if (!linkCreatedAt) return anchor;
+  return anchor > linkCreatedAt ? anchor : linkCreatedAt;
+}
+
+// Does a bought row count for THIS plan, and who bought it? Known-inside when
+// the link itself was made at or after the anchor (any purchase on it is
+// later), or when a checked event sits at or after the window's start. A row
+// whose link predates the anchor with no event after it is a purchase for an
+// earlier plan — not row 1.
+export function boughtForThisMeal({ status, linkCreatedAt }, events, anchor) {
   if (status !== "bought") return { boughtInWindow: false, buyerUserId: null };
-  const start = rowWindowStart(linkCreatedAt, lastCookedAt);
+  const start = rowWindowStart(linkCreatedAt, anchor);
   const buyerUserId = buyerFromEvents(events, start);
   const latest = events && events[0];
   const checkedInWindow = !!latest && latest.event_type === "checked" && (!start || latest.created_at >= start);
-  const linkInWindow = !lastCookedAt || !linkCreatedAt || linkCreatedAt >= lastCookedAt;
+  const linkInWindow = !anchor || !linkCreatedAt || linkCreatedAt >= anchor;
   return { boughtInWindow: linkInWindow || checkedInWindow, buyerUserId };
 }
 
