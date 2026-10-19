@@ -19,6 +19,7 @@ import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE
 import { displayTitle } from './lib/displayTitle';
 import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
 import { planActionFor } from './lib/recipePlan';
+import { cookDate, cookHistoryLine } from './lib/cookDate';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
@@ -2045,7 +2046,9 @@ function SetTypeSheet({ meal, onSave, onClose }) {
 //            2+ current members and only while the adder is still one (D7)
 //   meta     "{Occasion} · {n} ingredients · {n} steps" — occasion omitted when
 //            untagged, steps omitted at 0 (D8)
-//   proof    "Cooked {n} times" from meal_cooks; hidden at 0 (D11). No average.
+//   proof    "Last cooked {date}", "· {N} times" at 2+ (A4, 2026-10-18 — was
+//            "Cooked {n} times"); from meal_cooks; hidden when never cooked
+//            (D11). No average. Your cooks shows only at 2+ cooks (A4).
 //   plan     the board's OWN derivation (boardCardState, D9): not on This Week →
 //            sand "+ Add to This Week"; planned → "✓ On This Week" (un-plans);
 //            to buy → the inert stage word; ready, or planned with nothing to
@@ -2077,14 +2080,11 @@ const memberFirstName = (mb) => {
   const full = (mb?.users?.full_name || "").trim();
   return full.split(/\s+/)[0] || (mb?.users?.email ? mb.users.email.split("@")[0] : "");
 };
-// A cook's date: "Oct 12" this year, "Oct 12, 2025" otherwise. Never a person.
-const cookDate = (iso) => {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const thisYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString(undefined, thisYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
-};
-function RecipeView({ meal, state, members, cookCount, cookRows, onListIds, busy, onClose, onEdit, onPlan, onUnplan, onCooked }) {
+// Cook dates come from src/lib/cookDate.js (Amendment A4): relative inside the
+// last week, weekday + date beyond it. Never a person (D10).
+// Your cooks shows only at 2+ cooks (A4): one cook is the meta line's job.
+const RV_COOKS_MIN = 2;
+function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, onListIds, busy, onClose, onEdit, onPlan, onUnplan, onCooked }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2132,7 +2132,8 @@ function RecipeView({ meal, state, members, cookCount, cookRows, onListIds, busy
           {attribution && <div className="rv-byline">from {attribution}</div>}
           {adderName && <div className="rv-added">Added by {adderName}</div>}
           <div className="rv-meta">{meta}</div>
-          {cookCount > 0 && <div className="rv-proof">Cooked {cookCount} {cookCount === 1 ? "time" : "times"}</div>}
+          {/* A4: "Last cooked {date}", "· N times" at 2+; nothing when never cooked. */}
+          {cookHistoryLine(lastCookedAt, cookCount) && <div className="rv-proof">{cookHistoryLine(lastCookedAt, cookCount)}</div>}
         </div>
         <div className="rv-plan-row">{plan}</div>
 
@@ -2177,7 +2178,7 @@ function RecipeView({ meal, state, members, cookCount, cookRows, onListIds, busy
             </ol>
           </>
         )}
-        {rows.length > 0 && (
+        {rows.length >= RV_COOKS_MIN && (
           <>
             <h3 className="rv-sec">Your cooks <span>{rows.length}</span></h3>
             <ul className="rv-cooks">
@@ -9919,6 +9920,7 @@ function ProvisionsApp() {
           state={rvState}
           members={householdMembers}
           cookCount={recipeCooks?.mealId === rvMeal.id ? Math.max(recipeCooks.rows.length, rvCookCount) : rvCookCount}
+          lastCookedAt={cooks[rvMeal.id]?.lastCookedAt || (recipeCooks?.mealId === rvMeal.id ? recipeCooks.rows[0]?.cooked_at : null) || null}
           cookRows={recipeCooks?.mealId === rvMeal.id ? recipeCooks.rows : null}
           onListIds={rvOnList}
           busy={planningMealId === rvMeal.id || busyMealId === rvMeal.id || addingMealId === rvMeal.id}
