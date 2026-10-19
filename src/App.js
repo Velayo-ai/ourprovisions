@@ -18,6 +18,7 @@ import { IMPORT_HINTS, GALLEY_HINTS } from './lib/importErrors';
 import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
 import { displayTitle } from './lib/displayTitle';
 import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
+import { planActionFor } from './lib/recipePlan';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
@@ -2102,14 +2103,17 @@ function RecipeView({ meal, state, members, cookCount, cookRows, onListIds, busy
   ].filter(Boolean).join(" · ");
   const rows = cookRows || [];
   const shownCooks = allCooks ? rows : rows.slice(0, RV_COOKS_SHOWN);
+  // The board's flags → the one action (src/lib/recipePlan.js, jest-proven; the
+  // 2026-10-18 phone check caught To buy reading as Cooked it here).
+  const action = planActionFor(state);
   let plan;
-  if (!state) {
+  if (action === "add") {
     plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Add to This Week</button>;
-  } else if (state.cooked) {
+  } else if (action === "cooked") {
     plan = <button type="button" className="rv-plan done" disabled>✓ Cooked</button>;
-  } else if (state.ready || !state.canAdd) {
+  } else if (action === "cookIt") {
     plan = <button type="button" className="rv-plan teal" disabled={busy} onClick={() => { if (!busy) onCooked(meal.id); }}>Cooked it</button>;
-  } else if (state.toBuy) {
+  } else if (action === "toBuy") {
     plan = <span className="rv-plan stage">To buy</span>;
   } else {
     plan = <button type="button" className="rv-plan on" disabled={busy} onClick={() => { if (!busy) onUnplan(meal.id); }}>✓ On This Week</button>;
@@ -7238,8 +7242,9 @@ function ProvisionsApp() {
         .rv-plan.done, .rv-plan.done:disabled { background: transparent; border-color: #0D9488; color: #0A776D; opacity: 1; cursor: default; }
         .rv-seam { display: flex; align-items: center; gap: 10px; margin: 22px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: #8A5F3A; }
         .rv-seam::before, .rv-seam::after { content: ""; flex: 1; height: 1px; background: #E8D5B7; }
-        /* The section headings are the Edit Meal sheet's section labels (.modal-label), so the two sheets read as one. */
-        .rv-sec { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 0; padding: 22px 20px 6px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 1.5px; text-transform: uppercase; color: #8a7a60; }
+        /* The section headings are the Edit Meal sheet's section labels (.modal-label) in size and shape, so the
+           two sheets read as one — on the small-text brown #8A5F3A (the 10-04 floor colour; Dan, 2026-10-18). */
+        .rv-sec { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 0; padding: 22px 20px 6px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; }
         .rv-sec span { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 0; color: #8A5F3A; }
         .rv-ing { list-style: none; margin: 0; padding: 0 20px; }
         .rv-ing li { display: flex; flex-wrap: wrap; align-items: baseline; align-content: center; gap: 2px 10px; box-sizing: border-box; min-height: 44px; padding: 6px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
