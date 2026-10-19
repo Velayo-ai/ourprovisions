@@ -8,17 +8,24 @@
 //     buyerUserId }   — buyerUserId is the latest `checked` event at or after
 //                        linkCreatedAt with no later `unchecked`; null when the
 //                        event write (best-effort) never landed.
-// Soft-deleted bought rows count (A2-R §2): home from the store is after wrap-up.
+// Soft-deleted bought rows count (A2-R §2): home from the store is after wrap-up —
+// those read "bought"; a live bought row is still in the cart ("cart vs bought").
 //
-// The first matching row wins (A2):
-//   1  bought for this meal (status bought, live or archived)
+// The first matching row wins (A2; "cart vs bought" correction, 2026-10-18 — a
+// check puts an item in the cart, wrap-up is the purchase):
+//   1  bought for this meal — archived as bought at wrap-up (status bought, deleted_at set)
 //        solo household          → "Bought"
 //        buyer is the viewer     → "You bought it"
 //        buyer is a member       → "{First name} bought it"
 //        no qualifying event     → "Bought"            (never guess a person)
-//   2  on the list, not bought (live pending row with quantity) → "On the shopping list"
-//   3  meal_ingredients.on_hand                                 → "Already have it"
-//   4  anything else                                            → null
+//   2  in the cart — checked on the open trip, not wrapped up (status bought, live row)
+//        solo household          → "In cart"
+//        checker is the viewer   → "In your cart"
+//        checker is a member     → "In {First name}'s cart"
+//        no qualifying event     → "In cart"
+//   3  on the list, not bought (live pending row with quantity) → "On the shopping list"
+//   4  meal_ingredients.on_hand                                 → "Already have it"
+//   5  anything else                                            → null
 export function ingredientTag({ onWeek, link, onHand, viewerUserId, solo, firstNameOf, addedThisPlan = true }) {
   if (!onWeek) return null;
   // Re-plan edge (A2 follow-up, 2026-10-18): a bought row counts for THIS cook
@@ -28,12 +35,19 @@ export function ingredientTag({ onWeek, link, onHand, viewerUserId, solo, firstN
   // added to Shop — at least one link made after the meal's most recent cook. A
   // meal that is not on the list this time round had nothing bought for it.
   if (addedThisPlan && link && link.status === "bought" && link.boughtInWindow !== false) {
-    if (solo) return { kind: "bought", text: "Bought" };
+    // Rows 1 and 2 share the window and the buyer resolution; only the wording differs.
+    // A live bought row is in the cart (checked on the open trip); an archived one
+    // (deleted_at set at wrap-up) was bought.
+    const inCart = !link.deletedAt;
+    const kind = inCart ? "cart" : "bought";
+    const nameless = inCart ? "In cart" : "Bought";
+    if (solo) return { kind, text: nameless };
     const buyer = link.buyerUserId || null;
-    if (!buyer) return { kind: "bought", text: "Bought" };
-    if (viewerUserId && buyer === viewerUserId) return { kind: "bought", text: "You bought it" };
+    if (!buyer) return { kind, text: nameless };
+    if (viewerUserId && buyer === viewerUserId) return { kind, text: inCart ? "In your cart" : "You bought it" };
     const name = firstNameOf ? firstNameOf(buyer) : "";
-    return { kind: "bought", text: name ? `${name} bought it` : "Bought" };
+    if (!name) return { kind, text: nameless };
+    return { kind, text: inCart ? `In ${name}'s cart` : `${name} bought it` };
   }
   if (link && link.status === "pending" && !link.deletedAt && (link.quantity || 0) > 0) {
     return { kind: "list", text: "On the shopping list" };

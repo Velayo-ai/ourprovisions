@@ -143,19 +143,22 @@ Truth table. The first matching row wins.
 | # | What's true about the ingredient | Tag |
 |---|---|---|
 | 1 | Bought on a trip **after this meal was planned**, and the trip recorded who checked it off | **{First name} bought it**. If the buyer is the viewer: **You bought it**. In a solo household: **Bought** |
-| 2 | On the shopping list, not yet bought | **On the shopping list** |
-| 3 | Marked "I have this" (`meal_ingredients.on_hand`) | **Already have it** |
-| 4 | Anything else | *(blank)* |
+| 2 | Checked on the open trip, not yet wrapped up — a check puts it in the cart; wrap-up is the purchase (*"cart vs bought" correction, 2026-10-18*) | **In {First name}'s cart**. If the checker is the viewer: **In your cart**. In a solo household: **In cart**. Same teal, same window and buyer resolution as row 1 |
+| 3 | On the shopping list, not yet bought | **On the shopping list** |
+| 4 | Marked "I have this" (`meal_ingredients.on_hand`) | **Already have it** |
+| 5 | Anything else | *(blank)* |
 
 **Why row 1 exists:** it celebrates the shop. The tag only appears when the purchase happened in the window between planning the meal and cooking it, so it's tied to this cook rather than to some past trip.
 
-**Never guess a person.** Row 1 names someone only when the trip recorded who checked that item off. If the purchase is known but the buyer isn't, show **Bought** with no name.
+**Never guess a person.** Rows 1 and 2 name someone only when the trip recorded who checked that item off. If the purchase is known but the buyer isn't, show **Bought** (row 1) or **In cart** (row 2) with no name.
+
+**Cart vs bought (2026-10-18):** "… bought it" / "Bought" only once the item is archived as bought at wrap-up (`status = 'bought'`, `deleted_at` set). A live bought row — checked on the open trip — is in the cart, not bought.
 
 **Replay privacy:** the name renders inside masked text. It never goes in an allow-listed element and never in an attribute (same rule as Added by). The tag copy without a name is fixed copy.
 
 **Summary line under "Ingredients":** this replaces the bare count.
-- While any row is in state 2: **"{n} · {k} on the shopping list"**
-- When no row is in state 2: **"{n} · All here"**. This must be the same moment the plan pill shows Cooked it (see A3), so the two always agree.
+- While any row is in state 3: **"{n} · {k} on the shopping list"**
+- When no row is in state 3: **"{n} · All here"**. This must be the same moment the plan pill shows Cooked it (see A3), so the two always agree.
 
 ---
 
@@ -265,6 +268,8 @@ Step 0 findings (Cody): `meal_placements` has no planned-at timestamp. Checked e
 
 > **2026-10-18 correction to A2-R (Dan, "fix it properly"): `planned_at` is the anchor; `meal_cooks` is the backstop; the Add-to-Shop-as-anchor ruling was wrong because a re-plan without a cook kept the old links.** Migration **063** adds `meal_placements.planned_at timestamptz` (nullable, no default; open placements backfilled from `updated_at`; closed rows stay null; RLS, grants and RPC signatures unchanged). The client's plan path — `appendPlacement`, the one upsert that nulls `cooked_at` / `skipped_at` on a plan or re-plan — stamps `planned_at = now()` there, once; reorder, Ready, cook and skip never touch it. The view: row 1's window starts at the open placement's `planned_at`; when it is null (rows older than 063) the meal's most recent `meal_cooks` cook stands in (`planAnchor`). The "added for this plan" link check uses the same start; "{n} · All here" and "{n} · {k} on the shopping list" require a link created at or after it (and, for All here, k = 0). Order of shipping: 063 on dev, VERIFY read back, then the client (it reads and writes the column); on prod the migration is applied and verified by direct query BEFORE the client push in Promotion 2. Jest: the re-walk with and without a cook on record (clear → re-plan, not added → "13", no tags, ✓ On This Week); re-plan + re-add + check two (two "You bought it", "13 · 11 on the shopping list"); plan → add → check all ("All here" and Cooked it from the same inputs).
 
+> **2026-10-18 "cart vs bought" correction (Dan's dev re-walk): a check puts an item in the cart; wrap-up is the purchase.** Items checked on the open trip but not yet wrapped up read "You bought it" — not bought yet. A2's table gains a row between the old rows 1 and 2: checked on the open trip, not wrapped up → "In your cart" / "In {First name}'s cart" / solo "In cart" — the same teal, the same window and buyer resolution as row 1. "… bought it" / "Bought" only once the row is archived as bought at wrap-up (`status = 'bought'`, `deleted_at` set by `archive_trip_items`). The old rows 2–4 renumber to 3–5; the summary line and V-A2b / V-A2d follow. As built: `ingredientTag` returns kind `cart` for a live bought row, `bought` for an archived one; `.rv-tag.cart` shares the teal; no allow-list change. Jest: both states on the same link, flipping only `deleted_at`; the cart row shares the window (falls through before this plan, and when the plan was never added).
+
 **5. Summary line:** unchanged. It counts state-2 rows only.
 
 ---
@@ -288,9 +293,9 @@ If row 1 can't be built without new data, ship rows 2–4 and a nameless **Bough
 
 - **V-A1:** at Default, the recipe view and Edit Meal read as siblings. The harness reports computed sizes before and after, per element, at 320 / 375 / 390 × Default / XXL.
 - **V-A2a:** Plan a meal → Add to Shop. Every row that was added reads "On shopping list". The summary reads "{k} on the shopping list". The pill is not Cooked it.
-- **V-A2b:** a second member checks two of those items on a trip. Those two rows read "{Name} bought it"; for the member who checked them they read "You bought it".
+- **V-A2b:** a second member checks two of those items on a trip. Those two rows read "In {Name}'s cart"; for the member who checked them they read "In your cart". After wrap-up they read "{Name} bought it" / "You bought it".
 - **V-A2c:** mark one ingredient "I have this". Its row reads "Already have it".
-- **V-A2d:** once nothing is left in state 2, the summary reads "All here" and the pill is Cooked it, in the same render.
+- **V-A2d:** once nothing is left in state 3, the summary reads "All here" and the pill is Cooked it, in the same render.
 - **V-A2e:** an unplanned meal and a cooked meal show no tags.
 - **V-A2f:** a solo household shows "Bought" for row 1, with no name.
 - **Privacy:** no buyer name appears in any attribute or allow-listed element. The allow-list delta is reported by name; none is expected.

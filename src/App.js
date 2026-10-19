@@ -2176,9 +2176,11 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, l
               {ingredients.map((mi) => {
                 const qty = Number(mi.quantity_per_serving) || 1;
                 const name = mi.catalog_items?.name || "Unknown item";
-                // A2 / A2-R: bought for this meal (named only when the trip recorded the
-                // checker; "You" for the viewer; nameless in a solo household) → on the
-                // shopping list → already have it → nothing. The name is masked text.
+                // A2 / A2-R: bought for this meal (archived at wrap-up; named only when the
+                // trip recorded the checker; "You" for the viewer; nameless in a solo
+                // household) → in the cart (checked on the open trip, not wrapped up — the
+                // "cart vs bought" correction, same window and buyer) → on the shopping
+                // list → already have it → nothing. The name is masked text.
                 const tag = ingredientTag({
                   onWeek: tagsOn, onHand: !!mi.on_hand, link: links?.[mi.catalog_item_id] || null,
                   viewerUserId, solo, firstNameOf, addedThisPlan,
@@ -7358,8 +7360,9 @@ function ProvisionsApp() {
            beside the tag (harness 2026-10-18). */
         .rv-ing-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
         .rv-tag { flex: none; margin-left: auto; white-space: nowrap; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8A5F3A; }
-        /* A2: "Already have it" and "{Name} bought it" / "Bought" in text teal (the household has it); "On the shopping list" brown. */
-        .rv-tag.have, .rv-tag.bought { color: #0A776D; }
+        /* A2: "Already have it", "{Name} bought it" / "Bought" and "In {Name}'s cart" / "In cart" in text teal
+           (the household has it); "On the shopping list" brown. */
+        .rv-tag.have, .rv-tag.bought, .rv-tag.cart { color: #0A776D; }
         .rv-preamble { margin: 0 20px 14px; padding: 0 0 12px; border-bottom: 1px solid #EFE6D9; }
         .rv-preamble p { margin: 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; overflow-wrap: anywhere; }
         .rv-steps { list-style: none; margin: 0; padding: 0 20px; }
