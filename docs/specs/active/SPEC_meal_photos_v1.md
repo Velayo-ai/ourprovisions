@@ -197,3 +197,9 @@ It is just as quiet: ignorable, with no prompt and no nag.
 
 The **Home activity widget** ("Dan cooked Easton's Grilled Cheese 📷") is its own design item,
 alongside who's cooking. `meal_cooks` together with `meal_photos` already feed it.
+
+---
+
+## Amendment 2026-10-19 — replay
+
+Every photo element carries `.op-replay-block` (excluded from session replay in both environments; `SPEC_replay_labels_promotion2` A5).

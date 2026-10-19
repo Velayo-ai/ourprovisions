@@ -3809,7 +3809,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
                     <span id="op-verb-remove-shot" className="sr-only">Remove screenshot</span>
                     {photos.map((p, i) => (
                       <div key={p.id} className="op-galley-th">
-                        <img src={p.url} alt={`Screenshot ${i + 1}`} />
+                        <img className="op-replay-block" src={p.url} alt={`Screenshot ${i + 1}`} />
                         <span id={`op-shot-${p.id}`} className="op-galley-n" aria-hidden="true">{i + 1}</span>
                         <button type="button" className="op-galley-x" aria-labelledby={`op-verb-remove-shot op-shot-${p.id}`}
                           onClick={() => removePhoto(p.id)} disabled={saving}>×</button>
@@ -6899,12 +6899,18 @@ function ProvisionsApp() {
   // column, darker toward the viewport edges, so focus comes from contrast
   // rather than uniform darkness. All on the one layer that lives OUTSIDE the
   // column (ShoppingListApp's .desk-bg), handed the whole background value
-  // through a CSS variable on <html>. No photo → the variable is absent and
+  // through a CSS variable set on that layer. No photo → the variable is absent and
   // the layer falls back to the cream field, which is every new household. The
   // photo appearing twice on desktop — cropped as the banner inside the column,
   // blurred behind it — is intentional: an echo.
+  //
+  // The variable lives on .desk-bg ITSELF, never on <html> (2026-10-19): the
+  // session recorder copies every element's style attribute, and <html> cannot
+  // be excluded, so a URL there reached every replay snapshot. .desk-bg carries
+  // .op-replay-block, so its style — and the URL in it — is never serialized.
   useEffect(() => {
-    const root = document.documentElement;
+    const root = document.querySelector(".desk-bg");
+    if (!root) return undefined;
     if (bannerPhotoUrl) {
       root.style.setProperty(
         "--op-desk-bg",
@@ -8122,7 +8128,8 @@ function ProvisionsApp() {
       <div style={{ position: "relative" }}>
         {bannerHasPhoto && (
           <>
-            <div aria-hidden="true" style={{
+            {/* .op-replay-block: excluded from session replay (the URL is a signed household-photo link). */}
+            <div className="op-replay-block" aria-hidden="true" style={{
               position: "absolute", inset: 0, zIndex: 0,
               backgroundColor: "#2C1A0E",
               backgroundImage: `url("${bannerPhotoUrl}")`,
@@ -8501,7 +8508,7 @@ function ProvisionsApp() {
                   return (
                     <div key={m.id} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                       {isMe && user.imageUrl ? (
-                        <img src={user.imageUrl} alt={displayName} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
+                        <img className="op-replay-block" src={user.imageUrl} alt={displayName} style={{ width: "36px", height: "36px", borderRadius: "50%", objectFit: "cover" }} />
                       ) : (
                         <div style={{
                           width: "36px", height: "36px", borderRadius: "50%",
@@ -8923,6 +8930,7 @@ function ProvisionsApp() {
               {/* Live preview — the control (spec D7). Drag to reposition when a
                   photo exists; empty state shows the real espresso header. */}
               <div
+                className="op-replay-block"
                 onPointerDown={onEdDragStart}
                 onPointerMove={onEdDragMove}
                 onPointerUp={onEdDragEnd}
@@ -10895,7 +10903,7 @@ export default function ShoppingListApp() {
           descendant (helm, sheets, toasts, overlays, the system message below) so
           they anchor to the column, not the window; .phone-scroll is the column's
           own scroll root. */}
-      <div className="desk-bg" aria-hidden="true" />
+      <div className="desk-bg op-replay-block" aria-hidden="true" />
       <div className="phone-frame">
         <div className="phone-scroll">
           <ActiveHouseholdProvider getToken={getToken} clerkId={sessionLive ? user?.id : undefined} sessionId={sessionId} onRemoval={onRemoval}>

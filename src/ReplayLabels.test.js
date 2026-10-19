@@ -239,3 +239,75 @@ describe("CategorySelect", () => {
     expect(b.querySelector("select").value).toBe("");
   });
 });
+
+// ---------------------------------------------------------------- ids across surfaces open together
+describe("ids are unique when the meal sheet is open over the board", () => {
+  test("board + Edit Meal (search showing) + Places + Wrap Up + the library's verbs: no id twice, every idref resolves", () => {
+    const { container } = render(
+      <>
+        {Board()}
+        {Sheet()}
+        {Places()}
+        <WrapUpBar checked={4} total={11} onWrapUp={noop} />
+        <span id="lib-verb-plan" className="sr-only">Plan</span>
+        <span id="lib-verb-open" className="sr-only">Open</span>
+      </>,
+    );
+    fireEvent.change(container.querySelector('input[placeholder="Search your catalog…"]'), { target: { value: "spin" } });
+    const ids = Array.from(container.querySelectorAll("[id]")).map((el) => el.id);
+    expect(ids.length).toBeGreaterThan(20);
+    expect(ids.filter((id, i) => ids.indexOf(id) !== i)).toEqual([]);
+    container.querySelectorAll("[aria-labelledby]").forEach((el) => {
+      for (const ref of el.getAttribute("aria-labelledby").split(/\s+/)) expect(container.querySelector(`[id="${ref}"]`)).not.toBeNull();
+    });
+  });
+});
+
+// ---------------------------------------------------------------- photo surfaces (A5, Step 1b)
+describe("photo surfaces carry .op-replay-block", () => {
+  test("library card photo (rendered)", () => {
+    const { LibraryCard } = require("./components/LibraryCards");
+    const meal = { id: "5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e", name: "Photo Meal", occasion: ["dinner"], meal_ingredients: [], cardPhotoUrl: "https://example.test/meal.jpg" };
+    const { container } = render(<LibraryCard meal={meal} stage="none" busy={false} canPlan onPlan={noop} onUnplan={noop} onOpen={noop} onSetType={noop} />);
+    const imgs = container.querySelectorAll("img");
+    expect(imgs.length).toBe(1);
+    expect(imgs[0].classList.contains("op-replay-block")).toBe(true);
+  });
+
+  // The other five sites live inside ProvisionsApp / ShoppingListApp, which cannot render alone
+  // (Clerk, Supabase, the household context). The proof for those is this source guard plus the
+  // bundle grep: every <img> with a computed src, and every CSS url(${…}) in JSX, sits on an
+  // element whose opening tag carries the class — so a NEW photo surface without it fails here.
+  const fs = require("fs");
+  const SOURCES = ["App.js", "components/LibraryCards.js"].map((f) => [f, fs.readFileSync(`${__dirname}/${f}`, "utf8")]);
+  const FIXED_ASSETS = [/^src=\{VELAYO_LOGO_TEAL\}/, /^src=\{`\$\{process\.env\.PUBLIC_URL\}/];
+
+  test("every <img> with a computed src carries the class (fixed app assets excepted)", () => {
+    let checked = 0;
+    for (const [file, src] of SOURCES) {
+      for (const m of src.matchAll(/<img\b[^>]*?\/>/gs)) {
+        const tag = m[0];
+        const srcAttr = (tag.match(/src=\{[^}]*\}?/) || [""])[0];
+        if (!srcAttr || FIXED_ASSETS.some((re) => re.test(srcAttr))) continue;
+        checked += 1;
+        expect(`${file}: ${tag}`).toMatch(/op-replay-block/);
+      }
+    }
+    expect(checked).toBe(3);   // the avatar, the Galley screenshot thumbnail, the library card photo
+  });
+
+  test("every interpolated CSS url() in JSX is on an element that carries the class; the desk backdrop's lives on .desk-bg", () => {
+    const [, app] = SOURCES[0];
+    let checked = 0;
+    for (const m of app.matchAll(/url\("\$\{/g)) {
+      const before = app.slice(0, m.index);
+      if (/document\.querySelector\("\.desk-bg"\)[\s\S]{0,600}$/.test(before)) { checked += 1; continue; }
+      const open = before.lastIndexOf("<div");
+      expect(app.slice(open, m.index)).toMatch(/className="[^"]*op-replay-block/);
+      checked += 1;
+    }
+    expect(checked).toBe(3);   // the desk backdrop, the Home banner layer, the photo editor preview
+    expect(app).toContain('<div className="desk-bg op-replay-block" aria-hidden="true" />');
+    expect(app).not.toMatch(/documentElement\.style\.setProperty\(\s*"--op-desk-bg"/);
+  });
+});
