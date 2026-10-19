@@ -8,6 +8,7 @@ import { ConnectivityPill } from './components/ConnectivityPill';
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
+import { CategorySelect } from './components/CategorySelect';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { parseSteps } from './lib/parseSteps';
@@ -1537,7 +1538,7 @@ function boardCardState(m, { placements, rows, mealById, cookedIds }) {
   return { noShop, cooked, ready, planned, toBuy, canAdd, rc, chip, title, line };
 }
 
-function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
+export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
   // A card cooked THIS board load stays in place, muted, until the next load
   // (cookedIds, owned by App). It is not in the queue: no drag, no number, no
   // rail word, excluded from upNext / counts / numbering.
@@ -1630,6 +1631,12 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
   const openOrder = projected.filter((x) => !isCooked(x)).map((x) => x.id);
   return (
     <div className="board">
+      {/* The fixed VERB halves of the board's aria-labelledby names, rendered once, outside every
+          button (2026-10-19, the library's 10-16 recipe). The meal's half is the card's masked
+          title (id board-title-{uuid}); no name ever sits in an attribute the recorder copies. */}
+      <span id="board-verb-remove" className="sr-only">Remove</span>
+      <span id="board-verb-more" className="sr-only">More for</span>
+      <span id="board-verb-cooked" className="sr-only">cooked</span>
       {menuFor && <div className="board-menu-backdrop" onClick={(e) => { e.stopPropagation(); setMenuFor(null); }} />}
       {list.map((m, i) => {
         const busy = busyMealId === m.id;
@@ -1676,7 +1683,7 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
             <div className="board-main">
               <div className="board-top">
                 {/* Display casing only (displayTitle, visual v2 D11) on a meal; a held night's title is its label. */}
-                <span className="board-card-title">{noShop ? title : displayTitle(title)}</span>
+                <span id={`board-title-${m.id}`} className="board-card-title">{noShop ? title : displayTitle(title)}</span>
                 {chip && <span className={`board-chip${ready ? " ready" : ""}`}>{chip}</span>}
                 {/* × at rest only on a no-shop card — it is that card's one action.
                     A meal card shows NO destructive control at rest: Remove lives
@@ -1685,7 +1692,7 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
                   <button
                     type="button"
                     className="board-x"
-                    aria-label={`Remove ${title}`}
+                    aria-labelledby={`board-verb-remove board-title-${m.id}`}
                     disabled={busy}
                     onClick={(e) => { e.stopPropagation(); if (!busy) onSkip(m.id, false); }}
                   >×</button>
@@ -1707,7 +1714,7 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
                   (teal outline, disabled). It leaves on the next board load. */}
               {cooked && (
                 <div className="board-actions">
-                  <button type="button" className="board-cook done" disabled aria-label={`${m.name} cooked`}>✓ Cooked</button>
+                  <button type="button" className="board-cook done" disabled aria-labelledby={`board-title-${m.id} board-verb-cooked`}>✓ Cooked</button>
                 </div>
               )}
               {!noShop && !cooked && (
@@ -1739,7 +1746,7 @@ function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSki
                 <button
                   type="button"
                   className="board-more"
-                  aria-label={`More for ${m.name}`}
+                  aria-labelledby={`board-verb-more board-title-${m.id}`}
                   aria-expanded={menuFor === m.id}
                   onClick={(e) => { e.stopPropagation(); setMenuFor(menuFor === m.id ? null : m.id); }}
                 >⋯</button>
@@ -2497,7 +2504,7 @@ function GoodForChips({ value, onChange, style }) {
 // written the moment a category pill was tapped so the draft could hold a real
 // id, and every Cancel left it behind as an orphan. Staged rows can now carry a
 // placeholder, so the write waits for Save (SPEC_defer_catalog_write).
-function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn }) {
+export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -3253,6 +3260,18 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
     <div className="modal-overlay">
       <div className="modal" role="dialog" aria-modal="true" aria-label={isEdit ? "Edit meal" : "New meal"} style={{ maxHeight: "88vh", overflowY: "auto" }}>
         <SheetClose onClose={onCancel} disabled={saving || deleting} />
+        {/* The fixed VERB halves of the ingredient rows' aria-labelledby names, rendered once,
+            outside every button (2026-10-19, the library's 10-16 recipe). The item's half is the
+            row's masked name, under an INDEX id — never catalog_item_id, which is
+            "pending:{name}" for an item this sheet just created. */}
+        <span id="ing-verb-need" className="sr-only">Need</span>
+        <span id="ing-verb-again" className="sr-only">again</span>
+        <span id="ing-verb-decrease" className="sr-only">Decrease</span>
+        <span id="ing-verb-increase" className="sr-only">Increase</span>
+        <span id="ing-verb-remove" className="sr-only">Remove</span>
+        <span id="ing-verb-have" className="sr-only">I already have</span>
+        <span id="ing-verb-have-tail" className="sr-only">— keep it in the meal but do not add it</span>
+        <span id="ing-verb-added" className="sr-only">already added — add another</span>
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
 
         {/* The import banner (spec: Filled). One line, card-tinted, NO teal — nothing
@@ -3333,7 +3352,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
               {/* Row styling matches .item-row.has-qty. Applied unconditionally:
                   every row in this list carries quantity ≥ 1 by definition, so a
                   qty-check would be a branch with one reachable outcome. */}
-              {rows.map((r) => (
+              {rows.map((r, ri) => (
                 <div key={r.catalog_item_id} style={{
                   padding: "8px 10px",
                   // Dashed + faded says "still part of the recipe, just not being bought".
@@ -3346,7 +3365,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px" }}>
                   <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center",
                     gap: "7px", flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+                    <span id={`ing-name-${ri}`} style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
                       color: r.on_hand ? "#8a7a60" : "#2C1A0E" }}>
                       {r.name}
                     </span>
@@ -3387,7 +3406,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     // to a stepper, and this is a state change, not an increment.
                     <button
                       onClick={() => needAgain(r.catalog_item_id)}
-                      aria-label={`Need ${r.name} again`}
+                      aria-labelledby={`ing-verb-need ing-name-${ri} ing-verb-again`}
                       style={{
                         background: "none", border: "1.5px solid #C9A97A", borderRadius: "999px",
                         padding: "6px 13px", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8),
@@ -3400,19 +3419,19 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       <button
                         className="qty-btn"
                         onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving - 1)}
-                        aria-label={`Decrease ${r.name}`}
+                        aria-labelledby={`ing-verb-decrease ing-name-${ri}`}
                       >−</button>
                       <span className="qty-display">{r.quantity_per_serving}</span>
                       <button
                         className="qty-btn"
                         onClick={() => setQty(r.catalog_item_id, r.quantity_per_serving + 1)}
-                        aria-label={`Increase ${r.name}`}
+                        aria-labelledby={`ing-verb-increase ing-name-${ri}`}
                       >+</button>
                     </div>
                   )}
                   <button
                     onClick={() => removeRow(r.catalog_item_id)}
-                    aria-label={`Remove ${r.name}`}
+                    aria-labelledby={`ing-verb-remove ing-name-${ri}`}
                     style={{ background: "none", border: "none", color: "#8A5F3A", fontSize: "18px",
                       cursor: "pointer", padding: "0 2px", flexShrink: 0, lineHeight: 1 }}
                   >×</button>
@@ -3436,7 +3455,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                     <div style={{ marginTop: "1px" }}>
                       <button
                         onClick={() => shelve(r.catalog_item_id)}
-                        aria-label={`I already have ${r.name} — keep it in the meal but do not add it`}
+                        aria-labelledby={`ing-verb-have ing-name-${ri} ing-verb-have-tail`}
                         style={{
                           background: "none", border: "none", padding: "2px 0", cursor: "pointer",
                           fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 400,
@@ -3468,7 +3487,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
 
           {!busy && results.length > 0 && (
             <div style={{ marginTop: "8px" }}>
-              {results.map((it) => {
+              {results.map((it, ii) => {
                 const stagedRow = rows.find((r) => r.catalog_item_id === it.id);
                 return (
                 /* Same shape as Shop Add's .add-result row (the reference pattern, pass 2):
@@ -3480,7 +3499,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                   display: "flex", alignItems: "center", gap: "10px", padding: "8px 2px",
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#2C1A0E",
+                    <div id={`ing-result-${ii}`} style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#2C1A0E",
                       overflowWrap: "anywhere" }}>
                       {it.name}
                     </div>
@@ -3501,7 +3520,7 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
                       style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 14px",
                         background: "#E8D5B7", color: "#6b5a45" }}
                       onClick={() => stageItem(it)}
-                      aria-label={`${it.name} already added — add another`}
+                      aria-labelledby={`ing-result-${ii} ing-verb-added`}
                     >Added ×{stagedRow.quantity_per_serving}</button>
                   ) : (
                     <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8), padding: "6px 16px" }}
@@ -4032,6 +4051,63 @@ function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCan
         </div>
       </div>
     </div>
+  );
+}
+
+// PLACE ROW — one household in the Places list, moved verbatim out of ProvisionsApp
+// (2026-10-19) so a test can render it. The active row names itself by aria-labelledby:
+// the fixed verb span "hh-verb-edit" (rendered once by the list, outside every button)
+// plus this row's masked name (id hh-name-{uuid}). The household name is text only,
+// never an attribute the session recorder copies.
+export function PlaceRow({ hh, isActive, onEdit, onSwitch }) {
+  if (isActive) {
+    // Active row: espresso fill + clay ring carry selection; a bare pencil
+    // at the right edge opens Edit. Tapping the row also opens Edit.
+    return (
+      <button
+        onClick={onEdit}
+        aria-labelledby={`hh-verb-edit hh-name-${hh.id}`}
+        style={{
+          width: "100%", background: "#2C1A0E", border: "2px solid #c8973a",
+          borderRadius: "8px", padding: "11px 14px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
+        }}
+      >
+        <span id={`hh-name-${hh.id}`} style={{
+          fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+          color: "#FAF4EC", fontWeight: 700, flex: 1, minWidth: 0, overflowWrap: "anywhere",
+        }}>{hh.name}</span>
+        {/* Bare pencil + "Edit" label (no container/plate), per FINAL3 */}
+        <span style={{
+          display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, marginLeft: "10px",
+          fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
+          color: "#FAF4EC", opacity: 0.82,
+        }}>
+          <svg style={{ width: ts(15, 0.8), height: ts(15, 0.8) }} viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
+            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
+          </svg>
+          Edit
+        </span>
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={onSwitch}
+      style={{
+        width: "100%", background: "#E8D5B7", border: "2px solid transparent",
+        borderRadius: "8px", padding: "11px 14px",
+        display: "flex", alignItems: "center",
+        cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
+      }}
+    >
+      <span style={{
+        fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+        color: "#2C1A0E", fontWeight: 400, minWidth: 0, overflowWrap: "anywhere",
+      }}>{hh.name}</span>
+    </button>
   );
 }
 
@@ -8316,60 +8392,19 @@ function ProvisionsApp() {
                 )
               ) : (
               <>
-              {(myHouseholds || []).map((hh) => {
-                const isActive = hh.id === activeHouseholdId;
-                if (isActive) {
-                  // Active row: espresso fill + clay ring carry selection; a bare pencil
-                  // at the right edge opens Edit. Tapping the row also opens Edit.
-                  return (
-                    <button
-                      key={hh.id}
-                      onClick={openEditHousehold}
-                      aria-label={`Edit ${hh.name}`}
-                      style={{
-                        width: "100%", background: "#2C1A0E", border: "2px solid #c8973a",
-                        borderRadius: "8px", padding: "11px 14px",
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                        cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
-                      }}
-                    >
-                      <span style={{
-                        fontFamily: "'Lato', sans-serif", fontSize: ts(15),
-                        color: "#FAF4EC", fontWeight: 700, flex: 1, minWidth: 0, overflowWrap: "anywhere",
-                      }}>{hh.name}</span>
-                      {/* Bare pencil + "Edit" label (no container/plate), per FINAL3 */}
-                      <span style={{
-                        display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, marginLeft: "10px",
-                        fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), fontWeight: 700,
-                        color: "#FAF4EC", opacity: 0.82,
-                      }}>
-                        <svg style={{ width: ts(15, 0.8), height: ts(15, 0.8) }} viewBox="0 0 24 24" fill="none" stroke="#FAF4EC"
-                          strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-                        </svg>
-                        Edit
-                      </span>
-                    </button>
-                  );
-                }
-                return (
-                  <button
-                    key={hh.id}
-                    onClick={() => { switchHousehold(hh.id); setShowHouseholdModal(false); }}
-                    style={{
-                      width: "100%", background: "#E8D5B7", border: "2px solid transparent",
-                      borderRadius: "8px", padding: "11px 14px",
-                      display: "flex", alignItems: "center",
-                      cursor: "pointer", marginBottom: "6px", boxSizing: "border-box", textAlign: "left",
-                    }}
-                  >
-                    <span style={{
-                      fontFamily: "'Lato', sans-serif", fontSize: ts(15),
-                      color: "#2C1A0E", fontWeight: 400, minWidth: 0, overflowWrap: "anywhere",
-                    }}>{hh.name}</span>
-                  </button>
-                );
-              })}
+              {/* The fixed VERB half of the active row's aria-labelledby name, rendered once,
+                  outside every button (2026-10-19, the library's 10-16 recipe); the household's
+                  half is the row's masked name (id hh-name-{uuid}). */}
+              <span id="hh-verb-edit" className="sr-only">Edit</span>
+              {(myHouseholds || []).map((hh) => (
+                <PlaceRow
+                  key={hh.id}
+                  hh={hh}
+                  isActive={hh.id === activeHouseholdId}
+                  onEdit={openEditHousehold}
+                  onSwitch={() => { switchHousehold(hh.id); setShowHouseholdModal(false); }}
+                />
+              ))}
 
               {/* Create new household — below the list */}
               {!creating ? (
@@ -10289,14 +10324,14 @@ function ProvisionsApp() {
             {isSignedIn && (
               <div className="modal-field">
                 <label className="modal-label">Rename Category</label>
-                <select className="modal-select" value={renamingCategory || ""}
-                  onChange={e => { setRenamingCategory(e.target.value || null); setRenameValue(e.target.value); }}
-                  style={{ marginBottom: "8px" }}>
-                  <option value="">— select category —</option>
-                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => (
-                    <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
-                  ))}
-                </select>
+                {/* CategorySelect: option values are indexes, never the household's category names (replay, 2026-10-19). */}
+                <CategorySelect
+                  categories={categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName))}
+                  value={renamingCategory || ""}
+                  onChange={rawName => { setRenamingCategory(rawName || null); setRenameValue(rawName); }}
+                  placeholder="— select category —"
+                  style={{ marginBottom: "8px" }}
+                />
                 <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
                   Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
                 </p>
@@ -10323,20 +10358,18 @@ function ProvisionsApp() {
             {isSignedIn && (
               <div className="modal-field">
                 <label className="modal-label">Delete Category</label>
-                <select className="modal-select" value={deletingCategory?.rawName || ""}
-                  onChange={e => {
-                    const rawName = e.target.value;
+                <CategorySelect
+                  categories={categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName))}
+                  value={deletingCategory?.rawName || ""}
+                  onChange={rawName => {
                     if (!rawName) { setDeletingCategory(null); return; }
                     const itemCount = Object.values(catalogMap).filter(i => i.category === rawName).length;
                     setDeletingCategory({ rawName, itemCount });
                     setDeleteMoveTarget("");
                   }}
-                  style={{ marginBottom: "8px" }}>
-                  <option value="">— select category —</option>
-                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => (
-                    <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
-                  ))}
-                </select>
+                  placeholder="— select category —"
+                  style={{ marginBottom: "8px" }}
+                />
                 <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
                   Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
                 </p>
@@ -10347,14 +10380,13 @@ function ProvisionsApp() {
                         <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#8a7a60", marginBottom: "8px" }}>
                           {deletingCategory.itemCount} item{deletingCategory.itemCount !== 1 ? "s" : ""} in this category. Move them to:
                         </div>
-                        <select className="modal-select" value={deleteMoveTarget}
-                          onChange={e => setDeleteMoveTarget(e.target.value)}
-                          style={{ marginBottom: "8px" }}>
-                          <option value="">— delete all items too —</option>
-                          {categories.filter(c => c.rawName !== deletingCategory.rawName).map(cat => (
-                            <option key={cat.rawName} value={cat.rawName}>{cat.name}</option>
-                          ))}
-                        </select>
+                        <CategorySelect
+                          categories={categories.filter(c => c.rawName !== deletingCategory.rawName)}
+                          value={deleteMoveTarget}
+                          onChange={rawName => setDeleteMoveTarget(rawName)}
+                          placeholder="— delete all items too —"
+                          style={{ marginBottom: "8px" }}
+                        />
                       </>
                     )}
                     <button
