@@ -194,6 +194,26 @@ Whatever the answer, after A2 ships the pill and the summary line must derive fr
 
 ---
 
+## A5 — No pill that looks tappable and does nothing (2026-10-18, Dan)
+
+**Finding (Dan, phone, after `7f623ad`):** in the To-buy state the view's pill reads "To buy" correctly. But it is drawn as an outlined pill, so it looks like a button you could tap, and tapping it does nothing. In the same state the board card offers **"See on list"**, which goes to Shop.
+
+**Rule:**
+- **To-buy state:** the pill becomes **"See on list"**, tappable. It does exactly what the board card's "See on list" does: close the view, then the same navigation and scroll/highlight the board uses. Reuse that handler; do not write a second one.
+- **The pill is never drawn as a button unless it acts.** If any other state ends up inert, render it as plain meta text with no border.
+- **Copy:** the button label is fixed copy, "See on list", with no name or count in it. If it needs a class, add it to the allow-list under its own name.
+
+**Verify:**
+- **V-A5a:** Ground Beef Tacos (To buy) shows "See on list". Tapping it lands on Shop exactly where the board's "See on list" lands.
+- **V-A5b:** no state renders a bordered pill that does nothing.
+- **V-A5c:** the allow-list delta is reported by name; at most one, the pill's class.
+
+---
+
+**Build status (2026-10-18, Claude Code):** A5 built — the To-buy pill is "See on list", the board's own handler (`goToDoor("list")`) after the view closes; ✓ Cooked renders as plain teal text, no border (the "never a bordered pill that does nothing" rule). No allow-list change: the pill keeps `.rv-plan`.
+
+---
+
 ## Step 0 — reads before building A2 (read-only, report first)
 
 1. **Who checked it off, and does it survive wrap-up?** Does a checked event record the user who checked it (`list_item_events` or another table)? Does that record survive wrap-up? `archive_trip_items` wipes `list_item_contributors`, so contributors can't be the source.
