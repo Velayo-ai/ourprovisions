@@ -92,3 +92,126 @@ Every gated element **renders nothing** until its data exists. No placeholders, 
 ## Out of scope
 
 The full step-by-step cooking flow and kitchen timer; servings and scaling; times and difficulty; sharing from this page; source chips on library cards (D19); a "Recipe by" entity and merge tool; favourites.
+
+---
+
+## Amendment A (2026-10-18)
+
+*Appended 2026-10-18 from the design chat (Dan's slice (a) phone and desktop walk). Applies before slice (b).*
+
+**Build status (2026-10-18, Claude Code):**
+- **A1 — satisfied by `827306f`** (the role-table re-map: title 22.4 at k 0.5, section labels as the Edit Meal labels, meta 14, body 16 on 44 px rows, step circle 28, nothing under 12.5; before/after table in the commit).
+- **A3 — answered (b), fixed by `7f623ad`.** The view read the board's exact `boardCardState` (Ground Beef Tacos: `toBuy` true, `planned` false, `canAdd` false); the pill mapping tested `!canAdd` before `toBuy`, and `canAdd` is false on every To-buy card. The mapping now lives in `src/lib/recipePlan.js` in D9's order, jest-proven. The tag read `list_item_meals` provenance ("On your list") and `on_hand` ("On hand") — the wording A2 replaces.
+- **A4 — built** (its own commit, after this one): `src/lib/cookDate.js` (relative inside the last week, weekday + date beyond, year only when not this year; `cookHistoryLine` = "Last cooked {date}" + "· N times" at 2+), Your cooks only at 2+ cooks.
+- **A2 — Step 0 answered, not built** (see the SESSION_LOG entry of 2026-10-18).
+
+---
+
+## A1 — Sizing: the view reads a size too large at Default
+
+**Finding (Dan, phone at Default):** the whole recipe view reads one size too large. The meal title, section headings, ingredient rows and step text are all oversized next to the rest of the app.
+
+**Cause (likely):** the view was built at the mockup's pixel sizes rather than the 2026-10-04 text-size role table.
+
+**Rule:** every text element in the recipe view maps to an existing role and uses `ts(px, k)` like the rest of the app. The mockup sets the layout; the role table sets the sizes.
+
+| Element | Role |
+|---|---|
+| Meal title | sheet-title (22.4 px, k 0.5) |
+| "Ingredients" / "Steps" / "Your cooks" headings | section heading, matching Edit Meal's section labels |
+| Byline, Added by, meta line, proof line, ingredient tags | meta (14, k 1) |
+| Ingredient rows | body (16, k 1); row min-height 44 px, no taller |
+| Step text | body (16, k 1), line-height about 1.5; number circles sized to it (about 28 px) |
+
+Two constraints follow from this:
+
+- **Cook mode (slice c) needs headroom.** Cook mode is defined as step text "one size larger." The view must sit at body size so that Cook mode has a size to step up to.
+- **Nothing in the view renders below the 12.5 px floor.**
+
+**Check:** open the recipe view, then Edit Meal for the same meal. At Default the two should read as siblings: the same title weight, the same body size, the same row rhythm.
+
+---
+
+## A2 — Ingredient tags answer "do we have it?"
+
+**Finding:** today's tag reads "On your list" on some rows and nothing on others. That tells you where an item sits, not whether you can cook. Dan's walk also showed **Cooked it** on a meal whose rows all read "On your list" (see A3).
+
+**Rule (Dan):** tags show **only while the meal is planned and not yet cooked**, between Plan and Cooked it. An unplanned meal shows no tags, and neither does a cooked one.
+
+Truth table. The first matching row wins.
+
+| # | What's true about the ingredient | Tag |
+|---|---|---|
+| 1 | Bought on a trip **after this meal was planned**, and the trip recorded who checked it off | **{First name} bought it**. If the buyer is the viewer: **You bought it**. In a solo household: **Bought** |
+| 2 | On the shopping list, not yet bought | **On the shopping list** |
+| 3 | Marked "I have this" (`meal_ingredients.on_hand`) | **Already have it** |
+| 4 | Anything else | *(blank)* |
+
+**Why row 1 exists:** it celebrates the shop. The tag only appears when the purchase happened in the window between planning the meal and cooking it, so it's tied to this cook rather than to some past trip.
+
+**Never guess a person.** Row 1 names someone only when the trip recorded who checked that item off. If the purchase is known but the buyer isn't, show **Bought** with no name.
+
+**Replay privacy:** the name renders inside masked text. It never goes in an allow-listed element and never in an attribute (same rule as Added by). The tag copy without a name is fixed copy.
+
+**Summary line under "Ingredients":** this replaces the bare count.
+- While any row is in state 2: **"{n} · {k} on the shopping list"**
+- When no row is in state 2: **"{n} · All here"**. This must be the same moment the plan pill shows Cooked it (see A3), so the two always agree.
+
+---
+
+## A3 — Cooked it while items are still to buy (to diagnose)
+
+**What Dan saw:** on dev desktop, Ground Beef Tacos showed **Cooked it** as its primary pill while nine of its thirteen rows read "On your list."
+
+The spec says Cooked it appears only when the meal is ready or has nothing to buy, never while items are still to buy. So one of the two signals is wrong:
+
+- **(a)** The rows were already bought, and "On your list" is stale wording. A2 fixes this.
+- **(b)** The pill is reading the wrong state.
+
+**Report which one before changing anything:** the meal's `boardCardState`, and what the current tag reads from.
+
+Whatever the answer, after A2 ships the pill and the summary line must derive from **one** source. "All here" ⇔ Cooked it.
+
+---
+
+## A4 — Cook history speaks once (2026-10-18, Dan)
+
+**Finding:** a meal cooked once says it three times. The pill reads "✓ Cooked", the meta line reads "Cooked 1 time", and a "Your cooks · 1" section lists a bare "Oct 18". With names, photos and stars gated off, a date on its own reads like a log entry.
+
+**Rule:**
+- **The meta line carries cook history.** "Cooked N time(s)" becomes **"Last cooked {date}"**, adding **"· {N} times"** when N is 2 or more.
+  - Dates within the last week are relative: "Last cooked tonight", "Last cooked yesterday", "Last cooked Sunday".
+  - Older dates use weekday + date: "Last cooked Sun, Sep 27".
+  - A meal that has never been cooked shows no cook line.
+- **The "Your cooks" section shows only at 2 or more cooks.** Its rows use the same date format, newest first.
+- **When names, photos and ratings ship,** the rows grow into "Sun, Oct 18 · Dan cooked · ★★★" with the photo. The 2+ threshold is revisited then, because one cook carrying a photo may earn its own section.
+
+**Verify:**
+- **V-A4a:** Taco Night (cooked once, tonight) shows "Last cooked tonight" and no Your cooks section.
+- **V-A4b:** a meal cooked 3 times shows "Last cooked {date} · 3 times" and a three-row section.
+- **V-A4c:** a never-cooked meal shows no cook line.
+- **V-A4d:** dates sit in masked text; the allow-list is unchanged.
+
+---
+
+## Step 0 — reads before building A2 (read-only, report first)
+
+1. **Who checked it off, and does it survive wrap-up?** Does a checked event record the user who checked it (`list_item_events` or another table)? Does that record survive wrap-up? `archive_trip_items` wipes `list_item_contributors`, so contributors can't be the source.
+2. **When was the meal planned?** Find the meal's planned-at moment: a timestamp on the open `meal_placements` row, or the nearest equivalent. If none exists, say so; do not add a migration without coming back to the design chat.
+3. **Which purchase belongs to this meal?** How is a bought item linked to *this* meal: the provenance link (list_items ↔ meal, the "For {meal}" sub-line) and whether it survives wrap-up.
+4. **Is the household solo?** How does the view know: `householdMembers.length`, as the earned-Our wordmark uses.
+
+If row 1 can't be built without new data, ship rows 2–4 and a nameless **Bought** for row 1, and bring the gap back here.
+
+---
+
+## Verification (adds to the spec's checks)
+
+- **V-A1:** at Default, the recipe view and Edit Meal read as siblings. The harness reports computed sizes before and after, per element, at 320 / 375 / 390 × Default / XXL.
+- **V-A2a:** Plan a meal → Add to Shop. Every row that was added reads "On shopping list". The summary reads "{k} on the shopping list". The pill is not Cooked it.
+- **V-A2b:** a second member checks two of those items on a trip. Those two rows read "{Name} bought it"; for the member who checked them they read "You bought it".
+- **V-A2c:** mark one ingredient "I have this". Its row reads "Already have it".
+- **V-A2d:** once nothing is left in state 2, the summary reads "All here" and the pill is Cooked it, in the same render.
+- **V-A2e:** an unplanned meal and a cooked meal show no tags.
+- **V-A2f:** a solo household shows "Bought" for row 1, with no name.
+- **Privacy:** no buyer name appears in any attribute or allow-listed element. The allow-list delta is reported by name; none is expected.
