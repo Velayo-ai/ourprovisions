@@ -9,6 +9,7 @@ import { scheduleHoldRetry } from "../lib/holdRetry";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 import { trace } from "@opentelemetry/api";
+import { fetchLiveMealLinks, linksToRelease, releaseMealLinks } from "../lib/mealLinks";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -16,6 +17,27 @@ import { trace } from "@opentelemetry/api";
 // getSessionId / provider — so a custom event is a zero-length span on the OTel
 // tracer. With no RUM token the API's no-op provider stands in and this costs nothing.
 const tracer = trace.getTracer("ourprovisions-app");
+
+// Replanning starts over (src/lib/mealLinks.js): a meal leaving This Week lets go of
+// its list_item_meals links. Best-effort: a failed release is a RUM warning, never an
+// error toast, and the fallback is the behaviour before 2026-10-19 (the link stays).
+function warnLinkRelease(e, { householdId, mealId, path, links }) {
+  console.warn(`[rum] meal_links_release_failed (${path}):`, e?.message || e);
+  try {
+    // ids only — the meal and household are uuids; never a name, never the message text.
+    tracer.startSpan("meal_links_release_failed", {
+      attributes: { household_id: householdId, meal_id: mealId, path, links, error_code: e?.code || "unknown" },
+    }).end();
+  } catch (_e) { /* telemetry never throws into the cook or the remove */ }
+}
+export async function releaseLinksOrWarn(db, { householdId, mealId, listItemIds, path }) {
+  try {
+    return await releaseMealLinks(db, { mealId, listItemIds });
+  } catch (e) {
+    warnLinkRelease(e, { householdId, mealId, path, links: (listItemIds || []).length });
+    return null;
+  }
+}
 
 // A catalog item the meal builder has staged but NOT yet written. The id is a
 // client-only placeholder, deterministic on the normalised name so that staging
@@ -2803,7 +2825,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   //    Each item is decremented by exactly THIS meal's recorded share, so
   //    the other meal's contribution is never read and never written.
   //  - BOUGHT items are NEVER touched — only status='pending' rows are
-  //    candidates. The sacred-list guarantee.
+  //    candidates. The sacred-list guarantee. Their LINK to this meal is
+  //    released, though (2026-10-19, replanning starts over): the row stays in
+  //    the cart as a plain item, and a later placement of this meal starts
+  //    clean (src/lib/mealLinks.js).
   //  - The meal's list_item_meals link is dropped per removed item.
   //    remove_list_item SOFT-deletes, so the FK's cascade does not fire
   //    and the link must go explicitly or a later resurrect revives it.
@@ -2869,6 +2894,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           .eq("list_item_id", row.list_item_id);
         if (uErr) throw uErr;
       }
+
+      // In-cart rows: only this meal's link goes; the row, its quantity and its
+      // status are untouched. A failure warns and leaves today's behaviour.
+      await releaseLinksOrWarn(db, {
+        householdId: hh.id, mealId, path: "remove",
+        listItemIds: linksToRelease(links, { onlyBought: true }),
+      });
 
       await loadListItems(db, hh.id);
       reportSuccess();
@@ -3474,6 +3506,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setError(`Could not mark cooked: ${err.message}`);
       return false;
     }
+    // The placement is closed (by this tap, or a partner's a moment ago): the meal
+    // lets go of every live link it holds — at R1 the whole cart — so a re-plan
+    // starts over (src/lib/mealLinks.js). The rows stay where they are.
+    let live = null;
+    try {
+      live = await fetchLiveMealLinks(db, { householdId: hh.id, mealId });
+    } catch (e) {
+      warnLinkRelease(e, { householdId: hh.id, mealId, path: "cook-read", links: 0 });
+    }
+    if (live) await releaseLinksOrWarn(db, { householdId: hh.id, mealId, path: "cook", listItemIds: linksToRelease(live) });
     if (cookedAt == null) {
       // D3: nothing was closed — a partner's tap or a double tap already cooked
       // it. The truth is on the server; read it back. No toast: the meal is cooked.

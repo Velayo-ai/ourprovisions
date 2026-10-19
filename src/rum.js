@@ -46,7 +46,8 @@ const CHROME_ALLOW_LIST = [
   '.lib-show',       // Library filter sheet: "Show N meals"
   '.lib-clear',      // Library filter sheet: "Clear"
   '.rv-edit',        // Recipe view: "Edit" — fixed copy; the title it edits is a sibling (#rv-title, masked), never in this element (SPEC_recipe_view)
-  '.rv-plan',        // Recipe view plan action: "+ Add to This Week" / "✓ On This Week" / "To buy" / "Cooked it" / "✓ Cooked" — fixed copy, the board's own words
+  '.rv-plan',        // Recipe view main action: "+ Add to This Week" / "+ Plan again" / "Add to Shop" / "Cooked it" — fixed copy, the board's own words. The count-bearing "{n} left to buy · See list" is .rv-see, OFF this list (SPEC_recipe_view Amendment B, R4)
+  '.rv-remove',      // Recipe view quiet link: "Remove from This Week" / "Remove (and take its items off Shop)" — fixed copy, the board's ⋯ → Remove words
   '.rv-showall',     // Recipe view, Your cooks: "Show all N" — a count, never a name
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
   '.deck-switch',    // Home on-deck card: "Switch"

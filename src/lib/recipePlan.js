@@ -14,7 +14,8 @@
 //                                                          reaches 0 the pill follows D9,
 //                                                          in the same render as "All here")
 //   toBuy            still to buy              → "toBuy"   "{n} left to buy · See list"
-//   planned, canAdd  on the week, not on Shop  → "onWeek"  ✓ On This Week (un-plans)
+//   planned, canAdd  on the week, not on Shop  → "onWeek"  (Amendment B: the action block
+//                                                          offers Add to Shop here)
 //   planned, !canAdd nothing to shop for       → "cookIt"  Cooked it (teal)
 // Cooked it is never offered while anything is still to buy (D9a). Every pill
 // acts; information lives in text (A5 revision, 2026-10-18).
@@ -32,6 +33,38 @@ export function planActionFor(state) {
 export function leftToBuy(state) {
   const rc = state?.rc || { total: 0, bought: 0 };
   return Math.max(0, (rc.total || 0) - (rc.bought || 0));
+}
+
+// THE ACTION BLOCK (SPEC_recipe_view Amendment B + Step 0 rulings, 2026-10-19). Three
+// parts, by state: a status line that never acts, ONE main action, and a quiet remove
+// link worded as the board's own ⋯ → Remove. Built on planActionFor, so the main action
+// is the D9 mapping above (R1: everything in the cart keeps Cooked it, the one stated
+// exception to B2); the soft half of the status line and the remove wording come from
+// the same board flags.
+//   null / cooked          → no status, no remove; "add" / "cooked" (+ Plan again)
+//   planned, canAdd        → ✓ On This Week                        · Add to Shop        · week
+//   toBuy, n left          → ✓ On This Week                        · {n} left · See list · shop
+//   toBuy, 0 left (R1)     → ✓ On This Week · All in your cart     · Cooked it          · shop
+//   ready                  → ✓ On This Week · Everything's in      · Cooked it          · week
+//   planned, !canAdd (R2)  → ✓ On This Week · Nothing to shop for  · Cooked it          · week
+export const REMOVE_LABEL = {
+  week: "Remove from This Week",
+  shop: "Remove (and take its items off Shop)",
+};
+export function recipeBlockFor(state) {
+  const action = planActionFor(state);
+  if (!state || state.cooked) return { onWeek: false, soft: null, action, remove: null };
+  const soft = state.ready ? "Everything's in"
+    : state.toBuy ? (leftToBuy(state) === 0 ? "All in your cart" : null)
+    : !state.canAdd ? "Nothing to shop for"
+    : null;
+  return {
+    onWeek: true,
+    soft,
+    action: action === "onWeek" ? "addToShop" : action,
+    // R3: the board's ⋯ → Remove words, keyed on the same flag its handler takes.
+    remove: state.toBuy ? "shop" : "week",
+  };
 }
 
 export default planActionFor;

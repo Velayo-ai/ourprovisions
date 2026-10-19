@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recipe View Actions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#FAF3EC; --sand:#F0E6D8; --photo:#E8D7BE; --ink:#2B1A10; --brown:#8B6A47;
+    --muted:#6E5A48; --rule:#E6D6C0; --gold:#D9BF8F; --gold-fill:#D8BE8E; --teal:#0E9488;
+    --page:#EDE6DD; --note:#5B4B3D;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);font-family:Lato,system-ui,sans-serif;color:var(--ink)}
+  header.top{max-width:1480px;margin:0 auto;padding:28px 16px 8px}
+  header.top h1{font-family:"Playfair Display",serif;font-size:26px;margin:0 0 6px}
+  header.top p{margin:4px 0;color:var(--note);font-size:14px;line-height:1.5;max-width:880px}
+  .grid{max-width:1480px;margin:0 auto;padding:16px;display:flex;flex-wrap:wrap;gap:24px;justify-content:center}
+  .col{width:340px;max-width:100%}
+  .label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--brown);font-weight:700;margin:0 0 8px 4px}
+  .phone{background:var(--cream);border-radius:28px;overflow:hidden;box-shadow:0 10px 30px rgba(43,26,16,.14);border:1px solid #e3d6c6}
+  .grab{width:44px;height:5px;border-radius:3px;background:#CDB99C;margin:10px auto 0}
+  .bar{display:flex;justify-content:space-between;align-items:center;padding:10px 18px 0}
+  .x{font-size:22px;color:var(--muted);line-height:1}
+  .edit{color:var(--brown);font-weight:700;font-size:15px}
+  .tr{display:flex;gap:18px;align-items:center}
+  .share{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin:-11px 0;outline:2px dashed #C9A15A;outline-offset:-6px;border-radius:10px}
+  .photo{margin:14px 16px 0;height:118px;border-radius:18px;background:var(--photo);display:flex;align-items:center;justify-content:center}
+  .photo svg{opacity:.75}
+  .body{padding:16px 18px 18px}
+  .title{font-family:"Playfair Display",serif;font-weight:700;font-size:24px;line-height:1.15;margin:0}
+  .by{color:var(--brown);font-size:13px;margin-top:4px}
+  .meta{font-size:14px;margin-top:10px}
+  .lastcooked{font-size:13px;color:var(--muted);margin-top:4px}
+
+  /* the new action block */
+  .status{display:flex;align-items:center;gap:6px;margin-top:16px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--brown)}
+  .status .sep{opacity:.5}
+  .status .soft{letter-spacing:.04em;text-transform:none;font-weight:700;color:var(--muted);font-size:13px}
+  .btn{display:flex;align-items:center;justify-content:center;width:100%;height:48px;border-radius:999px;font-weight:700;font-size:16px;margin-top:10px;border:0}
+  .btn.gold{background:var(--gold-fill);color:var(--ink)}
+  .btn.outline{background:transparent;border:1.5px solid var(--gold);color:var(--ink);font-weight:700}
+  .btn.teal{background:var(--teal);color:#fff}
+  .btn.open{outline:2px dashed #C9A15A;outline-offset:3px}
+  .quiet{display:block;text-align:center;margin-top:12px;font-size:14px;color:var(--muted);text-decoration:underline;text-underline-offset:3px;text-decoration-color:#CDB99C}
+
+  .divider{display:flex;align-items:center;gap:12px;margin:20px 0 10px;color:var(--brown);font-size:12px;letter-spacing:.2em;font-weight:700}
+  .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--rule)}
+  .ing{opacity:.45}
+  .ing div{padding:9px 0;border-bottom:1px solid var(--rule);font-size:15px}
+
+  .notes{margin:12px 4px 0;font-size:13px;line-height:1.5;color:var(--note)}
+  .notes b{color:var(--ink)}
+  .notes .flag{display:inline-block;background:#F3E3C3;color:#7A5A23;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-right:4px}
+
+  .rules{max-width:1100px;margin:8px auto 40px;padding:0 16px}
+  .rules h2{font-family:"Playfair Display",serif;font-size:19px;margin:24px 0 8px}
+  .rules ol{margin:0;padding-left:20px;color:var(--note);font-size:14px;line-height:1.6}
+  .rules li b{color:var(--ink)}
+  @media (max-width:400px){.col{width:100%}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Recipe view: the action block, by state</h1>
+  <p>This replaces the full-width "✓ On This Week" pill, which looks like a button but doesn't say what tapping it does. Each state has three parts: a <b>status line</b> that can't be tapped, <b>one main action</b> that depends on where the meal is, and a <b>quiet "Remove from This Week" link</b>. Everything above and below the block (photo, title, ingredients, steps) is unchanged from slice (a).</p>
+  <p>Design chat, 2026-10-19. Amendment to SPEC_recipe_view.md, not built yet.</p>
+</header>
+
+<div class="grid">
+
+  <!-- A -->
+  <div class="col">
+    <p class="label">A · Planned, not on the list</p>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="bar"><span class="x">✕</span><span class="tr"><span class="share" aria-label="Share"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8B6A47" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/></svg></span><span class="edit">Edit</span></span></div>
+      <div class="photo"><svg width="56" height="38" viewBox="0 0 56 38" fill="none" stroke="#8B6A47" stroke-width="3"><path d="M8 30a20 20 0 0 1 40 0"/><path d="M4 34h48"/><circle cx="28" cy="7" r="2.5" fill="#8B6A47"/></svg></div>
+      <div class="body">
+        <p class="title">Grilled Shrimp with Chimichurri</p>
+        <div class="by">Added by Daniel</div>
+        <div class="meta">Dinner · 9 ingredients · 7 steps</div>
+
+        <div class="status">✓ On This Week</div>
+        <div class="btn gold">Add to Shop</div>
+        <a class="quiet">Remove from This Week</a>
+
+        <div class="divider">MAKE IT</div>
+        <div class="ing"><div>2 × Shrimp</div><div>Parsley</div></div>
+      </div>
+    </div>
+    <p class="notes"><b>Add to Shop</b> runs the board's own flow, including the "I have this" step for items already in the house. There is one path for every door; the recipe screen never gets its own version.</p>
+  </div>
+
+  <!-- B -->
+  <div class="col">
+    <p class="label">B · On the list, items left to buy</p>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="bar"><span class="x">✕</span><span class="tr"><span class="share" aria-label="Share"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8B6A47" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/></svg></span><span class="edit">Edit</span></span></div>
+      <div class="photo"><svg width="56" height="38" viewBox="0 0 56 38" fill="none" stroke="#8B6A47" stroke-width="3"><path d="M8 30a20 20 0 0 1 40 0"/><path d="M4 34h48"/><circle cx="28" cy="7" r="2.5" fill="#8B6A47"/></svg></div>
+      <div class="body">
+        <p class="title">Huevos Rancheros</p>
+        <div class="by">Added by Daniel</div>
+        <div class="meta">Breakfast · 8 ingredients · 5 steps</div>
+
+        <div class="status">✓ On This Week</div>
+        <div class="btn outline">4 left to buy · See list →</div>
+        <a class="quiet">Remove from This Week</a>
+
+        <div class="divider">MAKE IT</div>
+        <div class="ing"><div>Eggs</div><div>Corn Tortillas</div></div>
+      </div>
+    </div>
+    <p class="notes">The main action is slice (a)'s existing "left to buy · See list" line, now shown as the button. The ingredient tags (In your cart / … bought it / Bought) are unchanged.</p>
+  </div>
+
+  <!-- C -->
+  <div class="col">
+    <p class="label">C · Everything bought</p>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="bar"><span class="x">✕</span><span class="tr"><span class="share" aria-label="Share"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8B6A47" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/></svg></span><span class="edit">Edit</span></span></div>
+      <div class="photo"><svg width="56" height="38" viewBox="0 0 56 38" fill="none" stroke="#8B6A47" stroke-width="3"><path d="M8 30a20 20 0 0 1 40 0"/><path d="M4 34h48"/><circle cx="28" cy="7" r="2.5" fill="#8B6A47"/></svg></div>
+      <div class="body">
+        <p class="title">Big Salad</p>
+        <div class="by">Added by Daniel</div>
+        <div class="meta">Lunch · 7 ingredients · 3 steps</div>
+
+        <div class="status">✓ On This Week <span class="sep">·</span> <span class="soft">Everything's in</span></div>
+        <div class="btn teal open">Cooked it</div>
+        <a class="quiet">Remove from This Week</a>
+
+        <div class="divider">MAKE IT</div>
+        <div class="ing"><div>Romaine</div><div>Cucumber</div></div>
+      </div>
+    </div>
+    <p class="notes"><span class="flag">Open</span> Should <b>Cooked it</b> live here too? It's the obvious next step when you're reading the recipe at the stove. It would have to be the board's exact action (and later the photo and rating flow from Meal Photos v1). If not, state C has no main button, just the status line and the quiet link.</p>
+  </div>
+
+  <!-- D -->
+  <div class="col">
+    <p class="label">D · Not planned</p>
+    <div class="phone">
+      <div class="grab"></div>
+      <div class="bar"><span class="x">✕</span><span class="tr"><span class="share" aria-label="Share"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8B6A47" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M8 7l4-4 4 4"/><path d="M8 11H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-2"/></svg></span><span class="edit">Edit</span></span></div>
+      <div class="photo"><svg width="56" height="38" viewBox="0 0 56 38" fill="none" stroke="#8B6A47" stroke-width="3"><path d="M8 30a20 20 0 0 1 40 0"/><path d="M4 34h48"/><circle cx="28" cy="7" r="2.5" fill="#8B6A47"/></svg></div>
+      <div class="body">
+        <p class="title">Breakfast Tacos</p>
+        <div class="by">Added by Daniel</div>
+        <div class="meta">Breakfast · 12 ingredients · 7 steps</div>
+        <div class="lastcooked">Last cooked Oct 12</div>
+
+        <div class="btn gold">+ Plan again</div>
+
+        <div class="divider">MAKE IT</div>
+        <div class="ing"><div>Potatoes</div><div>Bacon</div></div>
+      </div>
+    </div>
+    <p class="notes">Unchanged from slice (a). There's no status line and no remove link, because there's nothing to remove. It's shown here so all four states can be compared side by side.</p>
+  </div>
+
+</div>
+
+<section class="rules">
+  <h2>Rules for the amendment</h2>
+  <ol>
+    <li><b>Status is never a button.</b> "✓ On This Week" is a small-caps line with no tap target and no pill shape.</li>
+    <li><b>One main action per state,</b> chosen by where the meal is. There are never two equal buttons side by side.</li>
+    <li><b>Same words as the board:</b> "Add to Shop", "This Week". Not "Shopping list" or "Plan".</li>
+    <li><b>Same behaviour as the board:</b> Add to Shop and Remove call exactly what the board's buttons and ⋯ → Remove call, with the same confirmation or undo. The meal always stays in the Library.</li>
+    <li><b>Replay privacy (A5 / D2):</b> each new button's accessible name comes from fixed copy or <code>aria-labelledby</code>. No meal name or count goes in any attribute. Allow-list changes are named in the spec.</li>
+    <li><b>Share is about the recipe, not the plan,</b> so it sits in the top bar beside Edit and stays the same in every state. It never competes with the main action. It's drawn as the box-with-up-arrow glyph: our own SVG, in the same line weight as the nav icons, inside a 44px tap target, with the fixed accessible name "Share" (replay-safe). <i>(Outlined in the mockup: a reserved spot. It ships only when sharing a meal actually works. Never show a dead button.)</i></li>
+    <li><b>After Remove,</b> the sheet stays open and switches to state D. You're still looking at the recipe, and "+ Plan again" undoes the removal in one tap.</li>
+  </ol>
+</section>
+
+</body>
+</html>
