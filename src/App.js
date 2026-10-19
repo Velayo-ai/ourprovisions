@@ -20,6 +20,7 @@ import { displayTitle } from './lib/displayTitle';
 import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
 import { planActionFor, leftToBuy } from './lib/recipePlan';
 import { cookDate, cookHistoryLine } from './lib/cookDate';
+import { ingredientTag, ingredientSummary, buyerFromEvents } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
@@ -2059,8 +2060,14 @@ function SetTypeSheet({ meal, onSave, onClose }) {
 //            (A5 revision: every pill acts; information lives in text). Never
 //            Cooked it while items are still to buy, never for an unplanned
 //            meal (D9a).
-//   tags     while the meal is on This Week only: "On your list" (list_item_meals
-//            provenance) or "On hand" (on_hand, text teal) per ingredient (D13)
+//   tags     while the meal is on This Week and not cooked only (A2 / A2-R,
+//            2026-10-18; src/lib/ingredientTags.js): "{First} bought it" / "You
+//            bought it" / "Bought" (this meal's link, status bought — archived
+//            rows included — named from the latest checked event in the window,
+//            nameless when solo or unrecorded) → "On the shopping list" (live
+//            pending link) → "Already have it" (on_hand) → nothing. The
+//            summary under INGREDIENTS: "{n} · {k} on the shopping list" /
+//            "{n} · All here", k the board's own count.
 //   cooks    one row per cook, newest first, DATE ONLY — meal_cooks.cooked_by
 //            is the tapper, not the cook, and is never shown (D10); 5 rows then
 //            "Show all {n}"; hidden when never cooked (D14)
@@ -2088,7 +2095,7 @@ const memberFirstName = (mb) => {
 // last week, weekday + date beyond it. Never a person (D10).
 // Your cooks shows only at 2+ cooks (A4): one cook is the meta line's job.
 const RV_COOKS_MIN = 2;
-function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, onListIds, busy, onClose, onEdit, onPlan, onUnplan, onCooked, onSeeList }) {
+function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, viewerUserId, busy, onClose, onEdit, onPlan, onUnplan, onCooked, onSeeList }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2099,6 +2106,10 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, o
   const adder = (members || []).length >= 2 ? (members || []).find((mb) => mb.user_id && mb.user_id === meal.created_by) : null;
   const adderName = adder ? memberFirstName(adder) : "";
   const onWeek = !!state && !state.cooked;
+  // A2-R §3: solo = fewer than 2 current members (the earned-Our rule); a buyer is
+  // named only through the members already loaded — a user who left names nobody.
+  const solo = (members || []).length < 2;
+  const firstNameOf = (userId) => memberFirstName((members || []).find((mb) => mb.user_id === userId));
   const stepCount = parsed.steps.length;
   const meta = [
     occasionWord,
@@ -2153,17 +2164,24 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, o
         )}
         {ingredients.length > 0 && (
           <>
-            <h3 className="rv-sec">Ingredients <span>{ingredients.length}</span></h3>
+            {/* A2: the summary replaces the bare count — "{n} · {k} on the shopping list" /
+                "{n} · All here", k the board's own count so All here ⇔ Cooked it. */}
+            <h3 className="rv-sec">Ingredients <span>{ingredientSummary({ n: ingredients.length, onWeek, leftToBuy: leftToBuy(state) })}</span></h3>
             <ul className="rv-ing">
               {ingredients.map((mi) => {
                 const qty = Number(mi.quantity_per_serving) || 1;
                 const name = mi.catalog_items?.name || "Unknown item";
-                const tag = !onWeek ? null : onListIds?.has(mi.catalog_item_id) ? "list" : mi.on_hand ? "hand" : null;
+                // A2 / A2-R: bought for this meal (named only when the trip recorded the
+                // checker; "You" for the viewer; nameless in a solo household) → on the
+                // shopping list → already have it → nothing. The name is masked text.
+                const tag = ingredientTag({
+                  onWeek, onHand: !!mi.on_hand, link: links?.[mi.catalog_item_id] || null,
+                  viewerUserId, solo, firstNameOf,
+                });
                 return (
                   <li key={mi.id || mi.catalog_item_id}>
                     <span className="rv-ing-name">{qty > 1 ? `${qty} × ` : ""}{name}</span>
-                    {tag === "list" && <span className="rv-tag">On your list</span>}
-                    {tag === "hand" && <span className="rv-tag have">On hand</span>}
+                    {tag && <span className={`rv-tag ${tag.kind}`}>{tag.text}</span>}
                   </li>
                 );
               })}
@@ -4971,20 +4989,67 @@ function ProvisionsApp() {
   }, [rvMealId, rvCookCount, _supabase, _household]);
   // Switching households closes the view: the id belongs to the old place.
   useEffect(() => { setRecipeView(null); }, [household?.id]);
+  // A2 / A2-R (2026-10-18): the view's ingredient tags — this meal's list_item_meals
+  // links, INCLUDING rows archived as bought at wrap-up (deleted_at set, status
+  // bought; list_items_select is membership only, so RLS allows the read — Step
+  // 0b), plus the checked / unchecked events on those rows so the buyer can be
+  // named. Row 1's window is the link's created_at through now (A2-R §1). One
+  // read per open + whenever the provenance map moves (the list changed). Keyed
+  // by catalog item: the live link wins over an archived one, then the newest.
+  const [recipeLinks, setRecipeLinks] = useState(null);   // { mealId, byCatalog: { [catalog_item_id]: link } }
+  useEffect(() => {
+    if (!rvMealId) { setRecipeLinks(null); return undefined; }
+    let cancelled = false;
+    (async () => {
+      const db = _supabase.current;
+      const hh = _household.current;
+      if (!db || !hh) return;
+      const { data: links, error: lErr } = await db
+        .from("list_item_meals")
+        .select("list_item_id, created_at, list_items!inner(id, catalog_item_id, status, quantity, deleted_at, household_id)")
+        .eq("meal_id", rvMealId)
+        .eq("list_items.household_id", hh.id);
+      if (cancelled) return;
+      if (lErr) { console.warn("recipe links (non-fatal):", lErr.message); return; }
+      const ids = (links || []).map((l) => l.list_item_id);
+      let events = [];
+      if (ids.length > 0) {
+        const { data: ev, error: eErr } = await db
+          .from("list_item_events")
+          .select("list_item_id, user_id, event_type, created_at, sequence")
+          .eq("household_id", hh.id)
+          .in("list_item_id", ids)
+          .in("event_type", ["checked", "unchecked"])
+          .order("created_at", { ascending: false })
+          .order("sequence", { ascending: false })
+          .limit(500);
+        if (cancelled) return;
+        if (eErr) console.warn("recipe link events (non-fatal):", eErr.message);   // nameless "Bought" then
+        events = ev || [];
+      }
+      const byItem = {};
+      events.forEach((e) => { (byItem[e.list_item_id] = byItem[e.list_item_id] || []).push(e); });
+      const byCatalog = {};
+      (links || []).forEach((l) => {
+        const li = l.list_items;
+        if (!li?.catalog_item_id) return;
+        const link = {
+          status: li.status, deletedAt: li.deleted_at ?? null, quantity: Number(li.quantity) || 0,
+          linkCreatedAt: l.created_at, buyerUserId: buyerFromEvents(byItem[l.list_item_id], l.created_at),
+        };
+        const cur = byCatalog[li.catalog_item_id];
+        if (!cur || (cur.deletedAt && !link.deletedAt) || (!!cur.deletedAt === !!link.deletedAt && link.linkCreatedAt > cur.linkCreatedAt)) byCatalog[li.catalog_item_id] = link;
+      });
+      setRecipeLinks({ mealId: rvMealId, byCatalog });
+    })();
+    return () => { cancelled = true; };
+  }, [rvMealId, mealProvenance, _supabase, _household]);
   const rvMeal = rvMealId ? mealById[rvMealId] : null;
   // The plan action follows the board's own derivation (D9); null = not on This Week.
   // boardCards (not boardMeals) so a card cooked this load still reads "✓ Cooked".
   const rvState = rvMeal && boardCards.some((m) => m.id === rvMeal.id)
     ? boardCardState(rvMeal, { placements, rows: mealRowCounts, mealById, cookedIds: afterglowIds })
     : null;
-  // The ingredients this meal has put on the list (list_item_meals provenance, D13).
-  const rvOnList = useMemo(() => {
-    const s = new Set();
-    if (!rvMealId) return s;
-    Object.entries(mealProvenance).forEach(([ci, links]) => { if (links.some((l) => l.mealId === rvMealId)) s.add(ci); });
-    return s;
-  }, [mealProvenance, rvMealId]);
-
   // iOS standalone status bar — the MEASURED inset (fourth cut, 2026-10-17; src/lib/standaloneInset.js).
   // env(safe-area-inset-top) reads 0 on Dan's installed app while the WebView is full height under a
   // transparent bar, so the inset is measured: standalone only, screen.height − innerHeight must be a
@@ -7255,8 +7320,10 @@ function ProvisionsApp() {
         .rv-seam::before, .rv-seam::after { content: ""; flex: 1; height: 1px; background: #E8D5B7; }
         /* The section headings are the Edit Meal sheet's section labels (.modal-label) in size and shape, so the
            two sheets read as one — on the small-text brown #8A5F3A (the 10-04 floor colour; Dan, 2026-10-18). */
-        .rv-sec { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 0; padding: 22px 20px 6px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; }
-        .rv-sec span { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 0; color: #8A5F3A; }
+        .rv-sec { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 10px; margin: 0; padding: 22px 20px 6px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; }
+        /* The trailing span is a count or A2's summary sentence ("8 · 2 on the shopping list"): normal case, right-aligned,
+           and it drops under the label as its own line when it cannot fit beside it (320 XXL wrapped it one word per line). */
+        .rv-sec span { flex: 1 1 auto; min-width: 0; text-align: right; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); font-weight: 400; letter-spacing: 0; text-transform: none; color: #8A5F3A; }
         .rv-ing { list-style: none; margin: 0; padding: 0 20px; }
         .rv-ing li { display: flex; flex-wrap: wrap; align-items: baseline; align-content: center; gap: 2px 10px; box-sizing: border-box; min-height: 44px; padding: 6px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
         .rv-ing li:last-child { border-bottom: 0; }
@@ -7266,7 +7333,8 @@ function ProvisionsApp() {
            beside the tag (harness 2026-10-18). */
         .rv-ing-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
         .rv-tag { flex: none; margin-left: auto; white-space: nowrap; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8A5F3A; }
-        .rv-tag.have { color: #0A776D; }
+        /* A2: "Already have it" and "{Name} bought it" / "Bought" in text teal (the household has it); "On the shopping list" brown. */
+        .rv-tag.have, .rv-tag.bought { color: #0A776D; }
         .rv-preamble { margin: 0 20px 14px; padding: 0 0 12px; border-bottom: 1px solid #EFE6D9; }
         .rv-preamble p { margin: 0; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #2C1A0E; white-space: pre-wrap; overflow-wrap: anywhere; }
         .rv-steps { list-style: none; margin: 0; padding: 0 20px; }
@@ -9932,7 +10000,8 @@ function ProvisionsApp() {
           cookCount={recipeCooks?.mealId === rvMeal.id ? Math.max(recipeCooks.rows.length, rvCookCount) : rvCookCount}
           lastCookedAt={cooks[rvMeal.id]?.lastCookedAt || (recipeCooks?.mealId === rvMeal.id ? recipeCooks.rows[0]?.cooked_at : null) || null}
           cookRows={recipeCooks?.mealId === rvMeal.id ? recipeCooks.rows : null}
-          onListIds={rvOnList}
+          links={recipeLinks?.mealId === rvMeal.id ? recipeLinks.byCatalog : null}
+          viewerUserId={_internalUserId.current || null}
           busy={planningMealId === rvMeal.id || busyMealId === rvMeal.id || addingMealId === rvMeal.id}
           onClose={() => setRecipeView(null)}
           onEdit={(m) => setMealSheet({ mode: "edit", meal: m })}
