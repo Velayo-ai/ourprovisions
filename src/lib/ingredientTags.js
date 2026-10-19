@@ -19,12 +19,15 @@
 //   2  on the list, not bought (live pending row with quantity) → "On the shopping list"
 //   3  meal_ingredients.on_hand                                 → "Already have it"
 //   4  anything else                                            → null
-export function ingredientTag({ onWeek, link, onHand, viewerUserId, solo, firstNameOf }) {
+export function ingredientTag({ onWeek, link, onHand, viewerUserId, solo, firstNameOf, addedThisPlan = true }) {
   if (!onWeek) return null;
   // Re-plan edge (A2 follow-up, 2026-10-18): a bought row counts for THIS cook
   // only when its purchase is inside the window — boughtInWindow false means the
   // link and its purchase predate the meal's last cook, so the row falls through.
-  if (link && link.status === "bought" && link.boughtInWindow !== false) {
+  // Backstop (2026-10-18 correction): no "bought" tag at all unless THIS plan was
+  // added to Shop — at least one link made after the meal's most recent cook. A
+  // meal that is not on the list this time round had nothing bought for it.
+  if (addedThisPlan && link && link.status === "bought" && link.boughtInWindow !== false) {
     if (solo) return { kind: "bought", text: "Bought" };
     const buyer = link.buyerUserId || null;
     if (!buyer) return { kind: "bought", text: "Bought" };
@@ -39,13 +42,23 @@ export function ingredientTag({ onWeek, link, onHand, viewerUserId, solo, firstN
   return null;
 }
 
-// The line under INGREDIENTS (A2): "{n} · {k} on the shopping list" while any
-// row is still to buy, "{n} · All here" once none is — k is the board's own
-// count (live rows minus the cart), so "All here" lands in the same render as
-// the pill's Cooked it. Off This Week it is the bare count.
-export function ingredientSummary({ n, onWeek, leftToBuy }) {
-  if (!onWeek) return `${n}`;
+// The line under INGREDIENTS (A2, corrected 2026-10-18): "{n} · {k} on the
+// shopping list" while any row is still to buy, "{n} · All here" once none is
+// — BOTH only when this plan was added to Shop (addedThisPlan); a planned meal
+// never added shows just "{n}", and so does one off This Week. k is the
+// board's own count (live rows minus the cart), so "All here" lands in the
+// same render as the pill's Cooked it. A meal with no ingredients shows no
+// count at all (the section does not render).
+export function ingredientSummary({ n, onWeek, leftToBuy, addedThisPlan = true }) {
+  if (!(n > 0)) return "";
+  if (!onWeek || !addedThisPlan) return `${n}`;
   return leftToBuy > 0 ? `${n} · ${leftToBuy} on the shopping list` : `${n} · All here`;
+}
+
+// Was THIS plan added to Shop? At least one of the meal's links was created
+// at or after the meal's most recent cook (any link counts when never cooked).
+export function wasAddedThisPlan(links, lastCookedAt) {
+  return (links || []).some((l) => !!l.linkCreatedAt && (!lastCookedAt || l.linkCreatedAt >= lastCookedAt));
 }
 
 // The buyer of one list item from its checked / unchecked events, newest

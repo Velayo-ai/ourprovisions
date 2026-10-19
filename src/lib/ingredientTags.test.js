@@ -1,4 +1,5 @@
-import { ingredientTag, ingredientSummary, buyerFromEvents, rowWindowStart, boughtForThisMeal } from "./ingredientTags";
+import { ingredientTag, ingredientSummary, buyerFromEvents, rowWindowStart, boughtForThisMeal, wasAddedThisPlan } from "./ingredientTags";
+import { planActionFor } from "./recipePlan";
 
 // Re-plan edge (2026-10-18): Taco Night was added to Shop on the 10th, bought on the 11th,
 // cooked on the 12th, then re-planned on the 17th WITHOUT being re-added — the old link
@@ -34,6 +35,62 @@ test("a link made after the last cook counts even without an event (nameless)", 
 
 test("a never-cooked meal keeps the link's created_at as the window start", () => {
   expect(boughtForThisMeal({ status: "bought", linkCreatedAt: linkOld }, boughtBeforeCook, null)).toEqual({ boughtInWindow: true, buyerUserId: "u-elly" });
+});
+
+// ── The four sequences from Dan's 2026-10-18 dev walk (the correction) ──────────────────
+// A whole meal's state as the view builds it: links keyed by catalog item, the last cook,
+// the board's left-to-buy count, and the tag per row + the summary line.
+const ctx = { viewerUserId: "u-dan", solo: false, firstNameOf: (id) => ({ "u-dan": "Dan", "u-elly": "Elly" })[id] || "" };
+const viewOf = (links, lastCookedAt, leftToBuy, n = 13) => {
+  const list = Object.values(links);
+  const added = wasAddedThisPlan(list, lastCookedAt);
+  const tags = Object.fromEntries(Object.entries(links).map(([ci, l]) => {
+    const row = { ...l, ...boughtForThisMeal(l, l.events, lastCookedAt) };
+    return [ci, ingredientTag({ ...ctx, onWeek: true, onHand: false, link: row, addedThisPlan: added })?.text || null];
+  }));
+  return { added, tags, summary: ingredientSummary({ n, onWeek: true, leftToBuy, addedThisPlan: added }) };
+};
+const oldLink = (events) => ({ status: "bought", deletedAt: "2026-10-18T22:30:00Z", quantity: 1, linkCreatedAt: "2026-10-18T20:00:00Z", events });
+const cookTonight = "2026-10-18T23:10:00Z";
+const checkedTonight = [{ event_type: "checked", user_id: "u-dan", created_at: "2026-10-18T21:00:00Z" }];
+
+test("1. shop → wrap up → Cooked it → clear → re-plan, NOT added: summary 13, no tags, pill On This Week", () => {
+  const v = viewOf({ tortillas: oldLink(checkedTonight), cumin: oldLink(checkedTonight) }, cookTonight, 0);
+  expect(v.added).toBe(false);
+  expect(v.tags).toEqual({ tortillas: null, cumin: null });
+  expect(v.summary).toBe("13");
+  // the pill: planned, has ingredients, nothing added → ✓ On This Week (never Cooked it)
+  expect(planActionFor({ cooked: false, ready: false, toBuy: false, planned: true, canAdd: true, rc: { total: 0, bought: 0 } })).toBe("onWeek");
+});
+
+test("2. re-planned AND re-added with new purchases: the new links tag, named", () => {
+  const newLink = (events, status = "bought") => ({ status, deletedAt: null, quantity: 1, linkCreatedAt: "2026-10-19T09:00:00Z", events });
+  const v = viewOf({
+    tortillas: newLink([{ event_type: "checked", user_id: "u-elly", created_at: "2026-10-19T12:00:00Z" }]),
+    cumin: newLink([], "pending"),
+  }, cookTonight, 1);
+  expect(v.added).toBe(true);
+  expect(v.tags).toEqual({ tortillas: "Elly bought it", cumin: "On the shopping list" });
+  expect(v.summary).toBe("13 · 1 on the shopping list");
+});
+
+test("3. a removed-uncooked meal re-planned: no cook on record, so prior purchases may show — correct", () => {
+  const v = viewOf({ tortillas: oldLink(checkedTonight) }, null, 0);
+  expect(v.added).toBe(true);
+  expect(v.tags).toEqual({ tortillas: "You bought it" });
+  expect(v.summary).toBe("13 · All here");
+});
+
+test("4. a planned meal never added: summary is the bare count, no tags, no Cooked it", () => {
+  const v = viewOf({}, null, 0);
+  expect(v.added).toBe(false);
+  expect(v.tags).toEqual({});
+  expect(v.summary).toBe("13");
+  expect(planActionFor({ cooked: false, ready: false, toBuy: false, planned: true, canAdd: true, rc: { total: 0, bought: 0 } })).toBe("onWeek");
+});
+
+test("a meal with no ingredients shows no count", () => {
+  expect(ingredientSummary({ n: 0, onWeek: true, leftToBuy: 0, addedThisPlan: false })).toBe("");
 });
 
 const names = { "u-dan": "Dan", "u-elly": "Elly" };

@@ -86,6 +86,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // ACTIVE household, so a switch reads as not-loaded until the new place's
   // rows are in. Reset with the rest of the household world on sign-out.
   const [membersLoadedFor, setMembersLoadedFor] = useState(null);
+  // The household whose meal_cooks reduce (`cooks`) has been read at least once.
+  // A meal with no entry in `cooks` is "never cooked" ONLY once this says so —
+  // before that it is "unknown", and the recipe view shows no tags (2026-10-18).
+  const [cooksLoadedFor, setCooksLoadedFor] = useState(null);
   const [catalogLoadedFor, setCatalogLoadedFor] = useState(null);
   const [error, setError] = useState(null);
   // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
@@ -759,6 +763,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setPlacements({});
     placementsRef.current = {};
     setCooks({});
+    setCooksLoadedFor(null);
     errorSourceRef.current = null;
     setError(null);
     setLoading(false);
@@ -867,6 +872,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setPlacements({});
       placementsRef.current = {};
       setCooks({});
+      setCooksLoadedFor(null);
 
       try {
         // Fetch the household record. Banner columns (migration 024) are read
@@ -3349,6 +3355,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       else next[r.meal_id] = { lastCookedAt: r.cooked_at, count: 1 };
     });
     setCooks(next);
+    setCooksLoadedFor(hh.id);
   }
 
   async function loadPlacements(db, hh) {
@@ -3746,6 +3753,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hiddenCatalogItems, loading, householdReady, bootstrapped, error, dismissError,
     // A5: per active household — false until that place's rows have been read once.
     membersLoaded: !!household?.id && membersLoadedFor === household.id,
+    cooksLoaded: !!household?.id && cooksLoadedFor === household.id,
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,

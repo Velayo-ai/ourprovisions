@@ -20,7 +20,7 @@ import { displayTitle } from './lib/displayTitle';
 import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
 import { planActionFor, leftToBuy } from './lib/recipePlan';
 import { cookDate, cookHistoryLine } from './lib/cookDate';
-import { ingredientTag, ingredientSummary, boughtForThisMeal } from './lib/ingredientTags';
+import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
@@ -2095,7 +2095,7 @@ const memberFirstName = (mb) => {
 // last week, weekday + date beyond it. Never a person (D10).
 // Your cooks shows only at 2+ cooks (A4): one cook is the meta line's job.
 const RV_COOKS_MIN = 2;
-function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, viewerUserId, busy, onClose, onEdit, onPlan, onUnplan, onCooked, onSeeList }) {
+function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onUnplan, onCooked, onSeeList }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2106,6 +2106,9 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, l
   const adder = (members || []).length >= 2 ? (members || []).find((mb) => mb.user_id && mb.user_id === meal.created_by) : null;
   const adderName = adder ? memberFirstName(adder) : "";
   const onWeek = !!state && !state.cooked;
+  // Tags and the summary's list state only once the cook reduce and this meal's links are in
+  // (2026-10-18 correction) — before that the rows are bare and the heading is the count.
+  const tagsOn = onWeek && !!tagsReady;
   // A2-R §3: solo = fewer than 2 current members (the earned-Our rule); a buyer is
   // named only through the members already loaded — a user who left names nobody.
   const solo = (members || []).length < 2;
@@ -2168,7 +2171,7 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, l
           <>
             {/* A2: the summary replaces the bare count — "{n} · {k} on the shopping list" /
                 "{n} · All here", k the board's own count so All here ⇔ Cooked it. */}
-            <h3 className="rv-sec">Ingredients <span>{ingredientSummary({ n: ingredients.length, onWeek, leftToBuy: leftToBuy(state) })}</span></h3>
+            <h3 className="rv-sec">Ingredients <span>{ingredientSummary({ n: ingredients.length, onWeek: tagsOn, leftToBuy: leftToBuy(state), addedThisPlan })}</span></h3>
             <ul className="rv-ing">
               {ingredients.map((mi) => {
                 const qty = Number(mi.quantity_per_serving) || 1;
@@ -2177,8 +2180,8 @@ function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, l
                 // checker; "You" for the viewer; nameless in a solo household) → on the
                 // shopping list → already have it → nothing. The name is masked text.
                 const tag = ingredientTag({
-                  onWeek, onHand: !!mi.on_hand, link: links?.[mi.catalog_item_id] || null,
-                  viewerUserId, solo, firstNameOf,
+                  onWeek: tagsOn, onHand: !!mi.on_hand, link: links?.[mi.catalog_item_id] || null,
+                  viewerUserId, solo, firstNameOf, addedThisPlan,
                 });
                 return (
                   <li key={mi.id || mi.catalog_item_id}>
@@ -4115,6 +4118,7 @@ function ProvisionsApp() {
     householdReady,
     bootstrapped,
     membersLoaded,
+    cooksLoaded,
     catalogLoaded,
     error,
     dismissError,
@@ -4999,9 +5003,11 @@ function ProvisionsApp() {
   // named. Row 1's window is the link's created_at through now (A2-R §1). One
   // read per open + whenever the provenance map moves (the list changed). Keyed
   // by catalog item: the live link wins over an archived one, then the newest.
-  const [recipeLinks, setRecipeLinks] = useState(null);   // { mealId, byCatalog: { [catalog_item_id]: link } }
+  const [recipeLinks, setRecipeLinks] = useState(null);   // { mealId, byCatalog: { [catalog_item_id]: link }, addedThisPlan }
   useEffect(() => {
-    if (!rvMealId) { setRecipeLinks(null); return undefined; }
+    // Not before the household's cook reduce has loaded (2026-10-18 correction): the window's
+    // anchor is the meal's last cook, and "no entry" only means "never cooked" once it is read.
+    if (!rvMealId || !cooksLoaded) { setRecipeLinks(null); return undefined; }
     let cancelled = false;
     (async () => {
       const db = _supabase.current;
@@ -5046,10 +5052,11 @@ function ProvisionsApp() {
         const cur = byCatalog[li.catalog_item_id];
         if (!cur || (cur.deletedAt && !link.deletedAt) || (!!cur.deletedAt === !!link.deletedAt && link.linkCreatedAt > cur.linkCreatedAt)) byCatalog[li.catalog_item_id] = link;
       });
-      setRecipeLinks({ mealId: rvMealId, byCatalog });
+      // Was THIS plan added to Shop? One link at or after the last cook (2026-10-18 correction).
+      setRecipeLinks({ mealId: rvMealId, byCatalog, addedThisPlan: wasAddedThisPlan((links || []).map((l) => ({ linkCreatedAt: l.created_at })), rvLastCookedAt) });
     })();
     return () => { cancelled = true; };
-  }, [rvMealId, rvLastCookedAt, mealProvenance, _supabase, _household]);
+  }, [rvMealId, rvLastCookedAt, cooksLoaded, mealProvenance, _supabase, _household]);
   const rvMeal = rvMealId ? mealById[rvMealId] : null;
   // The plan action follows the board's own derivation (D9); null = not on This Week.
   // boardCards (not boardMeals) so a card cooked this load still reads "✓ Cooked".
@@ -10012,6 +10019,10 @@ function ProvisionsApp() {
           lastCookedAt={cooks[rvMeal.id]?.lastCookedAt || (recipeCooks?.mealId === rvMeal.id ? recipeCooks.rows[0]?.cooked_at : null) || null}
           cookRows={recipeCooks?.mealId === rvMeal.id ? recipeCooks.rows : null}
           links={recipeLinks?.mealId === rvMeal.id ? recipeLinks.byCatalog : null}
+          // 2026-10-18 correction: no tags and no summary state until the cook reduce AND this
+          // meal's links have loaded; "bought" tags and "All here" only once this plan was added.
+          tagsReady={!!cooksLoaded && recipeLinks?.mealId === rvMeal.id}
+          addedThisPlan={recipeLinks?.mealId === rvMeal.id ? !!recipeLinks.addedThisPlan : false}
           viewerUserId={_internalUserId.current || null}
           busy={planningMealId === rvMeal.id || busyMealId === rvMeal.id || addingMealId === rvMeal.id}
           onClose={() => setRecipeView(null)}
