@@ -259,6 +259,8 @@ Step 0 findings (Cody): `meal_placements` has no planned-at timestamp. Checked e
 
 **4. Accepted edge.** If the same catalog item is re-added before this meal is cooked, the resurrect trigger deletes the old meal link. Row 1 then falls through to rows 3 and 4. This is rare and the result is harmless, so it is documented, not designed around.
 
+> **Re-plan edge (2026-10-18, Dan; built the same day):** row 1's window starts at **max(the link's `created_at`, the meal's most recent `meal_cooks` cook)**. A meal re-planned without being re-added keeps its old link and its archived bought row; a purchase made before the last cook never counts for this one — the row falls through to rows 3 and 4. A link made after the last cook counts (any purchase on it is later); a `checked` event at or after the window's start counts and names the buyer. `rowWindowStart` / `boughtForThisMeal` in `src/lib/ingredientTags.js`, jest-proven with the re-planned Taco Night case.
+
 **5. Summary line:** unchanged. It counts state-2 rows only.
 
 ---

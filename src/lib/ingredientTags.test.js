@@ -1,4 +1,40 @@
-import { ingredientTag, ingredientSummary, buyerFromEvents } from "./ingredientTags";
+import { ingredientTag, ingredientSummary, buyerFromEvents, rowWindowStart, boughtForThisMeal } from "./ingredientTags";
+
+// Re-plan edge (2026-10-18): Taco Night was added to Shop on the 10th, bought on the 11th,
+// cooked on the 12th, then re-planned on the 17th WITHOUT being re-added — the old link
+// (created the 10th) and its archived bought row are still there.
+const linkOld = "2026-10-10T10:00:00Z";
+const lastCook = "2026-10-12T19:00:00Z";
+const boughtBeforeCook = [{ event_type: "checked", user_id: "u-elly", created_at: "2026-10-11T18:00:00Z" }];
+const boughtAfterCook = [{ event_type: "checked", user_id: "u-elly", created_at: "2026-10-18T18:00:00Z" }];
+
+test("the window starts at the later of the link and the last cook", () => {
+  expect(rowWindowStart(linkOld, lastCook)).toBe(lastCook);
+  expect(rowWindowStart("2026-10-17T10:00:00Z", lastCook)).toBe("2026-10-17T10:00:00Z");
+  expect(rowWindowStart(linkOld, null)).toBe(linkOld);
+  expect(rowWindowStart(null, lastCook)).toBe(lastCook);
+});
+
+test("a re-planned meal: a purchase before the last cook never counts for this one", () => {
+  const r = boughtForThisMeal({ status: "bought", linkCreatedAt: linkOld }, boughtBeforeCook, lastCook);
+  expect(r).toEqual({ boughtInWindow: false, buyerUserId: null });
+  const link = { status: "bought", deletedAt: "2026-10-12T01:00:00Z", quantity: 1, linkCreatedAt: linkOld, ...r };
+  // falls through: on hand reads Already have it, otherwise nothing
+  expect(ingredientTag({ onWeek: true, link, onHand: true, viewerUserId: "u-dan", solo: false, firstNameOf: () => "Elly" }).text).toBe("Already have it");
+  expect(ingredientTag({ onWeek: true, link, onHand: false, viewerUserId: "u-dan", solo: false, firstNameOf: () => "Elly" })).toBeNull();
+});
+
+test("a re-planned meal: a purchase after the last cook counts and is named", () => {
+  expect(boughtForThisMeal({ status: "bought", linkCreatedAt: linkOld }, boughtAfterCook, lastCook)).toEqual({ boughtInWindow: true, buyerUserId: "u-elly" });
+});
+
+test("a link made after the last cook counts even without an event (nameless)", () => {
+  expect(boughtForThisMeal({ status: "bought", linkCreatedAt: "2026-10-17T10:00:00Z" }, [], lastCook)).toEqual({ boughtInWindow: true, buyerUserId: null });
+});
+
+test("a never-cooked meal keeps the link's created_at as the window start", () => {
+  expect(boughtForThisMeal({ status: "bought", linkCreatedAt: linkOld }, boughtBeforeCook, null)).toEqual({ boughtInWindow: true, buyerUserId: "u-elly" });
+});
 
 const names = { "u-dan": "Dan", "u-elly": "Elly" };
 const firstNameOf = (id) => names[id] || "";

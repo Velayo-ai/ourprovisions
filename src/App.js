@@ -20,7 +20,7 @@ import { displayTitle } from './lib/displayTitle';
 import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
 import { planActionFor, leftToBuy } from './lib/recipePlan';
 import { cookDate, cookHistoryLine } from './lib/cookDate';
-import { ingredientTag, ingredientSummary, buyerFromEvents } from './lib/ingredientTags';
+import { ingredientTag, ingredientSummary, boughtForThisMeal } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { trace } from '@opentelemetry/api';
@@ -4970,6 +4970,7 @@ function ProvisionsApp() {
   }, []);
   const rvMealId = recipeView?.mealId || null;
   const rvCookCount = rvMealId ? (cooks[rvMealId]?.count || 0) : 0;
+  const rvLastCookedAt = rvMealId ? (cooks[rvMealId]?.lastCookedAt || null) : null;
   useEffect(() => {
     if (!rvMealId) { setRecipeCooks(null); return undefined; }
     let cancelled = false;
@@ -5035,9 +5036,12 @@ function ProvisionsApp() {
       (links || []).forEach((l) => {
         const li = l.list_items;
         if (!li?.catalog_item_id) return;
+        // Row 1's window starts at the later of the link and the meal's last cook (the
+        // re-plan edge): a purchase for the previous cook never reads as bought for this one.
         const link = {
           status: li.status, deletedAt: li.deleted_at ?? null, quantity: Number(li.quantity) || 0,
-          linkCreatedAt: l.created_at, buyerUserId: buyerFromEvents(byItem[l.list_item_id], l.created_at),
+          linkCreatedAt: l.created_at,
+          ...boughtForThisMeal({ status: li.status, linkCreatedAt: l.created_at }, byItem[l.list_item_id], rvLastCookedAt),
         };
         const cur = byCatalog[li.catalog_item_id];
         if (!cur || (cur.deletedAt && !link.deletedAt) || (!!cur.deletedAt === !!link.deletedAt && link.linkCreatedAt > cur.linkCreatedAt)) byCatalog[li.catalog_item_id] = link;
@@ -5045,7 +5049,7 @@ function ProvisionsApp() {
       setRecipeLinks({ mealId: rvMealId, byCatalog });
     })();
     return () => { cancelled = true; };
-  }, [rvMealId, mealProvenance, _supabase, _household]);
+  }, [rvMealId, rvLastCookedAt, mealProvenance, _supabase, _household]);
   const rvMeal = rvMealId ? mealById[rvMealId] : null;
   // The plan action follows the board's own derivation (D9); null = not on This Week.
   // boardCards (not boardMeals) so a card cooked this load still reads "✓ Cooked".

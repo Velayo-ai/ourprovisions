@@ -21,7 +21,10 @@
 //   4  anything else                                            → null
 export function ingredientTag({ onWeek, link, onHand, viewerUserId, solo, firstNameOf }) {
   if (!onWeek) return null;
-  if (link && link.status === "bought") {
+  // Re-plan edge (A2 follow-up, 2026-10-18): a bought row counts for THIS cook
+  // only when its purchase is inside the window — boughtInWindow false means the
+  // link and its purchase predate the meal's last cook, so the row falls through.
+  if (link && link.status === "bought" && link.boughtInWindow !== false) {
     if (solo) return { kind: "bought", text: "Bought" };
     const buyer = link.buyerUserId || null;
     if (!buyer) return { kind: "bought", text: "Bought" };
@@ -46,14 +49,40 @@ export function ingredientSummary({ n, onWeek, leftToBuy }) {
 }
 
 // The buyer of one list item from its checked / unchecked events, newest
-// first: the latest event decides; a `checked` at or after the link's
-// created_at names its user, anything else names nobody.
-export function buyerFromEvents(events, linkCreatedAt) {
+// first: the latest event decides; a `checked` at or after the window's start
+// names its user, anything else names nobody.
+export function buyerFromEvents(events, windowStart) {
   if (!events || events.length === 0) return null;
   const latest = events[0];
   if (latest.event_type !== "checked") return null;
-  if (linkCreatedAt && latest.created_at < linkCreatedAt) return null;
+  if (windowStart && latest.created_at < windowStart) return null;
   return latest.user_id || null;
+}
+
+// Row 1's window starts at the LATER of the link's created_at (the Add-to-Shop
+// moment, A2-R §1) and the meal's most recent cook (meal_cooks) — the re-plan
+// edge (2026-10-18): a meal re-planned without being re-added keeps its old
+// link, and a purchase made for the previous cook must never read as bought
+// for this one. ISO strings compare as text.
+export function rowWindowStart(linkCreatedAt, lastCookedAt) {
+  if (!lastCookedAt) return linkCreatedAt || null;
+  if (!linkCreatedAt) return lastCookedAt;
+  return lastCookedAt > linkCreatedAt ? lastCookedAt : linkCreatedAt;
+}
+
+// Does a bought row count for THIS cook, and who bought it? Known-inside when
+// the link itself was made after the last cook (any purchase on it is later),
+// or when a checked event sits at or after the window's start. A row whose
+// link predates the last cook with no event after it is a purchase for the
+// previous cook — not row 1.
+export function boughtForThisMeal({ status, linkCreatedAt }, events, lastCookedAt) {
+  if (status !== "bought") return { boughtInWindow: false, buyerUserId: null };
+  const start = rowWindowStart(linkCreatedAt, lastCookedAt);
+  const buyerUserId = buyerFromEvents(events, start);
+  const latest = events && events[0];
+  const checkedInWindow = !!latest && latest.event_type === "checked" && (!start || latest.created_at >= start);
+  const linkInWindow = !lastCookedAt || !linkCreatedAt || linkCreatedAt >= lastCookedAt;
+  return { boughtInWindow: linkInWindow || checkedInWindow, buyerUserId };
 }
 
 export default ingredientTag;
