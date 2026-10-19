@@ -21,6 +21,7 @@ import { displayTitle } from './lib/displayTitle';
 import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
 import { leftToBuy, recipeBlockFor, REMOVE_LABEL } from './lib/recipePlan';
 import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } from './lib/boardState';
+import { rowCountsFromProvenance } from './lib/mealLinks';
 import { cookDate, cookHistoryLine } from './lib/cookDate';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
@@ -957,7 +958,7 @@ function HomeWelcome({ signUpInitialValues, ready }) {
 // copy only — meal names live in .deck-title / .deck-status, which are not on
 // the allow-list, and no allow-listed element has household text in its
 // aria-label either. The body tap target (.deck-body) is masked.
-function OnDeckCard({
+export function OnDeckCard({
   boardMeals, boardCards, placements, rows, mealById, cookedIds, busyMealId, switching, holdNight,
   onAdd, onView, onLockIn, onCooked, onSkip, onSwitch, onLeftovers, onOut, onOther,
 }) {
@@ -4573,15 +4574,8 @@ function ProvisionsApp() {
   // Per-meal live list rows { total, bought }, from the same provenance map as
   // the ×n count — no new query. This is the card's STATE while it is to-buy
   // ("2 of 4 in cart", "4 to buy"); readiness itself is placement.readyAt.
-  const mealRowCounts = useMemo(() => {
-    const map = {};
-    Object.values(mealProvenance).flat().forEach((pr) => {
-      const c = map[pr.mealId] || (map[pr.mealId] = { total: 0, bought: 0 });
-      c.total += 1;
-      if (pr.status === "bought") c.bought += 1;
-    });
-    return map;
-  }, [mealProvenance]);
+  // (src/lib/mealLinks.js — the same counts, lifted so the release rule is proven through them.)
+  const mealRowCounts = useMemo(() => rowCountsFromProvenance(mealProvenance), [mealProvenance]);
 
   // Board header / banner facts (v2, spec "The board"). `cards` = the meal
   // cards (no-shop cards never count toward either banner or toward M).
@@ -4831,8 +4825,11 @@ function ProvisionsApp() {
     try {
       const ok = await markCooked(mealId);
       if (!ok) setCookedHere((prev) => { const next = new Set(prev); next.delete(mealId); return next; });
+      // markCooked released the meal's links (replanning starts over): re-read provenance
+      // so a re-plan from this load reads the board's Planned, not last trip's cart.
+      else await refreshProvenance();
     } finally { setBusyMealId(null); }
-  }, [markCooked]);
+  }, [markCooked, refreshProvenance]);
   // Home's Switch (SPEC_home_v1_essentials D8): cards 1 and 2 trade places
   // through the board's own reorder — the full queue in order with the head
   // pair swapped, and the hook renumbers 0..n-1. Optimistic like a drag; the
