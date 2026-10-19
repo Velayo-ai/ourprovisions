@@ -1589,7 +1589,7 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
       {list.map((m, i) => {
         const busy = busyMealId === m.id;
         // ONE derivation for every card, shared with Home's on-deck card (D3).
-        const { noShop, cooked, ready, planned, toBuy, canAdd, chip, title, line } = boardCardState(m, { placements, rows, mealById, cookedIds });
+        const { noShop, cooked, ready, planned, toBuy, canAdd, rc, chip, title, line } = boardCardState(m, { placements, rows, mealById, cookedIds });
         const ordinal = openOrder.indexOf(m.id);
         const tone = mealTone(m);
         const lifted = drag && drag.id === m.id;
@@ -1675,12 +1675,14 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                     onClick={(e) => { e.stopPropagation(); if (!busy) onLockIn(m.id); }}
                   >Add to Shop</button>
                 )}
+                {/* At 0 left (everything in the cart, not wrapped up) the same door reads "Wrap up →"
+                    — the recipe view's nudge, word for word (Amendment C, ruling 4). Wording only. */}
                 {toBuy && (
                   <button
                     type="button"
                     className="board-see"
                     onClick={(e) => { e.stopPropagation(); onSeeList(); }}
-                  >See on list</button>
+                  >{rc.bought >= rc.total ? "Wrap up →" : "See on list"}</button>
                 )}
                 {ready && (
                   <button
@@ -2097,6 +2099,12 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
     plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onAddToShop(meal.id); }}>Add to Shop</button>;
   } else if (block.action === "cookIt") {
     plan = <button type="button" className="rv-plan teal" disabled={busy} onClick={() => { if (!busy) onCooked(meal.id); }}>Cooked it</button>;
+  } else if (block.action === "wrapUp") {
+    // Amendment C1: everything is in the cart, the trip is not wrapped up. The view never
+    // runs wrap-up itself — the nudge is the board card's own door to Shop (onSeeList →
+    // goToDoor("list")), where the Wrap Up bar / All done card capture receipt, store and
+    // timing as always. Fixed copy on the allow-listed .rv-plan (allow-list unchanged).
+    plan = <button type="button" className="rv-plan wrap" onClick={onSeeList}>Wrap up →</button>;
   } else {
     // "{n} left to buy · See list →" — n is the board's own count (rc, one source); the tap
     // is the board card's See on list. Its own class, OFF the allow-list (R4): the count
@@ -2142,7 +2150,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
         {ingredients.length > 0 && (
           <>
             {/* A2: the summary replaces the bare count — "{n} · {k} on the shopping list" /
-                "{n} · All here", k the board's own count so All here ⇔ Cooked it. */}
+                "{n} · All here", k the board's own count so All here ⇔ Wrap up → (Amendment C: Cooked it waits for wrap-up). */}
             <h3 className="rv-sec">Ingredients <span>{ingredientSummary({ n: ingredients.length, onWeek: tagsOn, leftToBuy: leftToBuy(state), addedThisPlan })}</span></h3>
             <ul className="rv-ing">
               {ingredients.map((mi) => {
@@ -7380,7 +7388,7 @@ function ProvisionsApp() {
         .rv-plan-row { padding: 16px 20px 0; }
         .rv-plan, .rv-see { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 10px 16px; border-radius: 24px; border: 1.5px solid transparent;
                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; text-align: center; cursor: pointer; }
-        .rv-plan.add { background: #D9BC8C; border-color: #D9BC8C; color: #2C1A0E; }
+        .rv-plan.add, .rv-plan.wrap { background: #D9BC8C; border-color: #D9BC8C; color: #2C1A0E; }
         .rv-plan.teal { background: #0D9488; border-color: #0D9488; color: #fff; }
         /* A5 (2026-10-18): To buy offers the board card's "See on list" in the board's own outline. Its own class
            since Amendment B (R4): the count stays out of click text. */

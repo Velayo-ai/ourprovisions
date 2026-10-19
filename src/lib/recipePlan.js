@@ -10,20 +10,22 @@
 //   cooked           cooked this load          → "cooked"  + Plan again (A5 revision: acts,
 //                                                          the same handler as Add)
 //   ready            everything is in          → "cookIt"  Cooked it (teal)
-//   toBuy, 0 left    everything is in the cart → "cookIt"  Cooked it (A5 revision: when n
-//                                                          reaches 0 the pill follows D9,
-//                                                          in the same render as "All here")
+//   toBuy, 0 left    everything is in the cart → "wrapUp"  Wrap up → (Amendment C, 2026-10-19:
+//                                                          supersedes A5 / R1 — a meal is ready to
+//                                                          cook only after wrap-up; the nudge opens
+//                                                          Shop, where the wrap-up ritual lives)
 //   toBuy            still to buy              → "toBuy"   "{n} left to buy · See list"
 //   planned, canAdd  on the week, not on Shop  → "onWeek"  (Amendment B: the action block
 //                                                          offers Add to Shop here)
 //   planned, !canAdd nothing to shop for       → "cookIt"  Cooked it (teal)
-// Cooked it is never offered while anything is still to buy (D9a). Every pill
-// acts; information lives in text (A5 revision, 2026-10-18).
+// Cooked it is never offered while anything is still to buy (D9a), nor before
+// wrap-up (Amendment C2): only Ready, or nothing to shop for. Every pill acts;
+// information lives in text (A5 revision, 2026-10-18).
 export function planActionFor(state) {
   if (!state) return "add";
   if (state.cooked) return "cooked";
   if (state.ready) return "cookIt";
-  if (state.toBuy) return leftToBuy(state) === 0 ? "cookIt" : "toBuy";
+  if (state.toBuy) return leftToBuy(state) === 0 ? "wrapUp" : "toBuy";
   if (state.planned && !state.canAdd) return "cookIt";
   return "onWeek";
 }
@@ -38,13 +40,13 @@ export function leftToBuy(state) {
 // THE ACTION BLOCK (SPEC_recipe_view Amendment B + Step 0 rulings, 2026-10-19). Three
 // parts, by state: a status line that never acts, ONE main action, and a quiet remove
 // link worded as the board's own ⋯ → Remove. Built on planActionFor, so the main action
-// is the D9 mapping above (R1: everything in the cart keeps Cooked it, the one stated
-// exception to B2); the soft half of the status line and the remove wording come from
-// the same board flags.
+// is the D9 mapping above — B2 with no exception since Amendment C (everything in the
+// cart nudges to wrap up, as the board card does); the soft half of the status line and
+// the remove wording come from the same board flags.
 //   null / cooked          → no status, no remove; "add" / "cooked" (+ Plan again)
 //   planned, canAdd        → ✓ On This Week                        · Add to Shop        · week
 //   toBuy, n left          → ✓ On This Week                        · {n} left · See list · shop
-//   toBuy, 0 left (R1)     → ✓ On This Week · All in your cart     · Cooked it          · shop
+//   toBuy, 0 left (C1)     → ✓ On This Week · All in your cart     · Wrap up →          · shop
 //   ready                  → ✓ On This Week · Everything's in      · Cooked it          · week
 //   planned, !canAdd (R2)  → ✓ On This Week · Nothing to shop for  · Cooked it          · week
 export const REMOVE_LABEL = {

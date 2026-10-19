@@ -126,12 +126,12 @@ test("re-plan + re-add + check two (not wrapped up) → two In your cart, summar
   expect(v.summary).toBe("13 · 11 on the shopping list");
 });
 
-test("plan → add → check all → All here and Cooked it from the same inputs", () => {
+test("plan → add → check all → All here and Wrap up → from the same inputs (Amendment C: no Cooked it before wrap-up)", () => {
   const anchor = planAnchor("2026-10-19T08:00:00Z", null);
   const bought = { status: "bought", deletedAt: null, quantity: 1, linkCreatedAt: "2026-10-19T09:00:00Z", events: [{ event_type: "checked", user_id: "u-dan", created_at: "2026-10-19T12:00:00Z" }] };
   const v = viewOf({ tortillas: bought, cumin: bought }, anchor, 0);
   expect(v.summary).toBe("13 · All here");
-  expect(planActionFor(toBuyState(13, 13))).toBe("cookIt");
+  expect(planActionFor(toBuyState(13, 13))).toBe("wrapUp");
 });
 
 const names = { "u-dan": "Dan", "u-elly": "Elly" };

@@ -47,11 +47,11 @@ function view(meal, state, over = {}) {
 const status = (row) => row.querySelector(".rv-status")?.textContent ?? null;
 const buttons = (row) => Array.from(row.querySelectorAll("button"));
 
-describe("the four states (and R1 / R2) render the mockup's three parts", () => {
+describe("the four states (and C1 / R2) render the mockup's three parts", () => {
   test.each([
     ["A · planned, not on the list", MEAL, {}, "✓ On This Week", ["rv-plan add", "Add to Shop"], "Remove from This Week"],
     ["B · on the list, 4 left", MEAL, { total: 6, bought: 2 }, "✓ On This Week", ["rv-see", "4 left to buy · See list →"], "Remove (and take its items off Shop)"],
-    ["R1 · all in the cart", MEAL, { total: 6, bought: 6 }, "✓ On This Week · All in your cart", ["rv-plan teal", "Cooked it"], "Remove (and take its items off Shop)"],
+    ["C1 · all in the cart", MEAL, { total: 6, bought: 6 }, "✓ On This Week · All in your cart", ["rv-plan wrap", "Wrap up →"], "Remove (and take its items off Shop)"],
     ["C · ready", MEAL, { readyAt: "2026-10-19T12:00:00Z" }, "✓ On This Week · Everything's in", ["rv-plan teal", "Cooked it"], "Remove from This Week"],
     ["C · nothing to shop for", EMPTY, {}, "✓ On This Week · Nothing to shop for", ["rv-plan teal", "Cooked it"], "Remove from This Week"],
   ])("%s", (_, meal, inputs, statusText, [cls, main], removeText) => {
@@ -105,14 +105,18 @@ describe("each action calls its handler with the board's arguments", () => {
     fireEvent.click(buttons(row)[1]);
     expect(h.onRemove).toHaveBeenCalledWith(MEAL.id, true);
   });
-  test("R1 / C · Cooked it → onCooked(mealId); R1's Remove follows toBuy (true), C's is false", () => {
-    const r1 = view(MEAL, stateOf(MEAL, { total: 6, bought: 6 }));
-    fireEvent.click(buttons(r1.row)[0]);
-    expect(r1.h.onCooked).toHaveBeenCalledWith(MEAL.id);
-    fireEvent.click(buttons(r1.row)[1]);
-    expect(r1.h.onRemove).toHaveBeenCalledWith(MEAL.id, true);
-    r1.unmount();
+  test("C1 · Wrap up → is the board card's door to Shop (onSeeList), never a cook; its Remove follows toBuy (true)", () => {
+    const c1 = view(MEAL, stateOf(MEAL, { total: 6, bought: 6 }));
+    fireEvent.click(buttons(c1.row)[0]);
+    expect(c1.h.onSeeList).toHaveBeenCalledTimes(1);
+    expect(c1.h.onCooked).not.toHaveBeenCalled();
+    fireEvent.click(buttons(c1.row)[1]);
+    expect(c1.h.onRemove).toHaveBeenCalledWith(MEAL.id, true);
+  });
+  test("C · Cooked it → onCooked(mealId); its Remove is false", () => {
     const c = view(MEAL, stateOf(MEAL, { readyAt: "x" }));
+    fireEvent.click(buttons(c.row)[0]);
+    expect(c.h.onCooked).toHaveBeenCalledWith(MEAL.id);
     fireEvent.click(buttons(c.row)[1]);
     expect(c.h.onRemove).toHaveBeenCalledWith(MEAL.id, false);
   });
@@ -138,6 +142,8 @@ describe("each action calls its handler with the board's arguments", () => {
     rerender(<RecipeView {...props(stateOf(MEAL, { total: 2 }))} />);
     expect(buttons(row)[0].textContent).toBe("2 left to buy · See list →");
     rerender(<RecipeView {...props(stateOf(MEAL, { total: 2, bought: 2 }))} />);
+    expect(buttons(row)[0].textContent).toBe("Wrap up →");
+    rerender(<RecipeView {...props(stateOf(MEAL, { readyAt: "2026-10-19T12:00:00Z" }))} />);
     expect(buttons(row)[0].textContent).toBe("Cooked it");
     rerender(<RecipeView {...props(stateOf(MEAL, { cooked: true }))} />);
     expect(buttons(row)[0].textContent).toBe("+ Plan again");
