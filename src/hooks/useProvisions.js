@@ -10,6 +10,7 @@ import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 import { trace } from "@opentelemetry/api";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
+import { cooksFromRows } from "../lib/cooks";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -3343,13 +3344,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       return;
     }
     if (householdRef.current?.id !== hh.id) return;   // switched households mid-read
-    const next = {};
-    (data || []).forEach((r) => {
-      const cur = next[r.meal_id];
-      if (cur) cur.count += 1;                                            // newest first: the first row set lastCookedAt
-      else next[r.meal_id] = { lastCookedAt: r.cooked_at, count: 1 };
-    });
-    setCooks(next);
+    setCooks(cooksFromRows(data));   // always rebuilt from the server's rows (src/lib/cooks.js)
     setCooksLoadedFor(hh.id);
   }
 
@@ -3487,7 +3482,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // The server's timestamp replaces the optimistic one (it is also the log row's).
     const now = placementsRef.current;
     if (now[mealId]) setPlacementsBoth({ ...now, [mealId]: { ...now[mealId], cookedAt } });
-    setCooks((c) => ({ ...c, [mealId]: { lastCookedAt: cookedAt, count: (c[mealId]?.count || 0) + 1 } }));
+    // The count is RE-READ, never incremented (2026-10-19): the placements poll may already
+    // have re-read the log mid-cook (cookChanged → loadCooks), and a +1 on top of that
+    // counted one cook twice ("5 times" over 4 rows). The placement stays optimistic.
+    await loadCooks(db, hh);
     reportSuccess();
     return true;
   // loadPlacements / loadCooks are stable hook-scope functions (use refs).
