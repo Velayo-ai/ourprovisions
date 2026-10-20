@@ -5259,11 +5259,14 @@ function ProvisionsApp() {
       if (ok) {
         setMealSheet(null);
         await loadMeals();   // reflect the new name/count on PLAN immediately
+        // An edit can take dropped ingredients off Shop (updateMeal): re-read provenance so
+        // the card's "{n} left" and the board's counts move in the same beat.
+        if (mealSheet.mode === "edit") await refreshProvenance();
       }
     } finally {
       setMealSaving(false);
     }
-  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals]);
+  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals, refreshProvenance]);
   // Delete the recipe itself. Zeroing of its still-pending list items
   // happens inside deleteMeal (bought items untouched, shared ingredients
   // left for the meals that still need them) — the sheet only drives it.

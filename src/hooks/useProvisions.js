@@ -9,7 +9,7 @@ import { scheduleHoldRetry } from "../lib/holdRetry";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 import { trace } from "@opentelemetry/api";
-import { fetchLiveMealLinks, linksToRelease, releaseMealLinks } from "../lib/mealLinks";
+import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -2778,6 +2778,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .eq("household_id", hh.id); // belt-and-suspenders; RLS already scopes this
       if (mErr) throw mErr;
 
+      // What the meal needed BEFORE this edit — so the ingredients the edit drops can come
+      // off the list below (2026-10-19, the meal-edit link gap).
+      const { data: before, error: bErr } = await db
+        .from("meal_ingredients")
+        .select("catalog_item_id")
+        .eq("meal_id", mealId)
+        .is("deleted_at", null);
+      if (bErr) throw bErr;
+
       const { error: dErr } = await db
         .from("meal_ingredients")
         .update({ deleted_at: new Date().toISOString() })
@@ -2797,6 +2806,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         const { error: iErr } = await db.from("meal_ingredients").insert(rows);
         if (iErr) throw iErr;
       }
+      // An ingredient the meal no longer needs (Dan, 2026-10-19 — today's Remove rule, per
+      // ingredient): pending comes off Shop (a shared item keeps the other meal's claim);
+      // in-cart stays until wrap-up, unlinked. The SAME path as Remove, scoped to the
+      // dropped catalog items. Ingredients ADDED in an edit are never put on Shop. The
+      // recipe is saved either way: a failure here is a RUM warning, never the edit's error.
+      const dropped = droppedIngredientIds(before, rows);
+      if (dropped.length > 0) {
+        try {
+          await takeMealOffListAndRelease(db, hh, mealId, { catalogItemIds: dropped, path: "edit" });
+          await loadListItems(db, hh.id);
+        } catch (rErr) {
+          warnLinkRelease(rErr, { householdId: hh.id, mealId, path: "edit", links: dropped.length });
+        }
+      }
       reportSuccess();
       return true;
     } catch (err) {
@@ -2804,6 +2827,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setError(`Could not update meal: ${err.message}`);
       return false;
     }
+  // loadListItems / takeMealOffListAndRelease are stable hook-scope functions (use refs),
+  // the same pattern removeMealFromList and addMealToList document.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess]);
 
   // ─────────────────────────────────────────────────────────────
@@ -2839,68 +2865,26 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // under-serve another meal that still needed it. Accepted tradeoff,
   // already shipped and dev-verified via deleteMeal.
   // ─────────────────────────────────────────────────────────────
+  // The one path off the list (src/lib/mealLinks.js takeMealOffList), plus the in-cart
+  // link release; the caller reloads the list. A plain function so updateMeal — defined above —
+  // shares it with removeMealFromList: an edit that drops ingredients takes them off the
+  // list the same way a Remove does, scoped to those catalog items.
+  async function takeMealOffListAndRelease(db, hh, mealId, { catalogItemIds = null, path = "remove" } = {}) {
+    const links = await takeMealOffList(db, { householdId: hh.id, mealId, catalogItemIds });
+    // In-cart rows: only this meal's link goes; the row, its quantity and its
+    // status are untouched. A failure warns and leaves today's behaviour.
+    await releaseLinksOrWarn(db, {
+      householdId: hh.id, mealId, path,
+      listItemIds: linksToRelease(links, { onlyBought: true }),
+    });
+  }
+
   const removeMealFromList = useCallback(async (mealId) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
     try {
-      // This meal's LIVE list rows, each carrying the amount THIS meal put
-      // there (039). Household-scoped explicitly as belt-and-suspenders
-      // alongside RLS, same as updateMeal.
-      const { data: links, error: lErr } = await db
-        .from("list_item_meals")
-        .select("list_item_id, quantity_contributed, list_items!inner(id, catalog_item_id, quantity, status, household_id, deleted_at)")
-        .eq("meal_id", mealId)
-        .eq("list_items.household_id", hh.id)
-        .is("list_items.deleted_at", null);
-      if (lErr) throw lErr;
-
-      // Bought rows drop out HERE and are never handed to the quantity math
-      // below — the never-un-buy guarantee, enforced by filter rather than
-      // left to fall out of a downstream implementation.
-      const pending = (links || []).filter((r) => r.list_items?.status === "pending");
-
-      for (const row of pending) {
-        const li = row.list_items;
-        const contributed = Number(row.quantity_contributed) || 0;
-
-        // LEGACY ROW (written before 039, never backfilled): contributed is 0,
-        // so there is no recorded basis to subtract. Drop the provenance link
-        // and leave the quantity untouched.
-        if (contributed > 0) {
-          const remaining = Number(li.quantity) - contributed;
-          if (remaining > 0) {
-            const { error: qErr } = await db
-              .from("list_items")
-              .update({ quantity: remaining, updated_at: new Date().toISOString() })
-              .eq("id", li.id)
-              .eq("household_id", hh.id);
-            if (qErr) throw qErr;
-          } else {
-            // Fully spent. Same removal path updateQty's qty<=0 branch uses,
-            // so the list keeps ONE removal implementation.
-            const { error: rErr } = await db.rpc("remove_list_item", {
-              p_household_id: hh.id,
-              p_catalog_item_id: li.catalog_item_id,
-            });
-            if (rErr) throw rErr;
-          }
-        }
-
-        const { error: uErr } = await db
-          .from("list_item_meals")
-          .delete()
-          .eq("meal_id", mealId)
-          .eq("list_item_id", row.list_item_id);
-        if (uErr) throw uErr;
-      }
-
-      // In-cart rows: only this meal's link goes; the row, its quantity and its
-      // status are untouched. A failure warns and leaves today's behaviour.
-      await releaseLinksOrWarn(db, {
-        householdId: hh.id, mealId, path: "remove",
-        listItemIds: linksToRelease(links, { onlyBought: true }),
-      });
+      await takeMealOffListAndRelease(db, hh, mealId, { path: "remove" });
 
       await loadListItems(db, hh.id);
       reportSuccess();
