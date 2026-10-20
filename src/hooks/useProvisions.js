@@ -9,7 +9,8 @@ import { scheduleHoldRetry } from "../lib/holdRetry";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto } from "../lib/image";
 import { trace } from "@opentelemetry/api";
-import { fetchLiveMealLinks, linksToRelease, releaseMealLinks } from "../lib/mealLinks";
+import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
+import { cooksFromRows } from "../lib/cooks";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -2778,6 +2779,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .eq("household_id", hh.id); // belt-and-suspenders; RLS already scopes this
       if (mErr) throw mErr;
 
+      // What the meal needed BEFORE this edit — so the ingredients the edit drops can come
+      // off the list below (2026-10-19, the meal-edit link gap).
+      const { data: before, error: bErr } = await db
+        .from("meal_ingredients")
+        .select("catalog_item_id")
+        .eq("meal_id", mealId)
+        .is("deleted_at", null);
+      if (bErr) throw bErr;
+
       const { error: dErr } = await db
         .from("meal_ingredients")
         .update({ deleted_at: new Date().toISOString() })
@@ -2797,6 +2807,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         const { error: iErr } = await db.from("meal_ingredients").insert(rows);
         if (iErr) throw iErr;
       }
+      // An ingredient the meal no longer needs (Dan, 2026-10-19 — today's Remove rule, per
+      // ingredient): pending comes off Shop (a shared item keeps the other meal's claim);
+      // in-cart stays until wrap-up, unlinked. The SAME path as Remove, scoped to the
+      // dropped catalog items. Ingredients ADDED in an edit are never put on Shop. The
+      // recipe is saved either way: a failure here is a RUM warning, never the edit's error.
+      const dropped = droppedIngredientIds(before, rows);
+      if (dropped.length > 0) {
+        try {
+          await takeMealOffListAndRelease(db, hh, mealId, { catalogItemIds: dropped, path: "edit" });
+          await loadListItems(db, hh.id);
+        } catch (rErr) {
+          warnLinkRelease(rErr, { householdId: hh.id, mealId, path: "edit", links: dropped.length });
+        }
+      }
       reportSuccess();
       return true;
     } catch (err) {
@@ -2804,6 +2828,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setError(`Could not update meal: ${err.message}`);
       return false;
     }
+  // loadListItems / takeMealOffListAndRelease are stable hook-scope functions (use refs),
+  // the same pattern removeMealFromList and addMealToList document.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportSuccess]);
 
   // ─────────────────────────────────────────────────────────────
@@ -2839,68 +2866,26 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // under-serve another meal that still needed it. Accepted tradeoff,
   // already shipped and dev-verified via deleteMeal.
   // ─────────────────────────────────────────────────────────────
+  // The one path off the list (src/lib/mealLinks.js takeMealOffList), plus the in-cart
+  // link release; the caller reloads the list. A plain function so updateMeal — defined above —
+  // shares it with removeMealFromList: an edit that drops ingredients takes them off the
+  // list the same way a Remove does, scoped to those catalog items.
+  async function takeMealOffListAndRelease(db, hh, mealId, { catalogItemIds = null, path = "remove" } = {}) {
+    const links = await takeMealOffList(db, { householdId: hh.id, mealId, catalogItemIds });
+    // In-cart rows: only this meal's link goes; the row, its quantity and its
+    // status are untouched. A failure warns and leaves today's behaviour.
+    await releaseLinksOrWarn(db, {
+      householdId: hh.id, mealId, path,
+      listItemIds: linksToRelease(links, { onlyBought: true }),
+    });
+  }
+
   const removeMealFromList = useCallback(async (mealId) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId) return false;
     try {
-      // This meal's LIVE list rows, each carrying the amount THIS meal put
-      // there (039). Household-scoped explicitly as belt-and-suspenders
-      // alongside RLS, same as updateMeal.
-      const { data: links, error: lErr } = await db
-        .from("list_item_meals")
-        .select("list_item_id, quantity_contributed, list_items!inner(id, catalog_item_id, quantity, status, household_id, deleted_at)")
-        .eq("meal_id", mealId)
-        .eq("list_items.household_id", hh.id)
-        .is("list_items.deleted_at", null);
-      if (lErr) throw lErr;
-
-      // Bought rows drop out HERE and are never handed to the quantity math
-      // below — the never-un-buy guarantee, enforced by filter rather than
-      // left to fall out of a downstream implementation.
-      const pending = (links || []).filter((r) => r.list_items?.status === "pending");
-
-      for (const row of pending) {
-        const li = row.list_items;
-        const contributed = Number(row.quantity_contributed) || 0;
-
-        // LEGACY ROW (written before 039, never backfilled): contributed is 0,
-        // so there is no recorded basis to subtract. Drop the provenance link
-        // and leave the quantity untouched.
-        if (contributed > 0) {
-          const remaining = Number(li.quantity) - contributed;
-          if (remaining > 0) {
-            const { error: qErr } = await db
-              .from("list_items")
-              .update({ quantity: remaining, updated_at: new Date().toISOString() })
-              .eq("id", li.id)
-              .eq("household_id", hh.id);
-            if (qErr) throw qErr;
-          } else {
-            // Fully spent. Same removal path updateQty's qty<=0 branch uses,
-            // so the list keeps ONE removal implementation.
-            const { error: rErr } = await db.rpc("remove_list_item", {
-              p_household_id: hh.id,
-              p_catalog_item_id: li.catalog_item_id,
-            });
-            if (rErr) throw rErr;
-          }
-        }
-
-        const { error: uErr } = await db
-          .from("list_item_meals")
-          .delete()
-          .eq("meal_id", mealId)
-          .eq("list_item_id", row.list_item_id);
-        if (uErr) throw uErr;
-      }
-
-      // In-cart rows: only this meal's link goes; the row, its quantity and its
-      // status are untouched. A failure warns and leaves today's behaviour.
-      await releaseLinksOrWarn(db, {
-        householdId: hh.id, mealId, path: "remove",
-        listItemIds: linksToRelease(links, { onlyBought: true }),
-      });
+      await takeMealOffListAndRelease(db, hh, mealId, { path: "remove" });
 
       await loadListItems(db, hh.id);
       reportSuccess();
@@ -3273,32 +3258,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // includeOnHandIds: CATALOG_ITEM_IDs of on-hand ingredients to add THIS TIME
   // only (045). Deliberately a call argument rather than a stored flag — the RPC
   // does not touch meal_ingredients.on_hand, so "include this time" never quietly
-  // becomes "include from now on".
-  // "Remove from this meal" in the Add prompt. Not new logic — the same
-  // soft-delete updateMeal performs on its rows before reinserting, narrowed to
-  // named catalog items. Soft, not hard: meal_ingredients rows are referenced by
-  // nothing, but deleted_at is what every read path already filters on, and a hard
-  // delete here would be the one place in this table that behaves differently.
-  const removeMealIngredients = useCallback(async (mealId, catalogItemIds) => {
-    const db = supabaseRef.current;
-    const hh = householdRef.current;
-    if (!db || !hh || !mealId || !catalogItemIds?.length) return false;
-    try {
-      const { error: err } = await db
-        .from("meal_ingredients")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("meal_id", mealId)
-        .in("catalog_item_id", catalogItemIds)
-        .is("deleted_at", null);
-      if (err) throw err;
-      reportSuccess();
-      return true;
-    } catch (err) {
-      console.error("removeMealIngredients error:", err.message);
-      failWith("meals", `Could not remove ingredient: ${err.message}`);
-      return false;
-    }
-  }, [reportSuccess, failWith]);
+  // becomes "include from now on". (removeMealIngredients — the prompt's "Remove from
+  // this meal" — was deleted 2026-10-19, SPEC_all_on_hand D4: the recipe changes in Edit.)
 
   // ─────────────────────────────────────────────────────────────
   // Plan board placements (migration 047). Three pieces:
@@ -3383,13 +3344,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       return;
     }
     if (householdRef.current?.id !== hh.id) return;   // switched households mid-read
-    const next = {};
-    (data || []).forEach((r) => {
-      const cur = next[r.meal_id];
-      if (cur) cur.count += 1;                                            // newest first: the first row set lastCookedAt
-      else next[r.meal_id] = { lastCookedAt: r.cooked_at, count: 1 };
-    });
-    setCooks(next);
+    setCooks(cooksFromRows(data));   // always rebuilt from the server's rows (src/lib/cooks.js)
     setCooksLoadedFor(hh.id);
   }
 
@@ -3527,7 +3482,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // The server's timestamp replaces the optimistic one (it is also the log row's).
     const now = placementsRef.current;
     if (now[mealId]) setPlacementsBoth({ ...now, [mealId]: { ...now[mealId], cookedAt } });
-    setCooks((c) => ({ ...c, [mealId]: { lastCookedAt: cookedAt, count: (c[mealId]?.count || 0) + 1 } }));
+    // The count is RE-READ, never incremented (2026-10-19): the placements poll may already
+    // have re-read the log mid-cook (cookChanged → loadCooks), and a +1 on top of that
+    // counted one cook twice ("5 times" over 4 rows). The placement stays optimistic.
+    await loadCooks(db, hh);
     reportSuccess();
     return true;
   // loadPlacements / loadCooks are stable hook-scope functions (use refs).
@@ -3701,6 +3659,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         const open = !!cur && !cur.cookedAt && !cur.skippedAt;
         if (!open) await appendPlacement(db, hh, mealId);
         else if (cur.readyAt) await clearReady(db, hh, mealId);
+        // 064 (SPEC_all_on_hand): a count of 0 is the all-on-hand add — the RPC stamped the
+        // open placement ready. Re-read so the stamp shows on every surface at once.
+        if (!count) await loadPlacements(db, hh);
       } catch (pErr) { console.warn("placement on add (non-fatal):", pErr.message); }
       // Re-sync the active cycle (the RPC may have opened one) + refresh the
       // list so quantities and provenance reflect immediately.
@@ -3756,13 +3717,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // library's Add read as the same act.
   const lockIn = useCallback(async (mealId) => addMealToList(mealId, 1), [addMealToList]);
 
+  // Add all. { added, readyOnHand }: added = meals that put rows on the list; readyOnHand =
+  // meals with every ingredient on hand, which 064 stamped ready instead (read from the
+  // placement reload addMealToList does after a 0 count).
   const lockInAll = useCallback(async (mealIds) => {
-    let n = 0;
+    let added = 0;
+    let readyOnHand = 0;
     for (const id of mealIds || []) {
       const count = await addMealToList(id, 1);
-      if (count > 0) n += 1;
+      if (count > 0) added += 1;
+      else if (placementsRef.current[id]?.readyAt) readyOnHand += 1;
     }
-    return n;
+    return { added, readyOnHand };
   }, [addMealToList]);
 
   const fetchMealProvenance = useCallback(async () => {
@@ -3808,7 +3774,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, removeMealIngredients, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,

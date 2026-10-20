@@ -22,6 +22,7 @@ import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIc
 import { leftToBuy, recipeBlockFor, REMOVE_LABEL } from './lib/recipePlan';
 import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } from './lib/boardState';
 import { rowCountsFromProvenance } from './lib/mealLinks';
+import { addAllOnHandLine } from './lib/onHand';
 import { cookDate, cookHistoryLine } from './lib/cookDate';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
@@ -4084,6 +4085,79 @@ export function PlaceRow({ hh, isActive, onEdit, onSwitch }) {
   );
 }
 
+// ON-HAND PROMPT (SPEC_all_on_hand D4, 2026-10-19) — Add to Shop on a meal with ingredients
+// marked on hand asks ONE question per item, do you need to buy it?, with two answers:
+// "Buy it ({qty})" (include this time) / "I have it" (the default). The old third path,
+// "Remove from this meal", deleted the ingredient from the RECIPE — a trap inside a
+// shopping question; changing a recipe belongs in Edit, so it is gone. When nothing is
+// Buy it AND every live ingredient of the meal is in the prompt (prompt.allOnHand), the
+// confirm reads "I have everything" — the all-on-hand path (064 stamps the placement
+// ready). Otherwise "Add to Shop": a partly-flagged meal still adds its other ingredients.
+// Item names and quantities are text only, never in an attribute.
+export function OnHandPrompt({ prompt, onChoose, onCancel, onConfirm }) {
+  const anyBuy = Object.values(prompt.choices || {}).some((v) => v === "include");
+  const haveEverything = !!prompt.allOnHand && !anyBuy;
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Already on hand" onClick={(e) => e.stopPropagation()}>
+        <SheetClose onClose={onCancel} />
+        <h2>Already on hand</h2>
+        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
+          color: "#5c4a36", lineHeight: 1.5, marginBottom: "14px" }}>
+          <strong>{prompt.mealName}</strong> has ingredients you marked as on hand.
+          Need to buy any of them this time?
+        </div>
+
+        {prompt.items.map((it) => {
+          const choice = prompt.choices[it.catalog_item_id];
+          const opts = [
+            { key: "include", label: `Buy it (${it.quantity_per_serving})` },
+            { key: "skip", label: "I have it" },
+          ];
+          return (
+            <div key={it.catalog_item_id} className="onhand-row" style={{ marginBottom: "16px" }}>
+              <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
+                fontWeight: 700, color: "#2C1A0E", marginBottom: "6px" }}>{it.name}</div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                {opts.map((o) => {
+                  const on = choice === o.key;
+                  return (
+                    <button
+                      key={o.key}
+                      onClick={() => onChoose(it.catalog_item_id, o.key)}
+                      aria-pressed={on}
+                      style={{
+                        flex: 1, padding: "8px 4px", borderRadius: "999px", cursor: "pointer",
+                        fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 700,
+                        border: on ? "1.5px solid #A0724A" : "1.5px solid #E8D5B7",
+                        background: on ? "#A0724A" : "transparent",
+                        color: on ? "#FAF4EC" : "#8a7a60",
+                        transition: "all 0.2s",
+                      }}
+                    >{o.label}</button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
+          color: "#8a7a60", fontStyle: "italic", marginBottom: "12px", lineHeight: 1.5 }}>
+          Buy it is just for this time — the ingredient stays on hand for next time.
+        </div>
+
+        {/* .modal-actions / .modal-cancel / .modal-confirm — the same classes the
+            Edit Meal sheet's own Cancel/Save footer uses. */}
+        <div className="modal-actions">
+          <button className="modal-cancel" onClick={onCancel}>Cancel</button>
+          <button className="modal-confirm" onClick={onConfirm}>{haveEverything ? "I have everything" : "Add to Shop"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProvisionsApp() {
   const { user, isSignedIn, isLoaded } = useUser();
   // D2 (SPEC_auth_state_ui_gating.md) as amended 2026-09-24: the session is LIVE
@@ -4198,7 +4272,6 @@ function ProvisionsApp() {
     createCatalogItem,
     materializePendingIngredients,
     addMealToList,
-    removeMealIngredients,
     fetchMealProvenance,
     placements,
     refreshPlacements,
@@ -4992,6 +5065,9 @@ function ProvisionsApp() {
     setOnHandPrompt({
       mealId,
       mealName: meal?.name || "this meal",
+      // Every LIVE ingredient is in the prompt (all flagged on hand; meals carry live rows only):
+      // only then can "I have it" for all mean nothing to buy — the "I have everything" confirm.
+      allOnHand: onHand.length === (meal?.meal_ingredients || []).length,
       items: onHand.map((mi) => ({
         catalog_item_id: mi.catalog_item_id,
         name: mi.catalog_items?.name || "Unknown item",
@@ -5189,11 +5265,14 @@ function ProvisionsApp() {
       if (ok) {
         setMealSheet(null);
         await loadMeals();   // reflect the new name/count on PLAN immediately
+        // An edit can take dropped ingredients off Shop (updateMeal): re-read provenance so
+        // the card's "{n} left" and the board's counts move in the same beat.
+        if (mealSheet.mode === "edit") await refreshProvenance();
       }
     } finally {
       setMealSaving(false);
     }
-  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals]);
+  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals, refreshProvenance]);
   // Delete the recipe itself. Zeroing of its still-pending list items
   // happens inside deleteMeal (bought items untouched, shared ingredients
   // left for the meals that still need them) — the sheet only drives it.
@@ -5508,9 +5587,12 @@ function ProvisionsApp() {
     setLockingAll(true);
     try {
       const rowsBefore = _listRows?.current;
-      const n = await lockInAll(ids);
+      // { added, readyOnHand }: readyOnHand = the meals 064 stamped ready (every ingredient
+      // on hand), counted from the placement reload inside the hook (SPEC_all_on_hand).
+      const { added: n, readyOnHand: m } = await lockInAll(ids);
       await refreshProvenance();
-      showToast(addedToast(`${n} meal${n === 1 ? "" : "s"}`, rowsBefore), { label: "Shop", onClick: () => goToDoor("list") });
+      const line = m > 0 ? addAllOnHandLine(n, m) : addedToast(`${n} meal${n === 1 ? "" : "s"}`, rowsBefore);
+      showToast(line, { label: "Shop", onClick: () => goToDoor("list") });
     } finally {
       setLockingAll(false);
     }
@@ -5523,31 +5605,23 @@ function ProvisionsApp() {
   const confirmOnHandPrompt = useCallback(async () => {
     if (!onHandPrompt) return;
     const { mealId, mealName, choices } = onHandPrompt;
-    const pick = (want) => Object.entries(choices).filter(([, v]) => v === want).map(([k]) => k);
-    const includeIds = pick("include");
-    const removeIds = pick("remove");
+    const includeIds = Object.entries(choices).filter(([, v]) => v === "include").map(([k]) => k);
 
     setOnHandPrompt(null);
     setAddingMealId(mealId);
     try {
-      // Removals first: the RPC reads meal_ingredients, so a row removed here must
-      // already be gone before the add runs, or it would be evaluated as on-hand
-      // and could still be included by a stale id in the include list.
-      if (removeIds.length > 0) await removeMealIngredients(mealId, removeIds);
       const rowsBefore = _listRows?.current;
       const count = await addMealToList(mealId, 1, includeIds);
       await refreshProvenance();
-      // A removal changes the recipe itself, so PLAN's count is now stale.
-      if (removeIds.length > 0) await loadMeals();
-      // SPEC open question 3, answered rather than left to accident: a meal whose
-      // ingredients are all on hand and all skipped adds nothing. Silence would read
-      // as a broken button, so say what happened.
-      if (!count) showToast("Nothing added — you have it all on hand");
+      // All on hand (SPEC_all_on_hand D1/D3): nothing to add, so no trip — 064 stamped the
+      // placement ready and addMealToList reloaded placements, so every surface already
+      // reads "Everything's in" with Cooked it. Mark the moment.
+      if (!count) showToast("Everything's on hand — no trip needed.");
       else showToast(addedToast(mealName, rowsBefore));
     } finally {
       setAddingMealId(null);
     }
-  }, [onHandPrompt, removeMealIngredients, addMealToList, refreshProvenance, loadMeals, showToast, addedToast, _listRows]);
+  }, [onHandPrompt, addMealToList, refreshProvenance, showToast, addedToast, _listRows]);
 
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
@@ -9924,98 +9998,15 @@ function ProvisionsApp() {
         </div>
       )}
 
-      {/* On-hand prompt — only for meals that have on-hand ingredients.
-          Three choices per ingredient, no confirmation on Remove: the prompt is
-          already a deliberate choice among three, and a second confirm would be
-          friction without a safety benefit (decided in-spec). */}
+      {/* On-hand prompt — only for meals that have on-hand ingredients (SPEC_all_on_hand D4:
+          one question, two answers; the recipe is changed in Edit, never here). */}
       {onHandPrompt && (
-        <div className="modal-overlay" onClick={() => setOnHandPrompt(null)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Already on hand" onClick={(e) => e.stopPropagation()}>
-            <SheetClose onClose={() => setOnHandPrompt(null)} />
-            <h2>Already on hand</h2>
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
-              color: "#5c4a36", lineHeight: 1.5, marginBottom: "14px" }}>
-              <strong>{onHandPrompt.mealName}</strong> has ingredients you marked as on hand.
-              Include any of them this time?
-            </div>
-
-            {onHandPrompt.items.map((it) => {
-              const choice = onHandPrompt.choices[it.catalog_item_id];
-              // Include and Skip only. Remove is NOT a third member of this row:
-              // it is permanent where these two are reversible, and rendering all
-              // three at equal size and weight made the destructive one look as
-              // casual as the two that undo themselves. It sits below instead, as a
-              // small text link — still one tap (no confirmation, decided in-spec),
-              // but a deliberate reach rather than the third thing under your thumb.
-              const opts = [
-                { key: "include", label: `Include (${it.quantity_per_serving})` },
-                { key: "skip", label: "Skip" },
-              ];
-              const removing = choice === "remove";
-              const setChoice = (key) => setOnHandPrompt((prev) => prev && ({
-                ...prev,
-                choices: { ...prev.choices, [it.catalog_item_id]: key },
-              }));
-              return (
-                <div key={it.catalog_item_id} style={{ marginBottom: "16px" }}>
-                  <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15),
-                    fontWeight: 700, color: "#2C1A0E", marginBottom: "6px" }}>{it.name}</div>
-                  <div style={{ display: "flex", gap: "6px", opacity: removing ? 0.4 : 1 }}>
-                    {opts.map((o) => {
-                      const on = choice === o.key;
-                      return (
-                        <button
-                          key={o.key}
-                          onClick={() => setChoice(o.key)}
-                          aria-pressed={on}
-                          style={{
-                            flex: 1, padding: "8px 4px", borderRadius: "999px", cursor: "pointer",
-                            fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), fontWeight: 700,
-                            border: on ? "1.5px solid #A0724A" : "1.5px solid #E8D5B7",
-                            background: on ? "#A0724A" : "transparent",
-                            color: on ? "#FAF4EC" : "#8a7a60",
-                            transition: "all 0.2s",
-                          }}
-                        >{o.label}</button>
-                      );
-                    })}
-                  </div>
-                  {/* Armed state is its own affordance: once removing, the link says so
-                      and the same tap undoes it. One tap in, one tap out, no dialog. */}
-                  <div style={{ textAlign: "right", marginTop: "5px" }}>
-                    <button
-                      onClick={() => setChoice(removing ? "skip" : "remove")}
-                      aria-pressed={removing}
-                      style={{
-                        background: "none", border: "none", padding: "2px 0", cursor: "pointer",
-                        fontFamily: "'Lato', sans-serif", fontSize: ts(14),
-                        fontWeight: removing ? 700 : 400,
-                        color: removing ? "#b3261e" : "#9a8a78",
-                        textDecoration: "underline", textUnderlineOffset: "2px",
-                      }}
-                    >{removing ? "Will be removed from this meal · undo" : "Remove from this meal"}</button>
-                  </div>
-                </div>
-              );
-            })}
-
-            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14),
-              color: "#8a7a60", fontStyle: "italic", marginBottom: "12px", lineHeight: 1.5 }}>
-              Including is just for this time — the ingredient stays on hand for next time.
-              Removing takes it out of the meal for good.
-            </div>
-
-            {/* .modal-actions / .modal-cancel / .modal-confirm — the same classes the
-                Edit Meal sheet's own Cancel/Save footer uses. The previous
-                modal-btn-secondary / modal-btn-primary were invented here and defined
-                NOWHERE, so these rendered as unstyled browser buttons rather than
-                merely mismatched ones. Reuse the classes; do not restyle inline. */}
-            <div className="modal-actions">
-              <button className="modal-cancel" onClick={() => setOnHandPrompt(null)}>Cancel</button>
-              <button className="modal-confirm" onClick={confirmOnHandPrompt}>Add to Shop</button>
-            </div>
-          </div>
-        </div>
+        <OnHandPrompt
+          prompt={onHandPrompt}
+          onChoose={(catalogItemId, key) => setOnHandPrompt((prev) => prev && ({ ...prev, choices: { ...prev.choices, [catalogItemId]: key } }))}
+          onCancel={() => setOnHandPrompt(null)}
+          onConfirm={confirmOnHandPrompt}
+        />
       )}
 
       {/* Create / Edit Meal sheet — one component, both modes */}

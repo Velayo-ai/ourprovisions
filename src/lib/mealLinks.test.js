@@ -208,10 +208,13 @@ describe("a failed release is a warning, and today's behaviour stands", () => {
 describe("the shared paths call the release (source guard: the hook needs a live client)", () => {
   const src = require("fs").readFileSync(`${__dirname}/../hooks/useProvisions.js`, "utf8");
   const body = (name) => { const i = src.indexOf(`const ${name} = useCallback(`); return src.slice(i, src.indexOf("\n  }, [", i)); };
-  test("removeMealFromList releases the in-cart links after its pending loop", () => {
-    const b = body("removeMealFromList");
-    expect(b).toMatch(/releaseLinksOrWarn\(db, \{[\s\S]*path: "remove"[\s\S]*linksToRelease\(links, \{ onlyBought: true \}\)/);
-    expect(b.indexOf("releaseLinksOrWarn")).toBeGreaterThan(b.indexOf("for (const row of pending)"));
+  test("removeMealFromList releases the in-cart links after the pending path (takeMealOffListAndRelease)", () => {
+    expect(body("removeMealFromList")).toMatch(/await takeMealOffListAndRelease\(db, hh, mealId, \{ path: "remove" \}\);/);
+    const i = src.indexOf("async function takeMealOffListAndRelease(");
+    const fn = src.slice(i, src.indexOf("\n  }\n", i));
+    expect(fn.indexOf("await takeMealOffList(")).toBeGreaterThan(-1);
+    expect(fn.indexOf("releaseLinksOrWarn(db, {")).toBeGreaterThan(fn.indexOf("await takeMealOffList("));
+    expect(fn).toMatch(/listItemIds: linksToRelease\(links, \{ onlyBought: true \}\)/);
   });
   test("markCooked releases every live link after a successful cook_meal, before either success return", () => {
     const b = body("markCooked");

@@ -70,3 +70,82 @@ export function rowCountsFromProvenance(provenance) {
   });
   return map;
 }
+
+// THE ONE PATH OFF THE LIST when a meal stops needing items — whether it left This Week
+// (⋯ → Remove on a To-buy card), was deleted, or an edit dropped ingredients (2026-10-19,
+// Dan: "When a meal stops needing an item, whether by Remove, Cooked it or an edit:
+// pending comes off Shop; in-cart stays until wrap-up, unlinked."). Moved VERBATIM out of
+// useProvisions' removeMealFromList (deleteMeal's reconciliation block before it), with one
+// addition: an optional catalogItemIds scope, so an edit takes off exactly the removed
+// ingredients and nothing else.
+//
+// Pending rows: this meal's recorded share (039 quantity_contributed) is subtracted —
+// SHARED items survive to the extent another meal still needs them, the other meal's
+// share is never read or written — or the row is removed through remove_list_item when
+// it is fully spent; then this meal's link goes. BOUGHT rows are never touched here: they
+// are returned so the caller releases their LINK only (linksToRelease { onlyBought }).
+// Returns the in-scope live links (pending and bought) it read.
+export async function takeMealOffList(db, { householdId, mealId, catalogItemIds = null }) {
+  const scope = catalogItemIds ? new Set(catalogItemIds) : null;
+  if (scope && scope.size === 0) return [];
+  // This meal's LIVE list rows, each carrying the amount THIS meal put
+  // there (039). Household-scoped explicitly as belt-and-suspenders
+  // alongside RLS, same as updateMeal.
+  const { data, error: lErr } = await db
+    .from("list_item_meals")
+    .select("list_item_id, quantity_contributed, list_items!inner(id, catalog_item_id, quantity, status, household_id, deleted_at)")
+    .eq("meal_id", mealId)
+    .eq("list_items.household_id", householdId)
+    .is("list_items.deleted_at", null);
+  if (lErr) throw lErr;
+  const links = (data || []).filter((r) => !scope || scope.has(r.list_items?.catalog_item_id));
+
+  // Bought rows drop out HERE and are never handed to the quantity math
+  // below — the never-un-buy guarantee, enforced by filter rather than
+  // left to fall out of a downstream implementation.
+  const pending = links.filter((r) => r.list_items?.status === "pending");
+
+  for (const row of pending) {
+    const li = row.list_items;
+    const contributed = Number(row.quantity_contributed) || 0;
+
+    // LEGACY ROW (written before 039, never backfilled): contributed is 0,
+    // so there is no recorded basis to subtract. Drop the provenance link
+    // and leave the quantity untouched.
+    if (contributed > 0) {
+      const remaining = Number(li.quantity) - contributed;
+      if (remaining > 0) {
+        const { error: qErr } = await db
+          .from("list_items")
+          .update({ quantity: remaining, updated_at: new Date().toISOString() })
+          .eq("id", li.id)
+          .eq("household_id", householdId);
+        if (qErr) throw qErr;
+      } else {
+        // Fully spent. Same removal path updateQty's qty<=0 branch uses,
+        // so the list keeps ONE removal implementation.
+        const { error: rErr } = await db.rpc("remove_list_item", {
+          p_household_id: householdId,
+          p_catalog_item_id: li.catalog_item_id,
+        });
+        if (rErr) throw rErr;
+      }
+    }
+
+    const { error: uErr } = await db
+      .from("list_item_meals")
+      .delete()
+      .eq("meal_id", mealId)
+      .eq("list_item_id", row.list_item_id);
+    if (uErr) throw uErr;
+  }
+  return links;
+}
+
+// The ingredients an edit dropped: live before, absent after (by catalog item). An item
+// removed and re-added in the same edit is not dropped. Added ingredients are never
+// returned — an edit never puts anything on Shop.
+export function droppedIngredientIds(beforeRows, afterRows) {
+  const keep = new Set((afterRows || []).map((r) => r.catalog_item_id));
+  return [...new Set((beforeRows || []).map((r) => r.catalog_item_id))].filter((id) => id && !keep.has(id));
+}
