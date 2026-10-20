@@ -4090,10 +4090,13 @@ export function PlaceRow({ hh, isActive, onEdit, onSwitch }) {
 // "Buy it ({qty})" (include this time) / "I have it" (the default). The old third path,
 // "Remove from this meal", deleted the ingredient from the RECIPE — a trap inside a
 // shopping question; changing a recipe belongs in Edit, so it is gone. When nothing is
-// Buy it, the confirm reads "I have everything" — the all-on-hand path (064 stamps the
-// placement ready). Item names and quantities are text only, never in an attribute.
+// Buy it AND every live ingredient of the meal is in the prompt (prompt.allOnHand), the
+// confirm reads "I have everything" — the all-on-hand path (064 stamps the placement
+// ready). Otherwise "Add to Shop": a partly-flagged meal still adds its other ingredients.
+// Item names and quantities are text only, never in an attribute.
 export function OnHandPrompt({ prompt, onChoose, onCancel, onConfirm }) {
   const anyBuy = Object.values(prompt.choices || {}).some((v) => v === "include");
+  const haveEverything = !!prompt.allOnHand && !anyBuy;
   return (
     <div className="modal-overlay" onClick={onCancel}>
       <div className="modal" role="dialog" aria-modal="true" aria-label="Already on hand" onClick={(e) => e.stopPropagation()}>
@@ -4148,7 +4151,7 @@ export function OnHandPrompt({ prompt, onChoose, onCancel, onConfirm }) {
             Edit Meal sheet's own Cancel/Save footer uses. */}
         <div className="modal-actions">
           <button className="modal-cancel" onClick={onCancel}>Cancel</button>
-          <button className="modal-confirm" onClick={onConfirm}>{anyBuy ? "Add to Shop" : "I have everything"}</button>
+          <button className="modal-confirm" onClick={onConfirm}>{haveEverything ? "I have everything" : "Add to Shop"}</button>
         </div>
       </div>
     </div>
@@ -5062,6 +5065,9 @@ function ProvisionsApp() {
     setOnHandPrompt({
       mealId,
       mealName: meal?.name || "this meal",
+      // Every LIVE ingredient is in the prompt (all flagged on hand; meals carry live rows only):
+      // only then can "I have it" for all mean nothing to buy — the "I have everything" confirm.
+      allOnHand: onHand.length === (meal?.meal_ingredients || []).length,
       items: onHand.map((mi) => ({
         catalog_item_id: mi.catalog_item_id,
         name: mi.catalog_items?.name || "Unknown item",

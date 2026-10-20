@@ -119,7 +119,7 @@ describe("a stamped placement, everywhere", () => {
 
 // ---------------------------------------------------------------- the prompt (D4)
 const PROMPT = {
-  mealId: MEAL.id, mealName: "Freezer Pizza Night",
+  mealId: MEAL.id, mealName: "Freezer Pizza Night", allOnHand: true,
   items: [{ catalog_item_id: "dough", name: "Pizza Dough", quantity_per_serving: 2 }, { catalog_item_id: "cheese", name: "Mozzarella", quantity_per_serving: 1 }],
   choices: { dough: "skip", cheese: "skip" },
 };
@@ -142,6 +142,15 @@ describe("the on-hand prompt: one question, two answers", () => {
     const { container: bc } = promptOf({ ...PROMPT, choices: { dough: "include", cheese: "skip" } });
     expect(btn(bc, "Add to Shop")).toBeTruthy();
     expect(btn(bc, "I have everything")).toBeFalsy();
+  });
+  test("a partly-flagged meal (some ingredients not on hand) never offers I have everything — all I have it still adds the rest", () => {
+    const { container } = promptOf({ ...PROMPT, allOnHand: false });
+    expect(btn(container, "Add to Shop")).toBeTruthy();
+    expect(btn(container, "I have everything")).toBeFalsy();
+  });
+  test("the prompt is told whether every live ingredient is in it (source guard: handleAddMealToList)", () => {
+    const app = fs.readFileSync(`${__dirname}/App.js`, "utf8");
+    expect(app).toMatch(/allOnHand: onHand\.length === \(meal\?\.meal_ingredients \|\| \[\]\)\.length,/);
   });
   test("taps report the choice by catalog id; confirm and cancel call through", () => {
     const h = { onChoose: jest.fn(), onConfirm: jest.fn(), onCancel: jest.fn() };
