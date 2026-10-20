@@ -203,3 +203,147 @@ alongside who's cooking. `meal_cooks` together with `meal_photos` already feed i
 ## Amendment 2026-10-19 — replay
 
 Every photo element carries `.op-replay-block` (excluded from session replay in both environments; `SPEC_replay_labels_promotion2` A5).
+
+---
+
+# SPEC — Meal Photos v1: amendment 2026-10-20 (Step 0 rulings)
+
+**Scope:** OurProvisions
+**Amends:** `docs/specs/active/SPEC_meal_photos_v1.md` (v1, the 2026-10-13 amendment, the 2026-10-19 replay line). **Append this to the end of that file; do not file it separately.** Where this block differs from anything above it, this block wins.
+**Status:** Ruled in the design chat 2026-10-20 from Claude Code's read-only Step 0 report (dev `a99a5a7`, sysid `7642734024280108049`). **R2 and R3 CONFIRMED by Dan 2026-10-20 19:39** — they move a door he chose on 10-13 and withdraw a default he accepted. Slice 1 builds.
+**Build target:** dev only. Held from prod until Splunk answers the replay-asset retention questions (ROADMAP NEXT).
+
+---
+
+## Step 0, as answered (record in ARCHITECTURE)
+
+- **Migration:** 065. Dev has no ledger row for 064, so check the live catalog and the disk, never the ledger alone.
+- **Storage under Clerk works.** The existing `household-photos` bucket authorizes through `is_member_of((storage.foldername(name))[1]::uuid)`, which matches `auth.jwt()->>'sub'` to `users.clerk_id`. Signed-URL GETs succeed on dev today. **The stop condition does not trigger.**
+- **The trap to avoid:** `storage.objects.owner` (uuid) and `auth.uid()` never match a Clerk string sub. No policy may use either.
+- **Gift tables:** none on dev. A4 is out of slices 1 and 2.
+- **Crew `auth.uid()` bug:** fixed on dev (migration 014 pattern). ARCHITECTURE still lists it as open; see R11.
+
+---
+
+## R1 — Cap is 3 live photos per (meal, household)
+
+A2 now reads "the **three** newest live photos". This is the later decision (recipe view D20, 2026-10-16). `add_meal_photo` enforces it: after an insert, any live photo older than the third newest for that (meal, household) is soft-deleted. Update ARCHITECTURE line ~735 to match.
+
+## R2 — The "meal sheet" of D7 is now the recipe view
+
+When D7 and A1 were written, there was one meal sheet. Now there are two surfaces: the read-only **recipe view** and the create/edit **MealSheet**. Photos live in the **recipe view only**.
+
+- The recipe view already loads `meal_cooks` per meal at open, and it is where a household decides "do we want this?". A photo answers that question.
+- MealSheet (create/edit) gets **no photo surface** in v1. Photos are managed in one place only.
+- A1's "edit the meal and add a photo" is read as "open the meal and add a photo". The recipe view didn't exist on 10-13.
+
+**The hero becomes the photo strip:**
+- With **≥ 1 live photo**, `.rv-hero` shows the photos, newest first, swipeable, with dots when there are 2+. The strip sits at the hero's existing height; the photo is `object-fit: cover`.
+- With **0 photos**, the hero is today's tint + occasion icon, unchanged.
+- Each photo has a one-line caption beneath it:
+  - **"Added {date}"**, plus **" · {First name}"** in multi-member households only. This is the same quiet rule as "Added by".
+  - With a cook attached (slice 2), the caption instead reads **"Cooked {date}"** (plus the name rule above).
+
+**Controls** sit under the strip in fixed copy:
+- **"Add a meal photo"** opens the picker. It is hidden at 3 live photos, and appears under the tint hero when there are none.
+- **⋯ → "Remove photo"** acts on the photo currently shown.
+- There is no chooser and no reorder, so D2 still holds: the newest photo is the card.
+
+D7's "From your cooks" tile row is **dropped from slice 1** (see R3). "Your cooks" keeps its existing 2+ threshold, untouched.
+
+## R3 — Slice 1 attaches to no cook (amends P2)
+
+Photos added from the recipe view are stored with `meal_cook_id = null`. **P2's "attach to the newest cook with no photo" is withdrawn.**
+
+- P2 guesses which night a photo came from. Grandma's chili photo, or one taken a week later, would land on the wrong cook and later read "Cooked {wrong date}". *Never show state the data doesn't support.*
+- **D1 stands for slice 2:** a photo taken at **Cooked it** belongs to that cook, because then we actually know which night it was.
+- This also removes the slice 1 problem of a meal cooked once having no cook row to attach to.
+- P1 (one photo per cook) applies only to cook-attached photos, so it is slice 2 only.
+
+## R4 — Library card: the 10-16 visual v2 wins over D5
+
+D5 predates `SPEC_meal_library_visual_v2.md`. Build to the tree:
+
+- The photo fills the existing dormant `meal.cardPhotoUrl` slot at **132 px** (the tint band stays 56 px). The **name stays in the card body below**. There is no scrim and no text on the photo.
+- Rows stay aligned through the existing subgrid.
+- **Verification 8 is replaced:** at 390 px, a grid of 2 photo cards and 4 tint cards keeps every row aligned, with no ragged rows, at Default and XXL.
+- D8 stands: no add-photo control and no placeholder on library cards.
+
+## R5 — Replay: block the images, not the strip
+
+- **`.op-replay-block` goes on every photo `<img>`**: the library slot (already there), each strip image, and any future cook-row thumbnail. It does **not** go on the strip wrapper. Dots and captions stay recordable, and captions are household text, masked on prod as usual.
+- **v1's RUM section is retired.** It assumed a `maskAllText` dependency and forcing prod masking on dev. Since 2026-10-19, `.op-replay-block` is excluded in both environments.
+- **Verification 9 is replaced:** in the deployed dev bundle and DOM, every photo `<img>` carries the class.
+- **Close the guard gap.** `ReplayLabels.test.js` currently scans only `App.js` and `LibraryCards.js`. Make it scan every file under `src/` (excluding tests), so a photo component in a new file can't slip past. Update its expected counts and report the before and after.
+- **Allow-list delta for slice 1:** `.rv-photo-add` ("Add a meal photo") and `.rv-photo-remove` ("Remove photo"). Both are fixed copy, with no meal name in any copied attribute (use `aria-labelledby` if a label needs the name). Report the delta by name. No class on a photo element, its caption, or the strip joins `CHROME_ALLOW_LIST`.
+
+## R6 — Copy: no second "Add a photo"
+
+"Add a photo" is already the Galley's `.op-galley-photo` label. Meal photos say **"Add a meal photo"** everywhere, including slice 2's afterglow (D6's text changes; its class becomes `.board-photo-add`). `.lib-photo-add` is not used.
+
+## R7 — Storage bucket and policies (migration 065)
+
+- **Bucket:** a **private** bucket `meal-photos`, `file_size_limit` 1 MB, `allowed_mime_types` `{image/webp, image/jpeg}`.
+- **Paths:** `{household_id}/{meal_id}/{uuid}-thumb.webp` and `{uuid}-view.webp`. There is no user id in the path, and every upload uses a new uuid (`upsert: false`).
+- **Policies on `storage.objects`:** **SELECT and INSERT only**, scoped to `authenticated` and the bucket, through `is_member_of` on the first segment. Guard the cast so a malformed path returns false instead of throwing. Use a `CASE`, not `AND`, because Postgres doesn't guarantee `AND` evaluation order:
+  ```sql
+  case when (storage.foldername(name))[1] ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+       then is_member_of(((storage.foldername(name))[1])::uuid) else false end
+  ```
+- **No UPDATE or DELETE policy.** Removal is a row soft-delete through the RPC. Objects go in the later service-role sweep, which also collects orphans: objects with no live `meal_photos` row, e.g. an upload whose RPC call failed.
+- **Upload order:** both objects first, then `add_meal_photo`.
+
+## R8 — `meal_photos` table (migration 065)
+
+v1's sketch with A3's columns, and nothing speculative:
+
+- **Columns:** `id`, `household_id`, `meal_id`, `meal_cook_id null`, `thumb_path`, `view_path`, `uploaded_by`, `uploaded_at`, `deleted_at`, `width`, `height`. **No `storage_path`**, and **no `origin`/`from_label`**; those arrive additively with the giving build (A4).
+- **`uploaded_by`** is `users.id`, set inside the RPC from `get_current_user_id()`. This is `cook_meal`'s pattern; it is never the Clerk string.
+- **RLS on.** SELECT for members only. No direct writes.
+- **RPCs:** `add_meal_photo(p_meal_id, p_meal_cook_id, p_thumb_path, p_view_path, p_width, p_height)` and `remove_meal_photo(p_photo_id)`, as in v1:
+  - membership first (`42501`), `search_path` pinned, EXECUTE to `authenticated` only;
+  - the prefix check covers **both** paths;
+  - R1's cap enforced on insert;
+  - P1's per-cook replace applies only when `p_meal_cook_id` is not null.
+- **Grants:** revoke the `authenticated` defaults before granting SELECT (the 046 lesson). VERIFY probes are case-insensitive (the 060 lesson). **Write the 065 ledger row on dev.**
+
+## R9 — Signed URLs: reuse, don't re-mint
+
+Each `createSignedUrl` mints a new token, so the browser re-downloads the photo on every visit. That defeats A3's egress saving.
+
+- **Mint in batch** (`createSignedUrls`) for the visible photos, with a 1 h TTL.
+- **Memoize per path in the client** for the session, and re-mint only within 5 minutes of expiry. The same URL then hits the browser cache.
+- **Upload with `cacheControl: '3600'`.**
+- **Verification adds:** opening the library, leaving, and returning within the hour makes no new thumbnail downloads (DevTools shows them served from cache), and a 14-card library with photos on every card reports its total bytes.
+- **Out of scope here, logged for NEXT:** the household banner has the same re-mint pattern (505 KB unrecompressed JPEG per load).
+
+## R10 — Unchanged
+
+- **Kept:** D2, D3, D4, D8 and D9. P3 (any member removes any photo; the caption shows who added it). P5 (no Home photos). A3's two renditions and EXIF drop through the canvas, with Verification 5 a hard gate. The no-flash gate (`provenanceLoadedFor` pattern) for the library card.
+- **Slice 2** (afterglow capture + A5 rating) is unchanged apart from R6's copy, and is built after slice 1 is walked.
+
+## R11 — Docs correction, separate from the build
+
+Read the crew policies on **prod**, read-only. If they match dev (`cm.user_id = get_current_user_id()`), mark the crew `auth.uid()` bug **fixed** in ARCHITECTURE (~line 1447) and note that `SPEC_crew_catalog_sharing.md`'s hard prerequisite is met. If prod differs, report it and change nothing.
+
+---
+
+## Slice 1 verification (replaces v1's list for this slice)
+
+1. **Add.** Recipe view → "Add a meal photo" → choose a photo. The hero shows it, and the library card shows the thumbnail with no reload.
+2. **Across members.** DT adds a photo, and within a poll DH's card and hero show it (D2).
+3. **Cap.** Add a 4th photo; the oldest leaves, and only 3 remain live (R1).
+4. **Remove.** Removing the newest makes the card fall back to the next; removing all brings back the tint hero and tint band (D4).
+5. **EXIF.** Download the stored objects and confirm there is **no EXIF and no GPS**. This is a hard gate.
+6. **RLS.**
+   - A non-member gets `42501` on both RPCs and is refused a signed URL.
+   - A malformed path returns false, not an error.
+   - Anon is refused everywhere.
+7. **No flash.** On a cold open under Slow 4G, the tint shows first and the photo fades in once.
+8. **Grid.** R4's check: rows stay aligned at 390 px, Default and XXL.
+9. **Replay.** R5's check, plus the widened guard test passes.
+10. **Allow-list.** Exactly `.rv-photo-add` and `.rv-photo-remove`, by name, in the deployed bundle.
+11. **Egress.** R9's two checks.
+12. **No attach.** Every slice 1 row has `meal_cook_id` null (R3).
+
+**Done when:** all 12 pass on dev, Step 0 and 065 are recorded in ARCHITECTURE, and prod stays held.
