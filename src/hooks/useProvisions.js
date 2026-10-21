@@ -2554,7 +2554,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   //   (uploaded_at desc, id desc — the RPC's own cap order). null on failure, so
   //   the caller keeps what it had rather than blanking the cards.
   // ─────────────────────────────────────────────────────────────
-  const addMealPhoto = useCallback(async (mealId, file) => {
+  // cookId (slice 2, D1/S4): the afterglow's cook — the photo is cook-attached and P1's per-cook
+  // replace applies. Omitted (the recipe view) → null, R3.
+  const addMealPhoto = useCallback(async (mealId, file, cookId = null) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId || !file) return { ok: false, reason: "save" };
@@ -2578,7 +2580,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       return { ok: false, reason: "upload" };
     }
     const { data: id, error: err } = await db.rpc("add_meal_photo", {
-      p_meal_id: mealId, p_meal_cook_id: null, p_thumb_path: thumbPath, p_view_path: viewPath,
+      p_meal_id: mealId, p_meal_cook_id: cookId || null, p_thumb_path: thumbPath, p_view_path: viewPath,
       p_width: r.view.width, p_height: r.view.height,
     });
     if (err) {
@@ -2608,6 +2610,36 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .order("uploaded_at", { ascending: false })
       .order("id", { ascending: false });
     if (err) { console.warn("[meal photo] read failed (non-fatal):", err.message); return null; }
+    return data || [];
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────
+  // Cook ratings (066; slice 2, S1/S2) — per person, per cook.
+  // rateCook: the rate_cook RPC writes ONLY the caller's own row (the caller is the JWT, there
+  //   is no user parameter); rating and note both empty → the row is deleted (no vote is not a
+  //   rating). Returns true / false; the caller says a failure quietly.
+  // fetchCookRatings: every member's rows for the given cooks (RLS: membership). null on failure.
+  // ─────────────────────────────────────────────────────────────
+  const rateCook = useCallback(async (cookId, rating, note) => {
+    const db = supabaseRef.current;
+    if (!db || !cookId) return false;
+    const { error: err } = await db.rpc("rate_cook", { p_cook_id: cookId, p_rating: rating == null ? null : rating, p_note: note == null ? null : note });
+    if (err) { console.warn("[rating] rate_cook failed:", err.code, err.message); return false; }
+    return true;
+  }, []);
+
+  const fetchCookRatings = useCallback(async (cookIds) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    const ids = (cookIds || []).filter(Boolean);
+    if (!db || !hh) return null;
+    if (ids.length === 0) return [];
+    const { data, error: err } = await db
+      .from("meal_cook_ratings")
+      .select("meal_cook_id, user_id, rating, note, updated_at")
+      .eq("household_id", hh.id)
+      .in("meal_cook_id", ids);
+    if (err) { console.warn("[rating] read failed (non-fatal):", err.message); return null; }
     return data || [];
   }, []);
 
@@ -3862,7 +3894,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
-    addMealPhoto, removeMealPhoto, fetchMealPhotos,
+    addMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     fetchTripReality, answerTripReality,

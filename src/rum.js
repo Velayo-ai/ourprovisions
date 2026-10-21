@@ -58,6 +58,8 @@ const CHROME_ALLOW_LIST = [
   '.rv-photo-prev',  // Photo strip + viewer, desktop only: "‹", aria-label "Previous photo" — fixed copy, no text content (Dan, 2026-10-21)
   '.rv-photo-next',  // Photo strip + viewer, desktop only: "›", aria-label "Next photo" — fixed copy, no text content
   '.rv-dot',         // Photo strip + viewer dots (buttons; clickable on desktop): no text content, aria-label "Show photo N" — a position, never content
+  '.board-photo-add',// Board afterglow (Photos slice 2, S4): "Add a meal photo" / "Adding…" — fixed copy (R6)
+  '.rate-star',      // Cook rating stars (afterglow "How was it?" + "Your cooks"): no text content, aria-label "Rate N of 3" — fixed copy; the note input and the label are OFF this list
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
   '.deck-switch',    // Home on-deck card: "Switch"
   '.deck-x',         // Home on-deck card: × on a held night

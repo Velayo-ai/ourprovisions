@@ -54,7 +54,9 @@ describe("click-text privacy block is unchanged", () => {
     expect(web.privacy.maskAllText).toBe(true);
     expect(rules.slice(-2)).toEqual(CLERK);
     expect(rules.slice(0, -2).every((r) => r.rule === "unmask")).toBe(true);
-    expect(rules.slice(0, -2)).toHaveLength(56);   // 47 + .rv-photo-add, .rv-photo-remove, .rv-photo-remove-yes, .rv-photo-keep (Photos v1 slice 1) + .rv-photo-open, .rv-viewer-close (photo hero) + .rv-photo-prev, .rv-photo-next, .rv-dot (desktop stepping)
+    // 47 + .rv-photo-add, .rv-photo-remove, .rv-photo-remove-yes, .rv-photo-keep (Photos v1 slice 1) + .rv-photo-open,
+    // .rv-viewer-close (photo hero) + .rv-photo-prev, .rv-photo-next, .rv-dot (desktop stepping) + .board-photo-add, .rate-star (slice 2)
+    expect(rules.slice(0, -2)).toHaveLength(58);
     expect(rules.some((r) => r.selector === ".op-replay-block")).toBe(false);
   });
   test("preview: Clerk excludes only", () => {
