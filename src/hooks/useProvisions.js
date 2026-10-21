@@ -10,7 +10,7 @@ import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
 import { trace } from "@opentelemetry/api";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
-import { cooksFromRows } from "../lib/cooks";
+import { cooksFromRows, resolveCookId } from "../lib/cooks";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -210,6 +210,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // the 2s Plan poll is therefore already the change signal — no new poll.
   // Read by madeBefore (D5) and App.js's Leftovers sheet (D4).
   const [cooks, setCooks] = useState({});
+  // The cook THIS device just logged, by meal (Photos slice 2, S3): meal_id → the new
+  // meal_cooks.id, or null when cook_meal closed nothing (a partner's tap) or the lookup did not
+  // find exactly one row. Read by the board's afterglow (rating + a cook-attached photo), which
+  // shows no controls without an id. Device-local, like the afterglow; reset on household switch.
+  const [cookIdsByMeal, setCookIdsByMeal] = useState({});
   const reorderPendingRef = useRef(0);
   const eventSeqRef = useRef(0);
   const sessionStartingRef = useRef(null);
@@ -786,6 +791,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setPlacements({});
     placementsRef.current = {};
     setCooks({});
+    setCookIdsByMeal({});
     setCooksLoadedFor(null);
     errorSourceRef.current = null;
     setError(null);
@@ -895,6 +901,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setPlacements({});
       placementsRef.current = {};
       setCooks({});
+      setCookIdsByMeal({});
       setCooksLoadedFor(null);
 
       try {
@@ -3547,6 +3554,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (cookedAt == null) {
       // D3: nothing was closed — a partner's tap or a double tap already cooked
       // it. The truth is on the server; read it back. No toast: the meal is cooked.
+      // No cook of OURS to rate or photograph (S3: no id, no controls).
+      setCookIdsByMeal((prev) => ({ ...prev, [mealId]: null }));
       await loadPlacements(db, hh);
       await loadCooks(db, hh);
       reportSuccess();
@@ -3555,6 +3564,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // The server's timestamp replaces the optimistic one (it is also the log row's).
     const now = placementsRef.current;
     if (now[mealId]) setPlacementsBoth({ ...now, [mealId]: { ...now[mealId], cookedAt } });
+    // S3: the new cook's id, found by the returned timestamp (src/lib/cooks.js).
+    const found = await resolveCookId(db, { householdId: hh.id, mealId, cookedAt });
+    setCookIdsByMeal((prev) => ({ ...prev, [mealId]: found.id }));
     // The count is RE-READ, never incremented (2026-10-19): the placements poll may already
     // have re-read the log mid-cook (cookChanged → loadCooks), and a +1 on top of that
     // counted one cook twice ("5 times" over 4 rows). The placement stays optimistic.
@@ -3848,7 +3860,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
-    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
+    placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     addMealPhoto, removeMealPhoto, fetchMealPhotos,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
