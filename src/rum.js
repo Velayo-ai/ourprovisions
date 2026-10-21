@@ -50,7 +50,9 @@ const CHROME_ALLOW_LIST = [
   '.rv-remove',      // Recipe view quiet link: "Remove from This Week" / "Remove (and take its items off Shop)" — fixed copy, the board's ⋯ → Remove words
   '.rv-showall',     // Recipe view, Your cooks: "Show all N" — a count, never a name
   '.rv-photo-add',   // Recipe view photo strip: "Add a meal photo" / "Adding…" — fixed copy (SPEC_meal_photos_v1 R5/R6). The photos, the strip, its dots and caption are NOT here; every photo <img> is .op-replay-block
-  '.rv-photo-remove',// Recipe view photo strip, ⋯ menu: "Remove photo" — fixed copy (R5). The ⋯ trigger (.rv-photo-more) is off this list
+  '.rv-photo-remove',// Recipe view photo strip, ⋯ menu: "Remove photo" — fixed copy (R5); it opens the inline confirm and removes nothing. The ⋯ trigger (.rv-photo-more) is off this list
+  '.rv-photo-remove-yes', // Recipe view photo strip, inline confirm: "Remove" — fixed copy; THE removal (Dan, 2026-10-21). The question "Remove this photo?" is masked text, off this list
+  '.rv-photo-keep',  // Recipe view photo strip, inline confirm: "Keep" — fixed copy
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
   '.deck-switch',    // Home on-deck card: "Switch"
   '.deck-x',         // Home on-deck card: × on a held night

@@ -68,14 +68,37 @@ describe("the hero strip (R2)", () => {
     expect(q(container, ".rv-photo-more")).not.toBeNull();
   });
 
-  test("⋯ → 'Remove photo' removes the photo in view (the newest by default)", () => {
+  test("⋯ → 'Remove photo' asks first; Remove removes the photo in view (the newest by default)", () => {
     const { container, h } = view({ photos: [photo("new"), photo("old")] });
     fireEvent.click(q(container, ".rv-photo-more"));
     const rm = q(container, ".rv-photo-remove");
     expect(rm.textContent).toBe("Remove photo");
     fireEvent.click(rm);
+    expect(h.onRemovePhoto).not.toHaveBeenCalled();
+    expect(q(container, ".rv-photo-q").textContent).toBe("Remove this photo?");
+    expect(q(container, ".rv-photo-keep").textContent).toBe("Keep");
+    const yes = q(container, ".rv-photo-remove-yes");
+    expect(yes.textContent).toBe("Remove");
+    fireEvent.click(yes);
     expect(h.onRemovePhoto).toHaveBeenCalledWith("new");
-    expect(q(container, ".rv-photo-remove")).toBeNull();
+    expect(q(container, ".rv-photo-pop")).toBeNull();
+  });
+
+  test("Keep closes the confirm and removes nothing", () => {
+    const { container, h } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.click(q(container, ".rv-photo-remove"));
+    fireEvent.click(q(container, ".rv-photo-keep"));
+    expect(h.onRemovePhoto).not.toHaveBeenCalled();
+    expect(q(container, ".rv-photo-pop")).toBeNull();
+  });
+
+  test("⋯ again closes the menu or the confirm", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.click(q(container, ".rv-photo-remove"));
+    fireEvent.click(q(container, ".rv-photo-more"));
+    expect(q(container, ".rv-photo-pop")).toBeNull();
   });
 
   test("choosing a file calls onAddPhoto with the meal id and the file", () => {
@@ -125,7 +148,9 @@ describe("replay (R5)", () => {
   test("controls carry fixed copy and no meal name in any attribute", () => {
     const { container } = view({ photos: [photo("a")] });
     fireEvent.click(q(container, ".rv-photo-more"));
-    [".rv-photo-add", ".rv-photo-more", ".rv-photo-remove"].forEach((s) => {
+    expect(q(container, ".rv-photo-remove")).not.toBeNull();
+    fireEvent.click(q(container, ".rv-photo-remove"));
+    [".rv-photo-add", ".rv-photo-more", ".rv-photo-pop", ".rv-photo-keep", ".rv-photo-remove-yes"].forEach((s) => {
       const el = q(container, s);
       Array.from(el.attributes).forEach((a) => expect(a.value).not.toMatch(/Chili/));
     });

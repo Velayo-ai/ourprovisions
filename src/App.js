@@ -2063,16 +2063,18 @@ const RV_COOKS_MIN = 2;
 // Under it, one caption for the photo in view — "Added {date}", " · {First}" only in a
 // 2+ member household while the uploader is still a member (the "Added by" rule) — then
 // the controls in fixed copy: "Add a meal photo" (hidden at the cap of 3, R1) and ⋯ →
-// "Remove photo" for the photo in view. No chooser, no reorder.
+// "Remove photo" for the photo in view, confirmed inline in the same popover ("Remove this
+// photo?" · Keep / Remove — Dan, 2026-10-21). No chooser, no reorder.
 // Photos are gated on the household's photo read (the no-flash rule): until it resolves
 // the hero is the tint and the controls are absent, so a cold open never shows the tint
 // "Add" and then a photo, or a photo and then nothing.
 // RUM (R5): .op-replay-block on every photo <img> ONLY — never the strip, dots or caption.
-// .rv-photo-add / .rv-photo-remove are allow-listed (fixed copy); ⋯ (.rv-photo-more) is
-// not — it is named by a fixed aria-label, no meal name anywhere in an attribute.
+// .rv-photo-add / .rv-photo-remove / .rv-photo-remove-yes / .rv-photo-keep are allow-listed
+// (fixed copy); ⋯ (.rv-photo-more) and the question are not — ⋯ is named by a fixed
+// aria-label, the question is masked text; no meal name anywhere in an attribute.
 function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove }) {
   const [idx, setIdx] = useState(0);
-  const [menu, setMenu] = useState(false);
+  const [menu, setMenu] = useState(false);   // false | "menu" | "confirm"
   const stripRef = useRef(null);
   const fileRef = useRef(null);
   const live = photos.filter((p) => p.url);
@@ -2124,10 +2126,19 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
           )}
           {n > 0 && (
             <span className="rv-photo-menu">
-              <button type="button" className="rv-photo-more" aria-label="Photo options" aria-expanded={menu} disabled={busy} onClick={() => setMenu((v) => !v)}>⋯</button>
-              {menu && (
+              <button type="button" className="rv-photo-more" aria-label="Photo options" aria-expanded={!!menu} disabled={busy} onClick={() => setMenu((v) => (v ? false : "menu"))}>⋯</button>
+              {menu === "menu" && (
                 <span className="rv-photo-pop" role="menu">
-                  <button type="button" role="menuitem" className="rv-photo-remove" onClick={() => { setMenu(false); if (onRemove && shown) onRemove(shown.id); }}>Remove photo</button>
+                  <button type="button" role="menuitem" className="rv-photo-remove" onClick={() => setMenu("confirm")}>Remove photo</button>
+                </span>
+              )}
+              {menu === "confirm" && (
+                <span className="rv-photo-pop confirm" role="group" aria-labelledby="rv-photo-q">
+                  <span id="rv-photo-q" className="rv-photo-q">Remove this photo?</span>
+                  <span className="rv-photo-qbtns">
+                    <button type="button" className="rv-photo-keep" onClick={() => setMenu(false)}>Keep</button>
+                    <button type="button" className="rv-photo-remove-yes" onClick={() => { setMenu(false); if (onRemove && shown) onRemove(shown.id); }}>Remove</button>
+                  </span>
                 </span>
               )}
             </span>
@@ -7639,17 +7650,27 @@ function ProvisionsApp() {
         .rv-dots span { width: 6px; height: 6px; border-radius: 50%; background: #D9C9B0; }
         .rv-dots span.on { background: #8A5F3A; }
         .rv-photo-cap { margin: 6px 20px 0; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8a7a60; overflow-wrap: anywhere; }
-        .rv-photo-ctl { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 8px; margin: 4px 16px 0; }
+        .rv-photo-ctl { position: relative; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 8px; margin: 4px 16px 0; }
         .rv-photo-add { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: none; background: transparent; color: #8A5F3A;
           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; white-space: nowrap; }
         .rv-photo-add:disabled { opacity: .55; cursor: default; }
-        .rv-photo-menu { position: relative; display: inline-flex; }
+        /* The popovers anchor to the controls ROW (centred under it), not to ⋯: at the cap ⋯ sits alone in the
+           middle, and a right-anchored confirm ran off the left edge at XXL on 320–390. */
+        .rv-photo-menu { display: inline-flex; }
         .rv-photo-more { min-width: 44px; min-height: 44px; border: none; border-radius: 22px; background: transparent; color: #8a7a60; font-size: 20px; line-height: 1; cursor: pointer; }
         .rv-photo-more:disabled { opacity: .55; cursor: default; }
-        .rv-photo-pop { position: absolute; top: calc(100% - 4px); right: 0; z-index: 2; background: #FFFDF8; border: 1px solid #E5D7C1; border-radius: 12px; box-shadow: 0 6px 18px rgba(44,26,14,.14); padding: 4px; }
+        .rv-photo-pop { position: absolute; top: calc(100% - 4px); left: 50%; transform: translateX(-50%); z-index: 2; background: #FFFDF8; border: 1px solid #E5D7C1; border-radius: 12px; box-shadow: 0 6px 18px rgba(44,26,14,.14); padding: 4px; }
         .rv-photo-remove { display: block; min-height: 44px; padding: 0 16px; border: none; border-radius: 9px; background: transparent; color: #A33A2A; white-space: nowrap;
           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; }
-        .rv-photo-add:focus-visible, .rv-photo-more:focus-visible, .rv-photo-remove:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
+        /* The inline confirm (Dan, 2026-10-21): the same popover asks; Keep, then Remove in red. */
+        .rv-photo-pop.confirm { display: flex; flex-direction: column; gap: 2px; padding: 10px 6px 4px; width: max-content; max-width: calc(100vw - 32px); }
+        .rv-photo-q { padding: 0 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #2C1A0E; }
+        .rv-photo-qbtns { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
+        .rv-photo-keep, .rv-photo-remove-yes { min-height: 44px; padding: 0 14px; border: none; border-radius: 9px; background: transparent; white-space: nowrap;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; }
+        .rv-photo-keep { color: #5C4636; }
+        .rv-photo-remove-yes { color: #A33A2A; }
+        .rv-photo-add:focus-visible, .rv-photo-more:focus-visible, .rv-photo-remove:focus-visible, .rv-photo-keep:focus-visible, .rv-photo-remove-yes:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
         .rv-head { padding: 16px 20px 0; }
         .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
         .rv-byline { margin-top: 4px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #8A5F3A; overflow-wrap: anywhere; }

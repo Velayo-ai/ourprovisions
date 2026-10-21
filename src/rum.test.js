@@ -54,7 +54,7 @@ describe("click-text privacy block is unchanged", () => {
     expect(web.privacy.maskAllText).toBe(true);
     expect(rules.slice(-2)).toEqual(CLERK);
     expect(rules.slice(0, -2).every((r) => r.rule === "unmask")).toBe(true);
-    expect(rules.slice(0, -2)).toHaveLength(49);   // 47 + .rv-photo-add, .rv-photo-remove (Photos v1 slice 1)
+    expect(rules.slice(0, -2)).toHaveLength(51);   // 47 + .rv-photo-add, .rv-photo-remove, .rv-photo-remove-yes, .rv-photo-keep (Photos v1 slice 1)
     expect(rules.some((r) => r.selector === ".op-replay-block")).toBe(false);
   });
   test("preview: Clerk excludes only", () => {
