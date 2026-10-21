@@ -347,3 +347,89 @@ Read the crew policies on **prod**, read-only. If they match dev (`cm.user_id = 
 12. **No attach.** Every slice 1 row has `meal_cook_id` null (R3).
 
 **Done when:** all 12 pass on dev, Step 0 and 065 are recorded in ARCHITECTURE, and prod stays held.
+
+---
+
+# SPEC — Meal Photos v1: amendment 2026-10-21 (slice 2 rulings)
+
+**Scope:** OurProvisions
+**Amends:** `docs/specs/active/SPEC_meal_photos_v1.md` (v1 + 10-13 + 10-19 + 10-20). **Append to the end of that file.** Where this block differs from anything above it, this block wins.
+**Status:** Ruled in the design chat 2026-10-21 from Claude Code's slice 2 Step 0 report. **Per-person ratings (S1) confirmed by Dan, 19:05.** Mockup of record: the **"Cooked It Afterglow"** canvas (three phone screens).
+**Build target:** dev only, held from prod with slice 1.
+
+---
+
+## S1 — Ratings are per person, per cook (replaces A5's two columns)
+
+A5 put `rating` + `note` on `meal_cooks`, so a second rater overwrote the first. **Withdrawn.** Each household member rates a cook for themselves.
+
+- Why: an overwrite hides disagreement, and disagreement is the signal ("Dan loves it, Helen doesn't"). *No vote is not a rating*: each person's vote is theirs, nobody's replaces anyone else's. It also lets the Home activity record show "★★★ Dan · ★★ Helen" later with no migration.
+- **Anyone in the household can rate any cook**, not just whoever tapped Cooked it (that's the tapper, not necessarily the cook, until who's cooking ships).
+- **No averages, anywhere.** No household score, no "favourite". A meal with no ratings shows no stars.
+
+## S2 — Migration 066: `meal_cook_ratings` + `rate_cook`
+
+- **Table `meal_cook_ratings`:** `id uuid pk default gen_random_uuid()`, `household_id uuid not null` (CASCADE), `meal_cook_id uuid not null` → `meal_cooks` (CASCADE), `user_id uuid not null` → `users` (CASCADE), `rating smallint null check (rating between 1 and 3)`, `note text null check (char_length(note) <= 200)`, `updated_at timestamptz not null default now()`. **Unique `(meal_cook_id, user_id)`.** Index `(household_id, meal_cook_id)`.
+- **RLS on.** SELECT for members (`is_member_of(household_id)`). **No direct writes.**
+- **RPC `rate_cook(p_cook_id uuid, p_rating smallint, p_note text)`**, SECURITY DEFINER, `search_path` pinned, EXECUTE to `authenticated` only:
+  - membership of the cook's household first (`42501`); caller = `get_current_user_id()`, never a parameter;
+  - upserts **only the caller's own row**; `household_id` taken from the cook, never the client;
+  - both null (rating and note cleared) → **delete** the caller's row, so a cleared rating leaves no trace (no vote is not a rating);
+  - a note with no rating is allowed (the note is optional either way).
+- **Grants:** explicit for `anon` (none), `authenticated` (SELECT), `service_role` (all): the 2026-10-30 rule. VERIFY probes case-insensitive. Write the ledger row (by hand if the tool declines).
+- **`cook_meal` is not touched**, and `meal_cooks` gets no new columns. Who's cooking adds its own columns later, additively.
+
+## S3 — The cook id at the afterglow: look it up, don't change `cook_meal`
+
+`cook_meal` returns the cook timestamp and writes the same value to `meal_cooks.cooked_at` (proven to the microsecond, 2026-09-29). The client resolves the new cook's id with `meal_cooks` where `meal_id = …` and `cooked_at = <returned>` (RLS allows it). A proven write path stays as it is. If the lookup finds 0 or 2+ rows, the afterglow shows no rating or photo controls and logs a count, never a guess.
+
+## S4 — The afterglow (board card, D6 with R6's copy)
+
+Mockup screens 1–2.
+- Below "✓ Cooked tonight": **"How was it?"** with three star buttons ("Rate 1 of 3" … "Rate 3 of 3", 44 px), and **"Add a meal photo"** (`.board-photo-add`).
+- **The note field appears only after a star tap** ("Note (optional)", one line, 200 chars). Saved on blur or Enter; no Save button.
+- Tapping the current star again clears the rating.
+- A photo added here is **cook-attached** (D1; P1's per-cook replace applies). A small thumbnail confirms "Photo added".
+- **At the cap, "Add a meal photo" is hidden** (same rule as the recipe view, R1). No photo is ever aged out silently.
+- Every new control **stops propagation**, so a tap never opens the recipe view or starts a long-press drag.
+- The 55% dimming stays off `.board-actions` (confirmed in Step 0).
+- Home's on-deck afterglow stays out (P5).
+
+## S5 — "Your cooks" in the recipe view (resolves Step 0 item 4: options (a) + (c))
+
+Mockup screen 3.
+- **"Your cooks" appears from one cook** when any cook has a rating, a note or a photo (amends recipe view A4's 2+ threshold for that case only; a meal cooked once with nothing attached still shows nothing).
+- Each cook row: the date, then **one line per rater**: their stars, then their note beneath. In a multi-member household the line carries the rater's first name; in a solo household, stars only.
+- **"How was it for you?"** with three star buttons, on each cook row the viewer hasn't rated. Once they have, their own line is tappable to change it.
+- Never "Helen hasn't rated" or any other line about who didn't.
+- A cook-attached photo's caption reads **"Cooked {date}"** (+ " · {First name}" in multi-member households), by joining through `meal_cook_id` for the date.
+
+## S6 — Accepted, and watched
+
+- **The afterglow is short** (device-local, cleared on leaving Plan). Accepted. WATCH: if cook photos and ratings rarely arrive, the fix is a longer-lived "How was it?" (e.g. in the Home activity record), never guessing which cook a recipe-view photo belongs to (R3 stands).
+- **No nudge** to other members to rate. The Home activity record is the intended door later: a cook entry carries "How was it?" for anyone who hasn't rated, and loses the stars once you have. Logged with the who's-cooking + Home activity design item.
+
+## S7 — Where ratings go, and where they don't
+
+- **No overall score in v1.** Nothing averages, totals or ranks ratings on screen. The data is captured now; any later use (Galley suggestions, board ordering, "your household's favourites") counts **only rated cooks**, per person, and gets its own design.
+- **Ratings never travel forward with a gift.** A gift (A4, when giving is built) carries the recipe and the giver's photo, **not** the giver's ratings or notes. The receiving household starts with no stars and builds its own.
+- **Ratings may travel back to the giver (Dan, 2026-10-21) — designed with giving + crew, not built here.** "Dan cooked Andrew's tacos · Elly ★★★" is the reward for sharing. The *prompt* to rate stays household-only; the ratings a household gives a gifted meal can be shown to the household that gave it. **Decided (Dan, 19:10): notes are household-only, always; photos of a gifted meal are shared back across households in the same crew** (the crew is the deliberate relationship that A4's child-safety rule asks for). **Outside the crew (a recipe shared publicly, e.g. a link on Instagram), nothing comes back: no cooks, ratings, photos or notes** (Dan, 19:11). Flag for that design: `SPEC_meal_sharing_v2` Phase B says the first accepted gift *connects* two places, which would connect a stranger who picked up a public link; a public link must never connect places or open a way back. Open for that design: how the rater is named across households (connected places today see place name + creator first name only); consent on the first gift. **066 needs no change for this:** per-person rows plus gift lineage are enough.
+
+## Allow-list (expected, report by name)
+
+`.board-photo-add`, the star buttons' class (e.g. `.rate-star`), and the open-rating control on "Your cooks" if it is its own class. All fixed copy; no note text, name or count in any copied attribute (use `aria-labelledby` where a label needs a name). Star images: none (inline SVG); the cook-photo `<img>` carries `.op-replay-block`.
+
+## Slice 2 verification
+
+1. **Afterglow rate.** Cooked it → three stars → tap 3 → stars fill; the note field appears; type a note, leave the field → `meal_cook_ratings` has exactly one row for (cook, DH) with 3 and the note.
+2. **Change and clear.** Tap 2 → the same row reads 2. Tap 2 again with the note cleared → the row is gone.
+3. **Second person.** DT opens the recipe view → "Your cooks · {date}" shows DH's line and "How was it for you?" → DT taps 1 → two rows; DH's unchanged. Both lines show with first names.
+4. **No vote.** A cook nobody rated shows no stars anywhere; a meal cooked once with nothing attached shows no "Your cooks".
+5. **Afterglow photo.** Add a meal photo from the afterglow → the row has `meal_cook_id` set; the caption reads "Cooked {date} · Dan". A second afterglow photo on the same cook replaces the first.
+6. **Cap.** A meal at 3 photos shows no "Add a meal photo" on the afterglow.
+7. **No leak through the card.** Tapping a star or the photo button never opens the recipe view or starts a drag.
+8. **RLS.** A non-member gets `42501` on `rate_cook` and sees 0 rating rows; anon refused; a member can't write another member's row (there is no parameter for it).
+9. **EXIF.** Repeat the byte check on one afterglow photo from the phone.
+10. **Allow-list + replay.** The delta by name; the widened guard passes.
+
+**Done when:** all 10 pass on dev; 066 and its ledger row recorded; prod stays held.
