@@ -342,9 +342,9 @@ describe("photo surfaces carry .op-replay-block", () => {
         expect(`${file}: ${tag}`).toMatch(/className=(\{`[^`]*|")[^"`]*\bop-replay-block\b/);
       }
     }
-    // the avatar, the Galley screenshot thumbnail, the recipe view strip photo (App.js);
-    // the library card photo (components/LibraryCards.js)
-    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "components/LibraryCards.js"]);
+    // the avatar, the Galley screenshot thumbnail, the recipe view strip photo, the full-size
+    // viewer photo (App.js); the library card photo (components/LibraryCards.js)
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "components/LibraryCards.js"]);
   });
 
   test("every interpolated CSS url() in JSX is on an element that carries the class; the desk backdrop's lives on .desk-bg", () => {

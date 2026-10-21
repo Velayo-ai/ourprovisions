@@ -1,5 +1,6 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useProvisions, isPendingCatalogId, normalizeOccasion } from './hooks/useProvisions';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
@@ -2058,8 +2059,13 @@ const memberFirstName = (mb) => {
 const RV_COOKS_MIN = 2;
 // THE HERO STRIP (SPEC_meal_photos_v1, 2026-10-20 amendment R2 / R5; slice 1). With 1+ live
 // photos the hero IS the strip — newest first (D2: the first is the card), swipeable
-// (native scroll-snap), dots at 2+, the hero's own 132 px, object-fit cover. With none it
-// is today's tint + occasion mark, unchanged, and nothing invites a photo inside it (D8).
+// (native scroll-snap), dots at 2+, object-fit cover. With none it is today's tint +
+// occasion mark at 132 px, unchanged, and nothing invites a photo inside it (D8).
+// PHOTO HERO (follow-on, Dan 2026-10-21; mockup "Recipe View Photo Hero" screens 2–4): with a
+// photo the hero is 4:3, capped at 420 px tall on wide screens; each photo is a real
+// <button> ("View photo full size", .rv-photo-open) with a small expand mark on the hero's
+// corner, and opens PhotoViewer — the whole photo, uncropped, on a dark ground. Closing it
+// returns to the strip at the photo the viewer ended on, focus on that photo's button.
 // Under it, one caption for the photo in view — "Added {date}", " · {First}" only in a
 // 2+ member household while the uploader is still a member (the "Added by" rule) — then
 // the controls in fixed copy: "Add a meal photo" (hidden at the cap of 3, R1) and ⋯ →
@@ -2075,9 +2081,12 @@ const RV_COOKS_MIN = 2;
 function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove }) {
   const [idx, setIdx] = useState(0);
   const [menu, setMenu] = useState(false);   // false | "menu" | "confirm"
+  const [viewer, setViewer] = useState(null);   // null | the index the full-size viewer opened at
   const stripRef = useRef(null);
   const fileRef = useRef(null);
   const menuRef = useRef(null);
+  const openRefs = useRef([]);       // each photo's "View photo full size" button, by index
+  const refocusRef = useRef(null);   // the index to scroll to and focus after the viewer closes
   // An open popover (menu or confirm) closes on a tap anywhere outside it, or on Escape —
   // and that outside tap only dismisses: its click is swallowed, so it never also presses
   // whatever sat under the finger (Add to This Week, Close, a step). Keep / Remove inside
@@ -2101,9 +2110,22 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
   const n = live.length;
   const at = Math.min(idx, Math.max(0, n - 1));
   const shown = n > 0 ? live[at] : null;
-  // A removal or a new upload changes the set: back to the newest, menu closed.
+  // A removal or a new upload changes the set: back to the newest, menu and viewer closed.
   const setKey = live.map((p) => p.id).join(",");
-  useEffect(() => { setIdx(0); setMenu(false); if (stripRef.current) stripRef.current.scrollLeft = 0; }, [setKey]);
+  useEffect(() => { setIdx(0); setMenu(false); setViewer(null); if (stripRef.current) stripRef.current.scrollLeft = 0; }, [setKey]);
+  // The viewer closed: the strip shows the photo it ended on, and focus returns to that
+  // photo's button (the dialog's opener). preventScroll so the sheet does not jump.
+  useEffect(() => {
+    if (viewer !== null || refocusRef.current === null) return;
+    const i = refocusRef.current;
+    refocusRef.current = null;
+    const el = stripRef.current;
+    if (el) el.scrollLeft = i * el.clientWidth;
+    const btn = openRefs.current[i];
+    if (btn) btn.focus({ preventScroll: true });
+  }, [viewer]);
+  const openViewer = (i) => { setMenu(false); setViewer(i); };
+  const closeViewer = (i) => { refocusRef.current = i; setIdx(i); setViewer(null); };
   const onScroll = () => {
     const el = stripRef.current;
     if (!el || el.clientWidth === 0) return;
@@ -2123,13 +2145,21 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
           <OccasionIcon occasion={first} size={44} tint={tint.bg} />
         </div>
       ) : (
-        <div className="rv-hero rv-strip" ref={stripRef} onScroll={onScroll} style={{ background: tint.bg }} aria-hidden="true">
-          {live.map((p) => (
-            <div className="rv-slide" key={p.id}>
-              <img className="rv-photo-img op-replay-block" src={p.url} alt="" draggable="false" onLoad={photoFadeIn} />
-            </div>
-          ))}
+        <div className="rv-hero-wrap">
+          <div className="rv-hero rv-strip" ref={stripRef} onScroll={onScroll} style={{ background: tint.bg }}>
+            {live.map((p, i) => (
+              <div className="rv-slide" key={p.id}>
+                <button type="button" className="rv-photo-open" aria-label="View photo full size" ref={(el) => { openRefs.current[i] = el; }} onClick={() => openViewer(i)}>
+                  <img className="rv-photo-img op-replay-block" src={p.url} alt="" draggable="false" onLoad={photoFadeIn} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <span className="rv-hero-expand" aria-hidden="true"><ExpandGlyph /></span>
         </div>
+      )}
+      {viewer !== null && n > 0 && (
+        <PhotoViewer photos={live} start={Math.min(viewer, n - 1)} members={members} onClose={closeViewer} />
       )}
       {n >= 2 && (
         <div className="rv-dots" aria-hidden="true">
@@ -2169,6 +2199,86 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     </>
   );
 }
+// THE FULL-SIZE VIEWER (Dan, 2026-10-21; mockup screens 3–4). A real modal dialog, portalled to
+// <body> so no sheet transform or overflow clips it: a dark ground, the VIEW copy at
+// object-fit: contain (uncropped — the same signed URL the strip already loaded, so no new
+// download), "N of M" top right, × "Close photo" top left, swipe between photos with the
+// strip's dots and caption. Focus goes to × on open and Tab stays there (the only control);
+// Escape closes; ← / → step; closing the recipe view unmounts it. Pointer events stop at its
+// root: React bubbles portal events through the React tree, and the SheetPanel's swipe-down
+// handlers sit above it there. Under reduced motion, no fade.
+// RUM: .op-replay-block on every viewer <img>; .rv-viewer-close joins the allow-list (fixed
+// copy "×"); the count and the caption are household text and are NOT on it. The dialog is
+// named by a fixed aria-label, never the meal.
+function PhotoViewer({ photos, start, members, onClose }) {
+  const [at, setAt] = useState(start);
+  const atRef = useRef(start);
+  const stripRef = useRef(null);
+  const closeRef = useRef(null);
+  const m = photos.length;
+  useLayoutEffect(() => {
+    const el = stripRef.current;
+    if (el) el.scrollLeft = start * el.clientWidth;
+    if (closeRef.current) closeRef.current.focus();
+  // Once, on open: the start index and the first focus.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const go = (i) => {
+    const el = stripRef.current;
+    const to = Math.max(0, Math.min(m - 1, i));
+    if (el) el.scrollLeft = to * el.clientWidth;
+    atRef.current = to;
+    setAt(to);
+  };
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(atRef.current); }
+      else if (e.key === "Tab") { e.preventDefault(); if (closeRef.current) closeRef.current.focus(); }
+      else if (e.key === "ArrowRight") { e.preventDefault(); go(atRef.current + 1); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); go(atRef.current - 1); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  // go reads refs only.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose]);
+  const onScroll = () => {
+    const el = stripRef.current;
+    if (!el || el.clientWidth === 0) return;
+    const i = Math.round(el.scrollLeft / el.clientWidth);
+    if (i !== atRef.current) { atRef.current = i; setAt(i); }
+  };
+  const stop = (e) => e.stopPropagation();
+  const caption = photoCaption(photos[at], members, memberFirstName);
+  return createPortal(
+    <div className="rv-viewer" role="dialog" aria-modal="true" aria-label="Photo"
+      onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop} onClick={stop}>
+      <div className="rv-viewer-top">
+        <button type="button" ref={closeRef} className="rv-viewer-close" aria-label="Close photo" onClick={() => onClose(atRef.current)}>×</button>
+        <span className="rv-viewer-count">{at + 1} of {m}</span>
+      </div>
+      <div className="rv-viewer-strip" ref={stripRef} onScroll={onScroll}>
+        {photos.map((p) => (
+          <div className="rv-viewer-slide" key={p.id}>
+            <img className="rv-viewer-img op-replay-block" src={p.url} alt="" draggable="false" />
+          </div>
+        ))}
+      </div>
+      <div className="rv-viewer-foot">
+        {m >= 2 && (
+          <div className="rv-dots rv-viewer-dots" aria-hidden="true">
+            {photos.map((p, i) => <span key={p.id} className={i === at ? "on" : ""} />)}
+          </div>
+        )}
+        {caption && <div className="rv-viewer-cap">{caption}</div>}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+const ExpandGlyph = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5" /></svg>
+);
 // The outside tap that dismisses a photo popover must not also press what was under the
 // finger. Its click arrives after pointerup (~100 ms later, after React has re-rendered), so
 // the guard lives on its own: one capture listener that eats the NEXT click and removes
@@ -7676,6 +7786,34 @@ function ProvisionsApp() {
         .rv-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s ease; -webkit-user-drag: none; user-select: none; }
         .rv-photo-img.in { opacity: 1; }
         @media (prefers-reduced-motion: reduce) { .rv-photo-img { transition: none; } }
+        /* PHOTO HERO (Dan, 2026-10-21): with a photo the hero is 4:3, capped at 420 px tall on wide screens (the
+           width then stays full and the photo crops a little more — object-fit: cover). The tint hero (0 photos)
+           keeps its 132 px. Each photo is a full-bleed <button> that opens the viewer; the expand mark is a
+           decoration pinned to the hero's corner (it does not scroll with the strip). */
+        .rv-hero-wrap { position: relative; margin: 44px 16px 0; }
+        .rv-hero-wrap .rv-hero.rv-strip { margin: 0; width: 100%; height: auto; aspect-ratio: 4 / 3; max-height: 420px; overflow-y: hidden; }   /* width: 100% — without it the 420 cap shrank the width to keep 4:3 (560 px in a 768 px sheet, the expand mark off the photo) */
+        .rv-photo-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: zoom-in; }
+        .rv-photo-open:focus-visible { outline: 3px solid #A0724A; outline-offset: -3px; }
+        .rv-hero-expand { position: absolute; right: 10px; bottom: 10px; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+          background: rgba(20,12,6,.55); color: #FFFDF8; pointer-events: none; }
+        /* THE VIEWER: a full-screen dark ground over everything (the recipe view's scrim is z 1000). */
+        .rv-viewer { position: fixed; inset: 0; z-index: 1100; display: flex; flex-direction: column; background: #120D09; color: #F4EADC;
+          padding: 0 0 var(--op-inset-bottom, 0px); animation: rv-viewer-in .18s ease-out; }
+        @keyframes rv-viewer-in { from { opacity: 0; } to { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .rv-viewer { animation: none; } .rv-viewer-strip { scroll-behavior: auto; } }
+        .rv-viewer-top { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 8px 12px 4px 4px; }
+        .rv-viewer-close { min-width: 44px; min-height: 44px; border: none; border-radius: 22px; background: transparent; color: #FFFDF8; font-size: 30px; line-height: 1; cursor: pointer; }
+        .rv-viewer-close:focus-visible { outline: 2px solid #E8D5B7; outline-offset: 2px; }
+        .rv-viewer-count { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); color: #E8D5B7; white-space: nowrap; }
+        .rv-viewer-strip { flex: 1 1 auto; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior: contain; scrollbar-width: none; }
+        .rv-viewer-strip::-webkit-scrollbar { display: none; }
+        .rv-viewer-slide { flex: 0 0 100%; height: 100%; display: flex; align-items: center; justify-content: center; scroll-snap-align: start; scroll-snap-stop: always; }
+        .rv-viewer-img { display: block; max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; user-select: none; }
+        .rv-viewer-foot { flex: none; padding: 10px 16px 18px; }
+        .rv-viewer-dots { margin: 0 0 8px; }
+        .rv-viewer-dots span { background: rgba(244,234,220,.35); }
+        .rv-viewer-dots span.on { background: #F4EADC; }
+        .rv-viewer-cap { text-align: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #E8D5B7; overflow-wrap: anywhere; }
         .rv-dots { display: flex; justify-content: center; gap: 6px; margin: 8px 0 0; }
         .rv-dots span { width: 6px; height: 6px; border-radius: 50%; background: #D9C9B0; }
         .rv-dots span.on { background: #8A5F3A; }

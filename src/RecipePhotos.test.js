@@ -195,3 +195,111 @@ describe("replay (R5)", () => {
     expect(q(container, ".rv-photo-more").getAttribute("aria-label")).toBe("Photo options");
   });
 });
+
+// ---------------------------------------------------------------- photo hero + full-size viewer (Dan, 2026-10-21)
+describe("the photo hero and the full-size viewer", () => {
+  const dialog = () => document.body.querySelector(".rv-viewer");
+
+  test("0 photos: the tint hero is unchanged — no hero button, no expand mark, no 4:3 wrapper", () => {
+    const { container } = view();
+    expect(q(container, ".rv-hero:not(.rv-strip)")).not.toBeNull();
+    expect(q(container, ".rv-hero-wrap")).toBeNull();
+    expect(q(container, ".rv-photo-open")).toBeNull();
+    expect(q(container, ".rv-hero-expand")).toBeNull();
+  });
+
+  test("1+ photos: each photo is a real <button> 'View photo full size', the expand mark is decorative", () => {
+    const { container } = view({ photos: [photo("a"), photo("b")] });
+    const opens = qa(container, ".rv-photo-open");
+    expect(opens).toHaveLength(2);
+    opens.forEach((b) => {
+      expect(b.tagName).toBe("BUTTON");
+      expect(b.getAttribute("aria-label")).toBe("View photo full size");
+      expect(b.querySelector("img").classList.contains("op-replay-block")).toBe(true);
+    });
+    expect(q(container, ".rv-hero-expand").getAttribute("aria-hidden")).toBe("true");
+    expect(q(container, ".rv-strip").getAttribute("aria-hidden")).toBeNull();   // the buttons must be reachable
+  });
+
+  test("tap → a modal dialog on <body>: × focused, 'N of M', the photo uncropped, dots and the strip's caption", () => {
+    const { container } = view({ photos: [photo("a", "u2"), photo("b"), photo("c")], members: MEMBERS });
+    fireEvent.click(qa(container, ".rv-photo-open")[1]);
+    const d = dialog();
+    expect(d).not.toBeNull();
+    expect(container.contains(d)).toBe(false);   // portalled
+    expect(d.getAttribute("role")).toBe("dialog");
+    expect(d.getAttribute("aria-modal")).toBe("true");
+    expect(d.getAttribute("aria-label")).toBe("Photo");
+    const close = q(d, ".rv-viewer-close");
+    expect(close.getAttribute("aria-label")).toBe("Close photo");
+    expect(document.activeElement).toBe(close);
+    expect(q(d, ".rv-viewer-count").textContent).toBe("2 of 3");
+    expect(qa(d, ".rv-viewer-dots span")).toHaveLength(3);
+    expect(q(d, ".rv-viewer-dots span.on")).toBe(qa(d, ".rv-viewer-dots span")[1]);
+    expect(q(d, ".rv-viewer-cap").textContent).toBe("Added today · Dan");   // photo "b" is u1's
+    qa(d, "img").forEach((i) => expect(i.classList.contains("op-replay-block")).toBe(true));
+    // Closing returns the strip to photo "b": its caption is the one the viewer showed.
+    fireEvent.click(q(d, ".rv-viewer-close"));
+    expect(q(container, ".rv-photo-cap").textContent).toBe("Added today · Dan");
+    fireEvent.click(qa(container, ".rv-photo-open")[1]);
+    const d2 = dialog();
+    expect(q(d2, ".rv-viewer-count").textContent).toBe("2 of 3");
+    expect(qa(d2, "img").map((i) => i.getAttribute("src"))).toEqual(["https://x/a", "https://x/b", "https://x/c"]);
+  });
+
+  test("1 photo: no dots in the viewer, '1 of 1'", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    expect(q(dialog(), ".rv-viewer-count").textContent).toBe("1 of 1");
+    expect(q(dialog(), ".rv-viewer-dots")).toBeNull();
+  });
+
+  test("× closes, the strip returns at the photo the viewer ended on, focus back on its hero button", () => {
+    const { container } = view({ photos: [photo("a"), photo("b"), photo("c")] });
+    fireEvent.click(qa(container, ".rv-photo-open")[0]);
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    expect(q(dialog(), ".rv-viewer-count").textContent).toBe("3 of 3");
+    fireEvent.click(q(dialog(), ".rv-viewer-close"));
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(qa(container, ".rv-photo-open")[2]);
+    expect(q(container, ".rv-dots span.on")).toBe(qa(container, ".rv-dots span")[2]);
+  });
+
+  test("Escape closes; Tab stays on ×", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(q(dialog(), ".rv-viewer-close"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(q(container, ".rv-photo-open"));
+  });
+
+  test("closing the recipe view closes the viewer", () => {
+    const { container, unmount } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    expect(dialog()).not.toBeNull();
+    unmount();
+    expect(dialog()).toBeNull();
+  });
+
+  test("taps and pointer events inside the viewer never reach the sheet (no close, no swipe-down)", () => {
+    const onClose = jest.fn();
+    const { container } = view({ photos: [photo("a")], onClose });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    fireEvent.pointerDown(q(dialog(), ".rv-viewer-img"));
+    fireEvent.click(q(dialog(), ".rv-viewer-img"));
+    expect(dialog()).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("no meal name and no count in any viewer attribute", () => {
+    const { container } = view({ photos: [photo("a"), photo("b")] });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    qa(dialog(), "*").forEach((el) => Array.from(el.attributes).forEach((a) => {
+      expect(a.value).not.toMatch(/Chili/);
+      expect(a.value).not.toMatch(/\bof 2\b/);
+    }));
+  });
+});
