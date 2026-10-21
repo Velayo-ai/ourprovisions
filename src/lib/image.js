@@ -108,3 +108,61 @@ export async function downscaleToJpeg(file, { maxEdge = MAX_EDGE, quality = JPEG
 export function normalizeHouseholdPhoto(file) {
   return downscaleToJpeg(file);
 }
+
+// ── Meal photos (SPEC_meal_photos_v1 A3; 065) ─────────────────────────────
+// Two renditions from ONE decode, each a fresh canvas re-encode — so no EXIF,
+// GPS included, survives into either (the privacy guarantee, Verification 5):
+// a canvas holds pixels only, and toBlob writes no metadata. No original is
+// ever stored; hi-res stays on the phone.
+//   thumb ≈ 480 px long edge — the library card (the only size it loads)
+//   view  ≈ 1080 px long edge — the recipe view's strip
+// WebP at ~0.78, JPEG at the same quality when the browser cannot encode WebP
+// (an older Safari hands back a PNG for 'image/webp' — detected by the blob's
+// own type, never by user agent). Both renditions share one format so they
+// share one path stem: {uuid}-thumb.{ext} / {uuid}-view.{ext}.
+export const MEAL_PHOTO_THUMB_EDGE = 480;
+export const MEAL_PHOTO_VIEW_EDGE = 1080;
+const MEAL_PHOTO_Q = 0.78;
+
+function encodeCanvas(src, width, height, maxEdge, type, quality) {
+  const scale = Math.min(1, maxEdge / Math.max(width, height));
+  const w = Math.max(1, Math.round(width * scale));
+  const h = Math.max(1, Math.round(height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext('2d').drawImage(src, 0, 0, w, h);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve({ blob: b, width: w, height: h }) : reject(new Error('Image encode failed'))),
+      type,
+      quality
+    );
+  });
+}
+
+// File → { thumb: {blob,width,height}, view: {blob,width,height}, type, ext }.
+// Throws when the file cannot be decoded (the caller says "Couldn't read that photo").
+export async function renderMealPhoto(file) {
+  const decoded = await decodeUpright(file);
+  try {
+    const { src, width, height } = decoded;
+    let type = 'image/webp';
+    let thumb = await encodeCanvas(src, width, height, MEAL_PHOTO_THUMB_EDGE, type, MEAL_PHOTO_Q);
+    if (thumb.blob.type !== 'image/webp') {
+      type = 'image/jpeg';
+      thumb = await encodeCanvas(src, width, height, MEAL_PHOTO_THUMB_EDGE, type, MEAL_PHOTO_Q);
+    }
+    const view = await encodeCanvas(src, width, height, MEAL_PHOTO_VIEW_EDGE, type, MEAL_PHOTO_Q);
+    return { thumb, view, type, ext: type === 'image/webp' ? 'webp' : 'jpg' };
+  } finally {
+    decoded.close && decoded.close();
+  }
+}
+
+// The two object paths for one upload — the shape add_meal_photo checks (065):
+// {household}/{meal}/{uuid}-thumb.{ext} and -view.{ext}, one shared stem.
+export function mealPhotoPaths(householdId, mealId, stem, ext) {
+  const base = `${householdId}/${mealId}/${stem}`;
+  return { thumbPath: `${base}-thumb.${ext}`, viewPath: `${base}-view.${ext}` };
+}

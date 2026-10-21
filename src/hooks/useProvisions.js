@@ -7,7 +7,7 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { useConnectivity } from "../contexts/ConnectivityContext";
-import { normalizeHouseholdPhoto } from "../lib/image";
+import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
 import { trace } from "@opentelemetry/api";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
 import { cooksFromRows } from "../lib/cooks";
@@ -2532,6 +2532,79 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }, [updateHouseholdBanner]);
 
   // ─────────────────────────────────────────────────────────────
+  // Meal photos v1 (065; SPEC_meal_photos_v1 + the 2026-10-13 / 10-20 amendments)
+  //
+  // addMealPhoto: two canvas renditions (thumb ~480, view ~1080; EXIF dropped by
+  //   the re-encode), BOTH objects uploaded to the private meal-photos bucket
+  //   first (new uuid stem, upsert false, cacheControl 3600 — R7/R9), THEN the
+  //   add_meal_photo RPC, which checks the paths and that both objects exist.
+  //   Slice 1 never attaches a cook (R3): p_meal_cook_id is null. Returns
+  //   { ok: true, id } or { ok: false, reason: "decode" | "upload" | "save" } —
+  //   the caller says it quietly (a toast, never the error banner). An upload
+  //   whose RPC fails leaves orphan objects for the later service-role sweep.
+  // removeMealPhoto: the remove_meal_photo RPC (soft delete; any member, P3).
+  // fetchMealPhotos: the household's LIVE photo rows, newest first
+  //   (uploaded_at desc, id desc — the RPC's own cap order). null on failure, so
+  //   the caller keeps what it had rather than blanking the cards.
+  // ─────────────────────────────────────────────────────────────
+  const addMealPhoto = useCallback(async (mealId, file) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId || !file) return { ok: false, reason: "save" };
+    let r;
+    try {
+      r = await renderMealPhoto(file);
+    } catch (err) {
+      console.warn("[meal photo] could not decode:", file && file.type, err && (err.message || err));
+      return { ok: false, reason: "decode" };
+    }
+    const stem = crypto.randomUUID();
+    const { thumbPath, viewPath } = mealPhotoPaths(hh.id, mealId, stem, r.ext);
+    const bucket = db.storage.from("meal-photos");
+    const opts = { contentType: r.type, upsert: false, cacheControl: "3600" };
+    try {
+      const [t, v] = await Promise.all([bucket.upload(thumbPath, r.thumb.blob, opts), bucket.upload(viewPath, r.view.blob, opts)]);
+      if (t.error) throw t.error;
+      if (v.error) throw v.error;
+    } catch (err) {
+      console.warn("[meal photo] upload failed:", err && (err.message || err));
+      return { ok: false, reason: "upload" };
+    }
+    const { data: id, error: err } = await db.rpc("add_meal_photo", {
+      p_meal_id: mealId, p_meal_cook_id: null, p_thumb_path: thumbPath, p_view_path: viewPath,
+      p_width: r.view.width, p_height: r.view.height,
+    });
+    if (err) {
+      console.warn("[meal photo] add_meal_photo failed:", err.code, err.message);
+      return { ok: false, reason: "save" };
+    }
+    return { ok: true, id };
+  }, []);
+
+  const removeMealPhoto = useCallback(async (photoId) => {
+    const db = supabaseRef.current;
+    if (!db || !photoId) return false;
+    const { error: err } = await db.rpc("remove_meal_photo", { p_photo_id: photoId });
+    if (err) { console.warn("[meal photo] remove_meal_photo failed:", err.code, err.message); return false; }
+    return true;
+  }, []);
+
+  const fetchMealPhotos = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const { data, error: err } = await db
+      .from("meal_photos")
+      .select("id, meal_id, meal_cook_id, thumb_path, view_path, uploaded_by, uploaded_at, width, height")
+      .eq("household_id", hh.id)
+      .is("deleted_at", null)
+      .order("uploaded_at", { ascending: false })
+      .order("id", { ascending: false });
+    if (err) { console.warn("[meal photo] read failed (non-fatal):", err.message); return null; }
+    return data || [];
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────
   // Solo-start experience (SPEC_solo_start_experience.md)
   // ─────────────────────────────────────────────────────────────
 
@@ -3777,6 +3850,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
+    addMealPhoto, removeMealPhoto, fetchMealPhotos,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     fetchTripReality, answerTripReality,
