@@ -2604,13 +2604,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!db || !hh) return null;
     const { data, error: err } = await db
       .from("meal_photos")
-      .select("id, meal_id, meal_cook_id, thumb_path, view_path, uploaded_by, uploaded_at, width, height")
+      // meal_cooks(cooked_at) through meal_cook_id (S5): a cook-attached photo's caption reads
+      // "Cooked {date}". Null for recipe-view photos (R3). RLS: meal_cooks SELECT is membership.
+      .select("id, meal_id, meal_cook_id, thumb_path, view_path, uploaded_by, uploaded_at, width, height, meal_cooks(cooked_at)")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("uploaded_at", { ascending: false })
       .order("id", { ascending: false });
     if (err) { console.warn("[meal photo] read failed (non-fatal):", err.message); return null; }
-    return data || [];
+    return (data || []).map(({ meal_cooks: mc, ...r }) => ({ ...r, cooked_at: mc ? mc.cooked_at : null }));
   }, []);
 
   // ─────────────────────────────────────────────────────────────

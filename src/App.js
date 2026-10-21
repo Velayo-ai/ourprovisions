@@ -2210,6 +2210,53 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     </>
   );
 }
+// ONE COOK in "Your cooks" (S5). The date, then one line per rater: their stars, their note beneath.
+// In a household of 2+ current members each line carries the rater's first name; solo, stars only.
+// The viewer's own line is the editable CookRating (tap to change; the note edits in place); a cook the
+// viewer hasn't rated offers "How was it for you?". Never a line about who didn't rate. Other members'
+// stars are drawn, not buttons — nobody rates for anyone else (rate_cook has no user parameter). The
+// count of stars is spoken through .sr-only text (masked), never an attribute. No averages (S7).
+function CookRow({ cook, ratings, members, viewerUserId, canRate, onRate }) {
+  const multi = (members || []).length >= 2;
+  const nameOf = (uid) => memberFirstName((members || []).find((mb) => mb.user_id === uid));
+  const mine = viewerUserId ? ratings.find((r) => r.user_id === viewerUserId) : null;
+  const others = ratings.filter((r) => r !== mine);
+  return (
+    <li className="rv-cook">
+      <span className="rv-cook-date">{cookDate(cook.cooked_at)}</span>
+      {others.map((r) => (
+        <div className="rv-rater" key={r.user_id}>
+          <div className="rv-rater-line">
+            {multi && nameOf(r.user_id) && <span className="rv-rater-name">{nameOf(r.user_id)}</span>}
+            {r.rating != null && <StaticStars n={r.rating} />}
+          </div>
+          {r.note && <div className="rv-rater-note">{r.note}</div>}
+        </div>
+      ))}
+      {canRate && (
+        <div className="rv-rater mine">
+          <CookRating label={mine ? (multi ? nameOf(viewerUserId) || "You" : "") : "How was it for you?"}
+            rating={mine ? mine.rating : null} note={mine ? mine.note || "" : ""} onRate={(rt, nt) => onRate(cook.id, rt, nt)} openWhenRated={false} />
+        </div>
+      )}
+      {!canRate && mine && (
+        <div className="rv-rater">
+          <div className="rv-rater-line">
+            {multi && <span className="rv-rater-name">{nameOf(viewerUserId)}</span>}
+            {mine.rating != null && <StaticStars n={mine.rating} />}
+          </div>
+          {mine.note && <div className="rv-rater-note">{mine.note}</div>}
+        </div>
+      )}
+    </li>
+  );
+}
+const StaticStars = ({ n }) => (
+  <span className="rv-stars">
+    <span className="sr-only">{n} of 3</span>
+    {[1, 2, 3].map((i) => <StarGlyph key={i} filled={i <= n} />)}
+  </span>
+);
 // COOK RATING (SPEC_meal_photos_v1, 2026-10-21 amendment S1/S4/S5) — the afterglow's "How was it?" and
 // the recipe view's "How was it for you?". Three star buttons (.rate-star, "Rate N of 3", 44 px); tapping
 // the current star again clears it. The one-line note ("Note (optional)", 200 chars) appears only once a
@@ -2218,11 +2265,13 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
 // is ALWAYS the viewer's own rating: rate_cook has no user parameter. No averages anywhere (S7).
 // RUM: .rate-star is allow-listed (no text content, fixed aria-label); the note is an <input> (masked
 // on prod by maskAllInputs) and never in an attribute we write; the label is masked text.
-export function CookRating({ label, rating, note, onRate, busy = false }) {
-  const [opened, setOpened] = useState(rating != null || !!note);
+// openWhenRated: the afterglow opens the note as soon as there is a rating; "Your cooks" only when a
+// note exists or a star was just tapped (no empty note field under every rated cook).
+export function CookRating({ label, rating, note, onRate, busy = false, openWhenRated = true }) {
+  const [opened, setOpened] = useState((openWhenRated && rating != null) || !!note);
   const [draft, setDraft] = useState(note || "");
   useEffect(() => { setDraft(note || ""); }, [note]);
-  useEffect(() => { if (rating != null || note) setOpened(true); }, [rating, note]);
+  useEffect(() => { if ((openWhenRated && rating != null) || note) setOpened(true); }, [rating, note, openWhenRated]);
   const tapStar = (n) => {
     setOpened(true);
     onRate(n === rating ? null : n, draft.trim());
@@ -2243,7 +2292,7 @@ export function CookRating({ label, rating, note, onRate, busy = false }) {
         ))}
       </span>
       {opened && (
-        <input className="rate-note" type="text" maxLength={200} placeholder="Note (optional)" aria-label="Note (optional)"
+        <input className="rate-note" type="text" size={1} maxLength={200} placeholder="Note (optional)" aria-label="Note (optional)"
           value={draft} disabled={busy} onChange={(e) => setDraft(e.target.value)} onBlur={saveNote}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} />
       )}
@@ -2450,7 +2499,7 @@ const photoFadeIn = (e) => e.currentTarget.classList.add("in");
 const CameraGlyph = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z" /><circle cx="12" cy="13.2" r="3.4" /></svg>
 );
-export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onRemovePhoto }) {
+export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onRemovePhoto, ratingsFor, onRate, canRate }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2476,6 +2525,11 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   ].filter(Boolean).join(" · ");
   const rows = cookRows || [];
   const shownCooks = allCooks ? rows : rows.slice(0, RV_COOKS_SHOWN);
+  // S5: "Your cooks" from ONE cook when any cook carries a rating, a note or a photo (amends A4's 2+
+  // for that case only); a meal cooked once with nothing attached still shows nothing.
+  const cookRatings = (id) => (ratingsFor ? ratingsFor(id) : []).filter((r) => r.rating != null || (r.note && r.note.trim()));
+  const cookHasPhoto = (id) => (photos || []).some((p) => p.meal_cook_id === id);
+  const showCooks = rows.length >= RV_COOKS_MIN || rows.some((r) => cookRatings(r.id).length > 0 || cookHasPhoto(r.id));
   // THE ACTION BLOCK (Amendment B + Step 0 rulings, 2026-10-19; src/lib/recipePlan.js,
   // jest-proven): a status line that never acts, ONE main action, a quiet remove link.
   // Every action is the board's own handler (B3): Add to Shop = the board's Add to Shop
@@ -2589,11 +2643,14 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
             </ol>
           </>
         )}
-        {rows.length >= RV_COOKS_MIN && (
+        {showCooks && (
           <>
             <h3 className="rv-sec">Your cooks <span>{rows.length}</span></h3>
             <ul className="rv-cooks">
-              {shownCooks.map((r) => <li key={r.id}>{cookDate(r.cooked_at)}</li>)}
+              {shownCooks.map((r) => (
+                <CookRow key={r.id} cook={r} ratings={cookRatings(r.id)} members={members} viewerUserId={viewerUserId}
+                  canRate={!!canRate && !!onRate} onRate={onRate} />
+              ))}
             </ul>
             {!allCooks && rows.length > RV_COOKS_SHOWN && (
               <button type="button" className="rv-showall" onClick={() => setAllCooks(true)}>Show all {rows.length}</button>
@@ -5650,6 +5707,16 @@ function ProvisionsApp() {
     const p = (mealPhotos.rows || []).find((r) => r.meal_id === mealId && r.meal_cook_id === cookId);
     return p ? { id: p.id, url: photoUrls[p.thumb_path] || null } : null;
   }, [mealPhotos, photoUrls]);
+  // The open recipe's cooks' ratings (S5): one read when its cook rows arrive (and again whenever they
+  // change — a cook from this device, or a partner's arriving by the placements poll).
+  const rvCookIds = (recipeCooks?.rows || []).map((r) => r.id).join(",");
+  useEffect(() => {
+    if (!rvCookIds) return undefined;
+    let cancelled = false;
+    const ids = rvCookIds.split(",");
+    fetchCookRatings(ids).then((rows) => { if (!cancelled && rows) mergeRatings(ids, rows); });
+    return () => { cancelled = true; };
+  }, [rvCookIds, fetchCookRatings, mergeRatings]);
   const boardAfterglow = useMemo(() => (!isSignedIn || !photosReady ? null : {
     cookIdFor: (mealId) => (cookIdsByMeal || {})[mealId] || null,
     myRating: myRatingFor,
@@ -8150,6 +8217,16 @@ function ProvisionsApp() {
         .rv-cooks { list-style: none; margin: 0; padding: 0 20px; }
         .rv-cooks li { display: flex; align-items: center; box-sizing: border-box; min-height: 44px; padding: 6px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
         .rv-cooks li:last-child { border-bottom: 0; }
+        /* S5: a cook row is the date, then one line per rater (name in a 2+ member household, stars, the note
+           beneath), then the viewer's own CookRating ("How was it for you?" until they have rated). */
+        .rv-cooks li.rv-cook { flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 0; }
+        .rv-cooks li.rv-cook > * { min-width: 0; }   /* the note input never sets the row's width (XXL on 320 ran 327 px before) */
+        .rv-cook-date { min-height: 28px; display: flex; align-items: center; }
+        .rv-rater-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; min-height: 28px; }
+        .rv-rater-name { font-size: calc(14px * var(--op-text-scale)); color: #5C4636; }
+        .rv-stars { display: inline-flex; align-items: center; gap: 2px; color: #A0724A; }
+        .rv-stars svg { width: 18px; height: 18px; }
+        .rv-rater-note { font-size: calc(14px * var(--op-text-scale)); color: #6E5A4A; overflow-wrap: anywhere; padding: 0 0 2px; }
         .rv-showall { display: block; margin: 4px 20px 0; padding: 10px 0; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .rv-empty { margin: 14px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
@@ -10710,6 +10787,10 @@ function ProvisionsApp() {
           photoBusy={photoBusyMealId === rvMeal.id}
           onAddPhoto={handleAddMealPhoto}
           onRemovePhoto={handleRemoveMealPhoto}
+          // Slice 2 (S5): every member's rating rows per cook (read at open), and the viewer's own rating.
+          ratingsFor={(cookId) => ratingsByCook[cookId] || []}
+          onRate={handleRateCook}
+          canRate={!!isSignedIn}
         />
       )}
 
