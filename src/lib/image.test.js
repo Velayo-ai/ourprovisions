@@ -124,3 +124,43 @@ describe("stripJpegMetadata (Blob)", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+// The JPEG thumbnail quality (NEXT 2026-10-21): the iPhone route encodes the THUMBNAIL at 0.7 and
+// the view copy at 0.78; the WebP route keeps 0.78 for both. Canvas and decode are mocked: the test
+// records what renderMealPhoto asks the encoder for.
+describe("renderMealPhoto encoder qualities", () => {
+  const { renderMealPhoto, MEAL_PHOTO_THUMB_JPEG_Q } = require("./image");
+  let calls;
+  let webpSupported;
+  beforeEach(() => {
+    calls = [];
+    global.createImageBitmap = jest.fn(async () => ({ width: 3024, height: 4032, close() {} }));
+    jest.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({ drawImage() {} }));
+    HTMLCanvasElement.prototype.toBlob = function toBlob(cb, type, q) {
+      calls.push({ type, q, w: this.width, h: this.height });
+      // An encoder without WebP hands back a PNG for "image/webp" (older Safari).
+      const out = type === "image/webp" && !webpSupported ? "image/png" : type;
+      cb(new Blob([type === "image/jpeg" ? CLEAN : Uint8Array.from([1, 2, 3])], { type: out }));
+    };
+  });
+  afterEach(() => { jest.restoreAllMocks(); delete global.createImageBitmap; delete HTMLCanvasElement.prototype.toBlob; });
+
+  test("JPEG route (no WebP): thumbnail at 0.7, view copy at 0.78", async () => {
+    webpSupported = false;
+    const { type } = await renderMealPhoto(new Blob([CLEAN], { type: "image/jpeg" }));
+    expect(MEAL_PHOTO_THUMB_JPEG_Q).toBe(0.7);
+    expect(type).toBe("image/jpeg");
+    const jpeg = calls.filter((c) => c.type === "image/jpeg");
+    expect(jpeg).toEqual([
+      { type: "image/jpeg", q: 0.7, w: 360, h: 480 },     // the thumbnail
+      { type: "image/jpeg", q: 0.78, w: 810, h: 1080 },   // the view copy, unchanged
+    ]);
+  });
+
+  test("WebP route: both renditions stay at 0.78", async () => {
+    webpSupported = true;
+    const { type } = await renderMealPhoto(new Blob([CLEAN], { type: "image/jpeg" }));
+    expect(type).toBe("image/webp");
+    expect(calls.map((c) => [c.type, c.q])).toEqual([["image/webp", 0.78], ["image/webp", 0.78]]);
+  });
+});

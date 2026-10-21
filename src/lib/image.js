@@ -127,6 +127,14 @@ export function normalizeHouseholdPhoto(file) {
 export const MEAL_PHOTO_THUMB_EDGE = 480;
 export const MEAL_PHOTO_VIEW_EDGE = 1080;
 const MEAL_PHOTO_Q = 0.78;
+// The JPEG THUMBNAIL only (the iPhone route — Safari cannot encode WebP): 0.7. The library
+// loads only thumbnails (A3), so this is the egress that repeats; the view copy keeps 0.78.
+// iPhone JPEG thumbs at 0.78 were 58.6 / 65.2 kB against ~28 kB for a WebP thumb (dev,
+// 2026-10-21). Measured in Chrome from the two stored view copies: 0.78 → 0.7 is −20% / −19%
+// (24,720 → 19,827 B; 29,607 → 23,886 B), no visible difference at the card slot or 1:1.
+// Safari's encoder maps quality differently (its 0.78 is ~2.4× Chrome's bytes), so the phone's
+// own saving is confirmed by the next iPhone upload, not assumed from these numbers.
+export const MEAL_PHOTO_THUMB_JPEG_Q = 0.7;
 
 function encodeCanvas(src, width, height, maxEdge, type, quality) {
   const scale = Math.min(1, maxEdge / Math.max(width, height));
@@ -155,7 +163,7 @@ export async function renderMealPhoto(file) {
     let thumb = await encodeCanvas(src, width, height, MEAL_PHOTO_THUMB_EDGE, type, MEAL_PHOTO_Q);
     if (thumb.blob.type !== 'image/webp') {
       type = 'image/jpeg';
-      thumb = await encodeCanvas(src, width, height, MEAL_PHOTO_THUMB_EDGE, type, MEAL_PHOTO_Q);
+      thumb = await encodeCanvas(src, width, height, MEAL_PHOTO_THUMB_EDGE, type, MEAL_PHOTO_THUMB_JPEG_Q);
     }
     const view = await encodeCanvas(src, width, height, MEAL_PHOTO_VIEW_EDGE, type, MEAL_PHOTO_Q);
     // Ruling (b): no EXIF / XMP / IPTC in a stored JPEG, whatever the encoder wrote.
