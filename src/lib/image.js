@@ -110,10 +110,14 @@ export function normalizeHouseholdPhoto(file) {
 }
 
 // ── Meal photos (SPEC_meal_photos_v1 A3; 065) ─────────────────────────────
-// Two renditions from ONE decode, each a fresh canvas re-encode — so no EXIF,
-// GPS included, survives into either (the privacy guarantee, Verification 5):
-// a canvas holds pixels only, and toBlob writes no metadata. No original is
-// ever stored; hi-res stays on the phone.
+// Two renditions from ONE decode, each a fresh canvas re-encode — so none of the
+// ORIGINAL's metadata (EXIF, GPS included) survives into either: a canvas holds
+// pixels only. But an encoder may add its own: iPhone Safari's JPEG toBlob writes
+// a small EXIF APP1 (ColorSpace, PixelX/YDimension) and an empty IPTC APP13
+// (found on the stored objects, 2026-10-21). Verification 5's gate is no EXIF, no
+// IPTC, no GPS in either file (Dan's ruling (b)), so every JPEG rendition goes
+// through stripJpegMetadata below before upload. No original is ever stored;
+// hi-res stays on the phone.
 //   thumb ≈ 480 px long edge — the library card (the only size it loads)
 //   view  ≈ 1080 px long edge — the recipe view's strip
 // WebP at ~0.78, JPEG at the same quality when the browser cannot encode WebP
@@ -154,10 +158,63 @@ export async function renderMealPhoto(file) {
       thumb = await encodeCanvas(src, width, height, MEAL_PHOTO_THUMB_EDGE, type, MEAL_PHOTO_Q);
     }
     const view = await encodeCanvas(src, width, height, MEAL_PHOTO_VIEW_EDGE, type, MEAL_PHOTO_Q);
+    // Ruling (b): no EXIF / XMP / IPTC in a stored JPEG, whatever the encoder wrote.
+    thumb.blob = await stripJpegMetadata(thumb.blob);
+    view.blob = await stripJpegMetadata(view.blob);
     return { thumb, view, type, ext: type === 'image/webp' ? 'webp' : 'jpg' };
   } finally {
     decoded.close && decoded.close();
   }
+}
+
+// ── JPEG metadata strip (Verification 5, Dan's ruling (b), 2026-10-21) ──────
+// Drops every APP1 (EXIF and XMP) and APP13 (Photoshop / IPTC) segment from a
+// JPEG's header; keeps APP0 (JFIF), every other segment (quantization and
+// Huffman tables, the frame header, APP2 colour profile) and the entropy-coded
+// image data byte for byte. Rotation is already baked into the pixels by the
+// canvas, so no orientation tag is needed. Pure over bytes: returns the SAME
+// array when nothing was removed (a clean JPEG comes out byte-identical), a new
+// one otherwise. Throws on a JPEG it cannot walk — never uploads what it could
+// not check.
+const APP1 = 0xe1;
+const APP13 = 0xed;
+export function stripJpegSegments(bytes) {
+  if (!(bytes && bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8)) throw new Error('Not a JPEG');
+  const keep = [[0, 2]];   // SOI
+  let removed = false;
+  let i = 2;
+  for (;;) {
+    if (i + 1 >= bytes.length || bytes[i] !== 0xff) throw new Error('JPEG header could not be walked');
+    let m = bytes[i + 1];
+    let at = i;
+    while (m === 0xff) { at += 1; m = bytes[at + 1]; }   // fill bytes before a marker
+    if (m === 0xda || m === 0xd9) { keep.push([i, bytes.length]); break; }   // SOS / EOI: the rest verbatim
+    if (at + 3 >= bytes.length) throw new Error('JPEG header could not be walked');
+    const len = (bytes[at + 2] << 8) | bytes[at + 3];
+    const end = at + 2 + len;
+    if (len < 2 || end > bytes.length) throw new Error('JPEG segment overruns the file');
+    if (m === APP1 || m === APP13) removed = true;
+    else keep.push([i, end]);
+    i = end;
+  }
+  if (!removed) return bytes;
+  const out = new Uint8Array(keep.reduce((n, [a, b]) => n + (b - a), 0));
+  let o = 0;
+  keep.forEach(([a, b]) => { out.set(bytes.subarray(a, b), o); o += b - a; });
+  return out;
+}
+
+const readBlobBytes = (blob) => (typeof blob.arrayBuffer === 'function'
+  ? blob.arrayBuffer()
+  : new Promise((resolve, reject) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.onerror = () => reject(fr.error); fr.readAsArrayBuffer(blob); })
+).then((buf) => new Uint8Array(buf));
+
+// Blob → Blob. Any non-JPEG (the WebP route) is returned unchanged, unread.
+export async function stripJpegMetadata(blob) {
+  if (!blob || blob.type !== 'image/jpeg') return blob;
+  const bytes = await readBlobBytes(blob);
+  const out = stripJpegSegments(bytes);
+  return out === bytes ? blob : new Blob([out], { type: 'image/jpeg' });
 }
 
 // The two object paths for one upload — the shape add_meal_photo checks (065):
