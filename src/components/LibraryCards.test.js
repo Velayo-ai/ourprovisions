@@ -103,7 +103,7 @@ describe("click text is fixed copy (2)", () => {
   test("list: .lib-settype reads '+ Set meal type'; the verb spans are never inside a button", () => {
     const c = render(<><Verbs /><LibraryRow meal={UNTAGGED} stage="none" {...props} /></>).container;
     expect(c.querySelector(".lib-settype").textContent).toBe("+ Set meal type");
-    expect(c.querySelector(".lib-rmeta").textContent).toBe("+ Set meal type · 5 items");
+    expect(c.querySelector(".lib-rmeta").textContent).toBe("+ Set meal type · 5\u00A0items");
     c.querySelectorAll(".sr-only").forEach((s) => expect(s.closest("button")).toBeNull());
   });
 });
@@ -163,3 +163,14 @@ describe("the card photo slot (Photos v1)", () => {
     expect(c.querySelector(".lib-slot").textContent).not.toMatch(/Lemon/);
   });
 });
+
+// The count never splits from its noun (Dan, 2026-10-21): a non-breaking space joins them.
+describe("the meta's count and noun are one unit", () => {
+  test("grid card: 'Dinner · 9 items' joined by a non-breaking space, never a breakable one", () => {
+    const c = render(<LibraryCard meal={MEAL} stage="none" busy={false} canPlan onPlan={() => {}} onUnplan={() => {}} onOpen={() => {}} onSetType={() => {}} />).container;
+    const meta = c.querySelector(".lib-gcard").textContent;
+    expect(meta).toContain("9" + String.fromCharCode(160) + "items");
+    expect(meta).not.toMatch(/9 items/);
+  });
+});
+

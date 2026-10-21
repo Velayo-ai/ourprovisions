@@ -390,7 +390,7 @@ describe("recipe view: no name or count in any copied attribute, in every state"
     container.querySelectorAll("*").forEach((el) => {
       for (const a of el.attributes) {
         if (!/^(aria-|id$|class$|data-)/.test(a.name)) continue;
-        expect(`${a.name}="${a.value}"`).not.toMatch(/\b(7|9|2|3) (left|items?|ingredients?|steps?)\b/);
+        expect(`${a.name}="${a.value}"`).not.toMatch(/\b(7|9|2|3)\s(left|items?|ingredients?|steps?)\b/);   // \s: a non-breaking space too
         expect(a.value).not.toMatch(/left to buy/);
       }
     });

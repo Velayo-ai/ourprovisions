@@ -130,7 +130,9 @@ const PlusGlyph = () => (
 function LibraryMeta({ meal, variant = "grid", onSetType }) {
   const count = (meal.meal_ingredients || []).length;
   const first = (meal.occasion || [])[0];
-  const items = `${count} ${count === 1 ? "item" : "items"}`;
+  // Non-breaking space between the count and its noun: "11 items" is one unit and never
+  // splits across lines at XXL (Dan, 2026-10-21; the cd2da02 pattern).
+  const items = `${count}\u00A0${count === 1 ? "item" : "items"}`;
   if (first && OCCASION_WORD[first]) return <>{OCCASION_WORD[first]} · {items}</>;
   if (!onSetType) return <>{items}</>;
   return (
