@@ -4678,6 +4678,8 @@ function ProvisionsApp() {
   // flash the welcome must never show. Reset by household change (the id no
   // longer matches), never by the 2s poll.
   const [mealsLoadedFor, setMealsLoadedFor] = useState(null);
+  // Photos v1: the meals poll (declared above the photo loader) calls it through this ref.
+  const loadMealPhotosRef = useRef(() => {});
   const [addingMealId, setAddingMealId] = useState(null);
   // Provenance for the teal meal facet: catalog_item_id → [{mealId,name,createdBy}].
   const [mealProvenance, setMealProvenance] = useState({});
@@ -4921,7 +4923,16 @@ function ProvisionsApp() {
     if (!MEALS_ENABLED || !(view === "plan" || view === "home") || !household?.id || authPhase !== "ready") return;
     // Amendment 2026-09-24: the tick passes isPollingOpen (closed offline and
     // for the hold after a 401/403); back online runs one tick immediately.
-    const tick = () => { if (isPollingOpen()) refreshMeals(); };
+    // Photos v1: every 5th tick (10 s) also re-reads the household's photo rows — a
+    // partner's photo touches no meal, placement or list row, so nothing else would
+    // carry it; the fingerprint drops an unchanged read without a render.
+    let n = 0;
+    const tick = () => {
+      if (!isPollingOpen()) return;
+      refreshMeals();
+      n += 1;
+      if (n % 5 === 0) loadMealPhotosRef.current();
+    };
     const mealsPoll = setInterval(tick, 2000);
     window.addEventListener("online", tick);
     return () => { clearInterval(mealsPoll); window.removeEventListener("online", tick); };
@@ -5234,18 +5245,30 @@ function ProvisionsApp() {
     const print = photosFingerprint(rows);
     setMealPhotos((prev) => (prev.hhId === hhId && prev.print === print ? prev : { hhId, rows, print }));
   }, [fetchMealPhotos, _household]);
+  loadMealPhotosRef.current = loadMealPhotos;
   useEffect(() => {
     if (MEALS_ENABLED && household?.id && authPhase === "ready" && (view === "plan" || view === "home" || rvMealId)) loadMealPhotos();
   }, [household?.id, view, rvMealId, authPhase, loadMealPhotos]);
   const photosReady = !!household?.id && mealPhotos.hhId === household.id;
   const photosByMealId = useMemo(() => (photosReady ? photosByMeal(mealPhotos.rows) : {}), [photosReady, mealPhotos]);
-  // Signed URLs (R9): only for what is on screen — the open recipe's view copies (up to
-  // 3). Minted in one batch, reused for the session by path, re-minted only near expiry.
+  // Signed URLs (R9): only for what is on screen — the library's card THUMBNAILS (the
+  // newest photo per meal, D2 — the library never loads a view copy, A3) and the open
+  // recipe's view copies (up to 3). Minted in one batch, reused for the session by path,
+  // re-minted only near expiry; the <img> is loading="lazy", so a card below the fold
+  // costs its URL, not its bytes, until it scrolls in.
+  const libraryOnScreen = view === "plan" && planScreen === "library";
   const wantedPhotoPaths = useMemo(() => {
     const paths = [];
+    if (libraryOnScreen) libraryMeals.forEach((m) => { const p = (photosByMealId[m.id] || [])[0]; if (p) paths.push(p.thumb_path); });
     if (rvMealId) (photosByMealId[rvMealId] || []).forEach((p) => paths.push(p.view_path));
     return paths;
-  }, [rvMealId, photosByMealId]);
+  }, [libraryOnScreen, libraryMeals, rvMealId, photosByMealId]);
+  // The library's cards carry the photo seam (LibrarySlot): hasCardPhoto as soon as the read
+  // says one exists (the slot takes its 132 px shape at once), cardPhotoUrl once minted.
+  const libraryCards = useMemo(() => libraryMeals.map((m) => {
+    const p = (photosByMealId[m.id] || [])[0];
+    return p ? { ...m, hasCardPhoto: true, cardPhotoUrl: photoUrls[p.thumb_path] || null } : m;
+  }), [libraryMeals, photosByMealId, photoUrls]);
   useEffect(() => {
     if (wantedPhotoPaths.length === 0) return undefined;
     let cancelled = false;
@@ -7577,7 +7600,9 @@ function ProvisionsApp() {
         .lib-type-save { min-height: 44px; padding: 0 20px; border-radius: 12px; border: none; background: #6f5a45; color: #FAF4EC; cursor: pointer;
                          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .lib-type-save:disabled { opacity: 0.5; cursor: default; }
-        .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s ease; }
+        .lib-slot-img.in { opacity: 1; }
+        @media (prefers-reduced-motion: reduce) { .lib-slot-img { transition: none; } }
         /* ── The recipe view (SPEC_recipe_view, 2026-10-18). A full-height SheetPanel: the scrim is the
            library's type-sheet scrim (z 1000, above the Helm); the panel keeps SheetPanel's cap and
            scrolls inside itself; min-height makes it a page, not a strip, for a short recipe. Close
@@ -9536,7 +9561,7 @@ function ProvisionsApp() {
             <MealsLens
               textSizeIdx={textSizeIdx}
               onSetOccasion={handleSetOccasion}
-              meals={libraryMeals}
+              meals={libraryCards}
               loading={mealsLoading}
               onPlan={handlePlanMeal}
               onUnplan={handleUnplanMeal}

@@ -135,3 +135,31 @@ describe("accessible names unchanged (3)", () => {
     expect(results.violations).toEqual([]);
   });
 });
+
+// Photos v1 slice 1 (R4 + the no-flash rule): the photo slot keeps the card's shape.
+describe("the card photo slot (Photos v1)", () => {
+  const card = (meal) => render(<LibraryCard meal={meal} stage="none" busy={false} canPlan onPlan={() => {}} onUnplan={() => {}} onOpen={() => {}} onSetType={() => {}} />).container;
+  test("no photo → the 56 px tint band with the occasion mark, no <img>", () => {
+    const c = card(MEAL);
+    const slot = c.querySelector(".lib-slot");
+    expect(slot.classList.contains("photo")).toBe(false);
+    expect(c.querySelector("img")).toBeNull();
+    expect(slot.querySelector("svg")).not.toBeNull();
+  });
+  test("a photo that exists but has no URL yet → the photo-shaped slot (tinted), no <img>, no mark", () => {
+    const c = card({ ...MEAL, hasCardPhoto: true, cardPhotoUrl: null });
+    const slot = c.querySelector(".lib-slot");
+    expect(slot.classList.contains("photo")).toBe(true);
+    expect(slot.getAttribute("style")).toMatch(/background/);
+    expect(c.querySelector("img")).toBeNull();
+    expect(slot.querySelector("svg")).toBeNull();
+  });
+  test("with a URL → one lazy <img> carrying .op-replay-block; the name stays in the body, never on the photo", () => {
+    const c = card({ ...MEAL, hasCardPhoto: true, cardPhotoUrl: "https://example.test/t.webp" });
+    const img = c.querySelector(".lib-slot img");
+    expect(img.classList.contains("op-replay-block")).toBe(true);
+    expect(img.getAttribute("loading")).toBe("lazy");
+    expect(img.getAttribute("alt")).toBe("");
+    expect(c.querySelector(".lib-slot").textContent).not.toMatch(/Lemon/);
+  });
+});
