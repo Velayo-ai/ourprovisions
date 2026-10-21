@@ -21,12 +21,15 @@ const today = new Date().toISOString();
 const photo = (id, by = "u1") => ({ id, meal_id: MEAL.id, meal_cook_id: null, uploaded_by: by, uploaded_at: today, view_path: `${id}-view.webp`, url: `https://x/${id}` });
 const MEMBERS = [{ user_id: "u1", users: { full_name: "Dan Holmes" } }, { user_id: "u2", users: { full_name: "Dana Teller" } }];
 
+const onPlanSpy = jest.fn();
+beforeEach(() => onPlanSpy.mockClear());
+
 function view(over = {}) {
   const h = { onAddPhoto: jest.fn(), onRemovePhoto: jest.fn() };
   const utils = render(
     <RecipeView meal={MEAL} state={null} members={[]} cookCount={0} lastCookedAt={null} cookRows={null} links={null}
       tagsReady={false} addedThisPlan={false} viewerUserId={null} busy={false}
-      onPlan={jest.fn()} onAddToShop={jest.fn()} onCooked={jest.fn()} onRemove={jest.fn()} onSeeList={jest.fn()} onClose={jest.fn()} onEdit={jest.fn()}
+      onPlan={onPlanSpy} onAddToShop={jest.fn()} onCooked={jest.fn()} onRemove={jest.fn()} onSeeList={jest.fn()} onClose={jest.fn()} onEdit={jest.fn()}
       photos={[]} photosReady canEditPhotos photoBusy={false} {...h} {...over} />,
   );
   return { ...utils, h };
@@ -90,6 +93,41 @@ describe("the hero strip (R2)", () => {
     fireEvent.click(q(container, ".rv-photo-remove"));
     fireEvent.click(q(container, ".rv-photo-keep"));
     expect(h.onRemovePhoto).not.toHaveBeenCalled();
+    expect(q(container, ".rv-photo-pop")).toBeNull();
+  });
+
+  test("an outside tap closes the menu or the confirm, and that tap presses nothing else", () => {
+    const { container, h } = view({ photos: [photo("a")] });
+    const plan = q(container, ".rv-plan");
+    for (const step of ["menu", "confirm"]) {
+      fireEvent.click(q(container, ".rv-photo-more"));
+      if (step === "confirm") fireEvent.click(q(container, ".rv-photo-remove"));
+      expect(q(container, ".rv-photo-pop")).not.toBeNull();
+      fireEvent.pointerDown(plan);
+      fireEvent.click(plan);   // the same tap's click: swallowed
+      expect(q(container, ".rv-photo-pop")).toBeNull();
+    }
+    expect(h.onRemovePhoto).not.toHaveBeenCalled();
+    expect(onPlanSpy).not.toHaveBeenCalled();
+    fireEvent.click(plan);     // a NEW tap acts as normal
+    expect(onPlanSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("a tap inside the popover does not dismiss it: Keep and Remove still act", () => {
+    const { container, h } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.pointerDown(q(container, ".rv-photo-remove"));
+    fireEvent.click(q(container, ".rv-photo-remove"));
+    const yes = q(container, ".rv-photo-remove-yes");
+    fireEvent.pointerDown(yes);
+    fireEvent.click(yes);
+    expect(h.onRemovePhoto).toHaveBeenCalledWith("a");
+  });
+
+  test("Escape closes the popover", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(q(container, ".rv-photo-pop")).toBeNull();
   });
 

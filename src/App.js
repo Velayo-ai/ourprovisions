@@ -2077,6 +2077,26 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
   const [menu, setMenu] = useState(false);   // false | "menu" | "confirm"
   const stripRef = useRef(null);
   const fileRef = useRef(null);
+  const menuRef = useRef(null);
+  // An open popover (menu or confirm) closes on a tap anywhere outside it, or on Escape —
+  // and that outside tap only dismisses: its click is swallowed, so it never also presses
+  // whatever sat under the finger (Add to This Week, Close, a step). Keep / Remove inside
+  // the popover act as before.
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onDown = (e) => {
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      swallowNextClick();
+      setMenu(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setMenu(false); };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
   const live = photos.filter((p) => p.url);
   const n = live.length;
   const at = Math.min(idx, Math.max(0, n - 1));
@@ -2125,7 +2145,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
             </button>
           )}
           {n > 0 && (
-            <span className="rv-photo-menu">
+            <span className="rv-photo-menu" ref={menuRef}>
               <button type="button" className="rv-photo-more" aria-label="Photo options" aria-expanded={!!menu} disabled={busy} onClick={() => setMenu((v) => (v ? false : "menu"))}>⋯</button>
               {menu === "menu" && (
                 <span className="rv-photo-pop" role="menu">
@@ -2148,6 +2168,16 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
       )}
     </>
   );
+}
+// The outside tap that dismisses a photo popover must not also press what was under the
+// finger. Its click arrives after pointerup (~100 ms later, after React has re-rendered), so
+// the guard lives on its own: one capture listener that eats the NEXT click and removes
+// itself, with a 1 s fallback for a tap that never becomes a click (a scroll, a long-press).
+function swallowNextClick() {
+  const eat = (e) => { e.preventDefault(); e.stopPropagation(); done(); };
+  const timer = setTimeout(() => done(), 1000);
+  function done() { clearTimeout(timer); document.removeEventListener("click", eat, true); }
+  document.addEventListener("click", eat, true);
 }
 // The photo fades in once it has decoded (the tint shows behind it until then).
 const photoFadeIn = (e) => e.currentTarget.classList.add("in");
