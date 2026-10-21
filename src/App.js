@@ -24,6 +24,8 @@ import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } fro
 import { rowCountsFromProvenance } from './lib/mealLinks';
 import { addAllOnHandLine } from './lib/onHand';
 import { cookDate, cookHistoryLine } from './lib/cookDate';
+import { photosByMeal, photosFingerprint, photoCaption, MEAL_PHOTO_CAP } from './lib/mealPhotos';
+import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
@@ -2054,7 +2056,94 @@ const memberFirstName = (mb) => {
 // last week, weekday + date beyond it. Never a person (D10).
 // Your cooks shows only at 2+ cooks (A4): one cook is the meta line's job.
 const RV_COOKS_MIN = 2;
-export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList }) {
+// THE HERO STRIP (SPEC_meal_photos_v1, 2026-10-20 amendment R2 / R5; slice 1). With 1+ live
+// photos the hero IS the strip — newest first (D2: the first is the card), swipeable
+// (native scroll-snap), dots at 2+, the hero's own 132 px, object-fit cover. With none it
+// is today's tint + occasion mark, unchanged, and nothing invites a photo inside it (D8).
+// Under it, one caption for the photo in view — "Added {date}", " · {First}" only in a
+// 2+ member household while the uploader is still a member (the "Added by" rule) — then
+// the controls in fixed copy: "Add a meal photo" (hidden at the cap of 3, R1) and ⋯ →
+// "Remove photo" for the photo in view. No chooser, no reorder.
+// Photos are gated on the household's photo read (the no-flash rule): until it resolves
+// the hero is the tint and the controls are absent, so a cold open never shows the tint
+// "Add" and then a photo, or a photo and then nothing.
+// RUM (R5): .op-replay-block on every photo <img> ONLY — never the strip, dots or caption.
+// .rv-photo-add / .rv-photo-remove are allow-listed (fixed copy); ⋯ (.rv-photo-more) is
+// not — it is named by a fixed aria-label, no meal name anywhere in an attribute.
+function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove }) {
+  const [idx, setIdx] = useState(0);
+  const [menu, setMenu] = useState(false);
+  const stripRef = useRef(null);
+  const fileRef = useRef(null);
+  const live = photos.filter((p) => p.url);
+  const n = live.length;
+  const at = Math.min(idx, Math.max(0, n - 1));
+  const shown = n > 0 ? live[at] : null;
+  // A removal or a new upload changes the set: back to the newest, menu closed.
+  const setKey = live.map((p) => p.id).join(",");
+  useEffect(() => { setIdx(0); setMenu(false); if (stripRef.current) stripRef.current.scrollLeft = 0; }, [setKey]);
+  const onScroll = () => {
+    const el = stripRef.current;
+    if (!el || el.clientWidth === 0) return;
+    const i = Math.round(el.scrollLeft / el.clientWidth);
+    if (i !== at) { setIdx(i); setMenu(false); }
+  };
+  const caption = shown ? photoCaption(shown, members, memberFirstName) : "";
+  const pick = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";   // the same file can be chosen again after a failure
+    if (f && onAdd) onAdd(meal.id, f);
+  };
+  return (
+    <>
+      {n === 0 ? (
+        <div className="rv-hero" style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
+          <OccasionIcon occasion={first} size={44} tint={tint.bg} />
+        </div>
+      ) : (
+        <div className="rv-hero rv-strip" ref={stripRef} onScroll={onScroll} style={{ background: tint.bg }} aria-hidden="true">
+          {live.map((p) => (
+            <div className="rv-slide" key={p.id}>
+              <img className="rv-photo-img op-replay-block" src={p.url} alt="" draggable="false" onLoad={photoFadeIn} />
+            </div>
+          ))}
+        </div>
+      )}
+      {n >= 2 && (
+        <div className="rv-dots" aria-hidden="true">
+          {live.map((p, i) => <span key={p.id} className={i === at ? "on" : ""} />)}
+        </div>
+      )}
+      {caption && <div className="rv-photo-cap">{caption}</div>}
+      {canEdit && (n < MEAL_PHOTO_CAP || n > 0) && (
+        <div className="rv-photo-ctl">
+          {n < MEAL_PHOTO_CAP && (
+            <button type="button" className="rv-photo-add" disabled={busy} onClick={() => { if (!busy && fileRef.current) fileRef.current.click(); }}>
+              <CameraGlyph />{busy ? "Adding…" : "Add a meal photo"}
+            </button>
+          )}
+          {n > 0 && (
+            <span className="rv-photo-menu">
+              <button type="button" className="rv-photo-more" aria-label="Photo options" aria-expanded={menu} disabled={busy} onClick={() => setMenu((v) => !v)}>⋯</button>
+              {menu && (
+                <span className="rv-photo-pop" role="menu">
+                  <button type="button" role="menuitem" className="rv-photo-remove" onClick={() => { setMenu(false); if (onRemove && shown) onRemove(shown.id); }}>Remove photo</button>
+                </span>
+              )}
+            </span>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={pick} />
+        </div>
+      )}
+    </>
+  );
+}
+// The photo fades in once it has decoded (the tint shows behind it until then).
+const photoFadeIn = (e) => e.currentTarget.classList.add("in");
+const CameraGlyph = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z" /><circle cx="12" cy="13.2" r="3.4" /></svg>
+);
+export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onRemovePhoto }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2122,9 +2211,8 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
         <SheetClose onClose={onClose} />
         <div className="lib-type-handle" aria-hidden="true" />
         <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
-        <div className="rv-hero" style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
-          <OccasionIcon occasion={first} size={44} tint={tint.bg} />
-        </div>
+        <RecipePhotos meal={meal} tint={tint} first={first} members={members} photos={photosReady ? (photos || []) : []}
+          canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onRemove={onRemovePhoto} />
         <div className="rv-head">
           <h2 id="rv-title" className="rv-title">{displayTitle(meal.name)}</h2>
           {attribution && <div className="rv-byline">from {attribution}</div>}
@@ -4303,6 +4391,7 @@ function ProvisionsApp() {
     discardUnclaimedHousehold,
     uploadHouseholdPhoto,
     updateHouseholdBanner,
+    addMealPhoto, removeMealPhoto, fetchMealPhotos,
     supabase,
     _supabase,
     _household,
@@ -5123,6 +5212,66 @@ function ProvisionsApp() {
   }, [rvMealId, rvCookCount, _supabase, _household]);
   // Switching households closes the view: the id belongs to the old place.
   useEffect(() => { setRecipeView(null); }, [household?.id]);
+
+  // ── Meal photos v1 (065; slice 1) ──────────────────────────────────────
+  // The household's live photo rows, newest first, and the household they were read
+  // for — the no-flash gate (the provenanceLoadedFor pattern): a hero or a card shows
+  // the tint until the read for THIS household resolves, then the photo fades in once.
+  // Re-read on entering Plan / Home, on opening a recipe, every 5th tick of the 2 s
+  // meals poll (a partner's photo has no other signal — it touches no meal, placement
+  // or list row), and after this device's own add / remove. A poll that reads the
+  // same set is dropped by fingerprint, so an idle library never re-renders.
+  const [mealPhotos, setMealPhotos] = useState({ hhId: null, rows: [], print: "" });
+  const photoUrlCacheRef = useRef(null);
+  if (!photoUrlCacheRef.current) photoUrlCacheRef.current = createSignedUrlCache({ bucket: "meal-photos" });
+  const [photoUrls, setPhotoUrls] = useState({});
+  const [photoBusyMealId, setPhotoBusyMealId] = useState(null);
+  const loadMealPhotos = useCallback(async () => {
+    const hhId = _household.current?.id;
+    if (!hhId) return;
+    const rows = await fetchMealPhotos();
+    if (rows == null || _household.current?.id !== hhId) return;   // a failed read keeps what we had
+    const print = photosFingerprint(rows);
+    setMealPhotos((prev) => (prev.hhId === hhId && prev.print === print ? prev : { hhId, rows, print }));
+  }, [fetchMealPhotos, _household]);
+  useEffect(() => {
+    if (MEALS_ENABLED && household?.id && authPhase === "ready" && (view === "plan" || view === "home" || rvMealId)) loadMealPhotos();
+  }, [household?.id, view, rvMealId, authPhase, loadMealPhotos]);
+  const photosReady = !!household?.id && mealPhotos.hhId === household.id;
+  const photosByMealId = useMemo(() => (photosReady ? photosByMeal(mealPhotos.rows) : {}), [photosReady, mealPhotos]);
+  // Signed URLs (R9): only for what is on screen — the open recipe's view copies (up to
+  // 3). Minted in one batch, reused for the session by path, re-minted only near expiry.
+  const wantedPhotoPaths = useMemo(() => {
+    const paths = [];
+    if (rvMealId) (photosByMealId[rvMealId] || []).forEach((p) => paths.push(p.view_path));
+    return paths;
+  }, [rvMealId, photosByMealId]);
+  useEffect(() => {
+    if (wantedPhotoPaths.length === 0) return undefined;
+    let cancelled = false;
+    photoUrlCacheRef.current.resolve(_supabase.current, wantedPhotoPaths).then((got) => {
+      if (cancelled) return;
+      setPhotoUrls((prev) => (Object.keys(got).every((k) => prev[k] === got[k]) ? prev : { ...prev, ...got }));
+    });
+    return () => { cancelled = true; };
+  }, [wantedPhotoPaths, _supabase]);
+  // Add / remove (R2): quiet on failure — a toast, never the error banner, and the hero
+  // is unchanged. The read-back after success is what shows the photo (the server's cap
+  // may have aged one out), not an optimistic insert.
+  const handleAddMealPhoto = useCallback(async (mealId, file) => {
+    if (photoBusyMealId) return;
+    setPhotoBusyMealId(mealId);
+    try {
+      const r = await addMealPhoto(mealId, file);
+      if (!r.ok) showToast(r.reason === "decode" ? "Couldn't read that photo" : "Couldn't add the photo. Try again.");
+      await loadMealPhotos();
+    } finally { setPhotoBusyMealId(null); }
+  }, [photoBusyMealId, addMealPhoto, loadMealPhotos, showToast]);
+  const handleRemoveMealPhoto = useCallback(async (photoId) => {
+    const ok = await removeMealPhoto(photoId);
+    if (!ok) showToast("Couldn't remove the photo. Try again.");
+    await loadMealPhotos();
+  }, [removeMealPhoto, loadMealPhotos, showToast]);
   // A2 / A2-R (2026-10-18): the view's ingredient tags — this meal's list_item_meals
   // links, INCLUDING rows archived as bought at wrap-up (deleted_at set, status
   // bought; list_items_select is membership only, so RLS allows the read — Step
@@ -7453,6 +7602,29 @@ function ProvisionsApp() {
                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .rv-edit:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
         .rv-hero { margin: 44px 16px 0; height: 132px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
+        /* Photos v1 (R2): the hero becomes the strip at its own 132 px — native horizontal scroll-snap, one photo
+           per slide, object-fit cover, the tint behind each photo until it decodes (it fades in once, .in). */
+        .rv-strip { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; justify-content: flex-start; overflow-clip-margin: 0; }
+        .rv-strip::-webkit-scrollbar { display: none; }
+        .rv-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; }
+        .rv-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s ease; -webkit-user-drag: none; user-select: none; }
+        .rv-photo-img.in { opacity: 1; }
+        @media (prefers-reduced-motion: reduce) { .rv-photo-img { transition: none; } }
+        .rv-dots { display: flex; justify-content: center; gap: 6px; margin: 8px 0 0; }
+        .rv-dots span { width: 6px; height: 6px; border-radius: 50%; background: #D9C9B0; }
+        .rv-dots span.on { background: #8A5F3A; }
+        .rv-photo-cap { margin: 6px 20px 0; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8a7a60; overflow-wrap: anywhere; }
+        .rv-photo-ctl { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 8px; margin: 4px 16px 0; }
+        .rv-photo-add { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: none; background: transparent; color: #8A5F3A;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .rv-photo-add:disabled { opacity: .55; cursor: default; }
+        .rv-photo-menu { position: relative; display: inline-flex; }
+        .rv-photo-more { min-width: 44px; min-height: 44px; border: none; border-radius: 22px; background: transparent; color: #8a7a60; font-size: 20px; line-height: 1; cursor: pointer; }
+        .rv-photo-more:disabled { opacity: .55; cursor: default; }
+        .rv-photo-pop { position: absolute; top: calc(100% - 4px); right: 0; z-index: 2; background: #FFFDF8; border: 1px solid #E5D7C1; border-radius: 12px; box-shadow: 0 6px 18px rgba(44,26,14,.14); padding: 4px; }
+        .rv-photo-remove { display: block; min-height: 44px; padding: 0 16px; border: none; border-radius: 9px; background: transparent; color: #A33A2A; white-space: nowrap;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; }
+        .rv-photo-add:focus-visible, .rv-photo-more:focus-visible, .rv-photo-remove:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
         .rv-head { padding: 16px 20px 0; }
         .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
         .rv-byline { margin-top: 4px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #8A5F3A; overflow-wrap: anywhere; }
@@ -10058,6 +10230,14 @@ function ProvisionsApp() {
           onRemove={handleSkipMeal}
           // A5: the board card's own See on list (goToDoor("list")), after the view closes.
           onSeeList={() => { setRecipeView(null); goToDoor("list"); }}
+          // Photos v1 slice 1 (R2): the hero strip. Each photo carries its signed view URL
+          // (absent until minted — the tint shows behind it, never a broken image).
+          photos={(photosByMealId[rvMeal.id] || []).map((p) => ({ ...p, url: photoUrls[p.view_path] || null }))}
+          photosReady={photosReady}
+          canEditPhotos={!!isSignedIn}
+          photoBusy={photoBusyMealId === rvMeal.id}
+          onAddPhoto={handleAddMealPhoto}
+          onRemovePhoto={handleRemoveMealPhoto}
         />
       )}
 

@@ -293,7 +293,7 @@ describe("photo surfaces carry .op-replay-block", () => {
         expect(`${file}: ${tag}`).toMatch(/op-replay-block/);
       }
     }
-    expect(checked).toBe(3);   // the avatar, the Galley screenshot thumbnail, the library card photo
+    expect(checked).toBe(4);   // the avatar, the Galley screenshot thumbnail, the library card photo, the recipe view strip photo (Photos v1)
   });
 
   test("every interpolated CSS url() in JSX is on an element that carries the class; the desk backdrop's lives on .desk-bg", () => {
