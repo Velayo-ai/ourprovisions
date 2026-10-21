@@ -42,7 +42,8 @@
 --   NO ACTION (not null; users are soft-deleted by convention).
 --
 -- GRANTS (CLAUDE.md new-table rule, the 046 lesson): revoke from public, anon AND
---   authenticated before granting SELECT to authenticated; VERIFY reads the granted set
+--   authenticated before granting SELECT to authenticated; service_role gets SELECT, INSERT,
+--   UPDATE, DELETE explicitly (the later sweep) — never the automatic grant, which ends 2026-10-30; VERIFY reads the granted set
 --   back exactly. VERIFY probes are case-insensitive (ilike — the 060 lesson).
 --
 -- APPLY: dev only (system_identifier 7642734024280108049). Prod is HELD (Splunk replay-asset
@@ -56,6 +57,9 @@
 --   22P02); anon 42501 on SELECT and both RPCs, 0 objects; bad path / stem mismatch /
 --   missing object 22023; direct INSERT 42501; 4 adds → 3 live, the oldest soft-deleted;
 --   two adds to one cook → the first replaced, no unique violation; the newest is the card.
+--   2026-10-21 (later): the service_role grant line added to the file and run alone on dev
+--   (no-op — relacl before and after: postgres=arwdDxtm, service_role=arwdDxtm,
+--   authenticated=r; nothing for anon or PUBLIC).
 
 begin;
 
@@ -124,6 +128,10 @@ revoke all on table public.meal_photos from public;
 revoke all on table public.meal_photos from anon;
 revoke all on table public.meal_photos from authenticated;
 grant select on table public.meal_photos to authenticated;
+-- Explicit, never automatic: Supabase stops auto-granting new public tables on 2026-10-30, so a
+-- fresh rebuild must get the sweep's access from this line. (A no-op on dev 2026-10-21: the
+-- automatic grant had already given service_role arwdDxtm.)
+grant select, insert, update, delete on table public.meal_photos to service_role;
 
 drop policy if exists meal_photos_select on public.meal_photos;
 create policy meal_photos_select on public.meal_photos
@@ -252,7 +260,7 @@ commit;
 --   which_db 7642734024280108049 · bucket_public false · bucket_limit 1048576 ·
 --   bucket_mimes {image/webp,image/jpeg} · storage_cmds INSERT,SELECT · storage_roles {authenticated} x2 ·
 --   storage_uses_owner false · rls_on true · policies 1 · grants_public '' · grants_anon '' ·
---   grants_authenticated SELECT · add_acl_auth true · add_acl_anon false · add_acl_public false ·
+--   grants_authenticated SELECT · service_role_crud true · add_acl_auth true · add_acl_anon false · add_acl_public false ·
 --   rm_acl_auth true · rm_acl_anon false · rm_acl_public false · secdef 2 · search_path 2 · rows 0
 select
   (select system_identifier from pg_control_system())                                            as which_db,
@@ -274,6 +282,9 @@ select
      where table_schema = 'public' and table_name = 'meal_photos' and grantee ilike 'anon')         as grants_anon,
   (select coalesce(string_agg(privilege_type, ',' order by privilege_type), '') from information_schema.role_table_grants
      where table_schema = 'public' and table_name = 'meal_photos' and grantee ilike 'authenticated') as grants_authenticated,
+  (select count(*) = 4 from information_schema.role_table_grants
+     where table_schema = 'public' and table_name = 'meal_photos' and grantee ilike 'service_role'
+       and privilege_type ilike any (array['select', 'insert', 'update', 'delete']))                as service_role_crud,
   (select proacl::text ilike '%authenticated=X%' from pg_proc where oid = 'public.add_meal_photo(uuid,uuid,text,text,integer,integer)'::regprocedure) as add_acl_auth,
   (select proacl::text ilike '%anon=X%'          from pg_proc where oid = 'public.add_meal_photo(uuid,uuid,text,text,integer,integer)'::regprocedure) as add_acl_anon,
   (select proacl::text ~ '(^|[{,])=X'            from pg_proc where oid = 'public.add_meal_photo(uuid,uuid,text,text,integer,integer)'::regprocedure) as add_acl_public,
