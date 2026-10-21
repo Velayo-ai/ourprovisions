@@ -60,8 +60,8 @@ describe("the hero strip (R2)", () => {
   test("newest first; dots at 2+; the caption names the uploader only in a 2+ member household", () => {
     const { container } = view({ photos: [photo("new", "u2"), photo("old")], members: MEMBERS });
     expect(qa(container, ".rv-strip img").map((i) => i.getAttribute("src"))).toEqual(["https://x/new", "https://x/old"]);
-    expect(qa(container, ".rv-dots span")).toHaveLength(2);
-    expect(q(container, ".rv-dots span.on")).toBe(qa(container, ".rv-dots span")[0]);
+    expect(qa(container, ".rv-dots .rv-dot")).toHaveLength(2);
+    expect(q(container, ".rv-dots .rv-dot.on")).toBe(qa(container, ".rv-dots .rv-dot")[0]);
     expect(q(container, ".rv-photo-cap").textContent).toBe("Added today · Dana");
   });
 
@@ -234,8 +234,8 @@ describe("the photo hero and the full-size viewer", () => {
     expect(close.getAttribute("aria-label")).toBe("Close photo");
     expect(document.activeElement).toBe(close);
     expect(q(d, ".rv-viewer-count").textContent).toBe("2 of 3");
-    expect(qa(d, ".rv-viewer-dots span")).toHaveLength(3);
-    expect(q(d, ".rv-viewer-dots span.on")).toBe(qa(d, ".rv-viewer-dots span")[1]);
+    expect(qa(d, ".rv-viewer-dots .rv-dot")).toHaveLength(3);
+    expect(q(d, ".rv-viewer-dots .rv-dot.on")).toBe(qa(d, ".rv-viewer-dots .rv-dot")[1]);
     expect(q(d, ".rv-viewer-cap").textContent).toBe("Added today · Dan");   // photo "b" is u1's
     qa(d, "img").forEach((i) => expect(i.classList.contains("op-replay-block")).toBe(true));
     // Closing returns the strip to photo "b": its caption is the one the viewer showed.
@@ -263,7 +263,7 @@ describe("the photo hero and the full-size viewer", () => {
     fireEvent.click(q(dialog(), ".rv-viewer-close"));
     expect(dialog()).toBeNull();
     expect(document.activeElement).toBe(qa(container, ".rv-photo-open")[2]);
-    expect(q(container, ".rv-dots span.on")).toBe(qa(container, ".rv-dots span")[2]);
+    expect(q(container, ".rv-dots .rv-dot.on")).toBe(qa(container, ".rv-dots .rv-dot")[2]);
   });
 
   test("Escape closes; Tab stays on ×", () => {
@@ -301,5 +301,101 @@ describe("the photo hero and the full-size viewer", () => {
       expect(a.value).not.toMatch(/Chili/);
       expect(a.value).not.toMatch(/\bof 2\b/);
     }));
+  });
+});
+
+// ---------------------------------------------------------------- desktop stepping: ‹ › and the dots (Dan, 2026-10-21)
+// The arrows' and dots' pointer are CSS-gated to (hover: hover) and (pointer: fine) — proven in the
+// harness at 800 / 1280 px (shown) and 390 px with a touch pointer (hidden). Here: what renders and what it does.
+describe("‹ › and clickable dots", () => {
+  const dialog = () => document.body.querySelector(".rv-viewer");
+  const curDot = (root, sel = ".rv-dots .rv-dot") => qa(root, sel).findIndex((d) => d.classList.contains("on"));
+
+  test("1 photo: no arrows anywhere", () => {
+    const { container } = view({ photos: [photo("a")] });
+    expect(q(container, ".rv-photo-prev")).toBeNull();
+    expect(q(container, ".rv-photo-next")).toBeNull();
+    fireEvent.click(q(container, ".rv-photo-open"));
+    expect(q(dialog(), ".rv-photo-prev")).toBeNull();
+    expect(q(dialog(), ".rv-photo-next")).toBeNull();
+  });
+
+  test("2+ photos: hidden at the ends — first shows only ›, last shows only ‹; fixed labels", () => {
+    const { container } = view({ photos: [photo("a"), photo("b"), photo("c")] });
+    expect(q(container, ".rv-photo-prev")).toBeNull();
+    const next = q(container, ".rv-photo-next");
+    expect(next.getAttribute("aria-label")).toBe("Next photo");
+    fireEvent.click(next);
+    expect(q(container, ".rv-photo-prev").getAttribute("aria-label")).toBe("Previous photo");
+    expect(q(container, ".rv-photo-next")).not.toBeNull();
+    fireEvent.click(q(container, ".rv-photo-next"));
+    expect(q(container, ".rv-photo-next")).toBeNull();
+    expect(curDot(container)).toBe(2);
+  });
+
+  test("a click on an arrow steps the strip and NEVER opens the viewer", () => {
+    const { container } = view({ photos: [photo("a"), photo("b")] });
+    fireEvent.click(q(container, ".rv-photo-next"));
+    expect(dialog()).toBeNull();
+    expect(curDot(container)).toBe(1);
+    expect(q(container, ".rv-photo-cap")).not.toBeNull();
+    fireEvent.click(q(container, ".rv-photo-prev"));
+    expect(dialog()).toBeNull();
+    expect(curDot(container)).toBe(0);
+  });
+
+  test("an arrow that steps to its end hands keyboard focus to the other arrow", () => {
+    const { container } = view({ photos: [photo("a"), photo("b")] });
+    const next = q(container, ".rv-photo-next");
+    next.focus();
+    fireEvent.click(next);
+    expect(document.activeElement).toBe(q(container, ".rv-photo-prev"));
+  });
+
+  test("the strip's dots are buttons: 'Show photo N', aria-current on the one in view, a click steps", () => {
+    const { container } = view({ photos: [photo("a"), photo("b"), photo("c")] });
+    const dots = qa(container, ".rv-dots .rv-dot");
+    expect(dots.map((d) => d.tagName)).toEqual(["BUTTON", "BUTTON", "BUTTON"]);
+    expect(dots.map((d) => d.getAttribute("aria-label"))).toEqual(["Show photo 1", "Show photo 2", "Show photo 3"]);
+    expect(dots[0].getAttribute("aria-current")).toBe("true");
+    fireEvent.click(dots[2]);
+    expect(dialog()).toBeNull();
+    expect(curDot(container)).toBe(2);
+    expect(qa(container, ".rv-dots .rv-dot")[2].getAttribute("aria-current")).toBe("true");
+  });
+
+  test("the viewer: ‹ › and its dots step it, the count follows; × returns the strip to that photo", () => {
+    const { container } = view({ photos: [photo("a"), photo("b"), photo("c")] });
+    fireEvent.click(qa(container, ".rv-photo-open")[0]);
+    const d = dialog();
+    expect(q(d, ".rv-photo-prev")).toBeNull();
+    fireEvent.click(q(d, ".rv-photo-next"));
+    expect(q(d, ".rv-viewer-count").textContent).toBe("2 of 3");
+    fireEvent.click(qa(d, ".rv-viewer-dots .rv-dot")[2]);
+    expect(q(d, ".rv-viewer-count").textContent).toBe("3 of 3");
+    expect(q(d, ".rv-photo-next")).toBeNull();
+    fireEvent.click(q(d, ".rv-photo-prev"));
+    expect(q(d, ".rv-viewer-count").textContent).toBe("2 of 3");
+    expect(dialog()).not.toBeNull();   // the arrows and dots never close it
+    fireEvent.click(q(d, ".rv-viewer-close"));
+    expect(curDot(container)).toBe(1);
+  });
+
+  test("the arrow keys still step the viewer", () => {
+    const { container } = view({ photos: [photo("a"), photo("b")] });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    expect(q(dialog(), ".rv-viewer-count").textContent).toBe("2 of 2");
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    expect(q(dialog(), ".rv-viewer-count").textContent).toBe("1 of 2");
+  });
+
+  test("no arrow or dot carries text, a meal name or the photo's content in an attribute", () => {
+    const { container } = view({ photos: [photo("a"), photo("b")] });
+    fireEvent.click(q(container, ".rv-photo-next"));
+    qa(container, ".rv-photo-prev, .rv-photo-next, .rv-dot").forEach((el) => {
+      expect(el.textContent).toBe("");
+      Array.from(el.attributes).forEach((a) => { expect(a.value).not.toMatch(/Chili|https?:/); });
+    });
   });
 });

@@ -2126,6 +2126,14 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
   }, [viewer]);
   const openViewer = (i) => { setMenu(false); setViewer(i); };
   const closeViewer = (i) => { refocusRef.current = i; setIdx(i); setViewer(null); };
+  // Desktop (a mouse cannot swipe): ‹ › and the dots step the strip. The state moves at once;
+  // the scroll follows (smooth unless reduced motion) and onScroll agrees when it lands.
+  const goTo = (i) => {
+    const to = Math.max(0, Math.min(n - 1, i));
+    scrollStripTo(stripRef.current, to);
+    setIdx(to);
+    setMenu(false);
+  };
   const onScroll = () => {
     const el = stripRef.current;
     if (!el || el.clientWidth === 0) return;
@@ -2156,16 +2164,14 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
             ))}
           </div>
           <span className="rv-hero-expand" aria-hidden="true"><ExpandGlyph /></span>
+          {/* Siblings of the strip, never inside a photo's button: a click on an arrow never opens the viewer. */}
+          <PhotoArrows at={at} count={n} onGo={goTo} />
         </div>
       )}
       {viewer !== null && n > 0 && (
         <PhotoViewer photos={live} start={Math.min(viewer, n - 1)} members={members} onClose={closeViewer} />
       )}
-      {n >= 2 && (
-        <div className="rv-dots" aria-hidden="true">
-          {live.map((p, i) => <span key={p.id} className={i === at ? "on" : ""} />)}
-        </div>
-      )}
+      {n >= 2 && <PhotoDots photos={live} at={at} onGo={goTo} />}
       {caption && <div className="rv-photo-cap">{caption}</div>}
       {canEdit && (n < MEAL_PHOTO_CAP || n > 0) && (
         <div className="rv-photo-ctl">
@@ -2224,16 +2230,24 @@ function PhotoViewer({ photos, start, members, onClose }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const go = (i) => {
-    const el = stripRef.current;
     const to = Math.max(0, Math.min(m - 1, i));
-    if (el) el.scrollLeft = to * el.clientWidth;
+    scrollStripTo(stripRef.current, to);
     atRef.current = to;
     setAt(to);
   };
+  const rootRef = useRef(null);
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") { e.preventDefault(); onClose(atRef.current); }
-      else if (e.key === "Tab") { e.preventDefault(); if (closeRef.current) closeRef.current.focus(); }
+      else if (e.key === "Tab") {
+        // Focus stays inside the dialog: × and, on desktop, ‹ › and the dots — cycled in order.
+        e.preventDefault();
+        const els = rootRef.current ? Array.from(rootRef.current.querySelectorAll("button")).filter((b) => b.offsetParent !== null || b === closeRef.current) : [];
+        if (els.length === 0) return;
+        const k = els.indexOf(document.activeElement);
+        const next = e.shiftKey ? (k <= 0 ? els.length - 1 : k - 1) : (k + 1) % els.length;
+        els[next].focus();
+      }
       else if (e.key === "ArrowRight") { e.preventDefault(); go(atRef.current + 1); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); go(atRef.current - 1); }
     };
@@ -2251,31 +2265,84 @@ function PhotoViewer({ photos, start, members, onClose }) {
   const stop = (e) => e.stopPropagation();
   const caption = photoCaption(photos[at], members, memberFirstName);
   return createPortal(
-    <div className="rv-viewer" role="dialog" aria-modal="true" aria-label="Photo"
+    <div className="rv-viewer" role="dialog" aria-modal="true" aria-label="Photo" ref={rootRef}
       onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop} onClick={stop}>
       <div className="rv-viewer-top">
         <button type="button" ref={closeRef} className="rv-viewer-close" aria-label="Close photo" onClick={() => onClose(atRef.current)}>×</button>
         <span className="rv-viewer-count">{at + 1} of {m}</span>
       </div>
-      <div className="rv-viewer-strip" ref={stripRef} onScroll={onScroll}>
-        {photos.map((p) => (
-          <div className="rv-viewer-slide" key={p.id}>
-            <img className="rv-viewer-img op-replay-block" src={p.url} alt="" draggable="false" />
-          </div>
-        ))}
+      <div className="rv-viewer-stage">
+        <div className="rv-viewer-strip" ref={stripRef} onScroll={onScroll}>
+          {photos.map((p) => (
+            <div className="rv-viewer-slide" key={p.id}>
+              <img className="rv-viewer-img op-replay-block" src={p.url} alt="" draggable="false" />
+            </div>
+          ))}
+        </div>
+        <PhotoArrows at={at} count={m} onGo={go} />
       </div>
       <div className="rv-viewer-foot">
-        {m >= 2 && (
-          <div className="rv-dots rv-viewer-dots" aria-hidden="true">
-            {photos.map((p, i) => <span key={p.id} className={i === at ? "on" : ""} />)}
-          </div>
-        )}
+        {m >= 2 && <PhotoDots photos={photos} at={at} onGo={go} className="rv-viewer-dots" />}
         {caption && <div className="rv-viewer-cap">{caption}</div>}
       </div>
     </div>,
     document.body,
   );
 }
+// DESKTOP STEPPING (Dan, 2026-10-21 walk: a mouse could not change photos with 2+). ‹ › sit over
+// the strip and the viewer, only with 2+ photos, each hidden at its end, 44 px, fixed labels
+// "Previous photo" / "Next photo". They and the dots' pointer are CSS-gated to
+// (hover: hover) and (pointer: fine), so a phone shows no arrows and its dots stay the
+// plain swipe indicator. The dots are buttons ("Show photo N", aria-current on the one in
+// view). ← / → still step the viewer. RUM: .rv-photo-prev / .rv-photo-next / .rv-dot are
+// allow-listed — no text content (aria-labels are fixed copy; "N" is a position, never content).
+function scrollStripTo(el, i) {
+  if (!el) return;
+  const left = i * el.clientWidth;
+  const smooth = typeof window !== "undefined" && window.matchMedia && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (typeof el.scrollTo === "function") el.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+  else el.scrollLeft = left;
+}
+function PhotoArrows({ at, count, onGo }) {
+  const prevRef = useRef(null);
+  const nextRef = useRef(null);
+  // An arrow that steps to its end unmounts under the pointer; keyboard focus then moves to
+  // the other arrow instead of falling back to <body>.
+  const handOff = useRef(null);
+  useEffect(() => {
+    const to = handOff.current === "prev" ? prevRef.current : handOff.current === "next" ? nextRef.current : null;
+    handOff.current = null;
+    if (to) to.focus({ preventScroll: true });
+  }, [at]);
+  if (count < 2) return null;
+  return (
+    <>
+      {at > 0 && (
+        <button type="button" ref={prevRef} className="rv-photo-prev" aria-label="Previous photo"
+          onClick={(e) => { e.stopPropagation(); if (at - 1 === 0) handOff.current = "next"; onGo(at - 1); }}><ChevronGlyph dir="left" /></button>
+      )}
+      {at < count - 1 && (
+        <button type="button" ref={nextRef} className="rv-photo-next" aria-label="Next photo"
+          onClick={(e) => { e.stopPropagation(); if (at + 1 === count - 1) handOff.current = "prev"; onGo(at + 1); }}><ChevronGlyph dir="right" /></button>
+      )}
+    </>
+  );
+}
+function PhotoDots({ photos, at, onGo, className = "" }) {
+  return (
+    <div className={`rv-dots ${className}`.trim()}>
+      {photos.map((p, i) => (
+        <button type="button" key={p.id} className={i === at ? "rv-dot on" : "rv-dot"} aria-label={`Show photo ${i + 1}`} aria-current={i === at ? "true" : undefined}
+          onClick={(e) => { e.stopPropagation(); onGo(i); }} />
+      ))}
+    </div>
+  );
+}
+const ChevronGlyph = ({ dir }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={dir === "left" ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} />
+  </svg>
+);
 const ExpandGlyph = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5" /></svg>
 );
@@ -7805,18 +7872,41 @@ function ProvisionsApp() {
         .rv-viewer-close { min-width: 44px; min-height: 44px; border: none; border-radius: 22px; background: transparent; color: #FFFDF8; font-size: 30px; line-height: 1; cursor: pointer; }
         .rv-viewer-close:focus-visible { outline: 2px solid #E8D5B7; outline-offset: 2px; }
         .rv-viewer-count { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); color: #E8D5B7; white-space: nowrap; }
+        .rv-viewer-stage { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
         .rv-viewer-strip { flex: 1 1 auto; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior: contain; scrollbar-width: none; }
         .rv-viewer-strip::-webkit-scrollbar { display: none; }
         .rv-viewer-slide { flex: 0 0 100%; height: 100%; display: flex; align-items: center; justify-content: center; scroll-snap-align: start; scroll-snap-stop: always; }
         .rv-viewer-img { display: block; max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; user-select: none; }
         .rv-viewer-foot { flex: none; padding: 10px 16px 18px; }
-        .rv-viewer-dots { margin: 0 0 8px; }
-        .rv-viewer-dots span { background: rgba(244,234,220,.35); }
-        .rv-viewer-dots span.on { background: #F4EADC; }
         .rv-viewer-cap { text-align: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #E8D5B7; overflow-wrap: anywhere; }
+        /* The dots are buttons; on a phone they look and lay out exactly as the old spans (6 px dot, 6 px gap) and
+           take no pointer — the swipe is the control. The dot itself is ::before so the target can grow on desktop. */
         .rv-dots { display: flex; justify-content: center; gap: 6px; margin: 8px 0 0; }
-        .rv-dots span { width: 6px; height: 6px; border-radius: 50%; background: #D9C9B0; }
-        .rv-dots span.on { background: #8A5F3A; }
+        .rv-dot { flex: none; width: 6px; height: 6px; padding: 0; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; pointer-events: none; }
+        .rv-dot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #D9C9B0; }
+        .rv-dot.on::before { background: #8A5F3A; }
+        .rv-dots.rv-viewer-dots { margin: 0 0 8px; }
+        .rv-viewer-dots .rv-dot::before { background: rgba(244,234,220,.35); }
+        .rv-viewer-dots .rv-dot.on::before { background: #F4EADC; }
+        /* ‹ › — desktop only. 44 px round targets over the photo's left / right middle. */
+        .rv-photo-prev, .rv-photo-next { display: none; }
+        @media (hover: hover) and (pointer: fine) {
+          .rv-photo-prev, .rv-photo-next { display: flex; position: absolute; top: 50%; transform: translateY(-50%); z-index: 1; width: 44px; height: 44px; padding: 0; border: 0;
+            border-radius: 50%; align-items: center; justify-content: center; background: rgba(20,12,6,.55); color: #FFFDF8; cursor: pointer; }
+          .rv-photo-prev { left: 10px; }
+          .rv-photo-next { right: 10px; }
+          .rv-photo-prev:hover, .rv-photo-next:hover { background: rgba(20,12,6,.75); }
+          .rv-viewer .rv-photo-prev { left: 16px; }
+          .rv-viewer .rv-photo-next { right: 16px; }
+          .rv-viewer .rv-photo-prev, .rv-viewer .rv-photo-next { background: rgba(244,234,220,.14); }
+          .rv-viewer .rv-photo-prev:hover, .rv-viewer .rv-photo-next:hover { background: rgba(244,234,220,.26); }
+          .rv-dots { gap: 0; }
+          .rv-dot { width: 24px; height: 44px; pointer-events: auto; cursor: pointer; border-radius: 8px; }
+          .rv-dots.rv-viewer-dots { margin: 0 0 2px; }
+        }
+        .rv-photo-prev:focus-visible, .rv-photo-next:focus-visible { outline: 2px solid #E8D5B7; outline-offset: 2px; }
+        .rv-dot:focus-visible { outline: 2px solid #A0724A; outline-offset: -2px; }
+        .rv-viewer-dots .rv-dot:focus-visible { outline-color: #E8D5B7; }
         .rv-photo-cap { margin: 6px 20px 0; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8a7a60; overflow-wrap: anywhere; }
         .rv-photo-ctl { position: relative; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 8px; margin: 4px 16px 0; }
         .rv-photo-add { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: none; background: transparent; color: #8A5F3A;

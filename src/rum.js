@@ -55,6 +55,9 @@ const CHROME_ALLOW_LIST = [
   '.rv-photo-keep',  // Recipe view photo strip, inline confirm: "Keep" — fixed copy
   '.rv-photo-open',  // Recipe view photo hero: the photo itself as a button, aria-label "View photo full size" — no text content (the <img> inside is .op-replay-block, alt "") (Dan, 2026-10-21)
   '.rv-viewer-close',// Full-size photo viewer: "×", aria-label "Close photo" — fixed copy. The "N of M" count and the caption are household text, OFF this list
+  '.rv-photo-prev',  // Photo strip + viewer, desktop only: "‹", aria-label "Previous photo" — fixed copy, no text content (Dan, 2026-10-21)
+  '.rv-photo-next',  // Photo strip + viewer, desktop only: "›", aria-label "Next photo" — fixed copy, no text content
+  '.rv-dot',         // Photo strip + viewer dots (buttons; clickable on desktop): no text content, aria-label "Show photo N" — a position, never content
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
   '.deck-switch',    // Home on-deck card: "Switch"
   '.deck-x',         // Home on-deck card: × on a held night
