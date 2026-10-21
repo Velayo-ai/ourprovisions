@@ -2212,11 +2212,12 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
 }
 // ONE COOK in "Your cooks" (S5). The date, then one line per rater: their stars, their note beneath.
 // In a household of 2+ current members each line carries the rater's first name; solo, stars only.
-// The viewer's own line is the editable CookRating (tap to change; the note edits in place); a cook the
-// viewer hasn't rated offers "How was it for you?". Never a line about who didn't rate. Other members'
+// The viewer's own line is the editable CookRating (tap to change; the note edits in place). "How was it
+// for you?" is offered only on the meal's newest cook, and only while the viewer hasn't rated it (`offer`,
+// Dan 2026-10-21); it never moves to an older cook. Never a line about who didn't rate. Other members'
 // stars are drawn, not buttons — nobody rates for anyone else (rate_cook has no user parameter). The
 // count of stars is spoken through .sr-only text (masked), never an attribute. No averages (S7).
-function CookRow({ cook, ratings, members, viewerUserId, canRate, onRate }) {
+function CookRow({ cook, ratings, members, viewerUserId, canRate, onRate, offer = false }) {
   const multi = (members || []).length >= 2;
   const nameOf = (uid) => memberFirstName((members || []).find((mb) => mb.user_id === uid));
   const mine = viewerUserId ? ratings.find((r) => r.user_id === viewerUserId) : null;
@@ -2233,7 +2234,7 @@ function CookRow({ cook, ratings, members, viewerUserId, canRate, onRate }) {
           {r.note && <div className="rv-rater-note">{r.note}</div>}
         </div>
       ))}
-      {canRate && (
+      {canRate && (mine || offer) && (
         <div className="rv-rater mine">
           <CookRating label={mine ? (multi ? nameOf(viewerUserId) || "You" : "") : "How was it for you?"}
             rating={mine ? mine.rating : null} note={mine ? mine.note || "" : ""} onRate={(rt, nt) => onRate(cook.id, rt, nt)} openWhenRated={false} />
@@ -2530,6 +2531,10 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   const cookRatings = (id) => (ratingsFor ? ratingsFor(id) : []).filter((r) => r.rating != null || (r.note && r.note.trim()));
   const cookHasPhoto = (id) => (photos || []).some((p) => p.meal_cook_id === id);
   const showCooks = rows.length >= RV_COOKS_MIN || rows.some((r) => cookRatings(r.id).length > 0 || cookHasPhoto(r.id));
+  // "How was it for you?" only on the meal's NEWEST cook, and only while the viewer hasn't rated it. It never
+  // moves to an older cook (Dan, 2026-10-21). Rows are newest first.
+  const newestCook = rows[0] || null;
+  const offerCookId = newestCook && !(ratingsFor ? ratingsFor(newestCook.id) : []).some((x) => x.user_id === viewerUserId) ? newestCook.id : null;
   // THE ACTION BLOCK (Amendment B + Step 0 rulings, 2026-10-19; src/lib/recipePlan.js,
   // jest-proven): a status line that never acts, ONE main action, a quiet remove link.
   // Every action is the board's own handler (B3): Add to Shop = the board's Add to Shop
@@ -2649,7 +2654,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
             <ul className="rv-cooks">
               {shownCooks.map((r) => (
                 <CookRow key={r.id} cook={r} ratings={cookRatings(r.id)} members={members} viewerUserId={viewerUserId}
-                  canRate={!!canRate && !!onRate} onRate={onRate} />
+                  canRate={!!canRate && !!onRate} onRate={onRate} offer={r.id === offerCookId} />
               ))}
             </ul>
             {!allCooks && rows.length > RV_COOKS_SHOWN && (

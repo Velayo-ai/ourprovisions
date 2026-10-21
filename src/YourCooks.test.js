@@ -116,3 +116,37 @@ describe("'Your cooks' (S5)", () => {
     }));
   });
 });
+
+// "How was it for you?" only on the meal's NEWEST cook, and only if the viewer hasn't rated it — it never
+// moves to an older cook. Rated lines stay editable (Dan, 2026-10-21).
+describe("'How was it for you?' is offered on the newest cook only", () => {
+  const C3 = { id: "c3", cooked_at: daysAgo(30) };
+  const prompts = (c) => qa(c, ".rv-cook").map((row) => {
+    const label = q(row, ".rv-rater.mine .rate-label");
+    return label ? label.textContent : null;
+  });
+
+  test("three cooks, the viewer rated none → the prompt on the newest only", () => {
+    const { container } = view({ cooks: [C1, C2, C3], ratings: { c2: [{ meal_cook_id: "c2", user_id: DH, rating: 2, note: null }] } });
+    expect(prompts(container)).toEqual(["How was it for you?", null, null]);
+  });
+
+  test("rated the newest → no prompt anywhere; the own line stays editable", () => {
+    const { container, onRate } = view({ cooks: [C1, C2, C3], ratings: { c1: [{ meal_cook_id: "c1", user_id: DT, rating: 3, note: null }] } });
+    expect(prompts(container)).toEqual(["Helen", null, null]);
+    expect(container.textContent).not.toMatch(/How was it for you\?/);
+    fireEvent.click(qa(qa(container, ".rv-cook")[0], ".rate-star")[1]);
+    expect(onRate).toHaveBeenCalledWith("c1", 2, "");
+  });
+
+  test("an older cook the viewer rated keeps its editable line; the newest, unrated, gets the prompt", () => {
+    const { container } = view({ cooks: [C1, C2, C3], ratings: { c3: [{ meal_cook_id: "c3", user_id: DT, rating: 2, note: null }] } });
+    expect(prompts(container)).toEqual(["How was it for you?", null, "Helen"]);
+  });
+
+  test("an older unrated cook never shows stars to tap", () => {
+    const { container } = view({ cooks: [C1, C2, C3], ratings: { c1: [{ meal_cook_id: "c1", user_id: DT, rating: 3, note: null }] } });
+    expect(qa(qa(container, ".rv-cook")[1], ".rate-star")).toHaveLength(0);
+    expect(qa(qa(container, ".rv-cook")[2], ".rate-star")).toHaveLength(0);
+  });
+});
