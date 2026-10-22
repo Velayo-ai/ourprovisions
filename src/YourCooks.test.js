@@ -169,3 +169,13 @@ describe("the viewer is 'You'", () => {
     expect(q(view({ members: SAME, photos: [own] }).container, ".rv-photo-cap").textContent).toMatch(/^Cooked .+ · You$/);
   });
 });
+
+describe("the row date starts with a capital", () => {
+  test("a cook tonight reads 'Tonight' at the start of its row; the caption keeps 'Cooked tonight'", () => {
+    const tonight = { id: "c0", cooked_at: new Date().toISOString() };
+    const photo = { id: "p0", meal_id: MEAL.id, meal_cook_id: "c0", cooked_at: tonight.cooked_at, uploaded_by: DH, uploaded_at: tonight.cooked_at, view_path: "v", url: "https://x/v" };
+    const { container } = view({ cooks: [tonight], photos: [photo] });
+    expect(q(container, ".rv-cook-date").textContent).toBe("Tonight");
+    expect(q(container, ".rv-photo-cap").textContent).toBe("Cooked tonight · Dan");
+  });
+});

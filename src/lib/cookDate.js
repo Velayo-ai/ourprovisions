@@ -22,6 +22,13 @@ export function cookDate(iso, now = new Date()) {
     : { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 }
 
+// The same date where it STARTS a line — a "Your cooks" row (Dan, 2026-10-21): "Tonight", "Yesterday",
+// "Sunday", "Sun, Sep 27". Mid-sentence uses ("Last cooked tonight", "Cooked tonight · Dan") keep cookDate.
+export function cookDateStart(iso, now = new Date()) {
+  const d = cookDate(iso, now);
+  return d ? d.charAt(0).toUpperCase() + d.slice(1) : d;
+}
+
 // The meta line's cook history: "Last cooked {date}", "· {N} times" at 2+;
 // empty when never cooked (no cook line at all).
 export function cookHistoryLine(lastCookedAt, count, now = new Date()) {

@@ -24,7 +24,7 @@ import { leftToBuy, recipeBlockFor, REMOVE_LABEL } from './lib/recipePlan';
 import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } from './lib/boardState';
 import { rowCountsFromProvenance } from './lib/mealLinks';
 import { addAllOnHandLine } from './lib/onHand';
-import { cookDate, cookHistoryLine } from './lib/cookDate';
+import { cookDateStart, cookHistoryLine } from './lib/cookDate';
 import { photosByMeal, photosFingerprint, photoCaption, MEAL_PHOTO_CAP } from './lib/mealPhotos';
 import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
@@ -2231,7 +2231,7 @@ function CookRow({ cook, ratings, members, viewerUserId, canRate, onRate, offer 
   const others = ratings.filter((r) => r !== mine);
   return (
     <li className="rv-cook">
-      <span className="rv-cook-date">{cookDate(cook.cooked_at)}</span>
+      <span className="rv-cook-date">{cookDateStart(cook.cooked_at)}</span>
       {others.map((r) => (
         <div className="rv-rater" key={r.user_id}>
           <div className="rv-rater-line">
