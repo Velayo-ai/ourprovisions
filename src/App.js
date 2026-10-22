@@ -964,7 +964,7 @@ function HomeWelcome({ signUpInitialValues, ready }) {
 // aria-label either. The body tap target (.deck-body) is masked.
 export function OnDeckCard({
   boardMeals, boardCards, placements, rows, mealById, cookedIds, busyMealId, switching, holdNight,
-  onAdd, onView, onLockIn, onCooked, onSkip, onSwitch, onLeftovers, onOut, onOther,
+  onAdd, onView, onLockIn, onCooked, onSkip, onSwitch, onLeftovers, onOut, onOther, afterglow,
 }) {
   // Row 0 — the afterglow reads the RENDERED list: boardMeals has already
   // dropped the cooked meal, boardCards keeps it until the next load.
@@ -979,6 +979,12 @@ export function OnDeckCard({
         <div className="deck-actions">
           <button type="button" className="deck-primary done" disabled>✓ Cooked</button>
         </div>
+        {/* The afterglow appears wherever Cooked it is tapped (Dan, 2026-10-21 walk): the board's own
+            component, same events stopped. P5 narrowed: Home never SHOWS a meal photo, but it may
+            capture one here — so "Photo added" carries no thumbnail on Home. */}
+        {afterglow && afterglow.cookIdFor(head.id) && (
+          <BoardAfterglow mealId={head.id} cookId={afterglow.cookIdFor(head.id)} ag={afterglow} showThumb={false} />
+        )}
       </section>
     );
   }
@@ -2310,8 +2316,10 @@ const StarGlyph = ({ filled }) => (
 // thumbnail confirms "Photo added". At the cap of 3 the photo button is hidden (R1) — no photo is ever
 // aged out silently. Every event stops here: the card is a role="button" that opens the recipe view on
 // click / Enter / Space and arms a long-press drag on pointerdown, and none of that may fire from a
-// star, the note or the photo button. Board only — Home's on-deck afterglow stays out (P5).
-function BoardAfterglow({ mealId, cookId, ag }) {
+// star, the note or the photo button. Used by the board AND Home's on-deck card (Dan, 2026-10-21: the
+// afterglow appears wherever Cooked it is tapped); on Home `showThumb` is off (P5 narrowed: Home captures
+// a photo, never shows one).
+function BoardAfterglow({ mealId, cookId, ag, showThumb = true }) {
   const fileRef = useRef(null);
   const mine = ag.myRating(cookId);
   const photo = ag.photoFor(mealId, cookId);
@@ -2329,7 +2337,7 @@ function BoardAfterglow({ mealId, cookId, ag }) {
         <div className="board-glow-photo">
           {photo && (
             <span className="board-photo-done">
-              {photo.url && <img className="board-photo-thumb op-replay-block" src={photo.url} alt="" />}
+              {showThumb && photo.url && <img className="board-photo-thumb op-replay-block" src={photo.url} alt="" />}
               Photo added
             </span>
           )}
@@ -9951,6 +9959,7 @@ function ProvisionsApp() {
               onLeftovers: openLeftoversSheet,
               onOut: () => setNoShopSheet({ kind: "out", name: "", fromMealIds: [] }),
               onOther: () => setNoShopSheet({ kind: "other", name: "", fromMealIds: [] }),
+              afterglow: boardAfterglow,   // the same "How was it?" + "Add a meal photo" as the board (no thumbnail on Home)
             }}
             list={{
               openCount: totalItems - checkedCount,

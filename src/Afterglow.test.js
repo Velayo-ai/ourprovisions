@@ -9,7 +9,7 @@
 //   - "Add a meal photo" (.board-photo-add) uploads COOK-attached; hidden at the cap of 3
 //   - "Photo added" + a thumbnail that carries .op-replay-block
 //   - nothing reaches the card: no recipe view, no Enter/Space open, no drag
-//   - the 55% dimming stays off the afterglow; Home's on-deck afterglow has none (P5)
+//   - the 55% dimming stays off the afterglow; Home's on-deck card gets the same afterglow (P5 narrowed)
 import { render, fireEvent } from "@testing-library/react";
 
 jest.mock("@splunk/otel-web", () => ({ __esModule: true, default: { init: () => {}, setGlobalAttributes: () => {} } }));
@@ -130,12 +130,50 @@ describe("the board afterglow (S4)", () => {
   });
 });
 
-describe("P5: Home's on-deck afterglow carries no rating or photo controls", () => {
-  test("OnDeckCard cooked → ✓ Cooked only", () => {
-    const { container } = render(<OnDeckCard boardMeals={[]} boardCards={[MEAL]} placements={{ [MEAL.id]: { sortOrder: 0 } }} rows={{}} mealById={{}}
+describe("Home's on-deck afterglow (Dan, 2026-10-21: wherever Cooked it is tapped; P5 narrowed)", () => {
+  function deck({ cookId = COOK, photo = null, atCap = false } = {}) {
+    const h = { onRate: jest.fn(), onAddPhoto: jest.fn(), onView: jest.fn() };
+    const afterglow = { cookIdFor: () => cookId, myRating: () => null, onRate: h.onRate, photoFor: () => photo, atCap: () => atCap, onAddPhoto: h.onAddPhoto, photoBusyMealId: null };
+    const utils = render(<OnDeckCard boardMeals={[]} boardCards={[MEAL]} placements={{ [MEAL.id]: { sortOrder: 0 } }} rows={{}} mealById={{}}
       cookedIds={new Set([MEAL.id])} busyMealId={null} switching={false} holdNight={false}
-      onAdd={noop} onView={noop} onLockIn={noop} onCooked={noop} onSkip={noop} onSwitch={noop} onLeftovers={noop} onOut={noop} onOther={noop} />);
-    expect(q(container, ".rate-star")).toBeNull();
+      onAdd={noop} onView={h.onView} onLockIn={noop} onCooked={noop} onSkip={noop} onSwitch={noop} onLeftovers={noop} onOut={noop} onOther={noop} afterglow={afterglow} />);
+    return { ...utils, h };
+  }
+
+  test("cooked on Home → ✓ Cooked, then the same 'How was it?' stars and 'Add a meal photo' as the board", () => {
+    const { container, h } = deck();
+    expect(q(container, ".deck-primary.done").textContent).toBe("✓ Cooked");
+    expect(q(container, ".board-glow .rate-label").textContent).toBe("How was it?");
+    expect(qa(container, ".board-glow .rate-star")).toHaveLength(3);
+    fireEvent.click(qa(container, ".rate-star")[1]);
+    expect(h.onRate).toHaveBeenCalledWith(COOK, 2, "");
+    expect(q(container, ".rate-note")).not.toBeNull();
+    const file = new File([new Uint8Array([1])], "p.jpg", { type: "image/jpeg" });
+    fireEvent.change(q(container, ".board-glow input[type=file]"), { target: { files: [file] } });
+    expect(h.onAddPhoto).toHaveBeenCalledWith(MEAL.id, file, COOK);
+  });
+
+  test("P5 narrowed: Home captures a photo but never shows one — 'Photo added' with no thumbnail", () => {
+    const { container } = deck({ photo: { id: "p1", url: "https://x/t.jpg" } });
+    expect(q(container, ".board-photo-done").textContent).toBe("Photo added");
+    expect(q(container, "img")).toBeNull();
+  });
+
+  test("no cook id → ✓ Cooked only (S3)", () => {
+    expect(q(deck({ cookId: null }).container, ".board-glow")).toBeNull();
+  });
+
+  test("at the cap of 3, no 'Add a meal photo' on Home either", () => {
+    const { container } = deck({ atCap: true });
     expect(q(container, ".board-photo-add")).toBeNull();
+    expect(q(container, ".rate-star")).not.toBeNull();
+  });
+
+  test("nothing in the afterglow reaches the on-deck card", () => {
+    const { container, h } = deck();
+    fireEvent.click(qa(container, ".rate-star")[0]);
+    fireEvent.click(q(container, ".board-photo-add"));
+    fireEvent.keyDown(q(container, ".rate-note"), { key: "Enter" });
+    expect(h.onView).not.toHaveBeenCalled();
   });
 });
