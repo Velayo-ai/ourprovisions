@@ -55,3 +55,18 @@ describe("addedDate / photoCaption (R2)", () => {
     expect(photoCaption(null, [], first, NOW)).toBe("");
   });
 });
+
+describe("photoCaption: the viewer is 'You' (Dan, 2026-10-21)", () => {
+  const members = [{ user_id: "u1", name: "Dan" }, { user_id: "u2", name: "Dan" }];
+  test("the viewer's own photo → '· You'; another member's → their first name", () => {
+    expect(photoCaption(row("a", "m1", 0, { uploaded_by: "u2" }), members, first, NOW, "u2")).toBe("Added today · You");
+    expect(photoCaption(row("a", "m1", 0, { uploaded_by: "u1" }), members, first, NOW, "u2")).toBe("Added today · Dan");
+  });
+  test("solo: no name at all, not even 'You'", () => {
+    expect(photoCaption(row("a", "m1", 0, { uploaded_by: "u1" }), [members[0]], first, NOW, "u1")).toBe("Added today");
+  });
+  test("a cook-attached photo of the viewer's: 'Cooked {date} · You'", () => {
+    const p = row("a", "m1", 0, { uploaded_by: "u1", meal_cook_id: "c1", cooked_at: at(1) });
+    expect(photoCaption(p, members, first, NOW, "u1")).toBe("Cooked yesterday · You");
+  });
+});

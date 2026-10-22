@@ -5,7 +5,9 @@
 //        the client hides "Add a meal photo" at the cap
 //   R2   caption "Added {date}", plus " · {First name}" only in a household of
 //        2+ current members and only while the uploader is still one (the
-//        "Added by" rule); a cook-attached photo (slice 2) reads "Cooked {date}"
+//        "Added by" rule); a cook-attached photo (slice 2) reads "Cooked {date}".
+//        The viewer's own photo reads " · You" (Dan, 2026-10-21: two members can
+//        share a first name — both test accounts are "Dan")
 import { cookDate } from "./cookDate";
 
 export const MEAL_PHOTO_CAP = 3;
@@ -34,8 +36,9 @@ export function addedDate(iso, now = new Date()) {
   return d === "tonight" ? "today" : d;
 }
 
-// members: the household's current members; firstNameOf(member) → "Dan".
-export function photoCaption(photo, members, firstNameOf, now = new Date()) {
+// members: the household's current members; firstNameOf(member) → "Dan";
+// viewerUserId: the viewer's users.id — their own photo reads "You".
+export function photoCaption(photo, members, firstNameOf, now = new Date(), viewerUserId = null) {
   if (!photo) return "";
   const when = addedDate(photo.uploaded_at, now);
   if (!when) return "";
@@ -43,6 +46,6 @@ export function photoCaption(photo, members, firstNameOf, now = new Date()) {
   const list = members || [];
   if (list.length < 2) return verb;
   const m = list.find((mb) => mb && mb.user_id && mb.user_id === photo.uploaded_by);
-  const name = m ? (firstNameOf(m) || "") : "";
+  const name = !m ? "" : (viewerUserId && photo.uploaded_by === viewerUserId ? "You" : (firstNameOf(m) || ""));
   return name ? `${verb} · ${name}` : verb;
 }

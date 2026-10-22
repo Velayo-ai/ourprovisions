@@ -2089,7 +2089,7 @@ const RV_COOKS_MIN = 2;
 // .rv-photo-add / .rv-photo-remove / .rv-photo-remove-yes / .rv-photo-keep are allow-listed
 // (fixed copy); ⋯ (.rv-photo-more) and the question are not — ⋯ is named by a fixed
 // aria-label, the question is masked text; no meal name anywhere in an attribute.
-function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove }) {
+function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove, viewerUserId = null }) {
   const [idx, setIdx] = useState(0);
   const [menu, setMenu] = useState(false);   // false | "menu" | "confirm"
   const [viewer, setViewer] = useState(null);   // null | the index the full-size viewer opened at
@@ -2151,7 +2151,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     const i = Math.round(el.scrollLeft / el.clientWidth);
     if (i !== at) { setIdx(i); setMenu(false); }
   };
-  const caption = shown ? photoCaption(shown, members, memberFirstName) : "";
+  const caption = shown ? photoCaption(shown, members, memberFirstName, new Date(), viewerUserId) : "";
   const pick = (e) => {
     const f = e.target.files && e.target.files[0];
     e.target.value = "";   // the same file can be chosen again after a failure
@@ -2180,7 +2180,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
         </div>
       )}
       {viewer !== null && n > 0 && (
-        <PhotoViewer photos={live} start={Math.min(viewer, n - 1)} members={members} onClose={closeViewer} />
+        <PhotoViewer photos={live} start={Math.min(viewer, n - 1)} members={members} viewerUserId={viewerUserId} onClose={closeViewer} />
       )}
       {n >= 2 && <PhotoDots photos={live} at={at} onGo={goTo} />}
       {caption && <div className="rv-photo-cap">{caption}</div>}
@@ -2217,7 +2217,8 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
   );
 }
 // ONE COOK in "Your cooks" (S5). The date, then one line per rater: their stars, their note beneath.
-// In a household of 2+ current members each line carries the rater's first name; solo, stars only.
+// In a household of 2+ current members each line carries the rater's first name — the viewer's own
+// line reads "You" (Dan, 2026-10-21: two members can share a first name); solo, stars only.
 // The viewer's own line is the editable CookRating (tap to change; the note edits in place). "How was it
 // for you?" is offered only on the meal's newest cook, and only while the viewer hasn't rated it (`offer`,
 // Dan 2026-10-21); it never moves to an older cook. Never a line about who didn't rate. Other members'
@@ -2242,14 +2243,14 @@ function CookRow({ cook, ratings, members, viewerUserId, canRate, onRate, offer 
       ))}
       {canRate && (mine || offer) && (
         <div className="rv-rater mine">
-          <CookRating label={mine ? (multi ? nameOf(viewerUserId) || "You" : "") : "How was it for you?"}
+          <CookRating label={mine ? (multi ? "You" : "") : "How was it for you?"}
             rating={mine ? mine.rating : null} note={mine ? mine.note || "" : ""} onRate={(rt, nt) => onRate(cook.id, rt, nt)} openWhenRated={false} />
         </div>
       )}
       {!canRate && mine && (
         <div className="rv-rater">
           <div className="rv-rater-line">
-            {multi && <span className="rv-rater-name">{nameOf(viewerUserId)}</span>}
+            {multi && <span className="rv-rater-name">You</span>}
             {mine.rating != null && <StaticStars n={mine.rating} />}
           </div>
           {mine.note && <div className="rv-rater-note">{mine.note}</div>}
@@ -2363,7 +2364,7 @@ function BoardAfterglow({ mealId, cookId, ag, showThumb = true }) {
 // RUM: .op-replay-block on every viewer <img>; .rv-viewer-close joins the allow-list (fixed
 // copy "×"); the count and the caption are household text and are NOT on it. The dialog is
 // named by a fixed aria-label, never the meal.
-function PhotoViewer({ photos, start, members, onClose }) {
+function PhotoViewer({ photos, start, members, onClose, viewerUserId = null }) {
   const [at, setAt] = useState(start);
   const atRef = useRef(start);
   const stripRef = useRef(null);
@@ -2410,7 +2411,7 @@ function PhotoViewer({ photos, start, members, onClose }) {
     if (i !== atRef.current) { atRef.current = i; setAt(i); }
   };
   const stop = (e) => e.stopPropagation();
-  const caption = photoCaption(photos[at], members, memberFirstName);
+  const caption = photoCaption(photos[at], members, memberFirstName, new Date(), viewerUserId);
   return createPortal(
     <div className="rv-viewer" role="dialog" aria-modal="true" aria-label="Photo" ref={rootRef}
       onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop} onClick={stop}>
@@ -2585,7 +2586,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
         <SheetClose onClose={onClose} />
         <div className="lib-type-handle" aria-hidden="true" />
         <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
-        <RecipePhotos meal={meal} tint={tint} first={first} members={members} photos={photosReady ? (photos || []) : []}
+        <RecipePhotos meal={meal} tint={tint} first={first} members={members} viewerUserId={viewerUserId} photos={photosReady ? (photos || []) : []}
           canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onRemove={onRemovePhoto} />
         <div className="rv-head">
           <h2 id="rv-title" className="rv-title">{displayTitle(meal.name)}</h2>

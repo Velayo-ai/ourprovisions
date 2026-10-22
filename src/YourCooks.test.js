@@ -62,10 +62,10 @@ describe("'Your cooks' (S5)", () => {
     expect(onRate).toHaveBeenCalledWith("c1", 1, "");
   });
 
-  test("once rated, the viewer's own line is tappable to change it, under their first name", () => {
+  test("once rated, the viewer's own line is tappable to change it, labelled \"You\"", () => {
     const { container, onRate } = view({ ratings: { c1: [{ meal_cook_id: "c1", user_id: DT, rating: 2, note: null }] } });
     const mine = q(container, ".rv-rater.mine");
-    expect(q(mine, ".rate-label").textContent).toBe("Helen");
+    expect(q(mine, ".rate-label").textContent).toBe("You");   // never their own first name (two members can share one)
     expect(qa(mine, ".rate-star.on")).toHaveLength(2);
     expect(q(mine, ".rate-note")).toBeNull();   // no empty note field under a rated cook
     fireEvent.click(qa(mine, ".rate-star")[2]);
@@ -133,7 +133,7 @@ describe("'How was it for you?' is offered on the newest cook only", () => {
 
   test("rated the newest → no prompt anywhere; the own line stays editable", () => {
     const { container, onRate } = view({ cooks: [C1, C2, C3], ratings: { c1: [{ meal_cook_id: "c1", user_id: DT, rating: 3, note: null }] } });
-    expect(prompts(container)).toEqual(["Helen", null, null]);
+    expect(prompts(container)).toEqual(["You", null, null]);
     expect(container.textContent).not.toMatch(/How was it for you\?/);
     fireEvent.click(qa(qa(container, ".rv-cook")[0], ".rate-star")[1]);
     expect(onRate).toHaveBeenCalledWith("c1", 2, "");
@@ -141,12 +141,31 @@ describe("'How was it for you?' is offered on the newest cook only", () => {
 
   test("an older cook the viewer rated keeps its editable line; the newest, unrated, gets the prompt", () => {
     const { container } = view({ cooks: [C1, C2, C3], ratings: { c3: [{ meal_cook_id: "c3", user_id: DT, rating: 2, note: null }] } });
-    expect(prompts(container)).toEqual(["How was it for you?", null, "Helen"]);
+    expect(prompts(container)).toEqual(["How was it for you?", null, "You"]);
   });
 
   test("an older unrated cook never shows stars to tap", () => {
     const { container } = view({ cooks: [C1, C2, C3], ratings: { c1: [{ meal_cook_id: "c1", user_id: DT, rating: 3, note: null }] } });
     expect(qa(qa(container, ".rv-cook")[1], ".rate-star")).toHaveLength(0);
     expect(qa(qa(container, ".rv-cook")[2], ".rate-star")).toHaveLength(0);
+  });
+});
+
+// "You" (Dan, 2026-10-21): the viewer's own line and own photos never carry their first name — two
+// members can share one (both test accounts are "Dan"). Other members keep their first names.
+describe("the viewer is 'You'", () => {
+  const SAME = [{ user_id: DH, users: { full_name: "Dan Holmes" } }, { user_id: DT, users: { full_name: "Dan Test User" } }];
+  test("two members both named Dan: the other is 'Dan', the viewer is 'You'", () => {
+    const { container } = view({ members: SAME, ratings: { c1: [{ meal_cook_id: "c1", user_id: DH, rating: 3, note: null }, { meal_cook_id: "c1", user_id: DT, rating: 1, note: null }] } });
+    expect(q(container, ".rv-rater:not(.mine) .rv-rater-name").textContent).toBe("Dan");
+    expect(q(container, ".rv-rater.mine .rate-label").textContent).toBe("You");
+  });
+  test("signed out (read-only), the viewer's own line still reads 'You'", () => {
+    const { container } = view({ members: SAME, canRate: false, ratings: { c1: [{ meal_cook_id: "c1", user_id: DT, rating: 2, note: null }] } });
+    expect(qa(container, ".rv-rater-name").map((e) => e.textContent)).toEqual(["You"]);
+  });
+  test("the viewer's own photo caption reads '· You'; another member's reads their first name", () => {
+    const own = { id: "p1", meal_id: MEAL.id, meal_cook_id: "c1", cooked_at: C1.cooked_at, uploaded_by: DT, uploaded_at: daysAgo(10), view_path: "v", url: "https://x/v" };
+    expect(q(view({ members: SAME, photos: [own] }).container, ".rv-photo-cap").textContent).toMatch(/^Cooked .+ · You$/);
   });
 });
