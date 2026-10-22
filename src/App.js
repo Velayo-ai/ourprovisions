@@ -2536,14 +2536,17 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   const rows = cookRows || [];
   const shownCooks = allCooks ? rows : rows.slice(0, RV_COOKS_SHOWN);
   // S5: "Your cooks" from ONE cook when any cook carries a rating, a note or a photo (amends A4's 2+
-  // for that case only); a meal cooked once with nothing attached still shows nothing.
+  // for that case only) — or when the viewer has the newest cook still to rate (below).
   const cookRatings = (id) => (ratingsFor ? ratingsFor(id) : []).filter((r) => r.rating != null || (r.note && r.note.trim()));
   const cookHasPhoto = (id) => (photos || []).some((p) => p.meal_cook_id === id);
-  const showCooks = rows.length >= RV_COOKS_MIN || rows.some((r) => cookRatings(r.id).length > 0 || cookHasPhoto(r.id));
   // "How was it for you?" only on the meal's NEWEST cook, and only while the viewer hasn't rated it. It never
   // moves to an older cook (Dan, 2026-10-21). Rows are newest first.
   const newestCook = rows[0] || null;
   const offerCookId = newestCook && !(ratingsFor ? ratingsFor(newestCook.id) : []).some((x) => x.user_id === viewerUserId) ? newestCook.id : null;
+  // The first-cook gap (Dan, 2026-10-21): a meal cooked once with nothing attached still shows "Your cooks" to
+  // a member who can rate its newest cook and hasn't — so a cook made from the recipe view can be rated there.
+  const offerOpen = !!canRate && !!onRate && !!offerCookId;
+  const showCooks = rows.length >= RV_COOKS_MIN || offerOpen || rows.some((r) => cookRatings(r.id).length > 0 || cookHasPhoto(r.id));
   // THE ACTION BLOCK (Amendment B + Step 0 rulings, 2026-10-19; src/lib/recipePlan.js,
   // jest-proven): a status line that never acts, ONE main action, a quiet remove link.
   // Every action is the board's own handler (B3): Add to Shop = the board's Add to Shop

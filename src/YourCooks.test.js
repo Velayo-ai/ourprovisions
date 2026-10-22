@@ -37,8 +37,8 @@ const qa = (c, s) => Array.from(c.querySelectorAll(s));
 const section = (c) => qa(c, ".rv-sec").find((h) => h.textContent.startsWith("Your cooks"));
 
 describe("'Your cooks' (S5)", () => {
-  test("cooked once, nothing attached → no 'Your cooks' (unchanged)", () => {
-    const { container } = view();
+  test("cooked once, nothing attached, and the viewer can't rate (signed out) → no 'Your cooks'", () => {
+    const { container } = view({ canRate: false });
     expect(section(container)).toBeUndefined();
   });
 
@@ -177,5 +177,47 @@ describe("the row date starts with a capital", () => {
     const { container } = view({ cooks: [tonight], photos: [photo] });
     expect(q(container, ".rv-cook-date").textContent).toBe("Tonight");
     expect(q(container, ".rv-photo-cap").textContent).toBe("Cooked tonight · Dan");
+  });
+});
+
+// The first-cook gap (Dan, 2026-10-21): a meal cooked ONCE from the recipe view, nothing attached, still
+// shows "Your cooks" to any member who hasn't rated that cook — the prompt is the reason it shows.
+describe("the first cook can be rated from the recipe view", () => {
+  const ONLY = { id: "c1", cooked_at: new Date().toISOString() };
+  test("every member sees 'Your cooks · 1' with 'How was it for you?' on it", () => {
+    for (const viewer of [DH, DT]) {
+      const { container, unmount } = view({ cooks: [ONLY], viewer });
+      expect(section(container).textContent).toBe("Your cooks 1");
+      expect(qa(container, ".rv-cook")).toHaveLength(1);
+      expect(q(container, ".rv-cook-date").textContent).toBe("Tonight");
+      expect(q(container, ".rv-rater.mine .rate-label").textContent).toBe("How was it for you?");
+      expect(qa(container, ".rv-rater:not(.mine)")).toHaveLength(0);
+      unmount();
+    }
+  });
+
+  test("a tap rates that cook as the viewer", () => {
+    const { container, onRate } = view({ cooks: [ONLY], viewer: DH });
+    fireEvent.click(qa(container, ".rate-star")[2]);
+    expect(onRate).toHaveBeenCalledWith("c1", 3, "");
+  });
+
+  test("once DH has rated: DH sees only their own line ('You'); DT sees DH's line and their own prompt", () => {
+    const ratings = { c1: [{ meal_cook_id: "c1", user_id: DH, rating: 3, note: null }] };
+    const dh = view({ cooks: [ONLY], viewer: DH, ratings });
+    expect(qa(dh.container, ".rv-rater").map((e) => e.classList.contains("mine"))).toEqual([true]);
+    expect(q(dh.container, ".rv-rater.mine .rate-label").textContent).toBe("You");
+    expect(dh.container.textContent).not.toMatch(/How was it for you\?/);
+    dh.unmount();
+    const dt = view({ cooks: [ONLY], viewer: DT, ratings });
+    expect(q(dt.container, ".rv-rater:not(.mine) .rv-rater-name").textContent).toBe("Dan");
+    expect(q(dt.container, ".rv-rater.mine .rate-label").textContent).toBe("How was it for you?");
+  });
+
+  test("both have rated → each sees the other's line and their own 'You' line, no prompt", () => {
+    const ratings = { c1: [{ meal_cook_id: "c1", user_id: DH, rating: 3, note: null }, { meal_cook_id: "c1", user_id: DT, rating: 1, note: null }] };
+    const { container } = view({ cooks: [ONLY], viewer: DT, ratings });
+    expect(q(container, ".rv-rater.mine .rate-label").textContent).toBe("You");
+    expect(container.textContent).not.toMatch(/How was it for you\?/);
   });
 });
