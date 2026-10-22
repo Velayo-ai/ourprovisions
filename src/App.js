@@ -2554,7 +2554,8 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   // the board's ⋯ → Remove (handleSkipMeal with the card's toBuy, so a To-buy meal's items
   // come off Shop as they do from the board). No toast on Remove, as on the board: the view
   // moving to "+ Add to This Week" / "+ Plan again" is the feedback and the undo (B4).
-  const block = recipeBlockFor(state);
+  // A meal with any cook reads "+ Plan again" off This Week, whether or not this load cooked it (A5).
+  const block = recipeBlockFor(state, { cookedBefore: (cookCount || 0) > 0 || !!lastCookedAt });
   let plan;
   if (block.action === "add") {
     plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Add to This Week</button>;

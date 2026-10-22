@@ -7,6 +7,10 @@
 // "planned AND has ingredients"), so a To-buy meal fell into the Cooked it
 // branch. The rule is now stated in the order the spec states it:
 //   null state       not on This Week          → "add"     + Add to This Week
+//   null state + cookedBefore                  → "cooked"  + Plan again — a meal with any cook
+//                    (Dan, 2026-10-21: A5's "Cooked → + Plan again" is the meal's history, not
+//                    this load; before this, reopening the view after the afterglow ended read
+//                    "+ Add to This Week" for a meal that just read "+ Plan again")
 //   cooked           cooked this load          → "cooked"  + Plan again (A5 revision: acts,
 //                                                          the same handler as Add)
 //   ready            everything is in          → "cookIt"  Cooked it (teal)
@@ -21,8 +25,8 @@
 // Cooked it is never offered while anything is still to buy (D9a), nor before
 // wrap-up (Amendment C2): only Ready, or nothing to shop for. Every pill acts;
 // information lives in text (A5 revision, 2026-10-18).
-export function planActionFor(state) {
-  if (!state) return "add";
+export function planActionFor(state, { cookedBefore = false } = {}) {
+  if (!state) return cookedBefore ? "cooked" : "add";
   if (state.cooked) return "cooked";
   if (state.ready) return "cookIt";
   if (state.toBuy) return leftToBuy(state) === 0 ? "wrapUp" : "toBuy";
@@ -53,8 +57,8 @@ export const REMOVE_LABEL = {
   week: "Remove from This Week",
   shop: "Remove (and take its items off Shop)",
 };
-export function recipeBlockFor(state) {
-  const action = planActionFor(state);
+export function recipeBlockFor(state, opts = {}) {
+  const action = planActionFor(state, opts);
   if (!state || state.cooked) return { onWeek: false, soft: null, action, remove: null };
   const soft = state.ready ? "Everything's in"
     : state.toBuy ? (leftToBuy(state) === 0 ? "All in your cart" : null)

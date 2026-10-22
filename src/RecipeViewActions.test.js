@@ -175,3 +175,22 @@ describe("the call site hands the view the board's OWN handlers (B3)", () => {
     expect(app).toMatch(/\{MEALS_ENABLED && rvMeal && !mealSheet && !onHandPrompt && \(\s*<RecipeView/);
   });
 });
+
+// The same meal reads the same action before and after a reopen (Dan, 2026-10-21; A5).
+describe("a cooked meal off This Week reads '+ Plan again' whether or not this load cooked it", () => {
+  test("cooked this load (the afterglow) → + Plan again", () => {
+    const { row } = view(MEAL, stateOf(MEAL, { cooked: true }), { cookCount: 1, lastCookedAt: "2026-10-21T23:50:00Z" });
+    expect(buttons(row)[0].textContent).toBe("+ Plan again");
+  });
+  test("reopened after the afterglow ended (not on the board, one cook) → + Plan again, the same handler", () => {
+    const { row, h } = view(MEAL, null, { cookCount: 1, lastCookedAt: "2026-10-21T23:50:00Z" });
+    const b = buttons(row)[0];
+    expect(b.textContent).toBe("+ Plan again");
+    fireEvent.click(b);
+    expect(h.onPlan).toHaveBeenCalledWith(MEAL.id);
+  });
+  test("never cooked, not on the board → + Add to This Week (unchanged)", () => {
+    const { row } = view(MEAL, null, { cookCount: 0, lastCookedAt: null });
+    expect(buttons(row)[0].textContent).toBe("+ Add to This Week");
+  });
+});

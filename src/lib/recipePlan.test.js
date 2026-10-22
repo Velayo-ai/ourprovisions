@@ -96,3 +96,19 @@ describe("recipeBlockFor agrees with the board card for the same placement", () 
     expect(recipeBlockFor(null).action).toBe("add");
   });
 });
+
+// A5 is the meal's history, not this load (Dan, 2026-10-21): right after Cooked it the view read
+// "+ Plan again"; reopened after the afterglow ended it read "+ Add to This Week". Both now agree.
+describe("+ Plan again for any meal with a cook, on This Week or not", () => {
+  test("not on This Week, cooked before → cooked (+ Plan again); never cooked → add", () => {
+    expect(planActionFor(null, { cookedBefore: true })).toBe("cooked");
+    expect(planActionFor(null, { cookedBefore: false })).toBe("add");
+    expect(planActionFor(null)).toBe("add");
+  });
+  test("on This Week, the board's own state still decides (cookedBefore changes nothing)", () => {
+    const { recipeBlockFor } = require("./recipePlan");
+    const planned = { cooked: false, ready: false, toBuy: false, planned: true, canAdd: true, rc: { total: 0, bought: 0 } };
+    expect(recipeBlockFor(planned, { cookedBefore: true }).action).toBe("addToShop");
+    expect(recipeBlockFor(null, { cookedBefore: true })).toEqual({ onWeek: false, soft: null, action: "cooked", remove: null });
+  });
+});
