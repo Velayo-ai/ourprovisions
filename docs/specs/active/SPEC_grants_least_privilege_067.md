@@ -135,3 +135,30 @@ Today an `anon` request to a member table gets **an empty result** (RLS filters 
 - Per-table DML narrowing for `authenticated` (G3).
 - A refreshed `000_canonical_baseline.sql` from prod, so a rebuild works end to end. 067 makes the grants replayable, but the folder still has gaps, a duplicate 007 and no prod ledger.
 - `stores` for an Edge Function, if one ever needs it.
+
+---
+
+## Amendment 2026-10-23 — Step 0 rulings (design chat)
+
+Append-only. Where this amendment and the text above disagree, this amendment wins.
+
+**Step 0 found** (read-only, both databases, edge logs 2026-10-16 → 10-23): no signed-out path in the app or the landing site touches a table except the landing's `beta_signups` insert (`Prefer: return=minimal`, so INSERT only); `beta_signups`'s one policy (`public can apply`, anon INSERT, `WITH CHECK (true)`) calls no function; the **only** non-authenticated `/rest/v1/` traffic on prod is the Splunk Synthetics uptime test — `GET catalog_items?select=id&limit=1`, legacy anon JWT, every 5 minutes, 245–288 a day. G2 as written would have failed it and paged Critical.
+
+**R1 — Split into two migrations.**
+- **`067_health_rpc.sql` (additive):** `public.health()` returns `boolean`, `language sql`, `stable`, `security invoker`, `set search_path = ''`, body `select true`. Revoke all from `public` (and from every role the default ACL hands it to); grant `EXECUTE` to `anon` and `service_role` only. A VERIFY row.
+- **`068_explicit_least_privilege_grants.sql`** = the grants: G1–G8 above, with R2–R3. **G2 now reads: `anon` = `beta_signups` INSERT + EXECUTE on `health()`, nothing else.**
+- **Prod order:** 067 → Dan repoints the Splunk synthetic to `POST /rest/v1/rpc/health` with prod's `sb_publishable_` key → two green runs → 068 → the synthetic is still green. ARCHITECTURE's monitoring row records the change.
+
+**R2 — `beta_signups`:** `authenticated` → nothing (its only policy is for `anon`). `service_role` keeps `ALL`.
+
+**R3 — `category_avg_prices`:** `authenticated` → `SELECT` only (it is an aggregate view; nothing writes it).
+
+**R4 — Logged NEXT P1, not in 068:** `list_item_contributors` has a `public` SELECT policy `USING (true)`, so any authenticated user reads every household's contributor rows (before 068, anon too: 90 of 90 rows as anon on dev). Rescope it to membership through `list_items`, after a read-only usage check. Same row: `households`' open INSERT policy (`WITH CHECK (true)`) for `authenticated`.
+
+**R5 — The "silent anon downgrade" premise is corrected.** Since `SPEC_auth_state_ui_gating` D1, `createSupabaseClient`'s fetch wrapper **throws `AuthTokenMissing`** on a null token and sends nothing (`src/lib/supabaseClient.js`); no app request reaches PostgREST as `anon`. 068 therefore changes nothing a signed-out or token-less user sees. Should a request ever reach PostgREST as `anon` after 068, it is answered **401 / `42501`**:
+- **polled reads** run `stopOnAuthFailure` first → `classifyAuthFailure` = `'rejected'` → `reportAuthRejected` → the pollers hold, `authPhase` = `signed_in_no_token`, the quiet "Reconnecting…" pill — no toast, no false offline;
+- **writes and unpolled reads** fall to `classifyFetchError` → "permission denied for table …" is not a transient phrase → `'real'` → a toast (e.g. "Could not add meal to list: permission denied…"). Before 068 the same request got `200 []`, a false empty list.
+
+The dev walk's "forced null-token request" therefore shows the existing hold (the wrapper refuses before PostgREST); the 42501 path is reachable only by hand (e.g. `curl` with the anon key).
+
+**Rollback:** `migrations/068_rollback.sql` re-grants the pre-068 **prod** ACLs exactly (never applied unless needed). 067 needs no rollback beyond `drop function public.health()`, and only after the synthetic is pointed back.
