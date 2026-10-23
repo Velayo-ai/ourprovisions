@@ -65,3 +65,82 @@ describe("click-text privacy block is unchanged", () => {
     expect(web.privacy.sensitivityRules).toEqual(CLERK);
   });
 });
+
+// SPEC_rum_span_url_scrub D1–D6. jsdom's own origin is http://localhost.
+describe("scrubUrlAttributes", () => {
+  let scrubUrlAttributes;
+  jest.isolateModules(() => {
+    jest.doMock("@splunk/otel-web", () => ({ __esModule: true, default: {} }));
+    jest.doMock("@splunk/otel-web-session-recorder", () => ({ __esModule: true, default: {} }));
+    jest.spyOn(console, "warn").mockImplementation(() => {}); // no token: init is skipped
+    ({ scrubUrlAttributes } = require("./rum"));
+    console.warn.mockRestore();
+  });
+  const DEV = "https://zxwtxjjmssykhqrghouf.supabase.co";
+  const PROD = "https://parpauldmbetptkmdwbd.supabase.co";
+  const scrub = (url) => scrubUrlAttributes({ "http.url": url })["http.url"];
+
+  test("D3: signed storage GET — token gone, path cut at the bucket", () => {
+    expect(scrub(`${DEV}/storage/v1/object/sign/meal-photos/0b1c/9d2e/77aa-thumb.jpg?token=eyJabc.def`))
+      .toBe(`${DEV}/storage/v1/object/sign/meal-photos/[object]`);
+    expect(scrub(`${PROD}/storage/v1/object/sign/household-photos/0b1c/header.jpg?token=eyJabc.def`))
+      .toBe(`${PROD}/storage/v1/object/sign/household-photos/[object]`);
+  });
+  test("D3: POST /object/sign/<bucket> (bucket only) is left as is", () => {
+    const url = `${DEV}/storage/v1/object/sign/meal-photos`;
+    expect(scrub(url)).toBe(url);
+    expect(scrub(`${url}?x=1`)).toBe(url);
+  });
+  test("D3: POST /object/sign/household-photos/<path> — cut at the bucket", () => {
+    expect(scrub(`${DEV}/storage/v1/object/sign/household-photos/0b1c/header.jpg`))
+      .toBe(`${DEV}/storage/v1/object/sign/household-photos/[object]`);
+  });
+  test("D3: the upload, POST /object/<bucket>/<path> with no operation — cut after the bucket", () => {
+    expect(scrub(`${DEV}/storage/v1/object/meal-photos/0b1c/9d2e/77aa.jpg`))
+      .toBe(`${DEV}/storage/v1/object/meal-photos/[object]`);
+  });
+  test("D3: the other operation words keep the operation and the bucket", () => {
+    expect(scrub(`${DEV}/storage/v1/object/upload/sign/meal-photos/0b1c/a.jpg?token=t`))
+      .toBe(`${DEV}/storage/v1/object/upload/sign/meal-photos/[object]`);
+    expect(scrub(`${DEV}/storage/v1/object/public/meal-photos/0b1c/a.jpg`))
+      .toBe(`${DEV}/storage/v1/object/public/meal-photos/[object]`);
+    expect(scrub(`${DEV}/storage/v1/object/authenticated/meal-photos/0b1c/a.jpg`))
+      .toBe(`${DEV}/storage/v1/object/authenticated/meal-photos/[object]`);
+    expect(scrub(`${DEV}/storage/v1/object/info/public/meal-photos/0b1c/a.jpg`))
+      .toBe(`${DEV}/storage/v1/object/info/public/meal-photos/[object]`);
+    expect(scrub(`${DEV}/storage/v1/object/list/meal-photos`)).toBe(`${DEV}/storage/v1/object/list/meal-photos`);
+  });
+  test("D1: Supabase REST on the dev and prod hosts keeps its query, unchanged", () => {
+    for (const host of [DEV, PROD]) {
+      const url = `${host}/rest/v1/list_items?select=id,name&household_id=eq.0b1c2d3e-0000-4000-8000-000000000000`;
+      expect(scrub(url)).toBe(url);
+    }
+  });
+  test("D1: no exception for Edge Functions or another Supabase project", () => {
+    expect(scrub(`${DEV}/functions/v1/recipe-import?url=https://x.test/r`)).toBe(`${DEV}/functions/v1/recipe-import`);
+    expect(scrub("https://otherprojectref00000.supabase.co/rest/v1/t?select=id")).toBe("https://otherprojectref00000.supabase.co/rest/v1/t");
+  });
+  test("D2: own origin — query dropped, hash kept (today's behaviour)", () => {
+    expect(scrub("http://localhost/?email=a%40b.test&code=1#/plan")).toBe("http://localhost/#/plan");
+  });
+  test("D4: img.clerk.com becomes origin + [object]", () => {
+    expect(scrub("https://img.clerk.com/eyJ0eXBlIjoicHJveHkiLCJzcmMiOiJodHRwczovL2ltYWdlcy5jbGVyay5kZXYifQ?width=80"))
+      .toBe("https://img.clerk.com/[object]");
+  });
+  test("D1 + D2: a third-party URL loses its ?token= and its #fragment", () => {
+    expect(scrub("https://cdn.example.test/a/b.js?token=secret#access_token=abc")).toBe("https://cdn.example.test/a/b.js");
+  });
+  test("D6: an unparseable value is cut at ?", () => {
+    expect(scrub("http://[bad/storage?token=secret")).toBe("http://[bad/storage");
+  });
+  test("the covered keys only; untouched attributes keep their identity", () => {
+    const token = `${DEV}/storage/v1/object/sign/meal-photos/a/b.jpg?token=t`;
+    const out = scrubUrlAttributes({ "location.href": token, "document.referrer": token, "xhr.url": token, "component": token });
+    expect(out["location.href"]).toBe(`${DEV}/storage/v1/object/sign/meal-photos/[object]`);
+    expect(out["document.referrer"]).toBe(out["location.href"]);
+    expect(out["xhr.url"]).toBe(out["location.href"]);
+    expect(out.component).toBe(token);
+    const clean = { "http.url": "http://localhost/#/home", "http.status_code": 200 };
+    expect(scrubUrlAttributes(clean)).toBe(clean);
+  });
+});

@@ -109,30 +109,71 @@ const REPLAY_BLOCK_RULES = [
 // that URL (prod, 2026-09-24: Splunk stored it in the clear). App.js strips the
 // params from the URL itself right after reading them; this hook is the second
 // wall — any URL attribute on OUR origin loses its query string before it is
-// serialized. The hash stays (it is the route). Other origins are untouched on
-// purpose: a Supabase REST URL's query is the filter, not PII, and it is what
-// makes a span readable. Covers: location.href, http.url, document.referrer and
-// any attribute whose key ends in ".url". Does NOT cover session replay's own
-// URL capture — the recorder is a separate pipeline with no attribute hook; the
-// replaceState in App.js is what protects replay, which is why it runs before
-// the first routeChange.
+// serialized. The hash stays (it is the route). Covers: location.href,
+// http.url, document.referrer and any attribute whose key ends in ".url". Does
+// NOT cover session replay's own URL capture — the recorder is a separate
+// pipeline with no attribute hook; the replaceState in App.js is what protects
+// replay, which is why it runs before the first routeChange.
+//
+// A URL's query is a secret until proven a filter (SPEC_rum_span_url_scrub,
+// 2026-10-21). Until then other origins were untouched on purpose — a Supabase
+// REST query is the filter — but a signed storage URL's query is a live token
+// (valid an hour) and its path names a household's photo: 24 resource spans and
+// 14 fetch spans carried them to Splunk on dev, and the Home banner on prod.
+// So, on every origin: the query goes (D1), except Supabase REST /rest/v1/ on
+// the dev and prod project hosts, where it is the PostgREST filter; another
+// origin's fragment goes too (D2); a storage path stops at the bucket (D3);
+// a Clerk image is its origin alone (D4); a value new URL() cannot parse is cut
+// at its "?" (D6).
 const URL_ATTRIBUTE_KEYS = new Set(['location.href', 'http.url', 'document.referrer']);
-function scrubOwnOriginQuery(value) {
-  if (typeof value !== 'string' || value.indexOf('?') === -1) return value;
+const SUPABASE_HOSTS = new Set(['zxwtxjjmssykhqrghouf.supabase.co', 'parpauldmbetptkmdwbd.supabase.co']); // dev, prod
+const CLERK_IMAGE_HOSTS = new Set(['img.clerk.com']);
+const STORAGE_OBJECT = '/storage/v1/object/';
+// The operation segments that come before the bucket, longest first. An upload
+// (POST /object/<bucket>/<path>) has none: the cut still lands after the bucket.
+const STORAGE_OPERATIONS = [
+  ['upload', 'sign'], ['info', 'public'], ['info', 'authenticated'],
+  ['sign'], ['public'], ['authenticated'], ['info'], ['list'],
+];
+function cutStoragePath(pathname) {
+  const at = pathname.indexOf(STORAGE_OBJECT);
+  if (at === -1) return pathname;
+  const head = pathname.slice(0, at + STORAGE_OBJECT.length);
+  const segs = pathname.slice(head.length).split('/');
+  const op = STORAGE_OPERATIONS.find((o) => o.every((s, i) => segs[i] === s)) || [];
+  const kept = segs.slice(0, op.length + 1); // operation + bucket
+  const rest = segs.slice(op.length + 1).filter(Boolean);
+  return head + kept.join('/') + (rest.length ? '/[object]' : '');
+}
+function scrubUrl(value) {
+  if (typeof value !== 'string') return value;
+  let u;
   try {
-    const u = new URL(value, window.location.href);
-    if (u.origin !== window.location.origin) return value;
-    u.search = '';
-    return u.toString();
+    u = new URL(value, window.location.href);
   } catch (e) {
-    return value;
+    const q = value.indexOf('?');
+    return q === -1 ? value : value.slice(0, q);
   }
+  const isHttp = u.protocol === 'https:' || u.protocol === 'http:';
+  let path = u.pathname;
+  if (isHttp) path = CLERK_IMAGE_HOSTS.has(u.hostname) ? '/[object]' : cutStoragePath(path);
+  const isRest = SUPABASE_HOSTS.has(u.hostname) && u.pathname.startsWith('/rest/v1/');
+  const search = isRest ? u.search : '';
+  const hash = u.origin === window.location.origin ? u.hash : '';
+  if (path === u.pathname && search === u.search && hash === u.hash) return value;
+  if (!isHttp) {
+    u.search = '';
+    u.hash = '';
+    return u.toString();
+  }
+  // Built by hand so "[object]" stays literal.
+  return `${u.protocol}//${u.host}${path}${search}${hash}`;
 }
 export function scrubUrlAttributes(attributes) {
   let out = attributes;
   for (const key in attributes) {
     if (!URL_ATTRIBUTE_KEYS.has(key) && !key.endsWith('.url')) continue;
-    const scrubbed = scrubOwnOriginQuery(attributes[key]);
+    const scrubbed = scrubUrl(attributes[key]);
     if (scrubbed === attributes[key]) continue;
     if (out === attributes) out = { ...attributes };
     out[key] = scrubbed;
