@@ -150,3 +150,119 @@ Phase B gets its own migration and full verification list at build; draft cases:
 1. Phase B's design items are all settled (10-07). *Note for the crew feed spec:* Phase B's Home line is the **first occupant of the 09-27 crew-news slot** — the crew feed should absorb it, not sit beside it.
 2. Typed code entry (for someone who can't tap the link): **lean no** in v2 — the code in the URL is enough; add a field only if a real person needs it.
 3. Whether `give_meal` should reuse an existing unrevoked gift for the same meal + giver + note instead of minting a new code each tap. Lean: mint new — codes are cheap and notes differ.
+
+---
+
+# SPEC_meal_sharing_v2 — Amendment 2026-10-22 (design chat)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`. Append-only; do not edit the original text. Where this amendment and the original disagree, this amendment wins.
+**Status:** Design-final for Phase A. The crew return flow is decided in principle, but its design is not finished (see Open).
+**Supersedes:** sharing v2 Phase B's "the first accepted gift connects the two places" and everything that hangs off it.
+**Reconciles with:** the 10-21 crew sharing model (DECISIONS 2026-10-21) and the 10-13 meal-photos amendment A4 (photos travel with gifts).
+
+---
+
+## Why
+
+Sharing v2 (10-07) had a gift create a standing connection between two places. The 10-21 model added a rule that a public link must never connect places. Those two can't both hold, because Phase A link gifts are exactly how a stranger arrives.
+
+Dan's ruling resolves it: **a gift is a one-time handoff of a recipe. It never connects households, and it never adds a person to a household.** The crew is the only standing relationship in the app, so we don't build a second one.
+
+A short detour this session considered "first cook and rating come back once, to the giver only" for gifts outside the crew. **It was rejected.** Someone who cooks a recipe they found on Instagram may reasonably find it invasive that the giver was told.
+
+---
+
+## Decisions
+
+**S1 — A gift never connects.** Accepting a gift copies a snapshot into the receiver's Library, and that is the whole relationship. No row anywhere links the two households, and no person joins a household. The following are retired:
+- the first-gift consent line
+- "Places you give to"
+- ending a connection
+- connection-based visibility ("connected places see place name + creator's first name")
+
+**S2 — Outside the crew, a gift is one-way.**
+- Nothing comes back: no cooks, ratings, photos or notes.
+- The giver is never told whether the gift was accepted, cooked or rated.
+- The receiver sees no disclosure line, because nothing is collected.
+- This applies to every gift link, wherever it was posted.
+
+**S3 — Inside the crew, the gift stays alive.** When giver and receiver are in the same crew:
+- each cook of the gifted meal comes back to the giver
+- each person's own rating comes back (per person, per cook, as 066)
+- each cook photo comes back
+- **notes never come back**, not even inside the crew
+
+The 10-21 model stands unchanged here.
+
+**S4 — How people are named inside the crew:** first name · place, for example "Elly · Madbury". Outside the crew nothing comes back, so no naming rule is needed.
+
+**S5 — Mute, per person and per meal.** A giver can mute crew activity for one gifted meal.
+- **Silent:** nobody is told.
+- **Reversible:** unmute any time.
+- **It hides; it doesn't stop.** The receiver's cooks and ratings are still recorded and still flow; the muted person just doesn't see them. Unmuting shows the history.
+- **It's per person:** the giver's household and the rest of the crew are unaffected.
+- **Two doors:** ⋯ → "Mute this meal" on the activity line, and the same control (Mute / Unmute) on the meal's recipe view.
+- **Not now:** muting a whole person or a whole crew. That waits until beta shows per-meal mute isn't enough.
+
+**S6 — The giver's photo travels with every gift, inside or outside the crew.**
+- The gift carries the giver's **latest** cook photo at give time, in both renditions.
+- This confirms 10-13 A4. The photo is part of the snapshot, kept apart from the receiver's own photos and never aged out.
+- After the gift, outside the crew, the receiver never sees the giver's later photos.
+- The 10-13 child-safety rule for shared photos stands.
+- A gift whose meal has no photo arrives with no photo.
+
+**S7 — Standing crew-level sharing is deferred.** Examples would be auto-sharing every new meal with the crew, or a crew recipe shelf. We revisit this only if beta feedback says sharing one meal at a time is too much.
+
+---
+
+## What this changes in the build
+
+**Phase A (link gifts) is now one-way and buildable after the span scrub.**
+- It's a snapshot that lands as the prefilled New Meal form (as 10-07), plus the S6 photo.
+- There is no feedback table, no receipt-to-giver read path, and no disclosure UI.
+- `meal_gift_receipts`, if it is kept, records only what the **receiver's** household needs (which gift they accepted). It is never readable by the giver's household.
+- **Builder: confirm that against the 10-07 RLS before writing 0xx.**
+
+**Phase B shrinks to crew-only:**
+- household cards and the Home gift notice are **parked** until the crew sharing design
+- the crew return flow (S3–S5) builds after that design, and after the crew recursion fix below
+
+---
+
+## Prerequisites and constraints
+
+- **Grants:** every new table states its grants for `anon`, `authenticated` and `service_role` explicitly (standing rule since 10-21; Supabase ends automatic grants 2026-10-30).
+- **Crew recursion `42P17`:** `crew_members_in_same_crew` selects from its own table. It must move to a SECURITY DEFINER `is_crew_member(crew_id)` before **any** S3–S5 read path ships. Phase A does not touch crew tables.
+- **Photos:** S6 depends on `meal_photos` (065) and the private `meal-photos` bucket, which are dev-only until the Meal Photos v1 promotion. Phase A builds on dev after that promotion, or holds with it.
+- **Span scrub first:** gift photos add more signed storage URLs, so `SPEC_rum_span_url_scrub.md` must be on prod before any gift-photo surface is built.
+- **Replay:** every gift photo `<img>` carries `.op-replay-block`. Gift titles and giver names stay masked, and no name goes into an `aria-label`.
+
+---
+
+## Step 0 (builder, read-only, before code)
+
+1. Read `SPEC_meal_sharing_v2.md` against this amendment. Report every clause that S1/S2 retire, and every table, column or policy that existed only to serve a connection.
+2. Report the planned shape of `meal_gift_receipts` and its RLS. Confirm the giver's household can read none of it outside the crew.
+3. Report how the S6 photo is stored: an origin row in `meal_photos` versus a field on the gift (10-16 lean: a row with `origin`). Report the signed-URL path for a receiver.
+4. Name the next free migration number from the live ledger on dev.
+
+---
+
+## Verification (Phase A)
+
+- **V1:** giving a meal with a photo gives the receiver the meal and the giver's latest photo. The receiver's own photos are separate.
+- **V2:** giving a meal with no photo gives the receiver the meal with no photo slot filled.
+- **V3:** after the receiver accepts, cooks and rates, **nothing** changes for the giver. Check by direct query as the giver: zero rows visible about the receiver.
+- **V4:** no row links the two households. A query for any relationship between the giver's and receiver's households returns nothing.
+- **V5:** a later cook photo on the giver's side is never visible to the receiver.
+- **V6:** the gift photo is replay-excluded, and in a HAR its storage path reads `…/meal-photos/[object]` with no token.
+- **V7:** the new tables' grants match the migration's stated grants on dev.
+
+---
+
+## Open (for the crew sharing design session, not Phase A)
+
+- Does crew feedback (S3) go to the giver only, or to the giver's whole household? The 10-21 example is a per-person feed ("Andrew's feed").
+- An "Only us" option on a cook photo inside the crew. Lean: offer it, defaulting to share with the crew.
+- The Home activity record across households.
+- Where a muted meal's history lives for unmuting, if the meal has left the giver's Library.
