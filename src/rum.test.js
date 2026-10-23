@@ -128,6 +128,19 @@ describe("scrubUrlAttributes", () => {
       expect(scrub(url)).toBe(url);
     }
   });
+  test("kept REST query: a clerk_id filter's value becomes [clerk], whatever the operator", () => {
+    expect(scrub(`${DEV}/rest/v1/users?select=excluded_from_learning&clerk_id=eq.user_3BVcVwOqXaBBVxum1d8UZeBQ85S`))
+      .toBe(`${DEV}/rest/v1/users?select=excluded_from_learning&clerk_id=eq.[clerk]`);
+    expect(scrub(`${PROD}/rest/v1/user_hidden_items?clerk_id=eq.user_3BVcVwOqXaBBVxum1d8UZeBQ85S&select=catalog_item_id%2Ccatalog_items%28id%2Cname%29`))
+      .toBe(`${PROD}/rest/v1/user_hidden_items?clerk_id=eq.[clerk]&select=catalog_item_id%2Ccatalog_items%28id%2Cname%29`);
+    expect(scrub(`${DEV}/rest/v1/users?clerk_id=in.(user_a,user_b)`)).toBe(`${DEV}/rest/v1/users?clerk_id=in.[clerk]`);
+    expect(scrub(`${DEV}/rest/v1/users?clerk_id=not.eq.user_a`)).toBe(`${DEV}/rest/v1/users?clerk_id=not.eq.[clerk]`);
+    expect(scrub(`${DEV}/rest/v1/household_members?users.clerk_id=eq.user_a`)).toBe(`${DEV}/rest/v1/household_members?users.clerk_id=eq.[clerk]`);
+  });
+  test("kept REST query: a non-clerk filter is untouched", () => {
+    const url = `${DEV}/rest/v1/meals?household_id=eq.faadd8be-5772-4f8f-b5e4-2684ebd6f700&deleted_at=is.null&not_clerk_id=eq.x`;
+    expect(scrub(url)).toBe(url);
+  });
   test("D1: no exception for Edge Functions or another Supabase project", () => {
     expect(scrub(`${DEV}/functions/v1/recipe-import?url=https://x.test/r`)).toBe(`${DEV}/functions/v1/recipe-import`);
     expect(scrub("https://otherprojectref00000.supabase.co/rest/v1/t?select=id")).toBe("https://otherprojectref00000.supabase.co/rest/v1/t");

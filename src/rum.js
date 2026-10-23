@@ -141,6 +141,12 @@ const STORAGE_OPERATIONS = [
   ['upload', 'sign'], ['info', 'public'], ['info', 'authenticated'],
   ['sign'], ['public'], ['authenticated'], ['info'], ['list'],
 ];
+// A kept REST query still loses a clerk_id filter's value (design chat,
+// 2026-10-22): the Clerk user id is an account identifier, and D2 sends spans
+// without one. The operator stays (users?clerk_id=eq.[clerk]); every other byte
+// of the query is untouched, so this edits the string, not URLSearchParams.
+const maskClerkFilters = (search) =>
+  search.replace(/([?&](?:[^=&]*\.)?clerk_id=)((?:not\.)?[a-z]+\.)?[^&]*/g, '$1$2[clerk]');
 const startsWithSegs = (segs, prefix) => prefix.every((s, i) => segs[i] === s);
 function cutStoragePath(pathname) {
   const at = pathname.indexOf(STORAGE_ROOT);
@@ -168,7 +174,7 @@ function scrubUrl(value) {
   let path = u.pathname;
   if (isHttp) path = CLERK_IMAGE_HOSTS.has(u.hostname) ? '/[object]' : cutStoragePath(path);
   const isRest = SUPABASE_HOSTS.has(u.hostname) && u.pathname.startsWith('/rest/v1/');
-  const search = isRest ? u.search : '';
+  const search = isRest ? maskClerkFilters(u.search) : '';
   const hash = u.origin === window.location.origin ? u.hash : '';
   if (path === u.pathname && search === u.search && hash === u.hash) return value;
   if (!isHttp) {
