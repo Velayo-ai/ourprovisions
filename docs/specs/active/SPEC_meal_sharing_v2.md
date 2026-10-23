@@ -266,3 +266,108 @@ The 10-21 model stands unchanged here.
 - An "Only us" option on a cook photo inside the crew. Lean: offer it, defaulting to share with the crew.
 - The Home activity record across households.
 - Where a muted meal's history lives for unmuting, if the meal has left the giver's Library.
+
+---
+
+# SPEC_meal_sharing_v2 — Amendment 2026-10-23 (design chat)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after the 2026-10-22 amendment. Append-only. Where this and earlier text disagree, this wins.
+**Status:** Design-final. It changes Phase A's photo rule (S6) before Phase A is built.
+**Supersedes:** 10-22 **S6** ("the giver's latest cook photo travels with every gift, crew or not"), and the "Only us" photo toggle discussed in design chat on 10-23, which is dropped unless beta asks for it.
+
+---
+
+## Why
+
+Under S6, a gift link posted on Instagram would have carried a family cook photo out of the house.
+
+Dan's scenario makes the need concrete. Elly, a household member, wants an Instagram channel for meals she cooks, using styled photos. The household's cook photos (faces, funny dinners) must never reach it, **and nobody should have to mark photos private one at a time.**
+
+The answer is **safety by kind of photo, not by tagging.** Every photo is private by default. Only a deliberately different kind of photo, added by its own author, can ever leave the crew.
+
+---
+
+## Decisions
+
+**S8 — The return flow goes to the giving household.** Inside the crew, cooks, ratings and cook photos of a gifted meal are visible to **every member of the household that gave it**, not only the person who sent it.
+- Recipes belong to households (Collaborative Intelligence), so the whole household celebrates when one is loved.
+- The gift still records **who** gave it, for attribution only ("Dan shared it").
+- Each member can mute for themselves (S5 is unchanged and remains per person).
+- It reuses the household-membership RLS pattern; there's no new per-person visibility rule.
+
+**S9 — Two kinds of meal photo.**
+
+| Kind | Added by | Where | Audience, ever |
+|---|---|---|---|
+| **Cook photo** (exists: 065) | any member | Cooked it, or the recipe view | the household; plus the giving household's crew return flow when the meal is a crew gift |
+| **Showcase photo** (new) | any member, as an explicit separate action, "Add a showcase photo", labelled *"Can be shared publicly"* | the recipe view only | the household, plus anyone a public or outside-crew gift reaches, but **only when its own author gives it** |
+
+**S10 — A cook photo can never go public.** No setting, button, gift path or re-gift turns a cook photo into a public one. This is the guarantee that needs no per-photo work from anyone.
+
+**S11 — Only the author can share a showcase photo publicly.** A showcase photo travels on a public or outside-crew gift only when the **giver is the member who added it**.
+- If Dan gives a meal publicly and only Elly has added a showcase photo, the gift goes out with **no photo**.
+- Nobody can publish another member's photo.
+
+**S12 — Photo selection at give time (replaces S6):**
+- **Crew gift:** the giving household's latest **cook** photo of that meal, or none.
+- **Public or outside-crew gift:** the giver's own latest **showcase** photo of that meal, or **none**. Never fall back to a cook photo.
+- In both cases the photo is part of the snapshot. Later photos never reach an outside receiver.
+
+**S13 — A prompt when adding a showcase photo:** *"Showcase photos can be seen by anyone. Check everyone in it is happy with that."* It's shown once per upload. Responsibility for people pictured in a showcase photo rests with its author; the app doesn't police content.
+
+**S14 — No easy exits for other people's photos.** The app never offers download, save or share on a photo the viewer didn't add. Honest limit: it can't stop a screenshot.
+
+**S15 — Ratings never go public.** Stars stay within the household and, for crew gifts, the giving household. A public gift carries no rating, count or "loved by" line.
+
+**S16 — "Only us" is dropped.** With S9–S12, cook photos are household- and crew-scoped by construction, and anything public is a deliberate separate kind. A per-photo private toggle adds a decision no one should have to make. Revisit only if beta testers ask to keep a particular crew-gift cook photo from the giving household.
+
+---
+
+## What this changes in the build
+
+- **Schema (Phase A migration):** `meal_photos` gains a kind, `cook` or `showcase`, with **default `cook`**, so every existing row stays a cook photo. Confirm `meal_photos` already records its uploader. If not, add `added_by` (a users id) and backfill it from whatever 065 records; Step 0 reports which.
+- **RLS / RPC:**
+  - The gift-snapshot RPC selects the photo per S12, server-side. The client never chooses which photo travels.
+  - A `showcase` row is selectable on a public gift only when `added_by` = the giver.
+  - Cook photos are never selectable for a non-crew gift.
+- **Client:**
+  - The recipe view gains "Add a showcase photo" (the uploader's own action, with the S13 prompt).
+  - Showcase photos are visibly marked inside the household so everyone knows which ones can travel.
+  - No download or share on photos the viewer didn't add (S14).
+- **Unchanged:** Meal Photos v1 (065/066) as promoted. Showcase is additive and lands with or after Phase A. It doesn't block tonight's promotion.
+
+---
+
+## Step 0 additions (builder, read-only)
+
+1. Does `meal_photos` (065) record the uploader? Give the column name and type, and report how a `kind` column with default `cook` interacts with 065's policies and the RPCs `add_meal_photo` / `remove_meal_photo`.
+2. Confirm no current code path offers download or share on a photo; list any `<a download>`, share sheet or long-press save surface.
+3. Report where the card, hero and viewer choose "latest photo", and whether a showcase photo should be eligible there (see Open).
+
+---
+
+## Verification (adds to Phase A's V-list)
+
+- **V8:** a public gift from a member with no showcase photo goes out with **no photo**, even when the meal has cook photos. Checked by direct query on the snapshot.
+- **V9:** a public gift from Dan of a meal where only Elly has a showcase photo goes out with **no photo**.
+- **V10:** a public gift from Elly carries her latest showcase photo only.
+- **V11:** a crew gift carries the giving household's latest cook photo, and never a showcase photo selected by someone other than its author.
+- **V12:** no RPC, policy or URL path lets a cook photo be read by anyone outside the household and the crew return flow.
+- **V13:** the recipe view offers no download or share on photos the viewer didn't add.
+
+---
+
+## Decided 2026-10-23 (closes the open photo questions)
+
+**S17 — The card and hero show the latest cook photo, always.** The library card and recipe hero keep the 10-03 rule. Inside the household they show the dinner you actually had, so the Library doesn't drift into a portfolio.
+- Showcase photos appear in the recipe view's photo strip, visibly marked as showcase, and never on the card while a cook photo exists.
+- **Edge case:** a meal with only a showcase photo and no cook photo shows the showcase photo on its card and hero. It drops back to the cook photo once one exists.
+
+**S18 — The crew return flow shows cook photos only.** The feed is the real night ("Madbury cooked Andrew's tacos"), never a styled post. A showcase photo never enters the crew feed, so the only path a showcase photo has out of the household is its author's own public gift (S11).
+
+**Verification:**
+- **V14:** a meal with a cook photo and a newer showcase photo shows the cook photo on its card and hero.
+- **V15:** a meal with only a showcase photo shows it on its card. After a cook photo is added, the card switches to the cook photo.
+- **V16:** the crew return flow and Home activity never render a showcase photo.
+
+No open photo questions remain for Phase A.
