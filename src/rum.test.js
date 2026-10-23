@@ -110,6 +110,18 @@ describe("scrubUrlAttributes", () => {
       .toBe(`${DEV}/storage/v1/object/info/public/meal-photos/[object]`);
     expect(scrub(`${DEV}/storage/v1/object/list/meal-photos`)).toBe(`${DEV}/storage/v1/object/list/meal-photos`);
   });
+  test("D3 widened: an unknown operation fails closed — cut after the first segment", () => {
+    expect(scrub(`${DEV}/storage/v1/object/foo/meal-photos/0b1c/9d2e/a.jpg?token=t`))
+      .toBe(`${DEV}/storage/v1/object/foo/[object]`);
+  });
+  test("D3 widened: render/image/sign keeps route + operation + bucket", () => {
+    expect(scrub(`${DEV}/storage/v1/render/image/sign/meal-photos/0b1c/9d2e/a.jpg?token=eyJabc.def&width=400`))
+      .toBe(`${DEV}/storage/v1/render/image/sign/meal-photos/[object]`);
+  });
+  test("D3 widened: an unknown /storage/v1/ route is cut after its first segment", () => {
+    expect(scrub(`${DEV}/storage/v1/upload/resumable/bWVhbC1waG90b3MvMGIxYy9hLmpwZw`))
+      .toBe(`${DEV}/storage/v1/upload/resumable/[object]`);
+  });
   test("D1: Supabase REST on the dev and prod hosts keeps its query, unchanged", () => {
     for (const host of [DEV, PROD]) {
       const url = `${host}/rest/v1/list_items?select=id,name&household_id=eq.0b1c2d3e-0000-4000-8000-000000000000`;

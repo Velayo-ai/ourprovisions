@@ -128,21 +128,31 @@ const REPLAY_BLOCK_RULES = [
 const URL_ATTRIBUTE_KEYS = new Set(['location.href', 'http.url', 'document.referrer']);
 const SUPABASE_HOSTS = new Set(['zxwtxjjmssykhqrghouf.supabase.co', 'parpauldmbetptkmdwbd.supabase.co']); // dev, prod
 const CLERK_IMAGE_HOSTS = new Set(['img.clerk.com']);
-const STORAGE_OBJECT = '/storage/v1/object/';
+// D3 widened (design chat, 2026-10-22): the cut fires on ANY /storage/v1/
+// route. A recognised route keeps its operation and bucket; otherwise the cut
+// lands after the first segment past the route (an unknown route counts its
+// own first segment as the route). It fails closed: an unrecognised shape loses
+// its bucket name, never leaks its object path.
+const STORAGE_ROOT = '/storage/v1/';
+const STORAGE_ROUTES = [['render', 'image'], ['object']];
 // The operation segments that come before the bucket, longest first. An upload
 // (POST /object/<bucket>/<path>) has none: the cut still lands after the bucket.
 const STORAGE_OPERATIONS = [
   ['upload', 'sign'], ['info', 'public'], ['info', 'authenticated'],
   ['sign'], ['public'], ['authenticated'], ['info'], ['list'],
 ];
+const startsWithSegs = (segs, prefix) => prefix.every((s, i) => segs[i] === s);
 function cutStoragePath(pathname) {
-  const at = pathname.indexOf(STORAGE_OBJECT);
+  const at = pathname.indexOf(STORAGE_ROOT);
   if (at === -1) return pathname;
-  const head = pathname.slice(0, at + STORAGE_OBJECT.length);
+  const head = pathname.slice(0, at + STORAGE_ROOT.length);
   const segs = pathname.slice(head.length).split('/');
-  const op = STORAGE_OPERATIONS.find((o) => o.every((s, i) => segs[i] === s)) || [];
-  const kept = segs.slice(0, op.length + 1); // operation + bucket
-  const rest = segs.slice(op.length + 1).filter(Boolean);
+  const route = STORAGE_ROUTES.find((r) => startsWithSegs(segs, r));
+  const routeLen = route ? route.length : 1;
+  const op = (route && STORAGE_OPERATIONS.find((o) => startsWithSegs(segs.slice(routeLen), o))) || [];
+  const keepLen = routeLen + op.length + 1; // route + operation + bucket (or first segment)
+  const kept = segs.slice(0, keepLen);
+  const rest = segs.slice(keepLen).filter(Boolean);
   return head + kept.join('/') + (rest.length ? '/[object]' : '');
 }
 function scrubUrl(value) {
