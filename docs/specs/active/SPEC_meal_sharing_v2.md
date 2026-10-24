@@ -439,3 +439,158 @@ No open photo questions remain for Phase A.
 - **V19:** the receiver cannot select a received photo for their own public gift. Checked by direct query and by RPC call.
 - **V20:** a gift link opened by a signed-out visitor shows the gift photo through a server-minted signed URL. A HAR shows no `?ref=` code and no token in spans or replay.
 - **V21:** adding a showcase photo when the meal already has 3 live photos is refused with the same cap behaviour as a cook photo.
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-24b (design chat, rulings on Phase A Step 0)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after the 2026-10-24 amendment. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final for the items below. Step 0 #8 (gift storage layout + the Edge Function's shape) is still open and comes back to the design chat before 069 is drafted.
+**Source:** Claude Code's Step 0 report of 2026-10-24 (#1–#7), ruled by Dan the same night.
+**Supersedes:** S21 and V21 (2026-10-24); V4 (10-22) as worded; V20 (2026-10-24) as worded.
+
+---
+
+## Rulings
+
+**S24 — The Phase A thank-you prompt stays.** After accepting, "Send Andrew a thank you?" opens the receiver's **own** share sheet. The app records nothing and tells the giver nothing.
+- S2 governs what the *app* reports to the giver. A message the receiver chooses to send from their own device is outside S2.
+- V10's Phase A half and verification #13 stand.
+
+**S25 — Lineage is crew-only, and the receipt stays.**
+- On a public (link) gift, the receiver's copy stores `copied_from_household_id = NULL` and `copied_from_meal_id = NULL`. `copied_at` and `meals.attribution` (From) stay as they are.
+- Those two columns fill in only for crew gifts, when the crew return flow builds. Routing loves to the giving household is their only purpose.
+- `meal_gift_receipts` stays, because the server needs the gift to stop double-adds. Its shape:
+  - `(gift_id → meal_gifts CASCADE, to_household_id → households CASCADE, accepted_by → users SET NULL, meal_id → meals SET NULL, accepted_at)`
+  - primary key `(gift_id, to_household_id)`
+  - no `status` and no `thanked_at`
+- The receipt's RLS is SELECT `is_member_of(to_household_id)` **only**. Delete the 10-07 "or the gift's `from_household_id`" clause and its verification #12 check.
+- Writes go only through `record_meal_gift_receipt` (SECURITY DEFINER). The table gets no INSERT, UPDATE or DELETE policy, and explicit grants for all three roles.
+- **Standing trap (Step 0):** no view, RPC or count may join receipts into anything the giver's household can read. That includes a "given 3×" count. `revoke_meal_gifts` keeps returning how many it revoked, never how many were accepted.
+
+**V4 (reworded):** No row links the two households in a way **either household** can read. Check as the giver and as the receiver: both see zero rows about the other. The server's own record that a gift was accepted (the receipt) is expected.
+
+**S26 — Showcase photos: one per person per meal, outside the cook cap.** This replaces S21.
+- Each member holds at most **one live showcase photo per meal**. Adding a new one soft-deletes their previous showcase photo for that meal.
+- Showcase photos **do not count** toward the 3-live-photo cap. The cap and its server-side trim apply to **cook photos only**, so a showcase upload can never age out a cook photo, and S17 always has a cook photo to show when one exists.
+- **Why:** a public gift only ever uses the giver's *own latest* showcase photo (S12), so one per person is exactly what the feature needs. This follows Dan's principle: serve today's need, and let users ask for more before we spend resource or complexity.
+- A showcase add must refuse a non-null `p_meal_cook_id` (raise `22023`). P1 (one live photo per cook) touches cook photos only.
+- The client's `MEAL_PHOTO_CAP` / `atCap` count cook photos only.
+- **`add_meal_photo` gains `p_kind`.** That creates a new overload, so 069 drops the 6-argument version, re-grants the new one, and the client moves to it in the same promotion.
+
+**V21 (replaces 2026-10-24 V21):**
+- Three live cook photos plus a new showcase upload leaves all three cook photos live.
+- A second showcase upload by the same member leaves only the newer one live.
+- A fourth cook photo still ages out the oldest cook photo, never a showcase photo.
+
+**S27 — Any member can remove any photo, showcase included (P3 unchanged).** The household owns its meals, and removing a photo only ever reduces exposure.
+
+**S28 — One pick function, and the strip's order.**
+- A single function picks the S17 photo: **newest live cook photo; if none, newest live showcase photo; else none.** Both the library card and the hero's first slide use it.
+- The strip shows the S17 pick first, then every other live photo newest-first. Showcase photos are visibly marked.
+- The viewer receives the strip's list, unchanged.
+- The afterglow thumbnail stays as it is (it matches on `meal_cook_id`, so it's cook-only).
+- **Why:** today the card takes `[0]` of a kind-blind newest-first list (`src/App.js:5658`, `:5644`), and the hero strip uses the same list (`:2120`, `:2169`). One shared pick removes the risk of the card and the hero disagreeing.
+
+**S29 — Code-bearing URLs are cleared before Splunk starts (detail for S22).**
+- Step 0 found that replay records the page's full `location.href` (query and hash), with no hook to scrub it, and that spans keep the `/g/{CODE}` path. Today's `?ref=` and `?invite=` already reach replay, so this is a **live leak** as well as a Phase A prerequisite.
+- **Fix:** a small module runs at the very top of `index.js`, before the RUM init. It reads any gift code (`/g/{CODE}`), `ref` and `invite`, holds them in memory for the app's gates to read, then `history.replaceState`s the URL to a clean one. Splunk's first event then sees a clean URL.
+  - The app's existing gates (the pre-fill scrub at `src/App.js:4674` and the two `?ref=` readers) read the held values instead of `location`.
+  - Use memory, not `sessionStorage`, unless a gate needs the value across a reload. Step 0 of that build reports which do.
+- **Backup:** `scrubUrl` also masks `/g/<code>` to `/g/[code]` in spans.
+- **Where it builds:** folded into the `SPEC_rum_clerk_id_scrub.md` build (same file area, same HAR verification). It ships **before** Phase A's link surfaces.
+
+**V20 (replaces 2026-10-24 V20):** for a signed-out visitor opening a gift link:
+- the gift photo shows through a server-minted signed URL;
+- a HAR shows **0** occurrences of the gift code (path form), **0** of the `ref` code, and **0** of the `invite` code, checked **separately**, in spans **and** replay (`pageUrl` included);
+- **0** `token=`.
+
+**S30 — Long-press and drag protection ships with the scrub build (S14).**
+- One CSS rule on every photo image: `-webkit-touch-callout: none; -webkit-user-drag: none`. Also `draggable="false"` on `.lib-slot-img`.
+- Confirm `.board-photo-thumb` inherits `touch-callout: none` from `.board-card` on a real iPhone.
+- It's client-only, so it rides the same promotion as S29 and the Clerk-id scrub.
+- S14's honest limit (screenshots) still holds.
+
+---
+
+## Still open (back to the design chat before 069)
+
+- **Step 0 #8:** the gift-scoped storage location (inside `meal-photos` or a separate private bucket; lean: no client policy, server-side access only), and the Edge Function's inputs and outputs for the S20 copies. Run read-only, then report and stop.
+
+---
+
+## Notes for the `SPEC_rum_clerk_id_scrub.md` build
+
+That build's scope grows by S29 and S30. Its Step 0 adds:
+- (a) every reader of `ref`, `invite` and the gift code, and whether any needs the value across a reload;
+- (b) confirm the pre-init module runs before `SplunkOtelWeb.init` and `SplunkSessionRecorder.init`.
+
+Its verification adds V20's separate code checks on dev, using a test gift link once Phase A exists. Until then, test with `?ref=` and `?invite=` only.
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-24c (design chat, review pass)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after Addendum 2026-10-24b. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final for S31–S33. S20's storage layout is reopened for Step 0 #8 (two candidates, both reported, design chat decides).
+**Source:** a fresh-eyes review of all 10-24 work, confirmed by Dan 2026-10-24.
+**Supersedes:** in S26, the `p_kind` argument and the overload drop; in S20, the fixed choice of an Edge Function; in S29, "memory, not `sessionStorage`".
+
+---
+
+## S31 — Showcase photos get their own RPC: `add_showcase_photo`. (Replaces part of S26.)
+
+- `add_meal_photo` (065) stays exactly as promoted on prod: same signature, same overload, no drop, no re-grant. It stays cook-only.
+- `add_showcase_photo(p_meal_id, p_path, p_thumb_path, p_width, p_height)` is new in 069. SECURITY DEFINER, pinned `search_path`, EXECUTE to `authenticated` only, explicit grants for all three roles.
+  - It has **no `p_meal_cook_id`**: "a showcase photo never attaches to a cook" is encoded in the signature, not by a raise.
+  - It sets `kind = 'showcase'`, `uploaded_by = get_current_user_id()`, and `household_id` from the meal.
+  - It soft-deletes the caller's previous live showcase photo for that meal, then inserts the new one. One per person per meal (S26) is enforced by a **partial unique index** on `(meal_id, household_id, uploaded_by)` where `kind = 'showcase'` and the row is live.
+  - It never touches the cook-photo cap or its trim.
+- `meal_photos` gains `kind text not null default 'cook'` with a check constraint (`cook` | `showcase`). Every existing row is a cook photo by default; no backfill.
+- **Why:** a `p_kind` argument would force 069 to drop the 6-argument overload, coupling the migration and the client into one promotion. A separate RPC leaves prod's function untouched and keeps each change small.
+
+## S32 — Step 0 #8 evaluates two storage layouts for the gift photo. (Reopens S20's "Edge Function" choice; S20's copies-not-references rule stands.)
+
+**Why reopen:** `preview_meal_gift` is a SQL RPC opened by signed-out visitors through the 042 bridge. SQL can't mint a signed URL, so the Edge Function approach would need a second function just to serve previews. There may be a simpler way.
+
+**Candidate A — policy-guarded `gift-photos` bucket, client-side copies (lean).**
+- A new private bucket `gift-photos`, path `{gift_id}/{rendition}.webp`. The path carries the **gift id only**, never a household id.
+- SELECT policy for `anon` and `authenticated`: the first folder segment is a UUID that matches a `meal_gifts` row that is **not revoked**. The client signs its own URL, as it does today for `meal-photos`. Revocation makes the photo unreadable automatically.
+- INSERT policy for `authenticated`: the gift's `from_household_id` is one the caller is a member of. DELETE: none for clients.
+- **Give time:** `give_meal` selects the photo per S12 server-side and returns the source path (or null). The giver's client downloads that object (it already holds a signed URL) and uploads it to the gift path. The client copies what the server chose; it never selects.
+- **Accept time:** the receiver's client downloads the gift copy and uploads into its own household folder through `add_showcase_photo` (S31, with `uploaded_by` = the giver per S23: **this needs a parameter or a second RPC, which Step 0 #8 reports**).
+- **Revoke:** `revoke_meal_gifts` leaves the objects; a later cleanup can delete copies of revoked gifts. Receivers' copies are unaffected (V3).
+- No service-role key in any function, no new runtime, no new egress path beyond the two copies.
+- **Honest limit:** a hacked giver client could upload a different image to the gift path. The giver can already upload any image as a showcase photo, so this changes nothing about who can publish what.
+
+**Candidate B — Edge Function copies (10-24 S20 as written).**
+- A function with service-role access copies the object at give time and at accept time, and mints signed URLs for previews.
+- Report what it needs: inputs, outputs, how previews for `anon` get a signed URL, and how revocation is checked.
+
+**Step 0 #8 reports both, with the policies written out for A, and stops.** The design chat picks.
+
+## S33 — S29 clarified: `sessionStorage`, a clean redirect, and the documentLoad span.
+
+- **`sessionStorage`, not memory.** A non-user opens `/g/{CODE}`, signs up through Clerk, and comes back to the same tab. Memory doesn't survive that round trip; `sessionStorage` does. The pre-init module stores the gift code, `ref` and `invite` under one key, then `replaceState`s to a clean URL. Gates read from `sessionStorage` and clear it once consumed.
+- **The `redirect_url` given to Clerk must be the clean URL.** If it carries `/g/{CODE}` or `?ref=`, the code comes straight back after sign-in and the first page event re-records it.
+- **The documentLoad span is not fixed by `replaceState`.** It can read `PerformanceNavigationTiming.name`, which is the original URL and can't be changed. So the `/g/<code>` → `/g/[code]` mask in `scrubUrl` is **load-bearing, not a backup**, and the HAR check must look at that span specifically.
+- **`?invite=` is the most serious of the three.** An invite code lets its holder join a household, and it reaches replay today. If the Clerk-id part of the scrub build drags, **S29 ships alone first**, in its own small promotion.
+
+## Client grouping (detail for S26 / S28)
+
+- `photosByMeal` (`src/lib/mealPhotos.js`) stops at `MEAL_PHOTO_CAP` across kinds, so it would drop showcase rows once three photos exist. It must count **cook photos only**, like `atCap`. Showcase rows are always kept.
+
+---
+
+## Session record
+
+SESSION END ran before tonight's Phase A prep. The builder adds, under the 2026-10-23 SESSION_LOG entry, a dated addendum:
+
+> 2026-10-24 (same night): Phase A prep in the design chat. Step 0 #1–#7 run read-only by Claude Code. Amendment 10-24 (S19–S23) and Addenda 10-24b (S24–S30) and 10-24c (S31–S33) appended. `SPEC_rum_clerk_id_scrub.md` scope grown by S29/S30; a live replay leak of `?ref=` / `?invite=` found. Step 0 #8 (gift storage, two candidates) still open.
+
+And rewrites the Next session block:
+
+> SESSION START
+> Goal: Build `SPEC_rum_clerk_id_scrub.md` on dev, now including S29 (pre-Splunk clearing of gift / ref / invite codes, `sessionStorage`, clean Clerk redirect, `/g/<code>` mask) and S30 (photo long-press CSS). S29 ships first on its own if the rest drags.
+> State: Meal Photos v1 live on prod (`5836534`). `src/` identical on prod and dev. Phase A design-final through S33; Step 0 #8 (gift-photo storage: policy bucket vs Edge Function) open. Jest green. Dev ahead of origin by the 10-24 docs commits until pushed.
+> Done when: the scrub build's Step 0 is reported, the code is built with tests, and a dev HAR shows 0 Clerk ids, 0 gift/ref/invite codes (checked separately, documentLoad span included, spans and replay), while `sess_[id]` route shapes survive.
