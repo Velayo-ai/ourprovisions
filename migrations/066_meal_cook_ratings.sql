@@ -32,7 +32,12 @@
 --   authenticated, service_role; then authenticated SELECT, service_role ALL, anon nothing.
 --   VERIFY reads all three back; its probes are case-insensitive (the 060 lesson).
 --
--- APPLY: dev only (system_identifier 7642734024280108049). Prod HELD with slice 1. Idempotent.
+-- APPLY: dev (system_identifier 7642734024280108049) and prod (7606130613603586966). Idempotent.
+--   APPLIED ON PROD 2026-10-23 by Dan in the SQL editor after 065 (no ledger on prod, by
+--   decision), with the file exactly as on dev. VERIFY exact with which_db 7606130613603586966;
+--   read back over prod-readonly: relacl postgres=arwdDxtm, authenticated=r,
+--   service_role=arwdDxtm; rate_cook proacl postgres=X, authenticated=X; three CASCADE FKs +
+--   the unique (meal_cook_id, user_id); meal_cooks and cook_meal unchanged; 068's VERIFY 160 / 0.
 --   APPLIED ON DEV 2026-10-21 by Dan in the SQL editor together with its ledger row
 --   (20261021232455) — the MCP's apply_migration returned {"status":"declined"} again. VERIFY read
 --   back exact over the dev MCP (relacl postgres=arwdDxtm, authenticated=r, service_role=arwdDxtm;

@@ -46,8 +46,14 @@
 --   UPDATE, DELETE explicitly (the later sweep) — never the automatic grant, which ends 2026-10-30; VERIFY reads the granted set
 --   back exactly. VERIFY probes are case-insensitive (ilike — the 060 lesson).
 --
--- APPLY: dev only (system_identifier 7642734024280108049). Prod is HELD (Splunk replay-asset
---   answers first). Idempotent.
+-- APPLY: dev (system_identifier 7642734024280108049) and prod (7606130613603586966). Idempotent.
+--   APPLIED ON PROD 2026-10-23 by Dan in the SQL editor (slug parpauldmbetptkmdwbd; no ledger
+--   on prod, by decision), with the file exactly as on dev. VERIFY exact with which_db
+--   7606130613603586966 (the dev expectation below, prod's id); read back over prod-readonly:
+--   relacl postgres=arwdDxtm, service_role=arwdDxtm, authenticated=r; both proacl postgres=X,
+--   authenticated=X; the two storage policies as written; 068's VERIFY still 160 / 0.
+--   service_role keeps the default grant's TRUNCATE / REFERENCES / TRIGGER / MAINTAIN, as on
+--   dev — within 068's rule (Dan, 2026-10-23).
 --   APPLIED ON DEV 2026-10-21 by Dan in the SQL editor — the MCP's apply_migration returned
 --   {"status":"declined"} twice (no reason given). VERIFY read back exact over the dev MCP.
 --   Ledger row: written by hand (a plain INSERT over the MCP was declined the same way; Dan
