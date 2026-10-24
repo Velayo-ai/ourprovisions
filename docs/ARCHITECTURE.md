@@ -316,7 +316,7 @@ Splunk Digital Experience Analytics reads three things the agent did not expose 
 - **Clerk images:** `img.clerk.com` is reduced to `https://img.clerk.com/[object]`.
 - **Unparseable values:** cut at `?`.
 - **Clerk ids:** `clerk_id=<op>.<value>` → `<op>.[clerk]` in a kept REST query (`maskClerkFilters`, a string edit, so every other byte stays). Live on prod 2026-10-23; the prod HAR read `clerk_id=eq.[clerk]` on both kept filters.
-- **Known gap:** Clerk Frontend API paths keep their `sess_…` session id (`https://clerk.ourprovisions.velayo.ai/v1/client/sessions/sess_…/tokens`, `/tokens/supabase`, `/touch`). Only `img.clerk.com` is scrubbed. NEXT.
+- **Known gap:** Clerk Frontend API paths keep their `sess_…` session id (`https://clerk.ourprovisions.velayo.ai/v1/client/sessions/sess_…/tokens`, `/tokens/supabase`, `/touch`). Only `img.clerk.com` is scrubbed. Spec'd, not built: `docs/specs/active/SPEC_rum_clerk_id_scrub.md` (NEXT).
 - Only `http.url` was observed carrying any of these, on span types `resourceFetch` / `splunk-post-doc-load-resource` and `HTTP POST` / `fetch`.
 - **`rum.js` / `rum.test.js` are one file on dev and prod again (2026-10-23, `5836534`)** — between `7f221ec` and then, prod's were main's files plus the scrub hunks only; the Meal Photos promotion took both whole from dev. Allow-list 58 on both.
 - **Bundle markers:** `"/[object]"`, the two Supabase hosts as one literal, `["render","image"]`, `"/storage/v1/"`; the Clerk mask is `"$1$2[clerk]"` (the replacement string, never a bare `"[clerk]"`).

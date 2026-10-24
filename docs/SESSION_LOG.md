@@ -26,6 +26,7 @@ Done when: [clear success condition]
 ## LOG
 
 ### [2026-10-23] — [OurProvisions] — Meal Photos v1 LIVE ON PROD (065 → 066 → client `5836534`), carrying the Clerk-id mask; dev walk data cleared
+> **Addendum 2026-10-23 (late):** The design chat spec'd the `sess_…` follow-up after this entry — `SPEC_rum_clerk_id_scrub.md` (D1–D4: any Clerk-style id in a Clerk API path → `<prefix>_[id]`, the whole query dropped on Clerk hosts, matched by host) filed to `docs/specs/active/`; the NEXT row now points to it. Not built.
 **Goal:** Promote Meal Photos v1 to prod — 065, then 066, then the client by tree identity — carrying the Clerk-id mask. (Design chat: the rulings, the gate list, the guarded-SQL and HAR-hygiene rules. Claude Code: Step 0, every read-back, the promotion commit, the bundle and HAR decodes. Dan: both SQL-editor applies, the push, the HAR, both walks, the dev cleanup. Ran 2026-10-23 evening → 10-24 UTC.)
 **Completed:**
 - Ran Step 0 read-only: dev `src/` = `bf35aa3` / `main.c593bdbd.js`, `origin/dev..dev` empty; prod (`7606130613603586966`) had none of 065 / 066's objects; prod's default privileges read (`anon`, `authenticated`, `service_role` `arwdDxtm` on new tables), and 065 / 066's revokes predicted to wipe them. Ruled **no grants fix** — `service_role` keeping its default extras on `meal_photos` is within 068 and matches dev. `meal_photos.uploaded_by` (`uuid`, set server-side) answers Phase A Step 0 #1.
