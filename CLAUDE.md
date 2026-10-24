@@ -255,11 +255,6 @@ that changed.
   history. If a session is purely OS/Platform (e.g. building the Harbour), tag
   it [Velayo OS] and flag to me that it likely belongs in the velayo-os log,
   not this app's, once that repo's docs exist.
-- ONE-TIME REPAIR: if `docs/SESSION_LOG.md` still has the old header
-  ("Maintained by Session Scribe") or an old FORMAT block lacking `[SCOPE]` and
-  `**DB changes:**`, update the header to "One entry per session. Most recent at
-  top." and replace the FORMAT block with the SESSION LOG ENTRY FORMAT below.
-  Do this without touching existing log entries. Remove this rule once done.
 
 ### SESSION LOG ENTRY FORMAT
 ```
