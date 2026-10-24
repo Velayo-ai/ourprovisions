@@ -371,3 +371,71 @@ The answer is **safety by kind of photo, not by tagging.** Every photo is privat
 - **V16:** the crew return flow and Home activity never render a showcase photo.
 
 No open photo questions remain for Phase A.
+
+---
+
+# SPEC_meal_sharing_v2 — Amendment 2026-10-24 (design chat)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after the 2026-10-23 amendment. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final for Phase A's photo path. The read-only Step 0 below runs before any code.
+**Context:** Phase A prep, after Meal Photos v1 went live on prod (2026-10-23). All Phase A prerequisites are now met: recipe import (prod since 10-13), span scrub (prod), Meal Photos v1 (prod, 10-23).
+
+---
+
+## Already answered
+
+- **Uploader column.** `meal_photos` (065) already records its uploader as `uploaded_by uuid NOT NULL`, FK to `users(id)`, set server-side by `get_current_user_id()` in `add_meal_photo`. The 10-23 amendment's planned `added_by` column is **not needed**. Wherever that amendment says `added_by`, read `uploaded_by`. No backfill.
+
+---
+
+## Decisions (confirmed by Dan 2026-10-24)
+
+**S19 — Phase A builds only the public branch of S12, and ships showcase photos with it.**
+- Link gifts are public by definition. A Phase A gift therefore carries the giver's own latest showcase photo, or no photo. It never carries a cook photo (S12).
+- The crew branch of S12 (the giving household's latest cook photo) waits for the crew return flow and the `42P17` recursion fix.
+- Showcase upload ("Add a showcase photo", with the S13 prompt) lands **inside Phase A**. Without it, Phase A's photo path couldn't be built or tested.
+
+**S20 — A gift photo travels as copies, never as a reference.**
+- **At give time:** the server copies the giver's showcase image into a **gift-scoped storage location** owned by the gift, not by either household. A link preview, including one opened by a non-user, is served from that copy through a signed URL minted server-side.
+- **At accept:** the server copies the gift's image into the **receiver's own household folder** and creates the receiver's `meal_photos` row. The receiver never holds a path into the giver's folder.
+- **Why:** the storage policy grants a household access to its own folder only, and that stays unchanged. Copies also keep the snapshot rule (V3): if the giver later deletes or replaces the photo, the gift and the receiver's copy are unaffected.
+- **Consequence:** copying storage objects needs service-role access, so the photo step runs in an **Edge Function** (Clerk JWKS identity, as `recipe-import` does), not a SQL RPC. `give_meal` and the accept path call it server-side. The client never chooses or copies which photo travels.
+
+**S21 — Showcase photos count toward the existing 3-live-photo cap.** One rule per meal, whatever the photo kind.
+- **Principle (Dan):** keep the limit at what serves people today, and let users ask for more before we spend storage, cost and complexity on it.
+- Revisit only on real beta requests.
+
+**S22 — A gift code is a bearer key and is scrubbed like `token=`.**
+- Anyone holding a gift link can open the gift, so the code must never reach Splunk: not in span URLs, and not in replay's page location.
+- If Step 0 #6 finds it unmasked, the fix **folds into the `SPEC_rum_clerk_id_scrub.md` build** (same file, same HAR verification).
+- **Either way, it lands on prod before Phase A's link surfaces ship.**
+
+**S23 — A received photo is a showcase row whose `uploaded_by` stays the giver.**
+- The receiver's copy is `kind = showcase`, so it never enters the crew feed (S18).
+- `uploaded_by` = the giver's user id, so S11 holds by construction: a public re-gift selects only showcase rows where `uploaded_by` = the person giving. The receiver can never re-gift it as their own.
+- The receiver can remove it from their meal like any photo.
+- **Accepted trade-off:** the receiving household can see the giver's internal user id. It's an opaque UUID with no name, and the giver's first name already travels in the gift snapshot.
+- If an `origin` marker is wanted later (e.g. "Given by…" on the photo), that's the attribution session's call. It is not added in Phase A.
+
+---
+
+## Step 0 (builder, read-only, before code; replaces the earlier Step 0 lists)
+
+1. Read `SPEC_meal_sharing_v2` against all three amendments (10-22, 10-23, 10-24). List every clause, table, column or policy that existed only to serve a connection (retired by S1/S2).
+2. Report the planned shape of `meal_gift_receipts` and its RLS. Confirm the giver's household can read none of it.
+3. Report how a `kind` column (`cook` | `showcase`, default `cook`) would interact with `add_meal_photo` / `remove_meal_photo`, their policies, and the 3-live-photo cap (S21).
+4. Report where the card, hero and viewer choose "latest photo". Quote the code. Cross-check against S17 and its showcase-only edge case.
+5. List any download, share or long-press-save surface on a photo. Expect none (S14).
+6. Report whether the current RUM scrub masks a gift code in `?ref=` (span URLs and replay location) (S22).
+7. Report the next free migration number from the dev ledger.
+8. Propose the gift-scoped storage location for S20: a path inside the `meal-photos` bucket or a separate private bucket, with its policy (lean: no client policy at all, server-side access only). Name the Edge Function's inputs and outputs. **Report and stop.** The layout comes back to the design chat before code.
+
+---
+
+## Verification (adds to V1–V16)
+
+- **V17:** a giver deleting their showcase photo after giving changes nothing for the gift's preview or for a receiver who already accepted.
+- **V18:** the receiver's photo row lives under the receiver's household folder. No receiver row or URL references the giver's folder.
+- **V19:** the receiver cannot select a received photo for their own public gift. Checked by direct query and by RPC call.
+- **V20:** a gift link opened by a signed-out visitor shows the gift photo through a server-minted signed URL. A HAR shows no `?ref=` code and no token in spans or replay.
+- **V21:** adding a showcase photo when the meal already has 3 live photos is refused with the same cap behaviour as a cook photo.
