@@ -49,6 +49,17 @@ const CHROME_ALLOW_LIST = [
   '.rv-plan',        // Recipe view main action: "+ Add to This Week" / "+ Plan again" / "Add to Shop" / "Wrap up →" / "Cooked it" — fixed copy, the board's own words. The count-bearing "{n} left to buy · See list" is .rv-see, OFF this list (SPEC_recipe_view Amendment B, R4)
   '.rv-remove',      // Recipe view quiet link: "Remove from This Week" / "Remove (and take its items off Shop)" — fixed copy, the board's ⋯ → Remove words
   '.rv-showall',     // Recipe view, Your cooks: "Show all N" — a count, never a name
+  '.rv-photo-add',   // Recipe view photo strip: "Add a meal photo" / "Adding…" — fixed copy (SPEC_meal_photos_v1 R5/R6). The photos, the strip, its dots and caption are NOT here; every photo <img> is .op-replay-block
+  '.rv-photo-remove',// Recipe view photo strip, ⋯ menu: "Remove photo" — fixed copy (R5); it opens the inline confirm and removes nothing. The ⋯ trigger (.rv-photo-more) is off this list
+  '.rv-photo-remove-yes', // Recipe view photo strip, inline confirm: "Remove" — fixed copy; THE removal (Dan, 2026-10-21). The question "Remove this photo?" is masked text, off this list
+  '.rv-photo-keep',  // Recipe view photo strip, inline confirm: "Keep" — fixed copy
+  '.rv-photo-open',  // Recipe view photo hero: the photo itself as a button, aria-label "View photo full size" — no text content (the <img> inside is .op-replay-block, alt "") (Dan, 2026-10-21)
+  '.rv-viewer-close',// Full-size photo viewer: "×", aria-label "Close photo" — fixed copy. The "N of M" count and the caption are household text, OFF this list
+  '.rv-photo-prev',  // Photo strip + viewer, desktop only: "‹", aria-label "Previous photo" — fixed copy, no text content (Dan, 2026-10-21)
+  '.rv-photo-next',  // Photo strip + viewer, desktop only: "›", aria-label "Next photo" — fixed copy, no text content
+  '.rv-dot',         // Photo strip + viewer dots (buttons; clickable on desktop): no text content, aria-label "Show photo N" — a position, never content
+  '.board-photo-add',// Board afterglow (Photos slice 2, S4): "Add a meal photo" / "Adding…" — fixed copy (R6)
+  '.rate-star',      // Cook rating stars (afterglow "How was it?" + "Your cooks"): no text content, aria-label "Rate N of 3" — fixed copy; the note input and the label are OFF this list
   '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
   '.deck-switch',    // Home on-deck card: "Switch"
   '.deck-x',         // Home on-deck card: × on a held night
@@ -130,6 +141,12 @@ const STORAGE_OPERATIONS = [
   ['upload', 'sign'], ['info', 'public'], ['info', 'authenticated'],
   ['sign'], ['public'], ['authenticated'], ['info'], ['list'],
 ];
+// A kept REST query still loses a clerk_id filter's value (design chat,
+// 2026-10-22): the Clerk user id is an account identifier, and D2 sends spans
+// without one. The operator stays (users?clerk_id=eq.[clerk]); every other byte
+// of the query is untouched, so this edits the string, not URLSearchParams.
+const maskClerkFilters = (search) =>
+  search.replace(/([?&](?:[^=&]*\.)?clerk_id=)((?:not\.)?[a-z]+\.)?[^&]*/g, '$1$2[clerk]');
 const startsWithSegs = (segs, prefix) => prefix.every((s, i) => segs[i] === s);
 function cutStoragePath(pathname) {
   const at = pathname.indexOf(STORAGE_ROOT);
@@ -157,7 +174,7 @@ function scrubUrl(value) {
   let path = u.pathname;
   if (isHttp) path = CLERK_IMAGE_HOSTS.has(u.hostname) ? '/[object]' : cutStoragePath(path);
   const isRest = SUPABASE_HOSTS.has(u.hostname) && u.pathname.startsWith('/rest/v1/');
-  const search = isRest ? u.search : '';
+  const search = isRest ? maskClerkFilters(u.search) : '';
   const hash = u.origin === window.location.origin ? u.hash : '';
   if (path === u.pathname && search === u.search && hash === u.hash) return value;
   if (!isHttp) {

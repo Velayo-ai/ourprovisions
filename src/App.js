@@ -1,5 +1,6 @@
 import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/clerk-react';
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useProvisions, isPendingCatalogId, normalizeOccasion } from './hooks/useProvisions';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
@@ -23,7 +24,9 @@ import { leftToBuy, recipeBlockFor, REMOVE_LABEL } from './lib/recipePlan';
 import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } from './lib/boardState';
 import { rowCountsFromProvenance } from './lib/mealLinks';
 import { addAllOnHandLine } from './lib/onHand';
-import { cookDate, cookHistoryLine } from './lib/cookDate';
+import { cookDateStart, cookHistoryLine } from './lib/cookDate';
+import { photosByMeal, photosFingerprint, photoCaption, MEAL_PHOTO_CAP } from './lib/mealPhotos';
+import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
@@ -961,7 +964,7 @@ function HomeWelcome({ signUpInitialValues, ready }) {
 // aria-label either. The body tap target (.deck-body) is masked.
 export function OnDeckCard({
   boardMeals, boardCards, placements, rows, mealById, cookedIds, busyMealId, switching, holdNight,
-  onAdd, onView, onLockIn, onCooked, onSkip, onSwitch, onLeftovers, onOut, onOther,
+  onAdd, onView, onLockIn, onCooked, onSkip, onSwitch, onLeftovers, onOut, onOther, afterglow,
 }) {
   // Row 0 — the afterglow reads the RENDERED list: boardMeals has already
   // dropped the cooked meal, boardCards keeps it until the next load.
@@ -976,6 +979,12 @@ export function OnDeckCard({
         <div className="deck-actions">
           <button type="button" className="deck-primary done" disabled>✓ Cooked</button>
         </div>
+        {/* The afterglow appears wherever Cooked it is tapped (Dan, 2026-10-21 walk): the board's own
+            component, same events stopped. P5 narrowed: Home never SHOWS a meal photo, but it may
+            capture one here — so "Photo added" carries no thumbnail on Home. */}
+        {afterglow && afterglow.cookIdFor(head.id) && (
+          <BoardAfterglow mealId={head.id} cookId={afterglow.cookIdFor(head.id)} ag={afterglow} showThumb={false} />
+        )}
       </section>
     );
   }
@@ -1487,7 +1496,7 @@ const BOARD_SLOP_PX = 8;
 const BOARD_CONTROLS = ".board-x, .board-cook, .board-lock, .board-see, .board-more, .board-menu";
 
 
-export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId }) {
+export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId, afterglow }) {
   // A card cooked THIS board load stays in place, muted, until the next load
   // (cookedIds, owned by App). It is not in the queue: no drag, no number, no
   // rail word, excluded from upNext / counts / numbering.
@@ -1665,6 +1674,11 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                 <div className="board-actions">
                   <button type="button" className="board-cook done" disabled aria-labelledby={`board-title-${m.id} board-verb-cooked`}>✓ Cooked</button>
                 </div>
+              )}
+              {/* Photos slice 2 (S4): "How was it?" + "Add a meal photo" under ✓ Cooked — only with THIS
+                  device's cook id (S3: no id, no controls). Outside the 55% dimming (.board-tile / -top / -line). */}
+              {cooked && afterglow && afterglow.cookIdFor(m.id) && (
+                <BoardAfterglow mealId={m.id} cookId={afterglow.cookIdFor(m.id)} ag={afterglow} />
               )}
               {!noShop && !cooked && (
               <div className="board-actions">
@@ -2054,7 +2068,448 @@ const memberFirstName = (mb) => {
 // last week, weekday + date beyond it. Never a person (D10).
 // Your cooks shows only at 2+ cooks (A4): one cook is the meta line's job.
 const RV_COOKS_MIN = 2;
-export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList }) {
+// THE HERO STRIP (SPEC_meal_photos_v1, 2026-10-20 amendment R2 / R5; slice 1). With 1+ live
+// photos the hero IS the strip — newest first (D2: the first is the card), swipeable
+// (native scroll-snap), dots at 2+, object-fit cover. With none it is today's tint +
+// occasion mark at 132 px, unchanged, and nothing invites a photo inside it (D8).
+// PHOTO HERO (follow-on, Dan 2026-10-21; mockup "Recipe View Photo Hero" screens 2–4): with a
+// photo the hero is 4:3, capped at 420 px tall on wide screens; each photo is a real
+// <button> ("View photo full size", .rv-photo-open) with a small expand mark on the hero's
+// corner, and opens PhotoViewer — the whole photo, uncropped, on a dark ground. Closing it
+// returns to the strip at the photo the viewer ended on, focus on that photo's button.
+// Under it, one caption for the photo in view — "Added {date}", " · {First}" only in a
+// 2+ member household while the uploader is still a member (the "Added by" rule) — then
+// the controls in fixed copy: "Add a meal photo" (hidden at the cap of 3, R1) and ⋯ →
+// "Remove photo" for the photo in view, confirmed inline in the same popover ("Remove this
+// photo?" · Keep / Remove — Dan, 2026-10-21). No chooser, no reorder.
+// Photos are gated on the household's photo read (the no-flash rule): until it resolves
+// the hero is the tint and the controls are absent, so a cold open never shows the tint
+// "Add" and then a photo, or a photo and then nothing.
+// RUM (R5): .op-replay-block on every photo <img> ONLY — never the strip, dots or caption.
+// .rv-photo-add / .rv-photo-remove / .rv-photo-remove-yes / .rv-photo-keep are allow-listed
+// (fixed copy); ⋯ (.rv-photo-more) and the question are not — ⋯ is named by a fixed
+// aria-label, the question is masked text; no meal name anywhere in an attribute.
+function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove, viewerUserId = null }) {
+  const [idx, setIdx] = useState(0);
+  const [menu, setMenu] = useState(false);   // false | "menu" | "confirm"
+  const [viewer, setViewer] = useState(null);   // null | the index the full-size viewer opened at
+  const stripRef = useRef(null);
+  const fileRef = useRef(null);
+  const menuRef = useRef(null);
+  const openRefs = useRef([]);       // each photo's "View photo full size" button, by index
+  const refocusRef = useRef(null);   // the index to scroll to and focus after the viewer closes
+  // An open popover (menu or confirm) closes on a tap anywhere outside it, or on Escape —
+  // and that outside tap only dismisses: its click is swallowed, so it never also presses
+  // whatever sat under the finger (Add to This Week, Close, a step). Keep / Remove inside
+  // the popover act as before.
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onDown = (e) => {
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      swallowNextClick();
+      setMenu(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") setMenu(false); };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
+  const live = photos.filter((p) => p.url);
+  const n = live.length;
+  const at = Math.min(idx, Math.max(0, n - 1));
+  const shown = n > 0 ? live[at] : null;
+  // A removal or a new upload changes the set: back to the newest, menu and viewer closed.
+  const setKey = live.map((p) => p.id).join(",");
+  useEffect(() => { setIdx(0); setMenu(false); setViewer(null); if (stripRef.current) stripRef.current.scrollLeft = 0; }, [setKey]);
+  // The viewer closed: the strip shows the photo it ended on, and focus returns to that
+  // photo's button (the dialog's opener). preventScroll so the sheet does not jump.
+  useEffect(() => {
+    if (viewer !== null || refocusRef.current === null) return;
+    const i = refocusRef.current;
+    refocusRef.current = null;
+    const el = stripRef.current;
+    if (el) el.scrollLeft = i * el.clientWidth;
+    const btn = openRefs.current[i];
+    if (btn) btn.focus({ preventScroll: true });
+  }, [viewer]);
+  const openViewer = (i) => { setMenu(false); setViewer(i); };
+  const closeViewer = (i) => { refocusRef.current = i; setIdx(i); setViewer(null); };
+  // Desktop (a mouse cannot swipe): ‹ › and the dots step the strip. The state moves at once;
+  // the scroll follows (smooth unless reduced motion) and onScroll agrees when it lands.
+  const goTo = (i) => {
+    const to = Math.max(0, Math.min(n - 1, i));
+    scrollStripTo(stripRef.current, to);
+    setIdx(to);
+    setMenu(false);
+  };
+  const onScroll = () => {
+    const el = stripRef.current;
+    if (!el || el.clientWidth === 0) return;
+    const i = Math.round(el.scrollLeft / el.clientWidth);
+    if (i !== at) { setIdx(i); setMenu(false); }
+  };
+  const caption = shown ? photoCaption(shown, members, memberFirstName, new Date(), viewerUserId) : "";
+  const pick = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";   // the same file can be chosen again after a failure
+    if (f && onAdd) onAdd(meal.id, f);
+  };
+  return (
+    <>
+      {n === 0 ? (
+        <div className="rv-hero" style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
+          <OccasionIcon occasion={first} size={44} tint={tint.bg} />
+        </div>
+      ) : (
+        <div className="rv-hero-wrap">
+          <div className="rv-hero rv-strip" ref={stripRef} onScroll={onScroll} style={{ background: tint.bg }}>
+            {live.map((p, i) => (
+              <div className="rv-slide" key={p.id}>
+                <button type="button" className="rv-photo-open" aria-label="View photo full size" ref={(el) => { openRefs.current[i] = el; }} onClick={() => openViewer(i)}>
+                  <img className="rv-photo-img op-replay-block" src={p.url} alt="" draggable="false" onLoad={photoFadeIn} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <span className="rv-hero-expand" aria-hidden="true"><ExpandGlyph /></span>
+          {/* Siblings of the strip, never inside a photo's button: a click on an arrow never opens the viewer. */}
+          <PhotoArrows at={at} count={n} onGo={goTo} />
+        </div>
+      )}
+      {viewer !== null && n > 0 && (
+        <PhotoViewer photos={live} start={Math.min(viewer, n - 1)} members={members} viewerUserId={viewerUserId} onClose={closeViewer} />
+      )}
+      {n >= 2 && <PhotoDots photos={live} at={at} onGo={goTo} />}
+      {caption && <div className="rv-photo-cap">{caption}</div>}
+      {canEdit && (n < MEAL_PHOTO_CAP || n > 0) && (
+        <div className="rv-photo-ctl">
+          {n < MEAL_PHOTO_CAP && (
+            <button type="button" className="rv-photo-add" disabled={busy} onClick={() => { if (!busy && fileRef.current) fileRef.current.click(); }}>
+              <CameraGlyph />{busy ? "Adding…" : "Add a meal photo"}
+            </button>
+          )}
+          {n > 0 && (
+            <span className="rv-photo-menu" ref={menuRef}>
+              <button type="button" className="rv-photo-more" aria-label="Photo options" aria-expanded={!!menu} disabled={busy} onClick={() => setMenu((v) => (v ? false : "menu"))}>⋯</button>
+              {menu === "menu" && (
+                <span className="rv-photo-pop" role="menu">
+                  <button type="button" role="menuitem" className="rv-photo-remove" onClick={() => setMenu("confirm")}>Remove photo</button>
+                </span>
+              )}
+              {menu === "confirm" && (
+                <span className="rv-photo-pop confirm" role="group" aria-labelledby="rv-photo-q">
+                  <span id="rv-photo-q" className="rv-photo-q">Remove this photo?</span>
+                  <span className="rv-photo-qbtns">
+                    <button type="button" className="rv-photo-keep" onClick={() => setMenu(false)}>Keep</button>
+                    <button type="button" className="rv-photo-remove-yes" onClick={() => { setMenu(false); if (onRemove && shown) onRemove(shown.id); }}>Remove</button>
+                  </span>
+                </span>
+              )}
+            </span>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={pick} />
+        </div>
+      )}
+    </>
+  );
+}
+// ONE COOK in "Your cooks" (S5). The date, then one line per rater: their stars, their note beneath.
+// In a household of 2+ current members each line carries the rater's first name — the viewer's own
+// line reads "You" (Dan, 2026-10-21: two members can share a first name); solo, stars only.
+// The viewer's own line is the editable CookRating (tap to change; the note edits in place). "How was it
+// for you?" is offered only on the meal's newest cook, and only while the viewer hasn't rated it (`offer`,
+// Dan 2026-10-21); it never moves to an older cook. Never a line about who didn't rate. Other members'
+// stars are drawn, not buttons — nobody rates for anyone else (rate_cook has no user parameter). The
+// count of stars is spoken through .sr-only text (masked), never an attribute. No averages (S7).
+function CookRow({ cook, ratings, members, viewerUserId, canRate, onRate, offer = false }) {
+  const multi = (members || []).length >= 2;
+  const nameOf = (uid) => memberFirstName((members || []).find((mb) => mb.user_id === uid));
+  const mine = viewerUserId ? ratings.find((r) => r.user_id === viewerUserId) : null;
+  const others = ratings.filter((r) => r !== mine);
+  return (
+    <li className="rv-cook">
+      <span className="rv-cook-date">{cookDateStart(cook.cooked_at)}</span>
+      {others.map((r) => (
+        <div className="rv-rater" key={r.user_id}>
+          <div className="rv-rater-line">
+            {multi && nameOf(r.user_id) && <span className="rv-rater-name">{nameOf(r.user_id)}</span>}
+            {r.rating != null && <StaticStars n={r.rating} />}
+          </div>
+          {r.note && <div className="rv-rater-note">{r.note}</div>}
+        </div>
+      ))}
+      {canRate && (mine || offer) && (
+        <div className="rv-rater mine">
+          <CookRating label={mine ? (multi ? "You" : "") : "How was it for you?"}
+            rating={mine ? mine.rating : null} note={mine ? mine.note || "" : ""} onRate={(rt, nt) => onRate(cook.id, rt, nt)} openWhenRated={false} />
+        </div>
+      )}
+      {!canRate && mine && (
+        <div className="rv-rater">
+          <div className="rv-rater-line">
+            {multi && <span className="rv-rater-name">You</span>}
+            {mine.rating != null && <StaticStars n={mine.rating} />}
+          </div>
+          {mine.note && <div className="rv-rater-note">{mine.note}</div>}
+        </div>
+      )}
+    </li>
+  );
+}
+const StaticStars = ({ n }) => (
+  <span className="rv-stars">
+    <span className="sr-only">{n} of 3</span>
+    {[1, 2, 3].map((i) => <StarGlyph key={i} filled={i <= n} />)}
+  </span>
+);
+// COOK RATING (SPEC_meal_photos_v1, 2026-10-21 amendment S1/S4/S5) — the afterglow's "How was it?" and
+// the recipe view's "How was it for you?". Three star buttons (.rate-star, "Rate N of 3", 44 px); tapping
+// the current star again clears it. The one-line note ("Note (optional)", 200 chars) appears only once a
+// star has been tapped (or a rating / note already exists) and saves on blur or Enter — no Save button.
+// Rating and note both empty → the caller's row is deleted server-side (no vote is not a rating). This
+// is ALWAYS the viewer's own rating: rate_cook has no user parameter. No averages anywhere (S7).
+// RUM: .rate-star is allow-listed (no text content, fixed aria-label); the note is an <input> (masked
+// on prod by maskAllInputs) and never in an attribute we write; the label is masked text.
+// openWhenRated: the afterglow opens the note as soon as there is a rating; "Your cooks" only when a
+// note exists or a star was just tapped (no empty note field under every rated cook).
+export function CookRating({ label, rating, note, onRate, busy = false, openWhenRated = true }) {
+  const [opened, setOpened] = useState((openWhenRated && rating != null) || !!note);
+  const [draft, setDraft] = useState(note || "");
+  useEffect(() => { setDraft(note || ""); }, [note]);
+  useEffect(() => { if ((openWhenRated && rating != null) || note) setOpened(true); }, [rating, note, openWhenRated]);
+  const tapStar = (n) => {
+    setOpened(true);
+    onRate(n === rating ? null : n, draft.trim());
+  };
+  const saveNote = () => {
+    const t = draft.trim();
+    if (t !== (note || "")) onRate(rating == null ? null : rating, t);
+  };
+  return (
+    <div className="rate-row">
+      <span className="rate-label">{label}</span>
+      <span className="rate-stars" role="group" aria-label="Rating">
+        {[1, 2, 3].map((n) => (
+          <button type="button" key={n} className={`rate-star${rating != null && n <= rating ? " on" : ""}`}
+            aria-label={`Rate ${n} of 3`} aria-pressed={rating === n} disabled={busy} onClick={() => tapStar(n)}>
+            <StarGlyph filled={rating != null && n <= rating} />
+          </button>
+        ))}
+      </span>
+      {opened && (
+        <input className="rate-note" type="text" size={1} maxLength={200} placeholder="Note (optional)" aria-label="Note (optional)"
+          value={draft} disabled={busy} onChange={(e) => setDraft(e.target.value)} onBlur={saveNote}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} />
+      )}
+    </div>
+  );
+}
+const StarGlyph = ({ filled }) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z" />
+  </svg>
+);
+// THE BOARD AFTERGLOW (S4; D6 with R6's copy). Under ✓ Cooked: "How was it?" and "Add a meal photo"
+// (.board-photo-add). A photo added here is COOK-attached (D1; P1's per-cook replace), and a small
+// thumbnail confirms "Photo added". At the cap of 3 the photo button is hidden (R1) — no photo is ever
+// aged out silently. Every event stops here: the card is a role="button" that opens the recipe view on
+// click / Enter / Space and arms a long-press drag on pointerdown, and none of that may fire from a
+// star, the note or the photo button. Used by the board AND Home's on-deck card (Dan, 2026-10-21: the
+// afterglow appears wherever Cooked it is tapped); on Home `showThumb` is off (P5 narrowed: Home captures
+// a photo, never shows one).
+function BoardAfterglow({ mealId, cookId, ag, showThumb = true }) {
+  const fileRef = useRef(null);
+  const mine = ag.myRating(cookId);
+  const photo = ag.photoFor(mealId, cookId);
+  const busy = ag.photoBusyMealId === mealId;
+  const stop = (e) => e.stopPropagation();
+  const pick = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (f) ag.onAddPhoto(mealId, f, cookId);
+  };
+  return (
+    <div className="board-glow" onClick={stop} onPointerDown={stop} onPointerUp={stop} onPointerMove={stop} onKeyDown={stop} onContextMenu={stop}>
+      <CookRating label="How was it?" rating={mine ? mine.rating : null} note={mine ? mine.note : ""} onRate={(r, n) => ag.onRate(cookId, r, n)} />
+      {(photo || !ag.atCap(mealId)) && (
+        <div className="board-glow-photo">
+          {photo && (
+            <span className="board-photo-done">
+              {showThumb && photo.url && <img className="board-photo-thumb op-replay-block" src={photo.url} alt="" />}
+              Photo added
+            </span>
+          )}
+          {!ag.atCap(mealId) && (
+            <button type="button" className="board-photo-add" disabled={busy} onClick={() => { if (!busy && fileRef.current) fileRef.current.click(); }}>
+              <CameraGlyph />{busy ? "Adding…" : "Add a meal photo"}
+            </button>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" hidden onChange={pick} />
+        </div>
+      )}
+    </div>
+  );
+}
+// THE FULL-SIZE VIEWER (Dan, 2026-10-21; mockup screens 3–4). A real modal dialog, portalled to
+// <body> so no sheet transform or overflow clips it: a dark ground, the VIEW copy at
+// object-fit: contain (uncropped — the same signed URL the strip already loaded, so no new
+// download), "N of M" top right, × "Close photo" top left, swipe between photos with the
+// strip's dots and caption. Focus goes to × on open and Tab stays there (the only control);
+// Escape closes; ← / → step; closing the recipe view unmounts it. Pointer events stop at its
+// root: React bubbles portal events through the React tree, and the SheetPanel's swipe-down
+// handlers sit above it there. Under reduced motion, no fade.
+// RUM: .op-replay-block on every viewer <img>; .rv-viewer-close joins the allow-list (fixed
+// copy "×"); the count and the caption are household text and are NOT on it. The dialog is
+// named by a fixed aria-label, never the meal.
+function PhotoViewer({ photos, start, members, onClose, viewerUserId = null }) {
+  const [at, setAt] = useState(start);
+  const atRef = useRef(start);
+  const stripRef = useRef(null);
+  const closeRef = useRef(null);
+  const m = photos.length;
+  useLayoutEffect(() => {
+    const el = stripRef.current;
+    if (el) el.scrollLeft = start * el.clientWidth;
+    if (closeRef.current) closeRef.current.focus();
+  // Once, on open: the start index and the first focus.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const go = (i) => {
+    const to = Math.max(0, Math.min(m - 1, i));
+    scrollStripTo(stripRef.current, to);
+    atRef.current = to;
+    setAt(to);
+  };
+  const rootRef = useRef(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); onClose(atRef.current); }
+      else if (e.key === "Tab") {
+        // Focus stays inside the dialog: × and, on desktop, ‹ › and the dots — cycled in order.
+        e.preventDefault();
+        const els = rootRef.current ? Array.from(rootRef.current.querySelectorAll("button")).filter((b) => b.offsetParent !== null || b === closeRef.current) : [];
+        if (els.length === 0) return;
+        const k = els.indexOf(document.activeElement);
+        const next = e.shiftKey ? (k <= 0 ? els.length - 1 : k - 1) : (k + 1) % els.length;
+        els[next].focus();
+      }
+      else if (e.key === "ArrowRight") { e.preventDefault(); go(atRef.current + 1); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); go(atRef.current - 1); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  // go reads refs only.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose]);
+  const onScroll = () => {
+    const el = stripRef.current;
+    if (!el || el.clientWidth === 0) return;
+    const i = Math.round(el.scrollLeft / el.clientWidth);
+    if (i !== atRef.current) { atRef.current = i; setAt(i); }
+  };
+  const stop = (e) => e.stopPropagation();
+  const caption = photoCaption(photos[at], members, memberFirstName, new Date(), viewerUserId);
+  return createPortal(
+    <div className="rv-viewer" role="dialog" aria-modal="true" aria-label="Photo" ref={rootRef}
+      onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop} onClick={stop}>
+      <div className="rv-viewer-top">
+        <button type="button" ref={closeRef} className="rv-viewer-close" aria-label="Close photo" onClick={() => onClose(atRef.current)}>×</button>
+        <span className="rv-viewer-count">{at + 1} of {m}</span>
+      </div>
+      <div className="rv-viewer-stage">
+        <div className="rv-viewer-strip" ref={stripRef} onScroll={onScroll}>
+          {photos.map((p) => (
+            <div className="rv-viewer-slide" key={p.id}>
+              <img className="rv-viewer-img op-replay-block" src={p.url} alt="" draggable="false" />
+            </div>
+          ))}
+        </div>
+        <PhotoArrows at={at} count={m} onGo={go} />
+      </div>
+      <div className="rv-viewer-foot">
+        {m >= 2 && <PhotoDots photos={photos} at={at} onGo={go} className="rv-viewer-dots" />}
+        {caption && <div className="rv-viewer-cap">{caption}</div>}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+// DESKTOP STEPPING (Dan, 2026-10-21 walk: a mouse could not change photos with 2+). ‹ › sit over
+// the strip and the viewer, only with 2+ photos, each hidden at its end, 44 px, fixed labels
+// "Previous photo" / "Next photo". They and the dots' pointer are CSS-gated to
+// (hover: hover) and (pointer: fine), so a phone shows no arrows and its dots stay the
+// plain swipe indicator. The dots are buttons ("Show photo N", aria-current on the one in
+// view). ← / → still step the viewer. RUM: .rv-photo-prev / .rv-photo-next / .rv-dot are
+// allow-listed — no text content (aria-labels are fixed copy; "N" is a position, never content).
+function scrollStripTo(el, i) {
+  if (!el) return;
+  const left = i * el.clientWidth;
+  const smooth = typeof window !== "undefined" && window.matchMedia && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (typeof el.scrollTo === "function") el.scrollTo({ left, behavior: smooth ? "smooth" : "auto" });
+  else el.scrollLeft = left;
+}
+function PhotoArrows({ at, count, onGo }) {
+  const prevRef = useRef(null);
+  const nextRef = useRef(null);
+  // An arrow that steps to its end unmounts under the pointer; keyboard focus then moves to
+  // the other arrow instead of falling back to <body>.
+  const handOff = useRef(null);
+  useEffect(() => {
+    const to = handOff.current === "prev" ? prevRef.current : handOff.current === "next" ? nextRef.current : null;
+    handOff.current = null;
+    if (to) to.focus({ preventScroll: true });
+  }, [at]);
+  if (count < 2) return null;
+  return (
+    <>
+      {at > 0 && (
+        <button type="button" ref={prevRef} className="rv-photo-prev" aria-label="Previous photo"
+          onClick={(e) => { e.stopPropagation(); if (at - 1 === 0) handOff.current = "next"; onGo(at - 1); }}><ChevronGlyph dir="left" /></button>
+      )}
+      {at < count - 1 && (
+        <button type="button" ref={nextRef} className="rv-photo-next" aria-label="Next photo"
+          onClick={(e) => { e.stopPropagation(); if (at + 1 === count - 1) handOff.current = "prev"; onGo(at + 1); }}><ChevronGlyph dir="right" /></button>
+      )}
+    </>
+  );
+}
+function PhotoDots({ photos, at, onGo, className = "" }) {
+  return (
+    <div className={`rv-dots ${className}`.trim()}>
+      {photos.map((p, i) => (
+        <button type="button" key={p.id} className={i === at ? "rv-dot on" : "rv-dot"} aria-label={`Show photo ${i + 1}`} aria-current={i === at ? "true" : undefined}
+          onClick={(e) => { e.stopPropagation(); onGo(i); }} />
+      ))}
+    </div>
+  );
+}
+const ChevronGlyph = ({ dir }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={dir === "left" ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} />
+  </svg>
+);
+const ExpandGlyph = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-6.5 6.5M4 20l6.5-6.5" /></svg>
+);
+// The outside tap that dismisses a photo popover must not also press what was under the
+// finger. Its click arrives after pointerup (~100 ms later, after React has re-rendered), so
+// the guard lives on its own: one capture listener that eats the NEXT click and removes
+// itself, with a 1 s fallback for a tap that never becomes a click (a scroll, a long-press).
+function swallowNextClick() {
+  const eat = (e) => { e.preventDefault(); e.stopPropagation(); done(); };
+  const timer = setTimeout(() => done(), 1000);
+  function done() { clearTimeout(timer); document.removeEventListener("click", eat, true); }
+  document.addEventListener("click", eat, true);
+}
+// The photo fades in once it has decoded (the tint shows behind it until then).
+const photoFadeIn = (e) => e.currentTarget.classList.add("in");
+const CameraGlyph = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z" /><circle cx="12" cy="13.2" r="3.4" /></svg>
+);
+export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onRemovePhoto, ratingsFor, onRate, canRate }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2080,6 +2535,18 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   ].filter(Boolean).join(" · ");
   const rows = cookRows || [];
   const shownCooks = allCooks ? rows : rows.slice(0, RV_COOKS_SHOWN);
+  // S5: "Your cooks" from ONE cook when any cook carries a rating, a note or a photo (amends A4's 2+
+  // for that case only) — or when the viewer has the newest cook still to rate (below).
+  const cookRatings = (id) => (ratingsFor ? ratingsFor(id) : []).filter((r) => r.rating != null || (r.note && r.note.trim()));
+  const cookHasPhoto = (id) => (photos || []).some((p) => p.meal_cook_id === id);
+  // "How was it for you?" only on the meal's NEWEST cook, and only while the viewer hasn't rated it. It never
+  // moves to an older cook (Dan, 2026-10-21). Rows are newest first.
+  const newestCook = rows[0] || null;
+  const offerCookId = newestCook && !(ratingsFor ? ratingsFor(newestCook.id) : []).some((x) => x.user_id === viewerUserId) ? newestCook.id : null;
+  // The first-cook gap (Dan, 2026-10-21): a meal cooked once with nothing attached still shows "Your cooks" to
+  // a member who can rate its newest cook and hasn't — so a cook made from the recipe view can be rated there.
+  const offerOpen = !!canRate && !!onRate && !!offerCookId;
+  const showCooks = rows.length >= RV_COOKS_MIN || offerOpen || rows.some((r) => cookRatings(r.id).length > 0 || cookHasPhoto(r.id));
   // THE ACTION BLOCK (Amendment B + Step 0 rulings, 2026-10-19; src/lib/recipePlan.js,
   // jest-proven): a status line that never acts, ONE main action, a quiet remove link.
   // Every action is the board's own handler (B3): Add to Shop = the board's Add to Shop
@@ -2087,7 +2554,8 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   // the board's ⋯ → Remove (handleSkipMeal with the card's toBuy, so a To-buy meal's items
   // come off Shop as they do from the board). No toast on Remove, as on the board: the view
   // moving to "+ Add to This Week" / "+ Plan again" is the feedback and the undo (B4).
-  const block = recipeBlockFor(state);
+  // A meal with any cook reads "+ Plan again" off This Week, whether or not this load cooked it (A5).
+  const block = recipeBlockFor(state, { cookedBefore: (cookCount || 0) > 0 || !!lastCookedAt });
   let plan;
   if (block.action === "add") {
     plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Add to This Week</button>;
@@ -2122,9 +2590,8 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
         <SheetClose onClose={onClose} />
         <div className="lib-type-handle" aria-hidden="true" />
         <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
-        <div className="rv-hero" style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
-          <OccasionIcon occasion={first} size={44} tint={tint.bg} />
-        </div>
+        <RecipePhotos meal={meal} tint={tint} first={first} members={members} viewerUserId={viewerUserId} photos={photosReady ? (photos || []) : []}
+          canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onRemove={onRemovePhoto} />
         <div className="rv-head">
           <h2 id="rv-title" className="rv-title">{displayTitle(meal.name)}</h2>
           {attribution && <div className="rv-byline">from {attribution}</div>}
@@ -2194,11 +2661,14 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
             </ol>
           </>
         )}
-        {rows.length >= RV_COOKS_MIN && (
+        {showCooks && (
           <>
             <h3 className="rv-sec">Your cooks <span>{rows.length}</span></h3>
             <ul className="rv-cooks">
-              {shownCooks.map((r) => <li key={r.id}>{cookDate(r.cooked_at)}</li>)}
+              {shownCooks.map((r) => (
+                <CookRow key={r.id} cook={r} ratings={cookRatings(r.id)} members={members} viewerUserId={viewerUserId}
+                  canRate={!!canRate && !!onRate} onRate={onRate} offer={r.id === offerCookId} />
+              ))}
             </ul>
             {!allCooks && rows.length > RV_COOKS_SHOWN && (
               <button type="button" className="rv-showall" onClick={() => setAllCooks(true)}>Show all {rows.length}</button>
@@ -4303,6 +4773,7 @@ function ProvisionsApp() {
     discardUnclaimedHousehold,
     uploadHouseholdPhoto,
     updateHouseholdBanner,
+    addMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     supabase,
     _supabase,
     _household,
@@ -4589,6 +5060,8 @@ function ProvisionsApp() {
   // flash the welcome must never show. Reset by household change (the id no
   // longer matches), never by the 2s poll.
   const [mealsLoadedFor, setMealsLoadedFor] = useState(null);
+  // Photos v1: the meals poll (declared above the photo loader) calls it through this ref.
+  const loadMealPhotosRef = useRef(() => {});
   const [addingMealId, setAddingMealId] = useState(null);
   // Provenance for the teal meal facet: catalog_item_id → [{mealId,name,createdBy}].
   const [mealProvenance, setMealProvenance] = useState({});
@@ -4832,7 +5305,16 @@ function ProvisionsApp() {
     if (!MEALS_ENABLED || !(view === "plan" || view === "home") || !household?.id || authPhase !== "ready") return;
     // Amendment 2026-09-24: the tick passes isPollingOpen (closed offline and
     // for the hold after a 401/403); back online runs one tick immediately.
-    const tick = () => { if (isPollingOpen()) refreshMeals(); };
+    // Photos v1: every 5th tick (10 s) also re-reads the household's photo rows — a
+    // partner's photo touches no meal, placement or list row, so nothing else would
+    // carry it; the fingerprint drops an unchanged read without a render.
+    let n = 0;
+    const tick = () => {
+      if (!isPollingOpen()) return;
+      refreshMeals();
+      n += 1;
+      if (n % 5 === 0) loadMealPhotosRef.current();
+    };
     const mealsPoll = setInterval(tick, 2000);
     window.addEventListener("online", tick);
     return () => { clearInterval(mealsPoll); window.removeEventListener("online", tick); };
@@ -5123,6 +5605,145 @@ function ProvisionsApp() {
   }, [rvMealId, rvCookCount, _supabase, _household]);
   // Switching households closes the view: the id belongs to the old place.
   useEffect(() => { setRecipeView(null); }, [household?.id]);
+
+  // ── Meal photos v1 (065; slice 1) ──────────────────────────────────────
+  // The household's live photo rows, newest first, and the household they were read
+  // for — the no-flash gate (the provenanceLoadedFor pattern): a hero or a card shows
+  // the tint until the read for THIS household resolves, then the photo fades in once.
+  // Re-read on entering Plan / Home, on opening a recipe, every 5th tick of the 2 s
+  // meals poll (a partner's photo has no other signal — it touches no meal, placement
+  // or list row), and after this device's own add / remove. A poll that reads the
+  // same set is dropped by fingerprint, so an idle library never re-renders.
+  const [mealPhotos, setMealPhotos] = useState({ hhId: null, rows: [], print: "" });
+  const photoUrlCacheRef = useRef(null);
+  if (!photoUrlCacheRef.current) photoUrlCacheRef.current = createSignedUrlCache({ bucket: "meal-photos" });
+  const [photoUrls, setPhotoUrls] = useState({});
+  const [photoBusyMealId, setPhotoBusyMealId] = useState(null);
+  const loadMealPhotos = useCallback(async () => {
+    const hhId = _household.current?.id;
+    if (!hhId) return;
+    const rows = await fetchMealPhotos();
+    if (rows == null || _household.current?.id !== hhId) return;   // a failed read keeps what we had
+    const print = photosFingerprint(rows);
+    setMealPhotos((prev) => (prev.hhId === hhId && prev.print === print ? prev : { hhId, rows, print }));
+  }, [fetchMealPhotos, _household]);
+  loadMealPhotosRef.current = loadMealPhotos;
+  useEffect(() => {
+    if (MEALS_ENABLED && household?.id && authPhase === "ready" && (view === "plan" || view === "home" || rvMealId)) loadMealPhotos();
+  }, [household?.id, view, rvMealId, authPhase, loadMealPhotos]);
+  const photosReady = !!household?.id && mealPhotos.hhId === household.id;
+  const photosByMealId = useMemo(() => (photosReady ? photosByMeal(mealPhotos.rows) : {}), [photosReady, mealPhotos]);
+  // Signed URLs (R9): only for what is on screen — the library's card THUMBNAILS (the
+  // newest photo per meal, D2 — the library never loads a view copy, A3) and the open
+  // recipe's view copies (up to 3). Minted in one batch, reused for the session by path,
+  // re-minted only near expiry; the <img> is loading="lazy", so a card below the fold
+  // costs its URL, not its bytes, until it scrolls in.
+  const libraryOnScreen = view === "plan" && planScreen === "library";
+  const wantedPhotoPaths = useMemo(() => {
+    const paths = [];
+    if (libraryOnScreen) libraryMeals.forEach((m) => { const p = (photosByMealId[m.id] || [])[0]; if (p) paths.push(p.thumb_path); });
+    // The board afterglow's "Photo added" thumbnail (S4): the cook-attached photo of a cook this device logged.
+    if (view === "plan" && planScreen !== "library") {
+      Object.entries(cookIdsByMeal || {}).forEach(([mealId, cookId]) => {
+        const p = cookId && (mealPhotos.rows || []).find((r) => r.meal_id === mealId && r.meal_cook_id === cookId);
+        if (p) paths.push(p.thumb_path);
+      });
+    }
+    if (rvMealId) (photosByMealId[rvMealId] || []).forEach((p) => paths.push(p.view_path));
+    return paths;
+  }, [libraryOnScreen, libraryMeals, rvMealId, photosByMealId, view, planScreen, cookIdsByMeal, mealPhotos]);
+  // The library's cards carry the photo seam (LibrarySlot): hasCardPhoto as soon as the read
+  // says one exists (the slot takes its 132 px shape at once), cardPhotoUrl once minted.
+  const libraryCards = useMemo(() => libraryMeals.map((m) => {
+    const p = (photosByMealId[m.id] || [])[0];
+    return p ? { ...m, hasCardPhoto: true, cardPhotoUrl: photoUrls[p.thumb_path] || null } : m;
+  }), [libraryMeals, photosByMealId, photoUrls]);
+  useEffect(() => {
+    if (wantedPhotoPaths.length === 0) return undefined;
+    let cancelled = false;
+    photoUrlCacheRef.current.resolve(_supabase.current, wantedPhotoPaths).then((got) => {
+      if (cancelled) return;
+      setPhotoUrls((prev) => (Object.keys(got).every((k) => prev[k] === got[k]) ? prev : { ...prev, ...got }));
+    });
+    return () => { cancelled = true; };
+  }, [wantedPhotoPaths, _supabase]);
+  // Add / remove (R2): quiet on failure — a toast, never the error banner, and the hero
+  // is unchanged. The read-back after success is what shows the photo (the server's cap
+  // may have aged one out), not an optimistic insert.
+  const handleAddMealPhoto = useCallback(async (mealId, file, cookId = null) => {
+    if (photoBusyMealId) return;
+    setPhotoBusyMealId(mealId);
+    try {
+      const r = await addMealPhoto(mealId, file, cookId);
+      if (!r.ok) showToast(r.reason === "decode" ? "Couldn't read that photo" : "Couldn't add the photo. Try again.");
+      await loadMealPhotos();
+    } finally { setPhotoBusyMealId(null); }
+  }, [photoBusyMealId, addMealPhoto, loadMealPhotos, showToast]);
+  const handleRemoveMealPhoto = useCallback(async (photoId) => {
+    const ok = await removeMealPhoto(photoId);
+    if (!ok) showToast("Couldn't remove the photo. Try again.");
+    await loadMealPhotos();
+  }, [removeMealPhoto, loadMealPhotos, showToast]);
+  // ── Cook ratings (066; slice 2, S1) ─────────────────────────────────────
+  // cook id → every member's rating rows for that cook, as read (RLS: membership). The afterglow's
+  // cook starts empty (it was just logged); the recipe view reads its meal's cooks at open (S5).
+  // Writes go through rate_cook only, and only ever for the viewer — the optimistic row below is
+  // the viewer's own, replaced by the server's rows on the re-read.
+  const [ratingsByCook, setRatingsByCook] = useState({});
+  useEffect(() => { setRatingsByCook({}); }, [household?.id]);
+  const mergeRatings = useCallback((cookIds, rows) => {
+    setRatingsByCook((prev) => {
+      const next = { ...prev };
+      cookIds.forEach((id) => { next[id] = []; });
+      (rows || []).forEach((r) => { (next[r.meal_cook_id] = next[r.meal_cook_id] || []).push(r); });
+      return next;
+    });
+  }, []);
+  const myRatingFor = useCallback((cookId) => {
+    const me = _internalUserId.current;
+    return (ratingsByCook[cookId] || []).find((r) => r.user_id === me) || null;
+  }, [ratingsByCook, _internalUserId]);
+  const handleRateCook = useCallback(async (cookId, rating, note) => {
+    const me = _internalUserId.current;
+    if (!cookId || !me) return;
+    const before = ratingsByCook[cookId] || [];
+    const others = before.filter((r) => r.user_id !== me);
+    const cleared = rating == null && !note;
+    setRatingsByCook((prev) => ({ ...prev, [cookId]: cleared ? others : [...others, { meal_cook_id: cookId, user_id: me, rating, note: note || null }] }));
+    const ok = await rateCook(cookId, rating, note);
+    if (!ok) {
+      setRatingsByCook((prev) => ({ ...prev, [cookId]: before }));
+      showToast("Couldn't save that. Try again.");
+      return;
+    }
+    const rows = await fetchCookRatings([cookId]);
+    if (rows) mergeRatings([cookId], rows);
+  }, [ratingsByCook, rateCook, fetchCookRatings, mergeRatings, showToast, _internalUserId]);
+  // The board's afterglow (S4): the device's cook id (S3), the viewer's own rating, the cook's
+  // photo (a "Photo added" thumbnail), and the cap — "Add a meal photo" hides at 3 live photos (R1).
+  const afterglowCookPhoto = useCallback((mealId, cookId) => {
+    const p = (mealPhotos.rows || []).find((r) => r.meal_id === mealId && r.meal_cook_id === cookId);
+    return p ? { id: p.id, url: photoUrls[p.thumb_path] || null } : null;
+  }, [mealPhotos, photoUrls]);
+  // The open recipe's cooks' ratings (S5): one read when its cook rows arrive (and again whenever they
+  // change — a cook from this device, or a partner's arriving by the placements poll).
+  const rvCookIds = (recipeCooks?.rows || []).map((r) => r.id).join(",");
+  useEffect(() => {
+    if (!rvCookIds) return undefined;
+    let cancelled = false;
+    const ids = rvCookIds.split(",");
+    fetchCookRatings(ids).then((rows) => { if (!cancelled && rows) mergeRatings(ids, rows); });
+    return () => { cancelled = true; };
+  }, [rvCookIds, fetchCookRatings, mergeRatings]);
+  const boardAfterglow = useMemo(() => (!isSignedIn || !photosReady ? null : {
+    cookIdFor: (mealId) => (cookIdsByMeal || {})[mealId] || null,
+    myRating: myRatingFor,
+    onRate: handleRateCook,
+    photoFor: afterglowCookPhoto,
+    atCap: (mealId) => (photosByMealId[mealId] || []).length >= MEAL_PHOTO_CAP,
+    onAddPhoto: handleAddMealPhoto,
+    photoBusyMealId,
+  }), [isSignedIn, photosReady, cookIdsByMeal, myRatingFor, handleRateCook, afterglowCookPhoto, photosByMealId, handleAddMealPhoto, photoBusyMealId]);
   // A2 / A2-R (2026-10-18): the view's ingredient tags — this meal's list_item_meals
   // links, INCLUDING rows archived as bought at wrap-up (deleted_at set, status
   // bought; list_items_select is membership only, so RLS allows the read — Step
@@ -7268,6 +7889,27 @@ function ProvisionsApp() {
         /* Cooked this load: muted in place (tile + text at 55%), ✓ Cooked as a teal outline, disabled at full weight. */
         .board-card.cooked { cursor: default; }
         .board-card.cooked .board-tile, .board-card.cooked .board-top, .board-card.cooked .board-line { opacity: 0.55; }
+        /* THE AFTERGLOW (Photos slice 2, S4): "How was it?" + stars, the note once a star is tapped, and
+           "Add a meal photo" — full strength (outside the 55% rule), wrapping at XXL on 320. */
+        .board-glow { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; cursor: default; }
+        .board-glow-photo { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; }
+        .board-photo-add { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 4px; border: none; background: transparent; color: #8A5F3A;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .board-photo-add:disabled { opacity: .55; cursor: default; }
+        .board-photo-add:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
+        .board-photo-done { display: inline-flex; align-items: center; gap: 8px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #0A776D; }
+        .board-photo-thumb { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; display: block; }
+        /* The stars (S4/S5) — shared by the afterglow and "Your cooks". 44 px targets, no averages anywhere. */
+        .rate-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0 6px; }
+        .rate-label { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #5C4636; }
+        .rate-stars { display: inline-flex; align-items: center; }
+        .rate-star { width: 44px; height: 44px; padding: 0; border: none; background: transparent; color: #C9A97A; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+        .rate-star.on { color: #A0724A; }
+        .rate-star:disabled { opacity: .55; cursor: default; }
+        .rate-star:focus-visible { outline: 2px solid #A0724A; outline-offset: -4px; border-radius: 10px; }
+        .rate-note { flex: 1 1 100%; min-width: 0; min-height: 40px; margin: 2px 0 4px; padding: 6px 10px; border: 1px solid #E5D7C1; border-radius: 10px; background: #FFFDF8;
+          font-family: 'Lato', sans-serif; font-size: max(16px, calc(14px * var(--op-text-scale))); color: #2C1A0E; }
+        .rate-note:focus { outline: 2px solid #A0724A; outline-offset: 0; }
         /* Teal text sweep (ruling 2026-10-07): text at body size and below is #0A776D; the border is a
            stroke and keeps brand #0D9488. Same split on .deck-primary.done, .added-here-tag, .wrapbar-a. */
         .board-cook.done, .board-cook.done:disabled { background: transparent; color: #0A776D; border-color: #0D9488; opacity: 1; cursor: default; }
@@ -7428,7 +8070,9 @@ function ProvisionsApp() {
         .lib-type-save { min-height: 44px; padding: 0 20px; border-radius: 12px; border: none; background: #6f5a45; color: #FAF4EC; cursor: pointer;
                          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .lib-type-save:disabled { opacity: 0.5; cursor: default; }
-        .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        .lib-slot-img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s ease; }
+        .lib-slot-img.in { opacity: 1; }
+        @media (prefers-reduced-motion: reduce) { .lib-slot-img { transition: none; } }
         /* ── The recipe view (SPEC_recipe_view, 2026-10-18). A full-height SheetPanel: the scrim is the
            library's type-sheet scrim (z 1000, above the Helm); the panel keeps SheetPanel's cap and
            scrolls inside itself; min-height makes it a page, not a strip, for a short recipe. Close
@@ -7453,6 +8097,90 @@ function ProvisionsApp() {
                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .rv-edit:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
         .rv-hero { margin: 44px 16px 0; height: 132px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
+        /* Photos v1 (R2): the hero becomes the strip at its own 132 px — native horizontal scroll-snap, one photo
+           per slide, object-fit cover, the tint behind each photo until it decodes (it fades in once, .in). */
+        .rv-strip { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; justify-content: flex-start; overflow-clip-margin: 0; }
+        .rv-strip::-webkit-scrollbar { display: none; }
+        .rv-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; }
+        .rv-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s ease; -webkit-user-drag: none; user-select: none; }
+        .rv-photo-img.in { opacity: 1; }
+        @media (prefers-reduced-motion: reduce) { .rv-photo-img { transition: none; } }
+        /* PHOTO HERO (Dan, 2026-10-21): with a photo the hero is 4:3, capped at 420 px tall on wide screens (the
+           width then stays full and the photo crops a little more — object-fit: cover). The tint hero (0 photos)
+           keeps its 132 px. Each photo is a full-bleed <button> that opens the viewer; the expand mark is a
+           decoration pinned to the hero's corner (it does not scroll with the strip). */
+        .rv-hero-wrap { position: relative; margin: 44px 16px 0; }
+        .rv-hero-wrap .rv-hero.rv-strip { margin: 0; width: 100%; height: auto; aspect-ratio: 4 / 3; max-height: 420px; overflow-y: hidden; }   /* width: 100% — without it the 420 cap shrank the width to keep 4:3 (560 px in a 768 px sheet, the expand mark off the photo) */
+        .rv-photo-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: zoom-in; }
+        .rv-photo-open:focus-visible { outline: 3px solid #A0724A; outline-offset: -3px; }
+        .rv-hero-expand { position: absolute; right: 10px; bottom: 10px; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+          background: rgba(20,12,6,.55); color: #FFFDF8; pointer-events: none; }
+        /* THE VIEWER: a full-screen dark ground over everything (the recipe view's scrim is z 1000). */
+        .rv-viewer { position: fixed; inset: 0; z-index: 1100; display: flex; flex-direction: column; background: #120D09; color: #F4EADC;
+          padding: 0 0 var(--op-inset-bottom, 0px); animation: rv-viewer-in .18s ease-out; }
+        @keyframes rv-viewer-in { from { opacity: 0; } to { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .rv-viewer { animation: none; } .rv-viewer-strip { scroll-behavior: auto; } }
+        .rv-viewer-top { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 8px 12px 4px 4px; }
+        .rv-viewer-close { min-width: 44px; min-height: 44px; border: none; border-radius: 22px; background: transparent; color: #FFFDF8; font-size: 30px; line-height: 1; cursor: pointer; }
+        .rv-viewer-close:focus-visible { outline: 2px solid #E8D5B7; outline-offset: 2px; }
+        .rv-viewer-count { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); color: #E8D5B7; white-space: nowrap; }
+        .rv-viewer-stage { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+        .rv-viewer-strip { flex: 1 1 auto; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior: contain; scrollbar-width: none; }
+        .rv-viewer-strip::-webkit-scrollbar { display: none; }
+        .rv-viewer-slide { flex: 0 0 100%; height: 100%; display: flex; align-items: center; justify-content: center; scroll-snap-align: start; scroll-snap-stop: always; }
+        .rv-viewer-img { display: block; max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; user-select: none; }
+        .rv-viewer-foot { flex: none; padding: 10px 16px 18px; }
+        .rv-viewer-cap { text-align: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #E8D5B7; overflow-wrap: anywhere; }
+        /* The dots are buttons; on a phone they look and lay out exactly as the old spans (6 px dot, 6 px gap) and
+           take no pointer — the swipe is the control. The dot itself is ::before so the target can grow on desktop. */
+        .rv-dots { display: flex; justify-content: center; gap: 6px; margin: 8px 0 0; }
+        .rv-dot { flex: none; width: 6px; height: 6px; padding: 0; border: 0; background: transparent; display: inline-flex; align-items: center; justify-content: center; pointer-events: none; }
+        .rv-dot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #D9C9B0; }
+        .rv-dot.on::before { background: #8A5F3A; }
+        .rv-dots.rv-viewer-dots { margin: 0 0 8px; }
+        .rv-viewer-dots .rv-dot::before { background: rgba(244,234,220,.35); }
+        .rv-viewer-dots .rv-dot.on::before { background: #F4EADC; }
+        /* ‹ › — desktop only. 44 px round targets over the photo's left / right middle. */
+        .rv-photo-prev, .rv-photo-next { display: none; }
+        @media (hover: hover) and (pointer: fine) {
+          .rv-photo-prev, .rv-photo-next { display: flex; position: absolute; top: 50%; transform: translateY(-50%); z-index: 1; width: 44px; height: 44px; padding: 0; border: 0;
+            border-radius: 50%; align-items: center; justify-content: center; background: rgba(20,12,6,.55); color: #FFFDF8; cursor: pointer; }
+          .rv-photo-prev { left: 10px; }
+          .rv-photo-next { right: 10px; }
+          .rv-photo-prev:hover, .rv-photo-next:hover { background: rgba(20,12,6,.75); }
+          .rv-viewer .rv-photo-prev { left: 16px; }
+          .rv-viewer .rv-photo-next { right: 16px; }
+          .rv-viewer .rv-photo-prev, .rv-viewer .rv-photo-next { background: rgba(244,234,220,.14); }
+          .rv-viewer .rv-photo-prev:hover, .rv-viewer .rv-photo-next:hover { background: rgba(244,234,220,.26); }
+          .rv-dots { gap: 0; }
+          .rv-dot { width: 24px; height: 44px; pointer-events: auto; cursor: pointer; border-radius: 8px; }
+          .rv-dots.rv-viewer-dots { margin: 0 0 2px; }
+        }
+        .rv-photo-prev:focus-visible, .rv-photo-next:focus-visible { outline: 2px solid #E8D5B7; outline-offset: 2px; }
+        .rv-dot:focus-visible { outline: 2px solid #A0724A; outline-offset: -2px; }
+        .rv-viewer-dots .rv-dot:focus-visible { outline-color: #E8D5B7; }
+        .rv-photo-cap { margin: 6px 20px 0; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8a7a60; overflow-wrap: anywhere; }
+        .rv-photo-ctl { position: relative; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 8px; margin: 4px 16px 0; }
+        .rv-photo-add { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: none; background: transparent; color: #8A5F3A;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .rv-photo-add:disabled { opacity: .55; cursor: default; }
+        /* The popovers anchor to the controls ROW (centred under it), not to ⋯: at the cap ⋯ sits alone in the
+           middle, and a right-anchored confirm ran off the left edge at XXL on 320–390. */
+        .rv-photo-menu { display: inline-flex; }
+        .rv-photo-more { min-width: 44px; min-height: 44px; border: none; border-radius: 22px; background: transparent; color: #8a7a60; font-size: 20px; line-height: 1; cursor: pointer; }
+        .rv-photo-more:disabled { opacity: .55; cursor: default; }
+        .rv-photo-pop { position: absolute; top: calc(100% - 4px); left: 50%; transform: translateX(-50%); z-index: 2; background: #FFFDF8; border: 1px solid #E5D7C1; border-radius: 12px; box-shadow: 0 6px 18px rgba(44,26,14,.14); padding: 4px; }
+        .rv-photo-remove { display: block; min-height: 44px; padding: 0 16px; border: none; border-radius: 9px; background: transparent; color: #A33A2A; white-space: nowrap;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; }
+        /* The inline confirm (Dan, 2026-10-21): the same popover asks; Keep, then Remove in red. */
+        .rv-photo-pop.confirm { display: flex; flex-direction: column; gap: 2px; padding: 10px 6px 4px; width: max-content; max-width: calc(100vw - 32px); }
+        .rv-photo-q { padding: 0 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #2C1A0E; }
+        .rv-photo-qbtns { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
+        .rv-photo-keep, .rv-photo-remove-yes { min-height: 44px; padding: 0 14px; border: none; border-radius: 9px; background: transparent; white-space: nowrap;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; }
+        .rv-photo-keep { color: #5C4636; }
+        .rv-photo-remove-yes { color: #A33A2A; }
+        .rv-photo-add:focus-visible, .rv-photo-more:focus-visible, .rv-photo-remove:focus-visible, .rv-photo-keep:focus-visible, .rv-photo-remove-yes:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
         .rv-head { padding: 16px 20px 0; }
         .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
         .rv-byline { margin-top: 4px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #8A5F3A; overflow-wrap: anywhere; }
@@ -7507,6 +8235,16 @@ function ProvisionsApp() {
         .rv-cooks { list-style: none; margin: 0; padding: 0 20px; }
         .rv-cooks li { display: flex; align-items: center; box-sizing: border-box; min-height: 44px; padding: 6px 0; border-bottom: 1px solid #EFE6D9; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; }
         .rv-cooks li:last-child { border-bottom: 0; }
+        /* S5: a cook row is the date, then one line per rater (name in a 2+ member household, stars, the note
+           beneath), then the viewer's own CookRating ("How was it for you?" until they have rated). */
+        .rv-cooks li.rv-cook { flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 0; }
+        .rv-cooks li.rv-cook > * { min-width: 0; }   /* the note input never sets the row's width (XXL on 320 ran 327 px before) */
+        .rv-cook-date { min-height: 28px; display: flex; align-items: center; }
+        .rv-rater-line { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; min-height: 28px; }
+        .rv-rater-name { font-size: calc(14px * var(--op-text-scale)); color: #5C4636; }
+        .rv-stars { display: inline-flex; align-items: center; gap: 2px; color: #A0724A; }
+        .rv-stars svg { width: 18px; height: 18px; }
+        .rv-rater-note { font-size: calc(14px * var(--op-text-scale)); color: #6E5A4A; overflow-wrap: anywhere; padding: 0 0 2px; }
         .rv-showall { display: block; margin: 4px 20px 0; padding: 10px 0; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .rv-empty { margin: 14px 20px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
@@ -9226,6 +9964,7 @@ function ProvisionsApp() {
               onLeftovers: openLeftoversSheet,
               onOut: () => setNoShopSheet({ kind: "out", name: "", fromMealIds: [] }),
               onOther: () => setNoShopSheet({ kind: "other", name: "", fromMealIds: [] }),
+              afterglow: boardAfterglow,   // the same "How was it?" + "Add a meal photo" as the board (no thumbnail on Home)
             }}
             list={{
               openCount: totalItems - checkedCount,
@@ -9322,6 +10061,7 @@ function ProvisionsApp() {
                   onSeeList={() => goToDoor("list")}
                   onReorder={reorderBoard}
                   busyMealId={busyMealId || addingMealId}
+                  afterglow={boardAfterglow}
                 />
                 {MEALS_ENABLED && isSignedIn && (
                   <div className="plan-foot">
@@ -9364,7 +10104,7 @@ function ProvisionsApp() {
             <MealsLens
               textSizeIdx={textSizeIdx}
               onSetOccasion={handleSetOccasion}
-              meals={libraryMeals}
+              meals={libraryCards}
               loading={mealsLoading}
               onPlan={handlePlanMeal}
               onUnplan={handleUnplanMeal}
@@ -10058,6 +10798,18 @@ function ProvisionsApp() {
           onRemove={handleSkipMeal}
           // A5: the board card's own See on list (goToDoor("list")), after the view closes.
           onSeeList={() => { setRecipeView(null); goToDoor("list"); }}
+          // Photos v1 slice 1 (R2): the hero strip. Each photo carries its signed view URL
+          // (absent until minted — the tint shows behind it, never a broken image).
+          photos={(photosByMealId[rvMeal.id] || []).map((p) => ({ ...p, url: photoUrls[p.view_path] || null }))}
+          photosReady={photosReady}
+          canEditPhotos={!!isSignedIn}
+          photoBusy={photoBusyMealId === rvMeal.id}
+          onAddPhoto={handleAddMealPhoto}
+          onRemovePhoto={handleRemoveMealPhoto}
+          // Slice 2 (S5): every member's rating rows per cook (read at open), and the viewer's own rating.
+          ratingsFor={(cookId) => ratingsByCook[cookId] || []}
+          onRate={handleRateCook}
+          canRate={!!isSignedIn}
         />
       )}
 

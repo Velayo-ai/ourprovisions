@@ -32,3 +32,22 @@ test("the cook line: once says the date only, 2+ adds the count, never-cooked sa
   expect(cookHistoryLine(null, 0, now)).toBe("");
   expect(cookHistoryLine(at(2026, 10, 18), 0, now)).toBe("");
 });
+
+// The date that STARTS a "Your cooks" row is capitalised; mid-sentence stays lowercase (Dan, 2026-10-21).
+describe("cookDateStart", () => {
+  const { cookDateStart, cookHistoryLine } = require("./cookDate");
+  const NOW2 = new Date(2026, 9, 21, 20, 0, 0);
+  const at2 = (d) => new Date(2026, 9, 21 - d, 12, 0, 0).toISOString();
+  test("Tonight / Yesterday / a weekday / a date — first letter up, the rest as cookDate", () => {
+    expect(cookDateStart(at2(0), NOW2)).toBe("Tonight");
+    expect(cookDateStart(at2(1), NOW2)).toBe("Yesterday");
+    expect(cookDateStart(at2(3), NOW2)).toMatch(/^[A-Z][a-z]+day$/);
+    expect(cookDateStart(at2(30), NOW2)).toMatch(/^[A-Z][a-z]{2}, /);
+  });
+  test("mid-sentence stays lowercase: 'Last cooked tonight'", () => {
+    expect(cookHistoryLine(at2(0), 1, NOW2)).toBe("Last cooked tonight");
+  });
+  test("nothing in, nothing out", () => {
+    expect(cookDateStart(null, NOW2)).toBe("");
+  });
+});

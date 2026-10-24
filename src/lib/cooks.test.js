@@ -71,3 +71,47 @@ describe("the wiring (source guard: the hook needs a live client)", () => {
     expect(src).not.toMatch(/count: \(c\[mealId\]\?\.count/);
   });
 });
+
+// ---------------------------------------------------------------- the cook id at the afterglow (Photos slice 2, S3)
+describe("resolveCookId", () => {
+  const { resolveCookId } = require("./cooks");
+  const fakeDb = (result) => {
+    const calls = [];
+    const q = { select: () => q, eq: (c, v) => { calls.push([c, v]); return q; }, then: (res) => res(result) };
+    return { db: { from: (t) => { calls.push(["from", t]); return q; } }, calls };
+  };
+  const ARGS = { householdId: "hh", mealId: "m", cookedAt: "2026-10-21T23:30:01.123456+00:00" };
+
+  test("reads meal_cooks by household, meal and the EXACT returned timestamp; one row → its id", async () => {
+    const { db, calls } = fakeDb({ data: [{ id: "c1" }], error: null });
+    expect(await resolveCookId(db, ARGS)).toEqual({ id: "c1", count: 1 });
+    expect(calls).toEqual([["from", "meal_cooks"], ["household_id", "hh"], ["meal_id", "m"], ["cooked_at", ARGS.cookedAt]]);
+  });
+
+  test("0 or 2+ rows → no id, the count logged, never a guess", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await resolveCookId(fakeDb({ data: [], error: null }).db, ARGS)).toEqual({ id: null, count: 0 });
+    expect(await resolveCookId(fakeDb({ data: [{ id: "a" }, { id: "b" }], error: null }).db, ARGS)).toEqual({ id: null, count: 2 });
+    expect(warn.mock.calls.map((c) => c[0])).toEqual([
+      "[cook id] lookup found 0 rows for one cook (no afterglow controls)",
+      "[cook id] lookup found 2 rows for one cook (no afterglow controls)",
+    ]);
+    warn.mockRestore();
+  });
+
+  test("a read error → no id; nothing to look up without a timestamp (a partner's tap)", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await resolveCookId(fakeDb({ data: null, error: { message: "nope" } }).db, ARGS)).toEqual({ id: null, count: -1 });
+    expect(await resolveCookId(fakeDb({ data: [{ id: "x" }], error: null }).db, { ...ARGS, cookedAt: null })).toEqual({ id: null, count: 0 });
+    warn.mockRestore();
+  });
+
+  test("markCooked resolves the id only after a cook it logged, and never changes cook_meal's call", () => {
+    const src = require("fs").readFileSync(`${__dirname}/../hooks/useProvisions.js`, "utf8");
+    const i = src.indexOf("const markCooked = useCallback(");
+    const body = src.slice(i, src.indexOf("}, [reportSuccess]);", i));
+    expect(body).toContain('db.rpc("cook_meal", { p_household_id: hh.id, p_meal_id: mealId })');
+    expect(body).toMatch(/if \(cookedAt == null\) \{[\s\S]*?setCookIdsByMeal\(\(prev\) => \(\{ \.\.\.prev, \[mealId\]: null \}\)\)/);
+    expect(body).toMatch(/resolveCookId\(db, \{ householdId: hh\.id, mealId, cookedAt \}\)/);
+  });
+});

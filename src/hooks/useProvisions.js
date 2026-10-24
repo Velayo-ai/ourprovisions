@@ -7,10 +7,10 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { useConnectivity } from "../contexts/ConnectivityContext";
-import { normalizeHouseholdPhoto } from "../lib/image";
+import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
 import { trace } from "@opentelemetry/api";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
-import { cooksFromRows } from "../lib/cooks";
+import { cooksFromRows, resolveCookId } from "../lib/cooks";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -210,6 +210,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // the 2s Plan poll is therefore already the change signal — no new poll.
   // Read by madeBefore (D5) and App.js's Leftovers sheet (D4).
   const [cooks, setCooks] = useState({});
+  // The cook THIS device just logged, by meal (Photos slice 2, S3): meal_id → the new
+  // meal_cooks.id, or null when cook_meal closed nothing (a partner's tap) or the lookup did not
+  // find exactly one row. Read by the board's afterglow (rating + a cook-attached photo), which
+  // shows no controls without an id. Device-local, like the afterglow; reset on household switch.
+  const [cookIdsByMeal, setCookIdsByMeal] = useState({});
   const reorderPendingRef = useRef(0);
   const eventSeqRef = useRef(0);
   const sessionStartingRef = useRef(null);
@@ -786,6 +791,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setPlacements({});
     placementsRef.current = {};
     setCooks({});
+    setCookIdsByMeal({});
     setCooksLoadedFor(null);
     errorSourceRef.current = null;
     setError(null);
@@ -895,6 +901,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       setPlacements({});
       placementsRef.current = {};
       setCooks({});
+      setCookIdsByMeal({});
       setCooksLoadedFor(null);
 
       try {
@@ -2532,6 +2539,113 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }, [updateHouseholdBanner]);
 
   // ─────────────────────────────────────────────────────────────
+  // Meal photos v1 (065; SPEC_meal_photos_v1 + the 2026-10-13 / 10-20 amendments)
+  //
+  // addMealPhoto: two canvas renditions (thumb ~480, view ~1080; EXIF dropped by
+  //   the re-encode), BOTH objects uploaded to the private meal-photos bucket
+  //   first (new uuid stem, upsert false, cacheControl 3600 — R7/R9), THEN the
+  //   add_meal_photo RPC, which checks the paths and that both objects exist.
+  //   Slice 1 never attaches a cook (R3): p_meal_cook_id is null. Returns
+  //   { ok: true, id } or { ok: false, reason: "decode" | "upload" | "save" } —
+  //   the caller says it quietly (a toast, never the error banner). An upload
+  //   whose RPC fails leaves orphan objects for the later service-role sweep.
+  // removeMealPhoto: the remove_meal_photo RPC (soft delete; any member, P3).
+  // fetchMealPhotos: the household's LIVE photo rows, newest first
+  //   (uploaded_at desc, id desc — the RPC's own cap order). null on failure, so
+  //   the caller keeps what it had rather than blanking the cards.
+  // ─────────────────────────────────────────────────────────────
+  // cookId (slice 2, D1/S4): the afterglow's cook — the photo is cook-attached and P1's per-cook
+  // replace applies. Omitted (the recipe view) → null, R3.
+  const addMealPhoto = useCallback(async (mealId, file, cookId = null) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !mealId || !file) return { ok: false, reason: "save" };
+    let r;
+    try {
+      r = await renderMealPhoto(file);
+    } catch (err) {
+      console.warn("[meal photo] could not decode:", file && file.type, err && (err.message || err));
+      return { ok: false, reason: "decode" };
+    }
+    const stem = crypto.randomUUID();
+    const { thumbPath, viewPath } = mealPhotoPaths(hh.id, mealId, stem, r.ext);
+    const bucket = db.storage.from("meal-photos");
+    const opts = { contentType: r.type, upsert: false, cacheControl: "3600" };
+    try {
+      const [t, v] = await Promise.all([bucket.upload(thumbPath, r.thumb.blob, opts), bucket.upload(viewPath, r.view.blob, opts)]);
+      if (t.error) throw t.error;
+      if (v.error) throw v.error;
+    } catch (err) {
+      console.warn("[meal photo] upload failed:", err && (err.message || err));
+      return { ok: false, reason: "upload" };
+    }
+    const { data: id, error: err } = await db.rpc("add_meal_photo", {
+      p_meal_id: mealId, p_meal_cook_id: cookId || null, p_thumb_path: thumbPath, p_view_path: viewPath,
+      p_width: r.view.width, p_height: r.view.height,
+    });
+    if (err) {
+      console.warn("[meal photo] add_meal_photo failed:", err.code, err.message);
+      return { ok: false, reason: "save" };
+    }
+    return { ok: true, id };
+  }, []);
+
+  const removeMealPhoto = useCallback(async (photoId) => {
+    const db = supabaseRef.current;
+    if (!db || !photoId) return false;
+    const { error: err } = await db.rpc("remove_meal_photo", { p_photo_id: photoId });
+    if (err) { console.warn("[meal photo] remove_meal_photo failed:", err.code, err.message); return false; }
+    return true;
+  }, []);
+
+  const fetchMealPhotos = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const { data, error: err } = await db
+      .from("meal_photos")
+      // meal_cooks(cooked_at) through meal_cook_id (S5): a cook-attached photo's caption reads
+      // "Cooked {date}". Null for recipe-view photos (R3). RLS: meal_cooks SELECT is membership.
+      .select("id, meal_id, meal_cook_id, thumb_path, view_path, uploaded_by, uploaded_at, width, height, meal_cooks(cooked_at)")
+      .eq("household_id", hh.id)
+      .is("deleted_at", null)
+      .order("uploaded_at", { ascending: false })
+      .order("id", { ascending: false });
+    if (err) { console.warn("[meal photo] read failed (non-fatal):", err.message); return null; }
+    return (data || []).map(({ meal_cooks: mc, ...r }) => ({ ...r, cooked_at: mc ? mc.cooked_at : null }));
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────
+  // Cook ratings (066; slice 2, S1/S2) — per person, per cook.
+  // rateCook: the rate_cook RPC writes ONLY the caller's own row (the caller is the JWT, there
+  //   is no user parameter); rating and note both empty → the row is deleted (no vote is not a
+  //   rating). Returns true / false; the caller says a failure quietly.
+  // fetchCookRatings: every member's rows for the given cooks (RLS: membership). null on failure.
+  // ─────────────────────────────────────────────────────────────
+  const rateCook = useCallback(async (cookId, rating, note) => {
+    const db = supabaseRef.current;
+    if (!db || !cookId) return false;
+    const { error: err } = await db.rpc("rate_cook", { p_cook_id: cookId, p_rating: rating == null ? null : rating, p_note: note == null ? null : note });
+    if (err) { console.warn("[rating] rate_cook failed:", err.code, err.message); return false; }
+    return true;
+  }, []);
+
+  const fetchCookRatings = useCallback(async (cookIds) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    const ids = (cookIds || []).filter(Boolean);
+    if (!db || !hh) return null;
+    if (ids.length === 0) return [];
+    const { data, error: err } = await db
+      .from("meal_cook_ratings")
+      .select("meal_cook_id, user_id, rating, note, updated_at")
+      .eq("household_id", hh.id)
+      .in("meal_cook_id", ids);
+    if (err) { console.warn("[rating] read failed (non-fatal):", err.message); return null; }
+    return data || [];
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────
   // Solo-start experience (SPEC_solo_start_experience.md)
   // ─────────────────────────────────────────────────────────────
 
@@ -3474,6 +3588,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (cookedAt == null) {
       // D3: nothing was closed — a partner's tap or a double tap already cooked
       // it. The truth is on the server; read it back. No toast: the meal is cooked.
+      // No cook of OURS to rate or photograph (S3: no id, no controls).
+      setCookIdsByMeal((prev) => ({ ...prev, [mealId]: null }));
       await loadPlacements(db, hh);
       await loadCooks(db, hh);
       reportSuccess();
@@ -3482,6 +3598,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // The server's timestamp replaces the optimistic one (it is also the log row's).
     const now = placementsRef.current;
     if (now[mealId]) setPlacementsBoth({ ...now, [mealId]: { ...now[mealId], cookedAt } });
+    // S3: the new cook's id, found by the returned timestamp (src/lib/cooks.js).
+    const found = await resolveCookId(db, { householdId: hh.id, mealId, cookedAt });
+    setCookIdsByMeal((prev) => ({ ...prev, [mealId]: found.id }));
     // The count is RE-READ, never incremented (2026-10-19): the placements poll may already
     // have re-read the log mid-cook (cookChanged → loadCooks), and a +1 on top of that
     // counted one cook twice ("5 times" over 4 rows). The placement stays optimistic.
@@ -3775,8 +3894,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
-    placements, refreshPlacements, reorderBoard, markCooked, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
+    placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
+    addMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     fetchTripReality, answerTripReality,

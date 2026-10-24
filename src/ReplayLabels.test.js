@@ -278,35 +278,89 @@ describe("photo surfaces carry .op-replay-block", () => {
   // (Clerk, Supabase, the household context). The proof for those is this source guard plus the
   // bundle grep: every <img> with a computed src, and every CSS url(${…}) in JSX, sits on an
   // element whose opening tag carries the class — so a NEW photo surface without it fails here.
+  // WIDENED 2026-10-21 (Photos v1, R5): every non-test source file under src/, not just
+  // App.js + LibraryCards.js — a photo surface in a NEW component file cannot slip past.
+  // And the tag reader is JSX-aware (braces, strings, template literals), so an attribute
+  // like onLoad={(e) => …} no longer ends the tag at the "=>" and silently skips the <img>
+  // (the old /<img\b[^>]*?\/>/ did exactly that).
+  // Before the widening: 2 files scanned, 4 <img> (after Photos (c)), 3 url().
   const fs = require("fs");
-  const SOURCES = ["App.js", "components/LibraryCards.js"].map((f) => [f, fs.readFileSync(`${__dirname}/${f}`, "utf8")]);
+  const path = require("path");
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => {
+    const full = path.join(dir, d.name);
+    if (d.isDirectory()) return walk(full);
+    return /\.jsx?$/.test(d.name) && !/\.test\.jsx?$/.test(d.name) && d.name !== "setupTests.js" ? [full] : [];
+  });
+  const SOURCES = walk(__dirname).map((f) => [path.relative(__dirname, f).split(path.sep).join("/"), fs.readFileSync(f, "utf8")]);
   const FIXED_ASSETS = [/^src=\{VELAYO_LOGO_TEAL\}/, /^src=\{`\$\{process\.env\.PUBLIC_URL\}/];
 
+  // The opening tag that starts at `i` ("<img" …), read to its closing ">" or "/>" at depth 0.
+  function openTagAt(src, i) {
+    let depth = 0; let q = null; let j = i + 1;
+    for (; j < src.length; j += 1) {
+      const c = src[j];
+      if (q) { if (c === "\\") { j += 1; continue; } if (c === q) q = null; continue; }
+      if (c === '"' || c === "'" || c === "`") { q = c; continue; }
+      if (c === "{") depth += 1;
+      else if (c === "}") depth -= 1;
+      else if (c === ">" && depth === 0) return src.slice(i, j + 1);
+    }
+    return src.slice(i);
+  }
+  // The JSX element whose opening tag contains `index`: the nearest "<Tag" before it whose
+  // tag (read JSX-aware) reaches past `index`.
+  function enclosingTag(src, index) {
+    const re = /<([A-Za-z][\w.]*)/g;
+    let best = null;
+    for (const m of src.slice(0, index).matchAll(re)) {
+      const tag = openTagAt(src, m.index);
+      if (m.index + tag.length > index) best = tag;
+    }
+    return best || "";
+  }
+
+  test("the guard reads every source file under src/", () => {
+    const files = SOURCES.map(([f]) => f);
+    expect(files).toEqual(expect.arrayContaining(["App.js", "components/LibraryCards.js", "rum.js", "lib/image.js"]));
+    expect(files.some((f) => /\.test\.js$/.test(f))).toBe(false);
+    expect(SOURCES.length).toBeGreaterThanOrEqual(40);
+  });
+
+  test("the tag reader does not stop at an arrow function inside an attribute", () => {
+    const src = '<img className="x op-replay-block" src={u} onLoad={(e) => e.currentTarget.focus()} />';
+    expect(openTagAt(src, 0)).toBe(src);
+  });
+
   test("every <img> with a computed src carries the class (fixed app assets excepted)", () => {
-    let checked = 0;
+    const hits = [];
     for (const [file, src] of SOURCES) {
-      for (const m of src.matchAll(/<img\b[^>]*?\/>/gs)) {
-        const tag = m[0];
-        const srcAttr = (tag.match(/src=\{[^}]*\}?/) || [""])[0];
+      for (const m of src.matchAll(/<img\b/g)) {
+        const tag = openTagAt(src, m.index);
+        const srcAttr = (tag.match(/\bsrc=\{[^}]*\}?/) || [""])[0];
         if (!srcAttr || FIXED_ASSETS.some((re) => re.test(srcAttr))) continue;
-        checked += 1;
-        expect(`${file}: ${tag}`).toMatch(/op-replay-block/);
+        hits.push(file);
+        expect(`${file}: ${tag}`).toMatch(/className=(\{`[^`]*|")[^"`]*\bop-replay-block\b/);
       }
     }
-    expect(checked).toBe(3);   // the avatar, the Galley screenshot thumbnail, the library card photo
+    // the avatar, the Galley screenshot thumbnail, the recipe view strip photo, the full-size
+    // viewer photo, the board afterglow's "Photo added" thumbnail (App.js); the library card
+    // photo (components/LibraryCards.js)
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "components/LibraryCards.js"]);
   });
 
   test("every interpolated CSS url() in JSX is on an element that carries the class; the desk backdrop's lives on .desk-bg", () => {
-    const [, app] = SOURCES[0];
-    let checked = 0;
-    for (const m of app.matchAll(/url\("\$\{/g)) {
-      const before = app.slice(0, m.index);
-      if (/document\.querySelector\("\.desk-bg"\)[\s\S]{0,600}$/.test(before)) { checked += 1; continue; }
-      const open = before.lastIndexOf("<div");
-      expect(app.slice(open, m.index)).toMatch(/className="[^"]*op-replay-block/);
-      checked += 1;
+    const hits = [];
+    for (const [file, src] of SOURCES) {
+      for (const m of src.matchAll(/url\(\s*["'`]?\$\{/g)) {
+        const before = src.slice(0, m.index);
+        if (file === "App.js" && /document\.querySelector\("\.desk-bg"\)[\s\S]{0,600}$/.test(before)) { hits.push(`${file}:desk-bg`); continue; }
+        const tag = enclosingTag(src, m.index);
+        expect(`${file}: ${tag.slice(0, 160)}`).toMatch(/className="[^"]*\bop-replay-block\b/);
+        hits.push(file);
+      }
     }
-    expect(checked).toBe(3);   // the desk backdrop, the Home banner layer, the photo editor preview
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js:desk-bg"]);   // the Home banner layer, the photo editor preview; the desk backdrop
+    const app = SOURCES.find(([f]) => f === "App.js")[1];
     expect(app).toContain('<div className="desk-bg op-replay-block" aria-hidden="true" />');
     expect(app).not.toMatch(/documentElement\.style\.setProperty\(\s*"--op-desk-bg"/);
   });
@@ -337,7 +391,7 @@ describe("recipe view: no name or count in any copied attribute, in every state"
     container.querySelectorAll("*").forEach((el) => {
       for (const a of el.attributes) {
         if (!/^(aria-|id$|class$|data-)/.test(a.name)) continue;
-        expect(`${a.name}="${a.value}"`).not.toMatch(/\b(7|9|2|3) (left|items?|ingredients?|steps?)\b/);
+        expect(`${a.name}="${a.value}"`).not.toMatch(/\b(7|9|2|3)\s(left|items?|ingredients?|steps?)\b/);   // \s: a non-breaking space too
         expect(a.value).not.toMatch(/left to buy/);
       }
     });

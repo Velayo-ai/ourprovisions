@@ -130,7 +130,9 @@ const PlusGlyph = () => (
 function LibraryMeta({ meal, variant = "grid", onSetType }) {
   const count = (meal.meal_ingredients || []).length;
   const first = (meal.occasion || [])[0];
-  const items = `${count} ${count === 1 ? "item" : "items"}`;
+  // Non-breaking space between the count and its noun: "11 items" is one unit and never
+  // splits across lines at XXL (Dan, 2026-10-21; the cd2da02 pattern).
+  const items = `${count}\u00A0${count === 1 ? "item" : "items"}`;
   if (first && OCCASION_WORD[first]) return <>{OCCASION_WORD[first]} · {items}</>;
   if (!onSetType) return <>{items}</>;
   return (
@@ -175,22 +177,33 @@ function LibraryAction({ meal, stage, busy, canPlan, onPlan, onUnplan }) {
     >{busy ? <span className="lib-plan-wait" aria-hidden="true">…</span> : <PlusGlyph />}</button>
   );
 }
-// The photo path (O3): dormant until Photos v1 lands. `meal.cardPhotoUrl` is the
-// client-side seam — a resolved URL for the meal's card photo (the newest live
-// one, Photos D2). No read sets it today, so every slot is the 56px tint.
+// The photo path (O3; Photos v1 slice 1). `meal.cardPhotoUrl` is the client-side
+// seam — the signed thumbnail URL of the meal's card photo (the newest live one,
+// D2). `meal.hasCardPhoto` says a photo EXISTS before its URL is minted: the slot
+// takes its photo shape (132 px, the occasion tint behind) at once, so the card
+// never jumps from 56 to 132 px mid-load, and the image fades in when it decodes
+// (the no-flash rule: tint first, photo once — never photo then tint). Neither is
+// set until the household's photo read resolves.
 // `thumb` is the list row's 60×60 rounded square (icon at 30); otherwise the
 // card's band (icon at 32).
 // `chip` (grid card only): the "✓ Ready" status as a small pill in the band's
 // top-right corner, so the strip's meta line stays on one line (Dan, 2026-10-16).
 // It sits inside the open button, so it is decorative here; the card's
 // aria-label is unchanged and the list row keeps its inert text label.
+// Fade the card photo in once it has decoded (the tint shows behind it until then).
+const slotPhotoIn = (e) => e.currentTarget.classList.add("in");
 const ReadyChip = () => <span className="lib-ready" aria-hidden="true"><CheckGlyph />Ready</span>;
 function LibrarySlot({ meal, thumb = false, chip = false }) {
   const base = (thumb ? "lib-thumb" : "lib-slot") + (chip ? " has-chip" : "");
-  if (meal.cardPhotoUrl) {
-    return <span className={`${base} photo`} aria-hidden="true"><img className="lib-slot-img op-replay-block" src={meal.cardPhotoUrl} alt="" />{chip && <ReadyChip />}</span>;
-  }
   const tint = occasionTint(meal);
+  if (meal.cardPhotoUrl || meal.hasCardPhoto) {
+    return (
+      <span className={`${base} photo`} style={{ background: tint.bg }} aria-hidden="true">
+        {meal.cardPhotoUrl && <img className="lib-slot-img op-replay-block" src={meal.cardPhotoUrl} alt="" loading="lazy" decoding="async" onLoad={slotPhotoIn} />}
+        {chip && <ReadyChip />}
+      </span>
+    );
+  }
   return (
     <span className={base} style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
       <OccasionIcon occasion={(meal.occasion || [])[0]} size={thumb ? 30 : 32} tint={tint.bg} />
