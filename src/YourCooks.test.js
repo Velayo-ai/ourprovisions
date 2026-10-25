@@ -99,7 +99,10 @@ describe("'Your cooks' (S5)", () => {
     const photo = { id: "p1", meal_id: MEAL.id, meal_cook_id: "c1", cooked_at: C1.cooked_at, uploaded_by: DH, uploaded_at: daysAgo(10), view_path: "v", url: "https://x/v" };
     const { container } = view({ photos: [photo] });
     expect(section(container).textContent).toBe("Your cooks 1");
-    expect(q(container, ".rv-photo-cap").textContent).toMatch(/^Cooked .+ · Dan$/);
+    // The credit line under the hero is gone (SPEC_photo_menu DAN-2); the viewer keeps the caption.
+    expect(q(container, ".rv-photo-cap")).toBeNull();
+    fireEvent.click(q(container, ".rv-photo-open"));
+    expect(document.body.querySelector(".rv-viewer-cap").textContent).toMatch(/^Cooked .+ · Dan$/);
   });
 
   test("signed out: other members' lines show, no rating controls", () => {
@@ -164,9 +167,10 @@ describe("the viewer is 'You'", () => {
     const { container } = view({ members: SAME, canRate: false, ratings: { c1: [{ meal_cook_id: "c1", user_id: DT, rating: 2, note: null }] } });
     expect(qa(container, ".rv-rater-name").map((e) => e.textContent)).toEqual(["You"]);
   });
-  test("the viewer's own photo caption reads '· You'; another member's reads their first name", () => {
+  test("the viewer's own photo caption (in the viewer) reads '· You'; another member's reads their first name", () => {
     const own = { id: "p1", meal_id: MEAL.id, meal_cook_id: "c1", cooked_at: C1.cooked_at, uploaded_by: DT, uploaded_at: daysAgo(10), view_path: "v", url: "https://x/v" };
-    expect(q(view({ members: SAME, photos: [own] }).container, ".rv-photo-cap").textContent).toMatch(/^Cooked .+ · You$/);
+    fireEvent.click(q(view({ members: SAME, photos: [own] }).container, ".rv-photo-open"));
+    expect(document.body.querySelector(".rv-viewer-cap").textContent).toMatch(/^Cooked .+ · You$/);
   });
 });
 
@@ -176,7 +180,8 @@ describe("the row date starts with a capital", () => {
     const photo = { id: "p0", meal_id: MEAL.id, meal_cook_id: "c0", cooked_at: tonight.cooked_at, uploaded_by: DH, uploaded_at: tonight.cooked_at, view_path: "v", url: "https://x/v" };
     const { container } = view({ cooks: [tonight], photos: [photo] });
     expect(q(container, ".rv-cook-date").textContent).toBe("Tonight");
-    expect(q(container, ".rv-photo-cap").textContent).toBe("Cooked tonight · Dan");
+    fireEvent.click(q(container, ".rv-photo-open"));
+    expect(document.body.querySelector(".rv-viewer-cap").textContent).toBe("Cooked tonight · Dan");
   });
 });
 

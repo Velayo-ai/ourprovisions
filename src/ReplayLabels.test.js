@@ -343,9 +343,9 @@ describe("photo surfaces carry .op-replay-block", () => {
       }
     }
     // the avatar, the Galley screenshot thumbnail, the recipe view strip photo, the full-size
-    // viewer photo, the board afterglow's "Photo added" thumbnail (App.js); the library card
-    // photo (components/LibraryCards.js)
-    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "components/LibraryCards.js"]);
+    // viewer photo, the board afterglow's "Photo added" thumbnail, the Remove confirm sheet's thumbnail
+    // (SPEC_photo_menu P9) (App.js); the library card photo (components/LibraryCards.js)
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "components/LibraryCards.js"]);
   });
 
   test("every interpolated CSS url() in JSX is on an element that carries the class; the desk backdrop's lives on .desk-bg", () => {

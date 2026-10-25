@@ -56,7 +56,13 @@ describe("click-text privacy block is unchanged", () => {
     expect(rules.slice(0, -2).every((r) => r.rule === "unmask")).toBe(true);
     // 47 + .rv-photo-add, .rv-photo-remove, .rv-photo-remove-yes, .rv-photo-keep (Photos v1 slice 1) + .rv-photo-open,
     // .rv-viewer-close (photo hero) + .rv-photo-prev, .rv-photo-next, .rv-dot (desktop stepping) + .board-photo-add, .rate-star (slice 2)
-    expect(rules.slice(0, -2)).toHaveLength(58);
+    // = 58; SPEC_photo_menu (2026-10-25): out .rv-photo-remove-yes, .rv-photo-keep; in .rv-photo-replace, .rv-photo-details,
+    // .rv-photo-save, .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-photo-placeholder → 62
+    expect(rules.slice(0, -2)).toHaveLength(62);
+    const sel = rules.map((r) => r.selector);
+    [".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove", ".rv-photo-confirm-remove", ".rv-photo-confirm-keep", ".rv-photo-placeholder"]
+      .forEach((c) => expect(sel).toContain(c));
+    [".rv-photo-remove-yes", ".rv-photo-keep", ".rv-photo-more"].forEach((c) => expect(sel).not.toContain(c));
     expect(rules.some((r) => r.selector === ".op-replay-block")).toBe(false);
   });
   test("preview: Clerk excludes only", () => {

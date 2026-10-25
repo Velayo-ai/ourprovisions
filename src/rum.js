@@ -50,9 +50,13 @@ const CHROME_ALLOW_LIST = [
   '.rv-remove',      // Recipe view quiet link: "Remove from This Week" / "Remove (and take its items off Shop)" — fixed copy, the board's ⋯ → Remove words
   '.rv-showall',     // Recipe view, Your cooks: "Show all N" — a count, never a name
   '.rv-photo-add',   // Recipe view photo strip: "Add a meal photo" / "Adding…" — fixed copy (SPEC_meal_photos_v1 R5/R6). The photos, the strip, its dots and caption are NOT here; every photo <img> is .op-replay-block
-  '.rv-photo-remove',// Recipe view photo strip, ⋯ menu: "Remove photo" — fixed copy (R5); it opens the inline confirm and removes nothing. The ⋯ trigger (.rv-photo-more) is off this list
-  '.rv-photo-remove-yes', // Recipe view photo strip, inline confirm: "Remove" — fixed copy; THE removal (Dan, 2026-10-21). The question "Remove this photo?" is masked text, off this list
-  '.rv-photo-keep',  // Recipe view photo strip, inline confirm: "Keep" — fixed copy
+  '.rv-photo-replace', // Photo menu (hero + viewer ⋯): "Replace photo" — fixed copy (SPEC_photo_menu, 2026-10-25). The ⋯ trigger (.rv-photo-more) is off this list, named by aria-label "Photo options"
+  '.rv-photo-details', // Photo menu: "Photo details" — fixed copy; it opens the details sheet, whose lines (who, when) are masked text, off this list
+  '.rv-photo-save',  // Photo menu: "Save to Photos" / "Download photo" — fixed copy
+  '.rv-photo-remove',// Photo menu: "Remove photo" — fixed copy (R5); it opens the confirm sheet and removes nothing
+  '.rv-photo-confirm-remove', // Remove confirm sheet: "Remove photo" — fixed copy; THE removal. The title "Remove this photo?" and the body are masked text, off this list; the thumbnail is .op-replay-block
+  '.rv-photo-confirm-keep',   // Remove confirm sheet: "Keep photo" — fixed copy
+  '.rv-photo-placeholder',    // Recipe view hero after the last photo is removed: "Add a meal photo" / "Show the household how it turned out." — fixed copy
   '.rv-photo-open',  // Recipe view photo hero: the photo itself as a button, aria-label "View photo full size" — no text content (the <img> inside is .op-replay-block, alt "") (Dan, 2026-10-21)
   '.rv-viewer-close',// Full-size photo viewer: "×", aria-label "Close photo" — fixed copy. The "N of M" count and the caption are household text, OFF this list
   '.rv-photo-prev',  // Photo strip + viewer, desktop only: "‹", aria-label "Previous photo" — fixed copy, no text content (Dan, 2026-10-21)
