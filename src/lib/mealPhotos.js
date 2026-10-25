@@ -77,3 +77,14 @@ export function photoDetails(photo, members, firstNameOf, now = new Date()) {
   if (cooked) lines.push(`From the cook on ${cooked}`);
   return lines;
 }
+
+// REPLACE (SPEC_photo_menu DAN-1, ruled 2026-10-25) — the order of the steps, by the photo being
+// replaced and the meal's live count. add_meal_photo AGES OUT past the cap rather than refusing,
+// so at the cap an add before the remove would drop the OLDEST photo, not this one.
+//   cook-attached → upload, saveCook (the RPC's per-cook replace retires the old row atomically)
+//   under the cap → upload, save, remove   (no loss window; at worst both stay)
+//   at the cap    → upload, remove, save   (only the final save can fail after a good upload)
+export function replaceSteps(old, liveCount) {
+  if (old && old.meal_cook_id) return ["upload", "saveCook"];
+  return liveCount >= MEAL_PHOTO_CAP ? ["upload", "removeOld", "save"] : ["upload", "save", "removeOld"];
+}

@@ -94,6 +94,25 @@ describe("the hero strip (R2)", () => {
     expect(q(container, ".rv-photo-more").getAttribute("aria-expanded")).toBe("true");
   });
 
+  test("DAN-1: Replace photo opens the picker; the chosen file goes to onReplacePhoto with the photo in view", () => {
+    const onReplacePhoto = jest.fn();
+    const { container, h } = view({ photos: [photo("a"), photo("b")], onReplacePhoto });
+    fireEvent.click(q(container, ".rv-photo-next"));
+    fireEvent.click(q(container, ".rv-photo-more"));
+    const inputs = qa(container, "input[type=file]");
+    expect(inputs).toHaveLength(2);
+    const click = jest.spyOn(inputs[1], "click").mockImplementation(() => {});
+    fireEvent.click(q(container, ".rv-photo-replace"));
+    expect(click).toHaveBeenCalledTimes(1);
+    const file = new File([new Uint8Array([1])], "p.jpg", { type: "image/jpeg" });
+    fireEvent.change(inputs[1], { target: { files: [file] } });
+    expect(onReplacePhoto).toHaveBeenCalledTimes(1);
+    expect(onReplacePhoto.mock.calls[0][0]).toBe(MEAL.id);
+    expect(onReplacePhoto.mock.calls[0][1].id).toBe("b");
+    expect(onReplacePhoto.mock.calls[0][2]).toBe(file);
+    expect(h.onAddPhoto).not.toHaveBeenCalled();
+  });
+
   test("with no Replace handler wired, the menu has no Replace", () => {
     const { container } = view({ photos: [photo("a")] });
     fireEvent.click(q(container, ".rv-photo-more"));

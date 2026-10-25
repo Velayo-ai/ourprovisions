@@ -1,4 +1,4 @@
-import { photosByMeal, photosFingerprint, addedDate, photoCaption, photoDetails, detailsDate, MEAL_PHOTO_CAP } from "./mealPhotos";
+import { photosByMeal, photosFingerprint, addedDate, photoCaption, photoDetails, detailsDate, replaceSteps, MEAL_PHOTO_CAP } from "./mealPhotos";
 
 const NOW = new Date(2026, 9, 21, 18, 0, 0);
 const at = (daysAgo) => new Date(2026, 9, 21 - daysAgo, 12, 0, 0).toISOString();
@@ -96,5 +96,22 @@ describe("photoDetails (SPEC_photo_menu DAN-2)", () => {
   test("nothing to say → no lines", () => {
     expect(photoDetails(null, two, first, NOW)).toEqual([]);
     expect(photoDetails(row("a", "m1", 0, { uploaded_at: null }), two, first, NOW)).toEqual([]);
+  });
+});
+
+describe("replaceSteps (SPEC_photo_menu DAN-1)", () => {
+  test("a cook photo: upload, then add with the old cook (the RPC's per-cook replace)", () => {
+    expect(replaceSteps({ id: "p", meal_cook_id: "c1" }, 3)).toEqual(["upload", "saveCook"]);
+    expect(replaceSteps({ id: "p", meal_cook_id: "c1" }, 1)).toEqual(["upload", "saveCook"]);
+  });
+  test("a meal photo under the cap: upload → add → remove", () => {
+    expect(replaceSteps({ id: "p", meal_cook_id: null }, 1)).toEqual(["upload", "save", "removeOld"]);
+    expect(replaceSteps({ id: "p", meal_cook_id: null }, 2)).toEqual(["upload", "save", "removeOld"]);
+  });
+  test("a meal photo at the cap: upload → remove → add (an add first would age out the oldest)", () => {
+    expect(replaceSteps({ id: "p", meal_cook_id: null }, 3)).toEqual(["upload", "removeOld", "save"]);
+  });
+  test("upload is always first, so a failed upload changes nothing", () => {
+    [[{ meal_cook_id: "c" }, 2], [{}, 1], [{}, 3]].forEach(([o, n]) => expect(replaceSteps(o, n)[0]).toBe("upload"));
   });
 });
