@@ -3795,6 +3795,16 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
   // Invent so a long paste there never reads as a recipe it cannot bring.
   const galleyModeNow = galleyMode(aiText, photos.length, (isEdit || ideasOverride) ? MODES.invent : null);
   const galleyHasInput = photosStaged || aiText.trim().length > 0;
+  // ASKING THE GALLEY HIDES THE HAND-BUILD FIELDS (SPEC_galley_hides_manual + its Step 0 amendment,
+  // 2026-10-25) — the mirror of the 10-03 rule above. Once the Galley has input (typed, dictated or a
+  // staged photo — content, not focus) the name, From, Good for, Ingredients, Steps and the "or" step
+  // aside, so the card sits under the title and its button above the footer; they return when the
+  // Galley empties. Render-only: everything typed stays in state (a landed draft replaces it anyway).
+  // New Meal only (Edit is the same sheet, so the flag is explicit), and never over a landed draft —
+  // "Ask the Galley again" re-shows the card with the old request still in it. Through the thinking
+  // card the input is kept, so the fields stay hidden; the draft lands with draftSource set and they
+  // return filled. Instant, like the 10-03 hide.
+  const fieldsHidden = !isEdit && draftSource === null && galleyHasInput;
   // Invent past meal-suggestion's 600-character ceiling: said in the echo, button
   // inert, nothing cut. The override can steer a long paste here, so this is live.
   const galleyTooLong = galleyModeNow === MODES.invent && inventTooLong(aiText);
@@ -3881,6 +3891,8 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
           </div>
         )}
 
+        {/* The hand-build fields — hidden while the Galley has input (fieldsHidden). Not re-indented. */}
+        {!fieldsHidden && (<>
         <div className="modal-field" style={aiDim}>
           <label className="modal-label">Meal Name</label>
           {/* NO autoFocus. On iOS an autofocused field opens the keyboard the instant
@@ -4295,6 +4307,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
             </button>
           )}
         </div>
+        </>)}
 
         {/* Thinking. Single ember, no spinner; the request is echoed back so the wait
             has a subject. Never mind aborts and puts everything back. */}
@@ -4347,7 +4360,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
             while the Galley is thinking (the manual fields are skeletons), once a
             draft has collapsed the card to its handle, and whenever an ingredient
             or step is hand-added — it returns when every one is removed. ── */}
-        {showGalley && (
+        {showGalley && !fieldsHidden && (
           <div className="op-or" aria-hidden="true"><span>or</span></div>
         )}
         {showGalley && (
