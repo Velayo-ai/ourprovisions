@@ -29,7 +29,8 @@ export const ALLOWED_UNITS = [
 ] as const;
 
 /**
- * The seven `meals.occasion` values — the CHECK constraint from 061_meals_occasion.sql.
+ * The eight `meals.occasion` values — the CHECK constraint from 061_meals_occasion.sql,
+ * widened by 069_meals_occasion_drink.sql ("drink", SPEC_meal_occasion_drink, 2026-10-24).
  * Anything the model emits outside this list is dropped server-side before it reaches
  * the client (spec: "occasion only from the seven values in 061").
  */
@@ -41,6 +42,7 @@ export const ALLOWED_OCCASIONS = [
   "side",
   "appetizer",
   "dessert",
+  "drink",
 ] as const;
 
 export const SYSTEM_PROMPT = `You are the recipe reader for OurProvisions, a shared household grocery and provisioning app. Someone has brought you a recipe they already have — screenshots (an Instagram caption, a blog card, a photo of a handwritten card, a text message) or pasted text. Your job is to read it into the app's meal form, faithfully.

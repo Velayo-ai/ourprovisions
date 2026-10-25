@@ -68,7 +68,7 @@ NEW-item path (the client already reads it from Galley drafts) and omitted when 
 **`attribution` is only ever what is visible in the input.** `null` otherwise. The prompt is
 explicit that a recipe *in the style of* a known site gets `null`.
 
-**`occasion`** is filtered server-side to the seven `061` values and de-duplicated.
+**`occasion`** is filtered server-side to the eight `061` + `069` values and de-duplicated.
 
 **Safety refusal → `{ ok: false, reason: "not_a_recipe" }`.** A `stop_reason: "refusal"` is
 indistinguishable from "no recipe here" to the person, and that is the right hint for it.

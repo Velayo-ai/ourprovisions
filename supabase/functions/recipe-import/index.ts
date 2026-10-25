@@ -209,7 +209,7 @@ type Ingredient = {
  *    CAPTURED, NOT MODELLED (ruling 2026-10-09): the recipe's own measure, kept as the
  *    author's text so nothing is lost, until recipe quantity / servings / units gets
  *    its own design session. No schema holds it; chunk 2 folds it into instructions.
- * 4. `occasion` is filtered to the seven 061 values and de-duplicated (the schema enum
+ * 4. `occasion` is filtered to the eight 061 + 069 values and de-duplicated (the schema enum
  *    already pins it — this is the guarantee behind the keyword).
  * 5. `attribution` is trimmed; empty → null.
  */
