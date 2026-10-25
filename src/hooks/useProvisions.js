@@ -2542,7 +2542,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // ─────────────────────────────────────────────────────────────
   // Meal photos v1 (065; SPEC_meal_photos_v1 + the 2026-10-13 / 10-20 amendments)
   //
-  // addMealPhoto: two canvas renditions (thumb ~480, view ~1080; EXIF dropped by
+  // addMealPhoto (= uploadMealPhoto, then saveMealPhoto): two canvas renditions (thumb ~480, view ~1080; EXIF dropped by
   //   the re-encode), BOTH objects uploaded to the private meal-photos bucket
   //   first (new uuid stem, upsert false, cacheControl 3600 — R7/R9), THEN the
   //   add_meal_photo RPC, which checks the paths and that both objects exist.
@@ -2555,9 +2555,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   //   (uploaded_at desc, id desc — the RPC's own cap order). null on failure, so
   //   the caller keeps what it had rather than blanking the cards.
   // ─────────────────────────────────────────────────────────────
-  // cookId (slice 2, D1/S4): the afterglow's cook — the photo is cook-attached and P1's per-cook
-  // replace applies. Omitted (the recipe view) → null, R3.
-  const addMealPhoto = useCallback(async (mealId, file, cookId = null) => {
+  // SPLIT (SPEC_photo_menu DAN-1, 2026-10-25): uploadMealPhoto renders and stores the two
+  // objects and returns { ok: true, upload } — nothing is on the meal yet, so a failure here
+  // changes nothing the household sees; saveMealPhoto(upload, cookId) is the add_meal_photo RPC.
+  // Replace runs its own steps between the two; addMealPhoto is still upload then save.
+  const uploadMealPhoto = useCallback(async (mealId, file) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !mealId || !file) return { ok: false, reason: "save" };
@@ -2580,9 +2582,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       console.warn("[meal photo] upload failed:", err && (err.message || err));
       return { ok: false, reason: "upload" };
     }
+    return { ok: true, upload: { mealId, thumbPath, viewPath, width: r.view.width, height: r.view.height } };
+  }, []);
+
+  // cookId (slice 2, D1/S4): the afterglow's cook — the photo is cook-attached and P1's per-cook
+  // replace applies. Omitted (the recipe view) → null, R3.
+  const saveMealPhoto = useCallback(async (upload, cookId = null) => {
+    const db = supabaseRef.current;
+    if (!db || !upload) return { ok: false, reason: "save" };
     const { data: id, error: err } = await db.rpc("add_meal_photo", {
-      p_meal_id: mealId, p_meal_cook_id: cookId || null, p_thumb_path: thumbPath, p_view_path: viewPath,
-      p_width: r.view.width, p_height: r.view.height,
+      p_meal_id: upload.mealId, p_meal_cook_id: cookId || null, p_thumb_path: upload.thumbPath, p_view_path: upload.viewPath,
+      p_width: upload.width, p_height: upload.height,
     });
     if (err) {
       console.warn("[meal photo] add_meal_photo failed:", err.code, err.message);
@@ -2590,6 +2600,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
     return { ok: true, id };
   }, []);
+
+  const addMealPhoto = useCallback(async (mealId, file, cookId = null) => {
+    const up = await uploadMealPhoto(mealId, file);
+    if (!up.ok) return up;
+    return saveMealPhoto(up.upload, cookId);
+  }, [uploadMealPhoto, saveMealPhoto]);
 
   const removeMealPhoto = useCallback(async (photoId) => {
     const db = supabaseRef.current;
@@ -3897,7 +3913,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
-    addMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
+    addMealPhoto, uploadMealPhoto, saveMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     fetchTripReality, answerTripReality,
