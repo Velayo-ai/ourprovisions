@@ -428,14 +428,78 @@ describe("the photo hero and the full-size viewer", () => {
     expect(q(container, ".rv-dots .rv-dot.on")).toBe(qa(container, ".rv-dots .rv-dot")[2]);
   });
 
-  test("Escape closes; Tab stays on ×", () => {
-    const { container } = view({ photos: [photo("a")] });
+  test("Escape closes; Tab stays on × when there is no ⋯ (signed out)", () => {
+    const { container } = view({ photos: [photo("a")], canEditPhotos: false });
     fireEvent.click(q(container, ".rv-photo-open"));
     fireEvent.keyDown(document, { key: "Tab" });
     expect(document.activeElement).toBe(q(dialog(), ".rv-viewer-close"));
     fireEvent.keyDown(document, { key: "Escape" });
     expect(dialog()).toBeNull();
     expect(document.activeElement).toBe(q(container, ".rv-photo-open"));
+  });
+
+  test("P8: the viewer has the same ⋯ top-right, after the count — the same menu, acting on the photo in view", () => {
+    const { container } = view({ photos: [photo("a"), photo("b")], onReplacePhoto: jest.fn() });
+    fireEvent.click(qa(container, ".rv-photo-open")[0]);
+    const top = q(dialog(), ".rv-viewer-top");
+    expect(Array.from(top.children).map((el) => el.className)).toEqual(["rv-viewer-close", "rv-viewer-count", "rv-photo-menu viewer"]);
+    const more = q(top, ".rv-photo-more");
+    expect(more.getAttribute("aria-label")).toBe("Photo options");
+    fireEvent.click(more);
+    expect(qa(dialog(), ".rv-photo-pop .rv-photo-item").map((b) => b.textContent)).toEqual(["Replace photo", "Photo details", "Download photo", "Remove photo"]);
+    expect(q(dialog(), ".rv-photo-div")).not.toBeNull();
+    // stepping closes the menu
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    expect(q(dialog(), ".rv-photo-pop")).toBeNull();
+  });
+
+  test("P8: Remove from the viewer closes the viewer first, then confirms the photo it was showing", () => {
+    const { container, h } = view({ photos: [photo("a"), photo("b")] });
+    fireEvent.click(qa(container, ".rv-photo-open")[1]);
+    fireEvent.click(q(dialog(), ".rv-photo-more"));
+    fireEvent.click(q(dialog(), ".rv-photo-remove"));
+    expect(dialog()).toBeNull();
+    expect(q(container, ".rv-psheet-thumb").getAttribute("src")).toBe("https://x/b");
+    fireEvent.click(q(container, ".rv-photo-confirm-remove"));
+    expect(h.onRemovePhoto).toHaveBeenCalledWith("b");
+  });
+
+  test("P8: Escape with the viewer's menu open closes only the menu; a second Escape closes the viewer", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    fireEvent.click(q(dialog(), ".rv-photo-more"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(q(dialog(), ".rv-photo-pop")).toBeNull();
+    expect(document.activeElement).toBe(q(dialog(), ".rv-photo-more"));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(dialog()).toBeNull();
+  });
+
+  test("P8: Tab inside the viewer cycles × and ⋯", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    // The trap keeps laid-out buttons (offsetParent set) — jsdom lays nothing out, so ⋯ is marked as a browser would.
+    Object.defineProperty(q(dialog(), ".rv-photo-more"), "offsetParent", { get: () => dialog() });
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(q(dialog(), ".rv-photo-more"));
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(q(dialog(), ".rv-viewer-close"));
+  });
+
+  test("signed out: the viewer has no ⋯ (a spacer keeps the count centred)", () => {
+    const { container } = view({ canEditPhotos: false, photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    expect(q(dialog(), ".rv-photo-more")).toBeNull();
+    expect(q(dialog(), ".rv-viewer-spacer")).not.toBeNull();
+  });
+
+  test("no trash icon in any toolbar", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-open"));
+    [container, dialog()].forEach((root) => {
+      expect(root.textContent).not.toMatch(/🗑/);
+      qa(root, "[aria-label]").forEach((el) => expect(el.getAttribute("aria-label")).not.toMatch(/trash|delete/i));
+    });
   });
 
   test("closing the recipe view closes the viewer", () => {
