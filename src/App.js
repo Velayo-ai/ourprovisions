@@ -8378,6 +8378,7 @@ function ProvisionsApp() {
         .rv-psheet-scrim { position: fixed; inset: 0; z-index: 5; display: flex; align-items: flex-end; background: rgba(2,15,26,0.45); }
         .rv-psheet { position: relative; width: 100%; background: #FDF8F2; border-radius: 20px 20px 0 0; padding: 0 20px calc(24px + var(--op-inset-bottom)); }
         .rv-psheet-in { padding-top: 14px; }
+        .rv-sheet .rv-psheet .sheet-close { left: auto; right: 8px; }   /* the recipe view moves ITS ✕ left; a sheet over it keeps the usual right */
         .rv-psheet-head { display: flex; align-items: center; gap: 12px; padding-right: 36px; }
         .rv-psheet-thumb { flex: none; width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: #E8D5B7; }
         .rv-psheet-h { margin: 0; padding-right: 36px; font-family: 'Playfair Display', serif; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; color: #2C1A0E; }
