@@ -1960,7 +1960,7 @@ const GridGlyph = () => (
 );
 
 // "SET MEAL TYPE" (Amendment A5): a small bottom sheet, not Edit Meal — the
-// seven occasions as icon chips, multi-select, the first tapped becomes
+// occasions (eight since 069 added drink) as icon chips, multi-select, the first tapped becomes
 // occasion[1] (the card word, 061), Save. The draft is local until Save; Cancel,
 // the backdrop, swipe-down and Close all discard it. Save with nothing chosen is
 // disabled (Cancel is the way to leave a meal untagged).

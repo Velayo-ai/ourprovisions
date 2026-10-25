@@ -48,12 +48,13 @@ export async function releaseLinksOrWarn(db, { householdId, mealId, listItemIds,
 // a pending id may ever reach meal_ingredients.
 const normCatalogName = (str) => (str || "").trim().toLowerCase().replace(/\s+/g, " ");
 const PENDING_CATALOG_PREFIX = "pending:";
-// Meal occasions (061, Meal Library v1): the seven values meals.occasion may
-// hold, in the CHECK constraint's vocabulary. The column is an ORDERED list —
-// occasion[0] is the word on the library card; the rail matches any element.
-// normalizeOccasion is the one client-side gate before a write: unknown values
-// dropped, duplicates removed (the CHECK cannot test uniqueness), order kept.
-export const MEAL_OCCASIONS = ["breakfast", "lunch", "dinner", "snack", "side", "appetizer", "dessert"];
+// Meal occasions (061, Meal Library v1; "drink" added by 069, SPEC_meal_occasion_drink):
+// the eight values meals.occasion may hold, in the CHECK constraint's vocabulary.
+// The column is an ORDERED list — occasion[0] is the word on the library card; the
+// rail matches any element. normalizeOccasion is the one client-side gate before a
+// write: unknown values dropped, duplicates removed (the CHECK cannot test
+// uniqueness), order kept.
+export const MEAL_OCCASIONS = ["breakfast", "lunch", "dinner", "snack", "side", "appetizer", "dessert", "drink"];
 export const normalizeOccasion = (list) => {
   const out = [];
   (Array.isArray(list) ? list : []).forEach((o) => {

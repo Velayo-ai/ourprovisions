@@ -10,10 +10,11 @@ import { displayTitle } from "../lib/displayTitle";
 
 // OCCASIONS (061). Fixed display order for the rail and the Good-for chips:
 // Dinner first because most meals are dinners. The singular word is what the
-// card and the chips show; the rail pluralises Snacks / Sides / Appetizers.
-const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appetizer", "dessert"];
-const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert" };
-const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appetizer: "Appetizers" };
+// card and the chips show; the rail pluralises Snacks / Sides / Appetizers / Drinks.
+// Drink (069, SPEC_meal_occasion_drink) goes last in the rail and the chips (Dan, 2026-10-24).
+const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appetizer", "dessert", "drink"];
+const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert", drink: "Drink" };
+const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appetizer: "Appetizers", drink: "Drinks" };
 // OCCASION MARKS (SPEC_meal_library_visual_v2 D5): one line icon + one tint per
 // occasion, keyed on occasion[1] — the same element that drives the meta word.
 // These are occasion marks, not photo placeholders: no camera glyph, no "add a
@@ -33,6 +34,10 @@ const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appeti
 // cooler rose, side to a clearer green, appetizer to a deeper terracotta and
 // untagged to a greyer neutral. Snack stays seafoam — apricot collided with
 // appetizer (3.2). The pairwise table is in the harness report / ARCHITECTURE.
+// Drink (SPEC_meal_occasion_drink gate, Dan's pick 2026-10-24): Sky, the set's only
+// blue — nearest tile snack at ΔE2000 8.75 (untagged 11.61, lunch 15.02, dessert
+// 15.63, every other pair above 19); ink on its band 4.37:1. The set's minimum pair
+// is still breakfast/dinner 6.11.
 const OCCASION_TINT = {
   breakfast: { bg: "#F6EBC8", ink: "#8F7030" },
   lunch:     { bg: "#E3E8D6", ink: "#5F7048" },
@@ -41,6 +46,7 @@ const OCCASION_TINT = {
   dessert:   { bg: "#F4DCE2", ink: "#9A5D52" },
   side:      { bg: "#CFE2BE", ink: "#4F6B3C" },
   appetizer: { bg: "#F2D0B5", ink: "#9A6442" },   // icon = Dan's A2
+  drink:     { bg: "#D8E4F2", ink: "#4A6A8C" },   // Sky (2026-10-24)
 };
 const UNTAGGED_TINT = { bg: "#F2EEE6", ink: "#8A6B4C" };
 const OCCASION_PATHS = {
@@ -68,6 +74,9 @@ const OCCASION_PATHS = {
     { t: "circle", cx: 8.6, cy: 15.4, r: 1.1 },
     { t: "rect", x: 11.4, y: 6.3, width: 6.4, height: 6.4, rx: 1.4, transform: "rotate(45 14.6 9.5)", fill: "tint" },
   ],
+  // drink (Dan, 2026-10-24): a tapered glass and two bubbles — no head line, so it
+  // reads as any drink, not only a beer
+  drink:     ["M6 4.5h12l-1.4 14.6a1.8 1.8 0 0 1-1.8 1.6H9.2a1.8 1.8 0 0 1-1.8-1.6z", { t: "circle", cx: 10.6, cy: 13.4, r: 0.85 }, { t: "circle", cx: 13.2, cy: 16.3, r: 0.85 }],
 };
 // An entry is a path `d` string, or a shape descriptor { t, ...attrs } whose
 // `fill: "tint"` resolves to the band's background.
