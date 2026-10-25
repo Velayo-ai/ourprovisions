@@ -17,7 +17,8 @@
 import { render } from "@testing-library/react";
 import { computeAccessibleName } from "dom-accessibility-api";
 import axe from "axe-core";
-import { LibraryCard, LibraryRow } from "./LibraryCards";
+import { LibraryCard, LibraryRow, OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OCCASION_PATHS } from "./LibraryCards";
+import { MEAL_OCCASIONS, normalizeOccasion } from "../hooks/useProvisions";
 
 const MEAL = {
   id: "8bcc2cb0-2a02-4677-be3d-aa935f9fb29e",
@@ -174,3 +175,28 @@ describe("the meta's count and noun are one unit", () => {
   });
 });
 
+
+// Drink (069, SPEC_meal_occasion_drink; Dan's picks 2026-10-24): one more occasion,
+// last in the order, its own tint and mark, and the client gate keeps it.
+describe("the drink occasion", () => {
+  test("last in the order; Drink on the card and chips, Drinks on the rail; the Sky tint", () => {
+    expect(OCCASION_ORDER[OCCASION_ORDER.length - 1]).toBe("drink");
+    expect(OCCASION_WORD.drink).toBe("Drink");
+    expect(OCCASION_PILL.drink).toBe("Drinks");
+    expect(OCCASION_TINT.drink).toEqual({ bg: "#D8E4F2", ink: "#4A6A8C" });
+    expect(MEAL_OCCASIONS).toContain("drink");
+    expect([...MEAL_OCCASIONS].sort()).toEqual([...OCCASION_ORDER].sort());
+  });
+  test("a drink card: the Sky band with the glass mark (not the untagged plate), 'Drink · 2 items'", () => {
+    const drink = { ...MEAL, id: "9ad110cb-ef91-4d52-9f6c-8acc8013c9b1", name: "Black n’ Pumpkin", occasion: ["drink"], meal_ingredients: [{ id: 1 }, { id: 2 }] };
+    const c = render(<LibraryCard meal={drink} stage="none" busy={false} canPlan onPlan={() => {}} onUnplan={() => {}} onOpen={() => {}} onSetType={() => {}} />).container;
+    const slot = c.querySelector(".lib-slot");
+    expect(slot.getAttribute("style")).toMatch(/rgb\(216, 228, 242\)|#D8E4F2/i);
+    expect(slot.querySelectorAll("svg path")).toHaveLength(OCCASION_PATHS.drink.filter((s) => typeof s === "string").length);
+    expect(slot.querySelectorAll("svg circle")).toHaveLength(2);
+    expect(c.querySelector(".lib-gcard").textContent).toContain("Drink · 2" + String.fromCharCode(160) + "items");
+  });
+  test("normalizeOccasion keeps drink and still drops an unknown value", () => {
+    expect(normalizeOccasion(["Drink", "appetizer", "brunch", "drink"])).toEqual(["drink", "appetizer"]);
+  });
+});
