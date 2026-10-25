@@ -61,3 +61,11 @@ Dan renames it in the prod app via Browse → Guiness → edit → "Guinness" �
 - Kids' snack picker must exclude Drink, as a rule from day one of that build.
 - "Pairs with" (a drink alongside a meal).
 - Restaurant photo → Galley recipe capture, with an optional "Inspired by [place]" credit.
+
+---
+
+## Build notes (dated)
+
+- **2026-10-24 — §3 deployed to dev, and one unrelated sentence rode along (Dan's ruling: option A).** `recipe-import` was deployed from the repo at `049c7dc` (`npx supabase functions deploy recipe-import --project-ref zxwtxjjmssykhqrghouf --no-verify-jwt`): dev version 9 → **10**, bundle `e4b6239c…` → `4558ae0c…`, `verify_jwt` false kept, a no-token POST answers 401. Before it, dev v9 and prod v2 ran the same bundle (`e4b6239c…`), built before `cbc4d19` (2026-10-16). So this deploy also ships `cbc4d19`'s one-sentence casing rule in the prompt's **name** rule ("Title case keeps these small words lower-case when they are not the first word: and, or, with, of, the, a, an, in, on, to, for, alla, al, con, de"), never deployed until now. It matches the client's `displayTitle()`. To be verified on dev by Dan's Galley import of a drink recipe (it tags Drink and the casing holds) — not yet walked at the time of this note; **it ships to prod with Drink** in step 4.
+- **Migration number:** 069 (`migrations/069_meals_occasion_drink.sql`), applied on dev 2026-10-25 00:45 UTC over the dev MCP, ledger `20261025004543`.
+- **Client:** `399a445` (tint Sky `#D8E4F2` / `#4A6A8C`, the glass-and-bubbles mark with no head line, Drink last in the rail and chips — Dan's picks 2026-10-24); live on the dev preview as `main.f27e1a5a.js` (`dpl_GowpL7T9pztktQhnjgPdkPXoVqqi`).
