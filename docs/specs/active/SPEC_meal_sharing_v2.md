@@ -594,3 +594,7 @@ And rewrites the Next session block:
 > Goal: Build `SPEC_rum_clerk_id_scrub.md` on dev, now including S29 (pre-Splunk clearing of gift / ref / invite codes, `sessionStorage`, clean Clerk redirect, `/g/<code>` mask) and S30 (photo long-press CSS). S29 ships first on its own if the rest drags.
 > State: Meal Photos v1 live on prod (`5836534`). `src/` identical on prod and dev. Phase A design-final through S33; Step 0 #8 (gift-photo storage: policy bucket vs Edge Function) open. Jest green. Dev ahead of origin by the 10-24 docs commits until pushed.
 > Done when: the scrub build's Step 0 is reported, the code is built with tests, and a dev HAR shows 0 Clerk ids, 0 gift/ref/invite codes (checked separately, documentLoad span included, spans and replay), while `sess_[id]` route shapes survive.
+
+---
+
+> **Note 2026-10-24 (Claude Code, at Dan's instruction) — on Addendum 2026-10-24c, S31:** migration 069 went to Drink (`migrations/069_meals_occasion_drink.sql`, `SPEC_meal_occasion_drink.md`; applied on dev 2026-10-25 00:45 UTC). Wherever S31 says `add_showcase_photo` "is new in 069", read: new in the next free migration number at build. Nothing else in S31 changes.
