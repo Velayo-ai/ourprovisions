@@ -25,7 +25,7 @@ import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } fro
 import { rowCountsFromProvenance } from './lib/mealLinks';
 import { addAllOnHandLine } from './lib/onHand';
 import { cookDateStart, cookHistoryLine } from './lib/cookDate';
-import { photosByMeal, photosFingerprint, photoCaption, photoDetails, MEAL_PHOTO_CAP } from './lib/mealPhotos';
+import { photosByMeal, photosFingerprint, photoCaption, photoDetails, replaceSteps, MEAL_PHOTO_CAP } from './lib/mealPhotos';
 import { canSaveToPhotos, createPhotoSaver, saveLabel } from './lib/savePhoto';
 import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
@@ -2173,7 +2173,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     e.target.value = "";
     const old = replaceRef.current;
     replaceRef.current = null;
-    if (f && old && onReplace) onReplace(meal.id, old, f, n);
+    if (f && old && onReplace) onReplace(meal.id, old, f);
   };
   const addPhoto = () => { if (!busy && fileRef.current) fileRef.current.click(); };
   // The menu's actions, for the hero's photo in view or the viewer's (P8). The file picker opens
@@ -4916,7 +4916,7 @@ function ProvisionsApp() {
     discardUnclaimedHousehold,
     uploadHouseholdPhoto,
     updateHouseholdBanner,
-    addMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
+    addMealPhoto, uploadMealPhoto, saveMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     supabase,
     _supabase,
     _household,
@@ -5827,6 +5827,43 @@ function ProvisionsApp() {
     if (!ok) showToast("Couldn't remove the photo. Try again.");
     await loadMealPhotos();
   }, [removeMealPhoto, loadMealPhotos, showToast]);
+  // Replace (SPEC_photo_menu DAN-1, ruled 2026-10-25): no replace RPC, and the cap of 3 AGES OUT
+  // the oldest rather than refusing, so the order is replaceSteps(old, live count) — jest-proven in
+  // mealPhotos.test.js. A cook photo goes through add_meal_photo with the old photo's cook (P1's
+  // per-cook replace, atomic, "Cooked {date}" kept); a meal photo under 3 is upload → add → remove;
+  // at 3, upload → remove → add, and if that final add fails the old row is already soft-deleted
+  // (recoverable by hand) and the error toast says so. A failed upload changes nothing. The new photo
+  // is the newest (slot 1, the library card). No success toast. The count is the live set as read
+  // (photosByMealId), not the strip's.
+  const handleReplaceMealPhoto = useCallback(async (mealId, old, file) => {
+    if (photoBusyMealId || !old) return;
+    setPhotoBusyMealId(mealId);
+    try {
+      let upload = null;
+      let removed = false;
+      let saved = false;
+      for (const step of replaceSteps(old, (photosByMealId[mealId] || []).length)) {
+        if (step === "upload") {
+          const up = await uploadMealPhoto(mealId, file);
+          if (!up.ok) { showToast(up.reason === "decode" ? "Couldn't read that photo" : "Couldn't add the photo. Try again."); return; }
+          upload = up.upload;
+        } else if (step === "saveCook" || step === "save") {
+          const r = await saveMealPhoto(upload, step === "saveCook" ? old.meal_cook_id : null);
+          if (!r.ok) { showToast(removed ? "Couldn't add the new photo. The old one was removed." : "Couldn't replace the photo. Try again."); return; }
+          saved = true;
+        } else if (step === "removeOld") {
+          if (!(await removeMealPhoto(old.id))) {
+            showToast(saved ? "Added the new photo, but couldn't remove the old one." : "Couldn't replace the photo. Try again.");
+            return;
+          }
+          removed = true;
+        }
+      }
+    } finally {
+      await loadMealPhotos();
+      setPhotoBusyMealId(null);
+    }
+  }, [photoBusyMealId, uploadMealPhoto, saveMealPhoto, removeMealPhoto, photosByMealId, loadMealPhotos, showToast]);
   // ── Cook ratings (066; slice 2, S1) ─────────────────────────────────────
   // cook id → every member's rating rows for that cook, as read (RLS: membership). The afterglow's
   // cook starts empty (it was just logged); the recipe view reads its meal's cooks at open (S5).
@@ -10973,6 +11010,7 @@ function ProvisionsApp() {
           photoBusy={photoBusyMealId === rvMeal.id}
           onAddPhoto={handleAddMealPhoto}
           onRemovePhoto={handleRemoveMealPhoto}
+          onReplacePhoto={handleReplaceMealPhoto}
           // Slice 2 (S5): every member's rating rows per cook (read at open), and the viewer's own rating.
           ratingsFor={(cookId) => ratingsByCook[cookId] || []}
           onRate={handleRateCook}
