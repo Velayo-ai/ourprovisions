@@ -2233,7 +2233,8 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
         </div>
       )}
       {viewer !== null && n > 0 && (
-        <PhotoViewer photos={live} start={Math.min(viewer, n - 1)} members={members} viewerUserId={viewerUserId} onClose={closeViewer} />
+        <PhotoViewer photos={live} start={Math.min(viewer, n - 1)} members={members} viewerUserId={viewerUserId} onClose={closeViewer}
+          menuFor={canEdit ? (p, k) => menuFor(p, "viewer", k) : null} />
       )}
       {n >= 2 && <PhotoDots photos={live} at={at} onGo={goTo} />}
       {canEdit && (
@@ -2499,15 +2500,15 @@ function BoardAfterglow({ mealId, cookId, ag, showThumb = true }) {
 // THE FULL-SIZE VIEWER (Dan, 2026-10-21; mockup screens 3–4). A real modal dialog, portalled to
 // <body> so no sheet transform or overflow clips it: a dark ground, the VIEW copy at
 // object-fit: contain (uncropped — the same signed URL the strip already loaded, so no new
-// download), "N of M" top right, × "Close photo" top left, swipe between photos with the
-// strip's dots and caption. Focus goes to × on open and Tab stays there (the only control);
+// download), × "Close photo" top left, "N of M" in the middle, ⋯ top right (SPEC_photo_menu P8), swipe between photos with the
+// strip's dots and caption. Focus goes to × on open and Tab cycles ×, ⋯ and its menu (and ‹ › and the dots on desktop);
 // Escape closes; ← / → step; closing the recipe view unmounts it. Pointer events stop at its
 // root: React bubbles portal events through the React tree, and the SheetPanel's swipe-down
 // handlers sit above it there. Under reduced motion, no fade.
 // RUM: .op-replay-block on every viewer <img>; .rv-viewer-close joins the allow-list (fixed
 // copy "×"); the count and the caption are household text and are NOT on it. The dialog is
 // named by a fixed aria-label, never the meal.
-function PhotoViewer({ photos, start, members, onClose, viewerUserId = null }) {
+function PhotoViewer({ photos, start, members, onClose, viewerUserId = null, menuFor = null }) {
   const [at, setAt] = useState(start);
   const atRef = useRef(start);
   const stripRef = useRef(null);
@@ -2561,6 +2562,9 @@ function PhotoViewer({ photos, start, members, onClose, viewerUserId = null }) {
       <div className="rv-viewer-top">
         <button type="button" ref={closeRef} className="rv-viewer-close" aria-label="Close photo" onClick={() => onClose(atRef.current)}>×</button>
         <span className="rv-viewer-count">{at + 1} of {m}</span>
+        {/* SPEC_photo_menu P8: the same ⋯ and menu, top-right, for the photo in view; it closes when the
+            photo changes. Remove, Details and Replace close the viewer first. No trash icon anywhere. */}
+        {menuFor ? menuFor(photos[at], at) : <span className="rv-viewer-spacer" aria-hidden="true" />}
       </div>
       <div className="rv-viewer-stage">
         <div className="rv-viewer-strip" ref={stripRef} onScroll={onScroll}>
@@ -8300,10 +8304,12 @@ function ProvisionsApp() {
           padding: 0 0 var(--op-inset-bottom, 0px); animation: rv-viewer-in .18s ease-out; }
         @keyframes rv-viewer-in { from { opacity: 0; } to { opacity: 1; } }
         @media (prefers-reduced-motion: reduce) { .rv-viewer { animation: none; } .rv-viewer-strip { scroll-behavior: auto; } }
-        .rv-viewer-top { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 8px 12px 4px 4px; }
+        .rv-viewer-top { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 8px 4px 4px 4px; }
         .rv-viewer-close { min-width: 44px; min-height: 44px; border: none; border-radius: 22px; background: transparent; color: #FFFDF8; font-size: 30px; line-height: 1; cursor: pointer; }
         .rv-viewer-close:focus-visible { outline: 2px solid #E8D5B7; outline-offset: 2px; }
-        .rv-viewer-count { font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); color: #E8D5B7; white-space: nowrap; }
+        .rv-viewer-spacer { flex: none; width: 44px; }
+        .rv-viewer-top .rv-photo-pop { right: 0; }
+        .rv-viewer-count { flex: 1 1 auto; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); color: #E8D5B7; white-space: nowrap; }
         .rv-viewer-stage { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
         .rv-viewer-strip { flex: 1 1 auto; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior: contain; scrollbar-width: none; }
         .rv-viewer-strip::-webkit-scrollbar { display: none; }
