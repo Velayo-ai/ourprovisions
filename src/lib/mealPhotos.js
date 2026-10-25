@@ -49,3 +49,31 @@ export function photoCaption(photo, members, firstNameOf, now = new Date(), view
   const name = !m ? "" : (viewerUserId && photo.uploaded_by === viewerUserId ? "You" : (firstNameOf(m) || ""));
   return name ? `${verb} · ${name}` : verb;
 }
+
+// PHOTO DETAILS (SPEC_photo_menu DAN-2, 2026-10-25) — the photo credit's home now that the
+// line under the hero is gone. A calendar date ("Oct 24", the year only when it is not this
+// year), never a relative word: "From the cook on tonight" would not read. Lines:
+//   "Added by {First} · {date}" — the name under the "Added by" rule (2+ current members, the
+//     uploader still one); otherwise "Added {date}". Always the first name, the viewer included.
+//   "From the cook on {date}" — a cook-attached photo only (its cook's cooked_at).
+export function detailsDate(iso, now = new Date()) {
+  if (iso == null || iso === "") return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString(undefined, d.getFullYear() === now.getFullYear()
+    ? { month: "short", day: "numeric" }
+    : { month: "short", day: "numeric", year: "numeric" });
+}
+
+export function photoDetails(photo, members, firstNameOf, now = new Date()) {
+  if (!photo) return [];
+  const when = detailsDate(photo.uploaded_at, now);
+  if (!when) return [];
+  const list = members || [];
+  const m = list.length >= 2 ? list.find((mb) => mb && mb.user_id && mb.user_id === photo.uploaded_by) : null;
+  const name = m ? (firstNameOf(m) || "") : "";
+  const lines = [name ? `Added by ${name} · ${when}` : `Added ${when}`];
+  const cooked = photo.meal_cook_id ? detailsDate(photo.cooked_at, now) : "";
+  if (cooked) lines.push(`From the cook on ${cooked}`);
+  return lines;
+}

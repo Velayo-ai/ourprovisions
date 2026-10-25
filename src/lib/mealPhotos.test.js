@@ -1,4 +1,4 @@
-import { photosByMeal, photosFingerprint, addedDate, photoCaption, MEAL_PHOTO_CAP } from "./mealPhotos";
+import { photosByMeal, photosFingerprint, addedDate, photoCaption, photoDetails, detailsDate, MEAL_PHOTO_CAP } from "./mealPhotos";
 
 const NOW = new Date(2026, 9, 21, 18, 0, 0);
 const at = (daysAgo) => new Date(2026, 9, 21 - daysAgo, 12, 0, 0).toISOString();
@@ -68,5 +68,33 @@ describe("photoCaption: the viewer is 'You' (Dan, 2026-10-21)", () => {
   test("a cook-attached photo of the viewer's: 'Cooked {date} · You'", () => {
     const p = row("a", "m1", 0, { uploaded_by: "u1", meal_cook_id: "c1", cooked_at: at(1) });
     expect(photoCaption(p, members, first, NOW, "u1")).toBe("Cooked yesterday · You");
+  });
+});
+
+describe("photoDetails (SPEC_photo_menu DAN-2)", () => {
+  const two = [{ user_id: "u1", name: "Dan" }, { user_id: "u2", name: "Helen" }];
+  const day = (m, d, y = 2026) => new Date(y, m, d, 12, 0, 0).toISOString();
+  const want = (iso) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  test("a calendar date, never a relative word; the year only outside this year", () => {
+    expect(detailsDate(at(0), NOW)).toBe(want(at(0)));
+    expect(detailsDate(day(11, 30, 2025), NOW)).toBe(new Date(day(11, 30, 2025)).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }));
+    expect(detailsDate(null, NOW)).toBe("");
+    expect(detailsDate("nope", NOW)).toBe("");
+  });
+  test("2+ members, uploader still one: 'Added by {First} · {date}' — the viewer's own photo too", () => {
+    expect(photoDetails(row("a", "m1", 1), two, first, NOW)).toEqual([`Added by Dan · ${want(at(1))}`]);
+    expect(photoDetails(row("a", "m1", 1, { uploaded_by: "u2" }), two, first, NOW)).toEqual([`Added by Helen · ${want(at(1))}`]);
+  });
+  test("solo, or the uploader left: 'Added {date}', no name", () => {
+    expect(photoDetails(row("a", "m1", 1), [two[0]], first, NOW)).toEqual([`Added ${want(at(1))}`]);
+    expect(photoDetails(row("a", "m1", 1, { uploaded_by: "gone" }), two, first, NOW)).toEqual([`Added ${want(at(1))}`]);
+  });
+  test("a cook-attached photo adds 'From the cook on {date}'", () => {
+    const p = row("a", "m1", 0, { meal_cook_id: "c1", cooked_at: at(2) });
+    expect(photoDetails(p, two, first, NOW)).toEqual([`Added by Dan · ${want(at(0))}`, `From the cook on ${want(at(2))}`]);
+  });
+  test("nothing to say → no lines", () => {
+    expect(photoDetails(null, two, first, NOW)).toEqual([]);
+    expect(photoDetails(row("a", "m1", 0, { uploaded_at: null }), two, first, NOW)).toEqual([]);
   });
 });
