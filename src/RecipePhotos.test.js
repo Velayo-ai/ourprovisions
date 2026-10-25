@@ -6,7 +6,10 @@
 // SPEC_meal_photos_v1, 2026-10-20 amendment (slice 1), rendered through RecipeView:
 //   R2  1+ photos → the hero is the strip (newest first), dots at 2+, one caption;
 //       0 photos → today's tint hero, unchanged; "Add a meal photo" under it;
-//       hidden at the cap of 3 (R1); ⋯ → "Remove photo" acts on the photo in view
+//       hidden at the cap of 3 (R1)
+//   SPEC_photo_menu (+ amendment 2026-10-25): ⋯ on the photo → Replace / Photo details / Save /
+//       Remove (confirm sheet, Keep the default); the placeholder after the last removal (P7);
+//       no credit line under the hero (DAN-2)
 //   R5  .op-replay-block on every photo <img> and NOT on the strip / dots / caption;
 //       no meal name in any attribute of the controls
 //   gate  until the household's photo read resolves: tint, no controls (no flash)
@@ -24,14 +27,17 @@ const MEMBERS = [{ user_id: "u1", users: { full_name: "Dan Holmes" } }, { user_i
 const onPlanSpy = jest.fn();
 beforeEach(() => onPlanSpy.mockClear());
 
-function view(over = {}) {
-  const h = { onAddPhoto: jest.fn(), onRemovePhoto: jest.fn() };
-  const utils = render(
+function viewEl(over = {}, h = {}) {
+  return (
     <RecipeView meal={MEAL} state={null} members={[]} cookCount={0} lastCookedAt={null} cookRows={null} links={null}
       tagsReady={false} addedThisPlan={false} viewerUserId={null} busy={false}
       onPlan={onPlanSpy} onAddToShop={jest.fn()} onCooked={jest.fn()} onRemove={jest.fn()} onSeeList={jest.fn()} onClose={jest.fn()} onEdit={jest.fn()}
-      photos={[]} photosReady canEditPhotos photoBusy={false} {...h} {...over} />,
+      photos={[]} photosReady canEditPhotos photoBusy={false} {...h} {...over} />
   );
+}
+function view(over = {}) {
+  const h = { onAddPhoto: jest.fn(), onRemovePhoto: jest.fn() };
+  const utils = render(viewEl(over, h));
   return { ...utils, h };
 }
 const q = (c, s) => c.querySelector(s);
@@ -48,21 +54,21 @@ describe("the hero strip (R2)", () => {
     expect(qa(container, "img")).toHaveLength(0);
   });
 
-  test("1 photo: the strip, no dots, a caption, Add + ⋯", () => {
+  test("1 photo: the strip, no dots, NO credit line under it (it lives in Photo details), Add + ⋯ on the photo", () => {
     const { container } = view({ photos: [photo("a")] });
     expect(qa(container, ".rv-strip img")).toHaveLength(1);
     expect(q(container, ".rv-dots")).toBeNull();
-    expect(q(container, ".rv-photo-cap").textContent).toBe("Added today");
+    expect(q(container, ".rv-photo-cap")).toBeNull();
     expect(q(container, ".rv-photo-add")).not.toBeNull();
-    expect(q(container, ".rv-photo-more")).not.toBeNull();
+    expect(q(container, ".rv-hero-wrap .rv-photo-menu.hero .rv-photo-more")).not.toBeNull();
   });
 
-  test("newest first; dots at 2+; the caption names the uploader only in a 2+ member household", () => {
+  test("newest first; dots at 2+; no caption", () => {
     const { container } = view({ photos: [photo("new", "u2"), photo("old")], members: MEMBERS });
     expect(qa(container, ".rv-strip img").map((i) => i.getAttribute("src"))).toEqual(["https://x/new", "https://x/old"]);
     expect(qa(container, ".rv-dots .rv-dot")).toHaveLength(2);
     expect(q(container, ".rv-dots .rv-dot.on")).toBe(qa(container, ".rv-dots .rv-dot")[0]);
-    expect(q(container, ".rv-photo-cap").textContent).toBe("Added today · Dana");
+    expect(q(container, ".rv-photo-cap")).toBeNull();
   });
 
   test("R1: at 3 live photos 'Add a meal photo' is hidden; ⋯ stays", () => {
@@ -71,71 +77,203 @@ describe("the hero strip (R2)", () => {
     expect(q(container, ".rv-photo-more")).not.toBeNull();
   });
 
-  test("⋯ → 'Remove photo' asks first; Remove removes the photo in view (the newest by default)", () => {
+  test("P1: the row under the hero has no ⋯ — only 'Add a meal photo'", () => {
+    const { container } = view({ photos: [photo("a")] });
+    const row = q(container, ".rv-photo-ctl");
+    expect(qa(row, "button").map((b) => b.className)).toEqual(["rv-photo-add"]);
+    expect(q(row, ".rv-photo-more")).toBeNull();
+  });
+
+  test("P3: the menu order — Replace, Photo details, Save, a divider, Remove photo (red class)", () => {
+    const { container } = view({ photos: [photo("a")], onReplacePhoto: jest.fn() });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    const pop = q(container, ".rv-photo-pop");
+    expect(pop.getAttribute("role")).toBe("menu");
+    expect(Array.from(pop.children).map((el) => (el.getAttribute("role") === "separator" ? "—" : el.textContent)))
+      .toEqual(["Replace photo", "Photo details", "Download photo", "—", "Remove photo"]);
+    expect(q(container, ".rv-photo-more").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  test("with no Replace handler wired, the menu has no Replace", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    expect(q(container, ".rv-photo-replace")).toBeNull();
+    expect(q(container, ".rv-photo-details")).not.toBeNull();
+  });
+
+  test("a click on ⋯ never opens the viewer", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    expect(document.body.querySelector(".rv-viewer")).toBeNull();
+  });
+
+  test("P5: Remove photo opens the confirm sheet — thumbnail, title, body, Keep focused; nothing removed yet", () => {
     const { container, h } = view({ photos: [photo("new"), photo("old")] });
     fireEvent.click(q(container, ".rv-photo-more"));
-    const rm = q(container, ".rv-photo-remove");
-    expect(rm.textContent).toBe("Remove photo");
-    fireEvent.click(rm);
+    fireEvent.click(q(container, ".rv-photo-remove"));
     expect(h.onRemovePhoto).not.toHaveBeenCalled();
-    expect(q(container, ".rv-photo-q").textContent).toBe("Remove this photo?");
-    expect(q(container, ".rv-photo-keep").textContent).toBe("Keep");
-    const yes = q(container, ".rv-photo-remove-yes");
-    expect(yes.textContent).toBe("Remove");
-    fireEvent.click(yes);
-    expect(h.onRemovePhoto).toHaveBeenCalledWith("new");
     expect(q(container, ".rv-photo-pop")).toBeNull();
+    const sheet = q(container, ".rv-psheet");
+    expect(sheet.getAttribute("role")).toBe("dialog");
+    expect(sheet.getAttribute("aria-labelledby")).toBe("rv-photo-q");
+    expect(q(sheet, "#rv-photo-q").textContent).toBe("Remove this photo?");
+    expect(q(sheet, ".rv-psheet-body").textContent).toBe("It’ll be removed for everyone in your household.");
+    const thumb = q(sheet, ".rv-psheet-thumb");
+    expect(thumb.getAttribute("src")).toBe("https://x/new");
+    expect(thumb.classList.contains("op-replay-block")).toBe(true);
+    expect(q(sheet, ".rv-photo-confirm-remove").textContent).toBe("Remove photo");
+    expect(q(sheet, ".rv-photo-confirm-keep").textContent).toBe("Keep photo");
+    expect(document.activeElement).toBe(q(sheet, ".rv-photo-confirm-keep"));
   });
 
-  test("Keep closes the confirm and removes nothing", () => {
-    const { container, h } = view({ photos: [photo("a")] });
+  test("P6: Remove photo removes the photo in view (the newest by default), closes the sheet", () => {
+    const { container, h } = view({ photos: [photo("new"), photo("old")] });
     fireEvent.click(q(container, ".rv-photo-more"));
     fireEvent.click(q(container, ".rv-photo-remove"));
-    fireEvent.click(q(container, ".rv-photo-keep"));
-    expect(h.onRemovePhoto).not.toHaveBeenCalled();
-    expect(q(container, ".rv-photo-pop")).toBeNull();
+    fireEvent.click(q(container, ".rv-photo-confirm-remove"));
+    expect(h.onRemovePhoto).toHaveBeenCalledWith("new");
+    expect(q(container, ".rv-psheet")).toBeNull();
   });
 
-  test("an outside tap closes the menu or the confirm, and that tap presses nothing else", () => {
+  test("the photo in view: after › the menu acts on the second photo", () => {
+    const { container, h } = view({ photos: [photo("a"), photo("b")] });
+    fireEvent.click(q(container, ".rv-photo-next"));
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.click(q(container, ".rv-photo-remove"));
+    expect(q(container, ".rv-psheet-thumb").getAttribute("src")).toBe("https://x/b");
+    fireEvent.click(q(container, ".rv-photo-confirm-remove"));
+    expect(h.onRemovePhoto).toHaveBeenCalledWith("b");
+  });
+
+  test("Keep, ✕, the backdrop and Escape all keep the photo; focus returns to ⋯", () => {
+    const { container, h } = view({ photos: [photo("a")] });
+    const ways = [
+      () => fireEvent.click(q(container, ".rv-photo-confirm-keep")),
+      () => fireEvent.click(q(container, ".rv-psheet .sheet-close")),
+      () => fireEvent.click(q(container, ".rv-psheet-scrim")),
+      () => fireEvent.keyDown(document, { key: "Escape" }),
+    ];
+    ways.forEach((go) => {
+      fireEvent.click(q(container, ".rv-photo-more"));
+      fireEvent.click(q(container, ".rv-photo-remove"));
+      expect(q(container, ".rv-psheet")).not.toBeNull();
+      go();
+      expect(q(container, ".rv-psheet")).toBeNull();
+      expect(document.activeElement).toBe(q(container, ".rv-photo-more"));
+    });
+    expect(h.onRemovePhoto).not.toHaveBeenCalled();
+  });
+
+  test("pointer events inside the confirm sheet never reach the recipe view (no swipe-down, no close)", () => {
+    const onClose = jest.fn();
+    const { container } = view({ photos: [photo("a")], onClose });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.click(q(container, ".rv-photo-remove"));
+    fireEvent.pointerDown(q(container, ".rv-psheet-body"));
+    fireEvent.click(q(container, ".rv-psheet-body"));
+    expect(q(container, ".rv-psheet")).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("P7: removing the LAST photo leaves the dashed placeholder at the hero's height; tapping it adds a photo", () => {
+    const { container, h, rerender } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.click(q(container, ".rv-photo-remove"));
+    fireEvent.click(q(container, ".rv-photo-confirm-remove"));
+    expect(h.onRemovePhoto).toHaveBeenCalledWith("a");
+    rerender(viewEl({ photos: [] }, h));
+    const ph = q(container, ".rv-hero-wrap .rv-photo-placeholder");
+    expect(ph).not.toBeNull();
+    expect(qa(ph, "span").map((s) => s.textContent)).toEqual(["Add a meal photo", "Show the household how it turned out."]);
+    expect(q(container, ".rv-hero:not(.rv-strip)")).toBeNull();   // not the tint
+    expect(q(container, ".rv-photo-add")).toBeNull();               // one "Add a meal photo", not two
+    const input = q(container, "input[type=file]");
+    const click = jest.spyOn(input, "click").mockImplementation(() => {});
+    fireEvent.click(ph);
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(ph);
+  });
+
+  test("P7 / Verification 7: reopening after the last removal shows the tint hero", () => {
+    const first = view({ photos: [photo("a")] });
+    fireEvent.click(q(first.container, ".rv-photo-more"));
+    fireEvent.click(q(first.container, ".rv-photo-remove"));
+    fireEvent.click(q(first.container, ".rv-photo-confirm-remove"));
+    first.unmount();
+    const { container } = view({ photos: [] });
+    expect(q(container, ".rv-photo-placeholder")).toBeNull();
+    expect(q(container, ".rv-hero:not(.rv-strip)")).not.toBeNull();
+  });
+
+  test("removing one of two keeps the strip — no placeholder", () => {
+    const { container, h, rerender } = view({ photos: [photo("a"), photo("b")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.click(q(container, ".rv-photo-remove"));
+    fireEvent.click(q(container, ".rv-photo-confirm-remove"));
+    rerender(viewEl({ photos: [photo("b")] }, h));
+    expect(q(container, ".rv-photo-placeholder")).toBeNull();
+    expect(qa(container, ".rv-strip img").map((i) => i.getAttribute("src"))).toEqual(["https://x/b"]);
+  });
+
+  test("DAN-2: Photo details — 'Added by {First} · {date}' in a sheet named by its masked title", () => {
+    const { container } = view({ photos: [photo("a", "u2")], members: MEMBERS });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.click(q(container, ".rv-photo-details"));
+    const sheet = q(container, ".rv-psheet");
+    expect(sheet.getAttribute("aria-labelledby")).toBe("rv-photo-dh");
+    expect(q(sheet, "#rv-photo-dh").textContent).toBe("Photo details");
+    const date = new Date(today).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    expect(qa(sheet, ".rv-psheet-line").map((l) => l.textContent)).toEqual([`Added by Dana · ${date}`]);
+    expect(document.activeElement).toBe(q(sheet, ".sheet-close"));
+    fireEvent.click(q(sheet, ".sheet-close"));
+    expect(q(container, ".rv-psheet")).toBeNull();
+    expect(document.activeElement).toBe(q(container, ".rv-photo-more"));
+  });
+
+  test("DAN-3: Save reads 'Download photo' where files cannot be shared from a touch device (jsdom)", () => {
+    const { container } = view({ photos: [photo("a")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    expect(q(container, ".rv-photo-save").textContent).toBe("Download photo");
+  });
+
+  test("P10: an outside tap closes the menu, and that tap presses nothing else; focus back on ⋯", () => {
     const { container, h } = view({ photos: [photo("a")] });
     const plan = q(container, ".rv-plan");
-    for (const step of ["menu", "confirm"]) {
-      fireEvent.click(q(container, ".rv-photo-more"));
-      if (step === "confirm") fireEvent.click(q(container, ".rv-photo-remove"));
-      expect(q(container, ".rv-photo-pop")).not.toBeNull();
-      fireEvent.pointerDown(plan);
-      fireEvent.click(plan);   // the same tap's click: swallowed
-      expect(q(container, ".rv-photo-pop")).toBeNull();
-    }
+    fireEvent.click(q(container, ".rv-photo-more"));
+    expect(q(container, ".rv-photo-pop")).not.toBeNull();
+    fireEvent.pointerDown(plan);
+    fireEvent.click(plan);   // the same tap's click: swallowed
+    expect(q(container, ".rv-photo-pop")).toBeNull();
+    expect(document.activeElement).toBe(q(container, ".rv-photo-more"));
     expect(h.onRemovePhoto).not.toHaveBeenCalled();
     expect(onPlanSpy).not.toHaveBeenCalled();
     fireEvent.click(plan);     // a NEW tap acts as normal
     expect(onPlanSpy).toHaveBeenCalledTimes(1);
   });
 
-  test("a tap inside the popover does not dismiss it: Keep and Remove still act", () => {
-    const { container, h } = view({ photos: [photo("a")] });
+  test("a tap inside the menu does not dismiss it before the item acts", () => {
+    const { container } = view({ photos: [photo("a")] });
     fireEvent.click(q(container, ".rv-photo-more"));
     fireEvent.pointerDown(q(container, ".rv-photo-remove"));
     fireEvent.click(q(container, ".rv-photo-remove"));
-    const yes = q(container, ".rv-photo-remove-yes");
-    fireEvent.pointerDown(yes);
-    fireEvent.click(yes);
-    expect(h.onRemovePhoto).toHaveBeenCalledWith("a");
+    expect(q(container, ".rv-psheet")).not.toBeNull();
   });
 
-  test("Escape closes the popover", () => {
+  test("Escape closes the menu, focus back on ⋯", () => {
     const { container } = view({ photos: [photo("a")] });
     fireEvent.click(q(container, ".rv-photo-more"));
     fireEvent.keyDown(document, { key: "Escape" });
     expect(q(container, ".rv-photo-pop")).toBeNull();
+    expect(document.activeElement).toBe(q(container, ".rv-photo-more"));
   });
 
-  test("⋯ again closes the menu or the confirm", () => {
-    const { container } = view({ photos: [photo("a")] });
+  test("⋯ again closes the menu; stepping to another photo closes it too", () => {
+    const { container } = view({ photos: [photo("a"), photo("b")] });
     fireEvent.click(q(container, ".rv-photo-more"));
-    fireEvent.click(q(container, ".rv-photo-remove"));
     fireEvent.click(q(container, ".rv-photo-more"));
+    expect(q(container, ".rv-photo-pop")).toBeNull();
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.click(q(container, ".rv-photo-next"));
     expect(q(container, ".rv-photo-pop")).toBeNull();
   });
 
@@ -148,23 +286,26 @@ describe("the hero strip (R2)", () => {
     expect(h.onAddPhoto).toHaveBeenCalledWith(MEAL.id, file);
   });
 
-  test("busy: 'Adding…', disabled", () => {
-    const { container } = view({ photoBusy: true });
+  test("busy: 'Adding…', disabled; ⋯ disabled", () => {
+    const { container } = view({ photoBusy: true, photos: [photo("a")] });
     const add = q(container, ".rv-photo-add");
     expect(add.textContent).toBe("Adding…");
     expect(add.disabled).toBe(true);
+    expect(q(container, ".rv-photo-more").disabled).toBe(true);
   });
 
   test("no-flash gate: before the read resolves — tint, no strip, no controls", () => {
     const { container } = view({ photosReady: false, photos: [photo("a")] });
     expect(q(container, ".rv-strip")).toBeNull();
     expect(q(container, ".rv-photo-ctl")).toBeNull();
+    expect(q(container, ".rv-photo-more")).toBeNull();
   });
 
-  test("signed out: photos show, no controls", () => {
+  test("signed out: photos show, no controls, no ⋯", () => {
     const { container } = view({ canEditPhotos: false, photos: [photo("a")] });
     expect(qa(container, ".rv-strip img")).toHaveLength(1);
     expect(q(container, ".rv-photo-ctl")).toBeNull();
+    expect(q(container, ".rv-photo-more")).toBeNull();
   });
 
   test("a photo whose URL is not minted yet is not rendered (never a broken image)", () => {
@@ -174,25 +315,27 @@ describe("the hero strip (R2)", () => {
   });
 });
 
-describe("replay (R5)", () => {
-  test("every photo <img> carries .op-replay-block; the strip, dots and caption do not", () => {
+describe("replay (R5 + SPEC_photo_menu P9)", () => {
+  test("every photo <img> carries .op-replay-block — the confirm thumbnail too; the strip, dots, menu and sheet do not", () => {
     const { container } = view({ photos: [photo("a"), photo("b")] });
+    fireEvent.click(q(container, ".rv-photo-more"));
+    fireEvent.click(q(container, ".rv-photo-remove"));
     const imgs = qa(container, "img");
-    expect(imgs).toHaveLength(2);
+    expect(imgs).toHaveLength(3);
     imgs.forEach((i) => expect(i.classList.contains("op-replay-block")).toBe(true));
-    [".rv-strip", ".rv-dots", ".rv-photo-cap", ".rv-photo-ctl"].forEach((s) => expect(q(container, s).classList.contains("op-replay-block")).toBe(false));
+    [".rv-strip", ".rv-dots", ".rv-photo-ctl", ".rv-photo-menu", ".rv-psheet"].forEach((s) => expect(q(container, s).classList.contains("op-replay-block")).toBe(false));
   });
 
-  test("controls carry fixed copy and no meal name in any attribute", () => {
-    const { container } = view({ photos: [photo("a")] });
+  test("controls carry fixed copy and no meal name in any attribute; ⋯ is named 'Photo options'", () => {
+    const { container } = view({ photos: [photo("a")], onReplacePhoto: jest.fn() });
     fireEvent.click(q(container, ".rv-photo-more"));
-    expect(q(container, ".rv-photo-remove")).not.toBeNull();
-    fireEvent.click(q(container, ".rv-photo-remove"));
-    [".rv-photo-add", ".rv-photo-more", ".rv-photo-pop", ".rv-photo-keep", ".rv-photo-remove-yes"].forEach((s) => {
-      const el = q(container, s);
-      Array.from(el.attributes).forEach((a) => expect(a.value).not.toMatch(/Chili/));
+    [".rv-photo-more", ".rv-photo-pop", ".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove"].forEach((s) => {
+      Array.from(q(container, s).attributes).forEach((a) => expect(a.value).not.toMatch(/Chili/));
     });
     expect(q(container, ".rv-photo-more").getAttribute("aria-label")).toBe("Photo options");
+    expect(q(container, ".rv-photo-more").textContent).toBe("");
+    fireEvent.click(q(container, ".rv-photo-remove"));
+    qa(q(container, ".rv-psheet-scrim"), "*").forEach((el) => Array.from(el.attributes).forEach((a) => expect(a.value).not.toMatch(/Chili/)));
   });
 });
 
@@ -238,9 +381,9 @@ describe("the photo hero and the full-size viewer", () => {
     expect(q(d, ".rv-viewer-dots .rv-dot.on")).toBe(qa(d, ".rv-viewer-dots .rv-dot")[1]);
     expect(q(d, ".rv-viewer-cap").textContent).toBe("Added today · Dan");   // photo "b" is u1's
     qa(d, "img").forEach((i) => expect(i.classList.contains("op-replay-block")).toBe(true));
-    // Closing returns the strip to photo "b": its caption is the one the viewer showed.
+    // Closing returns the strip to photo "b" (the credit line under the hero is gone — SPEC_photo_menu DAN-2).
     fireEvent.click(q(d, ".rv-viewer-close"));
-    expect(q(container, ".rv-photo-cap").textContent).toBe("Added today · Dan");
+    expect(q(container, ".rv-dots .rv-dot.on")).toBe(qa(container, ".rv-dots .rv-dot")[1]);
     fireEvent.click(qa(container, ".rv-photo-open")[1]);
     const d2 = dialog();
     expect(q(d2, ".rv-viewer-count").textContent).toBe("2 of 3");
@@ -338,7 +481,6 @@ describe("‹ › and clickable dots", () => {
     fireEvent.click(q(container, ".rv-photo-next"));
     expect(dialog()).toBeNull();
     expect(curDot(container)).toBe(1);
-    expect(q(container, ".rv-photo-cap")).not.toBeNull();
     fireEvent.click(q(container, ".rv-photo-prev"));
     expect(dialog()).toBeNull();
     expect(curDot(container)).toBe(0);

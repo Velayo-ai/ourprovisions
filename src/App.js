@@ -25,7 +25,8 @@ import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } fro
 import { rowCountsFromProvenance } from './lib/mealLinks';
 import { addAllOnHandLine } from './lib/onHand';
 import { cookDateStart, cookHistoryLine } from './lib/cookDate';
-import { photosByMeal, photosFingerprint, photoCaption, MEAL_PHOTO_CAP } from './lib/mealPhotos';
+import { photosByMeal, photosFingerprint, photoCaption, photoDetails, MEAL_PHOTO_CAP } from './lib/mealPhotos';
+import { canSaveToPhotos, createPhotoSaver, saveLabel } from './lib/savePhoto';
 import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
@@ -2077,53 +2078,48 @@ const RV_COOKS_MIN = 2;
 // <button> ("View photo full size", .rv-photo-open) with a small expand mark on the hero's
 // corner, and opens PhotoViewer — the whole photo, uncropped, on a dark ground. Closing it
 // returns to the strip at the photo the viewer ended on, focus on that photo's button.
-// Under it, one caption for the photo in view — "Added {date}", " · {First}" only in a
-// 2+ member household while the uploader is still a member (the "Added by" rule) — then
-// the controls in fixed copy: "Add a meal photo" (hidden at the cap of 3, R1) and ⋯ →
-// "Remove photo" for the photo in view, confirmed inline in the same popover ("Remove this
-// photo?" · Keep / Remove — Dan, 2026-10-21). No chooser, no reorder.
+// THE PHOTO MENU (SPEC_photo_menu + its 2026-10-25 amendment): the photo's actions live ON the
+// photo — ⋯ in the hero's top-right corner (the viewer has the same one), acting on the photo in
+// view: Replace photo, Photo details, Save to Photos / Download photo, a divider, Remove photo in
+// red. Remove asks in a bottom sheet with the photo's thumbnail ("Remove this photo?" · Remove
+// photo / Keep photo, Keep the gold default); nothing thanks a removal (never celebrate
+// deleting). The credit line under the hero is gone — "Added by …" lives in Photo details. The
+// row under the hero keeps only "Add a meal photo" (hidden at the cap of 3, R1). Removing the
+// LAST photo leaves a dashed placeholder at the hero's height until the sheet closes; reopening
+// shows the tint hero (D8 stands). Any member removes any photo (065 P3), so Remove shows to
+// everyone who sees ⋯ — every signed-in member.
 // Photos are gated on the household's photo read (the no-flash rule): until it resolves
 // the hero is the tint and the controls are absent, so a cold open never shows the tint
 // "Add" and then a photo, or a photo and then nothing.
-// RUM (R5): .op-replay-block on every photo <img> ONLY — never the strip, dots or caption.
-// .rv-photo-add / .rv-photo-remove / .rv-photo-remove-yes / .rv-photo-keep are allow-listed
-// (fixed copy); ⋯ (.rv-photo-more) and the question are not — ⋯ is named by a fixed
-// aria-label, the question is masked text; no meal name anywhere in an attribute.
-function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove, viewerUserId = null }) {
+// RUM (R5 + the amendment): .op-replay-block on every photo <img> — the confirm sheet's
+// thumbnail included — and never the strip, dots or sheets. Allow-listed (fixed copy):
+// .rv-photo-add, .rv-photo-replace, .rv-photo-details, .rv-photo-save, .rv-photo-remove,
+// .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-photo-placeholder. ⋯ (.rv-photo-more)
+// is off the list, named by a fixed aria-label; the sheets' titles and lines are masked text,
+// each sheet named by aria-labelledby; no meal name anywhere in an attribute.
+function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove, onReplace = null, viewerUserId = null }) {
   const [idx, setIdx] = useState(0);
-  const [menu, setMenu] = useState(false);   // false | "menu" | "confirm"
   const [viewer, setViewer] = useState(null);   // null | the index the full-size viewer opened at
+  const [sheet, setSheet] = useState(null);     // null | { kind: "remove" | "details", photo }
+  const [emptied, setEmptied] = useState(false); // the last photo was removed in THIS sheet (P7)
   const stripRef = useRef(null);
   const fileRef = useRef(null);
-  const menuRef = useRef(null);
+  const replaceFileRef = useRef(null);
+  const replaceRef = useRef(null);   // the photo a Replace pick will stand in for
+  const moreRef = useRef(null);      // the hero's ⋯ — focus comes back here (P10)
+  const placeholderRef = useRef(null);
   const openRefs = useRef([]);       // each photo's "View photo full size" button, by index
   const refocusRef = useRef(null);   // the index to scroll to and focus after the viewer closes
-  // An open popover (menu or confirm) closes on a tap anywhere outside it, or on Escape —
-  // and that outside tap only dismisses: its click is swallowed, so it never also presses
-  // whatever sat under the finger (Add to This Week, Close, a step). Keep / Remove inside
-  // the popover act as before.
-  useEffect(() => {
-    if (!menu) return undefined;
-    const onDown = (e) => {
-      if (menuRef.current && menuRef.current.contains(e.target)) return;
-      swallowNextClick();
-      setMenu(false);
-    };
-    const onKey = (e) => { if (e.key === "Escape") setMenu(false); };
-    document.addEventListener("pointerdown", onDown, true);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menu]);
+  const saverRef = useRef(null);
+  if (!saverRef.current) saverRef.current = createPhotoSaver();
+  const [toPhotos] = useState(() => canSaveToPhotos());
   const live = photos.filter((p) => p.url);
   const n = live.length;
   const at = Math.min(idx, Math.max(0, n - 1));
   const shown = n > 0 ? live[at] : null;
-  // A removal or a new upload changes the set: back to the newest, menu and viewer closed.
+  // A removal or a new upload changes the set: back to the newest, viewer and sheets closed.
   const setKey = live.map((p) => p.id).join(",");
-  useEffect(() => { setIdx(0); setMenu(false); setViewer(null); if (stripRef.current) stripRef.current.scrollLeft = 0; }, [setKey]);
+  useEffect(() => { setIdx(0); setViewer(null); setSheet(null); if (stripRef.current) stripRef.current.scrollLeft = 0; }, [setKey]);
   // The viewer closed: the strip shows the photo it ended on, and focus returns to that
   // photo's button (the dialog's opener). preventScroll so the sheet does not jump.
   useEffect(() => {
@@ -2135,7 +2131,24 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     const btn = openRefs.current[i];
     if (btn) btn.focus({ preventScroll: true });
   }, [viewer]);
-  const openViewer = (i) => { setMenu(false); setViewer(i); };
+  // A sheet closed (Keep, ✕, backdrop, swipe): focus back on ⋯. After Remove, again once the
+  // read-back lands — on the next photo's ⋯, or on the placeholder when the last photo went.
+  const hadSheet = useRef(false);
+  const afterRemove = useRef(false);
+  useEffect(() => {
+    if (sheet) { hadSheet.current = true; return; }
+    if (!hadSheet.current && !afterRemove.current) return;
+    hadSheet.current = false;
+    const to = moreRef.current || placeholderRef.current;
+    if (to && document.contains(to)) to.focus({ preventScroll: true });
+  }, [sheet]);
+  useEffect(() => {
+    if (!afterRemove.current) return;
+    afterRemove.current = false;
+    const to = moreRef.current || placeholderRef.current;
+    if (to && document.contains(to)) to.focus({ preventScroll: true });
+  }, [setKey]);
+  const openViewer = (i) => setViewer(i);
   const closeViewer = (i) => { refocusRef.current = i; setIdx(i); setViewer(null); };
   // Desktop (a mouse cannot swipe): ‹ › and the dots step the strip. The state moves at once;
   // the scroll follows (smooth unless reduced motion) and onScroll agrees when it lands.
@@ -2143,27 +2156,66 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     const to = Math.max(0, Math.min(n - 1, i));
     scrollStripTo(stripRef.current, to);
     setIdx(to);
-    setMenu(false);
   };
   const onScroll = () => {
     const el = stripRef.current;
     if (!el || el.clientWidth === 0) return;
     const i = Math.round(el.scrollLeft / el.clientWidth);
-    if (i !== at) { setIdx(i); setMenu(false); }
+    if (i !== at) setIdx(i);
   };
-  const caption = shown ? photoCaption(shown, members, memberFirstName, new Date(), viewerUserId) : "";
   const pick = (e) => {
     const f = e.target.files && e.target.files[0];
     e.target.value = "";   // the same file can be chosen again after a failure
     if (f && onAdd) onAdd(meal.id, f);
   };
+  const pickReplace = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    const old = replaceRef.current;
+    replaceRef.current = null;
+    if (f && old && onReplace) onReplace(meal.id, old, f, n);
+  };
+  const addPhoto = () => { if (!busy && fileRef.current) fileRef.current.click(); };
+  // The menu's actions, for the hero's photo in view or the viewer's (P8). The file picker opens
+  // inside the tap (iOS needs the gesture); Remove and Details close the viewer first.
+  const actions = {
+    replace: onReplace ? (p) => { replaceRef.current = p; setViewer(null); if (replaceFileRef.current) replaceFileRef.current.click(); } : null,
+    details: (p) => { setViewer(null); setSheet({ kind: "details", photo: p }); },
+    save: (p) => { saverRef.current.save(p.url); },
+    remove: (p) => { setViewer(null); setSheet({ kind: "remove", photo: p }); },
+    prefetch: (p) => { if (p) saverRef.current.prefetch(p.url).promise.catch(() => {}); },
+  };
+  const confirmRemove = () => {
+    const p = sheet && sheet.photo;
+    setSheet(null);
+    if (!p || !onRemove) return;
+    if (n === 1) setEmptied(true);
+    afterRemove.current = true;
+    onRemove(p.id);
+  };
+  const menuFor = (p, variant, closeKey) => (
+    <PhotoMenu variant={variant} closeKey={closeKey} disabled={busy} triggerRef={variant === "hero" ? moreRef : undefined}
+      saveLabel={saveLabel(toPhotos)} onOpen={() => actions.prefetch(p)}
+      onReplace={actions.replace ? () => actions.replace(p) : null} onDetails={() => actions.details(p)}
+      onSave={() => actions.save(p)} onRemove={() => actions.remove(p)} />
+  );
+  const placeholder = canEdit && n === 0 && emptied;
   return (
     <>
-      {n === 0 ? (
+      {n === 0 && !placeholder && (
         <div className="rv-hero" style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
           <OccasionIcon occasion={first} size={44} tint={tint.bg} />
         </div>
-      ) : (
+      )}
+      {placeholder && (
+        <div className="rv-hero-wrap">
+          <button type="button" ref={placeholderRef} className="rv-photo-placeholder" disabled={busy} onClick={addPhoto}>
+            <span className="rv-ph-title"><CameraGlyph />{busy ? "Adding…" : "Add a meal photo"}</span>
+            <span className="rv-ph-sub">Show the household how it turned out.</span>
+          </button>
+        </div>
+      )}
+      {n > 0 && (
         <div className="rv-hero-wrap">
           <div className="rv-hero rv-strip" ref={stripRef} onScroll={onScroll} style={{ background: tint.bg }}>
             {live.map((p, i) => (
@@ -2175,7 +2227,8 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
             ))}
           </div>
           <span className="rv-hero-expand" aria-hidden="true"><ExpandGlyph /></span>
-          {/* Siblings of the strip, never inside a photo's button: a click on an arrow never opens the viewer. */}
+          {/* Siblings of the strip, never inside a photo's button: a click on ⋯ or an arrow never opens the viewer. */}
+          {canEdit && menuFor(shown, "hero", `${setKey}#${at}`)}
           <PhotoArrows at={at} count={n} onGo={goTo} />
         </div>
       )}
@@ -2183,37 +2236,127 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
         <PhotoViewer photos={live} start={Math.min(viewer, n - 1)} members={members} viewerUserId={viewerUserId} onClose={closeViewer} />
       )}
       {n >= 2 && <PhotoDots photos={live} at={at} onGo={goTo} />}
-      {caption && <div className="rv-photo-cap">{caption}</div>}
-      {canEdit && (n < MEAL_PHOTO_CAP || n > 0) && (
-        <div className="rv-photo-ctl">
-          {n < MEAL_PHOTO_CAP && (
-            <button type="button" className="rv-photo-add" disabled={busy} onClick={() => { if (!busy && fileRef.current) fileRef.current.click(); }}>
-              <CameraGlyph />{busy ? "Adding…" : "Add a meal photo"}
-            </button>
-          )}
-          {n > 0 && (
-            <span className="rv-photo-menu" ref={menuRef}>
-              <button type="button" className="rv-photo-more" aria-label="Photo options" aria-expanded={!!menu} disabled={busy} onClick={() => setMenu((v) => (v ? false : "menu"))}>⋯</button>
-              {menu === "menu" && (
-                <span className="rv-photo-pop" role="menu">
-                  <button type="button" role="menuitem" className="rv-photo-remove" onClick={() => setMenu("confirm")}>Remove photo</button>
-                </span>
-              )}
-              {menu === "confirm" && (
-                <span className="rv-photo-pop confirm" role="group" aria-labelledby="rv-photo-q">
-                  <span id="rv-photo-q" className="rv-photo-q">Remove this photo?</span>
-                  <span className="rv-photo-qbtns">
-                    <button type="button" className="rv-photo-keep" onClick={() => setMenu(false)}>Keep</button>
-                    <button type="button" className="rv-photo-remove-yes" onClick={() => { setMenu(false); if (onRemove && shown) onRemove(shown.id); }}>Remove</button>
-                  </span>
-                </span>
-              )}
-            </span>
+      {canEdit && (
+        <>
+          {n < MEAL_PHOTO_CAP && !placeholder && (
+            <div className="rv-photo-ctl">
+              <button type="button" className="rv-photo-add" disabled={busy} onClick={addPhoto}>
+                <CameraGlyph />{busy ? "Adding…" : "Add a meal photo"}
+              </button>
+            </div>
           )}
           <input ref={fileRef} type="file" accept="image/*" hidden onChange={pick} />
-        </div>
+          {onReplace && <input ref={replaceFileRef} type="file" accept="image/*" hidden onChange={pickReplace} />}
+        </>
+      )}
+      {sheet && sheet.kind === "remove" && (
+        <PhotoSheet labelledBy="rv-photo-q" onClose={() => setSheet(null)}>
+          <div className="rv-psheet-head">
+            <img className="rv-psheet-thumb op-replay-block" src={sheet.photo.url} alt="" draggable="false" />
+            <h2 id="rv-photo-q" className="rv-psheet-h">Remove this photo?</h2>
+          </div>
+          <p className="rv-psheet-body">It’ll be removed for everyone in your household.</p>
+          <div className="rv-psheet-btns">
+            <button type="button" className="rv-photo-confirm-remove" onClick={confirmRemove}>Remove photo</button>
+            <button type="button" className="rv-photo-confirm-keep" data-autofocus="true" onClick={() => setSheet(null)}>Keep photo</button>
+          </div>
+        </PhotoSheet>
+      )}
+      {sheet && sheet.kind === "details" && (
+        <PhotoSheet labelledBy="rv-photo-dh" onClose={() => setSheet(null)}>
+          <h2 id="rv-photo-dh" className="rv-psheet-h">Photo details</h2>
+          {photoDetails(sheet.photo, members, memberFirstName).map((line) => (
+            <div className="rv-psheet-line" key={line}>{line}</div>
+          ))}
+        </PhotoSheet>
       )}
     </>
+  );
+}
+// ⋯ AND ITS MENU (SPEC_photo_menu P2 / P3 / P10) — one component for the hero and the viewer.
+// 44 px target, a 30 px dark translucent circle like the expand mark. The menu closes on a tap
+// anywhere outside it — that tap only dismisses, its click is swallowed so it never also presses
+// what sat under the finger — on Escape (captured, so the viewer behind it stays open), and when
+// the photo in view changes (closeKey). Escape and an outside tap return focus to ⋯.
+// Each item closes the menu, then acts. The file is fetched for Save as the menu opens (onOpen).
+function PhotoMenu({ variant, closeKey, disabled, triggerRef, saveLabel: saveText, onOpen, onReplace, onDetails, onSave, onRemove }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const ownRef = useRef(null);
+  const btnRef = triggerRef || ownRef;
+  useEffect(() => { setOpen(false); }, [closeKey]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const back = () => { if (btnRef.current) btnRef.current.focus({ preventScroll: true }); };
+    const onDown = (e) => {
+      if (wrapRef.current && wrapRef.current.contains(e.target)) return;
+      swallowNextClick();
+      setOpen(false);
+      back();
+    };
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      back();
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open, btnRef]);
+  const act = (fn) => (e) => { e.stopPropagation(); setOpen(false); if (fn) fn(); };
+  return (
+    <span className={`rv-photo-menu ${variant}`} ref={wrapRef}>
+      <button type="button" ref={btnRef} className="rv-photo-more" aria-label="Photo options" aria-haspopup="menu" aria-expanded={open} disabled={disabled}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => { if (!v && onOpen) onOpen(); return !v; }); }}>
+        <span className="rv-photo-more-dot" aria-hidden="true"><MoreGlyph /></span>
+      </button>
+      {open && (
+        <span className="rv-photo-pop" role="menu">
+          {onReplace && <button type="button" role="menuitem" className="rv-photo-item rv-photo-replace" onClick={act(onReplace)}>Replace photo</button>}
+          <button type="button" role="menuitem" className="rv-photo-item rv-photo-details" onClick={act(onDetails)}>Photo details</button>
+          <button type="button" role="menuitem" className="rv-photo-item rv-photo-save" onClick={act(onSave)}>{saveText}</button>
+          <span className="rv-photo-div" role="separator" />
+          <button type="button" role="menuitem" className="rv-photo-item rv-photo-remove" onClick={act(onRemove)}>Remove photo</button>
+        </span>
+      )}
+    </span>
+  );
+}
+const MoreGlyph = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="18.5" cy="12" r="2" /></svg>
+);
+// A SMALL SHEET OVER THE RECIPE VIEW (the Remove confirm, Photo details). Fixed inside the recipe
+// view's scrim (z 1000), so it covers the same frame the recipe view does. ✕, the backdrop,
+// swipe-down and Escape all close it — for Remove, all of them mean Keep (P5). Pointer events stop
+// at its scrim so a swipe here never drags the recipe view down. Focus: the element marked
+// data-autofocus (Keep), else ✕.
+function PhotoSheet({ labelledBy, onClose, children }) {
+  const bodyRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  // Once, on open (✕ took focus in its own effect first; Keep takes it from there).
+  useEffect(() => {
+    const el = bodyRef.current && bodyRef.current.querySelector("[data-autofocus]");
+    if (el) el.focus({ preventScroll: true });
+    const onKey = (e) => { if (e.key === "Escape") { e.preventDefault(); closeRef.current(); } };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  const stop = (e) => e.stopPropagation();
+  return (
+    <div className="rv-psheet-scrim" onClick={(e) => { e.stopPropagation(); onClose(); }}
+      onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop}>
+      <SheetPanel onClose={onClose} labelledBy={labelledBy} className="rv-psheet">
+        <SheetClose onClose={onClose} />
+        <div className="lib-type-handle" aria-hidden="true" />
+        <div ref={bodyRef} className="rv-psheet-in">{children}</div>
+      </SheetPanel>
+    </div>
   );
 }
 // ONE COOK in "Your cooks" (S5). The date, then one line per rater: their stars, their note beneath.
@@ -2509,7 +2652,7 @@ const photoFadeIn = (e) => e.currentTarget.classList.add("in");
 const CameraGlyph = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z" /><circle cx="12" cy="13.2" r="3.4" /></svg>
 );
-export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onRemovePhoto, ratingsFor, onRate, canRate }) {
+export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onRemovePhoto, onReplacePhoto = null, ratingsFor, onRate, canRate }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2591,7 +2734,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
         <div className="lib-type-handle" aria-hidden="true" />
         <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
         <RecipePhotos meal={meal} tint={tint} first={first} members={members} viewerUserId={viewerUserId} photos={photosReady ? (photos || []) : []}
-          canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onRemove={onRemovePhoto} />
+          canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onRemove={onRemovePhoto} onReplace={onReplacePhoto} />
         <div className="rv-head">
           <h2 id="rv-title" className="rv-title">{displayTitle(meal.name)}</h2>
           {attribution && <div className="rv-byline">from {attribution}</div>}
@@ -8159,28 +8302,52 @@ function ProvisionsApp() {
         .rv-photo-prev:focus-visible, .rv-photo-next:focus-visible { outline: 2px solid #E8D5B7; outline-offset: 2px; }
         .rv-dot:focus-visible { outline: 2px solid #A0724A; outline-offset: -2px; }
         .rv-viewer-dots .rv-dot:focus-visible { outline-color: #E8D5B7; }
-        .rv-photo-cap { margin: 6px 20px 0; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #8a7a60; overflow-wrap: anywhere; }
-        .rv-photo-ctl { position: relative; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 8px; margin: 4px 16px 0; }
+        /* The row under the hero keeps only "Add a meal photo" (SPEC_photo_menu P1). */
+        .rv-photo-ctl { display: flex; align-items: center; justify-content: center; margin: 4px 16px 0; }
         .rv-photo-add { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: none; background: transparent; color: #8A5F3A;
           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; white-space: nowrap; }
         .rv-photo-add:disabled { opacity: .55; cursor: default; }
-        /* The popovers anchor to the controls ROW (centred under it), not to ⋯: at the cap ⋯ sits alone in the
-           middle, and a right-anchored confirm ran off the left edge at XXL on 320–390. */
-        .rv-photo-menu { display: inline-flex; }
-        .rv-photo-more { min-width: 44px; min-height: 44px; border: none; border-radius: 22px; background: transparent; color: #8a7a60; font-size: 20px; line-height: 1; cursor: pointer; }
+        /* ⋯ ON THE PHOTO (P2): a 44 px target in the hero's top-right corner; its visible part is the expand mark's
+           30 px dark translucent circle, inset the same 10 px from the corner (3 px + the 7 px of target around it). */
+        .rv-photo-menu { position: relative; display: inline-flex; }
+        .rv-photo-menu.hero { position: absolute; top: 3px; right: 3px; z-index: 2; }
+        .rv-photo-more { width: 44px; height: 44px; padding: 0; border: none; border-radius: 50%; background: transparent; color: #FFFDF8; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .rv-photo-more-dot { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(20,12,6,.55); }
+        .rv-viewer .rv-photo-more-dot { background: rgba(244,234,220,.14); }
         .rv-photo-more:disabled { opacity: .55; cursor: default; }
-        .rv-photo-pop { position: absolute; top: calc(100% - 4px); left: 50%; transform: translateX(-50%); z-index: 2; background: #FFFDF8; border: 1px solid #E5D7C1; border-radius: 12px; box-shadow: 0 6px 18px rgba(44,26,14,.14); padding: 4px; }
-        .rv-photo-remove { display: block; min-height: 44px; padding: 0 16px; border: none; border-radius: 9px; background: transparent; color: #A33A2A; white-space: nowrap;
+        .rv-photo-more:focus-visible { outline: none; }
+        .rv-photo-more:focus-visible .rv-photo-more-dot { box-shadow: 0 0 0 2px #FFFDF8, 0 0 0 4px #A0724A; }
+        /* The menu drops from ⋯, right-aligned to it (P3): Replace, Details, Save, a divider, Remove in red. */
+        .rv-photo-pop { position: absolute; top: calc(100% + 2px); right: 4px; z-index: 3; display: flex; flex-direction: column; min-width: 200px; max-width: calc(100vw - 40px);
+          background: #FFFDF8; border: 1px solid #E5D7C1; border-radius: 12px; box-shadow: 0 6px 18px rgba(44,26,14,.18); padding: 4px; }
+        .rv-photo-item { display: block; width: 100%; min-height: 44px; padding: 0 14px; border: none; border-radius: 9px; background: transparent; color: #2C1A0E; text-align: left; white-space: nowrap;
           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; }
-        /* The inline confirm (Dan, 2026-10-21): the same popover asks; Keep, then Remove in red. */
-        .rv-photo-pop.confirm { display: flex; flex-direction: column; gap: 2px; padding: 10px 6px 4px; width: max-content; max-width: calc(100vw - 32px); }
-        .rv-photo-q { padding: 0 10px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #2C1A0E; }
-        .rv-photo-qbtns { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
-        .rv-photo-keep, .rv-photo-remove-yes { min-height: 44px; padding: 0 14px; border: none; border-radius: 9px; background: transparent; white-space: nowrap;
-          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; }
-        .rv-photo-keep { color: #5C4636; }
-        .rv-photo-remove-yes { color: #A33A2A; }
-        .rv-photo-add:focus-visible, .rv-photo-more:focus-visible, .rv-photo-remove:focus-visible, .rv-photo-keep:focus-visible, .rv-photo-remove-yes:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
+        .rv-photo-item:hover { background: #F4EADC; }
+        .rv-photo-item.rv-photo-remove { color: #A33A2A; }
+        .rv-photo-div { display: block; height: 1px; margin: 4px 8px; background: #E5D7C1; }
+        /* P7: the last photo removed — the hero keeps its height as a dashed placeholder until the sheet closes. */
+        .rv-photo-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 100%; aspect-ratio: 4 / 3; max-height: 420px;
+          padding: 16px; border: 2px dashed #C9A97A; border-radius: 14px; background: #FFFDF8; color: #8A5F3A; cursor: pointer; }
+        .rv-photo-placeholder:disabled { opacity: .55; cursor: default; }
+        .rv-ph-title { display: inline-flex; align-items: center; gap: 6px; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
+        .rv-ph-sub { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; text-align: center; }
+        /* The small sheets over the recipe view (P5 Remove confirm, Photo details): fixed inside its scrim. */
+        .rv-psheet-scrim { position: fixed; inset: 0; z-index: 5; display: flex; align-items: flex-end; background: rgba(2,15,26,0.45); }
+        .rv-psheet { position: relative; width: 100%; background: #FDF8F2; border-radius: 20px 20px 0 0; padding: 0 20px calc(24px + var(--op-inset-bottom)); }
+        .rv-psheet-in { padding-top: 14px; }
+        .rv-psheet-head { display: flex; align-items: center; gap: 12px; padding-right: 36px; }
+        .rv-psheet-thumb { flex: none; width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: #E8D5B7; }
+        .rv-psheet-h { margin: 0; padding-right: 36px; font-family: 'Playfair Display', serif; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; line-height: 1.2; color: #2C1A0E; }
+        .rv-psheet-head .rv-psheet-h { padding-right: 0; }
+        .rv-psheet-body { margin: 12px 0 0; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #5C4636; }
+        .rv-psheet-line { margin-top: 10px; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; overflow-wrap: anywhere; }
+        .rv-psheet-btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+        .rv-photo-confirm-remove, .rv-photo-confirm-keep { flex: 1 1 auto; min-height: 48px; padding: 10px 18px; border-radius: 24px; white-space: nowrap; cursor: pointer;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; }
+        /* Never celebrate deleting: Keep is the gold primary, Remove is quiet — white with red text. */
+        .rv-photo-confirm-remove { background: #FFFFFF; border: 1.5px solid #E5D7C1; color: #A33A2A; }
+        .rv-photo-confirm-keep { background: #D9BC8C; border: 1.5px solid #D9BC8C; color: #2C1A0E; }
+        .rv-photo-add:focus-visible, .rv-photo-item:focus-visible, .rv-photo-placeholder:focus-visible, .rv-photo-confirm-remove:focus-visible, .rv-photo-confirm-keep:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         .rv-head { padding: 16px 20px 0; }
         .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
         .rv-byline { margin-top: 4px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #8A5F3A; overflow-wrap: anywhere; }
