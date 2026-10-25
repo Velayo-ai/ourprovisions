@@ -32,7 +32,8 @@ export const ALLOWED_UNITS = [
  * The eight `meals.occasion` values — the CHECK constraint from 061_meals_occasion.sql,
  * widened by 069_meals_occasion_drink.sql ("drink", SPEC_meal_occasion_drink, 2026-10-24).
  * Anything the model emits outside this list is dropped server-side before it reaches
- * the client (spec: "occasion only from the seven values in 061").
+ * the client (SPEC_recipe_import: "occasion only from the seven values in 061" — eight
+ * since 069).
  */
 export const ALLOWED_OCCASIONS = [
   "breakfast",
