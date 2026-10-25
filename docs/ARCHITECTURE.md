@@ -2265,6 +2265,7 @@ absent when unsupported rather than rendered disabled.
 
 
 ## Design Principles
+- ★ **An asked person is a label, not an account.** *(2026-10-24 — `SPEC_ask.md`, designed, not built.)* Someone a household asks to choose (a child, an elderly parent, anyone it trusts) is stored as the name the family typed and nothing else: free text such as `list_items.picked_by_label`, never a user id or foreign key, and never an age, relationship, reason, language or device. The family sees "Picked by Easton"; learning, suggestions and models never take the label as an input, and telemetry never sees it (replay-excluded, never in a span). If they later get an account, it's a normal invite with no link back to their past picks.
 - ★ **Fail closed on shapes you don't recognise.** *(2026-10-22 — the span scrub's storage cut.)* A scrubber, matcher or classifier that meets an unknown shape removes more, not less.
 - ★ **Write the target once.** *(2026-10-23 — migration 068.)* Never encode a known-bad state in a migration just to revoke it in the next; describe the intended end state and converge every environment onto it.
 - ★ **Wrap-up is the learning moment. No surface offers a shortcut around a trip.** *(2026-10-19 — Amendment C.)* The receipt, the time, the store and the cart order are learned at wrap-up; when a trip's items are all in the cart, every surface points toward wrap-up ("Wrap up →"), never past it. A meal with no trip (all on hand, nothing to shop for) skips nothing.
