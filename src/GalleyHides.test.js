@@ -156,46 +156,105 @@ describe("Edit Meal is unchanged (G6)", () => {
   });
 });
 
-describe("the hide never moves the box (iPhone walk 2026-10-25, the spec's fallback)", () => {
-  let calls;
-  beforeEach(() => {
-    calls = [];
-    Element.prototype.scrollIntoView = function (opts) { calls.push({ el: this, opts }); };
-  });
-  afterEach(() => { delete Element.prototype.scrollIntoView; });
+describe("hide on focus (Amendment 2026-10-25b, the iPhone walk)", () => {
+  const ta = (c) => q(c, ".op-galley-ta");
+  const dialog = (c) => q(c, ".modal");
 
-  test("while the fields are hidden the dialog is anchored at the top (op-anchor-top); it re-centres when they return", () => {
+  test("walk 1: opening New Meal hides nothing (nothing focuses the box on open)", () => {
     const { container } = sheet();
-    const dialog = () => q(container, ".modal");
-    expect(dialog().classList.contains("op-anchor-top")).toBe(false);
-    type(container, "t");
-    expect(dialog().classList.contains("op-anchor-top")).toBe(true);
-    type(container, "");
-    expect(dialog().classList.contains("op-anchor-top")).toBe(false);
+    expect(fieldsShown(container)).toBe(true);
+    expect(document.activeElement).not.toBe(ta(container));
   });
 
-  test("the first character scrolls the Galley card's top into view — instant, once; later characters do not", () => {
+  test("walk 2: focusing the empty box hides the fields at once and anchors the dialog at the top", () => {
     const { container } = sheet();
+    fireEvent.focus(ta(container));
+    expect(fieldsGone(container)).toBe(true);
+    expect(dialog(container).classList.contains("op-anchor-top")).toBe(true);
+  });
+
+  test("walk 3: typing after focus changes nothing more — no scroll call (d5f571d's first-character scroll is dropped)", () => {
+    const calls = [];
+    Element.prototype.scrollIntoView = function () { calls.push(this); };
+    const { container } = sheet();
+    fireEvent.focus(ta(container));
     type(container, "t");
-    expect(calls).toHaveLength(1);
-    expect(calls[0].el).toBe(q(container, ".op-galley"));
-    expect(calls[0].opts).toEqual({ block: "start", behavior: "auto" });
     type(container, "ta");
-    type(container, "tac");
-    expect(calls).toHaveLength(1);
+    expect(fieldsGone(container)).toBe(true);
+    expect(calls.filter((el) => el.classList && el.classList.contains("op-galley"))).toHaveLength(0);
+    delete Element.prototype.scrollIntoView;
   });
 
-  test("instant under reduced motion too (never smooth)", () => {
-    window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  test("walk 4: blurring while empty (a tap outside, or the keyboard's Done) brings the fields back", () => {
+    const view = sheet();
+    fireEvent.focus(ta(view.container));
+    fireEvent.pointerDown(document.body);
+    fireEvent.blur(ta(view.container));
+    expect(fieldsShown(view.container)).toBe(true);
+    expect(dialog(view.container).classList.contains("op-anchor-top")).toBe(false);
+    view.unmount();
+    const utils = sheet();
+    fireEvent.focus(ta(utils.container));
+    fireEvent.blur(ta(utils.container));   // Done: no tap, no relatedTarget
+    expect(fieldsShown(utils.container)).toBe(true);
+  });
+
+  test("blurring WITH text keeps the fields hidden", () => {
     const { container } = sheet();
-    type(container, "t");
-    expect(calls[0].opts.behavior).toBe("auto");
+    fireEvent.focus(ta(container));
+    type(container, "tacos");
+    fireEvent.blur(ta(container));
+    expect(fieldsGone(container)).toBe(true);
   });
 
-  test("Edit Meal: no anchor, no scroll", () => {
+  test("walk 5: a tap on the mic or camera (iOS: blur with no relatedTarget) keeps the fields hidden", () => {
+    const { container } = sheet();
+    const tools = Array.from(container.querySelectorAll(".op-galley-foot button"));
+    expect(tools.length).toBeGreaterThan(0);
+    for (const btn of tools) {
+      fireEvent.focus(ta(container));
+      fireEvent.pointerDown(btn);
+      fireEvent.blur(ta(container));
+      expect(fieldsGone(container)).toBe(true);
+    }
+  });
+
+  test("focus moving to a Galley control (relatedTarget inside the card) is not a blur; to outside it is", () => {
+    const { container } = sheet();
+    fireEvent.focus(ta(container));
+    fireEvent.blur(ta(container), { relatedTarget: q(container, ".op-galley-chip") });
+    expect(fieldsGone(container)).toBe(true);
+    fireEvent.blur(ta(container), { relatedTarget: q(container, ".modal-cancel") });
+    expect(fieldsShown(container)).toBe(true);
+  });
+
+  test("walk 6: type, then ✕ — the box is empty and never refocused, so the fields return", () => {
+    const { container } = sheet();
+    fireEvent.focus(ta(container));
+    type(container, "tacos");
+    const x = q(container, '[aria-label="Clear request"]');
+    fireEvent.pointerDown(x);
+    fireEvent.blur(ta(container));
+    expect(fieldsGone(container)).toBe(true);   // the tap on ✕ is inside the Galley
+    fireEvent.click(x);
+    expect(fieldsShown(container)).toBe(true);
+  });
+
+  test("an ask ends the focus state; the input still holds the fields hidden through thinking", async () => {
+    const { container } = sheet({ onRequestSuggestion: jest.fn(() => new Promise(() => {})) });
+    fireEvent.focus(ta(container));
+    type(container, "a curry");
+    fireEvent.click(q(container, ".op-galley-go"));
+    await waitFor(() => expect(q(container, ".op-never-mind")).not.toBeNull());
+    expect(fieldsGone(container)).toBe(true);
+    fireEvent.click(q(container, ".op-never-mind"));
+    expect(fieldsGone(container)).toBe(true);   // the request is back in the box
+  });
+
+  test("Edit Meal: focusing the box hides nothing", () => {
     const { container } = sheet({ mode: "edit", meal: MEAL });
-    type(container, "make it vegetarian");
-    expect(q(container, ".modal").classList.contains("op-anchor-top")).toBe(false);
-    expect(calls.filter((c) => c.el === q(container, ".op-galley"))).toHaveLength(0);
+    fireEvent.focus(ta(container));
+    expect(nameInput(container).value).toBe("Taco Night");
+    expect(dialog(container).classList.contains("op-anchor-top")).toBe(false);
   });
 });
