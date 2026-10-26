@@ -3169,7 +3169,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
   const aiAbortRef = useRef(null);
   const aiSnapshotRef = useRef(null);
   const aiCardRef = useRef(null);   // the thinking card, scrolled into view on Ask (either door)
-  const galleyCardRef = useRef(null);   // the Galley card, kept in view when the fields hide (fieldsHidden)
+  const galleyCardRef = useRef(null);   // the Galley card: "inside the Galley" for its focus state (galleyFocused)
 
   // Reading a recipe (SPEC_recipe_import chunk 2, now inside the one Galley card —
   // SPEC_galley_composer). The text box is `aiText` above, shared by every mode;
@@ -3796,29 +3796,44 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
   // Invent so a long paste there never reads as a recipe it cannot bring.
   const galleyModeNow = galleyMode(aiText, photos.length, (isEdit || ideasOverride) ? MODES.invent : null);
   const galleyHasInput = photosStaged || aiText.trim().length > 0;
-  // ASKING THE GALLEY HIDES THE HAND-BUILD FIELDS (SPEC_galley_hides_manual + its Step 0 amendment,
-  // 2026-10-25) — the mirror of the 10-03 rule above. Once the Galley has input (typed, dictated or a
-  // staged photo — content, not focus) the name, From, Good for, Ingredients, Steps and the "or" step
-  // aside, so the card sits under the title and its button above the footer; they return when the
-  // Galley empties. Render-only: everything typed stays in state (a landed draft replaces it anyway).
-  // New Meal only (Edit is the same sheet, so the flag is explicit), and never over a landed draft —
-  // "Ask the Galley again" re-shows the card with the old request still in it. Through the thinking
-  // card the input is kept, so the fields stay hidden; the draft lands with draftSource set and they
-  // return filled. Instant, like the 10-03 hide.
-  const fieldsHidden = !isEdit && draftSource === null && galleyHasInput;
-  // THE HIDE NEVER MOVES THE BOX (Dan's iPhone walk, 2026-10-25 — the spec's "Watch on the walk"
-  // fallback). The fields leave on the first character with the keyboard up: the dialog drops under
-  // its 88vh cap, its own scroll clamps to 0, and .modal-overlay's margin: auto (b62422e) re-centred it
-  // in the full-height layout viewport — iOS kept the visual viewport where it had put the old caret,
-  // so the text box went off the top and dimmed overlay showed below. So while the fields are hidden
-  // the dialog is anchored at the TOP of the overlay (.op-anchor-top), and in the same frame as the
-  // hide the Galley card's top is scrolled into view — instant, never smooth. Trigger, button and the
-  // returning fields are unchanged.
-  useLayoutEffect(() => {
-    if (!fieldsHidden) return;
-    const el = galleyCardRef.current;
-    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "start", behavior: "auto" });
-  }, [fieldsHidden]);
+  // ASKING THE GALLEY HIDES THE HAND-BUILD FIELDS (SPEC_galley_hides_manual + its amendments of
+  // 2026-10-25, Step 0 and b/walk) — the mirror of the 10-03 rule above. The name, From, Good for,
+  // Ingredients, Steps and the "or" step aside, so the card sits under the title and its button above
+  // the footer. Render-only: everything typed stays in state (a landed draft replaces it anyway). New
+  // Meal only (Edit is the same sheet, so the flag is explicit), and never over a landed draft — "Ask
+  // the Galley again" re-shows the card with the old request still in it.
+  // ON FOCUS, not on the first character (amendment b, Dan's iPhone walk): iOS scrolls for the keyboard
+  // once, on focus, against the layout as it is then — a hide on the first keystroke came after that
+  // scroll and put the box above the screen. So the hide happens in the textarea's own focus handler
+  // (a discrete event: React commits it before iOS measures), and the dialog is anchored at the top
+  // while hidden (.op-anchor-top) so .modal-overlay's margin: auto (b62422e) never re-centres it.
+  // galleyFocused ends only when the box blurs to somewhere outside the Galley card — a tap on its
+  // camera / mic / chips is not a blur (iOS does not focus a tapped <button>, so a pointerdown inside
+  // the card just before the blur counts as inside) — or on a tap outside the card, or when ✕ empties
+  // the box (it never refocuses it), or when an ask starts. Then the fields return if the Galley is
+  // empty; with input (text or photos) they stay hidden, through thinking, until the draft lands.
+  const [galleyFocused, setGalleyFocused] = useState(false);
+  const galleyTapAtRef = useRef(0);   // when a pointerdown last landed inside the Galley card
+  const fieldsHidden = !isEdit && draftSource === null && (galleyFocused || galleyHasInput);
+  useEffect(() => { if (busy) setGalleyFocused(false); }, [busy]);
+  useEffect(() => {
+    if (!galleyFocused) return undefined;
+    const onDown = (e) => {
+      const card = galleyCardRef.current;
+      if (card && card.contains(e.target)) { galleyTapAtRef.current = Date.now(); return; }
+      setGalleyFocused(false);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [galleyFocused]);
+  const onGalleyFocus = () => { if (!isEdit) setGalleyFocused(true); };
+  const onGalleyBlur = (e) => {
+    const card = galleyCardRef.current;
+    const to = e.relatedTarget;
+    if (card && to && card.contains(to)) return;                         // focus stayed in the Galley
+    if (!to && Date.now() - galleyTapAtRef.current < 600) return;        // an iOS tap on a Galley button
+    setGalleyFocused(false);
+  };
   // Invent past meal-suggestion's 600-character ceiling: said in the echo, button
   // inert, nothing cut. The override can steer a long paste here, so this is live.
   const galleyTooLong = galleyModeNow === MODES.invent && inventTooLong(aiText);
@@ -4459,6 +4474,8 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
                         if (galleyHint) setGalleyHint("");
                       }}
                       ref={taRef}
+                      onFocus={onGalleyFocus}
+                      onBlur={onGalleyBlur}
                       disabled={aiBusy || saving}
                       rows={taRows}
                       placeholder={canPhoto ? "Something cozy with chicken… or paste a recipe" : "Something cozy with chicken…"}
@@ -4484,6 +4501,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
                         onClick={() => {
                           setAiText("");
                           aiTextBaseRef.current = "";
+                          setGalleyFocused(false);   // ✕ never refocuses the box: it is blurred and empty
                           if (listening) stopListening();
                           if (micHint && !micBlocked) setMicHint("");
                           if (galleyHint) setGalleyHint("");
