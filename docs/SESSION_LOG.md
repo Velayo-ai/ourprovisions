@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-10-25] — [OurProvisions] — Meal photo sweep designed, spec'd, built and dry-run on dev
+**Goal:** Close 065's unbuilt promise ("objects leave by a later service-role sweep") so removed photos really leave storage after a grace window, and walk it to a matching dev dry run. (Design chat: the sweep decisions and `SPEC_photo_sweep.md`. Claude Code: Step 0 on both databases, the amendment, 070, the function, the dev apply and deploy, the fixtures, every count. Dan: `SWEEP_SECRET`, the fixture uploads, the dry-run call. Ran 2026-10-25 → 10-26 UTC.)
+**Completed:**
+- Confirmed the photo menu (canvas "Photo Menu Flow") is fully built and live on prod, with three deliberate divergences: any member removes, "Download photo" on desktop, soft delete already in place.
+- Decided a **30-day sweep** for every soft-deleted photo (Remove, Replace, the cap's R1 age-out, the P1 replace) and a **7-day** sweep for orphan objects; **no restore UI until households ask** (Dan). Wrote `SPEC_photo_sweep.md` (D1–D8: storage first then the row, Storage API only, daily and bounded, dry run first).
+- Ran Step 0 on both databases (prod over prod-readonly, then dev once the MCP reconnected): **neither has `pg_cron` or `pg_net`**, Vault 0.3.1 is empty, only `add_meal_photo` / `remove_meal_photo` write `deleted_at`, no triggers, `authenticated` SELECT only; 0 expired and 0 orphans on both; `remove()` takes 1000 paths per call. Wrote Amendment 2026-10-25 (C1–C5): enable the extensions first, the RPCs as 070 and the schedule as 071, no error = success, two-key live mode, a `capped` flag; noted the cascade gap.
+- Built `070_meal_photo_sweep_rpcs.sql` (three service-role-only RPCs) and the `meal-photo-sweep` Edge Function, one commit `fcbcbcc`; applied 070 on dev with `apply_migration` (ledger `20261026024410`, VERIFY exact); deployed v1 (`verify_jwt` false; `500 misconfigured` until the secret was set).
+- Planted dev fixtures in Madbury's "Dark and Stormy" (walk data): row `5405afa8` backdated 31 days, row `7856708a` 29 days (original recorded), orphans A (valid, −8 d), B (valid, today), C (bad name, −8 d); Dan uploaded A–C with the service key and set `SWEEP_SECRET` himself (never in a transcript).
+- Dry run matched every field: `expired_found 1, orphans_found 2, skipped_bad_path 1`, all removals 0, `capped false`, `errors 0`; hand count identical before and after (9 rows / 21 objects); the log line counts only. Undo list written into the spec amendment.
+- Pushed `7166b2e` + `fcbcbcc` to origin/dev (Dan's go).
+**Unfinished:**
+- Dev **live run** not done (the C3 missing-file test first, then `SWEEP_LIVE=true`).
+- **The 29-day fixture row `7856708a` becomes really expired at 2026-10-27 02:55 UTC.** Before any live run after that, re-backdate it or restore its original `deleted_at` (2026-10-25 03:11:32.382776+00); the undo list (restore that row, delete object C by hand through the Storage API, unset `SWEEP_LIVE`) is in the spec amendment.
+- `071` (the cron schedule) not written — after the dev live run, per the rollout.
+- Prod: `pg_cron` + `pg_net` not enabled, no prod secret, 070 not applied, function not deployed. Nothing touched on prod.
+- Black n' Pumpkin's original photo (`8351467f…`) will be permanently deleted ~2026-11-24 once the sweep is live on prod — by decision; last chance to reverse before then.
+- The function was not type-checked locally (no Deno); its first compile was the dev deploy, which succeeded.
+**Next session:**
+SESSION START
+Goal: Dev live run of the photo sweep, the cleanup, then write 071.
+State: 070 + `meal-photo-sweep` v1 live on dev; the dry run passed exactly; `SWEEP_SECRET` set on dev, `SWEEP_LIVE` unset; fixtures in place (the 29-day row expires for real at 2026-10-27 02:55 UTC — re-backdate first if later); prod untouched; origin/dev = `fcbcbcc` + this SESSION END docs commit (LOCAL — list `origin/dev..dev` before any push).
+Done when: the live run returns `rows_deleted 1` (its files gone, one pre-deleted by hand — C3), orphan A removed, B and C kept, the 3 live photos untouched, `errors 0`; the undo list worked through and read back; `SWEEP_LIVE` unset; 071 drafted.
+**Files updated:** `migrations/070_meal_photo_sweep_rpcs.sql` (new), `supabase/functions/meal-photo-sweep/index.ts` + `README.md` (new), `supabase/config.toml`, `docs/specs/active/SPEC_photo_sweep.md` (new, filed from the airlock with Amendment 2026-10-25), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** Dev: 070 applied (ledger `20261026024410`); `meal-photo-sweep` v1 deployed; `SWEEP_SECRET` set. Dev test data: row `5405afa8` `deleted_at` −31 days (was 2026-10-25 03:10:32.865611+00; the live run deletes it by design); row `7856708a` −29 days (was 2026-10-25 03:11:32.382776+00); objects A, B, C uploaded under Madbury / "Dark and Stormy", A and C `created_at` −8 days. Prod: none.
+
 ### [2026-10-25] — [OurProvisions] — Drink LIVE ON PROD; the photo menu and the Galley hide designed, built, walked and LIVE ON PROD the same day
 **Goal:** Promote the Drink occasion to prod; the day grew into two small UX fixes from Dan's own friction — the photo menu on the photo, and the Galley hiding the hand-build fields — each designed, built on dev, walked and promoted. (Design chat: SESSION START, every gate read, the Galley two-step plan and spec, the photo menu review and spec, the focus ruling, the principles. Claude Code: both promotions and their proofs, both Step 0s and the amendments they wrote into the specs, the builds and harnesses, the HAR decode. Dan: 069 on prod, every push of main, the walks, the restaurant design of the photo menu.)
 **Completed:**
