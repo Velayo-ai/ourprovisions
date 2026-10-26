@@ -155,3 +155,47 @@ describe("Edit Meal is unchanged (G6)", () => {
     expect(q(container, ".op-or")).not.toBeNull();
   });
 });
+
+describe("the hide never moves the box (iPhone walk 2026-10-25, the spec's fallback)", () => {
+  let calls;
+  beforeEach(() => {
+    calls = [];
+    Element.prototype.scrollIntoView = function (opts) { calls.push({ el: this, opts }); };
+  });
+  afterEach(() => { delete Element.prototype.scrollIntoView; });
+
+  test("while the fields are hidden the dialog is anchored at the top (op-anchor-top); it re-centres when they return", () => {
+    const { container } = sheet();
+    const dialog = () => q(container, ".modal");
+    expect(dialog().classList.contains("op-anchor-top")).toBe(false);
+    type(container, "t");
+    expect(dialog().classList.contains("op-anchor-top")).toBe(true);
+    type(container, "");
+    expect(dialog().classList.contains("op-anchor-top")).toBe(false);
+  });
+
+  test("the first character scrolls the Galley card's top into view — instant, once; later characters do not", () => {
+    const { container } = sheet();
+    type(container, "t");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].el).toBe(q(container, ".op-galley"));
+    expect(calls[0].opts).toEqual({ block: "start", behavior: "auto" });
+    type(container, "ta");
+    type(container, "tac");
+    expect(calls).toHaveLength(1);
+  });
+
+  test("instant under reduced motion too (never smooth)", () => {
+    window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+    const { container } = sheet();
+    type(container, "t");
+    expect(calls[0].opts.behavior).toBe("auto");
+  });
+
+  test("Edit Meal: no anchor, no scroll", () => {
+    const { container } = sheet({ mode: "edit", meal: MEAL });
+    type(container, "make it vegetarian");
+    expect(q(container, ".modal").classList.contains("op-anchor-top")).toBe(false);
+    expect(calls.filter((c) => c.el === q(container, ".op-galley"))).toHaveLength(0);
+  });
+});

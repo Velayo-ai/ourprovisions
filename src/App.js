@@ -3169,6 +3169,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
   const aiAbortRef = useRef(null);
   const aiSnapshotRef = useRef(null);
   const aiCardRef = useRef(null);   // the thinking card, scrolled into view on Ask (either door)
+  const galleyCardRef = useRef(null);   // the Galley card, kept in view when the fields hide (fieldsHidden)
 
   // Reading a recipe (SPEC_recipe_import chunk 2, now inside the one Galley card —
   // SPEC_galley_composer). The text box is `aiText` above, shared by every mode;
@@ -3805,6 +3806,19 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
   // card the input is kept, so the fields stay hidden; the draft lands with draftSource set and they
   // return filled. Instant, like the 10-03 hide.
   const fieldsHidden = !isEdit && draftSource === null && galleyHasInput;
+  // THE HIDE NEVER MOVES THE BOX (Dan's iPhone walk, 2026-10-25 — the spec's "Watch on the walk"
+  // fallback). The fields leave on the first character with the keyboard up: the dialog drops under
+  // its 88vh cap, its own scroll clamps to 0, and .modal-overlay's margin: auto (b62422e) re-centred it
+  // in the full-height layout viewport — iOS kept the visual viewport where it had put the old caret,
+  // so the text box went off the top and dimmed overlay showed below. So while the fields are hidden
+  // the dialog is anchored at the TOP of the overlay (.op-anchor-top), and in the same frame as the
+  // hide the Galley card's top is scrolled into view — instant, never smooth. Trigger, button and the
+  // returning fields are unchanged.
+  useLayoutEffect(() => {
+    if (!fieldsHidden) return;
+    const el = galleyCardRef.current;
+    if (el && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "start", behavior: "auto" });
+  }, [fieldsHidden]);
   // Invent past meal-suggestion's 600-character ceiling: said in the echo, button
   // inert, nothing cut. The override can steer a long paste here, so this is live.
   const galleyTooLong = galleyModeNow === MODES.invent && inventTooLong(aiText);
@@ -3859,7 +3873,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
     // lands on the overlay as a click, and one of those used to throw away the whole
     // draft with no confirmation. The overlay is scenery now.
     <div className="modal-overlay">
-      <div className="modal" role="dialog" aria-modal="true" aria-label={isEdit ? "Edit meal" : "New meal"} style={{ maxHeight: "88vh", overflowY: "auto" }}>
+      <div className={fieldsHidden ? "modal op-anchor-top" : "modal"} role="dialog" aria-modal="true" aria-label={isEdit ? "Edit meal" : "New meal"} style={{ maxHeight: "88vh", overflowY: "auto" }}>
         <SheetClose onClose={onCancel} disabled={saving || deleting} />
         {/* The fixed VERB halves of the ingredient rows' aria-labelledby names, rendered once,
             outside every button (2026-10-19, the library's 10-16 recipe). The item's half is the
@@ -4364,7 +4378,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
           <div className="op-or" aria-hidden="true"><span>or</span></div>
         )}
         {showGalley && (
-          <div className="op-galley" style={galleyDim}>
+          <div className="op-galley" ref={galleyCardRef} style={galleyDim}>
             <div className="op-galley-h">
               <svg viewBox="0 0 24 24" fill="none" stroke="#A0724A" strokeWidth="1.8"
                 strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -9097,6 +9111,8 @@ function ProvisionsApp() {
            starts at the 20px padding and the overlay scrolls to its footer. No JS, no swipe. */
         .modal-overlay { position: fixed; inset: 0; background: rgba(44,26,14,0.55); display: flex; justify-content: center; z-index: 100; padding: 20px; overflow-y: auto; overscroll-behavior: contain; }
         .modal-overlay > * { margin: auto; }
+        /* New Meal while asking the Galley hides the fields: anchored at the top, never re-centred (2026-10-25). */
+        .modal-overlay > .modal.op-anchor-top { margin: 0 auto auto; }
         .modal { position: relative; background: #FAF4EC; border-radius: 12px; padding: 28px 24px; width: 100%; max-width: 420px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
         .modal h2 { font-family: 'Playfair Display', serif; font-size: calc(1.4rem * (1 + (var(--op-text-scale) - 1) * 0.5)); font-weight: 700; color: #2C1A0E; margin-bottom: 8px; padding-right: 40px; }
         /* Every sheet's Close (SheetClose): 44px target, top-right, the first VoiceOver stop. Backdrop + Cancel remain for sighted users. */
