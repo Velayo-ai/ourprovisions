@@ -584,17 +584,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         }
         const db = supabaseRef.current;
 
-        // Check for pending invite before bootstrapping.
-        // Prefer the URL param, fall back to the code persisted at app entry (survives
-        // Clerk's sign-up redirect, which strips the URL param for brand-new users).
-        const urlInvite = new URLSearchParams(window.location.search).get("invite");
-        const pendingInviteCode = urlInvite || sessionStorage.getItem("pending_invite_code");
+        // Check for pending invite before bootstrapping. The code is read from the key
+        // src/lib/preRum.js held at app entry — never from the URL, which preRum has
+        // already cleaned before Splunk started (S29 / S33; Amendment 2026-10-26 R3).
+        // The held copy survives Clerk's sign-up redirect for brand-new users.
+        const pendingInviteCode = sessionStorage.getItem("pending_invite_code");
 
         // Same bridge for the referral code (spec D7). It attributes but never enrolls,
         // so it takes no part in any branch below — it is handed to the server, written
         // once at signup, and forgotten.
-        const urlRef = new URLSearchParams(window.location.search).get("ref");
-        const pendingRefCode = urlRef || sessionStorage.getItem("pending_ref_code");
+        const pendingRefCode = sessionStorage.getItem("pending_ref_code");
 
         // Use bootstrap_new_user RPC (SECURITY DEFINER — bypasses RLS).
         // Pass invite code so joining happens in one atomic transaction.
@@ -652,6 +651,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // on a future visit, regardless of whether the join actually succeeded.
         sessionStorage.removeItem("pending_invite_code");
         sessionStorage.removeItem("pending_ref_code");
+        // The failed-invite flag (set below) is bounded to THIS bootstrap: cleared here
+        // first, so a stale one can never reach a later sign-up in the same tab.
+        sessionStorage.removeItem("invite_failed");
 
         internalUserIdRef.current = bootstrapData.user_id;
         clerkIdRef.current = clerkId;
@@ -678,6 +680,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           });
           if (joinErr) {
             setError(joinErr.message);
+            // The welcome sheet reads and burns this flag when it opens and shows one
+            // fixed line (R3 ruling (a), 2026-10-26). Never the code itself.
+            sessionStorage.setItem("invite_failed", "1");
           } else if (joinResult?.household_id) {
             // Edge: join_household completed a join bootstrap didn't (e.g. the existing-
             // member no-op short-circuit). Route it through the same banner/switch flags.
