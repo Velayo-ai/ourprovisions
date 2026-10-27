@@ -132,6 +132,36 @@ const REPLAY_BLOCK_RULES = [
 const URL_ATTRIBUTE_KEYS = new Set(['location.href', 'http.url', 'document.referrer']);
 const SUPABASE_HOSTS = new Set(['zxwtxjjmssykhqrghouf.supabase.co', 'parpauldmbetptkmdwbd.supabase.co']); // dev, prod
 const CLERK_IMAGE_HOSTS = new Set(['img.clerk.com']);
+// Clerk's Frontend API (SPEC_rum_clerk_id_scrub D1–D4; Amendment 2026-10-26 R5).
+// Its token refresh (~60 s) and sign-in calls put ids in the PATH —
+// /v1/client/sessions/sess_…/tokens — and the 10-23 prod HAR found 10 spans
+// carrying one. A session id can't authenticate anyone, but it ties every
+// span of one login together, the linkage [clerk] removes for user ids.
+// Matched by HOSTNAME (prod: the custom domain; dev: Clerk's shared
+// *.clerk.accounts.dev), never by substring, so a Supabase or app URL that
+// happens to contain "sess_" is never altered. img.clerk.com keeps its own
+// rule above. On a Clerk host: every path segment shaped like a Clerk id —
+// a short lowercase prefix, "_", a long random tail — becomes <prefix>_[id],
+// by PATTERN, so an unseen Clerk route cannot leak (sess_, sia_, sua_, user_,
+// client_, ins_ are test cases, not the rule); the prefix stays so the route
+// shape still reads. The prefix allows 2–6 letters because client_ has six
+// (R5 ruling, 2026-10-26); the tail needs 16+ characters — Clerk ids carry 27 —
+// so route words shaped like an id (oauth_callback, email_addresses,
+// saml_accounts) keep reading as routes. The query is dropped whole (D3): it
+// carries nothing worth keeping (_clerk_js_version, _method) and dev's
+// __clerk_db_jwt is a token.
+const CLERK_API_HOST = 'clerk.ourprovisions.velayo.ai';
+const CLERK_API_DEV_SUFFIX = '.clerk.accounts.dev';
+const isClerkApiHost = (hostname) => hostname === CLERK_API_HOST || hostname.endsWith(CLERK_API_DEV_SUFFIX);
+const CLERK_ID_SEGMENT = /^[a-z]{2,6}_[A-Za-z0-9]{16,}$/;
+const maskClerkIds = (pathname) =>
+  pathname.split('/').map((s) => (CLERK_ID_SEGMENT.test(s) ? `${s.slice(0, s.indexOf('_') + 1)}[id]` : s)).join('/');
+// A gift code is a bearer key (SPEC_meal_sharing_v2 S22 / S29 / S33; R4): on
+// OUR origin, /g/<code> → /g/[code]. Load-bearing, not a backup — the
+// documentLoad span reads the original URL from PerformanceNavigationTiming,
+// which src/lib/preRum.js's replaceState cannot reach; this hook can. Built
+// before any /g/ route exists so Phase A inherits it.
+const GIFT_PATH = /^\/g\/[^/]+/;
 // D3 widened (design chat, 2026-10-22): the cut fires on ANY /storage/v1/
 // route. A recognised route keeps its operation and bucket; otherwise the cut
 // lands after the first segment past the route (an unknown route counts its
@@ -175,11 +205,20 @@ function scrubUrl(value) {
     return q === -1 ? value : value.slice(0, q);
   }
   const isHttp = u.protocol === 'https:' || u.protocol === 'http:';
+  const isOwnOrigin = u.origin === window.location.origin;
   let path = u.pathname;
-  if (isHttp) path = CLERK_IMAGE_HOSTS.has(u.hostname) ? '/[object]' : cutStoragePath(path);
+  if (isHttp) {
+    if (CLERK_IMAGE_HOSTS.has(u.hostname)) path = '/[object]';           // D4 (span scrub)
+    else if (isClerkApiHost(u.hostname)) path = maskClerkIds(path);      // D1–D2 (Clerk-id scrub)
+    else if (isOwnOrigin) path = path.replace(GIFT_PATH, '/g/[code]');   // R4
+    else path = cutStoragePath(path);                                     // D3 (span scrub)
+  }
+  // The query survives only as a Supabase REST filter. On a Clerk API host it is
+  // dropped whole (Clerk-id scrub D3) — the same fall-through as any other origin,
+  // stated here because it is a guarantee with its own test, not an accident.
   const isRest = SUPABASE_HOSTS.has(u.hostname) && u.pathname.startsWith('/rest/v1/');
   const search = isRest ? maskClerkFilters(u.search) : '';
-  const hash = u.origin === window.location.origin ? u.hash : '';
+  const hash = isOwnOrigin ? u.hash : '';
   if (path === u.pathname && search === u.search && hash === u.hash) return value;
   if (!isHttp) {
     u.search = '';

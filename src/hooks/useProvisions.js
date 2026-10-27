@@ -658,9 +658,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         internalUserIdRef.current = bootstrapData.user_id;
         clerkIdRef.current = clerkId;
 
-        // Clear invite from URL and flag for join banner
+        // Flag for the join banner. (The URL carries no code to clear — preRum removed
+        // it before Splunk started; the held key is cleared above.)
         if (bootstrapData.joined_via_invite) {
-          window.history.replaceState({}, "", window.location.pathname);
           sessionStorage.setItem("just_joined_household", bootstrapData.household_name || "the place");
           sessionStorage.setItem("just_joined_household_id", bootstrapData.household_id);
         } else if (pendingInviteCode) {
@@ -670,11 +670,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           // regressed when the pre-flight lookup was removed: the pre-030 client showed
           // "Invite not found or already used." on this path; without this it is silent.
           // join_household is the single source of the three distinct messages
-          // ("Invite not found." / "…already used." / "…expired."). Clear the URL first
-          // so a reload cannot re-fire the attempt.
+          // ("Invite not found." / "…already used." / "…expired."). The held key is
+          // already cleared above, so a reload cannot re-fire the attempt.
           // NOTE: this is a LIVE join_household(text) call — it REQUIRES migration 030 on
           // the target database (dev has it; prod must get 030 before/with this client).
-          window.history.replaceState({}, "", window.location.pathname);
           const { data: joinResult, error: joinErr } = await db.rpc("join_household", {
             p_invite_code: pendingInviteCode,
           });
