@@ -1,3 +1,4 @@
+import './lib/preRum';
 import './rum';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -6,22 +7,11 @@ import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { ClerkProvider } from '@clerk/clerk-react';
 
-// Capture invite code before Clerk's sign-up redirect can strip the URL param.
-// Brand-new users are sent through Clerk auth, which drops ?invite=; persist it
-// here (runs before ClerkProvider mounts) so bootstrap can recover it post-auth.
-//
-// ?ref= (spec D7) rides the identical bridge for the identical reason, but the two
-// are DIFFERENT SPECIES and are deliberately not merged into one slot: invite grants
-// membership and is single-use, ref grants nothing and only attributes. Losing a ref
-// code costs attribution; losing an invite code costs access. Same mechanism, and the
-// asymmetry in what failure means is why they stay separate keys.
-try {
-  const params = new URLSearchParams(window.location.search);
-  const code = params.get("invite");
-  if (code) sessionStorage.setItem("pending_invite_code", code);
-  const ref = params.get("ref");
-  if (ref) sessionStorage.setItem("pending_ref_code", ref);
-} catch (e) { /* sessionStorage unavailable — ignore */ }
+// ?invite= / ?ref= (and a /g/<code> path) are held in sessionStorage and cleared
+// from the URL by src/lib/preRum.js — the FIRST import above, so it runs before
+// src/rum.js starts Splunk (S29 / S33; Amendment 2026-10-26 R1–R3). The bridge
+// used to be inline here, which ran AFTER every hoisted import, i.e. after both
+// Splunk inits had already seen the raw URL. Keep the import order; a test checks it.
 
 // Env-driven so the build env selects the Clerk instance:
 //   Production → pk_live_… (prod Clerk)   Preview/Development → pk_test_… (dev Clerk)

@@ -4858,10 +4858,11 @@ function ProvisionsApp() {
   // effect order: it must precede the first routeChange the mirror can emit.
   //
   // Deliberately narrower than "strip the whole query": only the three pre-fill
-  // keys go. ?invite= and ?ref= are codes, not PII, and two gates still read
-  // them from the URL (the welcome sheet's invite check and the join banner) —
-  // index.js has already persisted both to sessionStorage, but the URL copy is
-  // what those gates key on today, so it stays.
+  // keys go. ?invite= and ?ref= never reach this effect any more — src/lib/preRum.js
+  // held them in sessionStorage and removed them from the URL before Splunk started
+  // (S29 / S33; Amendment 2026-10-26 R2–R3). Nothing in the app reads a code from
+  // the URL: bootstrap reads the held keys, the join banner keys on
+  // just_joined_household, the welcome sheet on just_joined_household_id.
   useEffect(() => {
     try {
       const url = new URL(window.location.href);
@@ -6710,11 +6711,12 @@ function ProvisionsApp() {
   // slower prod loads the join flag was never consumed and the switch never fired.
   // See docs/SPEC_join_activates_household ADDENDUM_reopen.) We clear only the
   // banner-NAME flag here; the `_id` flag is consumed solely on a confirmed switch.
+  // No URL read here (R3 ruling (a), 2026-10-26): the URL carries no code once
+  // preRum has run, and just_joined_household — set only when the join actually
+  // happened — is the whole gate.
   useEffect(() => {
     if (loading || !household) return;
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("invite");
-    if (!code && household?.name && household.name !== "My Household" && !joinBanner) {
+    if (household?.name && household.name !== "My Household" && !joinBanner) {
       const justJoined = sessionStorage.getItem("just_joined_household");
       if (justJoined) {
         setJoinBanner(justJoined); // always fires — sole feedback in the silent-join case
@@ -6845,18 +6847,35 @@ function ProvisionsApp() {
   const [welcomeCode, setWelcomeCode] = useState("");
   const [welcomeError, setWelcomeError] = useState(null);
   const [welcomeBusy, setWelcomeBusy] = useState(false);
+  // An invite that bootstrap's join_household retry could not resolve: one fixed line
+  // on the sheet (R3 ruling (a), 2026-10-26). Read from sessionStorage.invite_failed
+  // when the sheet opens, burned on read. Never the code itself.
+  const [welcomeInviteFailed, setWelcomeInviteFailed] = useState(false);
   // The place bootstrap made this session — the D11 discard candidate. Captured when the
   // sheet opens, because by the time Join resolves the lens has begun moving elsewhere.
   const welcomeOrphanIdRef = useRef(null);
 
+  // Condition 2 is no longer a URL read (preRum cleaned it before Splunk started):
+  // an invited arrival is one whose join HAPPENED — just_joined_household_id, set by
+  // bootstrap only on a successful join and consumed only once the lens agrees (the
+  // effect above, which runs first in this pass). A failed invite leaves no such
+  // flag, so the sheet's other two conditions decide, and the invite_failed line
+  // tells them why they are here (R3 ruling (a), 2026-10-26).
   useEffect(() => {
     if (loading || !household || welcomeOpen) return;
     let flag = null;
-    try { flag = sessionStorage.getItem("just_signed_up"); } catch (e) { /* storage blocked */ }
+    let joinedId = null;
+    let failed = null;
+    try {
+      flag = sessionStorage.getItem("just_signed_up");
+      joinedId = sessionStorage.getItem("just_joined_household_id");
+      failed = sessionStorage.getItem("invite_failed");
+    } catch (e) { /* storage blocked */ }
     if (!flag) return;
-    const hasInvite = new URLSearchParams(window.location.search).get("invite");
-    if (hasInvite) return;
+    if (joinedId) return;
     if (household.name !== "My Household") return;
+    if (failed) { try { sessionStorage.removeItem("invite_failed"); } catch (e) { /* storage blocked */ } }
+    setWelcomeInviteFailed(!!failed);
     welcomeOrphanIdRef.current = household.id;
     setWelcomeOpen(true);
   }, [loading, household, welcomeOpen]);
@@ -6868,6 +6887,7 @@ function ProvisionsApp() {
   const closeWelcome = useCallback(() => {
     try { sessionStorage.removeItem("just_signed_up"); } catch (e) { /* storage blocked */ }
     setWelcomeOpen(false);
+    setWelcomeInviteFailed(false);
     setWelcomeError(null);
     setWelcomeCodeOpen(false);
     setWelcomeCode("");
@@ -9807,6 +9827,15 @@ function ProvisionsApp() {
                 fontFamily: "'Lato', sans-serif", fontSize: "13px", color: "#6f5a45",
                 lineHeight: 1.5, marginBottom: "20px", textAlign: "center",
               }}>Don’t worry — you can rename it or add more places later.</div>
+
+              {/* Fixed copy, no code value; NOT on CHROME_ALLOW_LIST (masked on prod like
+                  the rest of the sheet). Shown once, when bootstrap's join retry failed. */}
+              {welcomeInviteFailed && (
+                <div style={{
+                  fontFamily: "'Lato', sans-serif", fontSize: "13px", color: "#B3261E",
+                  lineHeight: 1.5, margin: "-8px 0 20px", textAlign: "center",
+                }}>That invite link didn’t work. Ask for a fresh one, or start here.</div>
+              )}
 
               <div style={{
                 fontFamily: "'Lato', sans-serif", fontSize: "11.5px", fontWeight: 700,
