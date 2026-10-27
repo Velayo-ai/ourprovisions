@@ -348,6 +348,31 @@ describe("photo surfaces carry .op-replay-block", () => {
     expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "components/LibraryCards.js"]);
   });
 
+  // S30 / R6 (2026-10-26): every photo <img> people put in the app also carries .op-photo
+  // (-webkit-user-drag: none; -webkit-touch-callout: none) and draggable="false". The ONE
+  // exception, named here so a new one fails: the Clerk avatar (src={user.imageUrl}) — not a
+  // household photo, out by ruling.
+  test("every .op-replay-block <img> carries .op-photo and draggable=\"false\" (the Clerk avatar excepted)", () => {
+    const hits = [];
+    for (const [file, src] of SOURCES) {
+      for (const m of src.matchAll(/<img\b/g)) {
+        const tag = openTagAt(src, m.index);
+        if (!/\bop-replay-block\b/.test(tag)) continue;
+        if (/\bsrc=\{user\.imageUrl\}/.test(tag)) { hits.push(`${file}:avatar`); continue; }
+        hits.push(file);
+        expect(`${file}: ${tag}`).toMatch(/className=(\{`[^`]*|")[^"`]*\bop-photo\b/);
+        expect(`${file}: ${tag}`).toMatch(/\bdraggable="false"/);
+      }
+    }
+    // the Galley screenshot thumbnail, the recipe view strip photo, the Remove confirm sheet's
+    // thumbnail, the board afterglow's thumbnail, the full-size viewer photo (App.js); the library
+    // card photo (components/LibraryCards.js); the avatar, excepted
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js:avatar", "components/LibraryCards.js"]);
+    const app = SOURCES.find(([f]) => f === "App.js")[1];
+    expect(app).toMatch(/\.op-photo \{ -webkit-user-drag: none; -webkit-touch-callout: none; \}/);
+    expect(app).not.toMatch(/\.rv-(photo|viewer)-img \{[^}]*-webkit-user-drag/);   // folded into .op-photo
+  });
+
   test("every interpolated CSS url() in JSX is on an element that carries the class; the desk backdrop's lives on .desk-bg", () => {
     const hits = [];
     for (const [file, src] of SOURCES) {

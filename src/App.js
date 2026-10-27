@@ -2221,7 +2221,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
             {live.map((p, i) => (
               <div className="rv-slide" key={p.id}>
                 <button type="button" className="rv-photo-open" aria-label="View photo full size" ref={(el) => { openRefs.current[i] = el; }} onClick={() => openViewer(i)}>
-                  <img className="rv-photo-img op-replay-block" src={p.url} alt="" draggable="false" onLoad={photoFadeIn} />
+                  <img className="rv-photo-img op-replay-block op-photo" src={p.url} alt="" draggable="false" onLoad={photoFadeIn} />
                 </button>
               </div>
             ))}
@@ -2253,7 +2253,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
       {sheet && sheet.kind === "remove" && (
         <PhotoSheet labelledBy="rv-photo-q" onClose={() => setSheet(null)}>
           <div className="rv-psheet-head">
-            <img className="rv-psheet-thumb op-replay-block" src={sheet.photo.url} alt="" draggable="false" />
+            <img className="rv-psheet-thumb op-replay-block op-photo" src={sheet.photo.url} alt="" draggable="false" />
             <h2 id="rv-photo-q" className="rv-psheet-h">Remove this photo?</h2>
           </div>
           <p className="rv-psheet-body">It’ll be removed for everyone in your household.</p>
@@ -2482,7 +2482,7 @@ function BoardAfterglow({ mealId, cookId, ag, showThumb = true }) {
         <div className="board-glow-photo">
           {photo && (
             <span className="board-photo-done">
-              {showThumb && photo.url && <img className="board-photo-thumb op-replay-block" src={photo.url} alt="" />}
+              {showThumb && photo.url && <img className="board-photo-thumb op-replay-block op-photo" src={photo.url} alt="" draggable="false" />}
               Photo added
             </span>
           )}
@@ -2570,7 +2570,7 @@ function PhotoViewer({ photos, start, members, onClose, viewerUserId = null, men
         <div className="rv-viewer-strip" ref={stripRef} onScroll={onScroll}>
           {photos.map((p) => (
             <div className="rv-viewer-slide" key={p.id}>
-              <img className="rv-viewer-img op-replay-block" src={p.url} alt="" draggable="false" />
+              <img className="rv-viewer-img op-replay-block op-photo" src={p.url} alt="" draggable="false" />
             </div>
           ))}
         </div>
@@ -4442,7 +4442,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
                     <span id="op-verb-remove-shot" className="sr-only">Remove screenshot</span>
                     {photos.map((p, i) => (
                       <div key={p.id} className="op-galley-th">
-                        <img className="op-replay-block" src={p.url} alt={`Screenshot ${i + 1}`} />
+                        <img className="op-replay-block op-photo" src={p.url} alt={`Screenshot ${i + 1}`} draggable="false" />
                         <span id={`op-shot-${p.id}`} className="op-galley-n" aria-hidden="true">{i + 1}</span>
                         <button type="button" className="op-galley-x" aria-labelledby={`op-verb-remove-shot op-shot-${p.id}`}
                           onClick={() => removePhoto(p.id)} disabled={saving}>×</button>
@@ -8351,7 +8351,13 @@ function ProvisionsApp() {
         .rv-strip { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; justify-content: flex-start; overflow-clip-margin: 0; }
         .rv-strip::-webkit-scrollbar { display: none; }
         .rv-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; }
-        .rv-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s ease; -webkit-user-drag: none; user-select: none; }
+        /* S30 / R6 (2026-10-26): every photo <img> people put in the app — .rv-photo-img, .rv-viewer-img,
+           .rv-psheet-thumb, .lib-slot-img, .board-photo-thumb, .op-galley-th img — carries .op-photo (plus
+           draggable="false" in the markup): no iOS long-press save/share callout, no drag-out. One rule, not six.
+           The Clerk avatar is not a household photo and is out; background-image divs don't get the callout.
+           S14's honest limit (screenshots) still holds. */
+        .op-photo { -webkit-user-drag: none; -webkit-touch-callout: none; }
+        .rv-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s ease; user-select: none; }
         .rv-photo-img.in { opacity: 1; }
         @media (prefers-reduced-motion: reduce) { .rv-photo-img { transition: none; } }
         /* PHOTO HERO (Dan, 2026-10-21): with a photo the hero is 4:3, capped at 420 px tall on wide screens (the
@@ -8379,7 +8385,7 @@ function ProvisionsApp() {
         .rv-viewer-strip { flex: 1 1 auto; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior: contain; scrollbar-width: none; }
         .rv-viewer-strip::-webkit-scrollbar { display: none; }
         .rv-viewer-slide { flex: 0 0 100%; height: 100%; display: flex; align-items: center; justify-content: center; scroll-snap-align: start; scroll-snap-stop: always; }
-        .rv-viewer-img { display: block; max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; -webkit-user-drag: none; user-select: none; }
+        .rv-viewer-img { display: block; max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; user-select: none; }
         .rv-viewer-foot { flex: none; padding: 10px 16px 18px; }
         .rv-viewer-cap { text-align: center; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #E8D5B7; overflow-wrap: anywhere; }
         /* The dots are buttons; on a phone they look and lay out exactly as the old spans (6 px dot, 6 px gap) and
