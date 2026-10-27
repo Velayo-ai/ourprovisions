@@ -1,0 +1,62 @@
+# Meal photo sweep — the daily call to the `meal-photo-sweep` Edge Function.
+# SPEC_photo_sweep.md, Amendment 2026-10-26b (G1–G5). Scheduled runs fire from
+# `main` only; `dev` carries the identical file so the trees match.
+#
+# The body is always {"dry_run": false}. Whether a run is live is decided by the
+# function secret SWEEP_LIVE alone (C4). The response body is counts only, so the
+# Actions log is the run record. No `uses:` steps, no GITHUB_TOKEN rights.
+
+name: meal-photo-sweep
+
+on:
+  schedule:
+    - cron: '17 8 * * *' # UTC
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Project to sweep'
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+        required: true
+
+permissions: {}
+
+jobs:
+  sweep-dev:
+    if: github.event_name == 'schedule' || inputs.target == 'dev'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: meal-photo-sweep-dev
+      cancel-in-progress: false
+    steps:
+      - name: Call meal-photo-sweep on dev
+        env:
+          SWEEP_SECRET: ${{ secrets.SWEEP_SECRET_DEV }}
+        run: |
+          curl -sS --fail-with-body --max-time 120 -X POST \
+            https://zxwtxjjmssykhqrghouf.supabase.co/functions/v1/meal-photo-sweep \
+            -H 'content-type: application/json' \
+            -H "x-sweep-secret: $SWEEP_SECRET" \
+            --data '{"dry_run": false}'
+          echo
+
+  sweep-prod:
+    if: (github.event_name == 'schedule' && vars.SWEEP_PROD_ENABLED == 'true') || inputs.target == 'prod'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: meal-photo-sweep-prod
+      cancel-in-progress: false
+    steps:
+      - name: Call meal-photo-sweep on prod
+        env:
+          SWEEP_SECRET: ${{ secrets.SWEEP_SECRET_PROD }}
+        run: |
+          curl -sS --fail-with-body --max-time 120 -X POST \
+            https://parpauldmbetptkmdwbd.supabase.co/functions/v1/meal-photo-sweep \
+            -H 'content-type: application/json' \
+            -H "x-sweep-secret: $SWEEP_SECRET" \
+            --data '{"dry_run": false}'
+          echo
