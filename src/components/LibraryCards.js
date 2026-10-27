@@ -208,7 +208,7 @@ function LibrarySlot({ meal, thumb = false, chip = false }) {
   if (meal.cardPhotoUrl || meal.hasCardPhoto) {
     return (
       <span className={`${base} photo`} style={{ background: tint.bg }} aria-hidden="true">
-        {meal.cardPhotoUrl && <img className="lib-slot-img op-replay-block" src={meal.cardPhotoUrl} alt="" loading="lazy" decoding="async" onLoad={slotPhotoIn} />}
+        {meal.cardPhotoUrl && <img className="lib-slot-img op-replay-block op-photo" src={meal.cardPhotoUrl} alt="" loading="lazy" decoding="async" draggable="false" onLoad={slotPhotoIn} />}
         {chip && <ReadyChip />}
       </span>
     );
