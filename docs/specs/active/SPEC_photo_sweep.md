@@ -250,3 +250,117 @@ select (select system_identifier from pg_control_system()) as which_db,  -- expe
       and pg_get_functiondef(p.oid) ~* 'update\s+(public\.)?meal_photos') as writers_of_meal_photos,
   (select count(*) from pg_trigger where tgrelid = 'public.meal_photos'::regclass and not tgisinternal) as photo_triggers;
 ```
+
+---
+
+# SPEC_photo_sweep.md — Amendment 2026-10-26b: schedule from GitHub Actions, not pg_cron + pg_net
+
+*Design chat, 2026-10-26 22:06 ET. Append to `docs/specs/active/SPEC_photo_sweep.md` after Amendment 2026-10-25, append-only. Supersedes the scheduling half of D7 and Amendment C1 / C2. Everything else in the spec stands, including the function, 070, D1–D6, D8 and the two-key live mode (C4).*
+
+---
+
+## Why
+
+071 was applied on dev (Dan, SQL editor, 2026-10-26 ~22:03 ET) and **raised as designed**:
+`071: an API role still holds access on net or cron on 7642734024280108049 — the revokes did not take; not scheduling`.
+The whole transaction rolled back.
+
+A rolled-back diagnostic (the same create + revoke, then a forced raise) showed the cause:
+
+- `net` schema ACL includes `=U/supabase_admin`: **PUBLIC usage, granted by `supabase_admin`**.
+- `net.http_get` / `net.http_post` ACLs include `=X/supabase_admin`: **PUBLIC execute, granted by `supabase_admin`**.
+- `anon`, `authenticated` and `service_role` therefore all read `net_usage=t, http_post=t, http_get=t` after our revokes.
+- `cron` is clean: `cron_usage=f` for every API role.
+
+Only the grantor (or a superuser) can revoke a grant. `postgres` is neither, so `revoke … from public` is a silent no-op. A pg_net upgrade would re-grant anyway. **Installing pg_net gives every API role an outbound-HTTP capability we cannot narrow.** That breaks the rule set 2026-10-26 (an API role holding access to `net` = stop before scheduling) and the least-privilege model of 068.
+
+Read back afterwards: `pg_extension` holds neither `pg_cron` nor `pg_net` on dev (0 rows). Nothing from 071 or the diagnostic persisted.
+
+## Decision (Dan)
+
+**A — the daily call comes from a GitHub Actions scheduled workflow, not from the database.** No pg_net, no pg_cron, no new database surface. The `meal-photo-sweep` function, its secrets, 070's RPCs and the two-key live mode are unchanged.
+
+Rejected:
+- **B, install pg_net and accept the PUBLIC grants.** Every API role would gain outbound HTTP. That's acceptable only if something else (e.g. Database Webhooks) ever forces pg_net in, and then it's its own decision.
+- **C, ask Supabase support to revoke as `supabase_admin`.** Undone by the next pg_net upgrade.
+
+## Design
+
+**G1. One workflow file: `.github/workflows/meal-photo-sweep.yml`.**
+- Scheduled workflows fire only from the default branch, so the file must be on `main`.
+- Carry the identical file on `dev` so the trees match. It never fires from `dev`.
+
+**G2. Triggers.**
+- `schedule: - cron: '17 8 * * *'` (UTC, unchanged from 071).
+- `workflow_dispatch` with a `target` choice input (`dev` | `prod`), **default `dev`**. Manual runs never default to prod.
+
+**G3. Two jobs, one per target.**
+- `sweep-dev` runs on schedule and on dispatch when `target == dev`.
+- `sweep-prod` runs only when the repository variable `SWEEP_PROD_ENABLED == 'true'` (schedule), or on dispatch when `target == prod`. Prod switches on later without editing `main`.
+
+**G4. Least privilege in the workflow itself.**
+- `permissions: {}`: the `GITHUB_TOKEN` gets no rights.
+- **No `uses:` steps at all**, so no third-party actions and no supply chain. One `run:` step on `ubuntu-latest` with `curl`.
+- No `set -x`.
+- `concurrency: meal-photo-sweep-${{ <target> }}` with `cancel-in-progress: false`, so runs never overlap.
+
+**G5. The call.**
+- `curl -sS --fail-with-body --max-time 120 -X POST <url> -H 'content-type: application/json' -H "x-sweep-secret: $SWEEP_SECRET" --data '{"dry_run": false}'`
+- The secret is passed through `env:` from `secrets.SWEEP_SECRET_DEV` / `secrets.SWEEP_SECRET_PROD`, never inline in the command string.
+- The URLs are not secret and live in the file:
+  - dev: `https://zxwtxjjmssykhqrghouf.supabase.co/functions/v1/meal-photo-sweep`
+  - prod: `https://parpauldmbetptkmdwbd.supabase.co/functions/v1/meal-photo-sweep`
+- The body is always `{"dry_run": false}`. Whether a run is live is still decided by the function secret `SWEEP_LIVE` alone (C4).
+- The step prints the response body, which is counts only, so the Actions log is the run record.
+
+**G6. Failure means a red run and an email.**
+- Any non-2xx fails the job (`--fail-with-body`).
+- GitHub emails the person who last edited a scheduled workflow when a run fails. Dan confirms his Actions notification setting is on.
+
+**G7. Secrets live in GitHub repository secrets, set by Dan in the web UI** (Settings → Secrets and variables → Actions):
+- `SWEEP_SECRET_DEV` = dev's current `SWEEP_SECRET` (04:08 UTC 10-26, Bitwarden "Sweep secret: dev").
+- `SWEEP_SECRET_PROD` = prod's own freshly generated secret, at prod rollout. **Never dev's value.**
+- GitHub cannot show a secret back. The proof that it matches is the first manual run returning 200, not 401.
+- Bitwarden notes gain a pointer line ("also set in GitHub secret SWEEP_SECRET_DEV").
+
+**G8. The 071 cleanup.**
+- 071 was never applied anywhere and has no ledger row. Remove `migrations/071_meal_photo_sweep_schedule.sql` with `git rm` (history keeps it), in a commit naming this amendment.
+- **The number 071 is burned.** It appears throughout the docs, so the next migration is **072**.
+- Delete the dev Vault secret `meal_photo_sweep_secret` in the Vault UI. Nothing reads it, and it is an orphaned copy of the secret.
+
+**G9. The `main` push.** Adding the workflow to `main` triggers a Vercel production rebuild of unchanged `src/`. Confirm the served bundle name is unchanged (`main.5f734ba4.js`), or that only the deployment id moved. No promotion of `src/` rides this commit.
+
+**G10. Repo visibility.**
+- Claude Code reports whether `Velayo-ai/ourprovisions` is public or private.
+- If public, GitHub pauses scheduled workflows after 60 days with no repository activity. Record it as a WATCH item.
+
+## Rollout (replaces the amendment's 071 / prod steps)
+
+**Dev**
+1. Delete the dev Vault secret (G8). Set `SWEEP_SECRET_DEV` (G7).
+2. Write the workflow; commit it to `dev`; commit the identical file to `main` (G1, G9). `git rm` 071 on `dev` (G8).
+3. Run a manual dispatch with target `dev` → 200, counts JSON, a dry run (`SWEEP_LIVE` unset). Check the function log: one counts-only `POST 200`.
+4. Observe the first scheduled 08:17 UTC run. Allow up to an hour of GitHub delay.
+5. **Then** set `SWEEP_LIVE=true` on dev: one change at a time, after a clean scheduled dry run. Object B (created 10-26) is removed by the scheduled run around 2026-11-02 / 03. Read it back. This is the end-to-end live proof before prod.
+
+**Prod**
+1. Generate a fresh prod secret and set it on the prod function (Dan); set `SWEEP_SECRET_PROD` (G7); save both in Bitwarden.
+2. Apply 070 on prod (Dan, SQL editor) and read back VERIFY.
+3. Deploy `meal-photo-sweep` to prod from the repo.
+4. Run a manual dispatch with target `prod` → a dry run Dan reads (expect orphans only, if any).
+5. Set the repository variable `SWEEP_PROD_ENABLED=true`, so scheduled prod runs start dry.
+6. **Prod live (`SWEEP_LIVE=true` on prod) only after dev's scheduled run has removed B.** Black n' Pumpkin's original (`8351467f…`) is permanently deleted about 30 days after that.
+
+## Verification
+
+- **V-G1** The workflow is identical on `main` and `dev`; it has no `uses:`, `permissions: {}`, and the secret appears only through `env:`.
+- **V-G2** A manual dispatch to dev returns 200 with counts JSON. The Actions log shows the body and never the secret (masked `***` at most). The function log has one counts-only `POST 200`.
+- **V-G3** The first scheduled run appears in Actions history and returns 200, dry.
+- **V-G4** The prod job does not run on schedule while `SWEEP_PROD_ENABLED` is unset (the scheduled run shows it skipped).
+- **V-G5** After `SWEEP_LIVE=true` on dev, the scheduled run around 11-02 / 03 reports `orphans_removed 1`, and B is gone on read-back.
+- **V-G6** The Vercel prod bundle is unchanged after the `main` commit (G9).
+- **V-G7** `pg_extension` on dev and prod holds no `pg_net` and no `pg_cron`.
+
+## Principle
+
+**A guard that stops is a success.** 071 refused to schedule around a revoke that didn't take, exactly as written. The fix was to change where the call comes from, not to loosen the guard.
