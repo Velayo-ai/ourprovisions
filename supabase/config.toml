@@ -29,7 +29,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.meal-photo-sweep]
-# FALSE ON PURPOSE, for a different reason: the caller is pg_net from the cron job
-# (071), not a user — there is no user JWT to verify. The function checks a shared
-# secret (x-sweep-secret vs SWEEP_SECRET) before reading anything. SPEC_photo_sweep.md.
+# FALSE ON PURPOSE, for a different reason: the caller is the GitHub Actions workflow
+# (.github/workflows/meal-photo-sweep.yml), not a user — there is no user JWT to
+# verify. The function checks a shared secret (x-sweep-secret vs SWEEP_SECRET) before
+# reading anything. SPEC_photo_sweep.md + Amendment 2026-10-26b.
 verify_jwt = false
