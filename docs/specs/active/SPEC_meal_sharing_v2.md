@@ -598,3 +598,89 @@ And rewrites the Next session block:
 ---
 
 > **Note 2026-10-24 (Claude Code, at Dan's instruction) — on Addendum 2026-10-24c, S31:** migration 069 went to Drink (`migrations/069_meals_occasion_drink.sql`, `SPEC_meal_occasion_drink.md`; applied on dev 2026-10-25 00:45 UTC). Wherever S31 says `add_showcase_photo` "is new in 069", read: new in the next free migration number at build. Nothing else in S31 changes.
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-28 (design chat, Step 0 #8 ruled)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after Addendum 2026-10-24c. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final. Step 0 #8 is closed. Phase A has no open design questions; the builder's Step 0 for the migration can run.
+**Source:** design chat 2026-10-28, ruled by Dan.
+**Supersedes:** in S20, "the photo step runs in an Edge Function" and "a signed URL minted server-side"; in S32, the open choice between A and B. S20's copies-not-references rule stands unchanged.
+**Migration note:** earlier addenda say "069" for Phase A. 069 went to Drink and 071 is burned; Phase A's migration takes the next free number from the dev ledger at build time (072 as of 2026-10-28).
+
+---
+
+## S34 — Gift photos live in a policy-guarded `gift-photos` bucket. Clients copy; nobody mints.
+
+Candidate A is adopted. Candidate B (an Edge Function with service-role storage access, plus a second function to serve previews) is not built.
+
+**Why A:**
+- It reuses what is on prod today: a private bucket under storage RLS, client-signed URLs, and `?token=` already masked by the span scrub. B adds a new runtime path, service-role secrets on both environments, and a second function only because `preview_meal_gift` is SQL and SQL cannot sign a URL.
+- Revocation is automatic. The SELECT policy checks the gift is live, so a revoked gift's photo stops being readable when the row changes. Under B a signed URL already minted stays valid until it expires.
+- No new blast radius. A holds no service-role key anywhere new. (The sweep function holds one, but calls three narrow RPCs; a gift-photo function would need raw storage copy rights.)
+- The cost of client copies is small: renditions are ~50–100 KB, two transfers on the giver's device and two on the receiver's, for a rare event.
+
+**Layout (as S32 Candidate A, confirmed):**
+- Private bucket `gift-photos`, path `{gift_id}/{rendition}.webp`. The path carries the gift id only, never a household id.
+- SELECT for `anon` and `authenticated`: the first folder segment is the id of a live gift (see S35 for how the policy asks).
+- INSERT for `authenticated`: the gift's `from_household_id` is one the caller is a member of.
+- DELETE: none for clients.
+- No service-role key in any function. No new runtime. No new egress path beyond the two copies.
+
+**Give flow (ordering is part of the design):**
+1. `give_meal` selects the photo per S12 server-side and returns the source path, or null.
+2. The giver's client downloads that object (it already holds a signed URL) and uploads it to `{gift_id}/…` in `gift-photos`.
+3. Only then does the share sheet open.
+The link is in nobody's hands until the upload finishes, so a preview never shows a half-arrived photo. If the upload fails, the gift goes out with no photo (S12 allows it) and the giver sees one plain line: "The photo didn't attach." No retry loop; the giver can revoke and give again.
+
+**Honest limits (accepted):**
+- A hacked giver client could upload a different image to the gift path. The giver can already upload any image as a showcase photo, so this changes nothing about who can publish what.
+- The receiving household's copy carries the giver's opaque user id (S23, already accepted).
+
+**Upgrade path:** if beta shows people giving many meals at once, or client copies prove unreliable on iOS, B replaces the copy step. S20's copies-not-references rule carries over unchanged.
+
+## S35 — The storage policy asks a SECURITY DEFINER helper, never a table.
+
+Under 068, `anon` holds no table grants, and storage policies run as the calling role. A policy that subqueries `meal_gifts` would fail for `anon`.
+
+- New function `gift_photo_readable(p_gift_id uuid) returns boolean`: SECURITY DEFINER, `search_path` pinned, EXECUTE to `anon` and `authenticated`, explicit grants for all three roles. Returns true only for a gift row that exists and is not revoked (and not expired, if gifts gain expiry). It reads nothing else and returns nothing else.
+- The `gift-photos` SELECT policy is `gift_photo_readable((storage.foldername(name))[1]::uuid)`, with a guard that the first segment parses as a uuid.
+- Same shape as `health()` (067): one narrow definer function instead of a grant.
+- **Builder check (Step 0):** confirm `anon` can create a signed URL on an object under a SELECT policy that calls a definer function, on dev, with a rolled-back probe. If it cannot, stop and bring it back; the fallback is a tiny `sign_gift_photo` definer RPC, not Candidate B.
+
+## S36 — Accept uses its own RPC, `accept_gift_photo`. `uploaded_by` is derived, never passed.
+
+`add_showcase_photo` (S31) sets `uploaded_by = get_current_user_id()`. S23 needs the receiver's copy to carry the **giver** as `uploaded_by`. A `p_uploaded_by` parameter would let any caller forge the value, so:
+
+- New RPC `accept_gift_photo(p_gift_id, p_path, p_thumb_path, p_width, p_height)`: SECURITY DEFINER, pinned `search_path`, EXECUTE to `authenticated` only, explicit grants.
+  - Derives `uploaded_by` from the gift row's giver, `household_id` from the caller's membership in the receiving household, and `meal_id` from the receipt row for that gift and household. It raises if the caller's household holds no receipt for that gift.
+  - Inserts a `kind = 'showcase'` row. It never touches the cook cap or its trim.
+  - The one-per-person-per-meal index (S31) applies: the giver's id is the "person", so a receiver who accepts the same gift twice replaces, not duplicates.
+- Accept flow: the receiver's client downloads the gift copy from `gift-photos`, uploads it under its own household folder in `meal-photos`, then calls `accept_gift_photo`. The receiver never holds a path into the giver's folder (S20, V18).
+- S23 and S11 hold by construction: the receiver cannot re-gift the photo as their own because `uploaded_by` was never theirs to set.
+
+## S37 — Revoked-gift objects join the existing sweep.
+
+`meal-photo-sweep` gains a `gift-photos` pass: objects whose gift row is revoked for longer than the orphan grace window (7 days, as 070) are removed. No new cleanup mechanism, no new schedule, the same dry-run-first rollout. Receivers' copies in `meal-photos` are unaffected (V3).
+
+---
+
+## Verification (adds to V1–V21)
+
+- **V22:** a signed-out visitor opening a live gift link sees the gift photo through a client-signed URL on the `gift-photos` bucket. A HAR shows 0 gift codes, 0 `ref`, 0 `invite`, 0 `token=` in spans and replay (as V20, now with the client signing).
+- **V23:** after `revoke_meal_gifts`, the same link shows no photo, and a direct `createSignedUrl` on the gift path as `anon` is refused.
+- **V24:** a receiver's accepted copy has `uploaded_by` = the giver's id, `kind = showcase`, and a path under the receiver's household folder. Checked by direct query.
+- **V25:** calling `accept_gift_photo` from a household with no receipt for that gift raises; nothing is inserted.
+- **V26:** a give where the client upload fails leaves a gift with no photo and a readable preview; the giver sees the one-line notice.
+- **V27:** the sweep's `gift-photos` pass, dry run on dev with a revoked fixture past 7 days, reports it; the live run removes it; a live gift's object is untouched.
+
+---
+
+## What the builder's Step 0 now adds (read-only, before 072)
+
+1. The S35 probe: `anon` signing under a definer-backed policy, rolled back.
+2. The exact receipt-row lookup for S36 (`meal_gift_receipts` shape from Step 0 #2).
+3. Whether `storage.foldername` is available on dev's storage version; if not, the equivalent split.
+4. The next free migration number from the dev ledger (072 expected).
+Report and stop.
