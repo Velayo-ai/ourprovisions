@@ -6,6 +6,7 @@ import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
+import { inviteFailureNotice } from "../lib/inviteFailure";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
 import { trace } from "@opentelemetry/api";
@@ -678,10 +679,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
             p_invite_code: pendingInviteCode,
           });
           if (joinErr) {
-            setError(joinErr.message);
-            // The welcome sheet reads and burns this flag when it opens and shows one
-            // fixed line (R3 ruling (a), 2026-10-26). Never the code itself.
-            sessionStorage.setItem("invite_failed", "1");
+            // One message per failed invite (src/lib/inviteFailure.js): a brand-new user
+            // gets the welcome sheet's fixed line (the sheet reads and burns this flag on
+            // open — R3 ruling (a), 2026-10-26; never the code itself) and no toast; an
+            // existing member, who never sees the sheet, keeps the toast.
+            const notice = inviteFailureNotice(bootstrapData.created_household);
+            if (notice.toast) setError(joinErr.message);
+            if (notice.welcomeLine) sessionStorage.setItem("invite_failed", "1");
           } else if (joinResult?.household_id) {
             // Edge: join_household completed a join bootstrap didn't (e.g. the existing-
             // member no-op short-circuit). Route it through the same banner/switch flags.
