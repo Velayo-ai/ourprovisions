@@ -27,3 +27,9 @@ verify_jwt = false
 # Same reasoning as meal-suggestion above, same tokens, same verifier (verifyCaller
 # in recipe-import/index.ts is a copy). FALSE ON PURPOSE. SPEC_recipe_import.md.
 verify_jwt = false
+
+[functions.meal-photo-sweep]
+# FALSE ON PURPOSE, for a different reason: the caller is pg_net from the cron job
+# (071), not a user — there is no user JWT to verify. The function checks a shared
+# secret (x-sweep-secret vs SWEEP_SECRET) before reading anything. SPEC_photo_sweep.md.
+verify_jwt = false
