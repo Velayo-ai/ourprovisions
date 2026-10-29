@@ -1058,7 +1058,7 @@ select
   (select string_agg(cmd || ':' || (select string_agg(r, ',' order by r) from unnest(roles) r), ' ' order by cmd)
      from pg_policies
     where schemaname = 'storage' and tablename = 'objects' and policyname ilike 'gift photos%')    as storage_policies,
-  (select count(*) from pg_class where oid in ('public.meal_gifts'::regclass, 'public.meal_gift_receipts'::regclass)
+  (select count(*) from pg_class where oid in (to_regclass('public.meal_gifts'), to_regclass('public.meal_gift_receipts'))
     and relrowsecurity)                                                                           as rls_on,
   (select count(*) from pg_policies where schemaname = 'public'
     and tablename in ('meal_gifts', 'meal_gift_receipts'))                                        as policies,
