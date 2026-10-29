@@ -684,3 +684,119 @@ Under 068, `anon` holds no table grants, and storage policies run as the calling
 3. Whether `storage.foldername` is available on dev's storage version; if not, the equivalent split.
 4. The next free migration number from the dev ledger (072 expected).
 Report and stop.
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-28b (S38–S45)
+
+Append to `docs/specs/active/SPEC_meal_sharing_v2.md` after Addendum 2026-10-28. Append-only. Where this text and earlier text disagree, this wins.
+
+**Status:** Design-final for migration 072. Rulings on the builder's Step 0 report (2026-10-28, late).
+**Source:** design chat 2026-10-28, ruled by Dan.
+**Step 0 facts this rests on (dev `7642734024280108049`):** no gift tables, lineage columns or gift RPCs exist; `meal_photos.kind` and `add_showcase_photo` are unbuilt (S31); the S35 probe passed (anon sees only the live gift's object through a definer-backed CASE policy; nothing persisted); `storage.foldername` is identical on dev and prod; `anon` / `authenticated` hold `arwd` on `storage.objects` and `storage.buckets`; dev's default privileges still grant new functions to `anon`; 17 dev users belong to more than one household; next free migration 072.
+
+---
+
+## S38 — One migration, 072. Lineage and the sweep stay out.
+
+Dan's call: Phase A's schema ships as **one** migration, 072, in one transaction. It is written in dependency order, in numbered sections, with a VERIFY block per section, so a failure names its section and the whole thing rolls back.
+
+1. `meal_photos.kind` + CHECK + the showcase partial unique index (S31)
+2. `add_meal_photo` body change (S39)
+3. `add_showcase_photo` (S31)
+4. `meal_gifts`, `meal_gift_receipts` + RLS + explicit grants; index on `meal_gifts.source_meal_id`
+5. `give_meal`, `preview_meal_gift`, `record_meal_gift_receipt`, `revoke_meal_gifts`
+6. `preview_meal_gift_public` (S43)
+7. `gift_photo_readable`, `gift_photo_writable` (S41)
+8. `accept_gift_photo` (S40)
+9. The `gift-photos` bucket and its SELECT and INSERT policies
+
+**Not in 072:**
+- **The `meals` lineage columns** (`copied_from_meal_id`, `copied_from_household_id`, `copied_at`). Deferred to Phase B (S42).
+- **The S37 sweep RPC.** It gets its own later migration, shipped with the `meal-photo-sweep` change.
+
+072 ships with a `072_rollback.sql`, as 068 did.
+
+## S39 — `add_meal_photo`: signature unchanged, the trim counts cook photos only.
+
+The trim gains `and kind = 'cook'`. Without it, a cook upload would age out a showcase photo, which breaks S26. This does not conflict with S31: S31 forbids widening `add_meal_photo`, and nothing is widened. Cook behaviour is identical until a showcase row exists. `create or replace` keeps the existing ACL; VERIFY reads it back unchanged.
+
+## S40 — `accept_gift_photo` names its household. `uploaded_by` stays derived.
+
+**Signature:** `accept_gift_photo(p_gift_id uuid, p_household_id uuid, p_path text, p_thumb_path text, p_width int, p_height int)`.
+
+- `p_household_id` is checked with `is_member_of`, as `preview_meal_gift` and `record_meal_gift_receipt` already do. A caller in several households is unambiguous. Passing the household is safe because membership is checked. `uploaded_by` would not be safe to pass, so it stays derived from the gift (S36).
+- Both paths must sit under `{p_household_id}/{meal_id}/`, as `add_meal_photo` requires.
+- The receipt row for `(p_gift_id, p_household_id)` must exist, or the call raises `42501` and inserts nothing (V25).
+- **Refuses the photo, never the meal,** when:
+  - the gift is revoked, matching the read policy; or
+  - the giver's account is gone (`given_by` is null, but `uploaded_by` is NOT NULL).
+  The meal itself was already saved by the receiver.
+- **A second accept replaces.** It soft-deletes the giver's previous live showcase row for that meal and household, then inserts.
+
+## S41 — Writes to `gift-photos` go through a second definer.
+
+- **INSERT policy for `authenticated`:** the same CASE / uuid guard as the SELECT policy, then `gift_photo_writable(uuid)`. That function is SECURITY DEFINER with a pinned `search_path`, and returns true only when the gift exists, isn't revoked, and the caller is a member of `from_household_id`. EXECUTE goes to `authenticated` only.
+- **No UPDATE or DELETE policy.** The client upload never uses `upsert: true`. This is a build note for the client slice.
+
+## S42 — Lineage columns are deferred to Phase B.
+
+On link gifts the lineage columns are always null (S25), and nothing in Phase A writes them. If they shipped now, members could write them through `meals`' table-level UPDATE, and a column revoke can't override that. They therefore ship with Phase B, together with a write guard (a trigger or equivalent), before anything reads them to route crew activity. `record_meal_gift_receipt` stamps no lineage in Phase A. The 10-07 "stamps lineage" wording waits for Phase B.
+
+## S43 — A signed-out visitor sees a preview card.
+
+Opening a live gift link without an account shows a **preview card**:
+- the photo (if the gift has one)
+- the meal's title
+- the "from" line (`attribution`; never possessive, never `created_by`)
+- the ingredient count
+- **"Add to our meals"**, which leads to sign-up, then the prefilled New Meal form (10-07 flow).
+
+The full recipe arrives in their own kitchen, not on a public page.
+
+**New RPC `preview_meal_gift_public(p_code text)`:**
+- SECURITY DEFINER, pinned `search_path`, EXECUTE to `anon` and `authenticated`, explicit grants for all three roles.
+- Returns exactly: `gift_id`, `title`, `attribution`, `ingredient_count`, `has_photo`.
+- Never returns the giver's name, the household's name or id, the ingredient names, the steps, or any `meal_photos` path.
+- **An unknown code and a revoked code return the same empty result,** so the RPC can't be used to test whether a code exists.
+
+The signed-in `preview_meal_gift(code, household)` stays as specified, and now also returns `gift_id` so the client can sign `{gift_id}/view.webp`.
+
+`gift_photo_readable` keeps EXECUTE for `anon`; V20 and V22 stand.
+
+**Builder check at draft:** report the gift code's length and alphabet from the 10-07 shape. The code is a bearer token for the card, so its entropy is the only rate limit SQL can offer. Stop if it's under ~60 bits.
+
+## S44 — `give_meal` returns what the client needs to copy the photo.
+
+`give_meal` returns `{code, gift_id, photo_path}`, where `photo_path` is the S12-selected source, or null. The client copies the photo to `gift-photos/{gift_id}/…` before the share sheet opens (S34).
+
+## S45 — Grants: revoke first, then grant.
+
+Dev's default privileges still hand every new function to `anon`, `authenticated` and `service_role`, and every new table to `anon` / `authenticated`. Every object in 072 therefore gets an explicit `revoke … from public, anon, authenticated, service_role`, then its grant.
+
+| Object | anon | authenticated | service_role |
+|---|---|---|---|
+| `meal_gifts` | none | SELECT (RLS: member of `from_household_id`) | ALL |
+| `meal_gift_receipts` | none | SELECT (RLS: member of `to_household_id` only) | ALL |
+| `give_meal`, `preview_meal_gift`, `record_meal_gift_receipt`, `revoke_meal_gifts`, `add_showcase_photo`, `accept_gift_photo`, `gift_photo_writable` | — | EXECUTE | — |
+| `preview_meal_gift_public`, `gift_photo_readable` | EXECUTE | EXECUTE | — |
+| `add_meal_photo` | existing ACL, unchanged | | |
+| `gift-photos` bucket | SELECT policy | SELECT + INSERT policies | (bypasses RLS) |
+
+No client write policies on either gift table.
+
+---
+
+## Verification (adds to V1–V27)
+
+- **V28:** `preview_meal_gift_public` returns exactly the five S43 fields for a live code. For an unknown code and a revoked code it returns the identical empty result. As `anon`, a direct SELECT on `meal_gifts` is refused.
+- **V29:** after 072, `meals` has no `copied_from_*` columns.
+- **V30:** with a live showcase photo on a meal, three further cook uploads leave the showcase live (S26 / S39). The cook trim still keeps exactly 3 cook photos.
+- **V31:** `accept_gift_photo` with a `p_household_id` the caller is not a member of raises `42501` and inserts nothing; a path outside `{p_household_id}/{meal_id}/` raises; a second accept leaves one live showcase row.
+- **V32:** each new function's `proacl` and each new table's `relacl` match the S45 table exactly; `anon` holds nothing beyond the two named functions.
+
+---
+
+## Next step (builder)
+
+Draft `migrations/072_meal_sharing_phase_a.sql` + `072_rollback.sql` per S38–S45, with VERIFY per section. **Not applied.** Report the S43 code-entropy check with the draft.
