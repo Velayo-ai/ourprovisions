@@ -51,6 +51,9 @@
 -- GRANTS (S45; the 046 lesson; CLAUDE.md's new-table rule): every object REVOKEs from public,
 --   anon, authenticated AND service_role first, then grants exactly:
 --   tables            anon —   · authenticated SELECT (RLS)        · service_role ALL
+--     ALL on PostgreSQL 17 (dev and prod are 17.6) = DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,
+--     TRIGGER,TRUNCATE,UPDATE — arwdDxtm, as 065's service_role grant reads today. Every ACL
+--     check here uses aclexplode; information_schema omits MAINTAIN and would show 7 (see §4).
 --   functions         anon —   · authenticated EXECUTE             · service_role —
 --     except preview_meal_gift_public, gift_photo_readable: anon + authenticated EXECUTE
 --     and mint_gift_code: nobody (called only inside give_meal, which runs as owner)
@@ -398,7 +401,10 @@ create policy meal_gift_receipts_select on public.meal_gift_receipts
   using (public.is_member_of(to_household_id));
 
 do $verify$
-declare v_all constant text := 'DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE';
+-- ACLs are read from aclexplode, the closing VERIFY's source. information_schema.role_table_grants
+-- omits MAINTAIN on PostgreSQL 17 and reported 7 of the 8 bits grant all writes (parse check,
+-- dev 17.6, 2026-10-29) — the grant was right, the view is lossy.
+declare v_all constant text := 'DELETE,INSERT,MAINTAIN,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE';  -- arwdDxtm
         v_t text; v_got text;
 begin
   foreach v_t in array array['meal_gifts', 'meal_gift_receipts'] loop
@@ -409,16 +415,16 @@ begin
        or (select string_agg(cmd, ',') from pg_policies where schemaname = 'public' and tablename = v_t) <> 'SELECT' then
       raise exception '072 §4: % must have exactly one SELECT policy', v_t;
     end if;
-    select coalesce(string_agg(privilege_type, ',' order by privilege_type), '') into v_got
-      from information_schema.role_table_grants
-     where table_schema = 'public' and table_name = v_t and grantee = 'authenticated';
+    select coalesce(string_agg(a.privilege_type, ',' order by a.privilege_type), '') into v_got
+      from pg_class c, aclexplode(c.relacl) a
+     where c.oid = ('public.' || v_t)::regclass and a.grantee = 'authenticated'::regrole;
     if v_got <> 'SELECT' then raise exception '072 §4: %/authenticated want [SELECT] got [%]', v_t, v_got; end if;
-    select coalesce(string_agg(privilege_type, ',' order by privilege_type), '') into v_got
-      from information_schema.role_table_grants
-     where table_schema = 'public' and table_name = v_t and grantee = 'service_role';
-    if v_got <> v_all then raise exception '072 §4: %/service_role want [ALL] got [%]', v_t, v_got; end if;
-    if exists (select 1 from information_schema.role_table_grants
-                where table_schema = 'public' and table_name = v_t and grantee in ('anon', 'PUBLIC')) then
+    select coalesce(string_agg(a.privilege_type, ',' order by a.privilege_type), '') into v_got
+      from pg_class c, aclexplode(c.relacl) a
+     where c.oid = ('public.' || v_t)::regclass and a.grantee = 'service_role'::regrole;
+    if v_got <> v_all then raise exception '072 §4: %/service_role want [%] got [%]', v_t, v_all, v_got; end if;
+    if exists (select 1 from pg_class c, aclexplode(c.relacl) a
+                where c.oid = ('public.' || v_t)::regclass and (a.grantee = 0 or a.grantee = 'anon'::regrole)) then
       raise exception '072 §4: % still grants anon / PUBLIC', v_t;
     end if;
   end loop;
