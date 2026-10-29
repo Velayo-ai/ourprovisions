@@ -734,6 +734,8 @@ The trim gains `and kind = 'cook'`. Without it, a cook upload would age out a sh
   The meal itself was already saved by the receiver.
 - **A second accept replaces.** It soft-deletes the giver's previous live showcase row for that meal and household, then inserts.
 
+> **Ruling 2026-10-29 (Dan, at the 072 draft):** the path arguments follow 065's `add_meal_photo` order, thumb first: `accept_gift_photo(p_gift_id, p_household_id, p_thumb_path, p_view_path, p_width, p_height)` and `add_showcase_photo(p_meal_id, p_thumb_path, p_view_path, p_width, p_height)`. The `p_path, p_thumb_path` order written in S31, S36 and above is superseded. 072's VERIFY reads the identity arguments back.
+
 ## S41 — Writes to `gift-photos` go through a second definer.
 
 - **INSERT policy for `authenticated`:** the same CASE / uuid guard as the SELECT policy, then `gift_photo_writable(uuid)`. That function is SECURITY DEFINER with a pinned `search_path`, and returns true only when the gift exists, isn't revoked, and the caller is a member of `from_household_id`. EXECUTE goes to `authenticated` only.
@@ -766,6 +768,8 @@ The signed-in `preview_meal_gift(code, household)` stays as specified, and now a
 
 **Builder check at draft:** report the gift code's length and alphabet from the 10-07 shape. The code is a bearer token for the card, so its entropy is the only rate limit SQL can offer. Stop if it's under ~60 bits.
 
+> **Ruling 2026-10-28 (Dan, at the draft's entropy check):** the 10-07 shape (8 chars, 31 symbols) is ≈40 bits and fails the check. Gift codes are **16 characters** from the same alphabet (A–Z without O/I/L, 2–9: 31 symbols), ≈79 bits; 072 mints them with rejection-sampled `gen_random_bytes`, so every symbol is equally likely. Invite and referral codes are unchanged. **Security item for a later session:** the household invite code is 6 chars of base-36 from `Math.random()` (`useProvisions.js` createInvite), ≈31 bits nominal and not from a CSPRNG; the referral code is 8 hex (32 bits). Neither is in Phase A's scope.
+
 ## S44 — `give_meal` returns what the client needs to copy the photo.
 
 `give_meal` returns `{code, gift_id, photo_path}`, where `photo_path` is the S12-selected source, or null. The client copies the photo to `gift-photos/{gift_id}/…` before the share sheet opens (S34).
@@ -784,6 +788,10 @@ Dev's default privileges still hand every new function to `anon`, `authenticated
 | `gift-photos` bucket | SELECT policy | SELECT + INSERT policies | (bypasses RLS) |
 
 No client write policies on either gift table.
+
+> **Ruling 2026-10-29 (Dan, at the 072 draft) — error codes:** the 10-07 table's words map to SQLSTATEs, one vocabulary with 065: `not_found` (unknown code, in `preview_meal_gift` and `record_meal_gift_receipt`) = `P0002`; `revoked` = `55000`, and `accept_gift_photo` raises `55000` for "the giver's account is gone" as well; not a member / no JWT user / no receipt / a meal outside the target place = `42501`; bad kind, note length, paths or missing objects = `22023`. `preview_meal_gift_public` raises nothing: unknown and revoked both return no row (S43).
+
+> **Ruling 2026-10-29 (Dan, at the 072 draft) — `mint_gift_code`:** the 16-character minter is an internal helper, owner-only: EXECUTE is revoked from `public`, `anon`, `authenticated` **and** `service_role` and granted to nobody (stricter than 042's `mint_referral_code`, which service_role may call). It runs only inside `give_meal`, which executes as owner. It is the one 072 function outside the S45 table.
 
 ---
 
