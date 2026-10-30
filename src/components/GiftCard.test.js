@@ -4,12 +4,12 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/components/GiftCard
 //
 // SPEC_meal_sharing_phase_a_client Commit 1 — the signed-out card at /g/{CODE}:
-//   A1  live gift with a photo: eyebrow, the signed view.webp (.op-photo .op-replay-block, alt ""),
+//   A1  live gift with a photo: eyebrow, the signed view.{photo_ext} (.op-photo .op-replay-block, alt ""),
 //       the title as written, "From {attribution}", "{n} ingredients", Add to our meals, Sign in
 //   A2  live gift without a photo: the sand band + plate, never an <img>; no From line when the
 //       attribution is empty (C6) — and no placeholder
 //   A3  no row (unknown OR revoked, C7): one screen — "That link doesn't work." + the landing link
-//   C5  nothing but the five fields: no giver name, no note
+//   C5  nothing but the S43 fields (+ photo_ext, S47): no giver name, no note
 //   replay: no attribute on any element carries the title, the attribution or the code
 import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 
@@ -22,9 +22,9 @@ const { GiftCard, LANDING_URL } = require("./GiftCard");
 
 const CODE = "K7M2P9ABCDEFGH23";
 const GIFT_ID = "3f2a9c1e-7b6d-4e5f-8a9b-0c1d2e3f4a5b";
-const LIVE = { gift_id: GIFT_ID, title: "Famous Grilled Cheese & Pickle", attribution: "Easton", ingredient_count: 7, has_photo: true };
-const NOPHOTO = { gift_id: GIFT_ID, title: "Grandma Phyllis's Molasses Cookies", attribution: "", ingredient_count: 12, has_photo: false };
-const SIGNED = "https://zxwtxjjmssykhqrghouf.supabase.co/storage/v1/object/sign/gift-photos/x/view.webp?token=t";
+const LIVE = { gift_id: GIFT_ID, title: "Famous Grilled Cheese & Pickle", attribution: "Easton", ingredient_count: 7, has_photo: true, photo_ext: "jpg" };
+const NOPHOTO = { gift_id: GIFT_ID, title: "Grandma Phyllis's Molasses Cookies", attribution: "", ingredient_count: 12, has_photo: false, photo_ext: null };
+const SIGNED = "https://zxwtxjjmssykhqrghouf.supabase.co/storage/v1/object/sign/gift-photos/x/view.jpg?token=t";
 
 const q = (c, s) => c.querySelector(s);
 const qa = (c, s) => Array.from(c.querySelectorAll(s));
@@ -53,7 +53,7 @@ describe("A1 — a live gift with a photo", () => {
     expect(q(container, ".gift-from").textContent).toBe("From Easton");
     expect(q(container, ".gift-meta").textContent).toBe("7 ingredients");
     await waitFor(() => expect(q(container, "img")).not.toBeNull());
-    expect(anon.giftPhotoUrl).toHaveBeenCalledWith(GIFT_ID);
+    expect(anon.giftPhotoUrl).toHaveBeenCalledWith(GIFT_ID, "jpg");   // S47: signed in the gift's own format
     const img = q(container, "img");
     expect(img.className.split(" ")).toEqual(expect.arrayContaining(["op-photo", "op-replay-block"]));
     expect(img.getAttribute("alt")).toBe("");

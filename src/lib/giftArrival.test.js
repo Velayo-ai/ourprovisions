@@ -79,11 +79,12 @@ describe("thankYouPayload (S24)", () => {
   });
 });
 
-describe("the accept copy paths (S36 / S40)", () => {
-  test("sources are the gift's two renditions; the copy lands under the RECEIVER's household and meal, webp, one stem", () => {
-    expect(giftSourcePaths("g1")).toEqual({ view: "g1/view.webp", thumb: "g1/thumb.webp" });
-    const p = acceptCopyPaths("hh", "meal", "stem");
-    expect(p).toEqual({ thumbPath: "hh/meal/stem-thumb.webp", viewPath: "hh/meal/stem-view.webp" });
+describe("the accept copy paths (S36 / S40 / S47)", () => {
+  test("sources are the gift's two renditions in the gift's own format; the copy lands under the RECEIVER's household and meal, same extension, one stem", () => {
+    expect(giftSourcePaths("g1", "webp")).toEqual({ view: "g1/view.webp", thumb: "g1/thumb.webp" });
+    expect(giftSourcePaths("g1", "jpg")).toEqual({ view: "g1/view.jpg", thumb: "g1/thumb.jpg" });
+    expect(acceptCopyPaths("hh", "meal", "stem", "webp")).toEqual({ thumbPath: "hh/meal/stem-thumb.webp", viewPath: "hh/meal/stem-view.webp" });
+    expect(acceptCopyPaths("hh", "meal", "stem", "jpg")).toEqual({ thumbPath: "hh/meal/stem-thumb.jpg", viewPath: "hh/meal/stem-view.jpg" });
     expect(normName("  Taco   Night ")).toBe("taco night");
   });
 });

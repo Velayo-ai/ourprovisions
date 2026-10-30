@@ -758,11 +758,11 @@ The full recipe arrives in their own kitchen, not on a public page.
 
 **New RPC `preview_meal_gift_public(p_code text)`:**
 - SECURITY DEFINER, pinned `search_path`, EXECUTE to `anon` and `authenticated`, explicit grants for all three roles.
-- Returns exactly: `gift_id`, `title`, `attribution`, `ingredient_count`, `has_photo`.
+- Returns exactly: `gift_id`, `title`, `attribution`, `ingredient_count`, `has_photo` — and, since **S47 (2026-10-30, 074)**, `photo_ext` (`webp` | `jpg` | null): the format the giver stored the photo in, so the client signs `{gift_id}/view.{photo_ext}`. `has_photo` is `photo_ext is not null` — the server's mark from `attach_gift_photo`, never a storage probe.
 - Never returns the giver's name, the household's name or id, the ingredient names, the steps, or any `meal_photos` path.
 - **An unknown code and a revoked code return the same empty result,** so the RPC can't be used to test whether a code exists.
 
-The signed-in `preview_meal_gift(code, household)` stays as specified, and now also returns `gift_id` so the client can sign `{gift_id}/view.webp`.
+The signed-in `preview_meal_gift(code, household)` stays as specified, and now also returns `gift_id` — and `photo_ext` (S47) — so the client can sign `{gift_id}/view.{photo_ext}`.
 
 `gift_photo_readable` keeps EXECUTE for `anon`; V20 and V22 stand.
 

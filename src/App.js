@@ -2777,8 +2777,9 @@ function MealMenu({ disabled, openGifts, onGive, onStopGiving }) {
 //   B1 / B2  the C1 pre-check: `photo` is the viewer's own live showcase row (myShowcase) or null. The
 //            client predicts; give_meal's S12 pick decides; B4 shows the truth. B2's nudge opens the
 //            recipe view's strip (Dan, 2026-10-30) — the flip lives on the photo's own ⋯ (S46).
-//   Give     (C3, first tap) give_meal, then with a photo the copy: view.webp, then thumb.webp, no
-//            upsert (C4, give.copyPhoto). Any failure → B5's one plain line; no retry, no delete.
+//   Give     (C3, first tap) give_meal, then with a photo the copy: view, then thumb, in the format
+//            the photo was stored in (webp or jpeg, S47), no upsert, then attach_gift_photo marks
+//            the gift (C4, give.copyPhoto). Any failure → B5's one plain line; no retry, no delete.
 //            The ✕ is inert while this runs (S34: the link is in nobody's hands yet).
 //   B4 / B5  "What they'll see" mirrors the public card (title as written, From · count); Send it is
 //            THE share, navigator.share called inside that tap (C3); Copy link always present.
@@ -6467,7 +6468,7 @@ function ProvisionsApp() {
     showToast("Added to your meals.");
     if (!rec.ok) console.warn("[gift] the receipt did not save; the meal is theirs regardless (10-07 residual)");
     if (gift.hasPhoto && rec.ok) {
-      const p = await acceptGiftPhoto(gift.giftId, mealId);
+      const p = await acceptGiftPhoto(gift.giftId, mealId, gift.photoExt);   // S47: the gift's own format
       if (!p.ok) showToast("Added, but the photo couldn’t come along.");
       await loadMealPhotos();
     }
@@ -7315,7 +7316,7 @@ function ProvisionsApp() {
       setMealSheet({
         mode: "create", meal: null,
         gift: {
-          code, giftId: r.giftId, hasPhoto: r.hasPhoto, giverFirst, mealName: draft.name, draft,
+          code, giftId: r.giftId, hasPhoto: r.hasPhoto, photoExt: r.photoExt, giverFirst, mealName: draft.name, draft,
           banner: giftBanner(giverFirst), note: giftNoteQuote(r.note, giverFirst), placeLine: placeLine(placeName, placeCount),
         },
       });

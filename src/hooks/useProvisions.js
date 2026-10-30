@@ -8,12 +8,12 @@ import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { inviteFailureNotice } from "../lib/inviteFailure";
 import { useConnectivity } from "../contexts/ConnectivityContext";
-import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths, giftWebp } from "../lib/image";
+import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
 import { trace } from "@opentelemetry/api";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
 import { cooksFromRows, resolveCookId } from "../lib/cooks";
 import { setKindFailure } from "../lib/mealPhotos";
-import { giveFailure, giftObjectPath, GIFT_RENDITIONS } from "../lib/giveMeal";
+import { giveFailure, giftObjectPath, giftExt, GIFT_RENDITIONS } from "../lib/giveMeal";
 import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArrival";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
@@ -2646,10 +2646,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // GIVE THIS MEAL (072 §5 give_meal / revoke_meal_gifts; SPEC_meal_sharing_phase_a_client Commit 2;
   // S34 / S41 / S44). The server builds the snapshot and picks the photo (S12: the giver's own latest
   // showcase, or none) and mints the 16-char code. The CLIENT then copies the two renditions into
-  // gift-photos/{gift_id}/ — view.webp first, then thumb.webp, no upsert (C4) — before the share
-  // sheet ever opens (S34). Bytes are copied, never re-encoded: a JPEG rendition is refused by the
-  // webp-only bucket and the sheet shows B5. The code is returned to the caller for the share
-  // payload only; it is never written to state the DOM could carry.
+  // gift-photos/{gift_id}/ — view first, then thumb, no upsert (C4) — before the share sheet ever
+  // opens (S34), then asks the server to mark the gift (attach_gift_photo, 074 / S47). Bytes travel
+  // in the format they were stored in (webp or jpeg), never re-encoded. The code is returned to the
+  // caller for the share payload only; it is never written to state the DOM could carry.
   // ─────────────────────────────────────────────────────────────
   const giveMeal = useCallback(async (mealId, note) => {
     const db = supabaseRef.current;
@@ -2660,9 +2660,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return { ok: true, code: d.code, giftId: d.gift_id, photoPath: d.photo_path || null, thumbPath: d.photo_thumb_path || null };
   }, []);
 
-  // The photo copy (C4). Signs the two source paths in meal-photos (the giver is a member), fetches
-  // the bytes, uploads them under the gift id. Any failure — a refused upload, a missing object, a
-  // JPEG rendition — is one answer: { ok: false }; no retry, no delete (the S37 sweep collects strays).
+  // The photo copy (C4 / S47). Signs the two source paths in meal-photos (the giver is a member),
+  // fetches the bytes, uploads them under the gift id as {gift_id}/(view|thumb).{ext} with the
+  // source blob's own contentType — "webp" or "jpg" from the bytes' type, the two formats the bucket
+  // admits (074); both renditions must share it — then attach_gift_photo(gift_id, ext): the SERVER
+  // checks both objects exist in that one format and marks meal_gifts.photo_ext. Any failure — a
+  // refused upload, a missing object, an unexpected type, a mismatched pair, a refused mark — is one
+  // answer: { ok: false } (B5); no retry, no delete (the S37 sweep collects strays).
   const copyGiftPhoto = useCallback(async (giftId, viewPath, thumbPath) => {
     const db = supabaseRef.current;
     if (!db || !giftId || !viewPath || !thumbPath) return { ok: false };
@@ -2672,19 +2676,22 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       const urlFor = (path) => { const d = (signed || []).find((x) => x && x.path === path && !x.error); return d ? d.signedUrl : null; };
       const sources = { view: viewPath, thumb: thumbPath };
       const gift = db.storage.from("gift-photos");
+      let ext = null;
       for (const rendition of GIFT_RENDITIONS) {
         const url = urlFor(sources[rendition]);
         if (!url) throw new Error(`no signed url for the ${rendition} rendition`);
         const res = await fetch(url);
         if (!res.ok) throw new Error(`${rendition} fetch ${res.status}`);
         const blob = await res.blob();
-        // C4 (2026-10-30): WebP bytes are copied as they are; a JPEG rendition (an iPhone showcase)
-        // is re-encoded to WebP here — the bucket is webp-only and answered 415 to JPEG bytes on
-        // the first real give. No encoder for WebP on this device → throws → B5.
-        const body = await giftWebp(blob);
-        const { error: upErr } = await gift.upload(giftObjectPath(giftId, rendition), body, { contentType: "image/webp", upsert: false, cacheControl: "3600" });
+        const e = giftExt(blob.type);
+        if (!e) throw new Error(`${rendition} rendition is ${blob.type || "untyped"}, not webp or jpeg`);
+        if (ext && e !== ext) throw new Error(`${rendition} rendition is ${e}, view was ${ext}`);
+        ext = e;
+        const { error: upErr } = await gift.upload(giftObjectPath(giftId, rendition, ext), blob, { contentType: blob.type, upsert: false, cacheControl: "3600" });
         if (upErr) throw upErr;
       }
+      const { error: aErr } = await db.rpc("attach_gift_photo", { p_gift_id: giftId, p_ext: ext });
+      if (aErr) throw aErr;
       return { ok: true };
     } catch (e) {
       console.warn("[give] gift photo copy failed (B5):", e && (e.message || e));
@@ -2716,8 +2723,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // SPEC_meal_sharing_phase_a_client Commit 3; S24, S25, S36, S40). preview reads the gift for THIS
   // place (membership first; not_found P0002, revoked 55000). The receipt is written after the
   // person's normal save, idempotent, retried once silently (the 09-08 residual: a meal without a
-  // receipt is still theirs). The photo copy downloads the gift's two renditions (the SELECT policy
-  // admits authenticated while the gift is live), uploads them under the RECEIVER's own folder,
+  // receipt is still theirs). The photo copy downloads the gift's two renditions in the gift's own
+  // format (photo_ext; the SELECT policy admits authenticated while the gift is live and marked),
+  // uploads them byte for byte under the RECEIVER's own folder with the same extension (S47),
   // then accept_gift_photo records a showcase row whose uploaded_by is the GIVER (derived, never
   // passed — S23 / S36). Photo failure is quiet beyond one toast; the meal is already theirs.
   // ─────────────────────────────────────────────────────────────
@@ -2728,7 +2736,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const { data, error: err } = await db.rpc("preview_meal_gift", { p_code: code, p_household_id: hh.id });
     if (err) { console.warn("[gift] preview_meal_gift failed:", err.code, err.message); return { ok: false, ...arrivalFailure(err) }; }
     const d = data || {};
-    return { ok: true, giftId: d.gift_id, snapshot: d.snapshot || {}, note: d.note || null, alreadyAdded: d.already_added || null, hasPhoto: d.has_photo === true };
+    // 074 / S47: photo_ext ("webp" | "jpg" | null) is the server's mark and the name to sign; has_photo
+    // on the server is `photo_ext is not null`, so the client derives the flag from the same field.
+    const photoExt = d.photo_ext === "webp" || d.photo_ext === "jpg" ? d.photo_ext : null;
+    return { ok: true, giftId: d.gift_id, snapshot: d.snapshot || {}, note: d.note || null, alreadyAdded: d.already_added || null, hasPhoto: photoExt !== null, photoExt };
   }, []);
 
   const recordMealGiftReceipt = useCallback(async (code, mealId) => {
@@ -2756,12 +2767,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     } catch (e) { return { width: 0, height: 0 }; }
   };
 
-  const acceptGiftPhoto = useCallback(async (giftId, mealId) => {
+  const acceptGiftPhoto = useCallback(async (giftId, mealId, photoExt) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
-    if (!db || !hh || !giftId || !mealId) return { ok: false };
+    if (!db || !hh || !giftId || !mealId || !(photoExt === "webp" || photoExt === "jpg")) return { ok: false };
     try {
-      const src = giftSourcePaths(giftId);
+      // S47: the gift's format (preview_meal_gift.photo_ext) names the source objects and the copies.
+      const src = giftSourcePaths(giftId, photoExt);
       const { data: signed, error: sErr } = await db.storage.from("gift-photos").createSignedUrls([src.view, src.thumb], 60);
       if (sErr) throw sErr;
       const urlFor = (path) => { const d = (signed || []).find((x) => x && x.path === path && !x.error); return d ? d.signedUrl : null; };
@@ -2775,9 +2787,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       const viewBlob = await get(src.view);
       const thumbBlob = await get(src.thumb);
       const { width, height } = await measureBlob(viewBlob);
-      const { thumbPath, viewPath } = acceptCopyPaths(hh.id, mealId, crypto.randomUUID());
+      const { thumbPath, viewPath } = acceptCopyPaths(hh.id, mealId, crypto.randomUUID(), photoExt);
       const bucket = db.storage.from("meal-photos");
-      const opts = (b) => ({ contentType: b.type || "image/webp", upsert: false, cacheControl: "3600" });
+      const mime = photoExt === "jpg" ? "image/jpeg" : "image/webp";
+      const opts = (b) => ({ contentType: b.type || mime, upsert: false, cacheControl: "3600" });
       const [t, v] = await Promise.all([bucket.upload(thumbPath, thumbBlob, opts(thumbBlob)), bucket.upload(viewPath, viewBlob, opts(viewBlob))]);
       if (t.error) throw t.error;
       if (v.error) throw v.error;

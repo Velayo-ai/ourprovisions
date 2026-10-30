@@ -11,7 +11,7 @@
 // It may be used for EXACTLY two calls, both here, and nothing else imports this module
 // except the gift card (src/lib/supabaseAnon.test.js greps src/ to keep both true):
 //   1. rpc  preview_meal_gift_public(p_code)             → one row, or none (unknown = revoked)
-//   2. storage.from("gift-photos").createSignedUrls(...)  → the card's view.webp
+//   2. storage.from("gift-photos").createSignedUrls(...)  → the card's view.{photo_ext}
 // No table reads, no other RPC, no other bucket. The gift code travels in the POST body, never
 // the URL (spans keep a REST path's query only on /rest/v1/, and there is no query here).
 import { createClient } from "@supabase/supabase-js";
@@ -44,14 +44,15 @@ export async function previewMealGiftPublic(code) {
   }
 }
 
-// Call 2. The gift's view rendition: gift-photos/{gift_id}/view.webp, signed by anon under the
-// S35 SELECT policy (readable only while the gift is live). Same cache as meal-photos (1 h TTL,
-// re-minted near expiry), bucket parameterised — no second bucket name hard-coded anywhere else.
-export const giftPhotoPath = (giftId) => `${giftId}/view.webp`;
+// Call 2. The gift's view rendition: gift-photos/{gift_id}/view.{ext}, ext = the row's photo_ext
+// ("webp" or "jpg" — S47 / 074: the format the giver stored it in), signed by anon under the S35
+// SELECT policy (readable only while the gift is live AND marked). Same cache as meal-photos (1 h
+// TTL, re-minted near expiry), bucket parameterised — no second bucket name hard-coded anywhere else.
+export const giftPhotoPath = (giftId, ext) => `${giftId}/view.${ext}`;
 const giftUrls = createSignedUrlCache({ bucket: "gift-photos" });
-export async function giftPhotoUrl(giftId) {
-  if (!giftId) return null;
-  const path = giftPhotoPath(giftId);
+export async function giftPhotoUrl(giftId, ext) {
+  if (!giftId || !ext) return null;
+  const path = giftPhotoPath(giftId, ext);
   const got = await giftUrls.resolve(anon(), [path]);
   return got[path] || null;
 }

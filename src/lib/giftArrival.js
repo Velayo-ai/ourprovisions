@@ -73,11 +73,12 @@ export function thankYouPayload(mealName, giverFirst) {
   };
 }
 
-// The photo copy on accept (S36 / S40 / C8): both gift renditions, into the receiver's own folder in
-// meal-photos with one fresh stem; webp (the gift bucket is webp-only). thumb first in the RPC's
-// argument list (the 10-29 ruling).
-export const giftSourcePaths = (giftId) => ({ view: `${giftId}/view.webp`, thumb: `${giftId}/thumb.webp` });
-export function acceptCopyPaths(householdId, mealId, stem) {
+// The photo copy on accept (S36 / S40 / C8 / S47): both gift renditions, into the receiver's own folder
+// in meal-photos with one fresh stem and the SAME extension the gift was stored with (photo_ext from
+// preview_meal_gift: "webp" or "jpg" — 074; never re-encoded). thumb first in the RPC's argument
+// list (the 10-29 ruling).
+export const giftSourcePaths = (giftId, ext) => ({ view: `${giftId}/view.${ext}`, thumb: `${giftId}/thumb.${ext}` });
+export function acceptCopyPaths(householdId, mealId, stem, ext) {
   const base = `${householdId}/${mealId}/${stem}`;
-  return { thumbPath: `${base}-thumb.webp`, viewPath: `${base}-view.webp` };
+  return { thumbPath: `${base}-thumb.${ext}`, viewPath: `${base}-view.${ext}` };
 }

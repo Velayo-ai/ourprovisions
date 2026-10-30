@@ -1,5 +1,5 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/lib/giveMeal
-import { myShowcase, noteForGive, NOTE_MAX, GIFT_RENDITIONS, giftObjectPath, giftShareText, giftUrl, giftSharePayload, whatTheySee, closeDisabled, giveFailure } from "./giveMeal";
+import { myShowcase, noteForGive, NOTE_MAX, GIFT_RENDITIONS, giftObjectPath, giftExt, GIFT_EXTS, giftShareText, giftUrl, giftSharePayload, whatTheySee, closeDisabled, giveFailure } from "./giveMeal";
 
 describe("giveFailure (072 §5 codes → a line, never swallowed)", () => {
   test("42501 → members only; 22023 note → the note line; other 22023 → kind; else the RPC's message", () => {
@@ -41,11 +41,19 @@ describe("noteForGive", () => {
   });
 });
 
-describe("the photo copy (C4)", () => {
-  test("view first, then thumb; paths are {gift_id}/{rendition}.webp — the gift id only, never a household", () => {
+describe("the photo copy (C4 / S47)", () => {
+  test("view first, then thumb; paths are {gift_id}/{rendition}.{ext} — the gift id only, never a household", () => {
     expect(GIFT_RENDITIONS).toEqual(["view", "thumb"]);
-    expect(giftObjectPath("3f2a9c1e-7b6d-4e5f-8a9b-0c1d2e3f4a5b", "view")).toBe("3f2a9c1e-7b6d-4e5f-8a9b-0c1d2e3f4a5b/view.webp");
-    expect(giftObjectPath("g", "thumb")).toBe("g/thumb.webp");
+    expect(giftObjectPath("3f2a9c1e-7b6d-4e5f-8a9b-0c1d2e3f4a5b", "view", "webp")).toBe("3f2a9c1e-7b6d-4e5f-8a9b-0c1d2e3f4a5b/view.webp");
+    expect(giftObjectPath("g", "thumb", "jpg")).toBe("g/thumb.jpg");
+  });
+  test("S47: the extension comes from the bytes' own type — webp or jpg, never re-encoded; anything else is no upload (B5)", () => {
+    expect(GIFT_EXTS).toEqual({ "image/webp": "webp", "image/jpeg": "jpg" });
+    expect(giftExt("image/webp")).toBe("webp");
+    expect(giftExt("image/jpeg")).toBe("jpg");
+    expect(giftExt("image/png")).toBeNull();
+    expect(giftExt("")).toBeNull();
+    expect(giftExt(undefined)).toBeNull();
   });
 });
 
@@ -80,15 +88,5 @@ describe("closeDisabled (S34: the ✕ is inert while the link is being made)", (
     expect(closeDisabled("giving")).toBe(true);
     expect(closeDisabled("copying")).toBe(true);
     expect(closeDisabled("ready")).toBe(false);
-  });
-});
-
-describe("giftBytesPlan (C4, 2026-10-30)", () => {
-  const { giftBytesPlan } = require("./giveMeal");
-  test("WebP bytes are copied; a JPEG (iPhone showcase) or anything else is re-encoded", () => {
-    expect(giftBytesPlan("image/webp")).toBe("copy");
-    expect(giftBytesPlan("image/jpeg")).toBe("reencode");
-    expect(giftBytesPlan("")).toBe("reencode");
-    expect(giftBytesPlan(undefined)).toBe("reencode");
   });
 });

@@ -1,21 +1,29 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/lib/giftCard
-import { giftCardModel, fromLine, ingredientCount, giftMetaLine } from "./giftCard";
+import { giftCardModel, fromLine, ingredientCount, giftMetaLine, giftPhotoExt } from "./giftCard";
 
-const ROW = { gift_id: "3f2a9c1e-7b6d-4e5f-8a9b-0c1d2e3f4a5b", title: "Famous Grilled Cheese & Pickle", attribution: "Easton", ingredient_count: 7, has_photo: true };
+const ROW = { gift_id: "3f2a9c1e-7b6d-4e5f-8a9b-0c1d2e3f4a5b", title: "Famous Grilled Cheese & Pickle", attribution: "Easton", ingredient_count: 7, has_photo: true, photo_ext: "webp" };
 
 describe("giftCardModel (C5–C8)", () => {
-  test("the five fields → the card's model", () => {
-    expect(giftCardModel(ROW)).toEqual({ giftId: ROW.gift_id, title: ROW.title, from: "From Easton", count: "7 ingredients", hasPhoto: true });
+  test("the S43 fields → the card's model (S47: photo_ext rides along as the name to sign)", () => {
+    expect(giftCardModel(ROW)).toEqual({ giftId: ROW.gift_id, title: ROW.title, from: "From Easton", count: "7 ingredients", hasPhoto: true, photoExt: "webp" });
+    expect(giftCardModel({ ...ROW, photo_ext: "jpg" }).photoExt).toBe("jpg");
   });
   test("C6: empty attribution → no From line (null, never a placeholder)", () => {
     expect(giftCardModel({ ...ROW, attribution: "" }).from).toBeNull();
     expect(giftCardModel({ ...ROW, attribution: null }).from).toBeNull();
     expect(giftCardModel({ ...ROW, attribution: "   " }).from).toBeNull();
   });
-  test("C8: has_photo is the flag itself — anything but true is false", () => {
-    expect(giftCardModel({ ...ROW, has_photo: false }).hasPhoto).toBe(false);
-    expect(giftCardModel({ ...ROW, has_photo: null }).hasPhoto).toBe(false);
-    expect(giftCardModel({ ...ROW, has_photo: "true" }).hasPhoto).toBe(false);
+  test("C8 / S47: photo_ext is the flag — webp or jpg means a photo; null, missing or anything else means none", () => {
+    expect(giftCardModel({ ...ROW, has_photo: false, photo_ext: null }).hasPhoto).toBe(false);
+    expect(giftCardModel({ ...ROW, has_photo: false, photo_ext: null }).photoExt).toBeNull();
+    const { photo_ext, ...noExt } = ROW;
+    expect(giftCardModel(noExt).hasPhoto).toBe(false);
+    expect(giftCardModel({ ...ROW, photo_ext: "png" }).hasPhoto).toBe(false);
+    expect(giftCardModel({ ...ROW, photo_ext: "jpg" }).hasPhoto).toBe(true);
+    expect(giftPhotoExt("webp")).toBe("webp");
+    expect(giftPhotoExt("jpg")).toBe("jpg");
+    expect(giftPhotoExt("jpeg")).toBeNull();
+    expect(giftPhotoExt(undefined)).toBeNull();
   });
   test("C7: no row → null (unknown and revoked look the same)", () => {
     expect(giftCardModel(null)).toBeNull();

@@ -38,8 +38,9 @@ export function GiftCard({ code, ready = false, onAddToMeals, onSignIn }) {
       const model = giftCardModel(r.row);
       if (!model) { setState({ phase: "dead" }); return; }
       setState({ phase: "live", model });
-      // C8: has_photo decides the slot; the URL is signed on the client from the gift id only.
-      if (model.hasPhoto) giftPhotoUrl(model.giftId).then((u) => { if (!cancelled && u) setPhotoUrl(u); });
+      // C8 / S47: photo_ext decides the slot; the URL is signed on the client from the gift id and
+      // the format the giver stored it in ({gift_id}/view.{photo_ext}).
+      if (model.hasPhoto) giftPhotoUrl(model.giftId, model.photoExt).then((u) => { if (!cancelled && u) setPhotoUrl(u); });
     });
     return () => { cancelled = true; };
   }, [code, attempt]);
