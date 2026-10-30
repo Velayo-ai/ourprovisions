@@ -59,13 +59,15 @@ describe("click-text privacy block is unchanged", () => {
     // = 58; SPEC_photo_menu (2026-10-25): out .rv-photo-remove-yes, .rv-photo-keep; in .rv-photo-replace, .rv-photo-details,
     // .rv-photo-save, .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-photo-placeholder → 62;
     // Phase A Commit 0 (showcase upload, 2026-10-29): in .rv-photo-showcase, .rv-showcase-go, .rv-showcase-cancel → 65;
-    // Phase A Commit 1 (public gift card): in .gift-add, .gift-signin, .gift-what, .gift-retry → 69
-    expect(rules.slice(0, -2)).toHaveLength(69);
+    // Phase A Commit 1 (public gift card): in .gift-add, .gift-signin, .gift-what, .gift-retry → 69;
+    // Phase A Commit 0b (S46 flip model, 2026-10-30): out .rv-photo-showcase; in .rv-photo-make-showcase, .rv-photo-make-cook,
+    // .rv-photo-full-ok (.rv-showcase-go / -cancel stay as the S13 prompt's buttons) → 71
+    expect(rules.slice(0, -2)).toHaveLength(71);
     const sel = rules.map((r) => r.selector);
     [".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove", ".rv-photo-confirm-remove", ".rv-photo-confirm-keep", ".rv-photo-placeholder",
-      ".rv-photo-showcase", ".rv-showcase-go", ".rv-showcase-cancel", ".gift-add", ".gift-signin", ".gift-what", ".gift-retry"]
+      ".rv-photo-make-showcase", ".rv-photo-make-cook", ".rv-showcase-go", ".rv-showcase-cancel", ".rv-photo-full-ok", ".gift-add", ".gift-signin", ".gift-what", ".gift-retry"]
       .forEach((c) => expect(sel).toContain(c));
-    [".rv-photo-remove-yes", ".rv-photo-keep", ".rv-photo-more"].forEach((c) => expect(sel).not.toContain(c));
+    [".rv-photo-remove-yes", ".rv-photo-keep", ".rv-photo-more", ".rv-photo-showcase"].forEach((c) => expect(sel).not.toContain(c));
     expect(rules.some((r) => r.selector === ".op-replay-block")).toBe(false);
   });
   test("preview: Clerk excludes only", () => {

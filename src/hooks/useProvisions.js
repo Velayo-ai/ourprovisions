@@ -2619,25 +2619,24 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return saveMealPhoto(up.upload, cookId);
   }, [uploadMealPhoto, saveMealPhoto]);
 
-  // SHOWCASE PHOTO (072 add_showcase_photo; SPEC_meal_sharing_v2 S9 / S13 / S26 / S31): the same
-  // two renditions and the same upload as a cook photo, then add_showcase_photo — no cook id by
-  // signature, kind = showcase, one live per person per meal (the RPC retires the caller's
-  // previous one), outside the cook cap and its trim. The argument order is 065's
-  // (p_thumb_path, p_view_path). Same return shape as addMealPhoto; the caller says it quietly.
-  const addShowcasePhoto = useCallback(async (mealId, file) => {
-    const up = await uploadMealPhoto(mealId, file);
-    if (!up.ok) return up;
+  // THE FLIP (073 set_photo_kind; SPEC_meal_sharing_v2 S46, Dan 2026-10-30): a photo is born a
+  // meal photo (kind = cook, add_meal_photo above) and its AUTHOR flips it — to showcase (the one
+  // photo that can travel on their own public gift) or back to a meal photo. The server checks
+  // the author (uploaded_by = the JWT's user; 42501 for anyone else), retires the author's other
+  // live showcase on the meal when flipping to showcase, and REFUSES a flip to cook at 3 live cook
+  // photos (22023 "meal photos are full") rather than age one out. meal_cook_id is left as-is.
+  // Returns { ok: true } or { ok: false, reason: "full" | "save" }; the caller says it quietly.
+  // (072's add_showcase_photo stays in the database, unused by the client — S46.)
+  const setPhotoKind = useCallback(async (photoId, kind) => {
     const db = supabaseRef.current;
-    const u = up.upload;
-    const { data: id, error: err } = await db.rpc("add_showcase_photo", {
-      p_meal_id: u.mealId, p_thumb_path: u.thumbPath, p_view_path: u.viewPath, p_width: u.width, p_height: u.height,
-    });
+    if (!db || !photoId || (kind !== "cook" && kind !== "showcase")) return { ok: false, reason: "save" };
+    const { error: err } = await db.rpc("set_photo_kind", { p_photo_id: photoId, p_kind: kind });
     if (err) {
-      console.warn("[showcase photo] add_showcase_photo failed:", err.code, err.message);
-      return { ok: false, reason: "save" };
+      console.warn("[photo kind] set_photo_kind failed:", err.code, err.message);
+      return { ok: false, reason: err.code === "22023" && /full/i.test(err.message || "") ? "full" : "save" };
     }
-    return { ok: true, id };
-  }, [uploadMealPhoto]);
+    return { ok: true };
+  }, []);
 
   const removeMealPhoto = useCallback(async (photoId) => {
     const db = supabaseRef.current;
@@ -3946,7 +3945,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
-    addMealPhoto, uploadMealPhoto, saveMealPhoto, addShowcasePhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
+    addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     fetchTripReality, answerTripReality,

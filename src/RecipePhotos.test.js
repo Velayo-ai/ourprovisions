@@ -30,7 +30,7 @@ beforeEach(() => onPlanSpy.mockClear());
 function viewEl(over = {}, h = {}) {
   return (
     <RecipeView meal={MEAL} state={null} members={[]} cookCount={0} lastCookedAt={null} cookRows={null} links={null}
-      tagsReady={false} addedThisPlan={false} viewerUserId={null} busy={false}
+      tagsReady={false} addedThisPlan={false} viewerUserId="u1" busy={false}
       onPlan={onPlanSpy} onAddToShop={jest.fn()} onCooked={jest.fn()} onRemove={jest.fn()} onSeeList={jest.fn()} onClose={jest.fn()} onEdit={jest.fn()}
       photos={[]} photosReady canEditPhotos photoBusy={false} {...h} {...over} />
   );
@@ -77,59 +77,122 @@ describe("the hero strip (R2)", () => {
     expect(q(container, ".rv-photo-more")).not.toBeNull();
   });
 
-  test("P1: the row under the hero has no ⋯ — only 'Add a meal photo' (and, when wired, 'Add a showcase photo')", () => {
-    const { container } = view({ photos: [photo("a")] });
+  test("P1: the row under the hero has no ⋯ — only 'Add a meal photo'", () => {
+    const { container } = view({ photos: [photo("a")], onSetPhotoKind: jest.fn() });
     const row = q(container, ".rv-photo-ctl");
     expect(qa(row, "button").map((b) => b.className)).toEqual(["rv-photo-add"]);
     expect(q(row, ".rv-photo-more")).toBeNull();
-    const wired = view({ photos: [photo("a")], onAddShowcasePhoto: jest.fn() });
-    expect(qa(q(wired.container, ".rv-photo-ctl"), "button").map((b) => b.className)).toEqual(["rv-photo-add", "rv-photo-showcase"]);
+    expect(q(container, ".rv-photo-showcase")).toBeNull();   // S46: no second button, ever
   });
 });
 
-// ---------------------------------------------------------------- showcase photos (SPEC_meal_sharing_v2 S9 / S13 / S26 / S28; 072)
-describe("showcase photos", () => {
+// ---------------------------------------------------------------- showcase photos — THE FLIP MODEL
+// (SPEC_meal_sharing_v2 S46, Dan 2026-10-30; 072 kind; 073 set_photo_kind). A photo is born a meal
+// photo; its AUTHOR flips it from the photo's ⋯. The default viewer here is "u1", the photos' author.
+describe("showcase photos — the flip (S46)", () => {
   const showcase = (id, by = "u1") => ({ ...photo(id, by), kind: "showcase" });
   const cook = (id, by = "u1") => ({ ...photo(id, by), kind: "cook" });
   const S13 = "Showcase photos can be seen by anyone. Check everyone in it is happy with that.";
+  const flipView = (over = {}) => { const onSetPhotoKind = jest.fn(); const r = view({ onSetPhotoKind, ...over }); return { ...r, onSetPhotoKind }; };
+  const openMenu = (c) => fireEvent.click(q(c, ".rv-photo-more"));
+  const items = (root) => Array.from(q(root, ".rv-photo-pop").children).map((el) => (el.getAttribute("role") === "separator" ? "—" : el.textContent));
 
-  test("S13: 'Add a showcase photo' opens the prompt first — nothing picked yet; Choose a photo opens the picker; the file goes to onAddShowcasePhoto", () => {
-    const onAddShowcasePhoto = jest.fn();
-    const { container, h } = view({ onAddShowcasePhoto });
-    const input = qa(container, "input[type=file]")[1];
-    const click = jest.spyOn(input, "click");
-    fireEvent.click(q(container, ".rv-photo-showcase"));
-    expect(click).not.toHaveBeenCalled();
+  test("one button: the row under the hero is 'Add a meal photo' alone; no 'Add a showcase photo', one file input", () => {
+    const { container } = flipView({ photos: [cook("a")] });
+    expect(qa(q(container, ".rv-photo-ctl"), "button").map((b) => b.className)).toEqual(["rv-photo-add"]);
+    expect(q(container, ".rv-photo-showcase")).toBeNull();
+    expect(qa(container, "input[type=file]")).toHaveLength(1);
+  });
+
+  test("S13: 'Make showcase' on my cook photo opens the prompt first — nothing flipped yet; the prompt's 'Make showcase' flips; menu order", () => {
+    const { container, onSetPhotoKind } = flipView({ photos: [cook("a")], onReplacePhoto: jest.fn() });
+    openMenu(container);
+    expect(items(container)).toEqual(["Replace photo", "Make showcase", "Photo details", "Download photo", "—", "Remove photo"]);
+    fireEvent.click(q(container, ".rv-photo-make-showcase"));
+    expect(onSetPhotoKind).not.toHaveBeenCalled();
     const sheet = q(document.body, ".rv-psheet-scrim");
     expect(sheet.textContent).toContain(S13);
-    expect(q(sheet, ".rv-showcase-go").textContent).toBe("Choose a photo");
+    expect(q(sheet, ".rv-psheet-h").textContent).toBe("Make this a showcase photo?");
+    expect(q(sheet, ".rv-psheet-thumb").className.split(" ")).toEqual(expect.arrayContaining(["op-replay-block", "op-photo"]));
+    expect(q(sheet, ".rv-showcase-go").textContent).toBe("Make showcase");
     expect(q(sheet, ".rv-showcase-cancel").textContent).toBe("Not now");
     fireEvent.click(q(sheet, ".rv-showcase-go"));
-    expect(click).toHaveBeenCalledTimes(1);
+    expect(onSetPhotoKind).toHaveBeenCalledWith(MEAL.id, "a", "showcase");
     expect(q(document.body, ".rv-psheet-scrim")).toBeNull();
-    const file = new File([new Uint8Array([1])], "s.jpg", { type: "image/jpeg" });
-    fireEvent.change(input, { target: { files: [file] } });
-    expect(onAddShowcasePhoto).toHaveBeenCalledWith(MEAL.id, file);
-    expect(h.onAddPhoto).not.toHaveBeenCalled();
   });
 
-  test("S13: Not now closes the prompt and picks nothing", () => {
-    const onAddShowcasePhoto = jest.fn();
-    const { container } = view({ onAddShowcasePhoto });
-    const click = jest.spyOn(qa(container, "input[type=file]")[1], "click");
-    fireEvent.click(q(container, ".rv-photo-showcase"));
+  test("S13: Not now closes the prompt and flips nothing; the prompt comes back on the next attempt (once per flip)", () => {
+    const { container, onSetPhotoKind } = flipView({ photos: [cook("a")] });
+    openMenu(container);
+    fireEvent.click(q(container, ".rv-photo-make-showcase"));
     fireEvent.click(q(document.body, ".rv-showcase-cancel"));
     expect(q(document.body, ".rv-psheet-scrim")).toBeNull();
-    expect(click).not.toHaveBeenCalled();
-    expect(onAddShowcasePhoto).not.toHaveBeenCalled();
+    expect(onSetPhotoKind).not.toHaveBeenCalled();
+    openMenu(container);
+    fireEvent.click(q(container, ".rv-photo-make-showcase"));
+    expect(q(document.body, ".rv-psheet-scrim").textContent).toContain(S13);
   });
 
-  test("S26: at 3 cook photos 'Add a meal photo' hides but 'Add a showcase photo' stays; a showcase photo never counts toward the cap", () => {
-    const { container } = view({ photos: [cook("a"), cook("b"), cook("c")], onAddShowcasePhoto: jest.fn() });
+  test("my showcase photo: 'Make it a meal photo' flips straight back with no prompt; its ⋯ has no Replace and no 'Make showcase'", () => {
+    const { container, onSetPhotoKind } = flipView({ photos: [showcase("s"), cook("a")], onReplacePhoto: jest.fn() });
+    openMenu(container);
+    expect(items(container)).toEqual(["Make it a meal photo", "Photo details", "Download photo", "—", "Remove photo"]);
+    fireEvent.click(q(container, ".rv-photo-make-cook"));
+    expect(q(document.body, ".rv-psheet-scrim")).toBeNull();
+    expect(onSetPhotoKind).toHaveBeenCalledWith(MEAL.id, "s", "cook");
+    // the cook photo next door keeps Replace and offers Make showcase
+    fireEvent.click(q(container, ".rv-photo-next"));
+    openMenu(container);
+    expect(q(container, ".rv-photo-replace")).not.toBeNull();
+    expect(q(container, ".rv-photo-make-showcase")).not.toBeNull();
+  });
+
+  test("S46 + S14: another member's photo has neither flip item and no Save (Replace, Details, Remove stay); mine has Save", () => {
+    const { container } = flipView({ photos: [cook("x", "u2"), showcase("y", "u2"), cook("a")], members: MEMBERS, onReplacePhoto: jest.fn() });
+    openMenu(container);
+    expect(items(container)).toEqual(["Replace photo", "Photo details", "—", "Remove photo"]);
+    [".rv-photo-make-showcase", ".rv-photo-make-cook", ".rv-photo-save"].forEach((s) => expect(q(container, s)).toBeNull());
+    openMenu(container);   // close
+    fireEvent.click(q(container, ".rv-photo-next"));
+    openMenu(container);
+    expect(items(container)).toEqual(["Photo details", "—", "Remove photo"]);
+    openMenu(container);   // close
+    fireEvent.click(q(container, ".rv-photo-next"));
+    openMenu(container);
+    expect(items(container)).toEqual(["Replace photo", "Make showcase", "Photo details", "Download photo", "—", "Remove photo"]);
+  });
+
+  test("no viewer id (nothing is 'mine'): no flip items and no Save on any photo", () => {
+    const { container } = flipView({ photos: [cook("a")], viewerUserId: null, onReplacePhoto: jest.fn() });
+    openMenu(container);
+    expect(items(container)).toEqual(["Replace photo", "Photo details", "—", "Remove photo"]);
+  });
+
+  test("S26: at 3 live cook photos 'Make it a meal photo' shows the plain line and calls nothing; 'Add a meal photo' hides at the cap; a showcase never counts", () => {
+    const { container, onSetPhotoKind } = flipView({ photos: [showcase("s"), cook("a"), cook("b"), cook("c")] });
     expect(q(container, ".rv-photo-add")).toBeNull();
-    expect(q(container, ".rv-photo-showcase")).not.toBeNull();
-    const two = view({ photos: [cook("a"), cook("b"), showcase("s")], onAddShowcasePhoto: jest.fn() });
+    openMenu(container);
+    fireEvent.click(q(container, ".rv-photo-make-cook"));
+    const sheet = q(document.body, ".rv-psheet-scrim");
+    expect(q(sheet, ".rv-psheet-h").textContent).toBe("Meal photos are full");
+    expect(sheet.textContent).toContain("This meal already has 3 meal photos. Remove one to make room for this one.");
+    expect(q(sheet, ".rv-photo-full-ok").textContent).toBe("OK");
+    expect(onSetPhotoKind).not.toHaveBeenCalled();
+    fireEvent.click(q(sheet, ".rv-photo-full-ok"));
+    expect(q(document.body, ".rv-psheet-scrim")).toBeNull();
+    const two = flipView({ photos: [cook("a"), cook("b"), showcase("s")] });
     expect(q(two.container, ".rv-photo-add")).not.toBeNull();
+  });
+
+  test("the full-size viewer's ⋯ carries the same flip item and acts on the photo in view", () => {
+    const viewerDialog = () => document.body.querySelector(".rv-viewer");
+    const { container, onSetPhotoKind } = flipView({ photos: [cook("a"), cook("b")] });
+    fireEvent.click(qa(container, ".rv-photo-open")[1]);
+    fireEvent.click(q(viewerDialog(), ".rv-photo-more"));
+    fireEvent.click(q(viewerDialog(), ".rv-photo-make-showcase"));
+    expect(q(document.body, ".rv-psheet-scrim").textContent).toContain(S13);
+    fireEvent.click(q(document.body, ".rv-showcase-go"));
+    expect(onSetPhotoKind).toHaveBeenCalledWith(MEAL.id, "b", "showcase");
   });
 
   test("S28: a showcase slide is marked 'Showcase' — a sibling of the photo button, never inside it; cook slides are not", () => {
@@ -142,28 +205,20 @@ describe("showcase photos", () => {
     expect(qa(container, ".rv-strip img")).toHaveLength(2);
   });
 
-  test("a showcase photo's ⋯ has no Replace; a cook photo's does", () => {
-    const { container } = view({ photos: [showcase("s"), cook("a")], onReplacePhoto: jest.fn() });
-    fireEvent.click(q(container, ".rv-photo-more"));
-    expect(q(container, ".rv-photo-replace")).toBeNull();
-    expect(q(container, ".rv-photo-details")).not.toBeNull();
-    fireEvent.click(q(container, ".rv-photo-more"));   // close
-    fireEvent.click(q(container, ".rv-photo-next"));
-    fireEvent.click(q(container, ".rv-photo-more"));
-    expect(q(container, ".rv-photo-replace")).not.toBeNull();
+  test("busy: ⋯ is disabled, so no flip can start", () => {
+    const { container } = flipView({ photoBusy: true, photos: [cook("a")] });
+    expect(q(container, ".rv-photo-more").disabled).toBe(true);
   });
 
-  test("busy: the showcase button is disabled and keeps its fixed copy", () => {
-    const { container } = view({ photoBusy: true, onAddShowcasePhoto: jest.fn() });
-    const b = q(container, ".rv-photo-showcase");
-    expect(b.disabled).toBe(true);
-    expect(b.textContent).toBe("Add a showcase photo");
-  });
-
-  test("replay: the prompt and the tag carry fixed copy and no meal name in any attribute", () => {
-    const { container } = view({ photos: [showcase("s")], onAddShowcasePhoto: jest.fn() });
+  test("replay: the menu items, the prompt and the tag carry fixed copy and no meal name in any attribute", () => {
+    const { container } = flipView({ photos: [showcase("s"), cook("a")] });
     Array.from(q(container, ".rv-showcase-tag").attributes).forEach((a) => expect(a.value).not.toMatch(/Chili/));
-    fireEvent.click(q(container, ".rv-photo-showcase"));
+    openMenu(container);
+    Array.from(q(container, ".rv-photo-make-cook").attributes).forEach((a) => expect(a.value).not.toMatch(/Chili/));
+    openMenu(container);   // close
+    fireEvent.click(q(container, ".rv-photo-next"));
+    openMenu(container);
+    fireEvent.click(q(container, ".rv-photo-make-showcase"));
     qa(q(document.body, ".rv-psheet-scrim"), "*").forEach((el) => Array.from(el.attributes).forEach((a) => expect(a.value).not.toMatch(/Chili/)));
   });
 
@@ -467,7 +522,8 @@ describe("the photo hero and the full-size viewer", () => {
   });
 
   test("tap → a modal dialog on <body>: × focused, 'N of M', the photo uncropped, dots and the strip's caption", () => {
-    const { container } = view({ photos: [photo("a", "u2"), photo("b"), photo("c")], members: MEMBERS });
+    // viewerUserId null here: the caption names the uploader ("· Dan"), not "· You" — the You rule has its own tests.
+    const { container } = view({ photos: [photo("a", "u2"), photo("b"), photo("c")], members: MEMBERS, viewerUserId: null });
     fireEvent.click(qa(container, ".rv-photo-open")[1]);
     const d = dialog();
     expect(d).not.toBeNull();
