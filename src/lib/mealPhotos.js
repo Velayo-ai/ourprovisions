@@ -43,9 +43,24 @@ export function photosByMeal(rows) {
 }
 
 // A stable fingerprint of the live set, so a poll that read the same rows
-// does not re-render the library.
+// does not re-render the library. kind is part of it since S46 (2026-10-30): a flip changes
+// nothing else about a row — the first dev walk's step 3 flipped the row on the server and
+// the client kept the old rows because the print had not moved.
 export function photosFingerprint(rows) {
-  return (rows || []).map((r) => `${r.id}@${r.uploaded_at}`).join("|");
+  return (rows || []).map((r) => `${r.id}@${r.uploaded_at}@${r.kind || "cook"}`).join("|");
+}
+
+// THE FLIP'S FAILURE LINE (S46; Dan 2026-10-30: the handler shows the RPC's message or a plain
+// line, never swallows it). err is the PostgREST error ({ code: SQLSTATE, message }). Returns
+// { reason, line }: reason for the caller's logic, line for the toast.
+export function setKindFailure(err) {
+  const code = err && err.code;
+  const msg = (err && err.message) || "";
+  if (code === "22023" && /full/i.test(msg)) return { reason: "full", line: "Meal photos are full. Remove one to make room." };
+  if (code === "42501") return { reason: "forbidden", line: "Only the person who added a photo can change it." };
+  if (code === "P0002") return { reason: "gone", line: "That photo is gone. Pull to refresh." };
+  const plain = msg.replace(/^set_photo_kind:\s*/i, "").trim();
+  return { reason: "save", line: plain ? `Couldn’t change the photo: ${plain}` : "Couldn’t change the photo. Try again." };
 }
 
 // "today" for an upload made today: cookDate's "tonight" is a cook's word.

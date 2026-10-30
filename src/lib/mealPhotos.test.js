@@ -1,4 +1,4 @@
-import { photosByMeal, photosFingerprint, addedDate, photoCaption, photoDetails, detailsDate, replaceSteps, MEAL_PHOTO_CAP, isShowcase, liveCookCount, atPhotoCap } from "./mealPhotos";
+import { photosByMeal, photosFingerprint, addedDate, photoCaption, photoDetails, detailsDate, replaceSteps, MEAL_PHOTO_CAP, isShowcase, liveCookCount, atPhotoCap, setKindFailure } from "./mealPhotos";
 
 const NOW = new Date(2026, 9, 21, 18, 0, 0);
 const at = (daysAgo) => new Date(2026, 9, 21 - daysAgo, 12, 0, 0).toISOString();
@@ -55,6 +55,32 @@ describe("photosFingerprint", () => {
     const a = [row("a", "m1", 0), row("b", "m1", 1)];
     expect(photosFingerprint(a)).toBe(photosFingerprint(a.map((r) => ({ ...r }))));
     expect(photosFingerprint(a)).not.toBe(photosFingerprint(a.slice(1)));
+  });
+  test("S46 (dev walk step 3, 2026-10-30): a flip changes the print — the same row as cook and as showcase differ; no kind reads as cook", () => {
+    const cookRow = row("a", "m1", 0, { kind: "cook" });
+    expect(photosFingerprint([cookRow])).not.toBe(photosFingerprint([{ ...cookRow, kind: "showcase" }]));
+    expect(photosFingerprint([row("a", "m1", 0)])).toBe(photosFingerprint([cookRow]));
+  });
+});
+
+describe("setKindFailure (S46: the RPC's message or a plain line, never swallowed)", () => {
+  test("22023 'meal photos are full' → the full line", () => {
+    expect(setKindFailure({ code: "22023", message: "set_photo_kind: meal photos are full" }))
+      .toEqual({ reason: "full", line: "Meal photos are full. Remove one to make room." });
+  });
+  test("42501 → the author line; P0002 → the gone line", () => {
+    expect(setKindFailure({ code: "42501", message: "set_photo_kind: only the photo's author can change its kind" }).line)
+      .toBe("Only the person who added a photo can change it.");
+    expect(setKindFailure({ code: "P0002", message: "set_photo_kind: not_found" }).line).toBe("That photo is gone. Pull to refresh.");
+  });
+  test("anything else carries the RPC's own message, with the function prefix dropped", () => {
+    expect(setKindFailure({ code: "22023", message: "set_photo_kind: kind must be cook or showcase (got public)" }))
+      .toEqual({ reason: "save", line: "Couldn’t change the photo: kind must be cook or showcase (got public)" });
+    expect(setKindFailure({ code: "PGRST202", message: "Could not find the function public.set_photo_kind" }).line)
+      .toBe("Couldn’t change the photo: Could not find the function public.set_photo_kind");
+  });
+  test("no error object at all → the plain line", () => {
+    expect(setKindFailure(null)).toEqual({ reason: "save", line: "Couldn’t change the photo. Try again." });
   });
 });
 

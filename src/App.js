@@ -5948,7 +5948,7 @@ function ProvisionsApp() {
     setPhotoBusyMealId(mealId);
     try {
       const r = await setPhotoKind(photoId, kind);
-      if (!r.ok) showToast(r.reason === "full" ? "Meal photos are full. Remove one to make room." : "Couldn't change the photo. Try again.");
+      if (!r.ok) showToast(r.line);   // the RPC's message or its plain line (setKindFailure) — never swallowed
       await loadMealPhotos();
     } finally { setPhotoBusyMealId(null); }
   }, [photoBusyMealId, setPhotoKind, loadMealPhotos, showToast]);

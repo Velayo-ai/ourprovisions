@@ -12,6 +12,7 @@ import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib
 import { trace } from "@opentelemetry/api";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
 import { cooksFromRows, resolveCookId } from "../lib/cooks";
+import { setKindFailure } from "../lib/mealPhotos";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -2625,15 +2626,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // the author (uploaded_by = the JWT's user; 42501 for anyone else), retires the author's other
   // live showcase on the meal when flipping to showcase, and REFUSES a flip to cook at 3 live cook
   // photos (22023 "meal photos are full") rather than age one out. meal_cook_id is left as-is.
-  // Returns { ok: true } or { ok: false, reason: "full" | "save" }; the caller says it quietly.
+  // Returns { ok: true } or { ok: false, reason, line } — the line is the RPC's message or a plain
+  // mapping of its SQLSTATE (src/lib/mealPhotos.js setKindFailure); the caller shows it, never swallows it.
   // (072's add_showcase_photo stays in the database, unused by the client — S46.)
   const setPhotoKind = useCallback(async (photoId, kind) => {
     const db = supabaseRef.current;
-    if (!db || !photoId || (kind !== "cook" && kind !== "showcase")) return { ok: false, reason: "save" };
+    if (!db || !photoId || (kind !== "cook" && kind !== "showcase")) return { ok: false, ...setKindFailure(null) };
     const { error: err } = await db.rpc("set_photo_kind", { p_photo_id: photoId, p_kind: kind });
     if (err) {
       console.warn("[photo kind] set_photo_kind failed:", err.code, err.message);
-      return { ok: false, reason: err.code === "22023" && /full/i.test(err.message || "") ? "full" : "save" };
+      return { ok: false, ...setKindFailure(err) };
     }
     return { ok: true };
   }, []);
