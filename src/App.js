@@ -29,6 +29,7 @@ import { addAllOnHandLine } from './lib/onHand';
 import { cookDateStart, cookHistoryLine } from './lib/cookDate';
 import { photosByMeal, photosFingerprint, photoCaption, photoDetails, replaceSteps, isShowcase, liveCookCount, atPhotoCap } from './lib/mealPhotos';
 import { myShowcase, noteForGive, NOTE_MAX, giftSharePayload, whatTheySee, closeDisabled as giveCloseDisabled } from './lib/giveMeal';
+import { giftDraft, giftBanner, giftNoteQuote, placeLine, alreadyAddedLine, thankYouPayload } from './lib/giftArrival';
 import { canSaveToPhotos, createPhotoSaver, saveLabel } from './lib/savePhoto';
 import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
@@ -2874,6 +2875,37 @@ function GiveSheet({ meal, photo, referralCode, give, onClose, onShowStrip }) {
   );
 }
 
+// THE ARRIVAL THAT CANNOT OPEN THE FORM (Commit 3; 10-07 errors, in plain language): unknown or revoked code,
+// not a member, or already added to this place — with Open it for the copy that is already here.
+function GiftArrivalSheet({ arrival, onOpen, onClose }) {
+  const already = arrival.kind === "already";
+  return (
+    <PhotoSheet labelledBy="gift-arrival-h" onClose={onClose}>
+      <h2 id="gift-arrival-h" className="rv-psheet-h">{arrival.line}</h2>
+      {already && <p className="rv-psheet-body">It’s here already, as your own copy.</p>}
+      <div className="rv-psheet-btns">
+        {already && <button type="button" className="gift-open" data-autofocus="true" onClick={onOpen}>Open it</button>}
+        <button type="button" className="gift-ok" data-autofocus={already ? undefined : "true"} onClick={onClose}>OK</button>
+      </div>
+    </PhotoSheet>
+  );
+}
+
+// THE THANK-YOU (S24): once, after the copy is theirs. The receiver's OWN share sheet; the app records nothing
+// and tells the giver nothing. Skip = gone for good.
+function ThankYouSheet({ ask, onSend, onSkip }) {
+  return (
+    <PhotoSheet labelledBy="thanks-h" onClose={onSkip}>
+      <h2 id="thanks-h" className="rv-psheet-h">{ask}</h2>
+      <p className="rv-psheet-body">Your own message, from your own share sheet. Nothing goes back through the app.</p>
+      <div className="rv-psheet-btns">
+        <button type="button" className="thanks-send" data-autofocus="true" onClick={onSend}>Send a thank you</button>
+        <button type="button" className="thanks-skip" onClick={onSkip}>Skip</button>
+      </div>
+    </PhotoSheet>
+  );
+}
+
 // STOP GIVING (10-07 V11): one confirm; revokes every live gift of the meal. Copies already added stay (V2).
 function StopGivingSheet({ onConfirm, onClose }) {
   return (
@@ -3350,7 +3382,11 @@ function GoodForChips({ value, onChange, style }) {
 // written the moment a category pill was tapped so the draft could hold a real
 // id, and every Cancel left it behind as an orphan. Staged rows can now carry a
 // placeholder, so the write waits for Save (SPEC_defer_catalog_write).
-export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn }) {
+// gift (Phase A Commit 3; the 10-07 prefilled form): { banner, note: { quote, by } | null, placeLine, draft } — a
+// received meal lands through landDraft like any outside draft (source "gift"), under a banner and the
+// giver's note (not editable, never saved on the meal). The doors stay folded, Cancel reads "Not for us"
+// and Save reads "Add to our meals". The receipt and the photo copy run in the caller after the save.
+export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn, gift = null }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -3769,6 +3805,16 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
     setStepsMode("read");
   };
 
+  // A GIFT lands once, on mount (Commit 3): the same landing as the Galley and the import, so the
+  // ingredients resolve against THIS place's catalog and the From field follows C6.
+  const giftLandedRef = useRef(false);
+  useEffect(() => {
+    if (!gift || !gift.draft || giftLandedRef.current) return;
+    giftLandedRef.current = true;
+    landDraft(gift.draft, "gift", { signal: { aborted: false } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gift]);
+
   // Invent (Create a meal): one request, one meal, straight into the fields the manual path uses.
   const handleAskAI = async () => {
     const text = aiText.trim();
@@ -4158,6 +4204,17 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
         <span id="ing-verb-have-tail" className="sr-only">— keep it in the meal but do not add it</span>
         <span id="ing-verb-added" className="sr-only">already added — add another</span>
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
+
+        {/* A received meal (Commit 3; 10-07 frame 6 with the SPEC's words): the banner, "Adding to {place}" when
+            the person has more than one, and the giver's note as a quote — their words, not a field. */}
+        {gift && (
+          <div className="op-gift-banner" role="status">
+            <span><b>{gift.banner}</b>{gift.placeLine ? <span className="op-gift-place"> · {gift.placeLine}</span> : null}</span>
+          </div>
+        )}
+        {gift && gift.note && (
+          <blockquote className="op-gift-note"><i>{gift.note.quote}</i>{gift.note.by && <small>{gift.note.by}</small>}</blockquote>
+        )}
 
         {/* The import banner (spec: Filled). One line, card-tinted, NO teal — nothing
             here is a completion. Start over is the import's one way back; the
@@ -4584,7 +4641,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
           {/* Once a Galley draft has landed the ask block is folded away; this is its
               handle. An imported draft has no handle here — Start over is its one
               way back (spec, Open: "Start over is enough"). */}
-          {galleyCollapsed && !busy && draftSource !== "photo" && draftSource !== "paste" && (
+          {galleyCollapsed && !busy && draftSource !== "photo" && draftSource !== "paste" && draftSource !== "gift" && (
             <button type="button" className="op-steps-action op-ask-again"
               onClick={() => setGalleyCollapsed(false)}>
               Not quite it? Ask the Galley again
@@ -4932,13 +4989,13 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
         )}
 
         <div className="modal-actions">
-          <button className="modal-cancel" onClick={onCancel} disabled={saving || deleting}>Cancel</button>
+          <button className="modal-cancel" onClick={onCancel} disabled={saving || deleting}>{gift ? "Not for us" : "Cancel"}</button>
           <button
             className="modal-confirm"
             disabled={!canSave || saving}
             style={{ opacity: (!canSave || saving) ? 0.5 : 1, cursor: (!canSave || saving) ? "default" : "pointer" }}
             onClick={() => onCommit({ name, instructions, ingredients: rows, occasion, attribution })}
-          >{saving ? "Saving…" : "Save Meal"}</button>
+          >{saving ? "Saving…" : gift ? "Add to our meals" : "Save Meal"}</button>
         </div>
       </div>
     </div>
@@ -5234,7 +5291,7 @@ function ProvisionsApp() {
     uploadHouseholdPhoto,
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
-    giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts,
+    giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
     supabase,
     _supabase,
     _household,
@@ -6023,6 +6080,9 @@ function ProvisionsApp() {
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
+  // A received gift (Commit 3): what stands in the form's place when it cannot open, and the one-time thank-you.
+  const [giftArrival, setGiftArrival] = useState(null);   // null | { kind: "error" | "already", line, mealId? }
+  const [thankYou, setThankYou] = useState(null);         // null | { mealId, ask, title, text }
 
   // THE RECIPE VIEW (SPEC_recipe_view D1–D4): { mealId, landing } while open. The view
   // reads the LIVE row from mealById, so Edit → Save shows through at once. It renders
@@ -6339,7 +6399,8 @@ function ProvisionsApp() {
     if (typeof navigator !== "undefined" && navigator.share) {
       try { await navigator.share(payload); } catch (e) { if (e && e.name !== "AbortError") console.error("share failed:", e); }
     } else if (typeof navigator !== "undefined" && navigator.clipboard) {
-      try { await navigator.clipboard.writeText(`${payload.text} ${payload.url}`); showToast("Link copied"); } catch (e) { showToast("Couldn’t copy the link."); }
+      // The thank-you (S24) has no url: the message alone is copied.
+      try { await navigator.clipboard.writeText(payload.url ? `${payload.text} ${payload.url}` : payload.text); showToast(payload.url ? "Link copied" : "Message copied"); } catch (e) { showToast("Couldn’t copy."); }
     }
   }, [showToast]);
   const handleCopyGiftLink = useCallback(async (url) => {
@@ -6398,6 +6459,21 @@ function ProvisionsApp() {
   const [mealSaving, setMealSaving] = useState(false);
   const [mealDeleting, setMealDeleting] = useState(false);
 
+  // After "Add to our meals" saved the copy (Commit 3): the receipt (one silent retry inside), then the photo
+  // copy when the gift has one (quiet beyond one toast — the meal is already theirs, S40), then the S24
+  // thank-you, once. The toast is the 10-07 line.
+  const finishGiftArrival = useCallback(async (gift, mealId) => {
+    const rec = await recordMealGiftReceipt(gift.code, mealId);
+    showToast("Added to your meals.");
+    if (!rec.ok) console.warn("[gift] the receipt did not save; the meal is theirs regardless (10-07 residual)");
+    if (gift.hasPhoto && rec.ok) {
+      const p = await acceptGiftPhoto(gift.giftId, mealId);
+      if (!p.ok) showToast("Added, but the photo couldn’t come along.");
+      await loadMealPhotos();
+    }
+    setThankYou({ mealId, ...thankYouPayload(gift.mealName, gift.giverFirst) });
+  }, [recordMealGiftReceipt, acceptGiftPhoto, loadMealPhotos, showToast]);
+
   const commitMealSheet = useCallback(async ({ name, instructions, ingredients, occasion, attribution }) => {
     if (!mealSheet) return;
     setMealSaving(true);
@@ -6430,16 +6506,19 @@ function ProvisionsApp() {
         ? await updateMeal(mealSheet.meal.id, payload)
         : await createMeal(payload);
       if (ok) {
+        const gift = mealSheet.mode === "create" ? mealSheet.gift || null : null;
         setMealSheet(null);
         await loadMeals();   // reflect the new name/count on PLAN immediately
         // An edit can take dropped ingredients off Shop (updateMeal): re-read provenance so
         // the card's "{n} left" and the board's counts move in the same beat.
         if (mealSheet.mode === "edit") await refreshProvenance();
+        // A received meal: createMeal returned the new row's id — the receipt and the photo follow.
+        if (gift && typeof ok === "string") await finishGiftArrival(gift, ok);
       }
     } finally {
       setMealSaving(false);
     }
-  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals, refreshProvenance]);
+  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals, refreshProvenance, finishGiftArrival]);
   // Delete the recipe itself. Zeroing of its still-pending list items
   // happens inside deleteMeal (bought items untouched, shared ingredients
   // left for the meals that still need them) — the sheet only drives it.
@@ -7208,6 +7287,40 @@ function ProvisionsApp() {
     setWelcomeCodeOpen(false);
     setWelcomeCode("");
   }, []);
+
+  // THE SIGNED-IN ARRIVAL (SPEC_meal_sharing_phase_a_client Commit 3; S33). The code preRum held under GIFT_KEY
+  // is consumed once: bootstrap ready, the catalog loaded (the form resolves ingredient names against it), no
+  // meal sheet open, and the welcome sheet — a brand-new user's first stop — closed (ruled 2026-10-29: welcome
+  // first, then the form). The key is removed at read time, so a bad code can never loop; the answer stands in
+  // the form's place when it cannot open (unknown, revoked, not a member, already added). The ingredient names
+  // are matched against THIS place's catalog in landDraft; the giver's catalog ids never cross (V3).
+  const giftArrivalRanRef = useRef(false);
+  useEffect(() => {
+    if (giftArrivalRanRef.current) return;
+    if (!MEALS_ENABLED || authPhase !== "ready" || !household?.id || !catalogLoaded || loading || welcomeOpen || mealSheet) return;
+    let code = null;
+    try { code = sessionStorage.getItem(GIFT_KEY); } catch (e) { return; }
+    if (!code) return;
+    giftArrivalRanRef.current = true;
+    try { sessionStorage.removeItem(GIFT_KEY); } catch (e) { /* storage blocked */ }
+    const placeName = household?.name || null;
+    const placeCount = (myHouseholds || []).length;
+    const existingNames = (meals || []).filter((m) => m && m.kind === "meal" && !m.deleted_at).map((m) => m.name);
+    (async () => {
+      const r = await previewMealGift(code);
+      if (!r.ok) { setGiftArrival({ kind: "error", line: r.line }); return; }
+      if (r.alreadyAdded) { setGiftArrival({ kind: "already", mealId: r.alreadyAdded, line: alreadyAddedLine(placeName) }); return; }
+      const giverFirst = (r.snapshot && typeof r.snapshot.giver_first_name === "string" ? r.snapshot.giver_first_name : "").trim();
+      const draft = giftDraft(r.snapshot, { existingNames, giverFirst });
+      setMealSheet({
+        mode: "create", meal: null,
+        gift: {
+          code, giftId: r.giftId, hasPhoto: r.hasPhoto, giverFirst, mealName: draft.name, draft,
+          banner: giftBanner(giverFirst), note: giftNoteQuote(r.note, giverFirst), placeLine: placeLine(placeName, placeCount),
+        },
+      });
+    })();
+  }, [authPhase, household, catalogLoaded, loading, welcomeOpen, mealSheet, previewMealGift, meals, myHouseholds]);
 
   const handleWelcomeContinue = async () => {
     if (welcomeBusy) return;
@@ -9202,6 +9315,17 @@ function ProvisionsApp() {
         .op-import-banner { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 10px; padding: 9px 12px; margin: -6px 0 16px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #6f5a45; }
         .op-import-banner b { color: #2C1A0E; font-weight: 700; }
         .op-import-banner > span { flex: 1 1 180px; min-width: 0; }
+        /* A received meal (Commit 3): the banner shares the import banner's tint; the giver's note is a quote. */
+        .op-gift-banner { background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 10px; padding: 9px 12px; margin: -6px 0 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #6f5a45; }
+        .op-gift-banner b { color: #2C1A0E; font-weight: 700; }
+        .op-gift-place { color: #8a7a60; }
+        .op-gift-note { margin: 0 0 16px; padding: 10px 14px; border-left: 3px solid #D9BC8C; font-family: 'Playfair Display', serif; font-style: italic; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; overflow-wrap: anywhere; }
+        .op-gift-note small { display: block; margin-top: 4px; font-family: 'Lato', sans-serif; font-style: normal; font-size: calc(12px * var(--op-text-scale)); color: #8a7a60; }
+        .gift-open, .gift-ok, .thanks-send, .thanks-skip { flex: 1 1 auto; min-height: 48px; padding: 10px 18px; border-radius: 24px; white-space: nowrap; cursor: pointer;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; }
+        .gift-open, .thanks-send { background: #D9BC8C; border: 1.5px solid #D9BC8C; color: #2C1A0E; }
+        .gift-ok, .thanks-skip { background: #FFFFFF; border: 1.5px solid #E5D7C1; color: #5C4636; }
+        .gift-open:focus-visible, .gift-ok:focus-visible, .thanks-send:focus-visible, .thanks-skip:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         .op-start-over { background: none; border: none; padding: 4px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
         .op-start-over:disabled { opacity: .5; cursor: default; }
         .op-check-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 10px; }
@@ -11470,7 +11594,20 @@ function ProvisionsApp() {
           onRequestSuggestion={requestMealSuggestion}
           onRequestImport={requestRecipeImport}
           isSignedIn={isSignedIn}
+          gift={mealSheet.mode === "create" ? mealSheet.gift || null : null}
         />
+      )}
+
+      {/* A received gift that could not open the form (Commit 3), and the S24 thank-you after one that did. */}
+      {giftArrival && (
+        <GiftArrivalSheet arrival={giftArrival}
+          onOpen={() => { const m = giftArrival.mealId ? mealById[giftArrival.mealId] : null; setGiftArrival(null); if (m) openRecipe(m, "top"); }}
+          onClose={() => setGiftArrival(null)} />
+      )}
+      {thankYou && !mealSheet && (
+        <ThankYouSheet ask={thankYou.ask}
+          onSend={() => { const t = thankYou; setThankYou(null); handleShareGift({ title: t.title, text: t.text }); }}
+          onSkip={() => setThankYou(null)} />
       )}
 
       {/* The recipe view (SPEC_recipe_view): read first. Edit opens the sheet above in

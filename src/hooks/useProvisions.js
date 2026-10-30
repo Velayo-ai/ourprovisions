@@ -14,6 +14,7 @@ import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, 
 import { cooksFromRows, resolveCookId } from "../lib/cooks";
 import { setKindFailure } from "../lib/mealPhotos";
 import { giveFailure, giftObjectPath, GIFT_RENDITIONS } from "../lib/giveMeal";
+import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArrival";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -2706,6 +2707,88 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return data || [];
   }, []);
 
+  // ─────────────────────────────────────────────────────────────
+  // THE SIGNED-IN ARRIVAL (072 preview_meal_gift / record_meal_gift_receipt / accept_gift_photo;
+  // SPEC_meal_sharing_phase_a_client Commit 3; S24, S25, S36, S40). preview reads the gift for THIS
+  // place (membership first; not_found P0002, revoked 55000). The receipt is written after the
+  // person's normal save, idempotent, retried once silently (the 09-08 residual: a meal without a
+  // receipt is still theirs). The photo copy downloads the gift's two renditions (the SELECT policy
+  // admits authenticated while the gift is live), uploads them under the RECEIVER's own folder,
+  // then accept_gift_photo records a showcase row whose uploaded_by is the GIVER (derived, never
+  // passed — S23 / S36). Photo failure is quiet beyond one toast; the meal is already theirs.
+  // ─────────────────────────────────────────────────────────────
+  const previewMealGift = useCallback(async (code) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !code) return { ok: false, ...arrivalFailure(null) };
+    const { data, error: err } = await db.rpc("preview_meal_gift", { p_code: code, p_household_id: hh.id });
+    if (err) { console.warn("[gift] preview_meal_gift failed:", err.code, err.message); return { ok: false, ...arrivalFailure(err) }; }
+    const d = data || {};
+    return { ok: true, giftId: d.gift_id, snapshot: d.snapshot || {}, note: d.note || null, alreadyAdded: d.already_added || null, hasPhoto: d.has_photo === true };
+  }, []);
+
+  const recordMealGiftReceipt = useCallback(async (code, mealId) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !code || !mealId) return { ok: false };
+    for (let attempt = 0; attempt < 2; attempt += 1) {   // one silent retry (10-07 residual)
+      const { error: err } = await db.rpc("record_meal_gift_receipt", { p_code: code, p_household_id: hh.id, p_meal_id: mealId });
+      if (!err) return { ok: true };
+      console.warn(`[gift] record_meal_gift_receipt failed (${attempt + 1}/2):`, err.code, err.message);
+      if (err.code === "P0002" || err.code === "55000" || err.code === "42501") return { ok: false, code: err.code };   // the server said no; a retry cannot change it
+    }
+    return { ok: false };
+  }, []);
+
+  // Dimensions of the view rendition for the row (null in the row when unreadable — the RPC stores
+  // only positive values).
+  const measureBlob = async (blob) => {
+    try {
+      if (typeof createImageBitmap !== "function") return { width: 0, height: 0 };
+      const bmp = await createImageBitmap(blob);
+      const out = { width: bmp.width || 0, height: bmp.height || 0 };
+      if (bmp.close) bmp.close();
+      return out;
+    } catch (e) { return { width: 0, height: 0 }; }
+  };
+
+  const acceptGiftPhoto = useCallback(async (giftId, mealId) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !giftId || !mealId) return { ok: false };
+    try {
+      const src = giftSourcePaths(giftId);
+      const { data: signed, error: sErr } = await db.storage.from("gift-photos").createSignedUrls([src.view, src.thumb], 60);
+      if (sErr) throw sErr;
+      const urlFor = (path) => { const d = (signed || []).find((x) => x && x.path === path && !x.error); return d ? d.signedUrl : null; };
+      const get = async (path) => {
+        const url = urlFor(path);
+        if (!url) throw new Error(`no signed url for ${path}`);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`fetch ${path} ${res.status}`);
+        return res.blob();
+      };
+      const viewBlob = await get(src.view);
+      const thumbBlob = await get(src.thumb);
+      const { width, height } = await measureBlob(viewBlob);
+      const { thumbPath, viewPath } = acceptCopyPaths(hh.id, mealId, crypto.randomUUID());
+      const bucket = db.storage.from("meal-photos");
+      const opts = (b) => ({ contentType: b.type || "image/webp", upsert: false, cacheControl: "3600" });
+      const [t, v] = await Promise.all([bucket.upload(thumbPath, thumbBlob, opts(thumbBlob)), bucket.upload(viewPath, viewBlob, opts(viewBlob))]);
+      if (t.error) throw t.error;
+      if (v.error) throw v.error;
+      // thumb first, then view — 065's order, the 10-29 ruling.
+      const { error: rErr } = await db.rpc("accept_gift_photo", {
+        p_gift_id: giftId, p_household_id: hh.id, p_thumb_path: thumbPath, p_view_path: viewPath, p_width: width, p_height: height,
+      });
+      if (rErr) throw rErr;
+      return { ok: true };
+    } catch (e) {
+      console.warn("[gift] accept photo failed (quiet):", e && (e.code || ""), e && (e.message || e));
+      return { ok: false };
+    }
+  }, []);
+
   const removeMealPhoto = useCallback(async (photoId) => {
     const db = supabaseRef.current;
     if (!db || !photoId) return false;
@@ -4014,7 +4097,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
-    giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts,
+    giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     fetchTripReality, answerTripReality,

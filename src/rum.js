@@ -71,6 +71,10 @@ const CHROME_ALLOW_LIST = [
   '.give-copy',        // Give sheet B4/B5: "Copy link" — fixed copy; the link itself is never rendered
   '.stop-giving-yes',  // Stop giving confirm: "Stop giving" — fixed copy; THE revoke
   '.stop-giving-no',   // Stop giving confirm: "Keep giving" — fixed copy
+  '.gift-open',        // A received gift already in this place (Commit 3): "Open it" — fixed copy; the title names the place, masked text
+  '.gift-ok',          // A received gift that could not open: "OK" — fixed copy
+  '.thanks-send',      // S24 thank-you: "Send a thank you" — fixed copy; the ask names the giver, masked text
+  '.thanks-skip',      // S24 thank-you: "Skip" — fixed copy
   '.rv-photo-open',  // Recipe view photo hero: the photo itself as a button, aria-label "View photo full size" — no text content (the <img> inside is .op-replay-block, alt "") (Dan, 2026-10-21)
   '.rv-viewer-close',// Full-size photo viewer: "×", aria-label "Close photo" — fixed copy. The "N of M" count and the caption are household text, OFF this list
   '.rv-photo-prev',  // Photo strip + viewer, desktop only: "‹", aria-label "Previous photo" — fixed copy, no text content (Dan, 2026-10-21)
