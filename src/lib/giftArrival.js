@@ -57,7 +57,7 @@ export function arrivalFailure(err) {
   const code = err && err.code;
   const msg = ((err && err.message) || "").replace(/^preview_meal_gift:\s*/i, "").trim();
   if (code === "P0002") return { reason: "not_found", line: "That link doesn’t work. Ask for a new one." };
-  if (code === "55000") return { reason: "revoked", line: "Whoever sent this stopped giving it." };
+  if (code === "55000") return { reason: "revoked", line: "This one’s no longer being given." };
   if (code === "42501") return { reason: "forbidden", line: "You’re not a member of this place." };
   return { reason: "save", line: msg ? `Couldn’t open this gift: ${msg}` : "Couldn’t open this gift. Try again." };
 }

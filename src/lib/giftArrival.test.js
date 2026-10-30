@@ -59,7 +59,7 @@ describe("the banner, the note, the place line", () => {
 describe("arrivalFailure (072 §5 codes → plain lines)", () => {
   test("P0002, 55000, 42501, else the RPC's message", () => {
     expect(arrivalFailure({ code: "P0002", message: "preview_meal_gift: not_found" }).line).toBe("That link doesn’t work. Ask for a new one.");
-    expect(arrivalFailure({ code: "55000", message: "preview_meal_gift: revoked" }).line).toBe("Whoever sent this stopped giving it.");
+    expect(arrivalFailure({ code: "55000", message: "preview_meal_gift: revoked" }).line).toBe("This one’s no longer being given.");
     expect(arrivalFailure({ code: "42501", message: "preview_meal_gift: not a member of the target household" }).line).toBe("You’re not a member of this place.");
     expect(arrivalFailure({ code: "PGRST202", message: "Could not find the function" }).line).toBe("Couldn’t open this gift: Could not find the function");
     expect(arrivalFailure(null).line).toBe("Couldn’t open this gift. Try again.");
