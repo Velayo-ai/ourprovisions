@@ -63,16 +63,18 @@ describe("click-text privacy block is unchanged", () => {
     // Phase A Commit 0b (S46 flip model, 2026-10-30): out .rv-photo-showcase; in .rv-photo-make-showcase, .rv-photo-make-cook,
     // .rv-photo-full-ok (.rv-showcase-go / -cancel stay as the S13 prompt's buttons) → 71;
     // Phase A Commit 2 (give sheet): in .rv-more, .rv-give, .rv-stop-giving, .give-go, .give-nudge, .give-send, .give-copy,
-    // .stop-giving-yes, .stop-giving-no → 80; Phase A Commit 3 (accept): in .gift-open, .gift-ok, .thanks-send, .thanks-skip → 84
-    expect(rules.slice(0, -2)).toHaveLength(84);
+    // .stop-giving-yes, .stop-giving-no → 80; Phase A Commit 3 (accept): in .gift-open, .gift-ok, .thanks-send, .thanks-skip → 84;
+    // the header share button (Dan 2026-10-30): out .rv-more (the ⋯ and its menu are gone); .rv-give is now the button itself,
+    // .rv-stop-giving the give sheet's top-line button → 83
+    expect(rules.slice(0, -2)).toHaveLength(83);
     const sel = rules.map((r) => r.selector);
     [".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove", ".rv-photo-confirm-remove", ".rv-photo-confirm-keep", ".rv-photo-placeholder",
       ".rv-photo-make-showcase", ".rv-photo-make-cook", ".rv-showcase-go", ".rv-showcase-cancel", ".rv-photo-full-ok", ".gift-add", ".gift-signin", ".gift-what", ".gift-retry",
-      ".rv-more", ".rv-give", ".rv-stop-giving", ".give-go", ".give-nudge", ".give-send", ".give-copy", ".stop-giving-yes", ".stop-giving-no",
+      ".rv-give", ".rv-stop-giving", ".give-go", ".give-nudge", ".give-send", ".give-copy", ".stop-giving-yes", ".stop-giving-no",
       ".gift-open", ".gift-ok", ".thanks-send", ".thanks-skip"]
       .forEach((c) => expect(sel).toContain(c));
     expect(sel).not.toContain(".rv-photo-owner");   // the "Added by {First}" line is household text, off the list
-    [".rv-photo-remove-yes", ".rv-photo-keep", ".rv-photo-more", ".rv-photo-showcase"].forEach((c) => expect(sel).not.toContain(c));
+    [".rv-photo-remove-yes", ".rv-photo-keep", ".rv-photo-more", ".rv-photo-showcase", ".rv-more"].forEach((c) => expect(sel).not.toContain(c));
     expect(rules.some((r) => r.selector === ".op-replay-block")).toBe(false);
   });
   test("preview: Clerk excludes only", () => {

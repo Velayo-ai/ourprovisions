@@ -3,9 +3,10 @@
    replay recorder and click-text collection see them. */
 // Run: CI=true npx react-scripts test --watchAll=false src/GiveSheet
 //
-// SPEC_meal_sharing_phase_a_client Commit 2 — the meal ⋯ and the give sheet (B1–B5), rendered
+// SPEC_meal_sharing_phase_a_client Commit 2 — the header share button and the give sheet (B1–B5), rendered
 // through RecipeView with an injected `give` object:
-//   ⋯   .rv-more "Meal options" beside Edit; "Give this meal"; "Stop giving" only with an unrevoked gift
+//   ⇧   .rv-give beside Edit, aria-label "Give this meal", icon only (Dan 2026-10-30, replaces the ⋯); one tap
+//       opens the sheet. "Stop giving" is the sheet's top line, only while the meal has an unrevoked gift
 //   C1  B1 when the viewer's own live showcase row exists (another member's does not count, S11); B2 otherwise,
 //       with the nudge "Make one of your photos a showcase →"
 //   C3  Give = give_meal (+ the copy); Send it = share from its own tap; Copy link always present
@@ -55,53 +56,57 @@ function view(over = {}) {
   );
   return { ...utils, give };
 }
-const openMenu = (c) => fireEvent.click(q(c, ".rv-more"));
-const openGive = (c) => { openMenu(c); fireEvent.click(q(c, ".rv-give")); return sheet(); };
+const openGive = (c) => { fireEvent.click(q(c, ".rv-give")); return sheet(); };
 beforeEach(() => { window.location.hash = ""; });
 
-describe("the meal ⋯", () => {
-  test("beside Edit: .rv-more, aria-label 'Meal options', text '⋯', before Edit in the DOM; none without `give`", () => {
+describe("the share button", () => {
+  test("beside Edit: .rv-give, aria-label 'Give this meal', an icon and no text, before Edit in the DOM; none without `give`", () => {
     const { container } = view();
-    const more = q(container, ".rv-more");
-    expect(more.getAttribute("aria-label")).toBe("Meal options");
-    expect(more.textContent).toBe("⋯");
-    expect(more.getAttribute("aria-haspopup")).toBe("menu");
-    expect(more.compareDocumentPosition(q(container, ".rv-edit")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const btn = q(container, ".rv-give");
+    expect(btn.getAttribute("aria-label")).toBe("Give this meal");
+    expect(btn.textContent).toBe("");
+    expect(q(btn, "svg[aria-hidden=true]")).not.toBeNull();
+    expect(btn.hasAttribute("aria-haspopup")).toBe(false);
+    expect(btn.compareDocumentPosition(q(container, ".rv-edit")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(q(container, ".rv-more")).toBeNull();
     const none = view({ give: null });
-    expect(q(none.container, ".rv-more")).toBeNull();
+    expect(q(none.container, ".rv-give")).toBeNull();
   });
-  test("items: 'Give this meal' alone with no live gift; 'Stop giving' joins it with one", () => {
+  test("one tap opens the sheet directly; a tap never closes the recipe view; busy disables it", () => {
+    const onClose = jest.fn();
+    const { container } = view({ onClose });
+    expect(sheet()).toBeNull();
+    const s = openGive(container);
+    expect(q(s, ".give-kicker").textContent).toBe("Give this meal");
+    expect(onClose).not.toHaveBeenCalled();
+    const busy = view({ busy: true });
+    expect(q(busy.container, ".rv-give").disabled).toBe(true);
+  });
+  test("the top line: absent with no live gift; 'You’re giving this meal · Stop giving' with one", () => {
     const { container } = view();
-    openMenu(container);
-    expect(qa(container, ".rv-more-pop [role=menuitem]").map((b) => b.textContent)).toEqual(["Give this meal"]);
+    expect(q(openGive(container), ".give-giving")).toBeNull();
+    fireEvent.click(q(sheet(), ".sheet-close"));
+    expect(sheet()).toBeNull();
     const withGift = view({ give: giveStub({ openGifts: 2 }) });
-    openMenu(withGift.container);
-    expect(qa(withGift.container, ".rv-more-pop [role=menuitem]").map((b) => b.textContent)).toEqual(["Give this meal", "Stop giving"]);
+    const s = openGive(withGift.container);
+    const line = q(s, ".give-giving");
+    expect(line.textContent).toBe("You’re giving this meal · Stop giving");
+    expect(line.compareDocumentPosition(q(s, ".give-kicker")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(q(line, ".rv-stop-giving").textContent).toBe("Stop giving");
   });
-  test("Stop giving → the confirm sheet; 'Stop giving' revokes, 'Keep giving' does nothing", () => {
+  test("Stop giving → the sheet closes and the confirm opens; 'Stop giving' revokes, 'Keep giving' does nothing", () => {
     const { container, give } = view({ give: giveStub({ openGifts: 1 }) });
-    openMenu(container);
-    fireEvent.click(q(container, ".rv-stop-giving"));
+    fireEvent.click(q(openGive(container), ".rv-stop-giving"));
+    expect(q(sheet(), ".give-kicker")).toBeNull();
     expect(sheet().textContent).toContain("Stop giving this meal?");
     expect(sheet().textContent).toContain("Anyone who hasn’t added it yet won’t be able to.");
     fireEvent.click(q(sheet(), ".stop-giving-no"));
     expect(sheet()).toBeNull();
     expect(give.stopGiving).not.toHaveBeenCalled();
-    openMenu(container);
-    fireEvent.click(q(container, ".rv-stop-giving"));
+    fireEvent.click(q(openGive(container), ".rv-stop-giving"));
     fireEvent.click(q(sheet(), ".stop-giving-yes"));
     expect(give.stopGiving).toHaveBeenCalledWith(MEAL.id);
     expect(sheet()).toBeNull();
-  });
-  test("Escape closes the menu and focus returns to ⋯; a click on ⋯ never closes the recipe view", () => {
-    const onClose = jest.fn();
-    const { container } = view({ onClose });
-    openMenu(container);
-    expect(q(container, ".rv-more-pop")).not.toBeNull();
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(q(container, ".rv-more-pop")).toBeNull();
-    expect(document.activeElement).toBe(q(container, ".rv-more"));
-    expect(onClose).not.toHaveBeenCalled();
   });
 });
 
@@ -173,7 +178,7 @@ describe("the give sheet — Give, B3, B4, B5 (C3, C4)", () => {
     expect(payload.text).toBe("I’m giving you Famous Grilled Cheese & Pickle on OurProvisions.");
     fireEvent.click(q(r, ".give-copy"));
     expect(give.copyLink).toHaveBeenCalledWith(`${window.location.origin}/g/${CODE}?ref=a1b2c3d4`);
-    expect(r.textContent).toContain("You can stop giving it any time from the meal’s ⋯.");
+    expect(r.textContent).toContain("You can stop giving it any time from this sheet.");
     // the ✕ works again once ready
     expect(q(r, ".sheet-close").disabled).toBe(false);
   });
@@ -226,10 +231,9 @@ describe("the give sheet — Give, B3, B4, B5 (C3, C4)", () => {
 });
 
 describe("replay", () => {
-  test("no attribute on the ⋯, its menu or the sheet carries the meal name or the code", () => {
-    const { container } = view({ photos: [photo("s1", "u1", "showcase")] });
-    openMenu(container);
-    attrs(q(container, ".rv-more-wrap")).forEach((v) => expect(v).not.toMatch(/Grilled|Pickle/));
+  test("no attribute on the share button or the sheet carries the meal name or the code", () => {
+    const { container } = view({ photos: [photo("s1", "u1", "showcase")], give: giveStub({ openGifts: 1 }) });
+    attrs(q(container, ".rv-give")).forEach((v) => expect(v).not.toMatch(/Grilled|Pickle/));
     fireEvent.click(q(container, ".rv-give"));
     attrs(sheet()).forEach((v) => { expect(v).not.toMatch(/Grilled|Pickle|Easton/); expect(v).not.toMatch(CODE); });
   });

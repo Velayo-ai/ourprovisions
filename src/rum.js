@@ -62,9 +62,8 @@ const CHROME_ALLOW_LIST = [
   '.rv-showcase-go',         // S13 prompt: "Make showcase" — fixed copy; THE flip
   '.rv-showcase-cancel',     // S13 prompt: "Not now" — fixed copy
   '.rv-photo-full-ok',       // "Meal photos are full" sheet: "OK" — fixed copy; the sheet's two lines are masked text
-  '.rv-more',          // Recipe view header: the meal's ⋯, aria-label "Meal options" — fixed copy (SPEC_meal_sharing_phase_a_client Commit 2; Dan 2026-10-29). Beside Edit; the title it acts on is #rv-title, masked, never in this element
-  '.rv-give',          // Meal ⋯: "Give this meal" — fixed copy
-  '.rv-stop-giving',   // Meal ⋯: "Stop giving" — fixed copy; shown only while the meal has an unrevoked gift
+  '.rv-give',          // Recipe view header: the share icon, aria-label "Give this meal" — fixed copy, no text content (Dan 2026-10-30; replaces Commit 2's ⋯ .rv-more and its menu item). Beside Edit; the title it gives is #rv-title, masked, never in this element
+  '.rv-stop-giving',   // Give sheet, top line: "Stop giving" — fixed copy; shown only while the meal has an unrevoked gift. The line's own words ("You’re giving this meal") are masked text, off this list
   '.give-go',          // Give sheet (B1/B2): "Give" / "Getting it ready…" — fixed copy; the meal name and the note are masked text / a masked input beside it
   '.give-nudge',       // Give sheet B2: "Make one of your photos a showcase →" — fixed copy; opens the recipe view's strip
   '.give-send',        // Give sheet B4/B5: "Send it" — fixed copy; THE share (navigator.share from this tap, C3)

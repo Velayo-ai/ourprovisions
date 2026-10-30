@@ -2727,51 +2727,13 @@ const photoFadeIn = (e) => e.currentTarget.classList.add("in");
 const CameraGlyph = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z" /><circle cx="12" cy="13.2" r="3.4" /></svg>
 );
-// THE MEAL'S ⋯ (SPEC_meal_sharing_phase_a_client Commit 2; ruled by Dan 2026-10-29): in the recipe view
-// header beside Edit — .rv-more, aria-label "Meal options", fixed copy. Two items only: "Give this meal",
-// and "Stop giving" while the meal has an unrevoked gift. No ⋯ on library cards. Same close rules as the
-// photo ⋯ (outside tap swallowed, Escape, focus back on ⋯).
-function MealMenu({ disabled, openGifts, onGive, onStopGiving }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-  const btnRef = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const back = () => { if (btnRef.current) btnRef.current.focus({ preventScroll: true }); };
-    const onDown = (e) => {
-      if (wrapRef.current && wrapRef.current.contains(e.target)) return;
-      swallowNextClick();
-      setOpen(false);
-      back();
-    };
-    const onKey = (e) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      e.stopPropagation();
-      setOpen(false);
-      back();
-    };
-    document.addEventListener("pointerdown", onDown, true);
-    document.addEventListener("keydown", onKey, true);
-    return () => {
-      document.removeEventListener("pointerdown", onDown, true);
-      document.removeEventListener("keydown", onKey, true);
-    };
-  }, [open]);
-  const act = (fn) => (e) => { e.stopPropagation(); setOpen(false); if (fn) fn(); };
-  return (
-    <span className="rv-more-wrap" ref={wrapRef}>
-      <button type="button" ref={btnRef} className="rv-more" aria-label="Meal options" aria-haspopup="menu" aria-expanded={open} disabled={disabled}
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}>⋯</button>
-      {open && (
-        <span className="rv-more-pop" role="menu">
-          <button type="button" role="menuitem" className="rv-more-item rv-give" onClick={act(onGive)}>Give this meal</button>
-          {openGifts > 0 && <button type="button" role="menuitem" className="rv-more-item rv-stop-giving" onClick={act(onStopGiving)}>Stop giving</button>}
-        </span>
-      )}
-    </span>
-  );
-}
+// GIVE THIS MEAL — the header button (Dan 2026-10-30; supersedes Commit 2's ⋯ menu): the share icon (a
+// square with an up arrow) beside Edit — .rv-give, aria-label "Give this meal", fixed copy, no meal name
+// in the label, same size and weight as Edit. One tap opens the give sheet. "Stop giving" lives in the
+// sheet now (its top line, while the meal has an unrevoked gift). Nothing on library cards.
+const ShareGlyph = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8.5 9H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1.5" /><path d="M12 14V3" /><path d="M8.5 6.5 12 3l3.5 3.5" /></svg>
+);
 
 // GIVE THIS MEAL — the sheet (SPEC_meal_sharing_phase_a_client C1–C4; mockup_gift_preview B1–B5).
 //   B1 / B2  the C1 pre-check: `photo` is the viewer's own live showcase row (myShowcase) or null. The
@@ -2786,7 +2748,9 @@ function MealMenu({ disabled, openGifts, onGive, onStopGiving }) {
 //   Replay   the thumbnails are .op-replay-block .op-photo; the meal name and the note are masked text /
 //            a masked input; the gift code is never rendered — it lives in the share payload only.
 //   Failure  give_meal's error shows as a line in the sheet (giveFailure), never a silent return.
-function GiveSheet({ meal, photo, referralCode, give, onClose, onShowStrip }) {
+//   Giving   (Dan 2026-10-30) while the meal has an unrevoked gift the sheet opens with one line at the top,
+//            "You’re giving this meal · Stop giving"; Stop giving hands over to the existing confirm.
+function GiveSheet({ meal, photo, referralCode, give, onClose, onShowStrip, onStopGiving }) {
   const [note, setNote] = useState("");
   const [phase, setPhase] = useState("compose");   // compose | giving | copying | ready
   const [gift, setGift] = useState(null);           // { code, giftId, hasPhoto, photoFailed }
@@ -2819,6 +2783,9 @@ function GiveSheet({ meal, photo, referralCode, give, onClose, onShowStrip }) {
     : <span className="give-thumb give-thumb-empty" aria-hidden="true" />);
   return (
     <PhotoSheet labelledBy="give-k" onClose={close} closeDisabled={busy}>
+      {(give.openGifts || 0) > 0 && (
+        <div className="give-giving">You’re giving this meal · <button type="button" className="rv-stop-giving" disabled={busy} onClick={onStopGiving}>Stop giving</button></div>
+      )}
       <div className="give-kicker" id="give-k">{phase === "ready" ? "Ready to give" : "Give this meal"}</div>
       <div className="give-name">{displayTitle(meal.name)}</div>
       {phase !== "ready" && (
@@ -2869,7 +2836,7 @@ function GiveSheet({ meal, photo, referralCode, give, onClose, onShowStrip }) {
           </div>
           <button type="button" className="give-go give-send" onClick={() => give.share(payload)}>Send it</button>
           <button type="button" className="give-copy" onClick={() => give.copyLink(payload.url)}>Copy link</button>
-          <div className="give-fine">Anyone with the link can add it. You can stop giving it any time from the meal’s ⋯.</div>
+          <div className="give-fine">Anyone with the link can add it. You can stop giving it any time from this sheet.</div>
         </>
       )}
     </PhotoSheet>
@@ -2922,11 +2889,12 @@ function StopGivingSheet({ onConfirm, onClose }) {
 }
 
 export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onSetPhotoKind = null, onRemovePhoto, onReplacePhoto = null, ratingsFor, onRate, canRate, give = null }) {
-  // Give this meal (Commit 2): the sheet and the Stop giving confirm, both over this view.
+  // Give this meal (Commit 2; the header share button since 2026-10-30): the sheet and the Stop giving
+  // confirm, both over this view. Stop giving is reached from the sheet's top line; the sheet closes first.
   const [giveOpen, setGiveOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
   const myShowcasePhoto = myShowcase(photosReady ? (photos || []) : [], viewerUserId);
-  // B2's nudge: back to the strip, where the flip lives. The sheet closes (its ✕ hands focus back to ⋯);
+  // B2's nudge: back to the strip, where the flip lives. The sheet closes (its ✕ hands focus back to the share button);
   // the view scrolls to its hero and the photo ⋯ (or Add a meal photo) takes focus a beat later.
   const showStrip = () => {
     setGiveOpen(false);
@@ -3016,7 +2984,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
       <SheetPanel onClose={onClose} labelledBy="rv-title" className="rv-sheet" style={{ maxHeight: "calc(100% - 24px)" }}>
         <SheetClose onClose={onClose} />
         <div className="lib-type-handle" aria-hidden="true" />
-        {give && <MealMenu disabled={busy} openGifts={give.openGifts || 0} onGive={() => setGiveOpen(true)} onStopGiving={() => setStopOpen(true)} />}
+        {give && <button type="button" className="rv-give" aria-label="Give this meal" disabled={busy} onClick={() => setGiveOpen(true)}><ShareGlyph /></button>}
         <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
         <RecipePhotos meal={meal} tint={tint} first={first} members={members} viewerUserId={viewerUserId} photos={photosReady ? (photos || []) : []}
           canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onSetKind={onSetPhotoKind} onRemove={onRemovePhoto} onReplace={onReplacePhoto} />
@@ -3106,7 +3074,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
         <div className="rv-pad" />
         {giveOpen && give && (
           <GiveSheet meal={meal} photo={myShowcasePhoto} referralCode={give.referralCode || null} give={give}
-            onClose={() => setGiveOpen(false)} onShowStrip={showStrip} />
+            onClose={() => setGiveOpen(false)} onShowStrip={showStrip} onStopGiving={() => { setGiveOpen(false); setStopOpen(true); }} />
         )}
         {stopOpen && give && (
           <StopGivingSheet onConfirm={() => { setStopOpen(false); give.stopGiving(meal.id); }} onClose={() => setStopOpen(false)} />
@@ -6384,7 +6352,7 @@ function ProvisionsApp() {
   }, [rvMealId, rvAnchor, cooksLoaded, mealProvenance, _supabase, _household]);
   const rvMeal = rvMealId ? mealById[rvMealId] : null;
   // GIVE THIS MEAL (SPEC_meal_sharing_phase_a_client Commit 2). The open meal's live gifts decide whether
-  // the meal ⋯ offers "Stop giving"; re-read after Give and after Stop. The code never enters state here —
+  // the give sheet's top line offers "Stop giving"; re-read after Give and after Stop. The code never enters state here —
   // the sheet holds it for the share payload and lets it go.
   const [rvGifts, setRvGifts] = useState({ mealId: null, count: 0 });
   const loadRvGifts = useCallback(async (mealId) => {
@@ -8775,20 +8743,17 @@ function ProvisionsApp() {
         .rv-edit { position: absolute; top: 8px; right: 12px; min-height: 44px; padding: 0 8px; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .rv-edit:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
-        /* THE MEAL'S ⋯ (Commit 2): beside Edit, same row, same quiet clay; its menu drops right-aligned under it. */
-        .rv-more-wrap { position: absolute; top: 8px; right: 60px; z-index: 3; }
-        .rv-more { width: 44px; height: 44px; padding: 0; border: none; border-radius: 50%; background: transparent; color: #8A5F3A; font-size: 22px; line-height: 1; cursor: pointer; }
-        .rv-more:disabled { opacity: .5; cursor: default; }
-        .rv-more:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
-        .rv-more-pop { position: absolute; top: calc(100% + 2px); right: 0; z-index: 3; display: flex; flex-direction: column; min-width: 200px; padding: 6px; border-radius: 12px;
-          background: #FFFDF8; border: 1px solid #E5D7C1; box-shadow: 0 10px 28px -12px rgba(44,26,14,.45); }
-        .rv-more-item { display: block; width: 100%; min-height: 44px; padding: 0 14px; border: none; border-radius: 9px; background: transparent; color: #2C1A0E; text-align: left; white-space: nowrap;
-          font-family: 'Lato', sans-serif; font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); cursor: pointer; }
-        .rv-more-item:hover { background: #F4EADC; }
-        .rv-more-item:focus-visible { outline: 2px solid #A0724A; outline-offset: -2px; }
+        /* GIVE THIS MEAL (2026-10-30): the share icon beside Edit — same row, same quiet clay, the same 44 px hit area. */
+        .rv-give { position: absolute; top: 8px; right: 60px; z-index: 3; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: none; border-radius: 50%; background: transparent; color: #8A5F3A; cursor: pointer; }
+        .rv-give:disabled { opacity: .5; cursor: default; }
+        .rv-give:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         /* Another member's photo ⋯ opens with their name (inert, greyed) so the shorter menu reads as "not yours". */
         .rv-photo-owner { display: block; padding: 8px 14px 4px; font-family: 'Lato', sans-serif; font-size: calc(12px * var(--op-text-scale)); color: #8a7a60; white-space: nowrap; }
         /* THE GIVE SHEET (B1–B5, mockup_gift_preview): kicker, name, the photo row, the note, the teal Give; then the mini card and Send it. */
+        .give-giving { display: flex; flex-wrap: wrap; align-items: center; gap: 0 5px; margin: 0 0 12px; padding: 8px 40px 8px 12px; border-radius: 10px; background: #E6F4F2; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); line-height: 1.4; color: #0F5F58; }
+        .give-giving button { background: none; border: 0; padding: 0; min-height: 28px; font: inherit; font-weight: 900; color: #0D9488; cursor: pointer; }
+        .give-giving button:disabled { opacity: .5; cursor: default; }
+        .give-giving button:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; border-radius: 4px; }
         .give-kicker { font-family: 'Lato', sans-serif; font-size: 10.5px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; color: #A0724A; padding-right: 36px; }
         .give-name { margin-top: 6px; font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.2; color: #2C1A0E; overflow-wrap: anywhere; }
         .give-prow { display: flex; gap: 12px; align-items: center; margin-top: 14px; padding: 10px; border: 1px solid #E3D4BC; border-radius: 12px; background: #fff; }
