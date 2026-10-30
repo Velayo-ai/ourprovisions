@@ -20,12 +20,15 @@
 // Readers (useProvisions bootstrap) read these keys only, never the URL.
 //
 // What it clears: the two params and a /g/<code> gift path, with every other
-// param and the hash kept. The gift code is removed but not yet held — no /g/
-// route exists and nothing reads a gift code; Phase A adds its key and reader
-// here (SPEC_meal_sharing_v2). The span-side /g/[code] mask lives in rum.js.
+// param and the hash kept. The gift code is held under a THIRD key (Phase A,
+// Commit 1 — SPEC_meal_sharing_phase_a_client; S33): a bearer key for one
+// meal's preview card, a different species again from invite and ref. The
+// signed-out card reads it at mount; the signed-in arrival consumes it after
+// bootstrap. The span-side /g/[code] mask lives in rum.js.
 export const INVITE_KEY = "pending_invite_code";
 export const REF_KEY = "pending_ref_code";
-const GIFT_PATH = /^\/g\/[^/]+\/?$/;
+export const GIFT_KEY = "pending_gift_code";
+const GIFT_PATH = /^\/g\/([^/]+)\/?$/;
 
 // Pure: (href, storage) → the cleaned absolute URL, or `href` itself (same
 // string) when there was nothing to clear. `storage` is anything with
@@ -41,8 +44,8 @@ export function cleanEntryUrl(href, storage) {
   }
   const hadInvite = url.searchParams.has("invite");
   const hadRef = url.searchParams.has("ref");
-  const hadGift = GIFT_PATH.test(url.pathname);
-  if (!hadInvite && !hadRef && !hadGift) return href;
+  const gift = url.pathname.match(GIFT_PATH);
+  if (!hadInvite && !hadRef && !gift) return href;
 
   const hold = (key, value) => {
     if (!value) return;
@@ -50,10 +53,15 @@ export function cleanEntryUrl(href, storage) {
   };
   hold(INVITE_KEY, url.searchParams.get("invite"));
   hold(REF_KEY, url.searchParams.get("ref"));
+  if (gift) {
+    let code = gift[1];
+    try { code = decodeURIComponent(code); } catch (e) { /* hold it as written */ }
+    hold(GIFT_KEY, code);
+  }
 
   url.searchParams.delete("invite");
   url.searchParams.delete("ref");
-  if (hadGift) url.pathname = "/";
+  if (gift) url.pathname = "/";
   return url.toString();
 }
 

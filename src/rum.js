@@ -83,6 +83,10 @@ const CHROME_ALLOW_LIST = [
   '.op-galley-go',    // Ask the Galley primary: "Create a meal" / "Read these" / "Read this recipe" — the mode label, fixed copy; its data-galley-mode carries the enum (invent / read_photos / read_paste), never text
   '.op-galley-about', // Ask the Galley: "About the Galley" — the one honest touchpoint (fixed copy); the sentence it opens is a sibling, never in this element
   '.op-start-over',  // New Meal import banner: "Start over" — the banner's text and the From field beside it are never in this element
+  '.gift-add',       // Signed-out gift card (/g/{CODE}, SPEC_meal_sharing_phase_a_client C5): "Add to our meals" — fixed copy; the title, From and count are masked text in sibling elements, never here
+  '.gift-signin',    // Gift card: "Sign in" — fixed copy
+  '.gift-what',      // Gift card A3 (unknown or revoked): "What is OurProvisions?" — fixed copy, a link to the landing page
+  '.gift-retry',     // Gift card, request failed: "Try again" — fixed copy
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 

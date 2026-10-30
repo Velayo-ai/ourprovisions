@@ -10,6 +10,8 @@ import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { CategorySelect } from './components/CategorySelect';
+import { GiftCard } from './components/GiftCard';
+import { GIFT_KEY } from './lib/preRum';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { parseSteps } from './lib/parseSteps';
@@ -4883,6 +4885,18 @@ function ProvisionsApp() {
       return {};
     }
   }, []);
+  // A GIFT LINK (/g/{CODE}; SPEC_meal_sharing_phase_a_client, Commit 1; S33): the code was held
+  // under GIFT_KEY and the path cleaned by src/lib/preRum.js before Splunk started — this is the
+  // only reader of that key on the signed-out side, and it never reads the URL. Read once at
+  // mount: while the session is not live the gift card stands where the Home welcome would; the
+  // key is NOT cleared here, because the same tab comes back through Clerk's sign-up round trip
+  // and the signed-in arrival (Commit 3) consumes it after bootstrap. "Add to our meals" is the
+  // 042 referral sign-up itself (the ?ref= that rode the link is already held under REF_KEY and
+  // bootstrap passes it) — one mechanism, no second bridge. Clerk's modal redirect is the current
+  // URL, already clean, so no redirect_url is set.
+  const [pendingGiftCode] = useState(() => {
+    try { return sessionStorage.getItem(GIFT_KEY) || null; } catch (e) { return null; }
+  });
   // D5 (SPEC_auth_state_ui_gating §PII scrub 1): the pre-fill params leave the
   // URL the moment they are read. The memo above already holds the values, so
   // openSignUp / SignUpButton still pre-fill; what changes is that the email no
@@ -8716,6 +8730,37 @@ function ProvisionsApp() {
         .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #8A5F3A; }
         .home-welcome-btn.solid { background: #2C1A0E; border: 1.5px solid #2C1A0E; color: #FAF4EC; }
         .home-welcome-btn:disabled { opacity: 0.5; cursor: default; }
+        /* THE PUBLIC GIFT CARD (/g/{CODE}, signed out — SPEC_meal_sharing_phase_a_client, mockup_gift_preview A1–A3).
+           Paper page, one white card: a 4:3-ish photo (or the short sand band with the plate mark, C8), the title in
+           Playfair, From in ink-soft, the count as a cream chip; the teal CTA; the two quiet lines; the footer sentence. */
+        .gift-page { padding: 20px 18px 40px; max-width: 420px; margin: 0 auto; }
+        .gift-eyebrow { margin: 4px 2px 12px; font-family: 'Lato', sans-serif; font-size: 10.5px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; color: #A0724A; }
+        .gift-card { background: #fff; border: 1px solid #E3D4BC; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 18px -10px rgba(44,26,14,.25); }
+        .gift-card-loading { min-height: 150px; background: #FBF7F0; }
+        .gift-photo { aspect-ratio: 4 / 3; max-height: 260px; background: #E8D5B7; }
+        .gift-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        .gift-noph { height: 84px; background: #E8D5B7; display: flex; align-items: center; justify-content: center; }
+        .gift-plate { display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 50%; border: 2px solid #A0724A; }
+        .gift-plate::after { content: ""; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid rgba(160,114,74,.55); }
+        .gift-plate-big { width: 64px; height: 64px; margin: 0 auto 22px; opacity: .6; }
+        .gift-plate-big::after { width: 36px; height: 36px; }
+        .gift-body { padding: 14px 16px 16px; }
+        .gift-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(21px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.2; color: #2C1A0E; overflow-wrap: anywhere; }
+        .gift-from { margin-top: 6px; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); color: #6f5a45; overflow-wrap: anywhere; }
+        .gift-meta { display: inline-block; margin-top: 10px; font-family: 'Lato', sans-serif; font-size: 11px; font-weight: 700; color: #A0724A; background: #FAF4EC; border: 1px solid #E3D4BC; padding: 4px 9px; border-radius: 12px; }
+        .gift-add { display: block; width: 100%; margin-top: 18px; min-height: 48px; background: #0D9488; color: #fff; font-family: 'Lato', sans-serif; font-weight: 900; font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: .02em; border: 0; border-radius: 12px; padding: 14px; text-align: center; cursor: pointer; }
+        .gift-add:disabled { background: #9cc9c4; cursor: default; }
+        .gift-after, .gift-signin-line { margin: 9px 0 0; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #6f5a45; text-align: center; line-height: 1.5; }
+        .gift-signin-line { margin-top: 14px; }
+        .gift-signin { background: none; border: 0; padding: 0 2px; min-height: 24px; font: inherit; font-weight: 700; color: #0D9488; cursor: pointer; }
+        .gift-signin:disabled { opacity: .5; cursor: default; }
+        .gift-foot { margin: 36px 0 0; padding-top: 14px; border-top: 1px solid #E3D4BC; font-family: 'Lato', sans-serif; font-size: 11.5px; color: #8a7a60; text-align: center; line-height: 1.5; }
+        .gift-foot b { color: #2C1A0E; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; }
+        .gift-dead { padding: 50px 8px 0; text-align: center; }
+        .gift-dead-h { margin: 0; font-family: 'Playfair Display', serif; font-size: calc(22px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; }
+        .gift-dead-p { margin: 8px 0 0; font-family: 'Lato', sans-serif; font-size: calc(13.5px * var(--op-text-scale)); color: #6f5a45; }
+        .gift-what, .gift-retry { display: inline-block; margin-top: 24px; font-family: 'Lato', sans-serif; font-size: 13px; font-weight: 700; color: #0D9488; background: #fff; border: 1.5px solid #0D9488; border-radius: 12px; padding: 10px 18px; text-decoration: none; cursor: pointer; }
+        .gift-add:focus-visible, .gift-signin:focus-visible, .gift-what:focus-visible, .gift-retry:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         /* THE ON-DECK CARD in the board's language: the welcome's warm cream, no shadow, no photo (the household photo asserts
            context, never decorates). Eyebrow = the board chip's type; title = Playfair; status = the board line's tone. One primary
            per state as a pill (the board's buttons at Home's scale); Switch is a text button; × is the board's ×. */
@@ -10292,7 +10337,9 @@ function ProvisionsApp() {
       )}
 
       <div className="container">
-        {signedOutWelcome && <HomeWelcome signUpInitialValues={signUpInitialValues} ready={isLoaded} />}
+        {signedOutWelcome && (pendingGiftCode
+          ? <GiftCard code={pendingGiftCode} ready={isLoaded} onAddToMeals={() => openSignUp({ initialValues: signUpInitialValues })} onSignIn={() => openSignIn()} />
+          : <HomeWelcome signUpInitialValues={signUpInitialValues} ready={isLoaded} />)}
 
         {view === "home" && !signedOutWelcome && (
           <Home

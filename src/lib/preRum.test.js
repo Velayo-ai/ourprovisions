@@ -4,7 +4,7 @@
 // the URL before Splunk starts, and are held in sessionStorage under two keys.
 import fs from "fs";
 import path from "path";
-import { cleanEntryUrl, INVITE_KEY, REF_KEY } from "./preRum";
+import { cleanEntryUrl, INVITE_KEY, REF_KEY, GIFT_KEY } from "./preRum";
 
 const ORIGIN = "https://dev.ourprovisions.velayo.ai";
 
@@ -37,14 +37,21 @@ describe("cleanEntryUrl", () => {
     expect(s.dump()).toEqual({ [INVITE_KEY]: "ABCD1234", [REF_KEY]: "R9R9R9" });
   });
 
-  test("a /g/<code> gift path is removed (not yet held — Phase A adds its key)", () => {
+  test("a /g/<code> gift path is held under GIFT_KEY (Phase A, Commit 1) and removed from the URL; ref rides with it", () => {
     const s = stub();
-    expect(cleanEntryUrl(`${ORIGIN}/g/K7M2P9?ref=R9R9R9`, s)).toBe(`${ORIGIN}/`);
-    expect(cleanEntryUrl(`${ORIGIN}/g/K7M2P9/#/home`, s)).toBe(`${ORIGIN}/#/home`);
-    expect(s.dump()).toEqual({ [REF_KEY]: "R9R9R9" });
+    expect(cleanEntryUrl(`${ORIGIN}/g/K7M2P9ABCDEFGH23?ref=R9R9R9`, s)).toBe(`${ORIGIN}/`);
+    expect(s.dump()).toEqual({ [GIFT_KEY]: "K7M2P9ABCDEFGH23", [REF_KEY]: "R9R9R9" });
+    const s2 = stub();
+    expect(cleanEntryUrl(`${ORIGIN}/g/K7M2P9/#/home`, s2)).toBe(`${ORIGIN}/#/home`);
+    expect(s2.dump()).toEqual({ [GIFT_KEY]: "K7M2P9" });
+    // Three keys, never one slot: a gift link never erases a held invite.
+    const s3 = stub({ [INVITE_KEY]: "HELD1234" });
+    cleanEntryUrl(`${ORIGIN}/g/K7M2P9`, s3);
+    expect(s3.dump()).toEqual({ [INVITE_KEY]: "HELD1234", [GIFT_KEY]: "K7M2P9" });
     // Only a single-segment /g/<code> is a gift path.
     const deep = `${ORIGIN}/g/K7M2P9/extra`;
     expect(cleanEntryUrl(deep, stub())).toBe(deep);
+    expect(GIFT_KEY).toBe("pending_gift_code");
   });
 
   test("a held value is not overwritten by an empty URL, or by an empty param", () => {

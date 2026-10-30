@@ -558,8 +558,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // D4 / D1 (SPEC_auth_state_ui_gating.md): no session → no data. The anon
     // storefront preview that used to live here (seed catalog + category averages
     // over apikey-only REST, for a signed-out Browse) was retired 2026-09-24 with
-    // Browse's signed-out rendering. After this the app makes ZERO anon queries;
-    // Home carries the signed-out surface.
+    // Browse's signed-out rendering. After this the app makes ZERO anon queries
+    // through THIS client; Home carries the signed-out surface. The one exception
+    // (Phase A, 2026-10-29) is src/lib/supabaseAnon.js — a separate apikey-only client
+    // used by the signed-out gift card alone, for exactly two calls the server grants
+    // to anon on purpose (preview_meal_gift_public, a gift-photos signed URL). A test
+    // greps src/ so nothing else can import it.
     if (!getTokenRef.current || !userId || !clerkId) {
       setLoading(false);
       return;

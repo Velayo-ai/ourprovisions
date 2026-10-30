@@ -344,8 +344,9 @@ describe("photo surfaces carry .op-replay-block", () => {
     }
     // the avatar, the Galley screenshot thumbnail, the recipe view strip photo, the full-size
     // viewer photo, the board afterglow's "Photo added" thumbnail, the Remove confirm sheet's thumbnail
-    // (SPEC_photo_menu P9) (App.js); the library card photo (components/LibraryCards.js)
-    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "components/LibraryCards.js"]);
+    // (SPEC_photo_menu P9) (App.js); the library card photo (components/LibraryCards.js); the public
+    // gift card's photo (components/GiftCard.js — Phase A Commit 1, a signed gift-photos URL)
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "components/GiftCard.js", "components/LibraryCards.js"]);
   });
 
   // S30 / R6 (2026-10-26): every photo <img> people put in the app also carries .op-photo
@@ -366,8 +367,8 @@ describe("photo surfaces carry .op-replay-block", () => {
     }
     // the Galley screenshot thumbnail, the recipe view strip photo, the Remove confirm sheet's
     // thumbnail, the board afterglow's thumbnail, the full-size viewer photo (App.js); the library
-    // card photo (components/LibraryCards.js); the avatar, excepted
-    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js:avatar", "components/LibraryCards.js"]);
+    // card photo (components/LibraryCards.js); the gift card's photo (components/GiftCard.js); the avatar, excepted
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js:avatar", "components/GiftCard.js", "components/LibraryCards.js"]);
     const app = SOURCES.find(([f]) => f === "App.js")[1];
     expect(app).toMatch(/\.op-photo \{ -webkit-user-drag: none; -webkit-touch-callout: none; \}/);
     expect(app).not.toMatch(/\.rv-(photo|viewer)-img \{[^}]*-webkit-user-drag/);   // folded into .op-photo
