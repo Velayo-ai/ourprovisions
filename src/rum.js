@@ -62,6 +62,15 @@ const CHROME_ALLOW_LIST = [
   '.rv-showcase-go',         // S13 prompt: "Make showcase" — fixed copy; THE flip
   '.rv-showcase-cancel',     // S13 prompt: "Not now" — fixed copy
   '.rv-photo-full-ok',       // "Meal photos are full" sheet: "OK" — fixed copy; the sheet's two lines are masked text
+  '.rv-more',          // Recipe view header: the meal's ⋯, aria-label "Meal options" — fixed copy (SPEC_meal_sharing_phase_a_client Commit 2; Dan 2026-10-29). Beside Edit; the title it acts on is #rv-title, masked, never in this element
+  '.rv-give',          // Meal ⋯: "Give this meal" — fixed copy
+  '.rv-stop-giving',   // Meal ⋯: "Stop giving" — fixed copy; shown only while the meal has an unrevoked gift
+  '.give-go',          // Give sheet (B1/B2): "Give" / "Getting it ready…" — fixed copy; the meal name and the note are masked text / a masked input beside it
+  '.give-nudge',       // Give sheet B2: "Make one of your photos a showcase →" — fixed copy; opens the recipe view's strip
+  '.give-send',        // Give sheet B4/B5: "Send it" — fixed copy; THE share (navigator.share from this tap, C3)
+  '.give-copy',        // Give sheet B4/B5: "Copy link" — fixed copy; the link itself is never rendered
+  '.stop-giving-yes',  // Stop giving confirm: "Stop giving" — fixed copy; THE revoke
+  '.stop-giving-no',   // Stop giving confirm: "Keep giving" — fixed copy
   '.rv-photo-open',  // Recipe view photo hero: the photo itself as a button, aria-label "View photo full size" — no text content (the <img> inside is .op-replay-block, alt "") (Dan, 2026-10-21)
   '.rv-viewer-close',// Full-size photo viewer: "×", aria-label "Close photo" — fixed copy. The "N of M" count and the caption are household text, OFF this list
   '.rv-photo-prev',  // Photo strip + viewer, desktop only: "‹", aria-label "Previous photo" — fixed copy, no text content (Dan, 2026-10-21)

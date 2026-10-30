@@ -13,6 +13,7 @@ import { trace } from "@opentelemetry/api";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
 import { cooksFromRows, resolveCookId } from "../lib/cooks";
 import { setKindFailure } from "../lib/mealPhotos";
+import { giveFailure, giftObjectPath, GIFT_RENDITIONS } from "../lib/giveMeal";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -2640,6 +2641,71 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return { ok: true };
   }, []);
 
+  // ─────────────────────────────────────────────────────────────
+  // GIVE THIS MEAL (072 §5 give_meal / revoke_meal_gifts; SPEC_meal_sharing_phase_a_client Commit 2;
+  // S34 / S41 / S44). The server builds the snapshot and picks the photo (S12: the giver's own latest
+  // showcase, or none) and mints the 16-char code. The CLIENT then copies the two renditions into
+  // gift-photos/{gift_id}/ — view.webp first, then thumb.webp, no upsert (C4) — before the share
+  // sheet ever opens (S34). Bytes are copied, never re-encoded: a JPEG rendition is refused by the
+  // webp-only bucket and the sheet shows B5. The code is returned to the caller for the share
+  // payload only; it is never written to state the DOM could carry.
+  // ─────────────────────────────────────────────────────────────
+  const giveMeal = useCallback(async (mealId, note) => {
+    const db = supabaseRef.current;
+    if (!db || !mealId) return { ok: false, ...giveFailure(null) };
+    const { data, error: err } = await db.rpc("give_meal", { p_meal_id: mealId, p_note: note == null ? null : note });
+    if (err) { console.warn("[give] give_meal failed:", err.code, err.message); return { ok: false, ...giveFailure(err) }; }
+    const d = data || {};
+    return { ok: true, code: d.code, giftId: d.gift_id, photoPath: d.photo_path || null, thumbPath: d.photo_thumb_path || null };
+  }, []);
+
+  // The photo copy (C4). Signs the two source paths in meal-photos (the giver is a member), fetches
+  // the bytes, uploads them under the gift id. Any failure — a refused upload, a missing object, a
+  // JPEG rendition — is one answer: { ok: false }; no retry, no delete (the S37 sweep collects strays).
+  const copyGiftPhoto = useCallback(async (giftId, viewPath, thumbPath) => {
+    const db = supabaseRef.current;
+    if (!db || !giftId || !viewPath || !thumbPath) return { ok: false };
+    try {
+      const { data: signed, error: sErr } = await db.storage.from("meal-photos").createSignedUrls([viewPath, thumbPath], 60);
+      if (sErr) throw sErr;
+      const urlFor = (path) => { const d = (signed || []).find((x) => x && x.path === path && !x.error); return d ? d.signedUrl : null; };
+      const sources = { view: viewPath, thumb: thumbPath };
+      const gift = db.storage.from("gift-photos");
+      for (const rendition of GIFT_RENDITIONS) {
+        const url = urlFor(sources[rendition]);
+        if (!url) throw new Error(`no signed url for the ${rendition} rendition`);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`${rendition} fetch ${res.status}`);
+        const blob = await res.blob();
+        const { error: upErr } = await gift.upload(giftObjectPath(giftId, rendition), blob, { contentType: blob.type || "image/webp", upsert: false, cacheControl: "3600" });
+        if (upErr) throw upErr;
+      }
+      return { ok: true };
+    } catch (e) {
+      console.warn("[give] gift photo copy failed (B5):", e && (e.message || e));
+      return { ok: false };
+    }
+  }, []);
+
+  // Stop giving (10-07 V11): revokes every live gift of the meal. Returns the revoked count only.
+  const revokeMealGifts = useCallback(async (mealId) => {
+    const db = supabaseRef.current;
+    if (!db || !mealId) return { ok: false };
+    const { data, error: err } = await db.rpc("revoke_meal_gifts", { p_meal_id: mealId });
+    if (err) { console.warn("[give] revoke_meal_gifts failed:", err.code, err.message); return { ok: false }; }
+    return { ok: true, count: Number(data) || 0 };
+  }, []);
+
+  // The meal's LIVE gifts, for "Stop giving" (shown while any exists). RLS: members of the giving
+  // household. Only ids and dates — the code is a bearer key and never comes back into the client.
+  const fetchMealGifts = useCallback(async (mealId) => {
+    const db = supabaseRef.current;
+    if (!db || !mealId) return null;
+    const { data, error: err } = await db.from("meal_gifts").select("id, created_at").eq("source_meal_id", mealId).is("revoked_at", null);
+    if (err) { console.warn("[give] meal_gifts read failed (non-fatal):", err.message); return null; }
+    return data || [];
+  }, []);
+
   const removeMealPhoto = useCallback(async (photoId) => {
     const db = supabaseRef.current;
     if (!db || !photoId) return false;
@@ -3948,6 +4014,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
+    giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     fetchTripReality, answerTripReality,

@@ -92,7 +92,7 @@ describe("the hero strip (R2)", () => {
 describe("showcase photos — the flip (S46)", () => {
   const showcase = (id, by = "u1") => ({ ...photo(id, by), kind: "showcase" });
   const cook = (id, by = "u1") => ({ ...photo(id, by), kind: "cook" });
-  const S13 = "Showcase photos can be seen by anyone. Check everyone in it is happy with that.";
+  const S13 = "Showcase photos can be shared outside the household.";   // line of record, Dan 2026-10-30
   const flipView = (over = {}) => { const onSetPhotoKind = jest.fn(); const r = view({ onSetPhotoKind, ...over }); return { ...r, onSetPhotoKind }; };
   const openMenu = (c) => fireEvent.click(q(c, ".rv-photo-more"));
   const items = (root) => Array.from(q(root, ".rv-photo-pop").children).map((el) => (el.getAttribute("role") === "separator" ? "—" : el.textContent));
@@ -147,19 +147,28 @@ describe("showcase photos — the flip (S46)", () => {
     expect(q(container, ".rv-photo-make-showcase")).not.toBeNull();
   });
 
-  test("S46 + S14: another member's photo has neither flip item and no Save (Replace, Details, Remove stay); mine has Save", () => {
+  test("S46 + S14: another member's photo has neither flip item and no Save (Replace, Details, Remove stay), and opens with 'Added by {First}' — inert, not an item; mine has Save and no owner line", () => {
     const { container } = flipView({ photos: [cook("x", "u2"), showcase("y", "u2"), cook("a")], members: MEMBERS, onReplacePhoto: jest.fn() });
     openMenu(container);
-    expect(items(container)).toEqual(["Replace photo", "Photo details", "—", "Remove photo"]);
+    expect(items(container)).toEqual(["Added by Dana", "Replace photo", "Photo details", "—", "Remove photo"]);
+    const owner = q(container, ".rv-photo-owner");
+    expect(owner.tagName).toBe("SPAN");
+    expect(owner.getAttribute("role")).toBe("presentation");
+    expect(qa(container, ".rv-photo-pop [role=menuitem]").map((b) => b.textContent)).toEqual(["Replace photo", "Photo details", "Remove photo"]);
     [".rv-photo-make-showcase", ".rv-photo-make-cook", ".rv-photo-save"].forEach((s) => expect(q(container, s)).toBeNull());
     openMenu(container);   // close
     fireEvent.click(q(container, ".rv-photo-next"));
     openMenu(container);
-    expect(items(container)).toEqual(["Photo details", "—", "Remove photo"]);
+    expect(items(container)).toEqual(["Added by Dana", "Photo details", "—", "Remove photo"]);
     openMenu(container);   // close
     fireEvent.click(q(container, ".rv-photo-next"));
     openMenu(container);
     expect(items(container)).toEqual(["Replace photo", "Make showcase", "Photo details", "Download photo", "—", "Remove photo"]);
+    expect(q(container, ".rv-photo-owner")).toBeNull();
+    // solo household (one member): no name, no line — the "Added by" rule
+    const solo = flipView({ photos: [cook("x", "u2")], members: [MEMBERS[1]] });
+    openMenu(solo.container);
+    expect(q(solo.container, ".rv-photo-owner")).toBeNull();
   });
 
   test("no viewer id (nothing is 'mine'): no flip items and no Save on any photo", () => {
