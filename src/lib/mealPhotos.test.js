@@ -1,4 +1,4 @@
-import { photosByMeal, photosFingerprint, addedDate, photoCaption, photoDetails, detailsDate, replaceSteps, MEAL_PHOTO_CAP } from "./mealPhotos";
+import { photosByMeal, photosFingerprint, addedDate, photoCaption, photoDetails, detailsDate, replaceSteps, MEAL_PHOTO_CAP, isShowcase, liveCookCount, atPhotoCap } from "./mealPhotos";
 
 const NOW = new Date(2026, 9, 21, 18, 0, 0);
 const at = (daysAgo) => new Date(2026, 9, 21 - daysAgo, 12, 0, 0).toISOString();
@@ -20,6 +20,33 @@ describe("photosByMeal", () => {
   test("skips soft-deleted rows and junk", () => {
     expect(photosByMeal([null, row("x", "m1", 0, { deleted_at: at(0) }), { id: "y" }])).toEqual({});
     expect(photosByMeal(null)).toEqual({});
+  });
+});
+
+// SPEC_meal_sharing_v2 S26 / S28 (072): showcase photos sit outside the cap; one pick.
+describe("photosByMeal with showcase photos (S26 / S28)", () => {
+  const sc = (id, daysAgo, extra = {}) => row(id, "m1", daysAgo, { kind: "showcase", ...extra });
+  const ck = (id, daysAgo, extra = {}) => row(id, "m1", daysAgo, { kind: "cook", ...extra });
+  test("S26: the cap counts cook photos only — three cooks plus a showcase keeps all four; a fourth cook is dropped, the showcase never", () => {
+    const by = photosByMeal([sc("s", 0), ck("a", 1), ck("b", 2), ck("c", 3), ck("d", 4)]);
+    expect(by.m1.map((r) => r.id)).toEqual(["a", "s", "b", "c"]);
+    expect(liveCookCount(by.m1)).toBe(3);
+    expect(atPhotoCap(by.m1)).toBe(true);
+    expect(atPhotoCap([sc("s", 0), ck("a", 1)])).toBe(false);
+    expect(liveCookCount(null)).toBe(0);
+  });
+  test("S28: the pick is the newest live cook photo, even when a showcase photo is newer; then the rest newest-first", () => {
+    const by = photosByMeal([sc("s2", 0), ck("a", 1), sc("s1", 2), ck("b", 3)]);
+    expect(by.m1.map((r) => r.id)).toEqual(["a", "s2", "s1", "b"]);
+  });
+  test("S28: no cook photo → the newest showcase photo is the pick", () => {
+    expect(photosByMeal([sc("s2", 0), sc("s1", 1)]).m1.map((r) => r.id)).toEqual(["s2", "s1"]);
+  });
+  test("rows with no kind (pre-072 reads) are cook photos", () => {
+    expect(isShowcase(row("a", "m1", 0))).toBe(false);
+    expect(isShowcase(sc("s", 0))).toBe(true);
+    expect(isShowcase(null)).toBe(false);
+    expect(photosByMeal([row("a", "m1", 0), row("b", "m1", 1), row("c", "m1", 2), row("d", "m1", 3)]).m1).toHaveLength(3);
   });
 });
 
@@ -92,6 +119,10 @@ describe("photoDetails (SPEC_photo_menu DAN-2)", () => {
   test("a cook-attached photo adds 'From the cook on {date}'", () => {
     const p = row("a", "m1", 0, { meal_cook_id: "c1", cooked_at: at(2) });
     expect(photoDetails(p, two, first, NOW)).toEqual([`Added by Dan · ${want(at(0))}`, `From the cook on ${want(at(2))}`]);
+  });
+  test("a showcase photo adds the S13 fact as its last line", () => {
+    expect(photoDetails(row("a", "m1", 1, { kind: "showcase" }), two, first, NOW))
+      .toEqual([`Added by Dan · ${want(at(1))}`, "Showcase photo · can be seen by anyone you give this meal to"]);
   });
   test("nothing to say → no lines", () => {
     expect(photoDetails(null, two, first, NOW)).toEqual([]);

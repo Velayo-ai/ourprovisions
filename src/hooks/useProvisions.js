@@ -2615,6 +2615,26 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return saveMealPhoto(up.upload, cookId);
   }, [uploadMealPhoto, saveMealPhoto]);
 
+  // SHOWCASE PHOTO (072 add_showcase_photo; SPEC_meal_sharing_v2 S9 / S13 / S26 / S31): the same
+  // two renditions and the same upload as a cook photo, then add_showcase_photo — no cook id by
+  // signature, kind = showcase, one live per person per meal (the RPC retires the caller's
+  // previous one), outside the cook cap and its trim. The argument order is 065's
+  // (p_thumb_path, p_view_path). Same return shape as addMealPhoto; the caller says it quietly.
+  const addShowcasePhoto = useCallback(async (mealId, file) => {
+    const up = await uploadMealPhoto(mealId, file);
+    if (!up.ok) return up;
+    const db = supabaseRef.current;
+    const u = up.upload;
+    const { data: id, error: err } = await db.rpc("add_showcase_photo", {
+      p_meal_id: u.mealId, p_thumb_path: u.thumbPath, p_view_path: u.viewPath, p_width: u.width, p_height: u.height,
+    });
+    if (err) {
+      console.warn("[showcase photo] add_showcase_photo failed:", err.code, err.message);
+      return { ok: false, reason: "save" };
+    }
+    return { ok: true, id };
+  }, [uploadMealPhoto]);
+
   const removeMealPhoto = useCallback(async (photoId) => {
     const db = supabaseRef.current;
     if (!db || !photoId) return false;
@@ -2631,7 +2651,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .from("meal_photos")
       // meal_cooks(cooked_at) through meal_cook_id (S5): a cook-attached photo's caption reads
       // "Cooked {date}". Null for recipe-view photos (R3). RLS: meal_cooks SELECT is membership.
-      .select("id, meal_id, meal_cook_id, thumb_path, view_path, uploaded_by, uploaded_at, width, height, meal_cooks(cooked_at)")
+      // kind (072): 'cook' or 'showcase' — the client's cap and the S28 pick read it.
+      .select("id, meal_id, meal_cook_id, kind, thumb_path, view_path, uploaded_by, uploaded_at, width, height, meal_cooks(cooked_at)")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("uploaded_at", { ascending: false })
@@ -3921,7 +3942,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
-    addMealPhoto, uploadMealPhoto, saveMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
+    addMealPhoto, uploadMealPhoto, saveMealPhoto, addShowcasePhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     fetchTripReality, answerTripReality,

@@ -25,7 +25,7 @@ import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } fro
 import { rowCountsFromProvenance } from './lib/mealLinks';
 import { addAllOnHandLine } from './lib/onHand';
 import { cookDateStart, cookHistoryLine } from './lib/cookDate';
-import { photosByMeal, photosFingerprint, photoCaption, photoDetails, replaceSteps, MEAL_PHOTO_CAP } from './lib/mealPhotos';
+import { photosByMeal, photosFingerprint, photoCaption, photoDetails, replaceSteps, isShowcase, liveCookCount, atPhotoCap } from './lib/mealPhotos';
 import { canSaveToPhotos, createPhotoSaver, saveLabel } from './lib/savePhoto';
 import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
@@ -2097,13 +2097,21 @@ const RV_COOKS_MIN = 2;
 // .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-photo-placeholder. ⋯ (.rv-photo-more)
 // is off the list, named by a fixed aria-label; the sheets' titles and lines are masked text,
 // each sheet named by aria-labelledby; no meal name anywhere in an attribute.
-function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove, onReplace = null, viewerUserId = null }) {
+// SHOWCASE PHOTOS (SPEC_meal_sharing_v2 S9 / S13 / S26 / S28; 072): a second, explicit action under
+// the hero — "Add a showcase photo" (.rv-photo-showcase) — the one photo that travels when the meal
+// is given. It opens the S13 prompt first ("Showcase photos can be seen by anyone…"), once per
+// upload, and the picker opens from the prompt's own button (iOS needs the gesture). Outside the
+// cook cap, so it stays when "Add a meal photo" hides. A showcase slide is marked (.rv-showcase-tag,
+// fixed copy, a sibling of the photo button); its ⋯ has no Replace (see replaceSteps). The strip's
+// order is photosByMeal's: the S28 pick first.
+function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onAddShowcase = null, onRemove, onReplace = null, viewerUserId = null }) {
   const [idx, setIdx] = useState(0);
   const [viewer, setViewer] = useState(null);   // null | the index the full-size viewer opened at
-  const [sheet, setSheet] = useState(null);     // null | { kind: "remove" | "details", photo }
+  const [sheet, setSheet] = useState(null);     // null | { kind: "remove" | "details", photo } | { kind: "showcase" }
   const [emptied, setEmptied] = useState(false); // the last photo was removed in THIS sheet (P7)
   const stripRef = useRef(null);
   const fileRef = useRef(null);
+  const showcaseFileRef = useRef(null);
   const replaceFileRef = useRef(null);
   const replaceRef = useRef(null);   // the photo a Replace pick will stand in for
   const moreRef = useRef(null);      // the hero's ⋯ — focus comes back here (P10)
@@ -2176,6 +2184,14 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     if (f && old && onReplace) onReplace(meal.id, old, f);
   };
   const addPhoto = () => { if (!busy && fileRef.current) fileRef.current.click(); };
+  // Showcase: the S13 prompt first; its "Choose a photo" opens the picker inside that tap.
+  const askShowcase = () => { if (!busy) setSheet({ kind: "showcase" }); };
+  const chooseShowcase = () => { setSheet(null); if (showcaseFileRef.current) showcaseFileRef.current.click(); };
+  const pickShowcase = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (f && onAddShowcase) onAddShowcase(meal.id, f);
+  };
   // The menu's actions, for the hero's photo in view or the viewer's (P8). The file picker opens
   // inside the tap (iOS needs the gesture); Remove and Details close the viewer first.
   const actions = {
@@ -2196,7 +2212,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
   const menuFor = (p, variant, closeKey) => (
     <PhotoMenu variant={variant} closeKey={closeKey} disabled={busy} triggerRef={variant === "hero" ? moreRef : undefined}
       saveLabel={saveLabel(toPhotos)} onOpen={() => actions.prefetch(p)}
-      onReplace={actions.replace ? () => actions.replace(p) : null} onDetails={() => actions.details(p)}
+      onReplace={actions.replace && !isShowcase(p) ? () => actions.replace(p) : null} onDetails={() => actions.details(p)}
       onSave={() => actions.save(p)} onRemove={() => actions.remove(p)} />
   );
   const placeholder = canEdit && n === 0 && emptied;
@@ -2223,6 +2239,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
                 <button type="button" className="rv-photo-open" aria-label="View photo full size" ref={(el) => { openRefs.current[i] = el; }} onClick={() => openViewer(i)}>
                   <img className="rv-photo-img op-replay-block op-photo" src={p.url} alt="" draggable="false" onLoad={photoFadeIn} />
                 </button>
+                {isShowcase(p) && <span className="rv-showcase-tag">Showcase</span>}
               </div>
             ))}
           </div>
@@ -2239,14 +2256,22 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
       {n >= 2 && <PhotoDots photos={live} at={at} onGo={goTo} />}
       {canEdit && (
         <>
-          {n < MEAL_PHOTO_CAP && !placeholder && (
+          {(!atPhotoCap(live) || onAddShowcase) && !placeholder && (
             <div className="rv-photo-ctl">
-              <button type="button" className="rv-photo-add" disabled={busy} onClick={addPhoto}>
-                <CameraGlyph />{busy ? "Adding…" : "Add a meal photo"}
-              </button>
+              {!atPhotoCap(live) && (
+                <button type="button" className="rv-photo-add" disabled={busy} onClick={addPhoto}>
+                  <CameraGlyph />{busy ? "Adding…" : "Add a meal photo"}
+                </button>
+              )}
+              {onAddShowcase && (
+                <button type="button" className="rv-photo-showcase" disabled={busy} onClick={askShowcase}>
+                  <CameraGlyph />Add a showcase photo
+                </button>
+              )}
             </div>
           )}
           <input ref={fileRef} type="file" accept="image/*" hidden onChange={pick} />
+          {onAddShowcase && <input ref={showcaseFileRef} type="file" accept="image/*" hidden onChange={pickShowcase} />}
           {onReplace && <input ref={replaceFileRef} type="file" accept="image/*" hidden onChange={pickReplace} />}
         </>
       )}
@@ -2269,6 +2294,18 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
           {photoDetails(sheet.photo, members, memberFirstName).map((line) => (
             <div className="rv-psheet-line" key={line}>{line}</div>
           ))}
+        </PhotoSheet>
+      )}
+      {/* S13: the prompt, once per upload, before the picker. Fixed copy; the meal is never named. */}
+      {sheet && sheet.kind === "showcase" && (
+        <PhotoSheet labelledBy="rv-showcase-h" onClose={() => setSheet(null)}>
+          <h2 id="rv-showcase-h" className="rv-psheet-h">Add a showcase photo</h2>
+          <p className="rv-psheet-body">Showcase photos can be seen by anyone. Check everyone in it is happy with that.</p>
+          <p className="rv-psheet-body rv-psheet-sub">It’s the photo that goes along when you give this meal. Your cook photos stay at home.</p>
+          <div className="rv-psheet-btns">
+            <button type="button" className="rv-showcase-go" data-autofocus="true" onClick={chooseShowcase}>Choose a photo</button>
+            <button type="button" className="rv-showcase-cancel" onClick={() => setSheet(null)}>Not now</button>
+          </div>
         </PhotoSheet>
       )}
     </>
@@ -2656,7 +2693,7 @@ const photoFadeIn = (e) => e.currentTarget.classList.add("in");
 const CameraGlyph = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z" /><circle cx="12" cy="13.2" r="3.4" /></svg>
 );
-export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onRemovePhoto, onReplacePhoto = null, ratingsFor, onRate, canRate }) {
+export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onAddShowcasePhoto = null, onRemovePhoto, onReplacePhoto = null, ratingsFor, onRate, canRate }) {
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2738,7 +2775,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
         <div className="lib-type-handle" aria-hidden="true" />
         <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
         <RecipePhotos meal={meal} tint={tint} first={first} members={members} viewerUserId={viewerUserId} photos={photosReady ? (photos || []) : []}
-          canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onRemove={onRemovePhoto} onReplace={onReplacePhoto} />
+          canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onAddShowcase={onAddShowcasePhoto} onRemove={onRemovePhoto} onReplace={onReplacePhoto} />
         <div className="rv-head">
           <h2 id="rv-title" className="rv-title">{displayTitle(meal.name)}</h2>
           {attribution && <div className="rv-byline">from {attribution}</div>}
@@ -4966,7 +5003,7 @@ function ProvisionsApp() {
     discardUnclaimedHousehold,
     uploadHouseholdPhoto,
     updateHouseholdBanner,
-    addMealPhoto, uploadMealPhoto, saveMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
+    addMealPhoto, uploadMealPhoto, saveMealPhoto, addShowcasePhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     supabase,
     _supabase,
     _household,
@@ -5872,6 +5909,17 @@ function ProvisionsApp() {
       await loadMealPhotos();
     } finally { setPhotoBusyMealId(null); }
   }, [photoBusyMealId, addMealPhoto, loadMealPhotos, showToast]);
+  // Showcase (072; SPEC_meal_sharing_v2 S9 / S13 / S26): the recipe view's "Add a showcase photo",
+  // after the S13 prompt. Same quiet posture as a cook photo; the read-back shows it.
+  const handleAddShowcasePhoto = useCallback(async (mealId, file) => {
+    if (photoBusyMealId) return;
+    setPhotoBusyMealId(mealId);
+    try {
+      const r = await addShowcasePhoto(mealId, file);
+      if (!r.ok) showToast(r.reason === "decode" ? "Couldn't read that photo" : "Couldn't add the showcase photo. Try again.");
+      await loadMealPhotos();
+    } finally { setPhotoBusyMealId(null); }
+  }, [photoBusyMealId, addShowcasePhoto, loadMealPhotos, showToast]);
   const handleRemoveMealPhoto = useCallback(async (photoId) => {
     const ok = await removeMealPhoto(photoId);
     if (!ok) showToast("Couldn't remove the photo. Try again.");
@@ -5892,7 +5940,7 @@ function ProvisionsApp() {
       let upload = null;
       let removed = false;
       let saved = false;
-      for (const step of replaceSteps(old, (photosByMealId[mealId] || []).length)) {
+      for (const step of replaceSteps(old, liveCookCount(photosByMealId[mealId]))) {
         if (step === "upload") {
           const up = await uploadMealPhoto(mealId, file);
           if (!up.ok) { showToast(up.reason === "decode" ? "Couldn't read that photo" : "Couldn't add the photo. Try again."); return; }
@@ -5970,7 +6018,7 @@ function ProvisionsApp() {
     myRating: myRatingFor,
     onRate: handleRateCook,
     photoFor: afterglowCookPhoto,
-    atCap: (mealId) => (photosByMealId[mealId] || []).length >= MEAL_PHOTO_CAP,
+    atCap: (mealId) => atPhotoCap(photosByMealId[mealId]),   // cook photos only (S26)
     onAddPhoto: handleAddMealPhoto,
     photoBusyMealId,
   }), [isSignedIn, photosReady, cookIdsByMeal, myRatingFor, handleRateCook, afterglowCookPhoto, photosByMealId, handleAddMealPhoto, photoBusyMealId]);
@@ -8350,7 +8398,7 @@ function ProvisionsApp() {
            per slide, object-fit cover, the tint behind each photo until it decodes (it fades in once, .in). */
         .rv-strip { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; justify-content: flex-start; overflow-clip-margin: 0; }
         .rv-strip::-webkit-scrollbar { display: none; }
-        .rv-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; }
+        .rv-slide { position: relative; flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; }
         /* S30 / R6 (2026-10-26): every photo <img> people put in the app — .rv-photo-img, .rv-viewer-img,
            .rv-psheet-thumb, .lib-slot-img, .board-photo-thumb, .op-galley-th img — carries .op-photo (plus
            draggable="false" in the markup): no iOS long-press save/share callout, no drag-out. One rule, not six.
@@ -8416,11 +8464,17 @@ function ProvisionsApp() {
         .rv-photo-prev:focus-visible, .rv-photo-next:focus-visible { outline: 2px solid #E8D5B7; outline-offset: 2px; }
         .rv-dot:focus-visible { outline: 2px solid #A0724A; outline-offset: -2px; }
         .rv-viewer-dots .rv-dot:focus-visible { outline-color: #E8D5B7; }
-        /* The row under the hero keeps only "Add a meal photo" (SPEC_photo_menu P1). */
-        .rv-photo-ctl { display: flex; align-items: center; justify-content: center; margin: 4px 16px 0; }
-        .rv-photo-add { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: none; background: transparent; color: #8A5F3A;
+        /* The row under the hero: "Add a meal photo" (SPEC_photo_menu P1) and, since 072, "Add a showcase
+           photo" (SPEC_meal_sharing_v2 S9) — two quiet text buttons, wrapping on a narrow screen. */
+        .rv-photo-ctl { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0 8px; margin: 4px 16px 0; }
+        .rv-photo-add, .rv-photo-showcase { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: none; background: transparent; color: #8A5F3A;
           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; white-space: nowrap; }
-        .rv-photo-add:disabled { opacity: .55; cursor: default; }
+        .rv-photo-add:disabled, .rv-photo-showcase:disabled { opacity: .55; cursor: default; }
+        /* S28: a showcase slide is marked — a small sand chip, bottom-left, out of the way of ⋯ and the expand mark;
+           a sibling of the photo button (never inside it), inert to taps. */
+        .rv-showcase-tag { position: absolute; left: 10px; bottom: 10px; z-index: 2; pointer-events: none; padding: 3px 8px; border-radius: 8px;
+          background: rgba(44,26,14,0.62); color: #E8D5B7; font-family: 'Lato', sans-serif; font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+        .rv-psheet-sub { color: #8a7a60; }
         /* ⋯ ON THE PHOTO (P2): a 44 px target in the hero's top-right corner; its visible part is the expand mark's
            30 px dark translucent circle, inset the same 10 px from the corner (3 px + the 7 px of target around it). */
         .rv-photo-menu { position: relative; display: inline-flex; }
@@ -8457,12 +8511,15 @@ function ProvisionsApp() {
         .rv-psheet-body { margin: 12px 0 0; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #5C4636; }
         .rv-psheet-line { margin-top: 10px; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; overflow-wrap: anywhere; }
         .rv-psheet-btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-        .rv-photo-confirm-remove, .rv-photo-confirm-keep { flex: 1 1 auto; min-height: 48px; padding: 10px 18px; border-radius: 24px; white-space: nowrap; cursor: pointer;
+        .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-showcase-go, .rv-showcase-cancel { flex: 1 1 auto; min-height: 48px; padding: 10px 18px; border-radius: 24px; white-space: nowrap; cursor: pointer;
           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; }
         /* Never celebrate deleting: Keep is the gold primary, Remove is quiet — white with red text. */
         .rv-photo-confirm-remove { background: #FFFFFF; border: 1.5px solid #E5D7C1; color: #A33A2A; }
         .rv-photo-confirm-keep { background: #D9BC8C; border: 1.5px solid #D9BC8C; color: #2C1A0E; }
-        .rv-photo-add:focus-visible, .rv-photo-item:focus-visible, .rv-photo-placeholder:focus-visible, .rv-photo-confirm-remove:focus-visible, .rv-photo-confirm-keep:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
+        /* The S13 prompt: Choose a photo is the gold primary (it is the person's own choice to make public); Not now is quiet. */
+        .rv-showcase-go { background: #D9BC8C; border: 1.5px solid #D9BC8C; color: #2C1A0E; }
+        .rv-showcase-cancel { background: #FFFFFF; border: 1.5px solid #E5D7C1; color: #5C4636; }
+        .rv-photo-add:focus-visible, .rv-photo-showcase:focus-visible, .rv-photo-item:focus-visible, .rv-photo-placeholder:focus-visible, .rv-photo-confirm-remove:focus-visible, .rv-photo-confirm-keep:focus-visible, .rv-showcase-go:focus-visible, .rv-showcase-cancel:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         .rv-head { padding: 16px 20px 0; }
         .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
         .rv-byline { margin-top: 4px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #8A5F3A; overflow-wrap: anywhere; }
@@ -11098,6 +11155,7 @@ function ProvisionsApp() {
           canEditPhotos={!!isSignedIn}
           photoBusy={photoBusyMealId === rvMeal.id}
           onAddPhoto={handleAddMealPhoto}
+          onAddShowcasePhoto={handleAddShowcasePhoto}
           onRemovePhoto={handleRemoveMealPhoto}
           onReplacePhoto={handleReplaceMealPhoto}
           // Slice 2 (S5): every member's rating rows per cook (read at open), and the viewer's own rating.

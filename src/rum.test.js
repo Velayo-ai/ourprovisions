@@ -57,10 +57,12 @@ describe("click-text privacy block is unchanged", () => {
     // 47 + .rv-photo-add, .rv-photo-remove, .rv-photo-remove-yes, .rv-photo-keep (Photos v1 slice 1) + .rv-photo-open,
     // .rv-viewer-close (photo hero) + .rv-photo-prev, .rv-photo-next, .rv-dot (desktop stepping) + .board-photo-add, .rate-star (slice 2)
     // = 58; SPEC_photo_menu (2026-10-25): out .rv-photo-remove-yes, .rv-photo-keep; in .rv-photo-replace, .rv-photo-details,
-    // .rv-photo-save, .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-photo-placeholder → 62
-    expect(rules.slice(0, -2)).toHaveLength(62);
+    // .rv-photo-save, .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-photo-placeholder → 62;
+    // Phase A Commit 0 (showcase upload, 2026-10-29): in .rv-photo-showcase, .rv-showcase-go, .rv-showcase-cancel → 65
+    expect(rules.slice(0, -2)).toHaveLength(65);
     const sel = rules.map((r) => r.selector);
-    [".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove", ".rv-photo-confirm-remove", ".rv-photo-confirm-keep", ".rv-photo-placeholder"]
+    [".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove", ".rv-photo-confirm-remove", ".rv-photo-confirm-keep", ".rv-photo-placeholder",
+      ".rv-photo-showcase", ".rv-showcase-go", ".rv-showcase-cancel"]
       .forEach((c) => expect(sel).toContain(c));
     [".rv-photo-remove-yes", ".rv-photo-keep", ".rv-photo-more"].forEach((c) => expect(sel).not.toContain(c));
     expect(rules.some((r) => r.selector === ".op-replay-block")).toBe(false);

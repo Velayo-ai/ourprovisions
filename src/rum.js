@@ -57,6 +57,9 @@ const CHROME_ALLOW_LIST = [
   '.rv-photo-confirm-remove', // Remove confirm sheet: "Remove photo" — fixed copy; THE removal. The title "Remove this photo?" and the body are masked text, off this list; the thumbnail is .op-replay-block
   '.rv-photo-confirm-keep',   // Remove confirm sheet: "Keep photo" — fixed copy
   '.rv-photo-placeholder',    // Recipe view hero after the last photo is removed: "Add a meal photo" / "Show the household how it turned out." — fixed copy
+  '.rv-photo-showcase',  // Recipe view, under the hero: "Add a showcase photo" — fixed copy (SPEC_meal_sharing_v2 S9 / S13; 072). It opens the S13 prompt, whose lines are masked text
+  '.rv-showcase-go',     // S13 prompt: "Choose a photo" — fixed copy; opens the picker
+  '.rv-showcase-cancel', // S13 prompt: "Not now" — fixed copy
   '.rv-photo-open',  // Recipe view photo hero: the photo itself as a button, aria-label "View photo full size" — no text content (the <img> inside is .op-replay-block, alt "") (Dan, 2026-10-21)
   '.rv-viewer-close',// Full-size photo viewer: "×", aria-label "Close photo" — fixed copy. The "N of M" count and the caption are household text, OFF this list
   '.rv-photo-prev',  // Photo strip + viewer, desktop only: "‹", aria-label "Previous photo" — fixed copy, no text content (Dan, 2026-10-21)
