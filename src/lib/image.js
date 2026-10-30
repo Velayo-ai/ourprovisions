@@ -175,6 +175,30 @@ export async function renderMealPhoto(file) {
   }
 }
 
+// ── Gift photo bytes (SPEC_meal_sharing_phase_a_client C4; 2026-10-30 diagnosis) ──
+// The gift-photos bucket is webp-only (072). A showcase rendition made on an iPhone is a
+// JPEG (Safari cannot encode WebP — renderMealPhoto's fallback), and the first real give
+// on dev (2026-10-30 11:37 UTC) posted those JPEG bytes as view.webp → 415 InvalidMimeType
+// "mime type image/jpeg is not supported" → B5. The design of record ("a jpeg source
+// re-encodes through the canvas path") now holds here: a WebP rendition is copied byte for
+// byte (never re-encoded — the giver's device adds nothing); anything else is decoded and
+// re-encoded to WebP at its own size, MEAL_PHOTO_Q. Where the GIVER's device cannot encode
+// WebP either (Safari hands back a PNG), this throws and the give reads as B5 — the one
+// residual, logged in SESSION_LOG 2026-10-30.
+export async function giftWebp(blob) {
+  if (!blob) throw new Error('no rendition');
+  if (blob.type === 'image/webp') return blob;
+  const decoded = await decodeUpright(blob);
+  try {
+    const { src, width, height } = decoded;
+    const out = await encodeCanvas(src, width, height, Math.max(width, height), 'image/webp', MEAL_PHOTO_Q);
+    if (out.blob.type !== 'image/webp') throw new Error(`no webp encoder (got ${out.blob.type})`);
+    return out.blob;
+  } finally {
+    decoded.close && decoded.close();
+  }
+}
+
 // ── JPEG metadata strip (Verification 5, Dan's ruling (b), 2026-10-21) ──────
 // Drops every APP1 (EXIF and XMP) and APP13 (Photoshop / IPTC) segment from a
 // JPEG's header; keeps APP0 (JFIF), every other segment (quantization and

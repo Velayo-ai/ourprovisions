@@ -164,3 +164,42 @@ describe("renderMealPhoto encoder qualities", () => {
     expect(calls.map((c) => [c.type, c.q])).toEqual([["image/webp", 0.78], ["image/webp", 0.78]]);
   });
 });
+
+// 2026-10-30 diagnosis: the first real give posted a JPEG showcase's bytes as view.webp and the
+// webp-only gift-photos bucket answered 415 InvalidMimeType. giftWebp copies WebP bytes as they
+// are and re-encodes anything else to WebP at its own size; no WebP encoder on the device → throws (B5).
+describe("giftWebp (C4, the gift-photo bytes)", () => {
+  const { giftWebp } = require("./image");
+  let calls;
+  let webpSupported;
+  beforeEach(() => {
+    calls = [];
+    global.createImageBitmap = jest.fn(async () => ({ width: 810, height: 1080, close() {} }));
+    jest.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => ({ drawImage() {} }));
+    HTMLCanvasElement.prototype.toBlob = function toBlob(cb, type, q) {
+      calls.push({ type, q, w: this.width, h: this.height });
+      const out = type === "image/webp" && !webpSupported ? "image/png" : type;
+      cb(new Blob([Uint8Array.from([1, 2, 3])], { type: out }));
+    };
+  });
+  afterEach(() => { jest.restoreAllMocks(); delete global.createImageBitmap; delete HTMLCanvasElement.prototype.toBlob; });
+
+  test("a WebP rendition is the same blob — never decoded, never re-encoded", async () => {
+    const webp = new Blob([Uint8Array.from([9, 9])], { type: "image/webp" });
+    expect(await giftWebp(webp)).toBe(webp);
+    expect(global.createImageBitmap).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
+  test("a JPEG rendition is re-encoded to WebP at its own size, 0.78", async () => {
+    webpSupported = true;
+    const out = await giftWebp(new Blob([CLEAN], { type: "image/jpeg" }));
+    expect(out.type).toBe("image/webp");
+    expect(calls).toEqual([{ type: "image/webp", q: 0.78, w: 810, h: 1080 }]);
+  });
+
+  test("no WebP encoder on the giver's device → throws (the give reads as B5), nothing uploaded", async () => {
+    webpSupported = false;
+    await expect(giftWebp(new Blob([CLEAN], { type: "image/jpeg" }))).rejects.toThrow(/no webp encoder/);
+  });
+});

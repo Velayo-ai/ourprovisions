@@ -6,8 +6,13 @@
 //   C3  Give is two taps: Give (the RPC + the photo copy), then Send it (navigator.share from a
 //       fresh tap — iOS only opens the share sheet from a direct gesture).
 //   C4  the copy is view.webp FIRST, then thumb.webp, both without upsert; any failure = B5, no
-//       retry, no delete. Bytes are copied, never re-encoded (Dan, 2026-10-29): a JPEG rendition
-//       is refused by the webp-only bucket and reads as B5.
+//       retry, no delete. A WebP rendition is copied byte for byte; a JPEG rendition (an iPhone
+//       showcase — Safari cannot encode WebP) is re-encoded to WebP on the giver's device
+//       (image.js giftWebp). The 2026-10-29 "never re-encode" reading sent JPEG bytes as
+//       view.webp and the bucket answered 415 InvalidMimeType on the first real give
+//       (2026-10-30 11:37 UTC, B5 with no photo) — superseded by the design of record, "a jpeg
+//       source re-encodes through the canvas path". A giver whose device cannot encode WebP
+//       either still reads B5 (the residual).
 //   10-07  share text "I'm giving you {meal} on OurProvisions."; url /g/{CODE}?ref={referral}.
 import { isShowcase } from "./mealPhotos";
 
@@ -28,6 +33,10 @@ export function noteForGive(text) {
 
 // The order of the two gift-photo uploads (C4): view first, then thumb.
 export const GIFT_RENDITIONS = ["view", "thumb"];
+
+// C4 (2026-10-30): what happens to a rendition's bytes before the upload — "copy" for WebP
+// (byte for byte), "reencode" for anything else (the giver's canvas → WebP, or B5).
+export const giftBytesPlan = (type) => (type === "image/webp" ? "copy" : "reencode");
 export const giftObjectPath = (giftId, rendition) => `${giftId}/${rendition}.webp`;
 
 // The share payload (10-07): the link rides `url`, never the prose. ref is optional on paper, but

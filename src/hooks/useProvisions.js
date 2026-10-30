@@ -8,7 +8,7 @@ import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { inviteFailureNotice } from "../lib/inviteFailure";
 import { useConnectivity } from "../contexts/ConnectivityContext";
-import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
+import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths, giftWebp } from "../lib/image";
 import { trace } from "@opentelemetry/api";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
 import { cooksFromRows, resolveCookId } from "../lib/cooks";
@@ -2678,7 +2678,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         const res = await fetch(url);
         if (!res.ok) throw new Error(`${rendition} fetch ${res.status}`);
         const blob = await res.blob();
-        const { error: upErr } = await gift.upload(giftObjectPath(giftId, rendition), blob, { contentType: blob.type || "image/webp", upsert: false, cacheControl: "3600" });
+        // C4 (2026-10-30): WebP bytes are copied as they are; a JPEG rendition (an iPhone showcase)
+        // is re-encoded to WebP here — the bucket is webp-only and answered 415 to JPEG bytes on
+        // the first real give. No encoder for WebP on this device → throws → B5.
+        const body = await giftWebp(blob);
+        const { error: upErr } = await gift.upload(giftObjectPath(giftId, rendition), body, { contentType: "image/webp", upsert: false, cacheControl: "3600" });
         if (upErr) throw upErr;
       }
       return { ok: true };

@@ -82,3 +82,13 @@ describe("closeDisabled (S34: the ✕ is inert while the link is being made)", (
     expect(closeDisabled("ready")).toBe(false);
   });
 });
+
+describe("giftBytesPlan (C4, 2026-10-30)", () => {
+  const { giftBytesPlan } = require("./giveMeal");
+  test("WebP bytes are copied; a JPEG (iPhone showcase) or anything else is re-encoded", () => {
+    expect(giftBytesPlan("image/webp")).toBe("copy");
+    expect(giftBytesPlan("image/jpeg")).toBe("reencode");
+    expect(giftBytesPlan("")).toBe("reencode");
+    expect(giftBytesPlan(undefined)).toBe("reencode");
+  });
+});
