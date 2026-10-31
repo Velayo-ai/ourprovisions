@@ -2837,7 +2837,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // meal_cooks(cooked_at) through meal_cook_id (S5): a cook-attached photo's caption reads
       // "Cooked {date}". Null for recipe-view photos (R3). RLS: meal_cooks SELECT is membership.
       // kind (072): 'cook' or 'showcase' — the client's cap and the S28 pick read it.
-      .select("id, meal_id, meal_cook_id, kind, thumb_path, view_path, uploaded_by, uploaded_at, width, height, meal_cooks(cooked_at)")
+      // showcased_by / showcased_at / received_at (076, S48): Photo details' "Made showcase by", the
+      // give sheet's B1 line, and the received mark (no "Make showcase"; never the meal's showcase).
+      .select("id, meal_id, meal_cook_id, kind, thumb_path, view_path, uploaded_by, uploaded_at, width, height, showcased_by, showcased_at, received_at, meal_cooks(cooked_at)")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("uploaded_at", { ascending: false })

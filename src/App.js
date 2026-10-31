@@ -28,7 +28,7 @@ import { rowCountsFromProvenance } from './lib/mealLinks';
 import { addAllOnHandLine } from './lib/onHand';
 import { cookDateStart, cookHistoryLine } from './lib/cookDate';
 import { photosByMeal, photosFingerprint, photoCaption, photoDetails, replaceSteps, isShowcase, liveCookCount, atPhotoCap } from './lib/mealPhotos';
-import { myShowcase, noteForGive, NOTE_MAX, giftSharePayload, whatTheySee, closeDisabled as giveCloseDisabled } from './lib/giveMeal';
+import { mealShowcase, noteForGive, NOTE_MAX, giftSharePayload, whatTheySee, closeDisabled as giveCloseDisabled } from './lib/giveMeal';
 import { giftDraft, giftBanner, giftNoteQuote, placeLine, alreadyAddedLine, givingPlaceLine, thankYouPayload } from './lib/giftArrival';
 import { canSaveToPhotos, createPhotoSaver, saveLabel } from './lib/savePhoto';
 import { createSignedUrlCache } from './lib/signedUrls';
@@ -2193,8 +2193,12 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     if (f && old && onReplace) onReplace(meal.id, old, f);
   };
   const addPhoto = () => { if (!busy && fileRef.current) fileRef.current.click(); };
-  // The author test (S46 for the flip, S14 for Save): the viewer's own photo and nobody else's.
+  // The author test (S14, Save / Download only): the viewer's own photo and nobody else's. The FLIP is
+  // no longer the author's (S48, 076): any member makes any live photo the showcase, or un-showcases it.
   const mine = (p) => !!p && !!viewerUserId && p.uploaded_by === viewerUserId;
+  // A received row (it came with a gift, received_at set) can be un-showcased but never made the
+  // showcase again — the server refuses too (22023).
+  const received = (p) => !!p && !!p.received_at;
   // Another member's photo: name them at the top of its ⋯ (the "Added by" rule — 2+ members, the
   // uploader still one; otherwise no line).
   const ownerLineFor = (p) => {
@@ -2228,8 +2232,8 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     <PhotoMenu variant={variant} closeKey={closeKey} disabled={busy} triggerRef={variant === "hero" ? moreRef : undefined}
       saveLabel={saveLabel(toPhotos)} onOpen={() => { if (mine(p)) actions.prefetch(p); }}
       onReplace={actions.replace && !isShowcase(p) ? () => actions.replace(p) : null} onDetails={() => actions.details(p)}
-      onMakeShowcase={onSetKind && mine(p) && !isShowcase(p) ? () => actions.makeShowcase(p) : null}
-      onMakeCook={onSetKind && mine(p) && isShowcase(p) ? () => actions.makeCook(p) : null}
+      onMakeShowcase={onSetKind && !isShowcase(p) && !received(p) ? () => actions.makeShowcase(p) : null}
+      onMakeCook={onSetKind && isShowcase(p) ? () => actions.makeCook(p) : null}
       onSave={mine(p) ? () => actions.save(p) : null} onRemove={() => actions.remove(p)} ownerLine={ownerLineFor(p)} />
   );
   const placeholder = canEdit && n === 0 && emptied;
@@ -2311,10 +2315,11 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
         <PhotoSheet labelledBy="rv-showcase-h" onClose={() => setSheet(null)}>
           <div className="rv-psheet-head">
             <img className="rv-psheet-thumb op-replay-block op-photo" src={sheet.photo.url} alt="" draggable="false" />
-            <h2 id="rv-showcase-h" className="rv-psheet-h">Make this a showcase photo?</h2>
+            <h2 id="rv-showcase-h" className="rv-psheet-h">Make this the meal’s showcase photo?</h2>
           </div>
-          <p className="rv-psheet-body">Showcase photos can be shared outside the household.</p>
-          <p className="rv-psheet-body rv-psheet-sub">It’s the photo that goes along when you give this meal. Your other photos stay at home.</p>
+          {/* S48's copy of record (Dan 2026-10-30): the meal has one showcase, the household's; a later change
+              does not pull back copies already given. */}
+          <p className="rv-psheet-body">Showcase photos can be shared outside the household. Once a meal is given, its photo goes with it.</p>
           <div className="rv-psheet-btns">
             <button type="button" className="rv-showcase-go" data-autofocus="true" onClick={() => flip(sheet.photo, "showcase")}>Make showcase</button>
             <button type="button" className="rv-showcase-cancel" onClick={() => setSheet(null)}>Not now</button>
@@ -2736,8 +2741,9 @@ const ShareGlyph = () => (
 );
 
 // GIVE THIS MEAL — the sheet (SPEC_meal_sharing_phase_a_client C1–C4; mockup_gift_preview B1–B5).
-//   B1 / B2  the C1 pre-check: `photo` is the viewer's own live showcase row (myShowcase) or null. The
-//            client predicts; give_meal's S12 pick decides; B4 shows the truth. B2's nudge opens the
+//   B1 / B2  the C1 pre-check: `photo` is the meal's live, non-received showcase row (mealShowcase, S48 —
+//            the household's, whoever made it) or null. The client predicts; give_meal's pick decides;
+//            B4 shows the truth. B1 names who made it the showcase (masked text). B2's nudge opens the
 //            recipe view's strip (Dan, 2026-10-30) — the flip lives on the photo's own ⋯ (S46).
 //   Give     (C3, first tap) give_meal, then with a photo the copy: view, then thumb, in the format
 //            the photo was stored in (webp or jpeg, S47), no upsert, then attach_gift_photo marks
@@ -2750,7 +2756,9 @@ const ShareGlyph = () => (
 //   Failure  give_meal's error shows as a line in the sheet (giveFailure), never a silent return.
 //   Giving   (Dan 2026-10-30) while the meal has an unrevoked gift the sheet opens with one line at the top,
 //            "You’re giving this meal · Stop giving"; Stop giving hands over to the existing confirm.
-function GiveSheet({ meal, photo, referralCode, give, onClose, onShowStrip, onStopGiving }) {
+function GiveSheet({ meal, photo, members, referralCode, give, onClose, onShowStrip, onStopGiving }) {
+  // S48 / B1: "Made showcase by {First}." — the first name is household text (masked); the copy around it is fixed.
+  const showcaser = photo && photo.showcased_by ? memberFirstName((members || []).find((mb) => mb && mb.user_id === photo.showcased_by)) : "";
   const [note, setNote] = useState("");
   const [phase, setPhase] = useState("compose");   // compose | giving | copying | ready
   const [gift, setGift] = useState(null);           // { code, giftId, hasPhoto, photoFailed }
@@ -2793,8 +2801,8 @@ function GiveSheet({ meal, photo, referralCode, give, onClose, onShowStrip, onSt
           <span className="give-thumb-wrap">{thumb(!!photo)}{photo && <span className="give-sc" aria-hidden="true">Showcase</span>}</span>
           <div className="give-ptext">
             {photo
-              ? <><b>Your showcase photo goes with it</b>Your cook photos stay at home.</>
-              : <><b>No photo goes with it</b>Your cook photos stay at home. <button type="button" className="give-nudge" disabled={busy} onClick={onShowStrip}>Make one of your photos a showcase →</button></>}
+              ? <><b>The meal’s showcase photo goes with it</b>{showcaser ? `Made showcase by ${showcaser}. ` : ""}Other photos stay at home.</>
+              : <><b>No photo goes with it</b><button type="button" className="give-nudge" disabled={busy} onClick={onShowStrip}>Make one of the photos a showcase →</button></>}
           </div>
         </div>
       )}
@@ -2898,7 +2906,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   // confirm, both over this view. Stop giving is reached from the sheet's top line; the sheet closes first.
   const [giveOpen, setGiveOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
-  const myShowcasePhoto = myShowcase(photosReady ? (photos || []) : [], viewerUserId);
+  const showcasePhoto = mealShowcase(photosReady ? (photos || []) : []);   // S48: the household's, whoever made it
   // B2's nudge: back to the strip, where the flip lives. The sheet closes (its ✕ hands focus back to the share button);
   // the view scrolls to its hero and the photo ⋯ (or Add a meal photo) takes focus a beat later.
   const showStrip = () => {
@@ -3078,7 +3086,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
         )}
         <div className="rv-pad" />
         {giveOpen && give && (
-          <GiveSheet meal={meal} photo={myShowcasePhoto} referralCode={give.referralCode || null} give={give}
+          <GiveSheet meal={meal} photo={showcasePhoto} members={members} referralCode={give.referralCode || null} give={give}
             onClose={() => setGiveOpen(false)} onShowStrip={showStrip} onStopGiving={() => { setGiveOpen(false); setStopOpen(true); }} />
         )}
         {stopOpen && give && (

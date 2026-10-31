@@ -1,5 +1,5 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/lib/giveMeal
-import { myShowcase, noteForGive, NOTE_MAX, GIFT_RENDITIONS, giftObjectPath, giftExt, GIFT_EXTS, giftShareText, giftUrl, giftSharePayload, whatTheySee, closeDisabled, giveFailure } from "./giveMeal";
+import { mealShowcase, noteForGive, NOTE_MAX, GIFT_RENDITIONS, giftObjectPath, giftExt, GIFT_EXTS, giftShareText, giftUrl, giftSharePayload, whatTheySee, closeDisabled, giveFailure } from "./giveMeal";
 
 describe("giveFailure (072 §5 codes → a line, never swallowed)", () => {
   test("42501 → members only; 22023 note → the note line; other 22023 → kind; else the RPC's message", () => {
@@ -13,19 +13,24 @@ describe("giveFailure (072 §5 codes → a line, never swallowed)", () => {
 
 const ph = (id, by, kind, extra = {}) => ({ id, uploaded_by: by, kind, ...extra });
 
-describe("myShowcase (C1)", () => {
-  test("the viewer's own live showcase row, whatever its position", () => {
-    const list = [ph("a", "u1", "cook"), ph("s2", "u2", "showcase"), ph("s1", "u1", "showcase")];
-    expect(myShowcase(list, "u1").id).toBe("s1");
+describe("mealShowcase (C1 / S48: the household's showcase, whoever made it)", () => {
+  test("the meal's live showcase row, whoever uploaded it, whatever its position", () => {
+    const list = [ph("a", "u1", "cook"), ph("s2", "u2", "showcase")];
+    expect(mealShowcase(list).id).toBe("s2");
   });
-  test("another member's showcase is not mine (S11); a cook photo never counts; no viewer → null", () => {
-    expect(myShowcase([ph("s2", "u2", "showcase"), ph("a", "u1", "cook")], "u1")).toBeNull();
-    expect(myShowcase([ph("s1", "u1", "showcase")], null)).toBeNull();
-    expect(myShowcase([], "u1")).toBeNull();
-    expect(myShowcase(null, "u1")).toBeNull();
+  test("a cook photo never counts; empty → null", () => {
+    expect(mealShowcase([ph("a", "u1", "cook"), ph("b", "u2", "cook")])).toBeNull();
+    expect(mealShowcase([])).toBeNull();
+    expect(mealShowcase(null)).toBeNull();
   });
-  test("a soft-deleted showcase row is not mine", () => {
-    expect(myShowcase([ph("s1", "u1", "showcase", { deleted_at: "2026-10-30" })], "u1")).toBeNull();
+  test("a soft-deleted or RECEIVED showcase row is not the meal's showcase (S48: a photo that came with a gift never travels on)", () => {
+    expect(mealShowcase([ph("s1", "u1", "showcase", { deleted_at: "2026-10-30" })])).toBeNull();
+    expect(mealShowcase([ph("r", "u9", "showcase", { received_at: "2026-10-30T21:46:10Z" })])).toBeNull();
+    expect(mealShowcase([ph("r", "u9", "showcase", { received_at: "2026-10-30T21:46:10Z" }), ph("s1", "u1", "showcase")]).id).toBe("s1");
+  });
+  test("two live rows (should not happen — the index allows one): the newest showcased_at wins, then uploaded_at", () => {
+    expect(mealShowcase([ph("old", "u1", "showcase", { showcased_at: "2026-10-30T04:50:00Z" }), ph("new", "u2", "showcase", { showcased_at: "2026-10-30T05:05:00Z" })]).id).toBe("new");
+    expect(mealShowcase([ph("x", "u1", "showcase", { uploaded_at: "2026-10-29T00:00:00Z" }), ph("y", "u2", "showcase", { uploaded_at: "2026-10-30T00:00:00Z" })]).id).toBe("y");
   });
 });
 

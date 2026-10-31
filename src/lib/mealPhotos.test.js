@@ -149,6 +149,14 @@ describe("photoDetails (SPEC_photo_menu DAN-2)", () => {
   test("a showcase photo adds the S13 fact as its last line", () => {
     expect(photoDetails(row("a", "m1", 1, { kind: "showcase" }), two, first, NOW))
       .toEqual([`Added by Dan · ${want(at(1))}`, "Showcase photo · can be seen by anyone you give this meal to"]);
+    // S48 (076): who made it the showcase and when — another member's name too; solo household → no name
+    expect(photoDetails(row("a", "m1", 3, { kind: "showcase", showcased_by: "u2", showcased_at: at(1) }), two, first, NOW))
+      .toEqual([`Added by Dan · ${want(at(3))}`, `Made showcase by Helen · ${want(at(1))}`, "Showcase photo · can be seen by anyone you give this meal to"]);
+    expect(photoDetails(row("a", "m1", 3, { kind: "showcase", showcased_by: "u1", showcased_at: at(1) }), [two[0]], first, NOW))
+      .toEqual([`Added ${want(at(3))}`, `Made showcase ${want(at(1))}`, "Showcase photo · can be seen by anyone you give this meal to"]);
+    // S48: a received row (it came with a gift) stays here when the meal is given — no "Made showcase" line
+    expect(photoDetails(row("a", "m1", 1, { kind: "showcase", uploaded_by: "u2", received_at: at(1) }), two, first, NOW))
+      .toEqual([`Added by Helen · ${want(at(1))}`, "Showcase photo · came with the meal; it stays here when you give it"]);
   });
   test("nothing to say → no lines", () => {
     expect(photoDetails(null, two, first, NOW)).toEqual([]);

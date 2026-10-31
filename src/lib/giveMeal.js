@@ -1,8 +1,9 @@
 // GIVE THIS MEAL — the pure rules of the give sheet (SPEC_meal_sharing_phase_a_client C1–C4;
 // mockup_gift_preview B1–B5; SPEC_meal_sharing_v2 S12, S34, S41, S44, S46). jest-proven in
 // giveMeal.test.js.
-//   C1  the sheet pre-checks for a showcase photo: the viewer's own live showcase row on the meal.
-//       The client predicts; give_meal's server-side pick (S12) decides; B4 shows the truth.
+//   C1  the sheet pre-checks for a showcase photo: the meal's live, non-received showcase row — the
+//       HOUSEHOLD's, whoever made it (S48, Dan 2026-10-30; supersedes S11 / the viewer's own). The
+//       client predicts; give_meal's server-side pick (076) decides; B4 shows the truth.
 //   C3  Give is two taps: Give (the RPC + the photo copy), then Send it (navigator.share from a
 //       fresh tap — iOS only opens the share sheet from a direct gesture).
 //   C4  the copy is view FIRST, then thumb, both without upsert; any failure = B5, no retry, no
@@ -18,10 +19,14 @@ import { isShowcase } from "./mealPhotos";
 
 export const NOTE_MAX = 280;
 
-// C1: the viewer's own live showcase photo on this meal (list: the meal's live rows), or null.
-export function myShowcase(photos, viewerUserId) {
-  if (!viewerUserId) return null;
-  return (photos || []).find((p) => isShowcase(p) && p.uploaded_by === viewerUserId && !p.deleted_at) || null;
+// C1 / S48: the meal's live showcase photo (list: the meal's live rows), or null. A received row
+// (received_at set — it came with a gift) is never the household's showcase and never travels.
+// The index allows one; if the client ever sees two, the newest showcased_at wins (then uploaded_at).
+export function mealShowcase(photos) {
+  const live = (photos || []).filter((p) => isShowcase(p) && !p.deleted_at && !p.received_at);
+  if (live.length === 0) return null;
+  const t = (v) => { const n = v ? new Date(v).getTime() : NaN; return Number.isNaN(n) ? -Infinity : n; };
+  return [...live].sort((a, b) => (t(b.showcased_at) - t(a.showcased_at)) || (t(b.uploaded_at) - t(a.uploaded_at)))[0];
 }
 
 // The note as the RPC wants it: trimmed, empty → null; over the cap → false (the sheet never sends it).

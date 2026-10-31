@@ -7,8 +7,8 @@
 // through RecipeView with an injected `give` object:
 //   ⇧   .rv-give beside Edit, aria-label "Give this meal", icon only (Dan 2026-10-30, replaces the ⋯); one tap
 //       opens the sheet. "Stop giving" is the sheet's top line, only while the meal has an unrevoked gift
-//   C1  B1 when the viewer's own live showcase row exists (another member's does not count, S11); B2 otherwise,
-//       with the nudge "Make one of your photos a showcase →"
+//   C1  B1 when the meal has a live, non-received showcase row — the household's, whoever made it (S48, 2026-10-30;
+//       supersedes S11) — naming who made it; B2 otherwise, with the nudge "Make one of the photos a showcase →"
 //   C3  Give = give_meal (+ the copy); Send it = share from its own tap; Copy link always present
 //   C4  copy failure → B5's one line, no retry; no photo → straight to B4; give_meal failure → its line, sheet stays
 //   S34 the ✕ is inert while giving / copying
@@ -26,7 +26,8 @@ const MEAL = {
 const CODE = "K7M2P9ABCDEFGH23";
 const GIFT_ID = "3f2a9c1e-7b6d-4e5f-8a9b-0c1d2e3f4a5b";
 const today = new Date().toISOString();
-const photo = (id, by, kind) => ({ id, meal_id: MEAL.id, meal_cook_id: null, uploaded_by: by, uploaded_at: today, kind, view_path: `${id}-view.webp`, thumb_path: `${id}-thumb.webp`, url: `https://x/${id}` });
+const photo = (id, by, kind, extra = {}) => ({ id, meal_id: MEAL.id, meal_cook_id: null, uploaded_by: by, uploaded_at: today, kind, view_path: `${id}-view.webp`, thumb_path: `${id}-thumb.webp`, url: `https://x/${id}`,
+  ...(kind === "showcase" ? { showcased_by: by, showcased_at: today } : {}), ...extra });
 const MEMBERS = [{ user_id: "u1", users: { full_name: "Dan Holmes" } }, { user_id: "u2", users: { full_name: "Dana Teller" } }];
 
 const q = (c, s) => c.querySelector(s);
@@ -111,27 +112,41 @@ describe("the share button", () => {
 });
 
 describe("the give sheet — B1 / B2 (C1)", () => {
-  test("B2: no showcase of mine → 'No photo goes with it' and the nudge; another member's showcase does not count (S11)", () => {
-    const { container } = view({ photos: [photo("a", "u1", "cook"), photo("s2", "u2", "showcase")] });
+  test("B2: no showcase on the meal → 'No photo goes with it' and the nudge; a RECEIVED showcase row does not count (S48)", () => {
+    const { container } = view({ photos: [photo("a", "u1", "cook"), photo("r", "u9", "showcase", { received_at: today })] });
     const s = openGive(container);
     expect(q(s, ".give-kicker").textContent).toBe("Give this meal");
     expect(s.textContent).toContain("No photo goes with it");
-    expect(q(s, ".give-nudge").textContent).toBe("Make one of your photos a showcase →");
+    expect(s.textContent).not.toContain("stay at home");
+    expect(q(s, ".give-nudge").textContent).toBe("Make one of the photos a showcase →");
     expect(q(s, ".give-thumb-empty")).not.toBeNull();
     expect(qa(s, "img")).toHaveLength(0);
     expect(q(s, ".give-count").textContent).toBe("0 / 280");
     expect(q(s, ".give-go").textContent).toBe("Give");
     expect(s.textContent).toContain("They get their own copy. Yours doesn’t change.");
   });
-  test("B1: my live showcase → 'Your showcase photo goes with it', its thumbnail as .op-replay-block .op-photo, no nudge", () => {
-    const { container } = view({ photos: [photo("a", "u1", "cook"), photo("s1", "u1", "showcase")] });
+  test("B1: the meal's live showcase — another member's counts (S48) → 'The meal’s showcase photo goes with it', 'Made showcase by {First}.', its thumbnail as .op-replay-block .op-photo, no nudge", () => {
+    const { container } = view({ photos: [photo("a", "u1", "cook"), photo("s2", "u2", "showcase")] });
     const s = openGive(container);
-    expect(s.textContent).toContain("Your showcase photo goes with it");
+    expect(s.textContent).toContain("The meal’s showcase photo goes with it");
+    expect(s.textContent).toContain("Made showcase by Dana. Other photos stay at home.");
     expect(q(s, ".give-nudge")).toBeNull();
     const img = q(s, "img");
-    expect(img.getAttribute("src")).toBe("https://x/s1");
+    expect(img.getAttribute("src")).toBe("https://x/s2");
     expect(img.className.split(" ")).toEqual(expect.arrayContaining(["op-replay-block", "op-photo"]));
     expect(img.getAttribute("alt")).toBe("");
+    // my own reads the same way; an unstamped row (pre-076 data, or an unknown member) drops the name, keeps the fixed copy
+    // (one sheet at a time: the helper finds the first scrim in the document)
+    fireEvent.click(q(s, ".sheet-close"));
+    expect(sheet()).toBeNull();
+    const mineSheet = openGive(view({ photos: [photo("s1", "u1", "showcase")] }).container);
+    expect(mineSheet.textContent).toContain("Made showcase by Dan. Other photos stay at home.");
+    fireEvent.click(q(mineSheet, ".sheet-close"));
+    expect(sheet()).toBeNull();
+    const un = openGive(view({ photos: [photo("s3", "u1", "showcase", { showcased_by: null })] }).container);
+    expect(un.textContent).toContain("The meal’s showcase photo goes with it");
+    expect(un.textContent).not.toContain("Made showcase by");
+    expect(un.textContent).toContain("Other photos stay at home.");
   });
   test("the nudge closes the sheet (back to the strip)", () => {
     const { container } = view({ photos: [photo("a", "u1", "cook")] });

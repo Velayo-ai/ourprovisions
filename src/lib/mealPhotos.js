@@ -109,7 +109,19 @@ export function photoDetails(photo, members, firstNameOf, now = new Date()) {
   const cooked = photo.meal_cook_id ? detailsDate(photo.cooked_at, now) : "";
   if (cooked) lines.push(`From the cook on ${cooked}`);
   // S13's fact, where the photo's other facts live: a showcase photo can leave the household.
-  if (isShowcase(photo)) lines.push("Showcase photo · can be seen by anyone you give this meal to");
+  // S48 (076): who made it the showcase and when (showcased_by / showcased_at — the visibility that
+  // stands in for author-only); a RECEIVED row (it came with a gift) never travels on from here.
+  if (isShowcase(photo)) {
+    if (photo.received_at) {
+      lines.push("Showcase photo · came with the meal; it stays here when you give it");
+    } else {
+      const sw = detailsDate(photo.showcased_at, now);
+      const sm = list.length >= 2 ? list.find((mb) => mb && mb.user_id && mb.user_id === photo.showcased_by) : null;
+      const sname = sm ? (firstNameOf(sm) || "") : "";
+      if (sw) lines.push(sname ? `Made showcase by ${sname} · ${sw}` : `Made showcase ${sw}`);
+      lines.push("Showcase photo · can be seen by anyone you give this meal to");
+    }
+  }
   return lines;
 }
 
