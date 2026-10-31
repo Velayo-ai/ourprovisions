@@ -9,6 +9,7 @@
 //   10-07 name collision: a live meal with the same normalised name → "{name} (from {Giver})", editable.
 //   10-07 errors, plain: not_found → "That link doesn't work."; revoked → the giver stopped giving;
 //   already added → "Already in {place}'s meals" with Open it.
+//   C11 (10-30) the giving place itself → "Already one of {place}'s meals" with Open it (the source meal); no copy.
 
 export const normName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -63,6 +64,10 @@ export function arrivalFailure(err) {
 }
 
 export const alreadyAddedLine = (placeName) => `Already in ${placeName || "this place"}’s meals`;
+
+// C11 (Dan 2026-10-30): the target place IS the gift's own giving household (preview_meal_gift's
+// is_giving_place, 075). No form, no copy — the line, and Open it when the source meal still exists.
+export const givingPlaceLine = (placeName) => `Already one of ${placeName || "this place"}’s meals`;
 
 // S24: the thank-you, once, from the receiver's own share sheet. No url — a message, not a link.
 export function thankYouPayload(mealName, giverFirst) {

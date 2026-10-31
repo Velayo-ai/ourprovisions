@@ -29,7 +29,7 @@ import { addAllOnHandLine } from './lib/onHand';
 import { cookDateStart, cookHistoryLine } from './lib/cookDate';
 import { photosByMeal, photosFingerprint, photoCaption, photoDetails, replaceSteps, isShowcase, liveCookCount, atPhotoCap } from './lib/mealPhotos';
 import { myShowcase, noteForGive, NOTE_MAX, giftSharePayload, whatTheySee, closeDisabled as giveCloseDisabled } from './lib/giveMeal';
-import { giftDraft, giftBanner, giftNoteQuote, placeLine, alreadyAddedLine, thankYouPayload } from './lib/giftArrival';
+import { giftDraft, giftBanner, giftNoteQuote, placeLine, alreadyAddedLine, givingPlaceLine, thankYouPayload } from './lib/giftArrival';
 import { canSaveToPhotos, createPhotoSaver, saveLabel } from './lib/savePhoto';
 import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
@@ -2844,16 +2844,21 @@ function GiveSheet({ meal, photo, referralCode, give, onClose, onShowStrip, onSt
 }
 
 // THE ARRIVAL THAT CANNOT OPEN THE FORM (Commit 3; 10-07 errors, in plain language): unknown or revoked code,
-// not a member, or already added to this place — with Open it for the copy that is already here.
+// not a member, or already added to this place — with Open it for the copy that is already here. C11 (Dan
+// 2026-10-30): the giving place itself — "Already one of {Place}'s meals", Open it for the source meal while it
+// still exists (mealId null = the line alone); no copy is ever made.
 function GiftArrivalSheet({ arrival, onOpen, onClose }) {
   const already = arrival.kind === "already";
+  const giving = arrival.kind === "giving";
+  const openable = already || (giving && !!arrival.mealId);
   return (
     <PhotoSheet labelledBy="gift-arrival-h" onClose={onClose}>
       <h2 id="gift-arrival-h" className="rv-psheet-h">{arrival.line}</h2>
       {already && <p className="rv-psheet-body">It’s here already, as your own copy.</p>}
+      {giving && <p className="rv-psheet-body">This place gave it. Nothing to add.</p>}
       <div className="rv-psheet-btns">
-        {already && <button type="button" className="gift-open" data-autofocus="true" onClick={onOpen}>Open it</button>}
-        <button type="button" className="gift-ok" data-autofocus={already ? undefined : "true"} onClick={onClose}>OK</button>
+        {openable && <button type="button" className="gift-open" data-autofocus="true" onClick={onOpen}>Open it</button>}
+        <button type="button" className="gift-ok" data-autofocus={openable ? undefined : "true"} onClick={onClose}>OK</button>
       </div>
     </PhotoSheet>
   );
@@ -4175,7 +4180,16 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
 
         {/* A received meal (Commit 3; 10-07 frame 6 with the SPEC's words): the banner, "Adding to {place}" when
-            the person has more than one, and the giver's note as a quote — their words, not a field. */}
+            the person has more than one, and the giver's note as a quote — their words, not a field.
+            C10 (Dan 2026-10-30): the gift photo first, read-only — the view rendition signed from gift-photos
+            as the card signs it; no menu, not editable; copied into meal-photos on Add (acceptGiftPhoto), Not for
+            us discards it; no photo → no slot. .op-photo + .op-replay-block; no name in any attribute. */}
+        {gift && gift.photoUrl && (
+          <figure className="op-gift-photo">
+            <img className="op-gift-photo-img op-photo op-replay-block" src={gift.photoUrl} alt="" draggable="false" />
+            <figcaption className="op-gift-photo-cap">Comes with the meal.</figcaption>
+          </figure>
+        )}
         {gift && (
           <div className="op-gift-banner" role="status">
             <span><b>{gift.banner}</b>{gift.placeLine ? <span className="op-gift-place"> · {gift.placeLine}</span> : null}</span>
@@ -6050,7 +6064,7 @@ function ProvisionsApp() {
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
   // A received gift (Commit 3): what stands in the form's place when it cannot open, and the one-time thank-you.
-  const [giftArrival, setGiftArrival] = useState(null);   // null | { kind: "error" | "already", line, mealId? }
+  const [giftArrival, setGiftArrival] = useState(null);   // null | { kind: "error" | "already" | "giving", line, mealId? }
   const [thankYou, setThankYou] = useState(null);         // null | { mealId, ask, title, text }
 
   // THE RECIPE VIEW (SPEC_recipe_view D1–D4): { mealId, landing } while open. The view
@@ -7278,18 +7292,21 @@ function ProvisionsApp() {
     (async () => {
       const r = await previewMealGift(code);
       if (!r.ok) { setGiftArrival({ kind: "error", line: r.line }); return; }
+      // C11 first (075): this place gave it — the source meal is theirs already, no copy. Then a copy
+      // already made here (V11). A same-place copy made before C11 reads as the giving place.
+      if (r.isGivingPlace) { setGiftArrival({ kind: "giving", mealId: r.sourceMealId && mealById[r.sourceMealId] ? r.sourceMealId : null, line: givingPlaceLine(placeName) }); return; }
       if (r.alreadyAdded) { setGiftArrival({ kind: "already", mealId: r.alreadyAdded, line: alreadyAddedLine(placeName) }); return; }
       const giverFirst = (r.snapshot && typeof r.snapshot.giver_first_name === "string" ? r.snapshot.giver_first_name : "").trim();
       const draft = giftDraft(r.snapshot, { existingNames, giverFirst });
       setMealSheet({
         mode: "create", meal: null,
         gift: {
-          code, giftId: r.giftId, hasPhoto: r.hasPhoto, photoExt: r.photoExt, giverFirst, mealName: draft.name, draft,
+          code, giftId: r.giftId, hasPhoto: r.hasPhoto, photoExt: r.photoExt, photoUrl: r.photoUrl || null, giverFirst, mealName: draft.name, draft,
           banner: giftBanner(giverFirst), note: giftNoteQuote(r.note, giverFirst), placeLine: placeLine(placeName, placeCount),
         },
       });
     })();
-  }, [authPhase, household, catalogLoaded, loading, welcomeOpen, mealSheet, previewMealGift, meals, myHouseholds]);
+  }, [authPhase, household, catalogLoaded, loading, welcomeOpen, mealSheet, previewMealGift, meals, myHouseholds, mealById]);
 
   const handleWelcomeContinue = async () => {
     if (welcomeBusy) return;
@@ -8386,13 +8403,15 @@ function ProvisionsApp() {
           The ONLY nav renderer at every width (rail retired 2026-09-20): on
           desktop the pill anchors to the phone column, because the column's
           transform makes it the containing block for every fixed descendant. */}
-      <Helm
+      {/* Not on the signed-out gift card or its A3 answer (Dan 2026-10-30): the pill's doors lead
+          nowhere without an account, and the mockup has no tab bar there. Back once signed in. */}
+      {!(signedOutWelcome && pendingGiftCode) && <Helm
         view={signedOutWelcome ? "home" : view}
         onChange={goToDoor}
         badgeCount={totalItems - checkedCount}
         compact={scrollCompact && view !== "home"}
         onPlus={doorAdd[view] || null}
-      />
+      />}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
@@ -9198,6 +9217,10 @@ function ProvisionsApp() {
                      background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
         /* Bottom status stack rides above the pill — at every width now. */
         .bottom-stack { bottom: calc(92px + var(--op-inset-bottom)); }
+        /* With the Wrap Up bar on the page the stack rides above IT (the error toast overlapped the bar on
+           Shop — the 2026-10-28 LATER row, folded in 2026-10-30). The modal rule below still wins while a
+           sheet is open (same specificity, later). */
+        body:has(.wrapbar) .bottom-stack { bottom: calc(150px + var(--op-inset-bottom)); }
         /* While ANY modal sheet is open the stack anchors at the TOP of the viewport
            instead — just under the safe area, still centred, same look — so the
            pill and the toasts never sit over a sheet's pinned footer (Cancel / Save
@@ -9282,6 +9305,9 @@ function ProvisionsApp() {
         .op-import-banner b { color: #2C1A0E; font-weight: 700; }
         .op-import-banner > span { flex: 1 1 180px; min-width: 0; }
         /* A received meal (Commit 3): the banner shares the import banner's tint; the giver's note is a quote. */
+        .op-gift-photo { margin: -6px 0 12px; border-radius: 12px; overflow: hidden; background: #E8D5B7; }
+        .op-gift-photo-img { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 220px; object-fit: cover; }
+        .op-gift-photo-cap { padding: 6px 10px; background: #FBF7F0; border: 1px solid #E3D4BC; border-top: 0; border-radius: 0 0 12px 12px; font-family: 'Lato', sans-serif; font-size: calc(12px * var(--op-text-scale)); color: #8a7a60; }
         .op-gift-banner { background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 10px; padding: 9px 12px; margin: -6px 0 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #6f5a45; }
         .op-gift-banner b { color: #2C1A0E; font-weight: 700; }
         .op-gift-place { color: #8a7a60; }
@@ -9413,6 +9439,10 @@ function ProvisionsApp() {
                    display: flex; align-items: center; justify-content: space-between; gap: 12px; overflow: hidden;
                    min-height: 46px; padding: 12px 16px; border-radius: 16px; border: 1.5px solid #E8DDCE; background: #FAF4EC;
                    box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer; text-align: left; }
+        /* While ANY sheet or modal is open the bar hides and returns on close (Dan 2026-10-30: at z 900 it
+           floated over every sheet and partly covered the arrival form's Not for us / Add to our meals).
+           Keyed off the document like the Helm rule above: every surface that owns a scrim or overlay. */
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .wrapbar { display: none; }
         .wrapbar.p0 { border-style: dashed; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
         /* No hard edge on the fill: its 2px right border was the line through the "W" of

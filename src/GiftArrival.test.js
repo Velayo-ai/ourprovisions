@@ -96,6 +96,23 @@ describe("the received meal's form", () => {
     expect(h.onCancel).toHaveBeenCalledTimes(1);
   });
 
+  test("C10: the gift photo sits above the banner, read-only, .op-photo .op-replay-block, captioned 'Comes with the meal.'; no photo → no slot", async () => {
+    const url = "https://x/gift-photos/sign/g1/view.jpg?token=t";
+    const { container } = sheet(giftFor(SNAP, { hasPhoto: true, photoExt: "jpg", photoUrl: url }));
+    await waitFor(() => expect(nameInput(container).value).toBe("Famous Grilled Cheese & Pickle"));
+    const fig = q(container, ".op-gift-photo");
+    expect(fig.tagName).toBe("FIGURE");
+    const img = q(fig, "img");
+    expect(img.getAttribute("src")).toBe(url);
+    expect(img.getAttribute("alt")).toBe("");
+    expect(img.className.split(" ")).toEqual(expect.arrayContaining(["op-photo", "op-replay-block"]));
+    expect(q(fig, ".op-gift-photo-cap").textContent).toBe("Comes with the meal.");
+    expect(qa(fig, "button, input, textarea")).toHaveLength(0);
+    expect(fig.compareDocumentPosition(q(container, ".op-gift-banner")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const none = sheet(giftFor(SNAP));
+    expect(q(none.container, ".op-gift-photo")).toBeNull();
+  });
+
   test("no gift → the ordinary New Meal: Cancel / Save Meal, no banner", () => {
     const { container } = sheet(null);
     expect(q(container, ".op-gift-banner")).toBeNull();

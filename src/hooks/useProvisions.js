@@ -2739,7 +2739,21 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // 074 / S47: photo_ext ("webp" | "jpg" | null) is the server's mark and the name to sign; has_photo
     // on the server is `photo_ext is not null`, so the client derives the flag from the same field.
     const photoExt = d.photo_ext === "webp" || d.photo_ext === "jpg" ? d.photo_ext : null;
-    return { ok: true, giftId: d.gift_id, snapshot: d.snapshot || {}, note: d.note || null, alreadyAdded: d.already_added || null, hasPhoto: photoExt !== null, photoExt };
+    // C10 (Dan 2026-10-30): the arrival form shows the gift photo at the top, read-only — the view
+    // rendition signed from gift-photos/{gift_id}/view.{photo_ext}, as the card signs it (S35: readable
+    // while the gift is live and marked). A signing failure is no photo in the form; the copy on Add
+    // (acceptGiftPhoto) signs again for itself. The URL lives in the sheet's props only, never in state.
+    let photoUrl = null;
+    if (photoExt && d.gift_id) {
+      const { data: signed, error: sErr } = await db.storage.from("gift-photos").createSignedUrl(giftSourcePaths(d.gift_id, photoExt).view, 60 * 60);
+      if (sErr) console.warn("[gift] gift photo sign failed (non-fatal):", sErr.message);
+      else photoUrl = (signed && signed.signedUrl) || null;
+    }
+    // 075 / C11: is_giving_place = this place is the gift's own giving household (the server compares;
+    // the household id never comes back). source_meal_id = that place's live source meal, only then.
+    const isGivingPlace = d.is_giving_place === true;
+    const sourceMealId = isGivingPlace && typeof d.source_meal_id === "string" ? d.source_meal_id : null;
+    return { ok: true, giftId: d.gift_id, snapshot: d.snapshot || {}, note: d.note || null, alreadyAdded: d.already_added || null, hasPhoto: photoExt !== null, photoExt, photoUrl, isGivingPlace, sourceMealId };
   }, []);
 
   const recordMealGiftReceipt = useCallback(async (code, mealId) => {
