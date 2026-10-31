@@ -217,14 +217,24 @@ describe("showcase photos — the flip (S46)", () => {
     expect(onSetPhotoKind).toHaveBeenCalledWith(MEAL.id, "b", "showcase");
   });
 
-  test("S28: a showcase slide is marked 'Showcase' — a sibling of the photo button, never inside it; cook slides are not", () => {
-    const { container } = view({ photos: [cook("a"), showcase("s")] });
+  test("S28: a showcase slide is marked 'Showcase' — a sibling of the photo button, never inside it; cook slides are not; a RECEIVED row reads 'Gift' (Dan 2026-10-31)", () => {
+    const { container } = view({ photos: [cook("a"), showcase("s"), { ...showcase("r", "u2"), received_at: "2026-10-30T21:46:10Z" }] });
     const slides = qa(container, ".rv-slide");
     expect(q(slides[0], ".rv-showcase-tag")).toBeNull();
     const tag = q(slides[1], ".rv-showcase-tag");
     expect(tag.textContent).toBe("Showcase");
     expect(tag.closest("button")).toBeNull();
-    expect(qa(container, ".rv-strip img")).toHaveLength(2);
+    expect(q(slides[2], ".rv-showcase-tag").textContent).toBe("Gift");
+    expect(qa(container, ".rv-strip img")).toHaveLength(3);
+  });
+
+  test("same first name (Dan 2026-10-31): 'Added by' reads first name + last initial when two members share a first name", () => {
+    const SAME = [{ user_id: "u1", users: { full_name: "Dan Holmes" } }, { user_id: "u2", users: { full_name: "Dan Teller" } }];
+    const { container } = flipView({ photos: [cook("x", "u2")], members: SAME });
+    openMenu(container);
+    expect(q(container, ".rv-photo-owner").textContent).toBe("Added by Dan T");
+    fireEvent.click(q(container, ".rv-photo-details"));
+    expect(q(document.body, ".rv-psheet-scrim").textContent).toContain("Added by Dan T ·");
   });
 
   test("busy: ⋯ is disabled, so no flip can start", () => {

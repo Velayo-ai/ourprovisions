@@ -119,6 +119,33 @@ describe("the give sheet — B1 / B2 (C1)", () => {
     expect(s.textContent).toContain("No photo goes with it");
     expect(s.textContent).not.toContain("stay at home");
     expect(q(s, ".give-nudge").textContent).toBe("Make one of the photos a showcase →");
+    // Dan 2026-10-31: when the meal's ONLY photos came with a gift, the nudge asks for a photo instead
+    fireEvent.click(q(s, ".sheet-close"));
+    expect(sheet()).toBeNull();
+    const onlyRec = openGive(view({ photos: [photo("r", "u9", "showcase", { received_at: today })] }).container);
+    expect(onlyRec.textContent).toContain("No photo goes with it");
+    expect(q(onlyRec, ".give-nudge").textContent).toBe("Add a photo to send one along →");
+    fireEvent.click(q(onlyRec, ".sheet-close"));
+    expect(sheet()).toBeNull();
+    const none = openGive(view({ photos: [] }).container);
+    expect(q(none, ".give-nudge").textContent).toBe("Make one of the photos a showcase →");
+    fireEvent.click(q(none, ".sheet-close"));
+    expect(sheet()).toBeNull();
+    const s2 = openGive(container);   // the first view again, for the rest of the assertions
+    expect(q(s2, ".give-thumb-empty")).not.toBeNull();
+    expect(qa(s2, "img")).toHaveLength(0);
+    expect(q(s2, ".give-count").textContent).toBe("0 / 280");
+    expect(q(s2, ".give-go").textContent).toBe("Give");
+    expect(s2.textContent).toContain("They get their own copy. Yours doesn’t change.");
+  });
+  test("same first name (Dan 2026-10-31): B1 reads 'Made showcase by Dan T.' when two members share a first name", () => {
+    const SAME = [{ user_id: "u1", users: { full_name: "Dan Holmes" } }, { user_id: "u2", users: { full_name: "Dan Teller" } }];
+    const s = openGive(view({ members: SAME, photos: [photo("s2", "u2", "showcase")] }).container);
+    expect(s.textContent).toContain("Made showcase by Dan T. Other photos stay at home.");
+  });
+  test("(the rest of B2, kept for the first view)", () => {
+    const { container } = view({ photos: [photo("a", "u1", "cook")] });
+    const s = openGive(container);
     expect(q(s, ".give-thumb-empty")).not.toBeNull();
     expect(qa(s, "img")).toHaveLength(0);
     expect(q(s, ".give-count").textContent).toBe("0 / 280");

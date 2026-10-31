@@ -2064,10 +2064,17 @@ function SetTypeSheet({ meal, onSave, onClose }) {
 // = button 14 at k 0.8; tags and the seam 12.5. Nothing under the 12.5 floor.
 // Cook mode (slice c) steps the step text up one size from here.
 const RV_COOKS_SHOWN = 5;
-// A member's first name: the profile's full name, else the email's local part.
-const memberFirstName = (mb) => {
+// A member's first name: the profile's full name, else the email's local part. With `members`, two
+// members who share a first name read as first name + last initial ("Dan H", "Dan T") on every
+// {First} surface (Dan, 2026-10-31) — fixed copy around household text, masked for replay.
+const memberFirstName = (mb, members = null) => {
   const full = (mb?.users?.full_name || "").trim();
-  return full.split(/\s+/)[0] || (mb?.users?.email ? mb.users.email.split("@")[0] : "");
+  const parts = full.split(/\s+/).filter(Boolean);
+  const first = parts[0] || (mb?.users?.email ? mb.users.email.split("@")[0] : "");
+  if (!first || !members || parts.length < 2) return first;
+  const shared = members.some((o) => o && o !== mb && o.user_id !== mb?.user_id
+    && ((o.users?.full_name || "").trim().split(/\s+/)[0] || "").toLowerCase() === first.toLowerCase());
+  return shared ? `${first} ${parts[parts.length - 1][0].toUpperCase()}` : first;
 };
 // Cook dates come from src/lib/cookDate.js (Amendment A4): relative inside the
 // last week, weekday + date beyond it. Never a person (D10).
@@ -2204,7 +2211,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
   const ownerLineFor = (p) => {
     if (!p || mine(p) || (members || []).length < 2) return null;
     const m = (members || []).find((mb) => mb && mb.user_id && mb.user_id === p.uploaded_by);
-    const name = m ? memberFirstName(m) : "";
+    const name = m ? memberFirstName(m, members) : "";
     return name ? `Added by ${name}` : null;
   };
   // The flip itself, after the S13 prompt said yes (to showcase) or straight away (to cook).
@@ -2260,7 +2267,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
                 <button type="button" className="rv-photo-open" aria-label="View photo full size" ref={(el) => { openRefs.current[i] = el; }} onClick={() => openViewer(i)}>
                   <img className="rv-photo-img op-replay-block op-photo" src={p.url} alt="" draggable="false" onLoad={photoFadeIn} />
                 </button>
-                {isShowcase(p) && <span className="rv-showcase-tag">Showcase</span>}
+                {isShowcase(p) && <span className="rv-showcase-tag">{p.received_at ? "Gift" : "Showcase"}</span>}
               </div>
             ))}
           </div>
@@ -2304,7 +2311,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
       {sheet && sheet.kind === "details" && (
         <PhotoSheet labelledBy="rv-photo-dh" onClose={() => setSheet(null)}>
           <h2 id="rv-photo-dh" className="rv-psheet-h">Photo details</h2>
-          {photoDetails(sheet.photo, members, memberFirstName).map((line) => (
+          {photoDetails(sheet.photo, members, (mb) => memberFirstName(mb, members)).map((line) => (
             <div className="rv-psheet-line" key={line}>{line}</div>
           ))}
         </PhotoSheet>
@@ -2446,7 +2453,7 @@ function PhotoSheet({ labelledBy, onClose, children, closeDisabled = false }) {
 // count of stars is spoken through .sr-only text (masked), never an attribute. No averages (S7).
 function CookRow({ cook, ratings, members, viewerUserId, canRate, onRate, offer = false }) {
   const multi = (members || []).length >= 2;
-  const nameOf = (uid) => memberFirstName((members || []).find((mb) => mb.user_id === uid));
+  const nameOf = (uid) => memberFirstName((members || []).find((mb) => mb.user_id === uid), members);
   const mine = viewerUserId ? ratings.find((r) => r.user_id === viewerUserId) : null;
   const others = ratings.filter((r) => r !== mine);
   return (
@@ -2631,7 +2638,7 @@ function PhotoViewer({ photos, start, members, onClose, viewerUserId = null, men
     if (i !== atRef.current) { atRef.current = i; setAt(i); }
   };
   const stop = (e) => e.stopPropagation();
-  const caption = photoCaption(photos[at], members, memberFirstName, new Date(), viewerUserId);
+  const caption = photoCaption(photos[at], members, (mb) => memberFirstName(mb, members), new Date(), viewerUserId);
   return createPortal(
     <div className="rv-viewer" role="dialog" aria-modal="true" aria-label="Photo" ref={rootRef}
       onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop} onClick={stop}>
@@ -2756,9 +2763,9 @@ const ShareGlyph = () => (
 //   Failure  give_meal's error shows as a line in the sheet (giveFailure), never a silent return.
 //   Giving   (Dan 2026-10-30) while the meal has an unrevoked gift the sheet opens with one line at the top,
 //            "You’re giving this meal · Stop giving"; Stop giving hands over to the existing confirm.
-function GiveSheet({ meal, photo, members, referralCode, give, onClose, onShowStrip, onStopGiving }) {
+function GiveSheet({ meal, photo, members, onlyReceived = false, referralCode, give, onClose, onShowStrip, onStopGiving }) {
   // S48 / B1: "Made showcase by {First}." — the first name is household text (masked); the copy around it is fixed.
-  const showcaser = photo && photo.showcased_by ? memberFirstName((members || []).find((mb) => mb && mb.user_id === photo.showcased_by)) : "";
+  const showcaser = photo && photo.showcased_by ? memberFirstName((members || []).find((mb) => mb && mb.user_id === photo.showcased_by), members) : "";
   const [note, setNote] = useState("");
   const [phase, setPhase] = useState("compose");   // compose | giving | copying | ready
   const [gift, setGift] = useState(null);           // { code, giftId, hasPhoto, photoFailed }
@@ -2802,7 +2809,7 @@ function GiveSheet({ meal, photo, members, referralCode, give, onClose, onShowSt
           <div className="give-ptext">
             {photo
               ? <><b>The meal’s showcase photo goes with it</b>{showcaser ? `Made showcase by ${showcaser}. ` : ""}Other photos stay at home.</>
-              : <><b>No photo goes with it</b><button type="button" className="give-nudge" disabled={busy} onClick={onShowStrip}>Make one of the photos a showcase →</button></>}
+              : <><b>No photo goes with it</b><button type="button" className="give-nudge" disabled={busy} onClick={onShowStrip}>{onlyReceived ? "Add a photo to send one along →" : "Make one of the photos a showcase →"}</button></>}
           </div>
         </div>
       )}
@@ -2906,7 +2913,11 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   // confirm, both over this view. Stop giving is reached from the sheet's top line; the sheet closes first.
   const [giveOpen, setGiveOpen] = useState(false);
   const [stopOpen, setStopOpen] = useState(false);
-  const showcasePhoto = mealShowcase(photosReady ? (photos || []) : []);   // S48: the household's, whoever made it
+  const livePhotos = photosReady ? (photos || []) : [];
+  const showcasePhoto = mealShowcase(livePhotos);   // S48: the household's, whoever made it
+  // Dan 2026-10-31: when the meal's only photos came with a gift, B2 cannot point at a showcase that
+  // cannot be made — the nudge reads "Add a photo to send one along" (the strip's Add a meal photo).
+  const onlyReceived = livePhotos.length > 0 && livePhotos.every((p) => !!p.received_at);
   // B2's nudge: back to the strip, where the flip lives. The sheet closes (its ✕ hands focus back to the share button);
   // the view scrolls to its hero and the photo ⋯ (or Add a meal photo) takes focus a beat later.
   const showStrip = () => {
@@ -2926,7 +2937,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   const parsed = useMemo(() => parseSteps(meal.instructions), [meal.instructions]);
   const attribution = (meal.attribution || "").trim();
   const adder = (members || []).length >= 2 ? (members || []).find((mb) => mb.user_id && mb.user_id === meal.created_by) : null;
-  const adderName = adder ? memberFirstName(adder) : "";
+  const adderName = adder ? memberFirstName(adder, members) : "";
   const onWeek = !!state && !state.cooked;
   // Tags and the summary's list state only once the cook reduce and this meal's links are in
   // (2026-10-18 correction) — before that the rows are bare and the heading is the count.
@@ -2934,7 +2945,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   // A2-R §3: solo = fewer than 2 current members (the earned-Our rule); a buyer is
   // named only through the members already loaded — a user who left names nobody.
   const solo = (members || []).length < 2;
-  const firstNameOf = (userId) => memberFirstName((members || []).find((mb) => mb.user_id === userId));
+  const firstNameOf = (userId) => memberFirstName((members || []).find((mb) => mb.user_id === userId), members);
   const stepCount = parsed.steps.length;
   const meta = [
     occasionWord,
@@ -3086,7 +3097,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
         )}
         <div className="rv-pad" />
         {giveOpen && give && (
-          <GiveSheet meal={meal} photo={showcasePhoto} members={members} referralCode={give.referralCode || null} give={give}
+          <GiveSheet meal={meal} photo={showcasePhoto} members={members} onlyReceived={onlyReceived} referralCode={give.referralCode || null} give={give}
             onClose={() => setGiveOpen(false)} onShowStrip={showStrip} onStopGiving={() => { setGiveOpen(false); setStopOpen(true); }} />
         )}
         {stopOpen && give && (
@@ -9244,7 +9255,10 @@ function ProvisionsApp() {
            partly covered and hard to hit (iPhone, the 2026-10-11 walk). Hidden, not
            lowered: a lowered Helm would still read as reachable. SAME SIGNAL as the
            stack rule above, so the two cannot disagree. Restored on close. */
-        body:has(.modal-overlay) .helm, body:has(.modal-overlay) .helm-fade { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .helm,
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .helm-fade { display: none; }
+        /* …under EVERY bottom sheet, not only the modal overlay (Dan 2026-10-31): the thank-you sheet's Send / Skip and
+           the arrival sheet's Open it sat under the pill. The same six surfaces as the Wrap Up bar's rule below. */
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
         /* Budget banner */

@@ -155,12 +155,13 @@ describe("'How was it for you?' is offered on the newest cook only", () => {
 });
 
 // "You" (Dan, 2026-10-21): the viewer's own line and own photos never carry their first name — two
-// members can share one (both test accounts are "Dan"). Other members keep their first names.
+// members can share one (both test accounts are "Dan"). Other members keep their first names — and since
+// 2026-10-31 (Dan) a shared first name reads first name + last initial on every {First} surface: "Dan H".
 describe("the viewer is 'You'", () => {
   const SAME = [{ user_id: DH, users: { full_name: "Dan Holmes" } }, { user_id: DT, users: { full_name: "Dan Test User" } }];
-  test("two members both named Dan: the other is 'Dan', the viewer is 'You'", () => {
+  test("two members both named Dan: the other is 'Dan H' (first name + last initial, 2026-10-31), the viewer is 'You'", () => {
     const { container } = view({ members: SAME, ratings: { c1: [{ meal_cook_id: "c1", user_id: DH, rating: 3, note: null }, { meal_cook_id: "c1", user_id: DT, rating: 1, note: null }] } });
-    expect(q(container, ".rv-rater:not(.mine) .rv-rater-name").textContent).toBe("Dan");
+    expect(q(container, ".rv-rater:not(.mine) .rv-rater-name").textContent).toBe("Dan H");
     expect(q(container, ".rv-rater.mine .rate-label").textContent).toBe("You");
   });
   test("signed out (read-only), the viewer's own line still reads 'You'", () => {
