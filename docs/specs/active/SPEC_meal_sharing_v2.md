@@ -808,3 +808,56 @@ No client write policies on either gift table.
 ## Next step (builder)
 
 Draft `migrations/072_meal_sharing_phase_a.sql` + `072_rollback.sql` per S38–S45, with VERIFY per section. **Not applied.** Report the S43 code-entropy check with the draft.
+
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-30 (S48, the household's showcase)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after the S47 lines. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final. Ruled by Dan in the design chat 2026-10-30, during the Phase A fix walk.
+**Supersedes:** S11 (only the author can share a showcase photo publicly); S26's one showcase *per person* per meal; S46's author-only flip; S23's "uploaded_by = giver" as the re-gift guard (replaced below); S12's public branch ("the giver's own latest showcase"); C1's pre-check wording ("a live showcase row where uploaded_by = me"). S10 is reworded, not removed.
+
+---
+
+## Why
+
+A walk found Dan H could not give a meal with the showcase photo that Dan T had made, though both are in the same household. Per-person showcase ownership broke the **Collaborative Intelligence** anchor: the household owns its meals, its list and its photos (any member can remove any photo, S27). The meal has one public face, and it belongs to the house.
+
+The real worry behind S11 was **consent**, not ownership. It is met the way the shared list meets conflict (collaborative tension): changes are visible, any member can reverse them, and the household sorts it out.
+
+## Decisions
+
+**S48 — One showcase per meal, owned by the household.**
+- Each meal has **at most one live showcase photo** in a household. Making a new one retires the old one, whoever made it (flips it back to a meal photo, never deletes it).
+- **Any member** can make **any** live photo of the meal the showcase, with the existing prompt. Any member can make the showcase a meal photo again (un-showcase). Neither is author-only.
+- **Any member giving the meal sends the showcase** (V5). The S12 public branch becomes: *the household's live showcase photo of that meal, or none.* Never a cook photo.
+- **S10 reworded:** a meal photo never leaves the household unless a member deliberately makes it the showcase. No gift, re-gift or setting does it silently.
+- **Visibility is the safeguard.** Photo details shows who made the photo the showcase and when (`showcased_by`, `showcased_at`). A Home activity line for showcase changes is NEXT, with the crew feed / Home activity design.
+- **Snapshot honesty.** A gift copies the photo when given (V3). Changing or removing the showcase later does not pull back copies already given; Stop giving makes the link and card unreadable, and accepted copies stay. The Make-showcase prompt says so.
+- **No re-gift of a received photo.** A photo that arrived on a gift (`accept_gift_photo`) can never be made the receiving household's showcase. It is a showcase-kind row in the receiver's strip (chip shown) but marked as received, and `give_meal` never selects it. The household that chose to publish it decided where it goes; a receiving household did not.
+
+**Prompt copy of record (replaces S13's line from 10-30):**
+> **Make this the meal's showcase photo?**
+> Showcase photos can be shared outside the household. Once a meal is given, its photo goes with it.
+> [Make showcase] [Not now]
+
+**B2 copy:** "No photo goes with it." + "Make one of the photos a showcase →". The per-person explanation line drafted earlier on 10-30 is **not built**: with a household showcase it can't arise.
+
+## Build shape (Step 0 confirms or corrects)
+
+- **Data:** replace 072's per-person partial unique index with one live showcase per `(meal_id, household_id)`, excluding received rows. Add `showcased_by uuid` (users, set null) and `showcased_at timestamptz` to `meal_photos`. Mark received rows (e.g. `received_gift_id uuid` set by `accept_gift_photo`, or a `kind`-adjacent flag); Step 0 proposes. Backfill: where a meal has more than one live non-received showcase in a household, keep the newest, flip the rest to cook (report counts first; dev only has walk data).
+- **`set_photo_kind`:** drop the author check; keep membership. To showcase: refuse a received row (`22023`), stamp `showcased_by/at`, flip the household's current showcase to cook. To cook: any member; the 3-cook cap refusal stays.
+- **`give_meal`:** picks the household's live, non-received showcase; returns its paths as today.
+- **`accept_gift_photo`:** marks the row as received; `uploaded_by` stays the photo's original author (attribution), but the re-gift guard is the received mark, not `uploaded_by`.
+- **`add_showcase_photo` (072):** unused; drop in this migration or leave for its own retirement — Step 0 recommends.
+- **Client:** flip items on every photo for every member (received rows: no "Make showcase"); the C1 pre-check reads "does this meal have a live, non-received showcase"; Photo details shows "Made showcase by {First} · {date}"; the prompt copy above. Save/Download stays author-only (S14 unchanged).
+
+## Verification
+
+- **V36:** Dan T makes a photo the showcase; Dan H gives the meal; the gift carries that photo (`photo_ext` set, objects present).
+- **V37:** Dan H makes a different photo the showcase; Dan T's is now a meal photo (not deleted); exactly one live showcase on the meal in that household.
+- **V38:** any member can un-showcase any showcase; the 3-cook cap refusal still holds on un-showcase.
+- **V39:** a received photo shows no "Make showcase" and `set_photo_kind(..., 'showcase')` on it raises `22023`; giving the receiver's copy carries no photo.
+- **V40:** Photo details shows who made the showcase and when.
+- **V41:** changing the showcase after a gift leaves that gift's photo unchanged; Stop giving makes it unreadable.
