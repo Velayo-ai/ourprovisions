@@ -131,7 +131,13 @@ stop and report it rather than committing.
     deletion never appears in `git status`. The only tracked files in `handoff/`
     are `.gitignore` and `DESIGN_CHAT_handoff_prompt.md` (force-added).
     (Learned 2026-09-30.)
-- **If it does not exist**, proceed normally — log only what you witnessed.
+- **If `handoff/design_handoff.md` isn't in the working tree, read it from `origin/handoff`**
+  (`git fetch origin handoff` + `git show origin/handoff:handoff/design_handoff.md`). Never merge
+  or check out the handoff branch. After merging the content, note the handoff's commit sha in
+  the SESSION_LOG entry. If a fetch fails with `Permission denied` under `.git/objects`, run
+  `icacls .git\objects /reset /T /Q` and retry. (Added 2026-11-01; see the DECISIONS LOG.)
+- **If it does not exist** (neither in the working tree nor on `origin/handoff`), proceed
+  normally — log only what you witnessed.
 
 ### Step 0.5 — Route any payload files dropped in `handoff/`
 
