@@ -26,6 +26,7 @@ Done when: [clear success condition]
 ## LOG
 
 ### [2026-11-01] — [OurProvisions] — Phase A's last dev checks CLOSED: V25 + V22 PASS, G walked and ruled (b), dev walk data cleared, promotion plan written for the morning
+> **Addendum 2026-11-01:** 2bfa80e on origin/handoff = route test, consumed, nothing to merge.
 **Goal:** Close V25 and the V22 HAR on dev, settle what the promotion needs decided, and leave dev clean so the Phase A promotion starts on fresh eyes.
 **Completed:**
 - **Pushed `bf58d71`** (10-31's design-handoff merge) after the range check showed only that commit. Confirmed both MCP servers by `system_identifier`: dev `7642734024280108049`, prod `7606130613603586966`. Prod has no `supabase_migrations` schema at all.

@@ -131,11 +131,17 @@ stop and report it rather than committing.
     deletion never appears in `git status`. The only tracked files in `handoff/`
     are `.gitignore` and `DESIGN_CHAT_handoff_prompt.md` (force-added).
     (Learned 2026-09-30.)
-- **If `handoff/design_handoff.md` isn't in the working tree, read it from `origin/handoff`**
-  (`git fetch origin handoff` + `git show origin/handoff:handoff/design_handoff.md`). Never merge
-  or check out the handoff branch. After merging the content, note the handoff's commit sha in
-  the SESSION_LOG entry. If a fetch fails with `Permission denied` under `.git/objects`, run
-  `icacls .git\objects /reset /T /Q` and retry. (Added 2026-11-01; see the DECISIONS LOG.)
+- **If `handoff/design_handoff.md` isn't in the working tree, check `origin/handoff`:**
+  `git fetch origin handoff`, then `git rev-parse origin/handoff`.
+  - **If that sha already appears in `docs/SESSION_LOG.md`, the handoff is CONSUMED.** Say so,
+    and treat it as "does not exist"; the HARD GATE does not apply.
+  - **Only an unseen sha is a new handoff.** Read it with
+    `git show origin/handoff:handoff/design_handoff.md`, merge it as above, and note its commit
+    sha in the SESSION_LOG entry. That entry is what marks it consumed next time.
+  - Never merge or check out the handoff branch.
+  - If a fetch fails with `Permission denied` under `.git/objects`, run
+    `icacls .git\objects /reset /T /Q` and retry.
+  - (Added 2026-11-01; consumed-sha check 2026-11-01; see the DECISIONS LOG.)
 - **If it does not exist** (neither in the working tree nor on `origin/handoff`), proceed
   normally — log only what you witnessed.
 
