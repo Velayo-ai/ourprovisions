@@ -79,7 +79,8 @@ one is Phase A, plus dev's deletion of the never-run CRA `src/App.test.js` (`830
 
 ```
 git checkout main && git pull --ff-only
-git checkout origin/dev -- src/
+git checkout --no-overlay origin/dev -- src/   # --no-overlay: plain checkout never removes files dev deleted
+                                               # (2026-11-01 it left App.test.js behind → 23 paths, not 24)
 git status --short            # expect the 24 paths above, App.test.js as D
 git commit -m "Phase A client to prod: main src/ = dev <sha> src/ (…)"
 git diff origin/dev HEAD -- src public package.json package-lock.json vercel.json   # expect EMPTY
