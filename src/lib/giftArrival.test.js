@@ -1,5 +1,5 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/lib/giftArrival
-import { giftDraft, giftBanner, giftNoteQuote, placeLine, arrivalFailure, alreadyAddedLine, givingPlaceLine, thankYouPayload, giftSourcePaths, acceptCopyPaths, normName } from "./giftArrival";
+import { giftDraft, giftBanner, giftNoteQuote, placeLine, arrivalFailure, alreadyAddedLine, givingPlaceLine, givingDeletedLine, thankYouPayload, giftSourcePaths, acceptCopyPaths, normName } from "./giftArrival";
 
 const SNAP = {
   name: "Famous Grilled Cheese & Pickle", base_servings: 1, instructions: "1. Butter.\n2. Grill.", occasion: ["lunch"], attribution: "Easton",
@@ -70,6 +70,10 @@ describe("arrivalFailure (072 §5 codes → plain lines)", () => {
   test("C11: the giving place reads 'Already one of {Place}’s meals'; no place → 'this place'", () => {
     expect(givingPlaceLine("Madbury")).toBe("Already one of Madbury’s meals");
     expect(givingPlaceLine(null)).toBe("Already one of this place’s meals");
+  });
+  test("G (b): the giving place after the source meal is deleted names the place; no place → 'this place'", () => {
+    expect(givingDeletedLine("Madbury")).toBe("Sorry, the meal Madbury gave has since been deleted.");
+    expect(givingDeletedLine(null)).toBe("Sorry, the meal this place gave has since been deleted.");
   });
 });
 

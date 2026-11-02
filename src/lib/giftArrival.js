@@ -69,6 +69,11 @@ export const alreadyAddedLine = (placeName) => `Already in ${placeName || "this 
 // is_giving_place, 075). No form, no copy — the line, and Open it when the source meal still exists.
 export const givingPlaceLine = (placeName) => `Already one of ${placeName || "this place"}’s meals`;
 
+// G (b) (Dan 2026-11-01): the giving place opens its own link after the source meal is deleted (075's
+// source_meal_id null). The line and OK — no form, no Open it.
+export const givingDeletedLine = (placeName) =>
+  `Sorry, the meal ${placeName || "this place"} gave has since been deleted.`;
+
 // S24: the thank-you, once, from the receiver's own share sheet. No url — a message, not a link.
 export function thankYouPayload(mealName, giverFirst) {
   return {

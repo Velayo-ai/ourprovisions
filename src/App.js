@@ -29,7 +29,7 @@ import { addAllOnHandLine } from './lib/onHand';
 import { cookDateStart, cookHistoryLine } from './lib/cookDate';
 import { photosByMeal, photosFingerprint, photoCaption, photoDetails, replaceSteps, isShowcase, liveCookCount, atPhotoCap } from './lib/mealPhotos';
 import { mealShowcase, noteForGive, NOTE_MAX, giftSharePayload, whatTheySee, closeDisabled as giveCloseDisabled } from './lib/giveMeal';
-import { giftDraft, giftBanner, giftNoteQuote, placeLine, alreadyAddedLine, givingPlaceLine, thankYouPayload } from './lib/giftArrival';
+import { giftDraft, giftBanner, giftNoteQuote, placeLine, alreadyAddedLine, givingPlaceLine, givingDeletedLine, thankYouPayload } from './lib/giftArrival';
 import { canSaveToPhotos, createPhotoSaver, saveLabel } from './lib/savePhoto';
 import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
@@ -2861,8 +2861,9 @@ function GiveSheet({ meal, photo, members, onlyReceived = false, referralCode, g
 // THE ARRIVAL THAT CANNOT OPEN THE FORM (Commit 3; 10-07 errors, in plain language): unknown or revoked code,
 // not a member, or already added to this place — with Open it for the copy that is already here. C11 (Dan
 // 2026-10-30): the giving place itself — "Already one of {Place}'s meals", Open it for the source meal while it
-// still exists (mealId null = the line alone); no copy is ever made.
-function GiftArrivalSheet({ arrival, onOpen, onClose }) {
+// still exists (mealId null = the line alone); no copy is ever made. G (b) (Dan 2026-11-01): "giving_deleted" —
+// the source meal is gone (075's source_meal_id null): the Sorry line and OK, nothing else.
+export function GiftArrivalSheet({ arrival, onOpen, onClose }) {
   const already = arrival.kind === "already";
   const giving = arrival.kind === "giving";
   const openable = already || (giving && !!arrival.mealId);
@@ -6083,7 +6084,7 @@ function ProvisionsApp() {
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
   // A received gift (Commit 3): what stands in the form's place when it cannot open, and the one-time thank-you.
-  const [giftArrival, setGiftArrival] = useState(null);   // null | { kind: "error" | "already" | "giving", line, mealId? }
+  const [giftArrival, setGiftArrival] = useState(null);   // null | { kind: "error" | "already" | "giving" | "giving_deleted", line, mealId? }
   const [thankYou, setThankYou] = useState(null);         // null | { mealId, ask, title, text }
 
   // THE RECIPE VIEW (SPEC_recipe_view D1–D4): { mealId, landing } while open. The view
@@ -7313,6 +7314,8 @@ function ProvisionsApp() {
       if (!r.ok) { setGiftArrival({ kind: "error", line: r.line }); return; }
       // C11 first (075): this place gave it — the source meal is theirs already, no copy. Then a copy
       // already made here (V11). A same-place copy made before C11 reads as the giving place.
+      // G (b): 075 returns source_meal_id only while the source meal is live — null = deleted.
+      if (r.isGivingPlace && !r.sourceMealId) { setGiftArrival({ kind: "giving_deleted", line: givingDeletedLine(placeName) }); return; }
       if (r.isGivingPlace) { setGiftArrival({ kind: "giving", mealId: r.sourceMealId && mealById[r.sourceMealId] ? r.sourceMealId : null, line: givingPlaceLine(placeName) }); return; }
       if (r.alreadyAdded) { setGiftArrival({ kind: "already", mealId: r.alreadyAdded, line: alreadyAddedLine(placeName) }); return; }
       const giverFirst = (r.snapshot && typeof r.snapshot.giver_first_name === "string" ? r.snapshot.giver_first_name : "").trim();
