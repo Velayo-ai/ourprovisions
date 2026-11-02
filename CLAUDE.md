@@ -111,9 +111,9 @@ doing anything else.
 
 **HARD GATE:** If `handoff/design_handoff.md` exists, you MUST produce a new
 SESSION_LOG entry from it. "Nothing new to log" is FORBIDDEN whenever a handoff
-file is present — its presence is itself unmerged work. Reaching Step 6 without
-having (a) created/merged an entry AND (b) deleted the handoff file is a failure;
-stop and report it rather than committing.
+file is present — its presence is itself unmerged work. Reaching Step 5's commit
+without having (a) created/merged an entry AND (b) deleted the handoff file is a
+failure; stop and report it rather than committing.
 
 - **If it exists**, it contains design/decision context from a separate Claude
   CHAT session that you (Claude Code) could not see. It uses delimited sections.
@@ -248,11 +248,6 @@ the `design_handoff.md` deletion, because that file is gitignored and untracked
 `handoff/` in `git status` is the expected, correct result, not a missed step.
 `git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
 Do NOT push automatically — leave the commit local for my review. I'll push.
-
-### Step 6 — Report
-Tell me which Project Knowledge files to re-upload to the web chat: every doc you
-changed this session, plus any source files (`App.js`, `useProvisions.js`, etc.)
-that changed.
 
 ### Rules
 - Infer today's date from the system date.
