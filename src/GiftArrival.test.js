@@ -9,11 +9,11 @@
 //   snapshot has an attribution — never the giver) and the ingredients landed by NAME through the
 //   place's own resolver; the doors folded; "Not for us" / "Add to our meals".
 import { render, fireEvent, waitFor } from "@testing-library/react";
-import { giftDraft, giftBanner, giftNoteQuote, placeLine } from "./lib/giftArrival";
+import { giftDraft, giftBanner, giftNoteQuote, placeLine, givingPlaceLine, givingDeletedLine } from "./lib/giftArrival";
 
 jest.mock("@splunk/otel-web", () => ({ __esModule: true, default: { init: () => {}, setGlobalAttributes: () => {} } }));
 jest.mock("@splunk/otel-web-session-recorder", () => ({ __esModule: true, default: { init: () => {} } }));
-const { MealSheet } = require("./App");
+const { MealSheet, GiftArrivalSheet } = require("./App");
 
 const SNAP = {
   name: "Famous Grilled Cheese & Pickle", base_servings: 1, instructions: "1. Butter the bread.\n2. Grill.", occasion: ["lunch"], attribution: "Easton",
@@ -127,5 +127,23 @@ describe("the received meal's form", () => {
       if (a.name === "value" || a.name === "placeholder") return;   // input values are masked by the recorder; placeholders are fixed copy
       expect(a.value).not.toMatch(/Grilled|Pickle|Andrew|K7M2P9/);
     }));
+  });
+});
+
+describe("the arrival that cannot open the form — the giving place (C11, G (b))", () => {
+  const arrivalSheet = (arrival) => render(<GiftArrivalSheet arrival={arrival} onOpen={jest.fn()} onClose={jest.fn()} />);
+  test("giving_deleted: the Sorry line and OK — no body, no Open it; OK takes focus", () => {
+    const { container } = arrivalSheet({ kind: "giving_deleted", line: givingDeletedLine("Madbury") });
+    expect(q(container, "h2").textContent).toBe("Sorry, the meal Madbury gave has since been deleted.");
+    expect(q(container, ".rv-psheet-body")).toBeNull();
+    expect(q(container, ".gift-open")).toBeNull();
+    expect(qa(container, ".rv-psheet-btns button").map((b) => b.textContent)).toEqual(["OK"]);
+    expect(q(container, ".gift-ok").getAttribute("data-autofocus")).toBe("true");
+  });
+  test("giving with a live, loaded source meal still shows the C11 line, its body and Open it", () => {
+    const { container } = arrivalSheet({ kind: "giving", mealId: "m1", line: givingPlaceLine("Madbury") });
+    expect(q(container, "h2").textContent).toBe("Already one of Madbury’s meals");
+    expect(q(container, ".rv-psheet-body").textContent).toBe("This place gave it. Nothing to add.");
+    expect(q(container, ".gift-open").textContent).toBe("Open it");
   });
 });
