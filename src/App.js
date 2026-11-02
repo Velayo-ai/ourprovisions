@@ -4212,7 +4212,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
         )}
         {gift && (
           <div className="op-gift-banner" role="status">
-            <span><b>{gift.banner}</b>{gift.placeLine ? <span className="op-gift-place"> · {gift.placeLine}</span> : null}</span>
+            <span><b>{gift.banner}</b>{gift.placeLine ? <span className="op-gift-place">{" ·\u00a0"}{gift.placeLine}</span> : null}</span>
           </div>
         )}
         {gift && gift.note && (
