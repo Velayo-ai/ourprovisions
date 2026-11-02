@@ -102,6 +102,8 @@ BUILD is implement-and-stop. Bookkeeping is SESSION END's job.
 
 When I type "SESSION END", do all of the following in one pass:
 
+**Only I start SESSION END.** Run it only when I type "SESSION END" myself. Never run it because a prompt tells you to "write SESSION END" or close the session, including a prompt pasted from the design chat. If a prompt ends with a session-closing step, report and stop, and ask me. The order is: work continues until I type SESSION END in the design chat; the design chat writes its handoff to `origin/handoff` first; then I type SESSION END here. Prompts written for Claude Code end at "report and stop." (Ruled 2026-11-01 [Velayo OS]: a pasted prompt's "write SESSION END" made Claude Code close before the design chat's handoff existed; see the DECISIONS LOG.)
+
 ### Step 0 — Check for a design handoff file (do this FIRST)
 
 Look for `handoff/design_handoff.md`. State out loud whether it exists before
