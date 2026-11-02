@@ -12,6 +12,9 @@ import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib
 import { trace } from "@opentelemetry/api";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
 import { cooksFromRows, resolveCookId } from "../lib/cooks";
+import { setKindFailure } from "../lib/mealPhotos";
+import { giveFailure, giftObjectPath, giftExt, GIFT_RENDITIONS } from "../lib/giveMeal";
+import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArrival";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -558,8 +561,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // D4 / D1 (SPEC_auth_state_ui_gating.md): no session → no data. The anon
     // storefront preview that used to live here (seed catalog + category averages
     // over apikey-only REST, for a signed-out Browse) was retired 2026-09-24 with
-    // Browse's signed-out rendering. After this the app makes ZERO anon queries;
-    // Home carries the signed-out surface.
+    // Browse's signed-out rendering. After this the app makes ZERO anon queries
+    // through THIS client; Home carries the signed-out surface. The one exception
+    // (Phase A, 2026-10-29) is src/lib/supabaseAnon.js — a separate apikey-only client
+    // used by the signed-out gift card alone, for exactly two calls the server grants
+    // to anon on purpose (preview_meal_gift_public, a gift-photos signed URL). A test
+    // greps src/ so nothing else can import it.
     if (!getTokenRef.current || !userId || !clerkId) {
       setLoading(false);
       return;
@@ -2615,6 +2622,204 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return saveMealPhoto(up.upload, cookId);
   }, [uploadMealPhoto, saveMealPhoto]);
 
+  // THE FLIP (073 set_photo_kind; SPEC_meal_sharing_v2 S46, Dan 2026-10-30): a photo is born a
+  // meal photo (kind = cook, add_meal_photo above) and its AUTHOR flips it — to showcase (the one
+  // photo that can travel on their own public gift) or back to a meal photo. The server checks
+  // the author (uploaded_by = the JWT's user; 42501 for anyone else), retires the author's other
+  // live showcase on the meal when flipping to showcase, and REFUSES a flip to cook at 3 live cook
+  // photos (22023 "meal photos are full") rather than age one out. meal_cook_id is left as-is.
+  // Returns { ok: true } or { ok: false, reason, line } — the line is the RPC's message or a plain
+  // mapping of its SQLSTATE (src/lib/mealPhotos.js setKindFailure); the caller shows it, never swallows it.
+  // (072's add_showcase_photo stays in the database, unused by the client — S46.)
+  const setPhotoKind = useCallback(async (photoId, kind) => {
+    const db = supabaseRef.current;
+    if (!db || !photoId || (kind !== "cook" && kind !== "showcase")) return { ok: false, ...setKindFailure(null) };
+    const { error: err } = await db.rpc("set_photo_kind", { p_photo_id: photoId, p_kind: kind });
+    if (err) {
+      console.warn("[photo kind] set_photo_kind failed:", err.code, err.message);
+      return { ok: false, ...setKindFailure(err) };
+    }
+    return { ok: true };
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────
+  // GIVE THIS MEAL (072 §5 give_meal / revoke_meal_gifts; SPEC_meal_sharing_phase_a_client Commit 2;
+  // S34 / S41 / S44). The server builds the snapshot and picks the photo (S12: the giver's own latest
+  // showcase, or none) and mints the 16-char code. The CLIENT then copies the two renditions into
+  // gift-photos/{gift_id}/ — view first, then thumb, no upsert (C4) — before the share sheet ever
+  // opens (S34), then asks the server to mark the gift (attach_gift_photo, 074 / S47). Bytes travel
+  // in the format they were stored in (webp or jpeg), never re-encoded. The code is returned to the
+  // caller for the share payload only; it is never written to state the DOM could carry.
+  // ─────────────────────────────────────────────────────────────
+  const giveMeal = useCallback(async (mealId, note) => {
+    const db = supabaseRef.current;
+    if (!db || !mealId) return { ok: false, ...giveFailure(null) };
+    const { data, error: err } = await db.rpc("give_meal", { p_meal_id: mealId, p_note: note == null ? null : note });
+    if (err) { console.warn("[give] give_meal failed:", err.code, err.message); return { ok: false, ...giveFailure(err) }; }
+    const d = data || {};
+    return { ok: true, code: d.code, giftId: d.gift_id, photoPath: d.photo_path || null, thumbPath: d.photo_thumb_path || null };
+  }, []);
+
+  // The photo copy (C4 / S47). Signs the two source paths in meal-photos (the giver is a member),
+  // fetches the bytes, uploads them under the gift id as {gift_id}/(view|thumb).{ext} with the
+  // source blob's own contentType — "webp" or "jpg" from the bytes' type, the two formats the bucket
+  // admits (074); both renditions must share it — then attach_gift_photo(gift_id, ext): the SERVER
+  // checks both objects exist in that one format and marks meal_gifts.photo_ext. Any failure — a
+  // refused upload, a missing object, an unexpected type, a mismatched pair, a refused mark — is one
+  // answer: { ok: false } (B5); no retry, no delete (the S37 sweep collects strays).
+  const copyGiftPhoto = useCallback(async (giftId, viewPath, thumbPath) => {
+    const db = supabaseRef.current;
+    if (!db || !giftId || !viewPath || !thumbPath) return { ok: false };
+    try {
+      const { data: signed, error: sErr } = await db.storage.from("meal-photos").createSignedUrls([viewPath, thumbPath], 60);
+      if (sErr) throw sErr;
+      const urlFor = (path) => { const d = (signed || []).find((x) => x && x.path === path && !x.error); return d ? d.signedUrl : null; };
+      const sources = { view: viewPath, thumb: thumbPath };
+      const gift = db.storage.from("gift-photos");
+      let ext = null;
+      for (const rendition of GIFT_RENDITIONS) {
+        const url = urlFor(sources[rendition]);
+        if (!url) throw new Error(`no signed url for the ${rendition} rendition`);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`${rendition} fetch ${res.status}`);
+        const blob = await res.blob();
+        const e = giftExt(blob.type);
+        if (!e) throw new Error(`${rendition} rendition is ${blob.type || "untyped"}, not webp or jpeg`);
+        if (ext && e !== ext) throw new Error(`${rendition} rendition is ${e}, view was ${ext}`);
+        ext = e;
+        const { error: upErr } = await gift.upload(giftObjectPath(giftId, rendition, ext), blob, { contentType: blob.type, upsert: false, cacheControl: "3600" });
+        if (upErr) throw upErr;
+      }
+      const { error: aErr } = await db.rpc("attach_gift_photo", { p_gift_id: giftId, p_ext: ext });
+      if (aErr) throw aErr;
+      return { ok: true };
+    } catch (e) {
+      console.warn("[give] gift photo copy failed (B5):", e && (e.message || e));
+      return { ok: false };
+    }
+  }, []);
+
+  // Stop giving (10-07 V11): revokes every live gift of the meal. Returns the revoked count only.
+  const revokeMealGifts = useCallback(async (mealId) => {
+    const db = supabaseRef.current;
+    if (!db || !mealId) return { ok: false };
+    const { data, error: err } = await db.rpc("revoke_meal_gifts", { p_meal_id: mealId });
+    if (err) { console.warn("[give] revoke_meal_gifts failed:", err.code, err.message); return { ok: false }; }
+    return { ok: true, count: Number(data) || 0 };
+  }, []);
+
+  // The meal's LIVE gifts, for "Stop giving" (shown while any exists). RLS: members of the giving
+  // household. Only ids and dates — the code is a bearer key and never comes back into the client.
+  const fetchMealGifts = useCallback(async (mealId) => {
+    const db = supabaseRef.current;
+    if (!db || !mealId) return null;
+    const { data, error: err } = await db.from("meal_gifts").select("id, created_at").eq("source_meal_id", mealId).is("revoked_at", null);
+    if (err) { console.warn("[give] meal_gifts read failed (non-fatal):", err.message); return null; }
+    return data || [];
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────
+  // THE SIGNED-IN ARRIVAL (072 preview_meal_gift / record_meal_gift_receipt / accept_gift_photo;
+  // SPEC_meal_sharing_phase_a_client Commit 3; S24, S25, S36, S40). preview reads the gift for THIS
+  // place (membership first; not_found P0002, revoked 55000). The receipt is written after the
+  // person's normal save, idempotent, retried once silently (the 09-08 residual: a meal without a
+  // receipt is still theirs). The photo copy downloads the gift's two renditions in the gift's own
+  // format (photo_ext; the SELECT policy admits authenticated while the gift is live and marked),
+  // uploads them byte for byte under the RECEIVER's own folder with the same extension (S47),
+  // then accept_gift_photo records a showcase row whose uploaded_by is the GIVER (derived, never
+  // passed — S23 / S36). Photo failure is quiet beyond one toast; the meal is already theirs.
+  // ─────────────────────────────────────────────────────────────
+  const previewMealGift = useCallback(async (code) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !code) return { ok: false, ...arrivalFailure(null) };
+    const { data, error: err } = await db.rpc("preview_meal_gift", { p_code: code, p_household_id: hh.id });
+    if (err) { console.warn("[gift] preview_meal_gift failed:", err.code, err.message); return { ok: false, ...arrivalFailure(err) }; }
+    const d = data || {};
+    // 074 / S47: photo_ext ("webp" | "jpg" | null) is the server's mark and the name to sign; has_photo
+    // on the server is `photo_ext is not null`, so the client derives the flag from the same field.
+    const photoExt = d.photo_ext === "webp" || d.photo_ext === "jpg" ? d.photo_ext : null;
+    // C10 (Dan 2026-10-30): the arrival form shows the gift photo at the top, read-only — the view
+    // rendition signed from gift-photos/{gift_id}/view.{photo_ext}, as the card signs it (S35: readable
+    // while the gift is live and marked). A signing failure is no photo in the form; the copy on Add
+    // (acceptGiftPhoto) signs again for itself. The URL lives in the sheet's props only, never in state.
+    let photoUrl = null;
+    if (photoExt && d.gift_id) {
+      const { data: signed, error: sErr } = await db.storage.from("gift-photos").createSignedUrl(giftSourcePaths(d.gift_id, photoExt).view, 60 * 60);
+      if (sErr) console.warn("[gift] gift photo sign failed (non-fatal):", sErr.message);
+      else photoUrl = (signed && signed.signedUrl) || null;
+    }
+    // 075 / C11: is_giving_place = this place is the gift's own giving household (the server compares;
+    // the household id never comes back). source_meal_id = that place's live source meal, only then.
+    const isGivingPlace = d.is_giving_place === true;
+    const sourceMealId = isGivingPlace && typeof d.source_meal_id === "string" ? d.source_meal_id : null;
+    return { ok: true, giftId: d.gift_id, snapshot: d.snapshot || {}, note: d.note || null, alreadyAdded: d.already_added || null, hasPhoto: photoExt !== null, photoExt, photoUrl, isGivingPlace, sourceMealId };
+  }, []);
+
+  const recordMealGiftReceipt = useCallback(async (code, mealId) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !code || !mealId) return { ok: false };
+    for (let attempt = 0; attempt < 2; attempt += 1) {   // one silent retry (10-07 residual)
+      const { error: err } = await db.rpc("record_meal_gift_receipt", { p_code: code, p_household_id: hh.id, p_meal_id: mealId });
+      if (!err) return { ok: true };
+      console.warn(`[gift] record_meal_gift_receipt failed (${attempt + 1}/2):`, err.code, err.message);
+      if (err.code === "P0002" || err.code === "55000" || err.code === "42501") return { ok: false, code: err.code };   // the server said no; a retry cannot change it
+    }
+    return { ok: false };
+  }, []);
+
+  // Dimensions of the view rendition for the row (null in the row when unreadable — the RPC stores
+  // only positive values).
+  const measureBlob = async (blob) => {
+    try {
+      if (typeof createImageBitmap !== "function") return { width: 0, height: 0 };
+      const bmp = await createImageBitmap(blob);
+      const out = { width: bmp.width || 0, height: bmp.height || 0 };
+      if (bmp.close) bmp.close();
+      return out;
+    } catch (e) { return { width: 0, height: 0 }; }
+  };
+
+  const acceptGiftPhoto = useCallback(async (giftId, mealId, photoExt) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !giftId || !mealId || !(photoExt === "webp" || photoExt === "jpg")) return { ok: false };
+    try {
+      // S47: the gift's format (preview_meal_gift.photo_ext) names the source objects and the copies.
+      const src = giftSourcePaths(giftId, photoExt);
+      const { data: signed, error: sErr } = await db.storage.from("gift-photos").createSignedUrls([src.view, src.thumb], 60);
+      if (sErr) throw sErr;
+      const urlFor = (path) => { const d = (signed || []).find((x) => x && x.path === path && !x.error); return d ? d.signedUrl : null; };
+      const get = async (path) => {
+        const url = urlFor(path);
+        if (!url) throw new Error(`no signed url for ${path}`);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`fetch ${path} ${res.status}`);
+        return res.blob();
+      };
+      const viewBlob = await get(src.view);
+      const thumbBlob = await get(src.thumb);
+      const { width, height } = await measureBlob(viewBlob);
+      const { thumbPath, viewPath } = acceptCopyPaths(hh.id, mealId, crypto.randomUUID(), photoExt);
+      const bucket = db.storage.from("meal-photos");
+      const mime = photoExt === "jpg" ? "image/jpeg" : "image/webp";
+      const opts = (b) => ({ contentType: b.type || mime, upsert: false, cacheControl: "3600" });
+      const [t, v] = await Promise.all([bucket.upload(thumbPath, thumbBlob, opts(thumbBlob)), bucket.upload(viewPath, viewBlob, opts(viewBlob))]);
+      if (t.error) throw t.error;
+      if (v.error) throw v.error;
+      // thumb first, then view — 065's order, the 10-29 ruling.
+      const { error: rErr } = await db.rpc("accept_gift_photo", {
+        p_gift_id: giftId, p_household_id: hh.id, p_thumb_path: thumbPath, p_view_path: viewPath, p_width: width, p_height: height,
+      });
+      if (rErr) throw rErr;
+      return { ok: true };
+    } catch (e) {
+      console.warn("[gift] accept photo failed (quiet):", e && (e.code || ""), e && (e.message || e));
+      return { ok: false };
+    }
+  }, []);
+
   const removeMealPhoto = useCallback(async (photoId) => {
     const db = supabaseRef.current;
     if (!db || !photoId) return false;
@@ -2631,7 +2836,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .from("meal_photos")
       // meal_cooks(cooked_at) through meal_cook_id (S5): a cook-attached photo's caption reads
       // "Cooked {date}". Null for recipe-view photos (R3). RLS: meal_cooks SELECT is membership.
-      .select("id, meal_id, meal_cook_id, thumb_path, view_path, uploaded_by, uploaded_at, width, height, meal_cooks(cooked_at)")
+      // kind (072): 'cook' or 'showcase' — the client's cap and the S28 pick read it.
+      // showcased_by / showcased_at / received_at (076, S48): Photo details' "Made showcase by", the
+      // give sheet's B1 line, and the received mark (no "Make showcase"; never the meal's showcase).
+      .select("id, meal_id, meal_cook_id, kind, thumb_path, view_path, uploaded_by, uploaded_at, width, height, showcased_by, showcased_at, received_at, meal_cooks(cooked_at)")
       .eq("household_id", hh.id)
       .is("deleted_at", null)
       .order("uploaded_at", { ascending: false })
@@ -3921,7 +4129,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
-    addMealPhoto, uploadMealPhoto, saveMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
+    addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,
+    giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
     activeCycle, activeSession, openCycle, startSession, wrapUpTrip,
     partnerSession, storeSuggestions, checkedByMap, refreshSessions, ensureSession, setSessionStore, recordListEvent,
     fetchTripReality, answerTripReality,

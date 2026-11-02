@@ -57,6 +57,23 @@ const CHROME_ALLOW_LIST = [
   '.rv-photo-confirm-remove', // Remove confirm sheet: "Remove photo" — fixed copy; THE removal. The title "Remove this photo?" and the body are masked text, off this list; the thumbnail is .op-replay-block
   '.rv-photo-confirm-keep',   // Remove confirm sheet: "Keep photo" — fixed copy
   '.rv-photo-placeholder',    // Recipe view hero after the last photo is removed: "Add a meal photo" / "Show the household how it turned out." — fixed copy
+  '.rv-photo-make-showcase', // Photo menu, the author's own cook photo: "Make showcase" — fixed copy (SPEC_meal_sharing_v2 S46, 2026-10-30; 073). Opens the S13 prompt, whose lines are masked text
+  '.rv-photo-make-cook',     // Photo menu, the author's own showcase photo: "Make it a meal photo" — fixed copy
+  '.rv-showcase-go',         // S13 prompt: "Make showcase" — fixed copy; THE flip
+  '.rv-showcase-cancel',     // S13 prompt: "Not now" — fixed copy
+  '.rv-photo-full-ok',       // "Meal photos are full" sheet: "OK" — fixed copy; the sheet's two lines are masked text
+  '.rv-give',          // Recipe view header: the share icon, aria-label "Give this meal" — fixed copy, no text content (Dan 2026-10-30; replaces Commit 2's ⋯ .rv-more and its menu item). Beside Edit; the title it gives is #rv-title, masked, never in this element
+  '.rv-stop-giving',   // Give sheet, top line: "Stop giving" — fixed copy; shown only while the meal has an unrevoked gift. The line's own words ("You’re giving this meal") are masked text, off this list
+  '.give-go',          // Give sheet (B1/B2): "Give" / "Getting it ready…" — fixed copy; the meal name and the note are masked text / a masked input beside it
+  '.give-nudge',       // Give sheet B2: "Make one of your photos a showcase →" — fixed copy; opens the recipe view's strip
+  '.give-send',        // Give sheet B4/B5: "Send it" — fixed copy; THE share (navigator.share from this tap, C3)
+  '.give-copy',        // Give sheet B4/B5: "Copy link" — fixed copy; the link itself is never rendered
+  '.stop-giving-yes',  // Stop giving confirm: "Stop giving" — fixed copy; THE revoke
+  '.stop-giving-no',   // Stop giving confirm: "Keep giving" — fixed copy
+  '.gift-open',        // A received gift already in this place (Commit 3): "Open it" — fixed copy; the title names the place, masked text
+  '.gift-ok',          // A received gift that could not open: "OK" — fixed copy
+  '.thanks-send',      // S24 thank-you: "Send a thank you" — fixed copy; the ask names the giver, masked text
+  '.thanks-skip',      // S24 thank-you: "Skip" — fixed copy
   '.rv-photo-open',  // Recipe view photo hero: the photo itself as a button, aria-label "View photo full size" — no text content (the <img> inside is .op-replay-block, alt "") (Dan, 2026-10-21)
   '.rv-viewer-close',// Full-size photo viewer: "×", aria-label "Close photo" — fixed copy. The "N of M" count and the caption are household text, OFF this list
   '.rv-photo-prev',  // Photo strip + viewer, desktop only: "‹", aria-label "Previous photo" — fixed copy, no text content (Dan, 2026-10-21)
@@ -80,6 +97,10 @@ const CHROME_ALLOW_LIST = [
   '.op-galley-go',    // Ask the Galley primary: "Create a meal" / "Read these" / "Read this recipe" — the mode label, fixed copy; its data-galley-mode carries the enum (invent / read_photos / read_paste), never text
   '.op-galley-about', // Ask the Galley: "About the Galley" — the one honest touchpoint (fixed copy); the sentence it opens is a sibling, never in this element
   '.op-start-over',  // New Meal import banner: "Start over" — the banner's text and the From field beside it are never in this element
+  '.gift-add',       // Signed-out gift card (/g/{CODE}, SPEC_meal_sharing_phase_a_client C5): "Add to our meals" — fixed copy; the title, From and count are masked text in sibling elements, never here
+  '.gift-signin',    // Gift card: "Sign in" — fixed copy
+  '.gift-what',      // Gift card A3 (unknown or revoked): "What is OurProvisions?" — fixed copy, a link to the landing page
+  '.gift-retry',     // Gift card, request failed: "Try again" — fixed copy
   '.op-chrome',      // chrome with no other stable class (the error toast's Dismiss)
 ];
 

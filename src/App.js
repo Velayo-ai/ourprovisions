@@ -10,6 +10,8 @@ import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { CategorySelect } from './components/CategorySelect';
+import { GiftCard } from './components/GiftCard';
+import { GIFT_KEY } from './lib/preRum';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { parseSteps } from './lib/parseSteps';
@@ -25,7 +27,9 @@ import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } fro
 import { rowCountsFromProvenance } from './lib/mealLinks';
 import { addAllOnHandLine } from './lib/onHand';
 import { cookDateStart, cookHistoryLine } from './lib/cookDate';
-import { photosByMeal, photosFingerprint, photoCaption, photoDetails, replaceSteps, MEAL_PHOTO_CAP } from './lib/mealPhotos';
+import { photosByMeal, photosFingerprint, photoCaption, photoDetails, replaceSteps, isShowcase, liveCookCount, atPhotoCap } from './lib/mealPhotos';
+import { mealShowcase, noteForGive, NOTE_MAX, giftSharePayload, whatTheySee, closeDisabled as giveCloseDisabled } from './lib/giveMeal';
+import { giftDraft, giftBanner, giftNoteQuote, placeLine, alreadyAddedLine, givingPlaceLine, thankYouPayload } from './lib/giftArrival';
 import { canSaveToPhotos, createPhotoSaver, saveLabel } from './lib/savePhoto';
 import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
@@ -2060,10 +2064,17 @@ function SetTypeSheet({ meal, onSave, onClose }) {
 // = button 14 at k 0.8; tags and the seam 12.5. Nothing under the 12.5 floor.
 // Cook mode (slice c) steps the step text up one size from here.
 const RV_COOKS_SHOWN = 5;
-// A member's first name: the profile's full name, else the email's local part.
-const memberFirstName = (mb) => {
+// A member's first name: the profile's full name, else the email's local part. With `members`, two
+// members who share a first name read as first name + last initial ("Dan H", "Dan T") on every
+// {First} surface (Dan, 2026-10-31) — fixed copy around household text, masked for replay.
+const memberFirstName = (mb, members = null) => {
   const full = (mb?.users?.full_name || "").trim();
-  return full.split(/\s+/)[0] || (mb?.users?.email ? mb.users.email.split("@")[0] : "");
+  const parts = full.split(/\s+/).filter(Boolean);
+  const first = parts[0] || (mb?.users?.email ? mb.users.email.split("@")[0] : "");
+  if (!first || !members || parts.length < 2) return first;
+  const shared = members.some((o) => o && o !== mb && o.user_id !== mb?.user_id
+    && ((o.users?.full_name || "").trim().split(/\s+/)[0] || "").toLowerCase() === first.toLowerCase());
+  return shared ? `${first} ${parts[parts.length - 1][0].toUpperCase()}` : first;
 };
 // Cook dates come from src/lib/cookDate.js (Amendment A4): relative inside the
 // last week, weekday + date beyond it. Never a person (D10).
@@ -2097,10 +2108,23 @@ const RV_COOKS_MIN = 2;
 // .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-photo-placeholder. ⋯ (.rv-photo-more)
 // is off the list, named by a fixed aria-label; the sheets' titles and lines are masked text,
 // each sheet named by aria-labelledby; no meal name anywhere in an attribute.
-function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onRemove, onReplace = null, viewerUserId = null }) {
+// SHOWCASE PHOTOS — THE FLIP MODEL (SPEC_meal_sharing_v2 S46, Dan 2026-10-30; 072 kind + 073
+// set_photo_kind). A photo is born a meal photo through the one "Add a meal photo" button (hidden
+// at 3 live COOK photos, exactly as prod). Its AUTHOR flips it from the photo's ⋯: "Make showcase"
+// (.rv-photo-make-showcase) opens the S13 prompt first ("Showcase photos can be seen by anyone…"),
+// once per flip, and the prompt's own button (.rv-showcase-go) does the flip; on a showcase photo
+// the item reads "Make it a meal photo" (.rv-photo-make-cook) and flips straight back — unless the
+// meal already has 3 live cook photos, when a sheet says so in one plain line (.rv-photo-full-ok)
+// and nothing is called (the server would refuse with 22023 anyway; it never ages a photo out).
+// Both items show ONLY on the viewer's own photos (uploaded_by = viewerUserId); nobody can flip
+// another member's photo. S14 (ruled 2026-10-30): Save to Photos / Download is gated by the same
+// author test — the viewer saves their own photos only. A showcase slide is marked
+// (.rv-showcase-tag, fixed copy, a sibling of the photo button); its ⋯ has no Replace (see
+// replaceSteps). The strip's order is photosByMeal's: the S28 pick first.
+function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd, onSetKind = null, onRemove, onReplace = null, viewerUserId = null }) {
   const [idx, setIdx] = useState(0);
   const [viewer, setViewer] = useState(null);   // null | the index the full-size viewer opened at
-  const [sheet, setSheet] = useState(null);     // null | { kind: "remove" | "details", photo }
+  const [sheet, setSheet] = useState(null);     // null | { kind: "remove" | "details" | "flip" | "full", photo }
   const [emptied, setEmptied] = useState(false); // the last photo was removed in THIS sheet (P7)
   const stripRef = useRef(null);
   const fileRef = useRef(null);
@@ -2176,14 +2200,32 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
     if (f && old && onReplace) onReplace(meal.id, old, f);
   };
   const addPhoto = () => { if (!busy && fileRef.current) fileRef.current.click(); };
+  // The author test (S14, Save / Download only): the viewer's own photo and nobody else's. The FLIP is
+  // no longer the author's (S48, 076): any member makes any live photo the showcase, or un-showcases it.
+  const mine = (p) => !!p && !!viewerUserId && p.uploaded_by === viewerUserId;
+  // A received row (it came with a gift, received_at set) can be un-showcased but never made the
+  // showcase again — the server refuses too (22023).
+  const received = (p) => !!p && !!p.received_at;
+  // Another member's photo: name them at the top of its ⋯ (the "Added by" rule — 2+ members, the
+  // uploader still one; otherwise no line).
+  const ownerLineFor = (p) => {
+    if (!p || mine(p) || (members || []).length < 2) return null;
+    const m = (members || []).find((mb) => mb && mb.user_id && mb.user_id === p.uploaded_by);
+    const name = m ? memberFirstName(m, members) : "";
+    return name ? `Added by ${name}` : null;
+  };
+  // The flip itself, after the S13 prompt said yes (to showcase) or straight away (to cook).
+  const flip = (p, kind) => { setSheet(null); if (p && onSetKind) onSetKind(meal.id, p.id, kind); };
   // The menu's actions, for the hero's photo in view or the viewer's (P8). The file picker opens
-  // inside the tap (iOS needs the gesture); Remove and Details close the viewer first.
+  // inside the tap (iOS needs the gesture); Remove, Details and the flips close the viewer first.
   const actions = {
     replace: onReplace ? (p) => { replaceRef.current = p; setViewer(null); if (replaceFileRef.current) replaceFileRef.current.click(); } : null,
     details: (p) => { setViewer(null); setSheet({ kind: "details", photo: p }); },
     save: (p) => { saverRef.current.save(p.url); },
     remove: (p) => { setViewer(null); setSheet({ kind: "remove", photo: p }); },
     prefetch: (p) => { if (p) saverRef.current.prefetch(p.url).promise.catch(() => {}); },
+    makeShowcase: (p) => { setViewer(null); setSheet({ kind: "flip", photo: p }); },
+    makeCook: (p) => { setViewer(null); if (atPhotoCap(live)) setSheet({ kind: "full", photo: p }); else flip(p, "cook"); },
   };
   const confirmRemove = () => {
     const p = sheet && sheet.photo;
@@ -2195,9 +2237,11 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
   };
   const menuFor = (p, variant, closeKey) => (
     <PhotoMenu variant={variant} closeKey={closeKey} disabled={busy} triggerRef={variant === "hero" ? moreRef : undefined}
-      saveLabel={saveLabel(toPhotos)} onOpen={() => actions.prefetch(p)}
-      onReplace={actions.replace ? () => actions.replace(p) : null} onDetails={() => actions.details(p)}
-      onSave={() => actions.save(p)} onRemove={() => actions.remove(p)} />
+      saveLabel={saveLabel(toPhotos)} onOpen={() => { if (mine(p)) actions.prefetch(p); }}
+      onReplace={actions.replace && !isShowcase(p) ? () => actions.replace(p) : null} onDetails={() => actions.details(p)}
+      onMakeShowcase={onSetKind && !isShowcase(p) && !received(p) ? () => actions.makeShowcase(p) : null}
+      onMakeCook={onSetKind && isShowcase(p) ? () => actions.makeCook(p) : null}
+      onSave={mine(p) ? () => actions.save(p) : null} onRemove={() => actions.remove(p)} ownerLine={ownerLineFor(p)} />
   );
   const placeholder = canEdit && n === 0 && emptied;
   return (
@@ -2223,6 +2267,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
                 <button type="button" className="rv-photo-open" aria-label="View photo full size" ref={(el) => { openRefs.current[i] = el; }} onClick={() => openViewer(i)}>
                   <img className="rv-photo-img op-replay-block op-photo" src={p.url} alt="" draggable="false" onLoad={photoFadeIn} />
                 </button>
+                {isShowcase(p) && <span className="rv-showcase-tag">{p.received_at ? "Gift" : "Showcase"}</span>}
               </div>
             ))}
           </div>
@@ -2239,7 +2284,7 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
       {n >= 2 && <PhotoDots photos={live} at={at} onGo={goTo} />}
       {canEdit && (
         <>
-          {n < MEAL_PHOTO_CAP && !placeholder && (
+          {!atPhotoCap(live) && !placeholder && (
             <div className="rv-photo-ctl">
               <button type="button" className="rv-photo-add" disabled={busy} onClick={addPhoto}>
                 <CameraGlyph />{busy ? "Adding…" : "Add a meal photo"}
@@ -2266,9 +2311,37 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
       {sheet && sheet.kind === "details" && (
         <PhotoSheet labelledBy="rv-photo-dh" onClose={() => setSheet(null)}>
           <h2 id="rv-photo-dh" className="rv-psheet-h">Photo details</h2>
-          {photoDetails(sheet.photo, members, memberFirstName).map((line) => (
+          {photoDetails(sheet.photo, members, (mb) => memberFirstName(mb, members)).map((line) => (
             <div className="rv-psheet-line" key={line}>{line}</div>
           ))}
+        </PhotoSheet>
+      )}
+      {/* S13: the prompt, once per flip, before the photo goes showcase. Fixed copy; the meal is never named;
+          the thumbnail is .op-replay-block like the Remove sheet's. */}
+      {sheet && sheet.kind === "flip" && (
+        <PhotoSheet labelledBy="rv-showcase-h" onClose={() => setSheet(null)}>
+          <div className="rv-psheet-head">
+            <img className="rv-psheet-thumb op-replay-block op-photo" src={sheet.photo.url} alt="" draggable="false" />
+            <h2 id="rv-showcase-h" className="rv-psheet-h">Make this the meal’s showcase photo?</h2>
+          </div>
+          {/* S48's copy of record (Dan 2026-10-30): the meal has one showcase, the household's; a later change
+              does not pull back copies already given. */}
+          <p className="rv-psheet-body">Showcase photos can be shared outside the household. Once a meal is given, its photo goes with it.</p>
+          <div className="rv-psheet-btns">
+            <button type="button" className="rv-showcase-go" data-autofocus="true" onClick={() => flip(sheet.photo, "showcase")}>Make showcase</button>
+            <button type="button" className="rv-showcase-cancel" onClick={() => setSheet(null)}>Not now</button>
+          </div>
+        </PhotoSheet>
+      )}
+      {/* The one plain line when a showcase photo cannot come back: the meal's 3 cook slots are taken (S26).
+          Nothing was called; the server would refuse the same way and never ages a photo out. */}
+      {sheet && sheet.kind === "full" && (
+        <PhotoSheet labelledBy="rv-photo-full-h" onClose={() => setSheet(null)}>
+          <h2 id="rv-photo-full-h" className="rv-psheet-h">Meal photos are full</h2>
+          <p className="rv-psheet-body">This meal already has 3 meal photos. Remove one to make room for this one.</p>
+          <div className="rv-psheet-btns">
+            <button type="button" className="rv-photo-full-ok" data-autofocus="true" onClick={() => setSheet(null)}>OK</button>
+          </div>
         </PhotoSheet>
       )}
     </>
@@ -2280,7 +2353,11 @@ function RecipePhotos({ meal, tint, first, members, photos, canEdit, busy, onAdd
 // what sat under the finger — on Escape (captured, so the viewer behind it stays open), and when
 // the photo in view changes (closeKey). Escape and an outside tap return focus to ⋯.
 // Each item closes the menu, then acts. The file is fetched for Save as the menu opens (onOpen).
-function PhotoMenu({ variant, closeKey, disabled, triggerRef, saveLabel: saveText, onOpen, onReplace, onDetails, onSave, onRemove }) {
+// S46 (2026-10-30): "Make showcase" / "Make it a meal photo" sit after Replace, author-only (the caller
+// passes null for anyone else's photo); Save is author-only too (S14) and absent when null. On another
+// member's photo the menu opens with a greyed, inert "Added by {First}" line (ownerLine; Dan, 2026-10-30),
+// so the shorter menu reads as "not yours" rather than broken. Masked text, not an item.
+function PhotoMenu({ variant, closeKey, disabled, triggerRef, saveLabel: saveText, onOpen, onReplace, onMakeShowcase = null, onMakeCook = null, onDetails, onSave, onRemove, ownerLine = null }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
   const ownRef = useRef(null);
@@ -2318,9 +2395,12 @@ function PhotoMenu({ variant, closeKey, disabled, triggerRef, saveLabel: saveTex
       </button>
       {open && (
         <span className="rv-photo-pop" role="menu">
+          {ownerLine && <span className="rv-photo-owner" role="presentation">{ownerLine}</span>}
           {onReplace && <button type="button" role="menuitem" className="rv-photo-item rv-photo-replace" onClick={act(onReplace)}>Replace photo</button>}
+          {onMakeShowcase && <button type="button" role="menuitem" className="rv-photo-item rv-photo-make-showcase" onClick={act(onMakeShowcase)}>Make showcase</button>}
+          {onMakeCook && <button type="button" role="menuitem" className="rv-photo-item rv-photo-make-cook" onClick={act(onMakeCook)}>Make it a meal photo</button>}
           <button type="button" role="menuitem" className="rv-photo-item rv-photo-details" onClick={act(onDetails)}>Photo details</button>
-          <button type="button" role="menuitem" className="rv-photo-item rv-photo-save" onClick={act(onSave)}>{saveText}</button>
+          {onSave && <button type="button" role="menuitem" className="rv-photo-item rv-photo-save" onClick={act(onSave)}>{saveText}</button>}
           <span className="rv-photo-div" role="separator" />
           <button type="button" role="menuitem" className="rv-photo-item rv-photo-remove" onClick={act(onRemove)}>Remove photo</button>
         </span>
@@ -2336,10 +2416,13 @@ const MoreGlyph = () => (
 // swipe-down and Escape all close it — for Remove, all of them mean Keep (P5). Pointer events stop
 // at its scrim so a swipe here never drags the recipe view down. Focus: the element marked
 // data-autofocus (Keep), else ✕.
-function PhotoSheet({ labelledBy, onClose, children }) {
+// closeDisabled (Commit 2, S34): while a gift is being made the ✕, the scrim, Escape and the swipe
+// are all inert — the link is in nobody's hands yet and the sheet must stay until it is.
+function PhotoSheet({ labelledBy, onClose, children, closeDisabled = false }) {
   const bodyRef = useRef(null);
   const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+  closeRef.current = closeDisabled ? () => {} : onClose;
+  const close = () => { if (!closeDisabled) onClose(); };
   // Once, on open (✕ took focus in its own effect first; Keep takes it from there).
   useEffect(() => {
     const el = bodyRef.current && bodyRef.current.querySelector("[data-autofocus]");
@@ -2350,10 +2433,10 @@ function PhotoSheet({ labelledBy, onClose, children }) {
   }, []);
   const stop = (e) => e.stopPropagation();
   return (
-    <div className="rv-psheet-scrim" onClick={(e) => { e.stopPropagation(); onClose(); }}
+    <div className="rv-psheet-scrim" onClick={(e) => { e.stopPropagation(); close(); }}
       onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop}>
-      <SheetPanel onClose={onClose} labelledBy={labelledBy} className="rv-psheet">
-        <SheetClose onClose={onClose} />
+      <SheetPanel onClose={close} labelledBy={labelledBy} className="rv-psheet">
+        <SheetClose onClose={close} disabled={closeDisabled} />
         <div className="lib-type-handle" aria-hidden="true" />
         <div ref={bodyRef} className="rv-psheet-in">{children}</div>
       </SheetPanel>
@@ -2370,7 +2453,7 @@ function PhotoSheet({ labelledBy, onClose, children }) {
 // count of stars is spoken through .sr-only text (masked), never an attribute. No averages (S7).
 function CookRow({ cook, ratings, members, viewerUserId, canRate, onRate, offer = false }) {
   const multi = (members || []).length >= 2;
-  const nameOf = (uid) => memberFirstName((members || []).find((mb) => mb.user_id === uid));
+  const nameOf = (uid) => memberFirstName((members || []).find((mb) => mb.user_id === uid), members);
   const mine = viewerUserId ? ratings.find((r) => r.user_id === viewerUserId) : null;
   const others = ratings.filter((r) => r !== mine);
   return (
@@ -2555,7 +2638,7 @@ function PhotoViewer({ photos, start, members, onClose, viewerUserId = null, men
     if (i !== atRef.current) { atRef.current = i; setAt(i); }
   };
   const stop = (e) => e.stopPropagation();
-  const caption = photoCaption(photos[at], members, memberFirstName, new Date(), viewerUserId);
+  const caption = photoCaption(photos[at], members, (mb) => memberFirstName(mb, members), new Date(), viewerUserId);
   return createPortal(
     <div className="rv-viewer" role="dialog" aria-modal="true" aria-label="Photo" ref={rootRef}
       onPointerDown={stop} onPointerMove={stop} onPointerUp={stop} onPointerCancel={stop} onClick={stop}>
@@ -2656,7 +2739,196 @@ const photoFadeIn = (e) => e.currentTarget.classList.add("in");
 const CameraGlyph = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.2h6.8L17 8h3v11H4z" /><circle cx="12" cy="13.2" r="3.4" /></svg>
 );
-export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onRemovePhoto, onReplacePhoto = null, ratingsFor, onRate, canRate }) {
+// GIVE THIS MEAL — the header button (Dan 2026-10-30; supersedes Commit 2's ⋯ menu): the share icon (a
+// square with an up arrow) beside Edit — .rv-give, aria-label "Give this meal", fixed copy, no meal name
+// in the label, same size and weight as Edit. One tap opens the give sheet. "Stop giving" lives in the
+// sheet now (its top line, while the meal has an unrevoked gift). Nothing on library cards.
+const ShareGlyph = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8.5 9H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1.5" /><path d="M12 14V3" /><path d="M8.5 6.5 12 3l3.5 3.5" /></svg>
+);
+
+// GIVE THIS MEAL — the sheet (SPEC_meal_sharing_phase_a_client C1–C4; mockup_gift_preview B1–B5).
+//   B1 / B2  the C1 pre-check: `photo` is the meal's live, non-received showcase row (mealShowcase, S48 —
+//            the household's, whoever made it) or null. The client predicts; give_meal's pick decides;
+//            B4 shows the truth. B1 names who made it the showcase (masked text). B2's nudge opens the
+//            recipe view's strip (Dan, 2026-10-30) — the flip lives on the photo's own ⋯ (S46).
+//   Give     (C3, first tap) give_meal, then with a photo the copy: view, then thumb, in the format
+//            the photo was stored in (webp or jpeg, S47), no upsert, then attach_gift_photo marks
+//            the gift (C4, give.copyPhoto). Any failure → B5's one plain line; no retry, no delete.
+//            The ✕ is inert while this runs (S34: the link is in nobody's hands yet).
+//   B4 / B5  "What they'll see" mirrors the public card (title as written, From · count); Send it is
+//            THE share, navigator.share called inside that tap (C3); Copy link always present.
+//   Replay   the thumbnails are .op-replay-block .op-photo; the meal name and the note are masked text /
+//            a masked input; the gift code is never rendered — it lives in the share payload only.
+//   Failure  give_meal's error shows as a line in the sheet (giveFailure), never a silent return.
+//   Giving   (Dan 2026-10-30) while the meal has an unrevoked gift the sheet opens with one line at the top,
+//            "You’re giving this meal · Stop giving"; Stop giving hands over to the existing confirm.
+function GiveSheet({ meal, photo, members, onlyReceived = false, referralCode, give, onClose, onShowStrip, onStopGiving }) {
+  // S48 / B1: "Made showcase by {First}." — the first name is household text (masked); the copy around it is fixed.
+  const showcaser = photo && photo.showcased_by ? memberFirstName((members || []).find((mb) => mb && mb.user_id === photo.showcased_by), members) : "";
+  const [note, setNote] = useState("");
+  const [phase, setPhase] = useState("compose");   // compose | giving | copying | ready
+  const [gift, setGift] = useState(null);           // { code, giftId, hasPhoto, photoFailed }
+  const [line, setLine] = useState(null);           // give_meal's failure line, shown in B1/B2
+  const noteValue = noteForGive(note);
+  const tooLong = noteValue === false;
+  const busy = giveCloseDisabled(phase);
+  const close = () => { if (!busy) onClose(); };
+  const doGive = async () => {
+    if (busy || tooLong) return;
+    setLine(null);
+    setPhase("giving");
+    const r = await give.give(meal.id, noteValue);
+    if (!r || !r.ok) { setLine((r && r.line) || "Couldn’t give this meal. Try again."); setPhase("compose"); return; }
+    let hasPhoto = false;
+    let photoFailed = false;
+    if (r.photoPath && r.thumbPath) {
+      setPhase("copying");
+      const c = await give.copyPhoto(r.giftId, r.photoPath, r.thumbPath);
+      hasPhoto = !!(c && c.ok);
+      photoFailed = !hasPhoto;
+    }
+    setGift({ code: r.code, giftId: r.giftId, hasPhoto, photoFailed });
+    setPhase("ready");
+    if (give.onGiven) give.onGiven(meal.id);
+  };
+  const payload = gift ? giftSharePayload({ mealName: meal.name, code: gift.code, origin: window.location.origin, referralCode }) : null;
+  const thumb = (show) => (show && photo && photo.url
+    ? <img className="give-thumb op-replay-block op-photo" src={photo.url} alt="" draggable="false" />
+    : <span className="give-thumb give-thumb-empty" aria-hidden="true" />);
+  return (
+    <PhotoSheet labelledBy="give-k" onClose={close} closeDisabled={busy}>
+      {(give.openGifts || 0) > 0 && (
+        <div className="give-giving">You’re giving this meal · <button type="button" className="rv-stop-giving" disabled={busy} onClick={onStopGiving}>Stop giving</button></div>
+      )}
+      <div className="give-kicker" id="give-k">{phase === "ready" ? "Ready to give" : "Give this meal"}</div>
+      <div className="give-name">{displayTitle(meal.name)}</div>
+      {phase !== "ready" && (
+        <div className="give-prow">
+          <span className="give-thumb-wrap">{thumb(!!photo)}{photo && <span className="give-sc" aria-hidden="true">Showcase</span>}</span>
+          <div className="give-ptext">
+            {photo
+              ? <><b>The meal’s showcase photo goes with it</b>{showcaser ? `Made showcase by ${showcaser}. ` : ""}Other photos stay at home.</>
+              : <><b>No photo goes with it</b><button type="button" className="give-nudge" disabled={busy} onClick={onShowStrip}>{onlyReceived ? "Add a photo to send one along →" : "Make one of the photos a showcase →"}</button></>}
+          </div>
+        </div>
+      )}
+      {phase === "compose" && (
+        <>
+          <label className="give-flabel" htmlFor="give-note">Add a note <span>(optional)</span></label>
+          <textarea id="give-note" className="give-ta" value={note} onChange={(e) => setNote(e.target.value)} rows={3}
+            placeholder="Easton’s favourite. Don’t skip the pickle." />
+          <div className={`give-count${tooLong ? " over" : ""}`}>{note.trim().length} / {NOTE_MAX}</div>
+          {line && <div className="give-warn">{line}</div>}
+          <button type="button" className="give-go" disabled={tooLong} onClick={doGive}>Give</button>
+          <div className="give-fine">They get their own copy. Yours doesn’t change.</div>
+        </>
+      )}
+      {(phase === "giving" || phase === "copying") && (
+        <>
+          <div className="give-steps" aria-live="polite">
+            <div className={phase === "giving" ? "on" : ""}>
+              <span className={phase === "giving" ? "dot" : "ok"} aria-hidden="true">{phase === "giving" ? "●" : "✓"}</span>
+              {phase === "giving" ? "Making the gift…" : "Gift made"}
+            </div>
+            {phase === "copying" && <div className="on"><span className="dot" aria-hidden="true">●</span>Attaching your photo…</div>}
+          </div>
+          {noteValue && <div className="give-ta give-ta-filled">{noteValue}</div>}
+          <button type="button" className="give-go" disabled><span className="give-spin" aria-hidden="true" />Getting it ready…</button>
+          <div className="give-fine">A second or two.</div>
+        </>
+      )}
+      {phase === "ready" && gift && (
+        <>
+          {gift.photoFailed && <div className="give-warn">The photo didn’t attach.</div>}
+          <div className="give-mini-cap">What they’ll see</div>
+          <div className="give-mini">
+            {thumb(gift.hasPhoto)}
+            <div>
+              <div className="give-mini-t">{meal.name}</div>
+              <div className="give-mini-m">{whatTheySee(meal)}</div>
+            </div>
+          </div>
+          <button type="button" className="give-go give-send" onClick={() => give.share(payload)}>Send it</button>
+          <button type="button" className="give-copy" onClick={() => give.copyLink(payload.url)}>Copy link</button>
+          <div className="give-fine">Anyone with the link can add it. You can stop giving it any time from this sheet.</div>
+        </>
+      )}
+    </PhotoSheet>
+  );
+}
+
+// THE ARRIVAL THAT CANNOT OPEN THE FORM (Commit 3; 10-07 errors, in plain language): unknown or revoked code,
+// not a member, or already added to this place — with Open it for the copy that is already here. C11 (Dan
+// 2026-10-30): the giving place itself — "Already one of {Place}'s meals", Open it for the source meal while it
+// still exists (mealId null = the line alone); no copy is ever made.
+function GiftArrivalSheet({ arrival, onOpen, onClose }) {
+  const already = arrival.kind === "already";
+  const giving = arrival.kind === "giving";
+  const openable = already || (giving && !!arrival.mealId);
+  return (
+    <PhotoSheet labelledBy="gift-arrival-h" onClose={onClose}>
+      <h2 id="gift-arrival-h" className="rv-psheet-h">{arrival.line}</h2>
+      {already && <p className="rv-psheet-body">It’s here already, as your own copy.</p>}
+      {giving && <p className="rv-psheet-body">This place gave it. Nothing to add.</p>}
+      <div className="rv-psheet-btns">
+        {openable && <button type="button" className="gift-open" data-autofocus="true" onClick={onOpen}>Open it</button>}
+        <button type="button" className="gift-ok" data-autofocus={openable ? undefined : "true"} onClick={onClose}>OK</button>
+      </div>
+    </PhotoSheet>
+  );
+}
+
+// THE THANK-YOU (S24): once, after the copy is theirs. The receiver's OWN share sheet; the app records nothing
+// and tells the giver nothing. Skip = gone for good.
+function ThankYouSheet({ ask, onSend, onSkip }) {
+  return (
+    <PhotoSheet labelledBy="thanks-h" onClose={onSkip}>
+      <h2 id="thanks-h" className="rv-psheet-h">{ask}</h2>
+      <p className="rv-psheet-body">Your own message, from your own share sheet. Nothing goes back through the app.</p>
+      <div className="rv-psheet-btns">
+        <button type="button" className="thanks-send" data-autofocus="true" onClick={onSend}>Send a thank you</button>
+        <button type="button" className="thanks-skip" onClick={onSkip}>Skip</button>
+      </div>
+    </PhotoSheet>
+  );
+}
+
+// STOP GIVING (10-07 V11): one confirm; revokes every live gift of the meal. Copies already added stay (V2).
+function StopGivingSheet({ onConfirm, onClose }) {
+  return (
+    <PhotoSheet labelledBy="stop-giving-h" onClose={onClose}>
+      <h2 id="stop-giving-h" className="rv-psheet-h">Stop giving this meal?</h2>
+      <p className="rv-psheet-body">Anyone who hasn’t added it yet won’t be able to. Places that already added it keep their copy.</p>
+      <div className="rv-psheet-btns">
+        <button type="button" className="stop-giving-yes" onClick={onConfirm}>Stop giving</button>
+        <button type="button" className="stop-giving-no" data-autofocus="true" onClick={onClose}>Keep giving</button>
+      </div>
+    </PhotoSheet>
+  );
+}
+
+export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cookRows, links, tagsReady, addedThisPlan, viewerUserId, busy, onClose, onEdit, onPlan, onAddToShop, onCooked, onRemove, onSeeList, photos, photosReady, canEditPhotos, photoBusy, onAddPhoto, onSetPhotoKind = null, onRemovePhoto, onReplacePhoto = null, ratingsFor, onRate, canRate, give = null }) {
+  // Give this meal (Commit 2; the header share button since 2026-10-30): the sheet and the Stop giving
+  // confirm, both over this view. Stop giving is reached from the sheet's top line; the sheet closes first.
+  const [giveOpen, setGiveOpen] = useState(false);
+  const [stopOpen, setStopOpen] = useState(false);
+  const livePhotos = photosReady ? (photos || []) : [];
+  const showcasePhoto = mealShowcase(livePhotos);   // S48: the household's, whoever made it
+  // Dan 2026-10-31: when the meal's only photos came with a gift, B2 cannot point at a showcase that
+  // cannot be made — the nudge reads "Add a photo to send one along" (the strip's Add a meal photo).
+  const onlyReceived = livePhotos.length > 0 && livePhotos.every((p) => !!p.received_at);
+  // B2's nudge: back to the strip, where the flip lives. The sheet closes (its ✕ hands focus back to the share button);
+  // the view scrolls to its hero and the photo ⋯ (or Add a meal photo) takes focus a beat later.
+  const showStrip = () => {
+    setGiveOpen(false);
+    const panel = document.querySelector(".rv-sheet");
+    if (panel && panel.scrollTo) panel.scrollTo({ top: 0, behavior: "smooth" });
+    setTimeout(() => {
+      const t = document.querySelector(".rv-photo-more, .rv-photo-add, .rv-photo-placeholder");
+      if (t) t.focus({ preventScroll: true });
+    }, 60);
+  };
   const [allCooks, setAllCooks] = useState(false);
   const tint = occasionTint(meal);
   const first = (meal.occasion || [])[0];
@@ -2665,7 +2937,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   const parsed = useMemo(() => parseSteps(meal.instructions), [meal.instructions]);
   const attribution = (meal.attribution || "").trim();
   const adder = (members || []).length >= 2 ? (members || []).find((mb) => mb.user_id && mb.user_id === meal.created_by) : null;
-  const adderName = adder ? memberFirstName(adder) : "";
+  const adderName = adder ? memberFirstName(adder, members) : "";
   const onWeek = !!state && !state.cooked;
   // Tags and the summary's list state only once the cook reduce and this meal's links are in
   // (2026-10-18 correction) — before that the rows are bare and the heading is the count.
@@ -2673,7 +2945,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   // A2-R §3: solo = fewer than 2 current members (the earned-Our rule); a buyer is
   // named only through the members already loaded — a user who left names nobody.
   const solo = (members || []).length < 2;
-  const firstNameOf = (userId) => memberFirstName((members || []).find((mb) => mb.user_id === userId));
+  const firstNameOf = (userId) => memberFirstName((members || []).find((mb) => mb.user_id === userId), members);
   const stepCount = parsed.steps.length;
   const meta = [
     occasionWord,
@@ -2736,9 +3008,10 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
       <SheetPanel onClose={onClose} labelledBy="rv-title" className="rv-sheet" style={{ maxHeight: "calc(100% - 24px)" }}>
         <SheetClose onClose={onClose} />
         <div className="lib-type-handle" aria-hidden="true" />
+        {give && <button type="button" className="rv-give" aria-label="Give this meal" disabled={busy} onClick={() => setGiveOpen(true)}><ShareGlyph /></button>}
         <button type="button" className="rv-edit" onClick={() => onEdit(meal)}>Edit</button>
         <RecipePhotos meal={meal} tint={tint} first={first} members={members} viewerUserId={viewerUserId} photos={photosReady ? (photos || []) : []}
-          canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onRemove={onRemovePhoto} onReplace={onReplacePhoto} />
+          canEdit={!!canEditPhotos && !!photosReady} busy={!!photoBusy} onAdd={onAddPhoto} onSetKind={onSetPhotoKind} onRemove={onRemovePhoto} onReplace={onReplacePhoto} />
         <div className="rv-head">
           <h2 id="rv-title" className="rv-title">{displayTitle(meal.name)}</h2>
           {attribution && <div className="rv-byline">from {attribution}</div>}
@@ -2823,6 +3096,13 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
           </>
         )}
         <div className="rv-pad" />
+        {giveOpen && give && (
+          <GiveSheet meal={meal} photo={showcasePhoto} members={members} onlyReceived={onlyReceived} referralCode={give.referralCode || null} give={give}
+            onClose={() => setGiveOpen(false)} onShowStrip={showStrip} onStopGiving={() => { setGiveOpen(false); setStopOpen(true); }} />
+        )}
+        {stopOpen && give && (
+          <StopGivingSheet onConfirm={() => { setStopOpen(false); give.stopGiving(meal.id); }} onClose={() => setStopOpen(false)} />
+        )}
       </SheetPanel>
     </div>
   );
@@ -3095,7 +3375,11 @@ function GoodForChips({ value, onChange, style }) {
 // written the moment a category pill was tapped so the draft could hold a real
 // id, and every Cancel left it behind as an orphan. Staged rows can now carry a
 // placeholder, so the write waits for Save (SPEC_defer_catalog_write).
-export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn }) {
+// gift (Phase A Commit 3; the 10-07 prefilled form): { banner, note: { quote, by } | null, placeLine, draft } — a
+// received meal lands through landDraft like any outside draft (source "gift"), under a banner and the
+// giver's note (not editable, never saved on the meal). The doors stay folded, Cancel reads "Not for us"
+// and Save reads "Add to our meals". The receipt and the photo copy run in the caller after the save.
+export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn, gift = null }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
   const [rows, setRows] = useState(() =>
@@ -3514,6 +3798,16 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
     setStepsMode("read");
   };
 
+  // A GIFT lands once, on mount (Commit 3): the same landing as the Galley and the import, so the
+  // ingredients resolve against THIS place's catalog and the From field follows C6.
+  const giftLandedRef = useRef(false);
+  useEffect(() => {
+    if (!gift || !gift.draft || giftLandedRef.current) return;
+    giftLandedRef.current = true;
+    landDraft(gift.draft, "gift", { signal: { aborted: false } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gift]);
+
   // Invent (Create a meal): one request, one meal, straight into the fields the manual path uses.
   const handleAskAI = async () => {
     const text = aiText.trim();
@@ -3903,6 +4197,26 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
         <span id="ing-verb-have-tail" className="sr-only">— keep it in the meal but do not add it</span>
         <span id="ing-verb-added" className="sr-only">already added — add another</span>
         <h2 style={{ marginBottom: "20px" }}>{isEdit ? "Edit Meal" : "New Meal"}</h2>
+
+        {/* A received meal (Commit 3; 10-07 frame 6 with the SPEC's words): the banner, "Adding to {place}" when
+            the person has more than one, and the giver's note as a quote — their words, not a field.
+            C10 (Dan 2026-10-30): the gift photo first, read-only — the view rendition signed from gift-photos
+            as the card signs it; no menu, not editable; copied into meal-photos on Add (acceptGiftPhoto), Not for
+            us discards it; no photo → no slot. .op-photo + .op-replay-block; no name in any attribute. */}
+        {gift && gift.photoUrl && (
+          <figure className="op-gift-photo">
+            <img className="op-gift-photo-img op-photo op-replay-block" src={gift.photoUrl} alt="" draggable="false" />
+            <figcaption className="op-gift-photo-cap">Comes with the meal.</figcaption>
+          </figure>
+        )}
+        {gift && (
+          <div className="op-gift-banner" role="status">
+            <span><b>{gift.banner}</b>{gift.placeLine ? <span className="op-gift-place"> · {gift.placeLine}</span> : null}</span>
+          </div>
+        )}
+        {gift && gift.note && (
+          <blockquote className="op-gift-note"><i>{gift.note.quote}</i>{gift.note.by && <small>{gift.note.by}</small>}</blockquote>
+        )}
 
         {/* The import banner (spec: Filled). One line, card-tinted, NO teal — nothing
             here is a completion. Start over is the import's one way back; the
@@ -4329,7 +4643,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
           {/* Once a Galley draft has landed the ask block is folded away; this is its
               handle. An imported draft has no handle here — Start over is its one
               way back (spec, Open: "Start over is enough"). */}
-          {galleyCollapsed && !busy && draftSource !== "photo" && draftSource !== "paste" && (
+          {galleyCollapsed && !busy && draftSource !== "photo" && draftSource !== "paste" && draftSource !== "gift" && (
             <button type="button" className="op-steps-action op-ask-again"
               onClick={() => setGalleyCollapsed(false)}>
               Not quite it? Ask the Galley again
@@ -4677,13 +4991,13 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
         )}
 
         <div className="modal-actions">
-          <button className="modal-cancel" onClick={onCancel} disabled={saving || deleting}>Cancel</button>
+          <button className="modal-cancel" onClick={onCancel} disabled={saving || deleting}>{gift ? "Not for us" : "Cancel"}</button>
           <button
             className="modal-confirm"
             disabled={!canSave || saving}
             style={{ opacity: (!canSave || saving) ? 0.5 : 1, cursor: (!canSave || saving) ? "default" : "pointer" }}
             onClick={() => onCommit({ name, instructions, ingredients: rows, occasion, attribution })}
-          >{saving ? "Saving…" : "Save Meal"}</button>
+          >{saving ? "Saving…" : gift ? "Add to our meals" : "Save Meal"}</button>
         </div>
       </div>
     </div>
@@ -4846,6 +5160,18 @@ function ProvisionsApp() {
       return {};
     }
   }, []);
+  // A GIFT LINK (/g/{CODE}; SPEC_meal_sharing_phase_a_client, Commit 1; S33): the code was held
+  // under GIFT_KEY and the path cleaned by src/lib/preRum.js before Splunk started — this is the
+  // only reader of that key on the signed-out side, and it never reads the URL. Read once at
+  // mount: while the session is not live the gift card stands where the Home welcome would; the
+  // key is NOT cleared here, because the same tab comes back through Clerk's sign-up round trip
+  // and the signed-in arrival (Commit 3) consumes it after bootstrap. "Add to our meals" is the
+  // 042 referral sign-up itself (the ?ref= that rode the link is already held under REF_KEY and
+  // bootstrap passes it) — one mechanism, no second bridge. Clerk's modal redirect is the current
+  // URL, already clean, so no redirect_url is set.
+  const [pendingGiftCode] = useState(() => {
+    try { return sessionStorage.getItem(GIFT_KEY) || null; } catch (e) { return null; }
+  });
   // D5 (SPEC_auth_state_ui_gating §PII scrub 1): the pre-fill params leave the
   // URL the moment they are read. The memo above already holds the values, so
   // openSignUp / SignUpButton still pre-fill; what changes is that the email no
@@ -4966,7 +5292,8 @@ function ProvisionsApp() {
     discardUnclaimedHousehold,
     uploadHouseholdPhoto,
     updateHouseholdBanner,
-    addMealPhoto, uploadMealPhoto, saveMealPhoto, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
+    addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
+    giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
     supabase,
     _supabase,
     _household,
@@ -5755,6 +6082,9 @@ function ProvisionsApp() {
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
+  // A received gift (Commit 3): what stands in the form's place when it cannot open, and the one-time thank-you.
+  const [giftArrival, setGiftArrival] = useState(null);   // null | { kind: "error" | "already" | "giving", line, mealId? }
+  const [thankYou, setThankYou] = useState(null);         // null | { mealId, ask, title, text }
 
   // THE RECIPE VIEW (SPEC_recipe_view D1–D4): { mealId, landing } while open. The view
   // reads the LIVE row from mealById, so Edit → Save shows through at once. It renders
@@ -5872,6 +6202,19 @@ function ProvisionsApp() {
       await loadMealPhotos();
     } finally { setPhotoBusyMealId(null); }
   }, [photoBusyMealId, addMealPhoto, loadMealPhotos, showToast]);
+  // The flip (073; SPEC_meal_sharing_v2 S46): the photo's ⋯ → "Make showcase" (after the S13 prompt)
+  // or "Make it a meal photo", author-only. Quiet on failure — the one plain line when the meal's
+  // cook photos are full (the server refuses rather than ages one out), a toast otherwise; the
+  // read-back shows the result (the chip moves, a freed slot brings "Add a meal photo" back).
+  const handleSetPhotoKind = useCallback(async (mealId, photoId, kind) => {
+    if (photoBusyMealId) return;
+    setPhotoBusyMealId(mealId);
+    try {
+      const r = await setPhotoKind(photoId, kind);
+      if (!r.ok) showToast(r.line);   // the RPC's message or its plain line (setKindFailure) — never swallowed
+      await loadMealPhotos();
+    } finally { setPhotoBusyMealId(null); }
+  }, [photoBusyMealId, setPhotoKind, loadMealPhotos, showToast]);
   const handleRemoveMealPhoto = useCallback(async (photoId) => {
     const ok = await removeMealPhoto(photoId);
     if (!ok) showToast("Couldn't remove the photo. Try again.");
@@ -5892,7 +6235,7 @@ function ProvisionsApp() {
       let upload = null;
       let removed = false;
       let saved = false;
-      for (const step of replaceSteps(old, (photosByMealId[mealId] || []).length)) {
+      for (const step of replaceSteps(old, liveCookCount(photosByMealId[mealId]))) {
         if (step === "upload") {
           const up = await uploadMealPhoto(mealId, file);
           if (!up.ok) { showToast(up.reason === "decode" ? "Couldn't read that photo" : "Couldn't add the photo. Try again."); return; }
@@ -5952,7 +6295,9 @@ function ProvisionsApp() {
   // The board's afterglow (S4): the device's cook id (S3), the viewer's own rating, the cook's
   // photo (a "Photo added" thumbnail), and the cap — "Add a meal photo" hides at 3 live photos (R1).
   const afterglowCookPhoto = useCallback((mealId, cookId) => {
-    const p = (mealPhotos.rows || []).find((r) => r.meal_id === mealId && r.meal_cook_id === cookId);
+    // S46: a cook photo flipped to showcase keeps its meal_cook_id; the afterglow's "Photo added"
+    // thumbnail is cook-only, so it skips showcase rows (and the cook is free to add a new cook photo).
+    const p = (mealPhotos.rows || []).find((r) => r.meal_id === mealId && r.meal_cook_id === cookId && !isShowcase(r));
     return p ? { id: p.id, url: photoUrls[p.thumb_path] || null } : null;
   }, [mealPhotos, photoUrls]);
   // The open recipe's cooks' ratings (S5): one read when its cook rows arrive (and again whenever they
@@ -5970,7 +6315,7 @@ function ProvisionsApp() {
     myRating: myRatingFor,
     onRate: handleRateCook,
     photoFor: afterglowCookPhoto,
-    atCap: (mealId) => (photosByMealId[mealId] || []).length >= MEAL_PHOTO_CAP,
+    atCap: (mealId) => atPhotoCap(photosByMealId[mealId]),   // cook photos only (S26)
     onAddPhoto: handleAddMealPhoto,
     photoBusyMealId,
   }), [isSignedIn, photosReady, cookIdsByMeal, myRatingFor, handleRateCook, afterglowCookPhoto, photosByMealId, handleAddMealPhoto, photoBusyMealId]);
@@ -6039,6 +6384,40 @@ function ProvisionsApp() {
     return () => { cancelled = true; };
   }, [rvMealId, rvAnchor, cooksLoaded, mealProvenance, _supabase, _household]);
   const rvMeal = rvMealId ? mealById[rvMealId] : null;
+  // GIVE THIS MEAL (SPEC_meal_sharing_phase_a_client Commit 2). The open meal's live gifts decide whether
+  // the give sheet's top line offers "Stop giving"; re-read after Give and after Stop. The code never enters state here —
+  // the sheet holds it for the share payload and lets it go.
+  const [rvGifts, setRvGifts] = useState({ mealId: null, count: 0 });
+  const loadRvGifts = useCallback(async (mealId) => {
+    if (!mealId) return;
+    const rows = await fetchMealGifts(mealId);
+    if (rows) setRvGifts({ mealId, count: rows.length });
+  }, [fetchMealGifts]);
+  useEffect(() => { if (MEALS_ENABLED && rvMealId && authPhase === "ready") loadRvGifts(rvMealId); }, [rvMealId, authPhase, loadRvGifts]);
+  // Send it (C3): navigator.share is called INSIDE the tap — the first await here IS the share. No
+  // share API (desktop) → the text and the link go to the clipboard, as the invite does.
+  const handleShareGift = useCallback(async (payload) => {
+    if (!payload) return;
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try { await navigator.share(payload); } catch (e) { if (e && e.name !== "AbortError") console.error("share failed:", e); }
+    } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+      // The thank-you (S24) has no url: the message alone is copied.
+      try { await navigator.clipboard.writeText(payload.url ? `${payload.text} ${payload.url}` : payload.text); showToast(payload.url ? "Link copied" : "Message copied"); } catch (e) { showToast("Couldn’t copy."); }
+    }
+  }, [showToast]);
+  const handleCopyGiftLink = useCallback(async (url) => {
+    try { await navigator.clipboard.writeText(url); showToast("Link copied"); } catch (e) { showToast("Couldn’t copy the link."); }
+  }, [showToast]);
+  const handleStopGiving = useCallback(async (mealId) => {
+    const r = await revokeMealGifts(mealId);
+    showToast(r.ok ? "Stopped giving this meal." : "Couldn’t stop giving. Try again.");
+    loadRvGifts(mealId);
+  }, [revokeMealGifts, showToast, loadRvGifts]);
+  const giveProps = useMemo(() => (!isSignedIn ? null : {
+    openGifts: rvGifts.mealId === rvMealId ? rvGifts.count : 0,
+    give: giveMeal, copyPhoto: copyGiftPhoto, stopGiving: handleStopGiving,
+    share: handleShareGift, copyLink: handleCopyGiftLink, referralCode, onGiven: loadRvGifts,
+  }), [isSignedIn, rvGifts, rvMealId, giveMeal, copyGiftPhoto, handleStopGiving, handleShareGift, handleCopyGiftLink, referralCode, loadRvGifts]);
   // The plan action follows the board's own derivation (D9); null = not on This Week.
   // boardCards (not boardMeals) so a card cooked this load still reads "✓ Cooked".
   const rvState = rvMeal && boardCards.some((m) => m.id === rvMeal.id)
@@ -6082,6 +6461,21 @@ function ProvisionsApp() {
   const [mealSaving, setMealSaving] = useState(false);
   const [mealDeleting, setMealDeleting] = useState(false);
 
+  // After "Add to our meals" saved the copy (Commit 3): the receipt (one silent retry inside), then the photo
+  // copy when the gift has one (quiet beyond one toast — the meal is already theirs, S40), then the S24
+  // thank-you, once. The toast is the 10-07 line.
+  const finishGiftArrival = useCallback(async (gift, mealId) => {
+    const rec = await recordMealGiftReceipt(gift.code, mealId);
+    showToast("Added to your meals.");
+    if (!rec.ok) console.warn("[gift] the receipt did not save; the meal is theirs regardless (10-07 residual)");
+    if (gift.hasPhoto && rec.ok) {
+      const p = await acceptGiftPhoto(gift.giftId, mealId, gift.photoExt);   // S47: the gift's own format
+      if (!p.ok) showToast("Added, but the photo couldn’t come along.");
+      await loadMealPhotos();
+    }
+    setThankYou({ mealId, ...thankYouPayload(gift.mealName, gift.giverFirst) });
+  }, [recordMealGiftReceipt, acceptGiftPhoto, loadMealPhotos, showToast]);
+
   const commitMealSheet = useCallback(async ({ name, instructions, ingredients, occasion, attribution }) => {
     if (!mealSheet) return;
     setMealSaving(true);
@@ -6114,16 +6508,19 @@ function ProvisionsApp() {
         ? await updateMeal(mealSheet.meal.id, payload)
         : await createMeal(payload);
       if (ok) {
+        const gift = mealSheet.mode === "create" ? mealSheet.gift || null : null;
         setMealSheet(null);
         await loadMeals();   // reflect the new name/count on PLAN immediately
         // An edit can take dropped ingredients off Shop (updateMeal): re-read provenance so
         // the card's "{n} left" and the board's counts move in the same beat.
         if (mealSheet.mode === "edit") await refreshProvenance();
+        // A received meal: createMeal returned the new row's id — the receipt and the photo follow.
+        if (gift && typeof ok === "string") await finishGiftArrival(gift, ok);
       }
     } finally {
       setMealSaving(false);
     }
-  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals, refreshProvenance]);
+  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals, refreshProvenance, finishGiftArrival]);
   // Delete the recipe itself. Zeroing of its still-pending list items
   // happens inside deleteMeal (bought items untouched, shared ingredients
   // left for the meals that still need them) — the sheet only drives it.
@@ -6892,6 +7289,43 @@ function ProvisionsApp() {
     setWelcomeCodeOpen(false);
     setWelcomeCode("");
   }, []);
+
+  // THE SIGNED-IN ARRIVAL (SPEC_meal_sharing_phase_a_client Commit 3; S33). The code preRum held under GIFT_KEY
+  // is consumed once: bootstrap ready, the catalog loaded (the form resolves ingredient names against it), no
+  // meal sheet open, and the welcome sheet — a brand-new user's first stop — closed (ruled 2026-10-29: welcome
+  // first, then the form). The key is removed at read time, so a bad code can never loop; the answer stands in
+  // the form's place when it cannot open (unknown, revoked, not a member, already added). The ingredient names
+  // are matched against THIS place's catalog in landDraft; the giver's catalog ids never cross (V3).
+  const giftArrivalRanRef = useRef(false);
+  useEffect(() => {
+    if (giftArrivalRanRef.current) return;
+    if (!MEALS_ENABLED || authPhase !== "ready" || !household?.id || !catalogLoaded || loading || welcomeOpen || mealSheet) return;
+    let code = null;
+    try { code = sessionStorage.getItem(GIFT_KEY); } catch (e) { return; }
+    if (!code) return;
+    giftArrivalRanRef.current = true;
+    try { sessionStorage.removeItem(GIFT_KEY); } catch (e) { /* storage blocked */ }
+    const placeName = household?.name || null;
+    const placeCount = (myHouseholds || []).length;
+    const existingNames = (meals || []).filter((m) => m && m.kind === "meal" && !m.deleted_at).map((m) => m.name);
+    (async () => {
+      const r = await previewMealGift(code);
+      if (!r.ok) { setGiftArrival({ kind: "error", line: r.line }); return; }
+      // C11 first (075): this place gave it — the source meal is theirs already, no copy. Then a copy
+      // already made here (V11). A same-place copy made before C11 reads as the giving place.
+      if (r.isGivingPlace) { setGiftArrival({ kind: "giving", mealId: r.sourceMealId && mealById[r.sourceMealId] ? r.sourceMealId : null, line: givingPlaceLine(placeName) }); return; }
+      if (r.alreadyAdded) { setGiftArrival({ kind: "already", mealId: r.alreadyAdded, line: alreadyAddedLine(placeName) }); return; }
+      const giverFirst = (r.snapshot && typeof r.snapshot.giver_first_name === "string" ? r.snapshot.giver_first_name : "").trim();
+      const draft = giftDraft(r.snapshot, { existingNames, giverFirst });
+      setMealSheet({
+        mode: "create", meal: null,
+        gift: {
+          code, giftId: r.giftId, hasPhoto: r.hasPhoto, photoExt: r.photoExt, photoUrl: r.photoUrl || null, giverFirst, mealName: draft.name, draft,
+          banner: giftBanner(giverFirst), note: giftNoteQuote(r.note, giverFirst), placeLine: placeLine(placeName, placeCount),
+        },
+      });
+    })();
+  }, [authPhase, household, catalogLoaded, loading, welcomeOpen, mealSheet, previewMealGift, meals, myHouseholds, mealById]);
 
   const handleWelcomeContinue = async () => {
     if (welcomeBusy) return;
@@ -7988,13 +8422,15 @@ function ProvisionsApp() {
           The ONLY nav renderer at every width (rail retired 2026-09-20): on
           desktop the pill anchors to the phone column, because the column's
           transform makes it the containing block for every fixed descendant. */}
-      <Helm
+      {/* Not on the signed-out gift card or its A3 answer (Dan 2026-10-30): the pill's doors lead
+          nowhere without an account, and the mockup has no tab bar there. Back once signed in. */}
+      {!(signedOutWelcome && pendingGiftCode) && <Helm
         view={signedOutWelcome ? "home" : view}
         onChange={goToDoor}
         badgeCount={totalItems - checkedCount}
         compact={scrollCompact && view !== "home"}
         onPlus={doorAdd[view] || null}
-      />
+      />}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=Lato:wght@300;400;700&display=swap');
@@ -8345,12 +8781,61 @@ function ProvisionsApp() {
         .rv-edit { position: absolute; top: 8px; right: 12px; min-height: 44px; padding: 0 8px; border: none; background: transparent; color: #8A5F3A; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; }
         .rv-edit:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; border-radius: 8px; }
+        /* GIVE THIS MEAL (2026-10-30): the share icon beside Edit — same row, same quiet clay, the same 44 px hit area. */
+        .rv-give { position: absolute; top: 8px; right: 60px; z-index: 3; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border: none; border-radius: 50%; background: transparent; color: #8A5F3A; cursor: pointer; }
+        .rv-give:disabled { opacity: .5; cursor: default; }
+        .rv-give:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
+        /* Another member's photo ⋯ opens with their name (inert, greyed) so the shorter menu reads as "not yours". */
+        .rv-photo-owner { display: block; padding: 8px 14px 4px; font-family: 'Lato', sans-serif; font-size: calc(12px * var(--op-text-scale)); color: #8a7a60; white-space: nowrap; }
+        /* THE GIVE SHEET (B1–B5, mockup_gift_preview): kicker, name, the photo row, the note, the teal Give; then the mini card and Send it. */
+        .give-giving { display: flex; flex-wrap: wrap; align-items: center; gap: 0 5px; margin: 0 0 12px; padding: 8px 40px 8px 12px; border-radius: 10px; background: #E6F4F2; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); line-height: 1.4; color: #0F5F58; }
+        .give-giving button { background: none; border: 0; padding: 0; min-height: 28px; font: inherit; font-weight: 900; color: #0D9488; cursor: pointer; }
+        .give-giving button:disabled { opacity: .5; cursor: default; }
+        .give-giving button:focus-visible { outline: 2px solid #0D9488; outline-offset: 2px; border-radius: 4px; }
+        .give-kicker { font-family: 'Lato', sans-serif; font-size: 10.5px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; color: #A0724A; padding-right: 36px; }
+        .give-name { margin-top: 6px; font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(20px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.2; color: #2C1A0E; overflow-wrap: anywhere; }
+        .give-prow { display: flex; gap: 12px; align-items: center; margin-top: 14px; padding: 10px; border: 1px solid #E3D4BC; border-radius: 12px; background: #fff; }
+        .give-thumb-wrap { position: relative; flex: none; }
+        .give-thumb { display: block; width: 54px; height: 54px; border-radius: 9px; object-fit: cover; background: #E8D5B7; }
+        .give-thumb-empty { background: #FAF4EC; border: 1.5px dashed #C9A97A; }
+        .give-sc { position: absolute; left: -4px; top: -6px; font-family: 'Lato', sans-serif; font-size: 8.5px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; background: #0D9488; color: #fff; padding: 2px 5px; border-radius: 6px; }
+        .give-ptext { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); line-height: 1.45; color: #6f5a45; }
+        .give-ptext b { display: block; color: #2C1A0E; font-size: calc(13px * var(--op-text-scale)); margin-bottom: 1px; }
+        .give-nudge { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: #0D9488; cursor: pointer; text-align: left; }
+        .give-nudge:disabled { opacity: .5; cursor: default; }
+        .give-flabel { display: block; margin: 16px 2px 6px; font-family: 'Lato', sans-serif; font-size: calc(12px * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; }
+        .give-flabel span { font-weight: 400; color: #8a7a60; }
+        .give-ta { display: block; width: 100%; min-height: 74px; border: 1px solid #E3D4BC; border-radius: 10px; background: #fff; padding: 10px 12px; font-family: 'Playfair Display', serif; font-style: italic; font-size: calc(14px * var(--op-text-scale)); color: #2C1A0E; resize: vertical; }
+        .give-ta::placeholder { color: #b7a589; }
+        .give-ta-filled { margin-top: 14px; min-height: 0; }
+        .give-count { text-align: right; font-family: 'Lato', sans-serif; font-size: 10.5px; color: #8a7a60; margin-top: 4px; }
+        .give-count.over { color: #9a4a1e; font-weight: 700; }
+        .give-go { display: flex; align-items: center; justify-content: center; width: 100%; margin-top: 18px; min-height: 48px; background: #0D9488; color: #fff; font-family: 'Lato', sans-serif; font-weight: 900; font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: .02em; border: 0; border-radius: 12px; padding: 14px; cursor: pointer; }
+        .give-go:disabled { background: #9cc9c4; cursor: default; }
+        .give-spin { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.5); border-top-color: #fff; border-radius: 50%; margin-right: 8px; animation: give-spin .9s linear infinite; }
+        @keyframes give-spin { to { transform: rotate(360deg); } }
+        .give-fine { font-family: 'Lato', sans-serif; font-size: calc(11.5px * var(--op-text-scale)); color: #8a7a60; text-align: center; margin-top: 10px; line-height: 1.45; }
+        .give-steps { margin-top: 14px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #6f5a45; line-height: 2; }
+        .give-steps .on { color: #2C1A0E; font-weight: 700; }
+        .give-steps .ok { color: #0D9488; font-weight: 900; margin-right: 6px; }
+        .give-steps .dot { display: inline-block; width: 12px; margin-right: 6px; color: #C9A97A; }
+        .give-warn { margin-top: 12px; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #9a4a1e; background: #fbeee3; border: 1px solid #efd2bc; border-radius: 10px; padding: 9px 11px; }
+        .give-mini-cap { font-family: 'Lato', sans-serif; font-size: 10.5px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; color: #8a7a60; margin-top: 14px; }
+        .give-mini { display: flex; gap: 11px; align-items: center; margin-top: 8px; border: 1px solid #E3D4BC; border-radius: 12px; background: #fff; padding: 10px; }
+        .give-mini-t { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(14.5px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.2; color: #2C1A0E; overflow-wrap: anywhere; }
+        .give-mini-m { font-family: 'Lato', sans-serif; font-size: calc(11.5px * var(--op-text-scale)); color: #6f5a45; margin-top: 3px; }
+        .give-copy { display: block; width: 100%; margin-top: 12px; min-height: 44px; background: none; border: 0; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); font-weight: 700; color: #0D9488; cursor: pointer; }
+        .stop-giving-yes, .stop-giving-no { flex: 1 1 auto; min-height: 48px; padding: 10px 18px; border-radius: 24px; white-space: nowrap; cursor: pointer;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; }
+        .stop-giving-yes { background: #FFFFFF; border: 1.5px solid #E5D7C1; color: #A33A2A; }
+        .stop-giving-no { background: #D9BC8C; border: 1.5px solid #D9BC8C; color: #2C1A0E; }
+        .give-go:focus-visible, .give-copy:focus-visible, .give-nudge:focus-visible, .stop-giving-yes:focus-visible, .stop-giving-no:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         .rv-hero { margin: 44px 16px 0; height: 132px; border-radius: 14px; display: flex; align-items: center; justify-content: center; }
         /* Photos v1 (R2): the hero becomes the strip at its own 132 px — native horizontal scroll-snap, one photo
            per slide, object-fit cover, the tint behind each photo until it decodes (it fades in once, .in). */
         .rv-strip { display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; justify-content: flex-start; overflow-clip-margin: 0; }
         .rv-strip::-webkit-scrollbar { display: none; }
-        .rv-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; }
+        .rv-slide { position: relative; flex: 0 0 100%; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; }
         /* S30 / R6 (2026-10-26): every photo <img> people put in the app — .rv-photo-img, .rv-viewer-img,
            .rv-psheet-thumb, .lib-slot-img, .board-photo-thumb, .op-galley-th img — carries .op-photo (plus
            draggable="false" in the markup): no iOS long-press save/share callout, no drag-out. One rule, not six.
@@ -8416,11 +8901,17 @@ function ProvisionsApp() {
         .rv-photo-prev:focus-visible, .rv-photo-next:focus-visible { outline: 2px solid #E8D5B7; outline-offset: 2px; }
         .rv-dot:focus-visible { outline: 2px solid #A0724A; outline-offset: -2px; }
         .rv-viewer-dots .rv-dot:focus-visible { outline-color: #E8D5B7; }
-        /* The row under the hero keeps only "Add a meal photo" (SPEC_photo_menu P1). */
+        /* The row under the hero keeps only "Add a meal photo" (SPEC_photo_menu P1); a photo becomes a showcase
+           from its own ⋯ (S46), never from a second button. */
         .rv-photo-ctl { display: flex; align-items: center; justify-content: center; margin: 4px 16px 0; }
         .rv-photo-add { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 10px; border: none; background: transparent; color: #8A5F3A;
           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; cursor: pointer; white-space: nowrap; }
         .rv-photo-add:disabled { opacity: .55; cursor: default; }
+        /* S28: a showcase slide is marked — a small sand chip, bottom-left, out of the way of ⋯ and the expand mark;
+           a sibling of the photo button (never inside it), inert to taps. */
+        .rv-showcase-tag { position: absolute; left: 10px; bottom: 10px; z-index: 2; pointer-events: none; padding: 3px 8px; border-radius: 8px;
+          background: rgba(44,26,14,0.62); color: #E8D5B7; font-family: 'Lato', sans-serif; font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+        .rv-psheet-sub { color: #8a7a60; }
         /* ⋯ ON THE PHOTO (P2): a 44 px target in the hero's top-right corner; its visible part is the expand mark's
            30 px dark translucent circle, inset the same 10 px from the corner (3 px + the 7 px of target around it). */
         .rv-photo-menu { position: relative; display: inline-flex; }
@@ -8457,12 +8948,16 @@ function ProvisionsApp() {
         .rv-psheet-body { margin: 12px 0 0; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #5C4636; }
         .rv-psheet-line { margin-top: 10px; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); line-height: 1.4; color: #2C1A0E; overflow-wrap: anywhere; }
         .rv-psheet-btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-        .rv-photo-confirm-remove, .rv-photo-confirm-keep { flex: 1 1 auto; min-height: 48px; padding: 10px 18px; border-radius: 24px; white-space: nowrap; cursor: pointer;
+        .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-showcase-go, .rv-showcase-cancel, .rv-photo-full-ok { flex: 1 1 auto; min-height: 48px; padding: 10px 18px; border-radius: 24px; white-space: nowrap; cursor: pointer;
           font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; }
         /* Never celebrate deleting: Keep is the gold primary, Remove is quiet — white with red text. */
         .rv-photo-confirm-remove { background: #FFFFFF; border: 1.5px solid #E5D7C1; color: #A33A2A; }
         .rv-photo-confirm-keep { background: #D9BC8C; border: 1.5px solid #D9BC8C; color: #2C1A0E; }
-        .rv-photo-add:focus-visible, .rv-photo-item:focus-visible, .rv-photo-placeholder:focus-visible, .rv-photo-confirm-remove:focus-visible, .rv-photo-confirm-keep:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
+        /* The S13 prompt (S46 flip): Make showcase is the gold primary (the author's own deliberate act); Not now is quiet.
+           The "full" sheet's OK is the same gold. */
+        .rv-showcase-go, .rv-photo-full-ok { background: #D9BC8C; border: 1.5px solid #D9BC8C; color: #2C1A0E; }
+        .rv-showcase-cancel { background: #FFFFFF; border: 1.5px solid #E5D7C1; color: #5C4636; }
+        .rv-photo-add:focus-visible, .rv-photo-item:focus-visible, .rv-photo-placeholder:focus-visible, .rv-photo-confirm-remove:focus-visible, .rv-photo-confirm-keep:focus-visible, .rv-showcase-go:focus-visible, .rv-showcase-cancel:focus-visible, .rv-photo-full-ok:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         .rv-head { padding: 16px 20px 0; }
         .rv-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 600; font-size: calc(22.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.15; color: #2C1A0E; overflow-wrap: anywhere; }
         .rv-byline { margin-top: 4px; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 500; font-size: calc(14px * var(--op-text-scale)); line-height: 1.4; color: #8A5F3A; overflow-wrap: anywhere; }
@@ -8659,6 +9154,37 @@ function ProvisionsApp() {
         .home-welcome-btn.ghost { background: transparent; border: 1.5px solid #A0724A; color: #8A5F3A; }
         .home-welcome-btn.solid { background: #2C1A0E; border: 1.5px solid #2C1A0E; color: #FAF4EC; }
         .home-welcome-btn:disabled { opacity: 0.5; cursor: default; }
+        /* THE PUBLIC GIFT CARD (/g/{CODE}, signed out — SPEC_meal_sharing_phase_a_client, mockup_gift_preview A1–A3).
+           Paper page, one white card: a 4:3-ish photo (or the short sand band with the plate mark, C8), the title in
+           Playfair, From in ink-soft, the count as a cream chip; the teal CTA; the two quiet lines; the footer sentence. */
+        .gift-page { padding: 20px 18px 40px; max-width: 420px; margin: 0 auto; }
+        .gift-eyebrow { margin: 4px 2px 12px; font-family: 'Lato', sans-serif; font-size: 10.5px; font-weight: 900; letter-spacing: .18em; text-transform: uppercase; color: #A0724A; }
+        .gift-card { background: #fff; border: 1px solid #E3D4BC; border-radius: 16px; overflow: hidden; box-shadow: 0 6px 18px -10px rgba(44,26,14,.25); }
+        .gift-card-loading { min-height: 150px; background: #FBF7F0; }
+        .gift-photo { aspect-ratio: 4 / 3; max-height: 260px; background: #E8D5B7; }
+        .gift-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        .gift-noph { height: 84px; background: #E8D5B7; display: flex; align-items: center; justify-content: center; }
+        .gift-plate { display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 50%; border: 2px solid #A0724A; }
+        .gift-plate::after { content: ""; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid rgba(160,114,74,.55); }
+        .gift-plate-big { width: 64px; height: 64px; margin: 0 auto 22px; opacity: .6; }
+        .gift-plate-big::after { width: 36px; height: 36px; }
+        .gift-body { padding: 14px 16px 16px; }
+        .gift-title { margin: 0; font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(21px * (1 + (var(--op-text-scale) - 1) * 0.5)); line-height: 1.2; color: #2C1A0E; overflow-wrap: anywhere; }
+        .gift-from { margin-top: 6px; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); color: #6f5a45; overflow-wrap: anywhere; }
+        .gift-meta { display: inline-block; margin-top: 10px; font-family: 'Lato', sans-serif; font-size: 11px; font-weight: 700; color: #A0724A; background: #FAF4EC; border: 1px solid #E3D4BC; padding: 4px 9px; border-radius: 12px; }
+        .gift-add { display: block; width: 100%; margin-top: 18px; min-height: 48px; background: #0D9488; color: #fff; font-family: 'Lato', sans-serif; font-weight: 900; font-size: calc(15px * (1 + (var(--op-text-scale) - 1) * 0.8)); letter-spacing: .02em; border: 0; border-radius: 12px; padding: 14px; text-align: center; cursor: pointer; }
+        .gift-add:disabled { background: #9cc9c4; cursor: default; }
+        .gift-after, .gift-signin-line { margin: 9px 0 0; font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); color: #6f5a45; text-align: center; line-height: 1.5; }
+        .gift-signin-line { margin-top: 14px; }
+        .gift-signin { background: none; border: 0; padding: 0 2px; min-height: 24px; font: inherit; font-weight: 700; color: #0D9488; cursor: pointer; }
+        .gift-signin:disabled { opacity: .5; cursor: default; }
+        .gift-foot { margin: 36px 0 0; padding-top: 14px; border-top: 1px solid #E3D4BC; font-family: 'Lato', sans-serif; font-size: 11.5px; color: #8a7a60; text-align: center; line-height: 1.5; }
+        .gift-foot b { color: #2C1A0E; font-family: 'Playfair Display', serif; font-style: italic; font-weight: 600; }
+        .gift-dead { padding: 50px 8px 0; text-align: center; }
+        .gift-dead-h { margin: 0; font-family: 'Playfair Display', serif; font-size: calc(22px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; }
+        .gift-dead-p { margin: 8px 0 0; font-family: 'Lato', sans-serif; font-size: calc(13.5px * var(--op-text-scale)); color: #6f5a45; }
+        .gift-what, .gift-retry { display: inline-block; margin-top: 24px; font-family: 'Lato', sans-serif; font-size: 13px; font-weight: 700; color: #0D9488; background: #fff; border: 1.5px solid #0D9488; border-radius: 12px; padding: 10px 18px; text-decoration: none; cursor: pointer; }
+        .gift-add:focus-visible, .gift-signin:focus-visible, .gift-what:focus-visible, .gift-retry:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         /* THE ON-DECK CARD in the board's language: the welcome's warm cream, no shadow, no photo (the household photo asserts
            context, never decorates). Eyebrow = the board chip's type; title = Playfair; status = the board line's tone. One primary
            per state as a pill (the board's buttons at Home's scale); Switch is a text button; × is the board's ×. */
@@ -8710,6 +9236,10 @@ function ProvisionsApp() {
                      background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
         /* Bottom status stack rides above the pill — at every width now. */
         .bottom-stack { bottom: calc(92px + var(--op-inset-bottom)); }
+        /* With the Wrap Up bar on the page the stack rides above IT (the error toast overlapped the bar on
+           Shop — the 2026-10-28 LATER row, folded in 2026-10-30). The modal rule below still wins while a
+           sheet is open (same specificity, later). */
+        body:has(.wrapbar) .bottom-stack { bottom: calc(150px + var(--op-inset-bottom)); }
         /* While ANY modal sheet is open the stack anchors at the TOP of the viewport
            instead — just under the safe area, still centred, same look — so the
            pill and the toasts never sit over a sheet's pinned footer (Cancel / Save
@@ -8725,7 +9255,10 @@ function ProvisionsApp() {
            partly covered and hard to hit (iPhone, the 2026-10-11 walk). Hidden, not
            lowered: a lowered Helm would still read as reachable. SAME SIGNAL as the
            stack rule above, so the two cannot disagree. Restored on close. */
-        body:has(.modal-overlay) .helm, body:has(.modal-overlay) .helm-fade { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .helm,
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .helm-fade { display: none; }
+        /* …under EVERY bottom sheet, not only the modal overlay (Dan 2026-10-31): the thank-you sheet's Send / Skip and
+           the arrival sheet's Open it sat under the pill. The same six surfaces as the Wrap Up bar's rule below. */
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
 
         /* Budget banner */
@@ -8793,6 +9326,20 @@ function ProvisionsApp() {
         .op-import-banner { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 10px; padding: 9px 12px; margin: -6px 0 16px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #6f5a45; }
         .op-import-banner b { color: #2C1A0E; font-weight: 700; }
         .op-import-banner > span { flex: 1 1 180px; min-width: 0; }
+        /* A received meal (Commit 3): the banner shares the import banner's tint; the giver's note is a quote. */
+        .op-gift-photo { margin: -6px 0 12px; border-radius: 12px; overflow: hidden; background: #E8D5B7; }
+        .op-gift-photo-img { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 220px; object-fit: cover; }
+        .op-gift-photo-cap { padding: 6px 10px; background: #FBF7F0; border: 1px solid #E3D4BC; border-top: 0; border-radius: 0 0 12px 12px; font-family: 'Lato', sans-serif; font-size: calc(12px * var(--op-text-scale)); color: #8a7a60; }
+        .op-gift-banner { background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 10px; padding: 9px 12px; margin: -6px 0 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #6f5a45; }
+        .op-gift-banner b { color: #2C1A0E; font-weight: 700; }
+        .op-gift-place { color: #8a7a60; }
+        .op-gift-note { margin: 0 0 16px; padding: 10px 14px; border-left: 3px solid #D9BC8C; font-family: 'Playfair Display', serif; font-style: italic; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; overflow-wrap: anywhere; }
+        .op-gift-note small { display: block; margin-top: 4px; font-family: 'Lato', sans-serif; font-style: normal; font-size: calc(12px * var(--op-text-scale)); color: #8a7a60; }
+        .gift-open, .gift-ok, .thanks-send, .thanks-skip { flex: 1 1 auto; min-height: 48px; padding: 10px 18px; border-radius: 24px; white-space: nowrap; cursor: pointer;
+          font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; line-height: 1.2; }
+        .gift-open, .thanks-send { background: #D9BC8C; border: 1.5px solid #D9BC8C; color: #2C1A0E; }
+        .gift-ok, .thanks-skip { background: #FFFFFF; border: 1.5px solid #E5D7C1; color: #5C4636; }
+        .gift-open:focus-visible, .gift-ok:focus-visible, .thanks-send:focus-visible, .thanks-skip:focus-visible { outline: 2px solid #A0724A; outline-offset: 2px; }
         .op-start-over { background: none; border: none; padding: 4px 0; font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; color: #8A5F3A; text-decoration: underline; text-decoration-color: rgba(160,114,74,.4); text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
         .op-start-over:disabled { opacity: .5; cursor: default; }
         .op-check-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 10px; }
@@ -8914,6 +9461,10 @@ function ProvisionsApp() {
                    display: flex; align-items: center; justify-content: space-between; gap: 12px; overflow: hidden;
                    min-height: 46px; padding: 12px 16px; border-radius: 16px; border: 1.5px solid #E8DDCE; background: #FAF4EC;
                    box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer; text-align: left; }
+        /* While ANY sheet or modal is open the bar hides and returns on close (Dan 2026-10-30: at z 900 it
+           floated over every sheet and partly covered the arrival form's Not for us / Add to our meals).
+           Keyed off the document like the Helm rule above: every surface that owns a scrim or overlay. */
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .wrapbar { display: none; }
         .wrapbar.p0 { border-style: dashed; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
         /* No hard edge on the fill: its 2px right border was the line through the "W" of
@@ -10235,7 +10786,9 @@ function ProvisionsApp() {
       )}
 
       <div className="container">
-        {signedOutWelcome && <HomeWelcome signUpInitialValues={signUpInitialValues} ready={isLoaded} />}
+        {signedOutWelcome && (pendingGiftCode
+          ? <GiftCard code={pendingGiftCode} ready={isLoaded} onAddToMeals={() => openSignUp({ initialValues: signUpInitialValues })} onSignIn={() => openSignIn()} />
+          : <HomeWelcome signUpInitialValues={signUpInitialValues} ready={isLoaded} />)}
 
         {view === "home" && !signedOutWelcome && (
           <Home
@@ -11059,7 +11612,20 @@ function ProvisionsApp() {
           onRequestSuggestion={requestMealSuggestion}
           onRequestImport={requestRecipeImport}
           isSignedIn={isSignedIn}
+          gift={mealSheet.mode === "create" ? mealSheet.gift || null : null}
         />
+      )}
+
+      {/* A received gift that could not open the form (Commit 3), and the S24 thank-you after one that did. */}
+      {giftArrival && (
+        <GiftArrivalSheet arrival={giftArrival}
+          onOpen={() => { const m = giftArrival.mealId ? mealById[giftArrival.mealId] : null; setGiftArrival(null); if (m) openRecipe(m, "top"); }}
+          onClose={() => setGiftArrival(null)} />
+      )}
+      {thankYou && !mealSheet && (
+        <ThankYouSheet ask={thankYou.ask}
+          onSend={() => { const t = thankYou; setThankYou(null); handleShareGift({ title: t.title, text: t.text }); }}
+          onSkip={() => setThankYou(null)} />
       )}
 
       {/* The recipe view (SPEC_recipe_view): read first. Edit opens the sheet above in
@@ -11098,6 +11664,8 @@ function ProvisionsApp() {
           canEditPhotos={!!isSignedIn}
           photoBusy={photoBusyMealId === rvMeal.id}
           onAddPhoto={handleAddMealPhoto}
+          onSetPhotoKind={handleSetPhotoKind}
+          give={giveProps}
           onRemovePhoto={handleRemoveMealPhoto}
           onReplacePhoto={handleReplaceMealPhoto}
           // Slice 2 (S5): every member's rating rows per cook (read at open), and the viewer's own rating.

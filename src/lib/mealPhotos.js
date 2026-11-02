@@ -8,26 +8,59 @@
 //        "Added by" rule); a cook-attached photo (slice 2) reads "Cooked {date}".
 //        The viewer's own photo reads " · You" (Dan, 2026-10-21: two members can
 //        share a first name — both test accounts are "Dan")
+//   S26  (SPEC_meal_sharing_v2; 072) a SHOWCASE photo (kind = showcase) sits outside
+//        the cap: the cap and "Add a meal photo" count cook photos only, and every
+//        live showcase row is kept. One per person per meal — the server replaces.
+//   S28  one pick: the newest live cook photo; none → the newest live showcase; else
+//        none. The card and the hero's first slide both take list[0], so the pick is
+//        list[0] and the rest follow newest-first.
 import { cookDate } from "./cookDate";
 
 export const MEAL_PHOTO_CAP = 3;
 
+// kind: 'cook' (the column default; every row before 072 is a cook photo) or 'showcase'.
+export const isShowcase = (p) => !!p && p.kind === "showcase";
+// The cap counts cook photos only (S26). list: one meal's live rows.
+export const liveCookCount = (list) => (list || []).filter((p) => !isShowcase(p)).length;
+export const atPhotoCap = (list) => liveCookCount(list) >= MEAL_PHOTO_CAP;
+
 // rows: live meal_photos rows, newest first (the read's own order) →
-// { [meal_id]: rows } with each meal's rows newest first, at most the cap.
+// { [meal_id]: rows } with each meal's rows as the S28 pick first, then the rest
+// newest first; at most the cap of COOK photos, every showcase photo kept.
 export function photosByMeal(rows) {
   const out = {};
   (rows || []).forEach((r) => {
     if (!r || !r.meal_id || r.deleted_at) return;
     const list = out[r.meal_id] || (out[r.meal_id] = []);
-    if (list.length < MEAL_PHOTO_CAP) list.push(r);
+    if (isShowcase(r) || liveCookCount(list) < MEAL_PHOTO_CAP) list.push(r);
+  });
+  Object.keys(out).forEach((mealId) => {
+    const list = out[mealId];
+    const pick = list.find((p) => !isShowcase(p)) || list[0];   // newest cook, else newest showcase
+    if (pick !== list[0]) out[mealId] = [pick, ...list.filter((p) => p !== pick)];
   });
   return out;
 }
 
 // A stable fingerprint of the live set, so a poll that read the same rows
-// does not re-render the library.
+// does not re-render the library. kind is part of it since S46 (2026-10-30): a flip changes
+// nothing else about a row — the first dev walk's step 3 flipped the row on the server and
+// the client kept the old rows because the print had not moved.
 export function photosFingerprint(rows) {
-  return (rows || []).map((r) => `${r.id}@${r.uploaded_at}`).join("|");
+  return (rows || []).map((r) => `${r.id}@${r.uploaded_at}@${r.kind || "cook"}`).join("|");
+}
+
+// THE FLIP'S FAILURE LINE (S46; Dan 2026-10-30: the handler shows the RPC's message or a plain
+// line, never swallows it). err is the PostgREST error ({ code: SQLSTATE, message }). Returns
+// { reason, line }: reason for the caller's logic, line for the toast.
+export function setKindFailure(err) {
+  const code = err && err.code;
+  const msg = (err && err.message) || "";
+  if (code === "22023" && /full/i.test(msg)) return { reason: "full", line: "Meal photos are full. Remove one to make room." };
+  if (code === "42501") return { reason: "forbidden", line: "Only the person who added a photo can change it." };
+  if (code === "P0002") return { reason: "gone", line: "That photo is gone. Pull to refresh." };
+  const plain = msg.replace(/^set_photo_kind:\s*/i, "").trim();
+  return { reason: "save", line: plain ? `Couldn’t change the photo: ${plain}` : "Couldn’t change the photo. Try again." };
 }
 
 // "today" for an upload made today: cookDate's "tonight" is a cook's word.
@@ -75,6 +108,20 @@ export function photoDetails(photo, members, firstNameOf, now = new Date()) {
   const lines = [name ? `Added by ${name} · ${when}` : `Added ${when}`];
   const cooked = photo.meal_cook_id ? detailsDate(photo.cooked_at, now) : "";
   if (cooked) lines.push(`From the cook on ${cooked}`);
+  // S13's fact, where the photo's other facts live: a showcase photo can leave the household.
+  // S48 (076): who made it the showcase and when (showcased_by / showcased_at — the visibility that
+  // stands in for author-only); a RECEIVED row (it came with a gift) never travels on from here.
+  if (isShowcase(photo)) {
+    if (photo.received_at) {
+      lines.push("Showcase photo · came with the meal; it stays here when you give it");
+    } else {
+      const sw = detailsDate(photo.showcased_at, now);
+      const sm = list.length >= 2 ? list.find((mb) => mb && mb.user_id && mb.user_id === photo.showcased_by) : null;
+      const sname = sm ? (firstNameOf(sm) || "") : "";
+      if (sw) lines.push(sname ? `Made showcase by ${sname} · ${sw}` : `Made showcase ${sw}`);
+      lines.push("Showcase photo · can be seen by anyone you give this meal to");
+    }
+  }
   return lines;
 }
 
@@ -84,6 +131,9 @@ export function photoDetails(photo, members, firstNameOf, now = new Date()) {
 //   cook-attached → upload, saveCook (the RPC's per-cook replace retires the old row atomically)
 //   under the cap → upload, save, remove   (no loss window; at worst both stay)
 //   at the cap    → upload, remove, save   (only the final save can fail after a good upload)
+// liveCount is the meal's live COOK count (S26). A showcase photo has no Replace: the menu
+// hides it (RecipePhotos), because add_meal_photo would turn the replacement into a cook photo
+// and add_showcase_photo replaces only the caller's own — remove and add instead.
 export function replaceSteps(old, liveCount) {
   if (old && old.meal_cook_id) return ["upload", "saveCook"];
   return liveCount >= MEAL_PHOTO_CAP ? ["upload", "removeOld", "save"] : ["upload", "save", "removeOld"];

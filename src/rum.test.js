@@ -57,12 +57,24 @@ describe("click-text privacy block is unchanged", () => {
     // 47 + .rv-photo-add, .rv-photo-remove, .rv-photo-remove-yes, .rv-photo-keep (Photos v1 slice 1) + .rv-photo-open,
     // .rv-viewer-close (photo hero) + .rv-photo-prev, .rv-photo-next, .rv-dot (desktop stepping) + .board-photo-add, .rate-star (slice 2)
     // = 58; SPEC_photo_menu (2026-10-25): out .rv-photo-remove-yes, .rv-photo-keep; in .rv-photo-replace, .rv-photo-details,
-    // .rv-photo-save, .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-photo-placeholder → 62
-    expect(rules.slice(0, -2)).toHaveLength(62);
+    // .rv-photo-save, .rv-photo-confirm-remove, .rv-photo-confirm-keep, .rv-photo-placeholder → 62;
+    // Phase A Commit 0 (showcase upload, 2026-10-29): in .rv-photo-showcase, .rv-showcase-go, .rv-showcase-cancel → 65;
+    // Phase A Commit 1 (public gift card): in .gift-add, .gift-signin, .gift-what, .gift-retry → 69;
+    // Phase A Commit 0b (S46 flip model, 2026-10-30): out .rv-photo-showcase; in .rv-photo-make-showcase, .rv-photo-make-cook,
+    // .rv-photo-full-ok (.rv-showcase-go / -cancel stay as the S13 prompt's buttons) → 71;
+    // Phase A Commit 2 (give sheet): in .rv-more, .rv-give, .rv-stop-giving, .give-go, .give-nudge, .give-send, .give-copy,
+    // .stop-giving-yes, .stop-giving-no → 80; Phase A Commit 3 (accept): in .gift-open, .gift-ok, .thanks-send, .thanks-skip → 84;
+    // the header share button (Dan 2026-10-30): out .rv-more (the ⋯ and its menu are gone); .rv-give is now the button itself,
+    // .rv-stop-giving the give sheet's top-line button → 83
+    expect(rules.slice(0, -2)).toHaveLength(83);
     const sel = rules.map((r) => r.selector);
-    [".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove", ".rv-photo-confirm-remove", ".rv-photo-confirm-keep", ".rv-photo-placeholder"]
+    [".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove", ".rv-photo-confirm-remove", ".rv-photo-confirm-keep", ".rv-photo-placeholder",
+      ".rv-photo-make-showcase", ".rv-photo-make-cook", ".rv-showcase-go", ".rv-showcase-cancel", ".rv-photo-full-ok", ".gift-add", ".gift-signin", ".gift-what", ".gift-retry",
+      ".rv-give", ".rv-stop-giving", ".give-go", ".give-nudge", ".give-send", ".give-copy", ".stop-giving-yes", ".stop-giving-no",
+      ".gift-open", ".gift-ok", ".thanks-send", ".thanks-skip"]
       .forEach((c) => expect(sel).toContain(c));
-    [".rv-photo-remove-yes", ".rv-photo-keep", ".rv-photo-more"].forEach((c) => expect(sel).not.toContain(c));
+    expect(sel).not.toContain(".rv-photo-owner");   // the "Added by {First}" line is household text, off the list
+    [".rv-photo-remove-yes", ".rv-photo-keep", ".rv-photo-more", ".rv-photo-showcase", ".rv-more"].forEach((c) => expect(sel).not.toContain(c));
     expect(rules.some((r) => r.selector === ".op-replay-block")).toBe(false);
   });
   test("preview: Clerk excludes only", () => {
