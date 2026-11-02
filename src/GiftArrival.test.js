@@ -46,7 +46,7 @@ describe("the received meal's form", () => {
     expect(q(container, "h2").textContent).toBe("New Meal");
     const banner = q(container, ".op-gift-banner");
     expect(banner.getAttribute("role")).toBe("status");
-    expect(banner.textContent).toBe("Andrew gave you this. It’s your copy to change. · Adding to Madbury");
+    expect(banner.textContent).toBe("Andrew gave you this. It’s your copy to change. ·\u00a0Adding to Madbury");   // no-break space after the dot: it never strands at a line end
     const note = q(container, ".op-gift-note");
     expect(note.tagName).toBe("BLOCKQUOTE");
     expect(note.textContent).toBe("“Easton’s favourite. Don’t skip the pickle.”— Andrew");
