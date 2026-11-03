@@ -4212,7 +4212,7 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
         )}
         {gift && (
           <div className="op-gift-banner" role="status">
-            <span><b>{gift.banner}</b>{gift.placeLine ? <span className="op-gift-place">{" ·\u00a0"}{gift.placeLine}</span> : null}</span>
+            <b>{gift.banner}</b>{gift.placeLine ? <span className="op-gift-place">{gift.placeLine}</span> : null}
           </div>
         )}
         {gift && gift.note && (
@@ -9335,7 +9335,7 @@ function ProvisionsApp() {
         .op-gift-photo-cap { padding: 6px 10px; background: #FBF7F0; border: 1px solid #E3D4BC; border-top: 0; border-radius: 0 0 12px 12px; font-family: 'Lato', sans-serif; font-size: calc(12px * var(--op-text-scale)); color: #8a7a60; }
         .op-gift-banner { background: rgba(160,114,74,.06); border: 1.5px solid rgba(160,114,74,.22); border-radius: 10px; padding: 9px 12px; margin: -6px 0 12px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); line-height: 1.45; color: #6f5a45; }
         .op-gift-banner b { color: #2C1A0E; font-weight: 700; }
-        .op-gift-place { color: #8a7a60; }
+        .op-gift-place { display: block; margin-top: 2px; color: #8a7a60; }   /* its own line, no separator (Dan 2026-11-02) */
         .op-gift-note { margin: 0 0 16px; padding: 10px 14px; border-left: 3px solid #D9BC8C; font-family: 'Playfair Display', serif; font-style: italic; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; overflow-wrap: anywhere; }
         .op-gift-note small { display: block; margin-top: 4px; font-family: 'Lato', sans-serif; font-style: normal; font-size: calc(12px * var(--op-text-scale)); color: #8a7a60; }
         .gift-open, .gift-ok, .thanks-send, .thanks-skip { flex: 1 1 auto; min-height: 48px; padding: 10px 18px; border-radius: 24px; white-space: nowrap; cursor: pointer;
