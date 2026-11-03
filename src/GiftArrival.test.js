@@ -46,11 +46,20 @@ describe("the received meal's form", () => {
     expect(q(container, "h2").textContent).toBe("New Meal");
     const banner = q(container, ".op-gift-banner");
     expect(banner.getAttribute("role")).toBe("status");
-    expect(banner.textContent).toBe("Andrew gave you this. It’s your copy to change. ·\u00a0Adding to Madbury");   // no-break space after the dot: it never strands at a line end
+    expect(q(banner, "b").textContent).toBe("Andrew gave you this. It’s your copy to change.");
+    expect(q(banner, ".op-gift-place").textContent).toBe("Adding to Madbury");   // its own line, no separator (Dan 2026-11-02)
+    expect(banner.textContent).not.toContain("·");
     const note = q(container, ".op-gift-note");
     expect(note.tagName).toBe("BLOCKQUOTE");
     expect(note.textContent).toBe("“Easton’s favourite. Don’t skip the pickle.”— Andrew");
     expect(qa(note, "input, textarea")).toHaveLength(0);
+  });
+
+  test("one place: the banner alone, no place line", async () => {
+    const { container } = sheet(giftFor(SNAP, { placeLine: placeLine("Madbury", 1) }));
+    await waitFor(() => expect(nameInput(container).value).toBe("Famous Grilled Cheese & Pickle"));
+    expect(q(container, ".op-gift-banner").textContent).toBe("Andrew gave you this. It’s your copy to change.");
+    expect(q(container, ".op-gift-place")).toBeNull();
   });
 
   test("the fields land: name, steps, From = the snapshot's attribution, the ingredients by name through the place's resolver", async () => {
