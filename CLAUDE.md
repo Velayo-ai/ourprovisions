@@ -27,8 +27,8 @@ Vercel hosting, Anthropic Claude API.
 - Commit before switching branches — uncommitted changes have been lost before.
 - Workflow: commit -> push dev -> test -> merge to main -> push main.
 - **`git push <branch>` ships EVERY local commit on that branch, not just the one
-  you mean to send.** So if a commit is meant to stay local for review (e.g. the
-  SESSION END docs commit, Step 5), do NOT push that branch for any *other* work
+  you mean to send.** So if a commit is meant to stay local for review (e.g. a
+  SESSION END docs commit with no handoff merged, Step 5), do NOT push that branch for any *other* work
   until it's handled: either warn me first, or keep the review-only commit off the
   branch you're pushing. "Leave X local" and "push Y from the same branch" cannot
   both hold. (Happened 2026-07-23: the SESSION END docs commit rode a later dev
@@ -133,10 +133,17 @@ failure; stop and report it rather than committing.
     deletion never appears in `git status`. The only tracked files in `handoff/`
     are `.gitignore` and `DESIGN_CHAT_handoff_prompt.md` (force-added).
     (Learned 2026-09-30.)
+  - **A handoff merge is not done until its docs commit is on `origin/dev`.** The
+    design chat reads SESSION_LOG / ROADMAP from `origin/dev`, so until the push
+    lands it reads the handoff as unmerged. After the Step 5 commit, ask me, then
+    push dev right away (pre-push range check first: `git log origin/dev..dev`).
+    (Ruled 2026-11-03.)
 - **If `handoff/design_handoff.md` isn't in the working tree, check `origin/handoff`:**
   `git fetch origin handoff`, then `git rev-parse origin/handoff`.
   - **If that sha already appears in `docs/SESSION_LOG.md`, the handoff is CONSUMED.** Say so,
-    and treat it as "does not exist"; the HARD GATE does not apply.
+    and treat it as "does not exist"; the HARD GATE does not apply. If the sha is in the
+    local SESSION_LOG but not in `origin/dev`'s (`git show origin/dev:docs/SESSION_LOG.md`),
+    it is merged but unpushed: do NOT merge it again; tell me and ask to push dev.
   - **Only an unseen sha is a new handoff.** Read it with
     `git show origin/handoff:handoff/design_handoff.md`, merge it as above, and note its commit
     sha in the SESSION_LOG entry. That entry is what marks it consumed next time.
@@ -247,7 +254,9 @@ the `design_handoff.md` deletion, because that file is gitignored and untracked
 — it is removed from disk with `rm` and never appears in the commit. An empty
 `handoff/` in `git status` is the expected, correct result, not a missed step.
 `git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
-Do NOT push automatically — leave the commit local for my review. I'll push.
+Do NOT push without asking me. If this SESSION END merged a design handoff, ask
+right away: the merge is not done until the commit is on `origin/dev` (Step 0).
+With no handoff merged, leave the commit local for my review unless I say push.
 
 ### Rules
 - Infer today's date from the system date.
