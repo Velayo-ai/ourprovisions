@@ -35,6 +35,7 @@ import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
+import { swipeRemoveConfirm } from './lib/askPicks';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -5731,15 +5732,16 @@ function ProvisionsApp() {
   const [removeConfirmItem, setRemoveConfirmItem] = useState(null);
 
   // SHOP swipe-to-remove. Own item (sole contributor) → remove immediately.
-  // Shared item (anyone else contributed) → confirm first.
+  // Shared item (anyone else contributed) → confirm first. A row picked through
+  // an Ask always confirms (R3, 2026-11-03) — the rule lives in lib/askPicks.
   const handleSwipeRemove = (item) => {
-    const contributors = item.contributors || [];
-    const sharedByOther = contributors.some(c => c.clerkId && c.clerkId !== user?.id);
-    if (sharedByOther) {
+    const confirm = swipeRemoveConfirm(item, user?.id);
+    if (confirm) {
       setRemoveConfirmItem({
         name: item.name,
         catalogItemId: item.catalogItemId,
-        addedByName: item.addedBy || (contributors.find(c => c.clerkId !== user?.id)?.fullName) || "someone else",
+        verb: confirm.verb,
+        byName: confirm.byName,
       });
     } else {
       removeFromList(item.name, item.catalogItemId);
@@ -8125,6 +8127,7 @@ function ProvisionsApp() {
         category: CATEGORY_DISPLAY[rawCat] || rawCat,
         isOwnItem,
         contributors,
+        pickedByLabels: row.pickedByLabels || null,
       });
     }
 
@@ -11787,7 +11790,7 @@ function ProvisionsApp() {
             <SheetClose onClose={() => setRemoveConfirmItem(null)} />
             <h2>Remove from list?</h2>
             <p className="modal-subtitle">
-              "{removeConfirmItem.name}" was added by {removeConfirmItem.addedByName}. Removing it takes it off the shared list for everyone.
+              "{removeConfirmItem.name}" was {removeConfirmItem.verb} by {removeConfirmItem.byName}. Removing it takes it off the shared list for everyone.
             </p>
             <div className="modal-actions">
               <button className="modal-cancel" onClick={() => setRemoveConfirmItem(null)}>Cancel</button>

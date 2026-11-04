@@ -15,6 +15,7 @@ import { cooksFromRows, resolveCookId } from "../lib/cooks";
 import { setKindFailure } from "../lib/mealPhotos";
 import { giveFailure, giftObjectPath, giftExt, GIFT_RENDITIONS } from "../lib/giveMeal";
 import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArrival";
+import { landAskPicksArgs, askCompletedAttributes } from "../lib/askPicks";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -399,6 +400,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         status: item.status,
         pricePerUnit: item.price_per_unit != null ? parseFloat(item.price_per_unit) : null,
         addedBy: item.added_by ?? null,
+        // 077: who picked this need through an Ask (free text, never a user). Null before 077
+        // is applied — the RPC simply doesn't return the field.
+        pickedByLabels: Array.isArray(item.picked_by_labels) ? item.picked_by_labels : null,
       });
       newQty[item.id] = item.quantity;
       newChecked[item.id] = item.status === "bought";
@@ -1322,6 +1326,30 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       }
       return null;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // empty deps — uses refs, never stale
+
+  // ─────────────────────────────────────────────────────────────
+  // landAskPicks: an Ask's "That's it!" (A16) — every held pick lands in ONE server write
+  // (077 land_ask_picks). The request carries ids only; the server reads the label from the
+  // ask (A22). Exactly one ask_completed span, the count only (A24). Picks emit no
+  // item_added_to_list. Resolves to the count landed; throws on failure so the Ask screen
+  // keeps the wagon held and can offer the confirm again.
+  // ─────────────────────────────────────────────────────────────
+  const landAskPicks = useCallback(async (askId, catalogItemIds) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!hh || !db) return null;
+    const { data: landed, error: landErr } = await db
+      .rpc("land_ask_picks", landAskPicksArgs(hh.id, askId, catalogItemIds));
+    if (landErr) throw landErr;
+    try {
+      tracer.startSpan("ask_completed", { attributes: askCompletedAttributes(landed) }).end();
+    } catch (e) {
+      console.warn("[rum] ask_completed event failed:", e);
+    }
+    await loadListItems(db, hh.id);
+    return landed;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
 
@@ -4123,6 +4151,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     cooksLoaded: !!household?.id && cooksLoadedFor === household.id,
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
+    landAskPicks,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
