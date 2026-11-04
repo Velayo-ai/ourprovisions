@@ -56,6 +56,30 @@ Vercel hosting, Anthropic Claude API.
 
 ---
 
+## SESSION START — orient before briefing
+
+When I type "SESSION START" (or "session start"), do this first.
+
+### Step 0 — handoff check
+Before the briefing, fetch `origin/handoff` and `origin/dev`, then classify
+`origin/handoff`'s sha with the same test as SESSION END Step 0:
+- **In `origin/dev`'s SESSION_LOG** (`git show origin/dev:docs/SESSION_LOG.md`)
+  → consumed; say so in one line.
+- **In the local SESSION_LOG only** → merged, not pushed; the briefing's first
+  line says so and asks to push.
+- **In neither** → the briefing's FIRST line is
+  `⚠ Unmerged design handoff <short sha> — <subject>. Merge it first?`
+  Stop and wait. On yes: run SESSION END's Step 0 / 0.5 merge steps only
+  (route DROPPED_FILES, merge into SESSION_LOG / ROADMAP / ARCHITECTURE, note
+  the sha), commit docs, ask to push, then brief from the merged state.
+  **This is a merge, not a SESSION END.**
+
+Why: 2026-11-03, handoff `2fa9f00` landed 40 min after Claude Code's SESSION
+END and the next SESSION START briefed from stale docs. (Ruled 2026-11-03
+[Velayo OS].)
+
+---
+
 ## BUILD — implement a spec from the airlock (mid-session)
 
 When I type "BUILD" (optionally naming a spec, e.g. "BUILD swipe parity"):
