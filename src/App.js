@@ -2,6 +2,7 @@ import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/c
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useProvisions, isPendingCatalogId, normalizeOccasion } from './hooks/useProvisions';
+import { useKeyboardInset } from './hooks/useKeyboardInset';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
@@ -7911,6 +7912,19 @@ function ProvisionsApp() {
   useEffect(() => {
     if (addSheetOpen) addSheetInputRef.current?.focus();
   }, [addSheetOpen]);
+  // The Add sheet rides on top of the on-screen keyboard (2026-11-04): iOS keeps the
+  // layout viewport full height when the keyboard opens, so the fixed sheet sat under
+  // it. Lifted by the covered strip, capped to the visible height (see the sheet).
+  const addSheetKeyboard = useKeyboardInset(addSheetOpen);
+  // While the sheet is open the page behind the scrim never scrolls — otherwise iOS
+  // scrolls the list when the input takes focus. The splash's lock, same shape:
+  // restore whatever was there before.
+  useEffect(() => {
+    if (!addSheetOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [addSheetOpen]);
 
   const handleRemoveMember = async (m) => {
     const name = m.users?.full_name || (m.users?.email ? m.users.email.split("@")[0] : "this member");
@@ -9555,7 +9569,8 @@ function ProvisionsApp() {
         .store-field-label { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 7px; }
         .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; background: #F5EDE0; outline: none; }
         .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; }
-        .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; }
+        .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; transition: transform 150ms ease-out; }
+        @media (prefers-reduced-motion: reduce) { .add-sheet { transition: none; } }
         .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; }
         /* Add sheet on the knob (pass 2, Shop slice 2): title = sheet-title rate k .5 at its
            current 18.4 (not promoted to 22.4 — not a .modal h2, same call as the Profile sheet);
@@ -12033,7 +12048,18 @@ function ProvisionsApp() {
           creates under `Other`. The mic is designed in and NOT wired (LATER). ── */}
       {addSheetOpen && (
         <div className="add-sheet-scrim" onClick={closeAddSheet}>
-          <div className="add-sheet" onClick={e => e.stopPropagation()}>
+          <div
+            className="add-sheet"
+            onClick={e => e.stopPropagation()}
+            style={{
+              transform: `translateY(-${addSheetKeyboard.inset}px)`,
+              // Never taller than what is on screen, so it can't run under the status
+              // bar with the keyboard up; 80vh stays the cap when nothing is covered.
+              ...(addSheetKeyboard.viewportHeight
+                ? { maxHeight: `min(80vh, ${Math.max(0, addSheetKeyboard.viewportHeight - 16)}px)` }
+                : {}),
+            }}
+          >
             <div className="add-sheet-grab" />
             <div className="add-sheet-title">Add something</div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
