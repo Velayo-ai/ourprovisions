@@ -43,10 +43,11 @@ Vercel hosting, Anthropic Claude API.
 - **`catalog_items.is_global`** is the ownership discriminator. `true` = seed item
   (system-owned; members can Hide but never Delete). `false` = custom item
   (household-owned; any member can add/Delete; can also Hide).
-- **Foreign keys referencing `catalog_items` are `NO ACTION` with exactly three
+- **Foreign keys referencing `catalog_items` are `NO ACTION` with exactly five
   deliberate exceptions** — `household_staples` (CASCADE, 016), `meal_ingredients`
-  (CASCADE, 025) and `list_item_events` (SET NULL, 046; *events release, never
-  block*). Everywhere else Postgres blocks deletion of a referenced row, so
+  (CASCADE, 025), `list_item_events` (SET NULL, 046; *events release, never
+  block*), and `ask_shelf_items` + `household_item_photos` (CASCADE, 077;
+  preference rows, like staples). Everywhere else Postgres blocks deletion of a referenced row, so
   deletes that touch referenced catalog rows must be multi-step SECURITY DEFINER
   RPCs (or soft-delete via `deleted_at`), never a plain `delete`. Do not
   "normalize" the exceptions back; see ARCHITECTURE's FK section.
