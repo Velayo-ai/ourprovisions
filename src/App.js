@@ -13,6 +13,7 @@ import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { AddSheetPanel } from './components/AddSheetPanel';
 import { CategorySelect } from './components/CategorySelect';
+import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete } from './lib/deleteCategory';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY } from './lib/preRum';
 import { useConnectivity } from './contexts/ConnectivityContext';
@@ -7612,16 +7613,14 @@ function ProvisionsApp({ scrollRootRef }) {
     await refreshCatalog();
   };
 
+  // Never deletes items (2026-11-05, src/lib/deleteCategory.js): a category with items is
+  // moved-and-deleted or nothing happens; the old no-target branch ran deleteItem per item.
   const deleteCategory = async (rawName, moveTo) => {
     if (!supabase || !household) return;
-    if (moveTo) {
-      const { error: moveErr } = await supabase
-        .from("catalog_items")
-        .update({ category: moveTo })
-        .eq("household_id", household.id)
-        .eq("category", rawName)
-        .is("deleted_at", null);
-      if (moveErr) { return; }
+    const itemCount = Object.values(catalogMap).filter(i => i.category === rawName).length;
+    const { plan, error: moveErr } = await runCategoryDelete(supabase, household.id, rawName, moveTo, itemCount);
+    if (plan === "refuse" || moveErr) return;
+    if (plan === "move") {
       setCatalogMap(prev => {
         const updated = {};
         Object.entries(prev).forEach(([k, v]) => {
@@ -7629,11 +7628,6 @@ function ProvisionsApp({ scrollRootRef }) {
         });
         return updated;
       });
-    } else {
-      const itemsInCat = Object.values(catalogMap).filter(i => i.category === rawName);
-      for (const item of itemsInCat) {
-        await deleteItem(item.name);
-      }
     }
     setHouseholdCategories(prev => { const s = new Set(prev); s.delete(rawName); return s; });
     setSelectedCategories(prev => { const s = new Set(prev); s.delete(rawName); return s; });
@@ -11985,13 +11979,14 @@ function ProvisionsApp({ scrollRootRef }) {
                     if (!rawName) { setDeletingCategory(null); return; }
                     const itemCount = Object.values(catalogMap).filter(i => i.category === rawName).length;
                     setDeletingCategory({ rawName, itemCount });
-                    setDeleteMoveTarget("");
+                    // The move picker is required: preselected, no "delete all items" choice.
+                    setDeleteMoveTarget(itemCount > 0 ? defaultMoveTarget(categories, rawName, CATEGORY_ORDER) : "");
                   }}
                   placeholder="— select category —"
                   style={{ marginBottom: "8px" }}
                 />
                 <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
-                  Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
+                  Standard categories can’t be deleted — only categories you’ve created.
                 </p>
                 {deletingCategory && (
                   <>
@@ -12004,16 +11999,16 @@ function ProvisionsApp({ scrollRootRef }) {
                           categories={categories.filter(c => c.rawName !== deletingCategory.rawName)}
                           value={deleteMoveTarget}
                           onChange={rawName => setDeleteMoveTarget(rawName)}
-                          placeholder="— delete all items too —"
                           style={{ marginBottom: "8px" }}
                         />
                       </>
                     )}
                     <button
                       className="modal-remove"
+                      disabled={deletingCategory.itemCount > 0 && !deleteMoveTarget}
                       onClick={() => deleteCategory(deletingCategory.rawName, deleteMoveTarget || null)}
                     >
-                      {deleteMoveTarget ? `Move & Delete Category` : `Delete${deletingCategory.itemCount > 0 ? " & Remove Items" : " Category"}`}
+                      {deleteCategoryLabel(deletingCategory.itemCount)}
                     </button>
                   </>
                 )}
