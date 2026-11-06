@@ -85,7 +85,8 @@ export function useSheetDrag(onClose, { threshold = 72 } = {}) {
     transform: leaving ? "translateY(110%)" : dy ? `translateY(${dy}px)` : "none",
     transition: dragging ? "none" : "transform 0.2s ease",
   };
-  return { handlers, style, dragging, leaving };
+  // dy (2026-11-05): the raw offset, for a sheet that composes it with its own transform (AddSheetPanel).
+  return { handlers, style, dragging, leaving, dy };
 }
 
 export default useSheetDrag;

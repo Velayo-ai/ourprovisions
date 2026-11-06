@@ -10,6 +10,7 @@ import { ConnectivityPill } from './components/ConnectivityPill';
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
+import { AddSheetPanel } from './components/AddSheetPanel';
 import { CategorySelect } from './components/CategorySelect';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY } from './lib/preRum';
@@ -9579,6 +9580,7 @@ function ProvisionsApp() {
         /* Clip, don't spill (2026-11-05): the sheet is overflow hidden; grab, title and search row hold
            their height (flex none); .add-sheet-body (results + hint) is the only scroller, so the
            keyboard cap shrinks the body, never draws the hint below the sheet's edge. */
+        .add-sheet-head { flex: none; }
         .add-sheet-search { display: flex; align-items: center; gap: 10px; flex: none; }
         .add-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; margin-top: 10px; }
         .add-result { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #E8D5B7; cursor: pointer; }
@@ -12052,42 +12054,44 @@ function ProvisionsApp() {
           creates under `Other`. The mic is designed in and NOT wired (LATER). ── */}
       {addSheetOpen && (
         <div className="add-sheet-scrim" onClick={closeAddSheet}>
-          <div
-            className="add-sheet"
-            onClick={e => e.stopPropagation()}
-            style={{
-              transform: `translateY(-${addSheetKeyboard.inset}px)`,
+          {/* AddSheetPanel (2026-11-05): pull down on the head always closes; on the body (results +
+              hint, the one scroller; the sheet clips) only from the top, otherwise it scrolls. */}
+          <AddSheetPanel
+            onClose={closeAddSheet}
+            inset={addSheetKeyboard.inset}
+            style={
               // Never taller than what is on screen, so it can't run under the status
               // bar with the keyboard up; 80vh stays the cap when nothing is covered.
-              ...(addSheetKeyboard.viewportHeight
+              addSheetKeyboard.viewportHeight
                 ? { maxHeight: `min(80vh, ${Math.max(0, addSheetKeyboard.viewportHeight - 16)}px)` }
-                : {}),
-            }}
+                : undefined
+            }
+            head={
+              <>
+                <div className="add-sheet-grab" />
+                <div className="add-sheet-title">Add something</div>
+                <div className="add-sheet-search">
+                  <CatalogSearchBox
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    onClear={() => setSearchQuery("")}
+                    placeholder="Search your catalog…"
+                    inputRef={addSheetInputRef}
+                  />
+                  <span style={{ position: "relative", flex: "none" }}>
+                    <button type="button" className="op-mic-btn" disabled aria-label="Voice add — coming later" title="Voice add — coming later">
+                      <svg viewBox="0 0 24 24" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="9" y="3" width="6" height="11" rx="3" />
+                        <path d="M5 11a7 7 0 0 0 14 0" />
+                        <line x1="12" y1="18" x2="12" y2="21" />
+                      </svg>
+                    </button>
+                    <span className="op-later-badge">LATER</span>
+                  </span>
+                </div>
+              </>
+            }
           >
-            <div className="add-sheet-grab" />
-            <div className="add-sheet-title">Add something</div>
-            <div className="add-sheet-search">
-              <CatalogSearchBox
-                value={searchQuery}
-                onChange={setSearchQuery}
-                onClear={() => setSearchQuery("")}
-                placeholder="Search your catalog…"
-                inputRef={addSheetInputRef}
-              />
-              <span style={{ position: "relative", flex: "none" }}>
-                <button type="button" className="op-mic-btn" disabled aria-label="Voice add — coming later" title="Voice add — coming later">
-                  <svg viewBox="0 0 24 24" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="9" y="3" width="6" height="11" rx="3" />
-                    <path d="M5 11a7 7 0 0 0 14 0" />
-                    <line x1="12" y1="18" x2="12" y2="21" />
-                  </svg>
-                </button>
-                <span className="op-later-badge">LATER</span>
-              </span>
-            </div>
-            {/* The one scroller: results + hint. The sheet clips (overflow hidden), so when the
-                keyboard cap shrinks it nothing below the search row paints past its edge. */}
-            <div className="add-sheet-body">
             <div className="add-sheet-results">
               {searchResults !== null && (
                 <SearchResultsList
@@ -12124,8 +12128,7 @@ function ProvisionsApp() {
               Added items land in their aisle, unchecked
               {activeSession?.store_name_raw ? `, and are remembered as picked up at ${activeSession.store_name_raw}` : ""}.
             </div>
-            </div>
-          </div>
+          </AddSheetPanel>
         </div>
       )}
 
