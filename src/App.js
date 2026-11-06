@@ -14,6 +14,8 @@ import { SheetPanel } from './components/SheetPanel';
 import { AddSheetPanel } from './components/AddSheetPanel';
 import { CategorySelect } from './components/CategorySelect';
 import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete } from './lib/deleteCategory';
+import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
+import { EditItemCategoryField } from './components/EditItemCategoryField';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY } from './lib/preRum';
 import { useConnectivity } from './contexts/ConnectivityContext';
@@ -5255,6 +5257,7 @@ function ProvisionsApp({ scrollRootRef }) {
     createInvite,
     toggleStaple,
     renameItem,
+    setItemCategory,
     refreshCatalog,
     fetchMeals,
     createMeal,
@@ -6609,6 +6612,8 @@ function ProvisionsApp({ scrollRootRef }) {
 
   const [editModalName, setEditModalName] = useState("");
   const [editModalPrice, setEditModalPrice] = useState("");
+  const [editModalCategory, setEditModalCategory] = useState("");
+  const [editModalError, setEditModalError] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
@@ -7484,8 +7489,10 @@ function ProvisionsApp({ scrollRootRef }) {
     // locked. With pricing off there's nothing to edit, so don't open an empty
     // modal. (The swipe Edit affordance is also suppressed for this case.)
     if (!isCustom && !showPrices) return;
-    setEditModalItem({ name: itemName, isCustom });
+    setEditModalItem({ name: itemName, isCustom, category: catalogEntry?.category || "" });
     setEditModalName(itemName);
+    setEditModalCategory(catalogEntry?.category || "");
+    setEditModalError(null);
     const existing = prices[itemName];
     setEditModalPrice(existing ? String(Math.round(existing * 100)) : "");
   };
@@ -7505,9 +7512,13 @@ function ProvisionsApp({ scrollRootRef }) {
       updatePrice(newName !== oldName ? newName : oldName, priceVal);
     }
 
-    if (editModalItem.isCustom && newName && newName !== oldName) {
-      await renameItem(oldName, newName);
-    }
+    // Name, then category (src/lib/itemCategory.js): the category lands on the row under its new
+    // name. A failure keeps the sheet open with the error; the item stays as it was.
+    const saved = await saveItemEdits(
+      { oldName, newName, isCustom: editModalItem.isCustom, oldCategory: editModalItem.category, newCategory: editModalCategory },
+      { rename: renameItem, setCategory: setItemCategory }
+    );
+    if (!saved.ok) { setEditModalError(saved.error); return; }
 
     setEditModalItem(null);
   };
@@ -11844,6 +11855,15 @@ function ProvisionsApp({ scrollRootRef }) {
               </div>
             )}
 
+            {/* Category (2026-11-05): custom items move aisle here; a standard item's is read-only. */}
+            <EditItemCategoryField
+              isCustom={editModalItem.isCustom}
+              options={editCategoryOptions(categories, CATEGORY_ORDER, CATEGORY_DISPLAY)}
+              value={editModalCategory}
+              onChange={(rawName) => { setEditModalCategory(rawName); setEditModalError(null); }}
+              currentLabel={CATEGORY_DISPLAY[editModalItem.category] || editModalItem.category}
+            />
+
             {showPrices && (
               <div className="modal-field">
                 <label className="modal-label">Price</label>
@@ -11873,6 +11893,8 @@ function ProvisionsApp({ scrollRootRef }) {
                 This is a catalog item — only the price can be edited.
               </p>
             )}
+
+            {editModalError && <div className="modal-error" style={{ marginTop: "12px" }}>{editModalError}</div>}
 
             <div className="modal-actions-spaced">
               <div>

@@ -7,6 +7,7 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { inviteFailureNotice } from "../lib/inviteFailure";
+import { updateItemCategory, applyItemCategory } from "../lib/itemCategory";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
 import { trace } from "@opentelemetry/api";
@@ -2382,18 +2383,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // refs-only, intentional empty deps
 
+  // Returns true once the row is renamed (2026-11-05: Edit item saves the category after the
+  // name, under the new name, so it needs to know the rename landed).
   const renameItem = useCallback(async (oldName, newName) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
-    if (!db || !hh) return;
+    if (!db || !hh) return false;
     const item = catalogRef.current[oldName];
-    if (!item || item.created_by == null) return; // only custom items
+    if (!item || item.created_by == null) return false; // only custom items
     const { error: renameErr } = await db
       .from("catalog_items")
       .update({ name: newName })
       .eq("id", item.id)
       .eq("household_id", hh.id);
-    if (renameErr) { setError(`Could not rename item: ${renameErr.message}`); return; }
+    if (renameErr) { setError(`Could not rename item: ${renameErr.message}`); return false; }
     const updated = { ...item, name: newName };
     const newRef = { ...catalogRef.current };
     delete newRef[oldName];
@@ -2405,7 +2408,26 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       next[newName] = updated;
       return next;
     });
+    return true;
   }, []);
+
+  // setItemCategory (2026-11-05, Edit item → Category): one custom row's category, by id
+  // (src/lib/itemCategory.js). catalogMap follows only on success; then one list read so Shop
+  // shows the new aisle now — the 2s poll would get there too (the list RPC's category comes from
+  // the catalog_items join; realtime watches list_items only, so it does not fire for this).
+  // Returns { ok, error }; the caller shows the error and the item stays as it was.
+  const setItemCategory = useCallback(async (itemName, category) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    const item = catalogRef.current[itemName];
+    const result = await updateItemCategory(db, hh?.id, item, category);
+    if (!result.ok || item.category === category) return result;
+    catalogRef.current = applyItemCategory(catalogRef.current, itemName, category);
+    setCatalogMap(prev => applyItemCategory(prev, itemName, category));
+    loadListItems(db, hh.id);
+    return result;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // refs-only, intentional empty deps
 
   const toggleStaple = useCallback(async (itemName) => {
     const db = supabaseRef.current;
@@ -4152,7 +4174,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     landAskPicks,
-    hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, refreshCatalog,
+    hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
     fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
