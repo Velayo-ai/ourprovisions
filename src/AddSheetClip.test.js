@@ -6,12 +6,13 @@
 //   - the sheet's own rule is a flex column with overflow hidden;
 //   - grab, title and search row hold their height (flex none);
 //   - .add-sheet-body is the only scroller (flex 1, min-height 0, overflow-y auto) and holds
-//     the results and the hint, after the search row;
+//     the results and the hint, after the search row (the head; AddSheetPanel since 2026-11-05);
 //   - the same rules, applied in jsdom, compute to those values.
 const fs = require("fs");
 const path = require("path");
 
 const SRC = fs.readFileSync(path.join(__dirname, "App.js"), "utf8");
+const PANEL = fs.readFileSync(path.join(__dirname, "components", "AddSheetPanel.js"), "utf8");
 
 // The one declaration block for `selector {`, at the start of a line (no media-query copies).
 function rule(selector) {
@@ -39,7 +40,7 @@ describe("Add sheet clips its contents", () => {
   });
 
   test("grab, title and search row never shrink", () => {
-    for (const sel of [".add-sheet-grab", ".add-sheet-title", ".add-sheet-search"]) {
+    for (const sel of [".add-sheet-head", ".add-sheet-grab", ".add-sheet-title", ".add-sheet-search"]) {
       expect(rule(sel)).toMatch(/flex: none;/);
     }
   });
@@ -55,15 +56,22 @@ describe("Add sheet clips its contents", () => {
   });
 
   test("results and hint sit inside the body, after the search row", () => {
+    // The panel renders head, then body; the call site passes the search row as `head` and
+    // the results + hint as children (the body).
+    expect(PANEL.indexOf('className="add-sheet-body"')).toBeGreaterThan(PANEL.indexOf('className="add-sheet-head"'));
+    expect(PANEL).toMatch(/className="add-sheet-body"[^>]*>\s*\{children\}/);
     const jsx = sheetJsx();
+    const head = jsx.indexOf("head={");
     const search = jsx.indexOf('className="add-sheet-search"');
-    const body = jsx.indexOf('className="add-sheet-body"');
-    expect(search).toBeGreaterThan(-1);
+    const body = jsx.indexOf("\n          >\n", search);   // the panel's opening tag closes: children follow
+    expect(head).toBeGreaterThan(-1);
+    expect(search).toBeGreaterThan(head);
     expect(body).toBeGreaterThan(search);
     const inBody = jsx.slice(body);
     expect(inBody).toContain('className="add-sheet-results"');
     expect(inBody).toContain("<SearchResultsList");
     expect(inBody).toContain('className="add-sheet-hint"');
+    expect(inBody).not.toContain("<CatalogSearchBox");
     // Exactly one search field in the sheet: no clone behind the hint.
     expect(jsx.match(/<CatalogSearchBox/g)).toHaveLength(1);
   });
