@@ -30,10 +30,14 @@ export function useKeyboardInset(active = true) {
   useEffect(() => {
     if (!active || typeof window === "undefined") { setMetrics(CLOSED); return undefined; }
     const vv = window.visualViewport;
+    let last = null;
     const update = () => {
       const next = keyboardMetrics(window);
-      // Same numbers → same object, so a scroll tick with no change re-renders nothing.
-      setMetrics((prev) => (prev.inset === next.inset && prev.viewportHeight === next.viewportHeight ? prev : next));
+      // A scroll tick that leaves the rounded numbers as they were is dropped here, before
+      // setState (2026-11-05): no update queued, so the host (ProvisionsApp) does not re-render.
+      if (last && last.inset === next.inset && last.viewportHeight === next.viewportHeight) return;
+      last = next;
+      setMetrics(next);
     };
     update();
     if (!vv) return undefined;

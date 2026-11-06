@@ -96,3 +96,20 @@ describe("Add sheet clips its contents", () => {
     style.remove();
   });
 });
+
+describe("nothing behind the open sheet scrolls (2026-11-05)", () => {
+  test("the scrim takes no touches: touch-action none, overscroll contained; a tap still closes", () => {
+    const scrim = rule(".add-sheet-scrim");
+    expect(scrim).toMatch(/touch-action: none;/);
+    expect(scrim).toMatch(/overscroll-behavior: contain;/);
+    expect(sheetJsx()).toMatch(/<div className="add-sheet-scrim" onClick=\{closeAddSheet\}>/);
+  });
+
+  test("the sheet locks the real scroller: .phone-scroll by ref, handed down to ProvisionsApp", () => {
+    expect(SRC).toContain('<div className="phone-scroll" ref={phoneScrollRef}>');
+    expect(SRC).toContain("<ProvisionsApp scrollRootRef={phoneScrollRef} />");
+    expect(SRC).toContain("useScrollLock(addSheetOpen, scrollRootRef);");
+    // The old body-only lock for the sheet is gone (the splash keeps its own).
+    expect(SRC).not.toMatch(/if \(!addSheetOpen\) return undefined;\s*const prev = document\.body\.style\.overflow/);
+  });
+});
