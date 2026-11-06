@@ -9572,14 +9572,18 @@ function ProvisionsApp() {
         .store-field-label { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 7px; }
         .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; background: #F5EDE0; outline: none; }
         .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; }
-        .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; transition: transform 150ms ease-out; }
+        .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; transition: transform 150ms ease-out; }
         @media (prefers-reduced-motion: reduce) { .add-sheet { transition: none; } }
-        .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; }
+        .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; flex: none; }
         /* Add sheet on the knob (pass 2, Shop slice 2): title = sheet-title rate k .5 at its
            current 18.4 (not promoted to 22.4 — not a .modal h2, same call as the Profile sheet);
            hint = meta 14 #8A5F3A. The search input is CatalogSearchBox (body 15, shared with Browse). */
-        .add-sheet-title { font-family: 'Playfair Display', serif; font-size: calc(18.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; margin-bottom: 12px; }
-        .add-sheet-results { overflow-y: auto; margin-top: 10px; min-height: 0; }
+        .add-sheet-title { font-family: 'Playfair Display', serif; font-size: calc(18.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; margin-bottom: 12px; flex: none; }
+        /* Clip, don't spill (2026-11-05): the sheet is overflow hidden; grab, title and search row hold
+           their height (flex none); .add-sheet-body (results + hint) is the only scroller, so the
+           keyboard cap shrinks the body, never draws the hint below the sheet's edge. */
+        .add-sheet-search { display: flex; align-items: center; gap: 10px; flex: none; }
+        .add-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; margin-top: 10px; }
         .add-result { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #E8D5B7; cursor: pointer; }
         .add-result .ar-main { flex: 1; min-width: 0; }
         .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
@@ -12065,7 +12069,7 @@ function ProvisionsApp() {
           >
             <div className="add-sheet-grab" />
             <div className="add-sheet-title">Add something</div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div className="add-sheet-search">
               <CatalogSearchBox
                 value={searchQuery}
                 onChange={setSearchQuery}
@@ -12084,6 +12088,9 @@ function ProvisionsApp() {
                 <span className="op-later-badge">LATER</span>
               </span>
             </div>
+            {/* The one scroller: results + hint. The sheet clips (overflow hidden), so when the
+                keyboard cap shrinks it nothing below the search row paints past its edge. */}
+            <div className="add-sheet-body">
             <div className="add-sheet-results">
               {searchResults !== null && (
                 <SearchResultsList
@@ -12119,6 +12126,7 @@ function ProvisionsApp() {
             <div className="add-sheet-hint">
               Added items land in their aisle, unchecked
               {activeSession?.store_name_raw ? `, and are remembered as picked up at ${activeSession.store_name_raw}` : ""}.
+            </div>
             </div>
           </div>
         </div>
