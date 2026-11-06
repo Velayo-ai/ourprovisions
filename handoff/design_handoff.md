@@ -1,0 +1,56 @@
+## SESSION_LOG
+
+### [2026-11-05] — [OurProvisions] — Add sheet made usable on iPhone and shipped; Manage Categories redesigned around Ask (spec); Delete can no longer destroy items; Edit can move an item's category
+
+**Goal:** Fix the Add sheet hiding behind the iOS keyboard, then design where Ask's settings live, which turned into Manage Categories as list → detail.
+**Completed:**
+- **Diagnosed and shipped the Add-sheet fixes (Dan walked each on iPhone; all four on prod).** Cause: iOS shrinks the *visual* viewport under the keyboard, so a `position: fixed; bottom: 0` sheet stayed behind it. Shipped `useKeyboardInset` (visualViewport lift + height cap), sheet clipping (one inner scroller), pull-to-close by adopting the existing `useSheetDrag` (the grab bar had been decorative, so this was never a regression), and `useScrollLock`. Its finding: in iPhone portrait the **document** scrolls the list (`.phone-scroll` only scrolls at ≥ 700px), and the old body-only lock leaked, which caused the "shake". Dev `1576d9d` `b1a7753` `4eb53f1` `0b37331` → prod via cherry-pick `593a153` `8ebdbaf` `6957978` `629e332`.
+- **Closed a live data-loss path on prod.** Manage Categories → Delete defaulted to "— delete all items too —". Now the move picker is required and preselects **Pantry** (Dan: Produce was the wrong aisle for strays), and `deleteCategory` refuses to write without a target. Dev `5f863d5` `baae721` → prod `2e987eb` `454d140`. Prod walk passed.
+- **Let custom items change category from swipe → Edit** (Dan asked: "a way to move an item without deleting it"). Standard items show their category read-only ("Standard items stay in their aisle for now"). Dev `50abe70` → prod `48c022f`. The cherry-pick conflicted on `useProvisions.js`'s return list (dev's `landAskPicks,`): main's line was kept, plus `setItemCategory` only. Prod walk passed.
+- **Designed Manage Categories as list → detail with Ask settings, and mocked it** (claude.ai Design canvas "Manage Categories + Ask settings", private to Dan, https://claude.ai/artifact/6GQUbk6LNwZKJDD36xdEH6). The list has a create field with a *Make this an Ask* switch, the user's categories (asks with a hand icon), and Standard folded into one locked line. Detail screens: your category (rename, per-item Move, Turn into an Ask, delete with move) and Ask (pick target, Standard/Simple, names under photos, shelf grid, Add to shelf). Wrote `SPEC_manage_categories.md` (dropped file).
+- **Ruled D6 (Dan): keep "Turn into an Ask".** Converting puts the items on the new shelf and re-homes them to a picked aisle (same picker), in one RPC. No reverse conversion in v1.
+- **Ruled D9 (Dan, 11-06): (b-light) a `household_categories` names table** so an empty category survives. This changed from (a) because Edit → Category makes emptying a category by tidying easy (moving the last items out makes it vanish today).
+- **Ruled phone landscape (Dan): (a) a "turn your phone upright" screen**, not a landscape layout. Cause found: the layout picks phone vs desktop by **width only**, so a sideways iPhone (~900px wide, ~400px tall) gets the desktop phone-frame over the blurred photo, and the list gets a sliver. The native Expo app will lock portrait anyway.
+**Unfinished:**
+- **Make "Other" a standard category?** It's quick-add's destination for unmatched items and the largest non-standard category on prod (15 items, 3 households), but it's unprotected (not in `CATEGORY_ORDER`). Recommended: standard, last, protected. Needs Dan.
+- **"Merge into…" wording:** delete + move *is* a merge. Prod shows near-duplicate categories ("Asian - Mexican" / "Mexican Asian", "Bread & Desserts" variants). The redesign should say "Merge into…" when the target is a custom category. Not ruled; carried in the spec.
+- **D8 header in the mock is superseded:** the 11-03 ruling stands ("Hand it to {Label} →" on the Ask header). The spec adds ⋯ (opens Ask settings) and moves "+ Add to shelf" into the detail. The mock's aria-label with the child's name is superseded too ("Ask settings").
+- **One scroll lock for every sheet:** about 20 backdrops have the same leak (every `.modal-overlay`, `.rv-scrim`, `.rv-psheet-scrim`, `.lib-type-scrim`, `.board-menu-backdrop`, 7 inline full-screen scrims incl. Profile). Not started.
+- **Rename hides seed items for the renamer only** (`user_hidden_items` is keyed by `clerk_id`). Today's read-only query found **no seed item outside `CATEGORY_ORDER` on dev or prod**, so neither this nor the delete-move "household rows only" gap can bite yet. D5's RPC fixes it household-wide.
+- Carried from 11-03: Ask Slice 2 (NOW 0), the two "E"s badge rule, the Slice 2 mid-trip walk check, `SWEEP_LIVE=true` on prod, the security session.
+**Next session:**
+SESSION START
+Goal: Ask Slice 2 in Claude Code, Step 0 first (unchanged from 11-03): every consumer of the selected Browse pills and how each treats an ask pill; the replay allow-list; then create + run on Standard in Browse.
+State: Prod `48c022f`: Add-sheet fixes, delete-never-deletes (Pantry default), Edit → Category, all walked on iPhone. Dev `50abe70` = prod + the Ask client `48c1698` (077 on dev only). Cherry-picks to main will keep conflicting on `useProvisions.js`'s return list until Ask reaches prod: keep main's line and add only the new name.
+Done when: Slice 2's 11-03 "Done when" (a household makes Ask Easton from + New shelf, sees it as a Browse pill and section, hands it over, picks 3, and Shop shows "Picked by Easton"; no name in any allow-listed class). Prod untouched.
+**Files updated:** `SPEC_manage_categories.md` (new, dropped file). Code from Claude Code: `1576d9d` `b1a7753` `4eb53f1` `0b37331` `5f863d5` `baae721` `50abe70` on dev; prod `593a153` `8ebdbaf` `6957978` `629e332` `2e987eb` `454d140` `48c022f`.
+**DB changes:** None. Read-only queries only (seed and custom categories outside `CATEGORY_ORDER`, dev and prod).
+
+## ROADMAP_DECISIONS
+
+| date | decision + rationale |
+|---|---|
+| 2026-11-05 | **A category delete never deletes items.** The move picker is required and defaults to **Pantry**, and the function refuses without a target. Why: the old default ("delete all items too") was one tap from silent data loss. Anyone who wants items gone deletes them as items. |
+| 2026-11-05 | **Custom items can change category from Edit; standard items can't yet.** A seed item is shared across households, so moving one means a household copy plus a hide. That waits for the household-wide RPC (D5) so it can't create per-member duplicates. |
+| 2026-11-05 | **Manage Categories becomes list → detail, and Ask settings live there** (SPEC_manage_categories D1–D8). Ask is a category with a handover, so its settings belong where categories are managed. One detail screen with two ways in: the list row, and ⋯ on the Ask header in Browse. |
+| 2026-11-05 | **Turn a category into an Ask: kept (Dan).** Its items go onto the shelf and move to a picked aisle in one RPC, so Shop still knows where they are. No reverse conversion in v1. |
+| 2026-11-06 | **D9: (b-light) `household_categories` stores names only.** An empty category survives on every member's phone, and items keep their text label. Why over (a) first-item-at-create: Edit → Category made emptying a category by tidying easy. (b-full), items referencing category rows, is revisited with Phase 2 store aisle order. |
+| 2026-11-05 | **Phone landscape: "turn your phone upright" (Dan).** The layout picks phone vs desktop by width only, so a sideways phone gets the desktop frame. Treat `(pointer: coarse) and (max-height: 500px)` as a phone and show an upright prompt. No landscape layout: the native app locks portrait. |
+| 2026-11-05 | **While Ask is dev-only, promote by cherry-pick, never dev→main.** Expect `useProvisions.js` return-list conflicts. Resolve as main's line + the new name only, and confirm the Ask markers read 0 in the prod bundle. |
+| — | **Roadmap:** DONE 11-05: Add-sheet keyboard / clipping / pull-to-close / scroll lock; delete-never-deletes (Pantry default); Edit → Category for custom items. NOW 0 unchanged: Ask Slice 2. Add to NEXT: **Phone landscape** ("turn upright", per above); **One scroll lock for every sheet** (`useScrollLock` + `touch-action: none` on every backdrop, one commit, iPhone walk); **Manage Categories redesign** (SPEC_manage_categories slices 1–4, after Ask Slice 2; 078 = D5 rename RPC + D9 table). Decide: **make Other standard** (recommended). LATER: Create React App → Vite (CRA is deprecated), with the Expo work. WATCH: **categories used as dated trip lists** (9 prod categories named like "20260724 - friday", one household: people want to group by occasion, close to Asks and the board); **dev and prod seed catalogs differ** (dev has no Bakery seed items; prod 50 seed items vs dev 38). |
+
+## ARCHITECTURE
+
+- **Scroll roots differ by layout.** Below 700px (a phone upright) the **document** scrolls the list, and `.phone-scroll` is a plain block. At ≥ 700px (desktop, a phone on its side) `.phone-scroll` scrolls. Any scroll lock must lock both: `useScrollLock` takes `scrollRootRef` (ShoppingListApp → ProvisionsApp) and the body, and restores each value and `scrollTop`. iOS ignores `overflow` for touch, so a backdrop also needs `touch-action: none` + `overscroll-behavior: contain`.
+- **Keyboard-aware sheets:** `useKeyboardInset(open)` returns `{ inset, viewportHeight }` from `visualViewport` (inset = innerHeight − vv.height − vv.offsetTop). It listens only while open and drops unchanged ticks before setState. A sheet lifts by `translateY(-inset)` and caps at `min(80vh, viewportHeight − 16)`. Safari's floating form bar is not subtracted by visualViewport.
+- **A capped sheet is a clipped flex column** with exactly one inner scroller (`flex: 1; min-height: 0; overflow-y: auto`). Swipe-to-close is `useSheetDrag` on the head (always arms) and on the scroller (arms only at `scrollTop` 0), with the drag `dy` and the keyboard lift combined in one transform.
+- **Category delete invariant:** `deleteCategory` (src/lib/deleteCategory.js) never deletes a catalog row. With items it requires a target, defaulting to Pantry, else the first standard category. The only write is the household-scoped move.
+- **Item category edit:** `setItemCategory` updates one custom row by id (`household_id`, `is_global = false`, `deleted_at is null`) and counts as saved only if exactly one row returns. Realtime watches `list_items`, not `catalog_items`, so the save triggers one list read for Shop.
+- **Finding (read-only, 11-06):** every seed catalog item on dev and prod sits in a `CATEGORY_ORDER` category. Only custom items carry other categories (dev 26 / 11 categories, prod 101 / 27). `Other` is not standard but is quick-add's destination.
+- **Planned, not built (D9):** `household_categories` (household_id, name, created_at; unique per household, case-insensitive) in 078 with `rename_household_category`. Category reads union these names with item labels.
+
+## DROPPED_FILES
+
+| file | destination | what |
+|---|---|---|
+| `SPEC_manage_categories.md` | `docs/specs/active/` | Manage Categories as list → detail with Ask settings; D1–D10, defects found, Step 0, four slices. D4 already shipped as a stopgap; D9 decided (b-light). Dan saves it into `handoff/` from the chat download (the `handoff` branch carries only this file). |
