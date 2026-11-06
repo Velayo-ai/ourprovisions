@@ -28,18 +28,18 @@ function fakeDb(result = { error: null }) {
 }
 
 describe("the move picker: required, preselected, no delete-all", () => {
-  test("Other is not a standard category today, so the first standard one is preselected: Produce", () => {
-    expect(CATEGORY_ORDER).not.toContain("Other");
-    expect(CATEGORY_ORDER[0]).toBe("Produce");
-    expect(defaultMoveTarget(CATS, "Snacks", CATEGORY_ORDER)).toBe("Produce");
+  test("Pantry is today's default", () => {
+    expect(CATEGORY_ORDER).toContain("Pantry");
+    expect(defaultMoveTarget(CATS, "Snacks", CATEGORY_ORDER)).toBe("Pantry");
   });
 
-  test("Other is preselected once it is a standard category", () => {
-    const order = [...CATEGORY_ORDER, "Other"];
-    expect(defaultMoveTarget([...CATS, cat("Other")], "Snacks", order)).toBe("Other");
+  test("if Pantry leaves CATEGORY_ORDER, the first standard category is the default", () => {
+    const order = CATEGORY_ORDER.filter((c) => c !== "Pantry");
+    expect(defaultMoveTarget(order.map(cat).concat(cat("Snacks")), "Snacks", order)).toBe(order[0]);
   });
 
   test("never the category being deleted; a standard one first, then whatever is left", () => {
+    expect(defaultMoveTarget([cat("Dairy"), cat("Pantry"), cat("Snacks")], "Snacks", CATEGORY_ORDER)).toBe("Pantry");
     expect(defaultMoveTarget([cat("Dairy"), cat("Snacks")], "Snacks", CATEGORY_ORDER)).toBe("Dairy");
     expect(defaultMoveTarget([cat("Snacks"), cat("Party")], "Snacks", CATEGORY_ORDER)).toBe("Party");
     expect(defaultMoveTarget([cat("Snacks")], "Snacks", CATEGORY_ORDER)).toBe("");
@@ -55,7 +55,7 @@ describe("the move picker: required, preselected, no delete-all", () => {
     expect(options).toHaveLength(targets.length);
     expect(options.some((o) => o.value === "")).toBe(false);
     expect(options.some((o) => /delete all/i.test(o.textContent))).toBe(false);
-    expect(select.options[select.selectedIndex].textContent).toBe("Produce");
+    expect(select.options[select.selectedIndex].textContent).toBe("Pantry");
     // And the old placeholder is gone from the app.
     expect(APP).not.toContain("delete all items too");
   });
