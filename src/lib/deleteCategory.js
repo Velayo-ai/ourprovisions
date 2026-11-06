@@ -6,12 +6,12 @@
 // deleted, the picker is required and preselected, and the function refuses a delete without a
 // target. Anyone who wants items gone deletes them as items.
 
-// The default home for a deleted category's items: Other when Other is a standard category,
-// otherwise the first standard category (Other is not in CATEGORY_ORDER today, so: Produce).
-// Falls back to any standard category on offer, then to the first target, then to none.
+// The default home for a deleted category's items: Pantry (Dan, 2026-11-05), or the first
+// standard category if Pantry ever leaves CATEGORY_ORDER. Falls back to any standard category
+// on offer, then to the first target, then to none.
 export function defaultMoveTarget(categories, deletingRawName, categoryOrder) {
   const targets = categories.filter((c) => c.rawName !== deletingRawName);
-  const preferred = categoryOrder.includes("Other") ? "Other" : categoryOrder[0];
+  const preferred = categoryOrder.includes("Pantry") ? "Pantry" : categoryOrder[0];
   const pick = targets.find((c) => c.rawName === preferred)
     || targets.find((c) => categoryOrder.includes(c.rawName))
     || targets[0];
