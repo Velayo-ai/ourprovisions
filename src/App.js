@@ -3,6 +3,7 @@ import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } fr
 import { createPortal } from "react-dom";
 import { useProvisions, isPendingCatalogId, normalizeOccasion } from './hooks/useProvisions';
 import { useKeyboardInset } from './hooks/useKeyboardInset';
+import { useScrollLock } from './hooks/useScrollLock';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
@@ -5138,7 +5139,7 @@ export function OnHandPrompt({ prompt, onChoose, onCancel, onConfirm }) {
   );
 }
 
-function ProvisionsApp() {
+function ProvisionsApp({ scrollRootRef }) {
   const { user, isSignedIn, isLoaded } = useUser();
   // D2 (SPEC_auth_state_ui_gating.md) as amended 2026-09-24: the session is LIVE
   // when Clerk is loaded and signed in — Clerk's word only. Token trouble and
@@ -7920,14 +7921,11 @@ function ProvisionsApp() {
   // it. Lifted by the covered strip, capped to the visible height (see the sheet).
   const addSheetKeyboard = useKeyboardInset(addSheetOpen);
   // While the sheet is open the page behind the scrim never scrolls — otherwise iOS
-  // scrolls the list when the input takes focus. The splash's lock, same shape:
-  // restore whatever was there before.
-  useEffect(() => {
-    if (!addSheetOpen) return undefined;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [addSheetOpen]);
+  // scrolls the list when the input takes focus, and a drag behind the sheet rubber-bands
+  // the list, whose visualViewport scroll events shook the lift (2026-11-05). Locks both
+  // scroll roots: .phone-scroll by ref (≥ COLUMN_MIN_WIDTH) and the body (a phone upright),
+  // scrollTop kept. The scrim's touch-action none is the half iOS actually obeys.
+  useScrollLock(addSheetOpen, scrollRootRef);
 
   const handleRemoveMember = async (m) => {
     const name = m.users?.full_name || (m.users?.email ? m.users.email.split("@")[0] : "this member");
@@ -9572,7 +9570,10 @@ function ProvisionsApp() {
         .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 10px; cursor: pointer; text-decoration: underline; text-align: left; }
         .store-field-label { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 7px; }
         .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; background: #F5EDE0; outline: none; }
-        .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; }
+        /* touch-action none + overscroll contain (2026-11-05): a drag on the dimmed area never reaches the
+           page (iOS ignores overflow hidden for touch). Taps still close. The sheet's own scroller is its
+           own touch-action root, so .add-sheet-body still scrolls and the head still pulls to close. */
+        .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; touch-action: none; overscroll-behavior: contain; }
         .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; transition: transform 150ms ease-out; }
         @media (prefers-reduced-motion: reduce) { .add-sheet { transition: none; } }
         .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; flex: none; }
@@ -12493,6 +12494,8 @@ function ProvisionsApp() {
 
 export default function ShoppingListApp() {
   const { user, isSignedIn, isLoaded } = useUser();
+  // The column's scroll root, for sheets that lock the page behind them (useScrollLock).
+  const phoneScrollRef = useRef(null);
   const { getToken, sessionId } = useAuth();
   // Same liveness the app body derives (authHealth is a shared store), so the
   // household context and useProvisions agree on when there is a session.
@@ -12535,10 +12538,10 @@ export default function ShoppingListApp() {
           own scroll root. */}
       <div className="desk-bg op-replay-block" aria-hidden="true" />
       <div className="phone-frame">
-        <div className="phone-scroll">
+        <div className="phone-scroll" ref={phoneScrollRef}>
           <ActiveHouseholdProvider getToken={getToken} clerkId={sessionLive ? user?.id : undefined} sessionId={sessionId} onRemoval={onRemoval}>
             <HouseholdDebugLog />
-            <ProvisionsApp />
+            <ProvisionsApp scrollRootRef={phoneScrollRef} />
           </ActiveHouseholdProvider>
           {systemMessage && (
         <>

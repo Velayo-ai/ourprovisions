@@ -72,6 +72,20 @@ describe("useKeyboardInset", () => {
     expect(result.current).toEqual({ inset: 0, viewportHeight: 844 });
   });
 
+  test("a scroll tick that leaves the rounded inset unchanged does not re-render", () => {
+    let paints = 0;
+    const { result } = renderHook(() => { paints += 1; return useKeyboardInset(true); });
+    act(() => { vv.height = 508; vv.fire("resize"); });
+    expect(result.current.inset).toBe(336);
+    const settled = paints;
+    act(() => { vv.offsetTop = 0.3; vv.fire("scroll"); });   // rubber-band jitter: rounds to the same
+    act(() => { vv.fire("scroll"); vv.fire("scroll"); });
+    expect(paints).toBe(settled);
+    act(() => { vv.offsetTop = 40; vv.fire("scroll"); });    // a real change still lands
+    expect(result.current.inset).toBe(296);
+    expect(paints).toBe(settled + 1);
+  });
+
   test("inactive: no listeners, inset 0", () => {
     const { result } = renderHook(() => useKeyboardInset(false));
     expect(result.current).toEqual({ inset: 0, viewportHeight: null });
