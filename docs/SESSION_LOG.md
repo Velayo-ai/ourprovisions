@@ -25,6 +25,85 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-11-07] — [OurProvisions] — Ask Slice 2 COMPLETE ON DEV: create and run on Standard in Browse, "Picked by" in Shop, the name kept out of Splunk (Verification 8 PASS)
+**Goal:** Ask Slice 2 in Claude Code, Step 0 first. Done when: a household makes Ask Easton from + New shelf, sees it as a Browse pill and section, hands it over, picks 3, and Shop shows "Picked by Easton"; no name in any allow-listed class; prod untouched. Session ran 11-06 10:00 → 11-07 14:30; design handoff `3a3fe4e` on `origin/handoff`, merged here.
+**Completed:**
+- **Ran Step 0 and got rulings K1–K6 (Dan).** Step 0 found that Slice 2 couldn't be client work alone:
+  - creating an ask took three non-atomic writes;
+  - on dev the label reached replay and click-text spans;
+  - every Browse pill consumer assumed a pill is a category;
+  - Shop never rendered "Picked by".
+
+  Rulings:
+  - **K1** 078 `create_ask` first;
+  - **K2** one live label per household, case-insensitive;
+  - **K3** `.op-name` hides any person's name in both environments and both pipelines;
+  - **K4** Staples never narrows a shelf;
+  - **K5** asks get their own selection set;
+  - **K6** "Picked by" in Shop joins Slice 2.
+
+  `SPEC_ask_slice2.md` was routed to `docs/specs/active/` during BUILD on Dan's instruction. Its D-a to D-e:
+  - direct `INSERT` on `asks` revoked;
+  - ask blocks never join A–Z;
+  - tiles priced by their real aisle;
+  - no "＋ New item" on ask headers;
+  - "Showing only" names asks.
+- **Applied 078 on dev and recorded it in full.** `cebac9a` adds:
+  - the live-label index;
+  - `create_ask`: a client-supplied id makes a retry safe; the target is checked against the tile count; a per-household lock;
+  - the `INSERT` revoke.
+
+  The parse check passed 13/0, plus the fixture 26/26. On the first fixture run, check 22 tripped the same-statement snapshot trap, so each call and its check became separate statements. Dan applied 078 at 21:54:34 local and the log said "078 COMMITTED". The first ledger insert had run commented out; Dan then wrote `20261107025434`, and Claude Code read it back. Claude Code's calls were accepted: 42710 for a reused id, a retry returns only a live ask, a blank noun is stored as null.
+- **Built and walked the client on dev, C1 → C4.3; Dan walked every step on iPhone, all PASS:**
+  - **C1** `b939526`: `.op-name`, last in both exclude lists.
+  - **C2** `61dc235` + **C2.1** `0a19c58`: the + New shelf sheet. The first walk hid the duplicate error below the fold, so the duplicate check now runs as you type, under the name; other errors sit in the pinned footer; one scroller.
+  - **C3** `01094f2`: ask pills and blocks.
+  - **C3b** `241e3b0` `a514140` `4da8d10`: distinct counts; the hand-over, plus Your turn / shelf / Great picks with the wagon; shelf photos.
+  - `9e32d9d`: run tiles never show an aisle icon (Bananas had shown Produce's 🥦).
+  - **C4** `bb507c9`: Shop "Picked by", tray initials, `.op-name` on the whole provenance line.
+  - **C4.1** `5e2c53c` and **C4.3** `cc22926`: two-letter initials, decided across the household.
+  - **C4.2** `a76f92c`: the rail order.
+
+  Jest 789/789 across 59 suites, ESLint clean, the CI build compiled. Every push was confirmed by markers in the served bundle. Dev = `cc22926` / `main.5b014bf1.js` / `dpl_DapZx1rnNjce9im6tXLt3Yvs45qm`.
+- **Ruled the rail at 3+ asks and the two-"E" badge (Dan); both walked.**
+  - **Rail:** ask pills order by last **hand-over**, most recent first; never-handed-over asks follow, A–Z. At most 2 ask pills show; "🧺 +N more" opens a sheet.
+  - **+ New shelf** sits right after Staples with 0 asks, and at the **end** of the rail with 1+ (Dan: Paige and Andrew set up two shelves once and never tap it again).
+  - The order is set when Browse opens and never re-sorts while you're on it. It's stored per device (`op_ask_handover:{household}:{ask}`), keyed by ids, never the label; a storage failure falls back to A–Z.
+  - Claude Code's two calls were accepted: "+N more" shows selected while one of its asks is; a sheet row toggles like its pill, then closes.
+  - **Badge** (closes the 11-03 item): one letter by default. Names that share a first letter **anywhere in the household** always show two letters, so Easton is "Ea" even when he picked alone, because Everett exists.
+- **Verification 8 PASSED on a dev HAR.**
+  - "Easton", "Everett" and "Nina" each appear 0 times in 37 span and 24 decoded replay payloads.
+  - The zeros aren't blind: the copy around the names *was* recorded ("Hand it to", "More shelves", "In cart"; the click text reads "Hand it to →" with the name stripped).
+  - The one bodiless replay POST was the previous page's unload flush, before the reload (the 10-27 beacon gap). The walked page is fully checked: all 452 span visibility stamps read `visible`.
+  - Names appear only in what Supabase sends back (88 list reads, 1 `asks` read), never in a URL, filter or request body; `land_ask_picks` sends ids only.
+  - Dan deleted the HAR.
+- **Gave Ask its first real test: Easton ran Ask Easton himself (Dan, 11-07).** Handed the phone, he worked it out with no help and loved it. Dan saw that the **motion** (picks dropping into the wagon, the shake) was a big part of the delight.
+- **Ruled the smaller calls.**
+  - Hold-to-Done and reduced motion stay in (built early), so **Slice 3 shrinks to Simple + A26 resume**.
+  - Done is a plain tap after That's it!
+  - Run tiles follow Browse's hidden/deleted rule.
+  - 🧺 for every ask: an initial would put part of the name outside `.op-name`.
+  - "Pick one for our list." for a target of 1.
+  - Tiles without a photo show the name: the catalog has no per-item icons.
+**Unfinished:**
+- **Re-adding a bought item: should the old contributor line reset?** Not ruled.
+  - Apples reads "Added by you · Picked by Easton": `land_ask_picks`'s bought branch keeps your contributor row from the trip where you already bought it (11-03: "badges stay"). A manual re-add shows the same leftover.
+  - Claude Code proposed 079 to clear contributors on that branch. **Deferred:** it changes manual adds everywhere, not just Ask, so it needs one design for both.
+- **Wagon polish (A14/A15):** on the run screens the build puts the wagon on the cream ground below the scene; A14 wants it in the sunrise-over-water scene. It also reads as a shopping cart rather than the cream beach wagon. Settle it against Dan's three-screen reference **before Ask goes to prod**.
+- **A wrong shelf photo can only be replaced, not removed;** removal is Slice 4. One photo is shared by every ask that shelves the item. Dev has test photos (tacos on Apples, a soup cup on Pepperoni Slices).
+- **"Hidden" is per person,** so a shelf can offer different tiles on different phones. Accepted for now; the Manage Categories redesign makes hiding household-wide (D5).
+- **Dev test data:** three live asks (Easton, Everett, Nina) and picks on the Madbury list. There's no delete-ask screen yet; Claude Code offered to draft a soft-delete for Nina.
+- **The rail's "+N more" pill sits past the right-edge fade at 375 px.** Expected ("+1" still shows); watch it at prod scale.
+- **The Give sheet's placeholder names a real child** ("Easton's favourite…") in the public bundle, prod included. A one-line swap → NEXT.
+- Carried: `SWEEP_LIVE=true` on prod; the security session; "Make Other standard?" and "Merge into…" (Manage Categories).
+**Next session:**
+SESSION START
+Goal: Ask Slice 3 in Claude Code: Simple style (A13) and A26 resume after backgrounding. Hold-to-Done and reduced motion already shipped in Slice 2.
+State: Dev `cc22926` (`main.5b014bf1.js`): Ask Slices 1–2 complete; 077 + 078 on dev only (ledger `20261104034853`, `20261107025434`); Verification 8 PASS on dev. Prod `48c022f` / `main.0df6d90c.js` unchanged, with no Ask objects or markers. Next migration number is 079.
+Done when: Amendment Verification 3, 4, 5 and 12 are walked on dev (Simple per A13; resume restores the held wagon after backgrounding, per A26); `.op-name` is on any new name surface; prod is untouched. Before building, decide whether the wagon polish rides with Slice 3 or waits for the promotion.
+**Files updated:** `migrations/078_create_ask.sql`, `migrations/078_rollback.sql`, `src/rum.js` (+test), `src/lib/askCreate.js` (+test), `src/lib/askBrowse.js` (+test), `src/lib/askRun.js` (+test), `src/lib/askRail.js` (+test), `src/lib/askPicks.js` (+test), `src/components/NewShelfSheet.js` (+test), `src/components/AskRun.js` (+test), `src/components/ShelfPhotoStrip.js` (+test), `src/components/MoreAsksSheet.js` (+test), `src/ShopPickedBy.test.js`, `src/ReplayLabels.test.js`, `src/hooks/useProvisions.js`, `src/App.js`. Dev `cebac9a` `b939526` `61dc235` `0a19c58` `01094f2` `241e3b0` `a514140` `4da8d10` `9e32d9d` `bb507c9` `5e2c53c` `a76f92c` `cc22926`. Docs: `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/active/SPEC_ask_slice2.md` (new, from the airlock).
+**DB changes:** Dev only: **078** `create_ask` + `asks_household_label_live_uq` + `INSERT` on `asks` revoked from `authenticated` (ledger `20261107025434`). Prod none (read-only checks only).
+
 ### [2026-11-05] — [OurProvisions] — Add sheet made usable on iPhone and shipped; Manage Categories redesigned around Ask (spec); Delete can no longer destroy items; Edit can move an item's category
 **Goal:** Fix the Add sheet hiding behind the iOS keyboard, then design where Ask's settings live, which turned into Manage Categories as list → detail (design handoff `0494e23` on `origin/handoff`, merged here).
 **Completed:**
