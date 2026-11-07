@@ -17,6 +17,7 @@ import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete } from './lib
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
 import { NewShelfSheet } from './components/NewShelfSheet';
+import { AskRun } from './components/AskRun';
 import { askBlocks, categoryPartShown, browseFilterCount as countBrowseFilters, browseFilterDescriptor as describeBrowseFilters } from './lib/askBrowse';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY } from './lib/preRum';
@@ -5311,7 +5312,7 @@ function ProvisionsApp({ scrollRootRef }) {
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
-    asks, createAsk,
+    asks, createAsk, landAskPicks,
     supabase,
     _supabase,
     _household,
@@ -6818,7 +6819,11 @@ function ProvisionsApp({ scrollRootRef }) {
   // Selected ask pills (C3, K5): ask ids, never mixed into selectedCategories. Ephemeral like the
   // category pills: a tab or household switch clears them.
   const [selectedAsks, setSelectedAsks] = useState(new Set());
-  useEffect(() => { setNewShelfOpen(false); setSelectedAsks(new Set()); }, [view, activeHouseholdId]);
+  // The ask being run, full screen (C3b). A tab or household switch ends it, picks discarded
+  // (nothing lands before That's it!, A16).
+  const [runAskId, setRunAskId] = useState(null);
+  useEffect(() => { setNewShelfOpen(false); setSelectedAsks(new Set()); setRunAskId(null); }, [view, activeHouseholdId]);
+  useScrollLock(!!runAskId, scrollRootRef);
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -6975,11 +6980,21 @@ function ProvisionsApp({ scrollRootRef }) {
   // Asks in Browse (SPEC_ask_slice2 C3; rules + tests in src/lib/askBrowse.js). The selected
   // asks' sections, oldest ask first, each shelf in its own order, each tile priced from the aisle
   // it is filed under in Browse (D-c). An ask is not a category (K5): selectedAsks is its own set.
-  const askBlocksShown = useMemo(() => {
-    const catalogById = new Map(Object.values(catalogMap).map(i => [i.id, i]));
-    const rawCategoryByName = new Map(categories.flatMap(cat => cat.items.map(i => [i.name, cat.rawName])));
-    return askBlocks(asks, selectedAsks, catalogById, rawCategoryByName);
-  }, [asks, selectedAsks, catalogMap, categories]);
+  const askIndex = useMemo(() => ({
+    catalogById: new Map(Object.values(catalogMap).map(i => [i.id, i])),
+    rawCategoryByName: new Map(categories.flatMap(cat => cat.items.map(i => [i.name, cat.rawName]))),
+  }), [catalogMap, categories]);
+  const askBlocksShown = useMemo(
+    () => askBlocks(asks, selectedAsks, askIndex.catalogById, askIndex.rawCategoryByName),
+    [asks, selectedAsks, askIndex]);
+  // The ask being run (C3b): its tiles are the same ones its Browse block shows, in shelf order,
+  // each with its aisle's glyph until it has a photo.
+  const runAsk = runAskId ? asks.find(a => a.id === runAskId) || null : null;
+  const runTiles = useMemo(() => {
+    if (!runAsk) return [];
+    const [block] = askBlocks([runAsk], new Set([runAsk.id]), askIndex.catalogById, askIndex.rawCategoryByName);
+    return (block ? block.items : []).map(item => ({ id: item.id, name: item.name, glyph: categoryGlyph(item.rawCategory), photoUrl: null }));
+  }, [runAsk, askIndex]);
 
   // Only categories that survive Layer 1 count as active — a selection that has
   // gone stale (category deleted here or on another device) must not name every
@@ -8213,6 +8228,17 @@ function ProvisionsApp({ scrollRootRef }) {
         <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>
           <span aria-hidden="true">{ASK_GLYPH}</span> Ask <span className="op-name">{block.label}</span>
         </div>
+        {/* The hand-over (C3b): opens the run on "Your turn, {Label}!". Only a hand-over writes
+            "Picked by" (11-04 ruling). */}
+        <button
+          className="ask-handover"
+          onClick={() => setRunAskId(block.id)}
+          style={{
+            background: "none", border: "none", fontFamily: "'Lato', sans-serif",
+            fontSize: "12.5px", color: "#0A776D", fontWeight: 700, cursor: "pointer",
+            letterSpacing: "0.5px", padding: "0",
+          }}
+        >Hand it to <span className="op-name">{block.label}</span> →</button>
       </div>
       <div className="items-grid">
         {block.items.length === 0 ? (
@@ -11893,6 +11919,21 @@ function ProvisionsApp({ scrollRootRef }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Running an Ask (SPEC_ask_slice2 C3b) — full screen over the app. onLand throws unless
+          land_ask_picks landed, so the wagon stays held for another That's it!. */}
+      {runAsk && (
+        <AskRun
+          key={runAsk.id}
+          ask={runAsk}
+          tiles={runTiles}
+          onLand={async (ids) => {
+            const landed = await landAskPicks(runAsk.id, ids);
+            if (landed == null) throw new Error("not landed");
+          }}
+          onExit={() => setRunAskId(null)}
+        />
       )}
 
       {/* + New shelf (SPEC_ask_slice2 C2; 078 create_ask) */}

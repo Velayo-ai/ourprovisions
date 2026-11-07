@@ -19,7 +19,7 @@ export function askBlocks(asks, selectedAskIds, catalogById, rawCategoryByName) 
       items: (a.itemIds || [])
         .map((id) => catalogById.get(id))
         .filter((item) => item && rawCategoryByName.has(item.name))
-        .map((item) => ({ name: item.name, rawCategory: rawCategoryByName.get(item.name) })),
+        .map((item) => ({ id: item.id, name: item.name, rawCategory: rawCategoryByName.get(item.name) })),
     }));
 }
 

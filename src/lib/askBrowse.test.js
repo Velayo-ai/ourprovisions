@@ -17,8 +17,8 @@ const cat = (rawName, n) => ({ rawName, name: rawName, items: Array.from({ lengt
 describe("askBlocks", () => {
   test("only selected asks, in rail order; tiles in shelf order, priced by their real aisle", () => {
     expect(askBlocks(ASKS, new Set(["a-everett", "a-easton"]), catalogById, rawCategoryByName)).toEqual([
-      { id: "a-easton", label: "Easton", items: [{ name: "Goldfish", rawCategory: "Snacks" }, { name: "Apples", rawCategory: "Produce" }] },
-      { id: "a-everett", label: "Everett", items: [{ name: "Bread", rawCategory: "Bakery" }] },
+      { id: "a-easton", label: "Easton", items: [{ id: "c-goldfish", name: "Goldfish", rawCategory: "Snacks" }, { id: "c-apples", name: "Apples", rawCategory: "Produce" }] },
+      { id: "a-everett", label: "Everett", items: [{ id: "c-bread", name: "Bread", rawCategory: "Bakery" }] },
     ]);
   });
   test("a deleted or hidden tile is left out of Browse; a stale selection selects nothing", () => {
