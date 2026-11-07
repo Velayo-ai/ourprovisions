@@ -1,0 +1,99 @@
+import {
+  askDraftProblem, createAskArgs, createAskFailure, shapeAsks, pickLine, targetTilesMessage,
+  ASK_LABEL_MAX, ASK_SHELF_MAX,
+} from "./askCreate";
+
+const ids = (n) => Array.from({ length: n }, (_, i) => `item-${i + 1}`);
+
+describe("askDraftProblem — the sheet refuses what create_ask would", () => {
+  const ok = { label: "Easton", noun: "snacks", target: 3, itemIds: ids(6) };
+  test("a good draft has no problem", () => {
+    expect(askDraftProblem(ok)).toBeNull();
+    expect(askDraftProblem({ ...ok, noun: "" })).toBeNull();
+    expect(askDraftProblem({ ...ok, target: 3, itemIds: ids(3) })).toBeNull();
+  });
+  test("a name is required, trimmed, and at most 16 characters", () => {
+    expect(askDraftProblem({ ...ok, label: "   " })).toMatch(/Add a name/);
+    expect(askDraftProblem({ ...ok, label: "x".repeat(ASK_LABEL_MAX) })).toBeNull();
+    expect(askDraftProblem({ ...ok, label: " " + "x".repeat(ASK_LABEL_MAX) + " " })).toBeNull();
+    expect(askDraftProblem({ ...ok, label: "x".repeat(ASK_LABEL_MAX + 1) })).toMatch(/16 characters/);
+  });
+  test("the noun is optional and at most 16 characters", () => {
+    expect(askDraftProblem({ ...ok, noun: "x".repeat(17) })).toMatch(/16 characters/);
+  });
+  test("the target is 1 to 6", () => {
+    expect(askDraftProblem({ ...ok, target: 0 })).toMatch(/how many/);
+    expect(askDraftProblem({ ...ok, target: 7 })).toMatch(/how many/);
+    expect(askDraftProblem({ ...ok, target: 2.5 })).toMatch(/how many/);
+  });
+  test("the shelf holds 1 to 48 items, and never fewer than the target", () => {
+    expect(askDraftProblem({ ...ok, itemIds: [] })).toMatch(/at least one item/);
+    expect(askDraftProblem({ ...ok, target: 1, itemIds: ids(ASK_SHELF_MAX + 1) })).toMatch(/48 items at most/);
+    expect(askDraftProblem({ ...ok, target: 3, itemIds: ids(2) })).toBe(targetTilesMessage(3));
+  });
+  test("the problem never names the picker", () => {
+    expect(askDraftProblem({ ...ok, label: "Easton", itemIds: ids(1) })).not.toMatch(/Easton/);
+  });
+});
+
+describe("createAskArgs — 078's arguments", () => {
+  test("trimmed label and noun, a blank noun as null, Standard, the shelf in tap order", () => {
+    expect(createAskArgs("ask-1", "hh-1", { label: " Easton ", noun: "  ", target: 3, itemIds: ["c", "a", "b"] })).toEqual({
+      p_id: "ask-1",
+      p_household_id: "hh-1",
+      p_label: "Easton",
+      p_shelf_noun: null,
+      p_screen_style: "standard",
+      p_pick_target: 3,
+      p_catalog_item_ids: ["c", "a", "b"],
+    });
+  });
+  test("the item list is a copy", () => {
+    const itemIds = ["a"];
+    const args = createAskArgs("ask-1", "hh-1", { label: "E", target: 1, itemIds });
+    itemIds.push("b");
+    expect(args.p_catalog_item_ids).toEqual(["a"]);
+  });
+});
+
+describe("createAskFailure — our copy, never the server's message", () => {
+  const draft = { label: " Easton ", target: 3, itemIds: ids(4) };
+  test("23505: You already have Ask {Label}., marked as carrying the name", () => {
+    expect(createAskFailure("23505", draft)).toEqual({ message: "You already have Ask Easton.", hasName: true });
+  });
+  test("22023: the target-vs-tiles message when that is the cause, else a shelf message", () => {
+    expect(createAskFailure("22023", { ...draft, itemIds: ids(2) })).toEqual({ message: targetTilesMessage(3), hasName: false });
+    expect(createAskFailure("22023", draft).message).toMatch(/isn't available/);
+  });
+  test("anything else names nobody", () => {
+    for (const code of ["42501", "42710", undefined, "PGRST301"]) {
+      const f = createAskFailure(code, draft);
+      expect(f.hasName).toBe(false);
+      expect(f.message).not.toMatch(/Easton/);
+    }
+  });
+});
+
+describe("shapeAsks — the asks read", () => {
+  test("oldest first; each shelf in position order; missing fields are safe", () => {
+    const rows = [
+      { id: "b", label: "Everett", shelf_noun: null, screen_style: "standard", pick_target: 1, created_at: "2026-11-07T10:00:00Z",
+        ask_shelf_items: [{ catalog_item_id: "y", position: 1 }, { catalog_item_id: "x", position: 0 }] },
+      { id: "a", label: "Easton", shelf_noun: "snacks", screen_style: "standard", pick_target: 3, created_at: "2026-11-06T10:00:00Z" },
+    ];
+    expect(shapeAsks(rows)).toEqual([
+      { id: "a", label: "Easton", shelfNoun: "snacks", screenStyle: "standard", pickTarget: 3, createdAt: "2026-11-06T10:00:00Z", itemIds: [] },
+      { id: "b", label: "Everett", shelfNoun: null, screenStyle: "standard", pickTarget: 1, createdAt: "2026-11-07T10:00:00Z", itemIds: ["x", "y"] },
+    ]);
+    expect(shapeAsks(null)).toEqual([]);
+  });
+});
+
+describe("pickLine — A14 / A25", () => {
+  test("with and without a noun; a target of one is its own line, noun or not", () => {
+    expect(pickLine(3, "snacks")).toBe("Pick 3 snacks for our list.");
+    expect(pickLine(3, " ")).toBe("Pick 3 for our list.");
+    expect(pickLine(1, "")).toBe("Pick one for our list.");
+    expect(pickLine(1, "snacks")).toBe("Pick one for our list.");
+  });
+});

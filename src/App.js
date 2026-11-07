@@ -16,6 +16,7 @@ import { CategorySelect } from './components/CategorySelect';
 import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
+import { NewShelfSheet } from './components/NewShelfSheet';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY } from './lib/preRum';
 import { useConnectivity } from './contexts/ConnectivityContext';
@@ -5303,6 +5304,7 @@ function ProvisionsApp({ scrollRootRef }) {
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
+    createAsk,
     supabase,
     _supabase,
     _household,
@@ -6803,6 +6805,10 @@ function ProvisionsApp({ scrollRootRef }) {
     setSelectedCategories(new Set());
     setStapleFilter(false);
   }, [view, activeHouseholdId]);
+  // + New shelf (SPEC_ask_slice2 C2): the sheet belongs to one place's Browse, so a tab or
+  // household switch closes it (a half-made shelf never lands in the other household).
+  const [newShelfOpen, setNewShelfOpen] = useState(false);
+  useEffect(() => { setNewShelfOpen(false); }, [view, activeHouseholdId]);
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -11046,6 +11052,15 @@ function ProvisionsApp({ scrollRootRef }) {
                   <span className="cat-em">{categoryGlyph("Staples")}</span>Staples
                 </button>
 
+                {/* + New shelf (SPEC_ask_slice2 C2) — the door to making an Ask. C3 puts the ask
+                    pills between Staples and this one. Signed in with a place only: the shelf is
+                    the household's. */}
+                {isSignedIn && household?.id && (
+                  <button className="cat-pill cat-pill-new" onClick={() => setNewShelfOpen(true)}>
+                    <span className="cat-em">+</span>New shelf
+                  </button>
+                )}
+
                 {/* Category pills — toggle to filter */}
                 {categories.map(cat => {
                   const isActive = selectedCategories.has(cat.rawName);
@@ -11774,6 +11789,21 @@ function ProvisionsApp({ scrollRootRef }) {
                 style={{ opacity: newItemName.trim() ? 1 : 0.5, pointerEvents: newItemName.trim() ? "auto" : "none" }}
               >Add to List</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* + New shelf (SPEC_ask_slice2 C2; 078 create_ask) */}
+      {newShelfOpen && (
+        <div className="modal-overlay" onClick={() => setNewShelfOpen(false)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="New shelf" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "88vh", overflowY: "auto" }}>
+            <NewShelfSheet
+              catalogItems={Object.values(catalogMap)}
+              onCreate={createAsk}
+              onClose={() => setNewShelfOpen(false)}
+              closeButton={<SheetClose onClose={() => setNewShelfOpen(false)} />}
+            />
           </div>
         </div>
       )}

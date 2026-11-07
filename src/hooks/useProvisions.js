@@ -17,6 +17,7 @@ import { setKindFailure } from "../lib/mealPhotos";
 import { giveFailure, giftObjectPath, giftExt, GIFT_RENDITIONS } from "../lib/giveMeal";
 import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArrival";
 import { landAskPicksArgs, askCompletedAttributes } from "../lib/askPicks";
+import { createAskArgs, shapeAsks } from "../lib/askCreate";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -1353,6 +1354,48 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return landed;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
+
+  // ─────────────────────────────────────────────────────────────
+  // ASKS (078 create_ask; SPEC_ask_slice2 C2). fetchAsks reads the household's live asks and their
+  // shelves by household id ONLY — never filtered by label: the span scrub keeps a Supabase REST
+  // query in http.url, so a label in a filter would reach a span. createAsk is one RPC (the ask and
+  // its shelf in one transaction) with a caller-supplied id, so a retry returns the same ask.
+  // Failures resolve to { ok: false, code } and log the code alone: create_ask's messages name the
+  // label (rules + copy in src/lib/askCreate.js).
+  // ─────────────────────────────────────────────────────────────
+  const [asks, setAsks] = useState([]);
+  const fetchAsks = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const hhId = hh.id;
+    const { data, error: err } = await db
+      .from("asks")
+      .select("id, label, shelf_noun, screen_style, pick_target, created_at, ask_shelf_items(catalog_item_id, position)")
+      .eq("household_id", hhId)
+      .is("deleted_at", null);
+    if (householdRef.current?.id !== hhId) return null;   // switched mid-read: not this place's asks
+    if (err) { console.warn("[ask] asks read failed (non-fatal):", err.code); return null; }
+    const shaped = shapeAsks(data);
+    setAsks(shaped);
+    return shaped;
+  }, []);
+
+  // A household switch clears the last place's asks before the new read lands.
+  useEffect(() => {
+    setAsks([]);
+    if (household?.id) fetchAsks();
+  }, [household?.id, fetchAsks]);
+
+  const createAsk = useCallback(async (askId, draft) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return { ok: false, code: null };
+    const { data, error: err } = await db.rpc("create_ask", createAskArgs(askId, hh.id, draft));
+    if (err) { console.warn("[ask] create_ask failed:", err.code); return { ok: false, code: err.code || null }; }
+    await fetchAsks();
+    return { ok: true, id: data };
+  }, [fetchAsks]);
 
   const toggleChecked = useCallback(async (itemName, listItemId) => {
     const db = supabaseRef.current;
@@ -4173,7 +4216,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     cooksLoaded: !!household?.id && cooksLoadedFor === household.id,
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    landAskPicks,
+    landAskPicks, asks, fetchAsks, createAsk,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
