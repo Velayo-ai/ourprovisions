@@ -17,6 +17,7 @@ import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete } from './lib
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
 import { NewShelfSheet } from './components/NewShelfSheet';
+import { askBlocks, categoryPartShown, browseFilterCount as countBrowseFilters, browseFilterDescriptor as describeBrowseFilters } from './lib/askBrowse';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY } from './lib/preRum';
 import { useConnectivity } from './contexts/ConnectivityContext';
@@ -91,6 +92,12 @@ const SPEECH_RECOGNITION_CTOR =
     : null;
 
 const CATEGORY_GLYPH_FALLBACK = "📦";
+// An ask's pill and section (SPEC_ask_slice2 C3): one glyph for every ask, never derived from the
+// name (an initial would be a piece of it outside .op-name).
+const ASK_GLYPH = "🧺";
+// A "Showing only …" name: a category or Staples as text, or an ask ({ ask: label }) as
+// "Ask {Label}" with the name in .op-name (K3).
+const filterNameNode = (n) => (typeof n === "string" ? n : <>Ask <span className="op-name">{n.ask}</span></>);
 const categoryGlyph = (value) =>
   CATEGORY_GLYPH[String(value ?? "").trim().toLowerCase()] || CATEGORY_GLYPH_FALLBACK;
 
@@ -6808,7 +6815,10 @@ function ProvisionsApp({ scrollRootRef }) {
   // + New shelf (SPEC_ask_slice2 C2): the sheet belongs to one place's Browse, so a tab or
   // household switch closes it (a half-made shelf never lands in the other household).
   const [newShelfOpen, setNewShelfOpen] = useState(false);
-  useEffect(() => { setNewShelfOpen(false); }, [view, activeHouseholdId]);
+  // Selected ask pills (C3, K5): ask ids, never mixed into selectedCategories. Ephemeral like the
+  // category pills: a tab or household switch clears them.
+  const [selectedAsks, setSelectedAsks] = useState(new Set());
+  useEffect(() => { setNewShelfOpen(false); setSelectedAsks(new Set()); }, [view, activeHouseholdId]);
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -6962,42 +6972,53 @@ function ProvisionsApp({ scrollRootRef }) {
     return result;
   }, [categories, stapleFilter, selectedCategories, catalogMap]);
 
+  // Asks in Browse (SPEC_ask_slice2 C3; rules + tests in src/lib/askBrowse.js). The selected
+  // asks' sections, oldest ask first, each shelf in its own order, each tile priced from the aisle
+  // it is filed under in Browse (D-c). An ask is not a category (K5): selectedAsks is its own set.
+  const askBlocksShown = useMemo(() => {
+    const catalogById = new Map(Object.values(catalogMap).map(i => [i.id, i]));
+    const rawCategoryByName = new Map(categories.flatMap(cat => cat.items.map(i => [i.name, cat.rawName])));
+    return askBlocks(asks, selectedAsks, catalogById, rawCategoryByName);
+  }, [asks, selectedAsks, catalogMap, categories]);
+
+  // Only categories that survive Layer 1 count as active — a selection that has
+  // gone stale (category deleted here or on another device) must not name every
+  // category, and must not suppress a Staples-only line.
+  const shownCats = useMemo(
+    () => displayCategories.filter(cat => selectedCategories.has(cat.rawName)),
+    [displayCategories, selectedCategories]);
+  // The category sections beside the ask sections. With ONLY asks selected, only their blocks
+  // show (D-b); Staples or a category pill brings the category part back, narrowed as before.
+  // Staples never narrows an ask's shelf (K4) — the ask blocks skip displayCategories entirely.
+  const categoryBlocks = useMemo(() => (categoryPartShown({
+    stapleFilter, categoriesActive: shownCats.length > 0, asksActive: askBlocksShown.length > 0,
+  }) ? displayCategories : []), [stapleFilter, shownCats, askBlocksShown, displayCategories]);
+
   // Browse declutter phase 2 — flat A–Z across the filtered catalog (rawCategory attached for price fallback).
+  // The category part only: an ask's block stays its own block and never joins A–Z (D-b).
   const browseFlatItems = useMemo(() =>
-    displayCategories
+    categoryBlocks
       .flatMap(cat => cat.items.map(item => ({ ...item, rawCategory: cat.rawName })))
       .sort((a, b) => a.name.localeCompare(b.name)),
-    [displayCategories]);
-  // Count of active filters for the declutter descriptor line.
-  const browseFilterCount = (stapleFilter ? 1 : 0) + selectedCategories.size;
+    [categoryBlocks]);
+  // Count of active filters for the declutter descriptor line (asks count: they filter, D-e).
+  const browseFilterCount = countBrowseFilters({
+    stapleFilter, selectedCategoryCount: selectedCategories.size, askBlockCount: askBlocksShown.length,
+  });
 
   // Filter descriptor — names the active FILTER SET, not the active categories.
-  // The rail carries two kinds of filter: category values, and Staples, which is
+  // The rail carries three kinds of filter: category values; Staples, which is
   // NOT a category — it is per-household row-presence in `household_staples`
-  // (migration 016), applied as a predicate in displayCategories Layer 1. Naming
-  // only the categories while counting a staple-narrowed set made the line
-  // describe a set its own sentence didn't name.
+  // (migration 016), applied as a predicate in displayCategories Layer 1; and asks,
+  // named by label ({ ask } entries, rendered inside .op-name). Naming only the
+  // categories while counting a staple-narrowed set made the line describe a set
+  // its own sentence didn't name.
   //
   // The count always comes from the same rows the list is rendering, so the
   // number and the names can never disagree.
-  const browseFilterDescriptor = useMemo(() => {
-    // Only categories that survive Layer 1 count as active — a selection that has
-    // gone stale (category deleted here or on another device) must not name every
-    // category, and must not suppress a Staples-only line.
-    const shownCats = displayCategories.filter(cat => selectedCategories.has(cat.rawName));
-    const categoriesActive = shownCats.length > 0;
-    if (!stapleFilter && !categoriesActive) return null;
-
-    const shown = categoriesActive ? shownCats : displayCategories;
-    return {
-      // Staples leads: it is the broader predicate, and it isn't a category.
-      names: [
-        ...(stapleFilter ? ["Staples"] : []),
-        ...shown.map(cat => categoryRailLabel(cat.rawName)),
-      ],
-      count: shown.reduce((total, cat) => total + cat.items.length, 0),
-    };
-  }, [stapleFilter, selectedCategories, displayCategories]);
+  const browseFilterDescriptor = useMemo(() => describeBrowseFilters({
+    stapleFilter, shownCats, displayCategories, blocks: askBlocksShown, categoryRailLabel,
+  }), [stapleFilter, shownCats, displayCategories, askBlocksShown]);
 
   const catRailNode = useRef(null);
   // Which edges have more content past them — drives the fade masks, so a mask
@@ -8178,6 +8199,54 @@ function ProvisionsApp({ scrollRootRef }) {
     const pre = quantities[`pre:${cid}`];
     return pre != null ? pre : 0;
   };
+
+  // An ask's section in Browse (SPEC_ask_slice2 C3, D-b / D-c / D-d): its own block, keyed by the
+  // ask's id, tiles in the shelf's order, each priced from its own aisle (item.rawCategory, never
+  // the ask). The header names the ask with the name in .op-name (K3) and has no "＋ New item"
+  // (D-d) — that spot is the hand-over's, which arrives with the run screens (C3b). The rows are
+  // Browse's own: Hide, Edit, Staple and the stepper behave as in any section, and an ordinary add
+  // from here carries no label (11-04 ruling).
+  const renderAskBlock = (block) => (
+    <div className="category-block ask-block" key={`ask:${block.id}`}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
+        <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>
+          <span aria-hidden="true">{ASK_GLYPH}</span> Ask <span className="op-name">{block.label}</span>
+        </div>
+      </div>
+      <div className="items-grid">
+        {block.items.length === 0 ? (
+          <div className="declutter-desc" style={{ margin: "4px 0 0" }}>Nothing on this shelf is in your Browse right now.</div>
+        ) : block.items.map((item) => {
+          const qty = qtyFor(item);
+          const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
+          const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
+          const isEditing = editingPrice === item.name;
+          const isStaple = catalogMap[item.name]?.is_staple;
+          const isCustom = catalogMap[item.name]?.is_global === false;
+          // Catalog items only expose price editing — nothing to edit when pricing is off.
+          const canEdit = isCustom || showPrices;
+          return (
+            <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple} canEdit={canEdit}>
+              <CatalogItemRow
+                item={item}
+                qty={qty}
+                rawCategory={item.rawCategory}
+                showPrices={showPrices}
+                price={price}
+                isEditing={isEditing}
+                priceInput={priceInput}
+                centsToDisplay={centsToDisplay}
+                onUpdateQty={updateQty}
+                onPriceInput={handlePriceInput}
+                onCommitPrice={commitPrice}
+                onCancelEditPrice={() => setEditingPrice(null)}
+              />
+            </SwipeToRemove>
+          );
+        })}
+      </div>
+    </div>
+  );
   const pendingItems = shoppingList.flatMap(cat =>
     cat.items.filter(item => !checked[item.listItemId])
   );
@@ -11052,9 +11121,32 @@ function ProvisionsApp({ scrollRootRef }) {
                   <span className="cat-em">{categoryGlyph("Staples")}</span>Staples
                 </button>
 
-                {/* + New shelf (SPEC_ask_slice2 C2) — the door to making an Ask. C3 puts the ask
-                    pills between Staples and this one. Signed in with a place only: the shelf is
-                    the household's. */}
+                {/* Ask pills (SPEC_ask_slice2 C3) — one per ask, oldest first, toggling selectedAsks
+                    (K5). "Ask " is fixed copy; the name sits in .op-name (K3), so it leaves replay
+                    and click text in every environment. The key is the ask's id, never its label. */}
+                {asks.map(ask => {
+                  const isActive = selectedAsks.has(ask.id);
+                  return (
+                    <button
+                      key={ask.id}
+                      className={`cat-pill${isActive ? " on" : ""}`}
+                      data-active={isActive ? "1" : undefined}
+                      onClick={() => {
+                        setSelectedAsks(prev => {
+                          const next = new Set(prev);
+                          if (next.has(ask.id)) next.delete(ask.id); else next.add(ask.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      <span className="cat-em" aria-hidden="true">{ASK_GLYPH}</span>
+                      <span>Ask <span className="op-name">{ask.label}</span></span>
+                    </button>
+                  );
+                })}
+
+                {/* + New shelf (SPEC_ask_slice2 C2) — the door to making an Ask, after the ask
+                    pills. Signed in with a place only: the shelf is the household's. */}
                 {isSignedIn && household?.id && (
                   <button className="cat-pill cat-pill-new" onClick={() => setNewShelfOpen(true)}>
                     <span className="cat-em">+</span>New shelf
@@ -11108,12 +11200,12 @@ function ProvisionsApp({ scrollRootRef }) {
                     with no second clause. */}
                 Showing only{" "}
                 {browseFilterDescriptor.names.length === 1 ? (
-                  <b>{browseFilterDescriptor.names[0]}</b>
+                  <b>{filterNameNode(browseFilterDescriptor.names[0])}</b>
                 ) : browseFilterDescriptor.names.length === 2 ? (
-                  <><b>{browseFilterDescriptor.names[0]}</b> and <b>{browseFilterDescriptor.names[1]}</b></>
+                  <><b>{filterNameNode(browseFilterDescriptor.names[0])}</b> and <b>{filterNameNode(browseFilterDescriptor.names[1])}</b></>
                 ) : (
                   <>
-                    <b>{browseFilterDescriptor.names[0]}</b>, <b>{browseFilterDescriptor.names[1]}</b>
+                    <b>{filterNameNode(browseFilterDescriptor.names[0])}</b>, <b>{filterNameNode(browseFilterDescriptor.names[1])}</b>
                     {" "}and {browseFilterDescriptor.names.length - 2} more
                   </>
                 )}
@@ -11278,8 +11370,11 @@ function ProvisionsApp({ scrollRootRef }) {
               /* ── NORMAL BROWSE MODE ── */
               <>
                 {browsePhase === 2 ? (
-                  /* ── FLAT A–Z (declutter phase 2) ── */
+                  /* ── FLAT A–Z (declutter phase 2) ── an ask stays its own block above A–Z (D-b);
+                     with only asks selected there is no A–Z part at all. */
                   <>
+                    {askBlocksShown.map(renderAskBlock)}
+                    {(categoryBlocks.length > 0 || askBlocksShown.length === 0) && (<>
                     <FlatHeader count={browseFlatItems.length} showCount={!browseFilterDescriptor} />
                     <div className="items-grid">
                       {browseFlatItems.map((item) => {
@@ -11311,9 +11406,14 @@ function ProvisionsApp({ scrollRootRef }) {
                         );
                       })}
                     </div>
+                    </>)}
                   </>
                 ) : (
-                  displayCategories.map((cat) => (
+                  /* ── GROUPED ── the selected asks' blocks first (rail order), then the category
+                     part, which is empty when only asks are selected (D-b). */
+                  <>
+                  {askBlocksShown.map(renderAskBlock)}
+                  {categoryBlocks.map((cat) => (
                   <div className="category-block" key={cat.name}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
                       <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>{cat.name}</div>
@@ -11360,7 +11460,8 @@ function ProvisionsApp({ scrollRootRef }) {
                       })}
                     </div>
                   </div>
-                  ))
+                  ))}
+                  </>
                 )}
                 <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
                   <button
