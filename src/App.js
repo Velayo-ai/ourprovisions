@@ -5304,7 +5304,7 @@ function ProvisionsApp({ scrollRootRef }) {
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
-    createAsk,
+    asks, createAsk,
     supabase,
     _supabase,
     _household,
@@ -11800,6 +11800,7 @@ function ProvisionsApp({ scrollRootRef }) {
             style={{ maxHeight: "88vh", overflowY: "auto" }}>
             <NewShelfSheet
               catalogItems={Object.values(catalogMap)}
+              asks={asks}
               onCreate={createAsk}
               onClose={() => setNewShelfOpen(false)}
               closeButton={<SheetClose onClose={() => setNewShelfOpen(false)} />}

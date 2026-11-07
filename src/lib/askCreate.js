@@ -46,18 +46,28 @@ export function createAskArgs(id, householdId, { label, noun, target, itemIds })
   };
 }
 
+// The live ask whose label matches this one, trimmed and case-insensitive (K2, 078's
+// asks_household_label_live_uq), or null. The sheet checks it as the name is typed and shows the
+// EXISTING ask's spelling; create_ask's 23505 is the backstop for a race with another member.
+export function findDuplicateAsk(label, asks) {
+  const l = (label || "").trim().toLowerCase();
+  if (!l) return null;
+  return (asks || []).find((a) => (a.label || "").trim().toLowerCase() === l) || null;
+}
+
 // The sheet's copy for a failed create. NEVER the server's message: create_ask's 23505 text names
 // the label, and an error string is the kind of thing that ends up in a console line or a span.
-// hasName says the message carries the label, so the sheet renders it inside .op-name (K3).
+// hasName says the message carries the label, so the sheet renders it inside .op-name (K3);
+// field is the part of the sheet to bring into view (null: nothing to fix there).
 export function createAskFailure(code, { label, target, itemIds }) {
   const l = (label || "").trim();
-  if (code === "23505") return { message: `You already have Ask ${l}.`, hasName: true };
+  if (code === "23505") return { message: `You already have Ask ${l}.`, hasName: true, field: "label" };
   if (code === "22023") {
-    if (target > (itemIds || []).length) return { message: targetTilesMessage(target), hasName: false };
-    return { message: "Something on the shelf isn't available any more. Check the items and try again.", hasName: false };
+    if (target > (itemIds || []).length) return { message: targetTilesMessage(target), hasName: false, field: "shelf" };
+    return { message: "Something on the shelf isn't available any more. Check the items and try again.", hasName: false, field: "shelf" };
   }
-  if (code === "42501") return { message: "Only members of this place can make a shelf.", hasName: false };
-  return { message: "Couldn't save the shelf. Check your connection and try again.", hasName: false };
+  if (code === "42501") return { message: "Only members of this place can make a shelf.", hasName: false, field: null };
+  return { message: "Couldn't save the shelf. Check your connection and try again.", hasName: false, field: null };
 }
 
 // The asks read (asks + embedded ask_shelf_items) → [{ id, label, shelfNoun, screenStyle,

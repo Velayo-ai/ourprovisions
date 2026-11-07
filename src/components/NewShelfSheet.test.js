@@ -1,27 +1,37 @@
+/* eslint-disable testing-library/no-node-access --
+   where a message sits (under the name field, inside the sticky .modal-actions footer) and the
+   catalog list's own style are the rules under test, read as raw DOM. */
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { NewShelfSheet } from "./NewShelfSheet";
 
-// + New shelf (SPEC_ask_slice2 C2): one id per draft (K1), the failure copy is ours and wears
-// .op-name when it repeats the name (K3), and Save waits for a draft create_ask would accept.
+// + New shelf (SPEC_ask_slice2 C2 + C2.1): one id per draft (K1); a name already in use is caught
+// as it is typed, under the name field, in the existing spelling; every other message sits in the
+// sticky footer and a server failure brings its field into view; the sheet is the only scroller;
+// the name wears .op-name (K3).
 const ITEMS = [
   { id: "i-goldfish", name: "Goldfish" },
   { id: "i-apples", name: "Apples" },
   { id: "i-yogurt", name: "Yogurt" },
   { id: "i-crackers", name: "Crackers" },
 ];
+const EASTON = { id: "a-1", label: "Easton", pickTarget: 3, itemIds: [] };
 
+let scrolled;
 beforeEach(() => {
   let n = 0;
   Object.defineProperty(global, "crypto", {
     configurable: true,
     value: { randomUUID: () => `ask-${++n}` },
   });
+  scrolled = [];
+  Element.prototype.scrollIntoView = function scrollIntoView() { scrolled.push(this); };
 });
 
-function setup(onCreate = jest.fn(async () => ({ ok: true, id: "x" }))) {
+function setup({ onCreate = jest.fn(async () => ({ ok: true, id: "x" })), asks = [] } = {}) {
   const onClose = jest.fn();
-  render(<NewShelfSheet catalogItems={ITEMS} onCreate={onCreate} onClose={onClose} closeButton={null} />);
-  return { onCreate, onClose };
+  const view = render(<NewShelfSheet catalogItems={ITEMS} asks={asks} onCreate={onCreate} onClose={onClose} closeButton={null} />);
+  return { onCreate, onClose, rerender: (next) => view.rerender(
+    <NewShelfSheet catalogItems={ITEMS} asks={next} onCreate={onCreate} onClose={onClose} closeButton={null} />) };
 }
 const nameInput = () => screen.getByLabelText("Who's picking?");
 const nounInput = () => screen.getByLabelText("What are they picking? (optional)");
@@ -29,10 +39,14 @@ const save = () => screen.getByRole("button", { name: "Save shelf" });
 // A catalog row's "+" / "✓" is aria-hidden, so its accessible name is the item's name alone.
 const pick = (name) => fireEvent.click(screen.getByRole("button", { name }));
 const pickTarget = (n) => fireEvent.click(screen.getByRole("radio", { name: String(n) }));
-// A failed save puts its copy in the alert; a good one calls onClose (the mock keeps the sheet
-// mounted, still reading "Saving…").
-async function saveAndFail() { fireEvent.click(save()); return screen.findByRole("alert"); }
+const footerOf = (el) => el.closest(".modal-actions");
+const fieldOf = (el) => el.closest(".modal-field");
 async function saveAndClose(onClose) { fireEvent.click(save()); await waitFor(() => expect(onClose).toHaveBeenCalled()); }
+function readyDraft(name = "Nina") {
+  fireEvent.change(nameInput(), { target: { value: name } });
+  pickTarget(1);
+  pick("Goldfish");
+}
 
 test("the name input wears .op-name; the noun input does not", () => {
   setup();
@@ -40,56 +54,109 @@ test("the name input wears .op-name; the noun input does not", () => {
   expect(nounInput()).not.toHaveClass("op-name");
 });
 
-test("Save waits for a name and as many items as the target (3 by default)", async () => {
-  const { onCreate, onClose } = setup();
-  expect(save()).toBeDisabled();
-  fireEvent.change(nameInput(), { target: { value: "Easton" } });
-  pick("Goldfish"); pick("Apples");
-  expect(save()).toBeDisabled();
-  expect(screen.getByText("To pick 3, the shelf needs at least 3 items.")).toBeInTheDocument();
-  pick("Yogurt");
-  expect(save()).toBeEnabled();
-  await saveAndClose(onClose);
-  expect(onCreate).toHaveBeenCalledWith("ask-1", { label: "Easton", noun: "", target: 3, itemIds: ["i-goldfish", "i-apples", "i-yogurt"] });
+describe("a name this place already uses (C2.1 item 1)", () => {
+  test("is caught as it is typed, under the name field, in the EXISTING spelling; Save waits", () => {
+    setup({ asks: [EASTON] });
+    readyDraft("  easton ");
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("You already have Ask Easton.");
+    expect(fieldOf(alert)).toBe(fieldOf(nameInput()));
+    expect(footerOf(alert)).toBeNull();
+    expect(save()).toBeDisabled();
+  });
+  test("only the name wears .op-name, so the rest of the line stays readable in replay", () => {
+    setup({ asks: [EASTON] });
+    fireEvent.change(nameInput(), { target: { value: "EASTON" } });
+    const alert = screen.getByRole("alert");
+    expect(alert).not.toHaveClass("op-name");
+    expect(alert.querySelector(".op-name")).toHaveTextContent(/^Easton$/);
+  });
+  test("goes as soon as the name is a new one", () => {
+    setup({ asks: [EASTON] });
+    readyDraft("Easton");
+    fireEvent.change(nameInput(), { target: { value: "Everett" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(save()).toBeEnabled();
+  });
+  test("create_ask's 23505 is the backstop: the same line under the name, the field brought into view", async () => {
+    const onCreate = jest.fn(async () => ({ ok: false, code: "23505" }));
+    const { rerender } = setup({ onCreate });
+    readyDraft("Easton");
+    fireEvent.click(save());
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("You already have Ask Easton.");
+    expect(fieldOf(alert)).toBe(fieldOf(nameInput()));
+    expect(save()).toBeDisabled();
+    expect(scrolled).toContain(fieldOf(nameInput()));
+    // The hook re-reads the asks on 23505; the line then shows the existing spelling.
+    rerender([{ ...EASTON, label: "EASTON" }]);
+    expect(screen.getByRole("alert")).toHaveTextContent("You already have Ask EASTON.");
+  });
+});
+
+describe("every other message sits in the sticky footer (C2.1 item 2)", () => {
+  test("what the draft still needs: above Cancel / Save shelf", () => {
+    setup();
+    fireEvent.change(nameInput(), { target: { value: "Easton" } });
+    pick("Goldfish"); pick("Apples");
+    const line = screen.getByText("To pick 3, the shelf needs at least 3 items.");
+    expect(footerOf(line)).not.toBeNull();
+    expect(save()).toBeDisabled();
+  });
+  test("a dropped connection: in the footer, no name, nothing to scroll to", async () => {
+    setup({ onCreate: jest.fn(async () => ({ ok: false, code: null })) });
+    readyDraft("Easton");
+    fireEvent.click(save());
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't save the shelf.");
+    expect(footerOf(alert)).not.toBeNull();
+    expect(alert).not.toHaveClass("op-name");
+    expect(alert).not.toHaveTextContent("Easton");
+    expect(scrolled).toEqual([]);
+  });
+  test("22023: in the footer, and the shelf brought into view", async () => {
+    setup({ onCreate: jest.fn(async () => ({ ok: false, code: "22023" })) });
+    readyDraft("Easton");
+    fireEvent.click(save());
+    const alert = await screen.findByRole("alert");
+    expect(footerOf(alert)).not.toBeNull();
+    expect(scrolled).toEqual([screen.getByText(/^The shelf/).closest(".modal-field")]);
+  });
 });
 
 test("a failed save keeps its id for the retry; an edit starts a new one (K1)", async () => {
   const onCreate = jest.fn()
     .mockResolvedValueOnce({ ok: false, code: null })      // dropped connection
-    .mockResolvedValueOnce({ ok: false, code: "23505" })   // the retry: another Easton exists
+    .mockResolvedValueOnce({ ok: false, code: null })      // the retry: still down
     .mockResolvedValueOnce({ ok: true, id: "ask-2" });
-  const { onClose } = setup(onCreate);
-  fireEvent.change(nameInput(), { target: { value: "Easton" } });
-  pickTarget(1);
-  pick("Goldfish");
-  expect(await saveAndFail()).toHaveTextContent("Couldn't save the shelf.");
-
+  const { onClose } = setup({ onCreate });
+  readyDraft("Easton");
   fireEvent.click(save());
-  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("You already have Ask Easton."));
+  await screen.findByRole("alert");
+  fireEvent.click(save());
+  await waitFor(() => expect(onCreate).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(save()).toBeEnabled());
   expect(onCreate.mock.calls.map((c) => c[0])).toEqual(["ask-1", "ask-1"]);
-  expect(onClose).not.toHaveBeenCalled();
-  // 23505: our copy, carrying the name, so it wears .op-name. Never the server's message.
-  expect(screen.getByRole("alert")).toHaveClass("op-name");
-
-  fireEvent.change(nameInput(), { target: { value: "Everett" } });
-  expect(screen.queryByRole("alert")).toBeNull();
+  pick("Apples");
   await saveAndClose(onClose);
   expect(onCreate.mock.calls.map((c) => c[0])).toEqual(["ask-1", "ask-1", "ask-2"]);
-  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-test("a failure that names nobody does not wear .op-name", async () => {
-  setup(jest.fn(async () => ({ ok: false, code: "42501" })));
+test("Save sends the draft once a name and as many items as the target (3) are in", async () => {
+  const { onCreate, onClose } = setup();
+  expect(save()).toBeDisabled();
   fireEvent.change(nameInput(), { target: { value: "Easton" } });
-  pickTarget(1);
-  pick("Goldfish");
-  const alert = await saveAndFail();
-  expect(alert).not.toHaveClass("op-name");
-  expect(alert).not.toHaveTextContent("Easton");
+  pick("Goldfish"); pick("Apples"); pick("Yogurt");
+  await saveAndClose(onClose);
+  expect(onCreate).toHaveBeenCalledWith("ask-1", { label: "Easton", noun: "", target: 3, itemIds: ["i-goldfish", "i-apples", "i-yogurt"] });
 });
 
-test("the shelf keeps tap order; a tapped chip comes off; search narrows the list", () => {
+test("one scroller (C2.1 item 3): the catalog list is not a scroll box; search narrows it", () => {
   setup();
+  const list = screen.getByTestId("new-shelf-catalog");
+  expect(list.style.overflowY).toBe("");
+  expect(list.style.overflow).toBe("");
+  expect(list.style.maxHeight).toBe("");
   pick("Yogurt"); pick("Apples");
   expect(screen.getByText("The shelf · 2 items")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Take Yogurt off the shelf" }));

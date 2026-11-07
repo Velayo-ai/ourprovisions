@@ -1,21 +1,31 @@
 import { useMemo, useRef, useState } from "react";
 import {
-  askDraftProblem, createAskFailure, pickLine,
+  askDraftProblem, createAskFailure, findDuplicateAsk, pickLine,
   ASK_LABEL_MAX, ASK_NOUN_MAX, ASK_TARGET_MIN, ASK_TARGET_MAX, ASK_SHELF_MAX, ASK_TARGET_DEFAULT,
 } from "../lib/askCreate";
 
 // + New shelf (SPEC_ask_slice2 C2; 078 create_ask). The body of the sheet: who's picking, an
 // optional noun, how many to pick (1–6), and the shelf, chosen from this place's catalog in tap
-// order. Standard style only (Simple is Slice 3); photos come later (they're optional, A23).
+// order. Standard style only (Simple is Slice 3); photos come with the run screens (C3b).
 //
 // ONE ID PER DRAFT (K1): the id is made on the first Save and kept while the draft is unchanged,
 // so a retry after a dropped connection returns the same ask instead of a second one. Any edit to
 // what would be saved drops it; the next Save makes a new one.
 //
-// The name is a person's (K3): its input and any message that repeats it carry .op-name, which
+// WHERE MESSAGES GO (C2.1, Dan's walk 2026-11-07): a name this place already uses is caught as it
+// is typed, against the loaded asks, and said right under "Who's picking?" with the EXISTING
+// ask's spelling; Save waits. create_ask's 23505 is the backstop (another member got there
+// first): the hook re-reads the asks, the same line appears, and the name field comes into view.
+// Every other message sits in the sticky footer, above Cancel / Save shelf, so it is on screen
+// whatever the scroll; a server failure also brings the field it is about into view.
+//
+// ONE SCROLLER (the 11-05 Add-sheet rule): the sheet scrolls; the catalog list flows inside it and
+// search narrows it. It is never a scroll box of its own.
+//
+// The name is a person's (K3): its input and the name inside any message carry .op-name, which
 // both RUM pipelines exclude in every environment. The failure copy is ours, never the server's
 // (create_ask's message names the label).
-export function NewShelfSheet({ catalogItems, onCreate, onClose, closeButton }) {
+export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButton }) {
   const [label, setLabel] = useState("");
   const [noun, setNoun] = useState("");
   const [target, setTarget] = useState(ASK_TARGET_DEFAULT);
@@ -23,12 +33,18 @@ export function NewShelfSheet({ catalogItems, onCreate, onClose, closeButton }) 
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState(null);
+  const [serverDup, setServerDup] = useState(null);   // the name create_ask refused with 23505
   const attemptId = useRef(null);
+  const labelField = useRef(null);
+  const shelfField = useRef(null);
 
   const edit = (set) => (value) => { attemptId.current = null; setFailure(null); set(value); };
+  const onLabel = (value) => { setServerDup(null); edit(setLabel)(value); };
   const draft = { label, noun, target, itemIds };
   const problem = askDraftProblem(draft);
   const touched = label.trim() !== "" || itemIds.length > 0;
+  const existing = findDuplicateAsk(label, asks);
+  const dupName = existing ? existing.label : serverDup;
 
   const sorted = useMemo(
     () => [...catalogItems].filter((i) => i.id).sort((a, b) => a.name.localeCompare(b.name)),
@@ -40,19 +56,34 @@ export function NewShelfSheet({ catalogItems, onCreate, onClose, closeButton }) 
   const toggle = (id) => edit(setItemIds)((prev) =>
     prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= ASK_SHELF_MAX ? prev : [...prev, id]);
 
+  const bringIntoView = (field) => {
+    const el = field === "label" ? labelField.current : field === "shelf" ? shelfField.current : null;
+    el?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  };
+
   const save = async () => {
-    if (problem || saving) return;
+    if (problem || dupName || saving) return;
     if (!attemptId.current) attemptId.current = crypto.randomUUID();
     setSaving(true);
     setFailure(null);
     const result = await onCreate(attemptId.current, draft);
     if (result?.ok) { onClose(); return; }
     setSaving(false);
-    setFailure(createAskFailure(result?.code, draft));
+    const f = createAskFailure(result?.code, draft);
+    if (result?.code === "23505") setServerDup(label.trim());
+    else setFailure(f);
+    bringIntoView(f.field);
   };
 
   const targets = [];
   for (let n = ASK_TARGET_MIN; n <= ASK_TARGET_MAX; n++) targets.push(n);
+
+  // The footer line: a failed save first, else what the draft still needs (once started).
+  const footer = failure
+    ? <div className={`modal-error${failure.hasName ? " op-name" : ""}`} role="alert" style={{ flexBasis: "100%", margin: 0 }}>{failure.message}</div>
+    : problem && touched && !dupName
+      ? <div className="picker-sub" style={{ flexBasis: "100%", margin: 0 }}>{problem}</div>
+      : null;
 
   return (
     <>
@@ -60,10 +91,16 @@ export function NewShelfSheet({ catalogItems, onCreate, onClose, closeButton }) 
       <h2>New shelf</h2>
       <p className="modal-subtitle">A shelf of things someone can pick for the list. They don't need an account.</p>
 
-      <div className="modal-field">
+      <div className="modal-field" ref={labelField}>
         <label className="modal-label" htmlFor="new-shelf-label">Who's picking?</label>
         <input id="new-shelf-label" className="modal-input op-name" maxLength={ASK_LABEL_MAX} autoFocus autoComplete="off"
-          placeholder="A first name" value={label} onChange={(e) => edit(setLabel)(e.target.value)} />
+          placeholder="A first name" value={label} onChange={(e) => onLabel(e.target.value)}
+          aria-invalid={dupName ? true : undefined} aria-describedby={dupName ? "new-shelf-dup" : undefined} />
+        {dupName && (
+          <div id="new-shelf-dup" className="modal-error" role="alert" style={{ margin: "6px 0 0" }}>
+            You already have Ask <span className="op-name">{dupName}</span>.
+          </div>
+        )}
       </div>
 
       <div className="modal-field">
@@ -77,14 +114,14 @@ export function NewShelfSheet({ catalogItems, onCreate, onClose, closeButton }) 
         <div role="radiogroup" aria-labelledby="new-shelf-target" style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
           {targets.map((n) => (
             <button key={n} type="button" role="radio" aria-checked={target === n}
-              className={`cat-pill${target === n ? " on" : ""}`} style={{ padding: "9px 16px" }}
+              className={`cat-pill${target === n ? " on" : ""}`} style={{ padding: "9px 14px" }}
               onClick={() => edit(setTarget)(n)}>{n}</button>
           ))}
         </div>
         <div className="picker-sub" style={{ margin: "8px 0 0" }}>{pickLine(target, noun)}</div>
       </div>
 
-      <div className="modal-field">
+      <div className="modal-field" ref={shelfField}>
         <span className="modal-label">The shelf · {itemIds.length} {itemIds.length === 1 ? "item" : "items"}</span>
         {itemIds.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
@@ -98,7 +135,7 @@ export function NewShelfSheet({ catalogItems, onCreate, onClose, closeButton }) 
         )}
         <input className="modal-input" type="search" autoComplete="off" placeholder="Find an item"
           aria-label="Find an item for the shelf" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <div style={{ maxHeight: "36vh", overflowY: "auto", marginTop: "8px", borderTop: "1px solid #E8D5B7" }}>
+        <div data-testid="new-shelf-catalog" style={{ marginTop: "8px", borderTop: "1px solid #E8D5B7" }}>
           {results.length === 0 ? (
             <div className="picker-sub" style={{ margin: "10px 0" }}>Nothing in your catalog matches that.</div>
           ) : results.map((item) => {
@@ -118,16 +155,13 @@ export function NewShelfSheet({ catalogItems, onCreate, onClose, closeButton }) 
         </div>
       </div>
 
-      {failure ? (
-        <div className={`modal-error${failure.hasName ? " op-name" : ""}`} role="alert">{failure.message}</div>
-      ) : problem && touched ? (
-        <div className="picker-sub" style={{ margin: "0 0 12px" }}>{problem}</div>
-      ) : null}
-
-      <div className="modal-actions">
+      {/* The sticky footer (.modal-actions): its message line sits above the buttons, so it is
+          always on screen. */}
+      <div className="modal-actions" style={{ flexWrap: "wrap", rowGap: "8px" }}>
+        {footer}
         <button className="modal-cancel" onClick={onClose} disabled={saving}>Cancel</button>
-        <button className="modal-confirm" onClick={save} disabled={!!problem || saving}
-          style={{ opacity: problem || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save shelf"}</button>
+        <button className="modal-confirm" onClick={save} disabled={!!problem || !!dupName || saving}
+          style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save shelf"}</button>
       </div>
     </>
   );

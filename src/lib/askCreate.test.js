@@ -1,5 +1,5 @@
 import {
-  askDraftProblem, createAskArgs, createAskFailure, shapeAsks, pickLine, targetTilesMessage,
+  askDraftProblem, createAskArgs, createAskFailure, shapeAsks, pickLine, targetTilesMessage, findDuplicateAsk,
   ASK_LABEL_MAX, ASK_SHELF_MAX,
 } from "./askCreate";
 
@@ -59,18 +59,34 @@ describe("createAskArgs — 078's arguments", () => {
 describe("createAskFailure — our copy, never the server's message", () => {
   const draft = { label: " Easton ", target: 3, itemIds: ids(4) };
   test("23505: You already have Ask {Label}., marked as carrying the name", () => {
-    expect(createAskFailure("23505", draft)).toEqual({ message: "You already have Ask Easton.", hasName: true });
+    expect(createAskFailure("23505", draft)).toEqual({ message: "You already have Ask Easton.", hasName: true, field: "label" });
   });
   test("22023: the target-vs-tiles message when that is the cause, else a shelf message", () => {
-    expect(createAskFailure("22023", { ...draft, itemIds: ids(2) })).toEqual({ message: targetTilesMessage(3), hasName: false });
+    expect(createAskFailure("22023", { ...draft, itemIds: ids(2) })).toEqual({ message: targetTilesMessage(3), hasName: false, field: "shelf" });
+    expect(createAskFailure("22023", draft)).toMatchObject({ field: "shelf" });
     expect(createAskFailure("22023", draft).message).toMatch(/isn't available/);
   });
   test("anything else names nobody", () => {
     for (const code of ["42501", "42710", undefined, "PGRST301"]) {
       const f = createAskFailure(code, draft);
       expect(f.hasName).toBe(false);
+      expect(f.field).toBeNull();
       expect(f.message).not.toMatch(/Easton/);
     }
+  });
+});
+
+describe("findDuplicateAsk — K2 as the name is typed", () => {
+  const asks = [{ id: "a", label: "Easton" }, { id: "b", label: "Everett" }];
+  test("trimmed and case-insensitive; returns the existing ask, with its own spelling", () => {
+    expect(findDuplicateAsk(" easton ", asks)).toEqual({ id: "a", label: "Easton" });
+    expect(findDuplicateAsk("EVERETT", asks).label).toBe("Everett");
+  });
+  test("no match, a blank name, or no asks is null", () => {
+    expect(findDuplicateAsk("Nina", asks)).toBeNull();
+    expect(findDuplicateAsk("   ", asks)).toBeNull();
+    expect(findDuplicateAsk("Easton", null)).toBeNull();
+    expect(findDuplicateAsk("Easto", asks)).toBeNull();
   });
 });
 

@@ -1392,7 +1392,13 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     if (!db || !hh) return { ok: false, code: null };
     const { data, error: err } = await db.rpc("create_ask", createAskArgs(askId, hh.id, draft));
-    if (err) { console.warn("[ask] create_ask failed:", err.code); return { ok: false, code: err.code || null }; }
+    if (err) {
+      console.warn("[ask] create_ask failed:", err.code);
+      // 23505: another member made this ask since our read. Re-read, so the sheet's own
+      // duplicate check sees it and names it with the existing spelling.
+      if (err.code === "23505") await fetchAsks();
+      return { ok: false, code: err.code || null };
+    }
     await fetchAsks();
     return { ok: true, id: data };
   }, [fetchAsks]);
