@@ -2,14 +2,16 @@
 //
 // The privacy blocks rum.js hands the two Splunk agents, captured from their
 // init() calls in each environment. Pins SPEC_replay_labels_promotion2 A5: the
-// recorder's rules are the 10-18 block plus EXACTLY one rule — exclude
-// .op-replay-block, in both environments, after the Clerk excludes — and the
-// click-text block is unchanged (a photo has no text).
+// recorder's rules are the 10-18 block plus exclude .op-replay-block, in both
+// environments, after the Clerk excludes (a photo has no text, so click text
+// never gets it). Pins SPEC_ask_slice2 K3: exclude .op-name closes BOTH blocks
+// in BOTH environments, and is never unmasked.
 const CLERK = [
   { rule: "exclude", selector: '[class*="cl-"]' },
   { rule: "exclude", selector: "#clerk-components" },
 ];
 const BLOCK = { rule: "exclude", selector: ".op-replay-block" };
+const NAME = { rule: "exclude", selector: ".op-name" };
 
 function initWith(env) {
   const calls = {};
@@ -26,34 +28,34 @@ function initWith(env) {
 }
 
 describe("session recorder sensitivityRules", () => {
-  test("production: Clerk excludes, then the photo block — nothing unmasked", () => {
+  test("production: Clerk excludes, the photo block, then the name block — nothing unmasked", () => {
     const { recorder } = initWith("production");
     expect(recorder.maskAllInputs).toBe(true);
     expect(recorder.maskAllText).toBe(true);
-    expect(recorder.sensitivityRules).toEqual([...CLERK, BLOCK]);
+    expect(recorder.sensitivityRules).toEqual([...CLERK, BLOCK, NAME]);
   });
-  test("preview: body unmasked (dev audience), Clerk excludes, then the photo block", () => {
+  test("preview: body unmasked (dev audience), Clerk excludes, the photo block, then the name block", () => {
     const { recorder } = initWith("preview");
     expect(recorder.maskAllInputs).toBe(false);
     expect(recorder.maskAllText).toBe(false);
-    expect(recorder.sensitivityRules).toEqual([{ rule: "unmask", selector: "body" }, ...CLERK, BLOCK]);
+    expect(recorder.sensitivityRules).toEqual([{ rule: "unmask", selector: "body" }, ...CLERK, BLOCK, NAME]);
   });
-  test("the photo block is listed last in both (later rules win; exclude is absolute)", () => {
+  test("the photo and name blocks are listed last in both (later rules win; exclude is absolute)", () => {
     for (const env of ["production", "preview"]) {
       const rules = initWith(env).recorder.sensitivityRules;
-      expect(rules[rules.length - 1]).toEqual(BLOCK);
+      expect(rules.slice(-2)).toEqual([BLOCK, NAME]);
       expect(rules.filter((r) => r.selector === ".op-replay-block")).toHaveLength(1);
     }
   });
 });
 
-describe("click-text privacy block is unchanged", () => {
-  test("production: allow-list unmasks + Clerk excludes, no photo rule", () => {
+describe("click-text privacy block", () => {
+  test("production: allow-list unmasks, Clerk excludes, then the name block; no photo rule", () => {
     const { web } = initWith("production");
     const rules = web.privacy.sensitivityRules;
     expect(web.privacy.maskAllText).toBe(true);
-    expect(rules.slice(-2)).toEqual(CLERK);
-    expect(rules.slice(0, -2).every((r) => r.rule === "unmask")).toBe(true);
+    expect(rules.slice(-3)).toEqual([...CLERK, NAME]);
+    expect(rules.slice(0, -3).every((r) => r.rule === "unmask")).toBe(true);
     // 47 + .rv-photo-add, .rv-photo-remove, .rv-photo-remove-yes, .rv-photo-keep (Photos v1 slice 1) + .rv-photo-open,
     // .rv-viewer-close (photo hero) + .rv-photo-prev, .rv-photo-next, .rv-dot (desktop stepping) + .board-photo-add, .rate-star (slice 2)
     // = 58; SPEC_photo_menu (2026-10-25): out .rv-photo-remove-yes, .rv-photo-keep; in .rv-photo-replace, .rv-photo-details,
@@ -65,8 +67,8 @@ describe("click-text privacy block is unchanged", () => {
     // Phase A Commit 2 (give sheet): in .rv-more, .rv-give, .rv-stop-giving, .give-go, .give-nudge, .give-send, .give-copy,
     // .stop-giving-yes, .stop-giving-no → 80; Phase A Commit 3 (accept): in .gift-open, .gift-ok, .thanks-send, .thanks-skip → 84;
     // the header share button (Dan 2026-10-30): out .rv-more (the ⋯ and its menu are gone); .rv-give is now the button itself,
-    // .rv-stop-giving the give sheet's top-line button → 83
-    expect(rules.slice(0, -2)).toHaveLength(83);
+    // .rv-stop-giving the give sheet's top-line button → 83; SPEC_ask_slice2 C1 adds no entry → 83
+    expect(rules.slice(0, -3)).toHaveLength(83);
     const sel = rules.map((r) => r.selector);
     [".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove", ".rv-photo-confirm-remove", ".rv-photo-confirm-keep", ".rv-photo-placeholder",
       ".rv-photo-make-showcase", ".rv-photo-make-cook", ".rv-showcase-go", ".rv-showcase-cancel", ".rv-photo-full-ok", ".gift-add", ".gift-signin", ".gift-what", ".gift-retry",
@@ -77,10 +79,35 @@ describe("click-text privacy block is unchanged", () => {
     [".rv-photo-remove-yes", ".rv-photo-keep", ".rv-photo-more", ".rv-photo-showcase", ".rv-more"].forEach((c) => expect(sel).not.toContain(c));
     expect(rules.some((r) => r.selector === ".op-replay-block")).toBe(false);
   });
-  test("preview: Clerk excludes only", () => {
+  test("preview: Clerk excludes, then the name block", () => {
     const { web } = initWith("preview");
     expect(web.privacy.maskAllText).toBe(false);
-    expect(web.privacy.sensitivityRules).toEqual(CLERK);
+    expect(web.privacy.sensitivityRules).toEqual([...CLERK, NAME]);
+  });
+});
+
+// SPEC_ask_slice2 K3 / C1: .op-name is where a person's name shows (an Ask's label).
+describe(".op-name — excluded everywhere, allow-listed nowhere", () => {
+  const ENVS = ["production", "preview"];
+  test("in both exclude lists, in both environments, exactly once, and last", () => {
+    for (const env of ENVS) {
+      const { web, recorder } = initWith(env);
+      for (const rules of [web.privacy.sensitivityRules, recorder.sensitivityRules]) {
+        expect(rules.filter((r) => r.selector.includes("op-name"))).toEqual([NAME]);
+        expect(rules[rules.length - 1]).toEqual(NAME);
+      }
+    }
+  });
+  test("in neither allow-list: no unmask rule names it, in either environment", () => {
+    for (const env of ENVS) {
+      const { web, recorder } = initWith(env);
+      const unmasks = [...web.privacy.sensitivityRules, ...recorder.sensitivityRules].filter((r) => r.rule === "unmask");
+      expect(unmasks.some((r) => r.selector.includes("op-name"))).toBe(false);
+    }
+  });
+  test("the prod click-text allow-list stays at 83 entries", () => {
+    const rules = initWith("production").web.privacy.sensitivityRules;
+    expect(rules.filter((r) => r.rule === "unmask")).toHaveLength(83);
   });
 });
 
