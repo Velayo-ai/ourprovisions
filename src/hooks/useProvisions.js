@@ -1403,6 +1403,70 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return { ok: true, id: data };
   }, [fetchAsks]);
 
+  // ─────────────────────────────────────────────────────────────
+  // SHELF PHOTOS (077 household_item_photos + the item-photos bucket; A23; SPEC_ask_slice2 C3b.2).
+  // One live photo per (household, item), reused by every ask that shelves that item.
+  // fetchItemPhotos reads this household's live rows by household id only. setItemPhoto renders
+  // the two renditions (renderMealPhoto: WebP, JPEG on an older Safari, metadata stripped), uploads
+  // both under {household}/{item}/{uuid}-thumb|view (mealPhotoPaths' shape, with the item in the
+  // meal's place), THEN calls set_household_item_photo, which checks the paths and both objects
+  // and retires the item's previous photo. Quiet on failure: { ok: false, reason: "decode" |
+  // "upload" | "save" }; an upload whose RPC fails leaves orphan objects (the Slice 4 sweep).
+  // ─────────────────────────────────────────────────────────────
+  const [itemPhotos, setItemPhotos] = useState({});   // catalog_item_id → { id, thumbPath, viewPath }
+  const fetchItemPhotos = useCallback(async () => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const hhId = hh.id;
+    const { data, error: err } = await db
+      .from("household_item_photos")
+      .select("id, catalog_item_id, thumb_path, view_path")
+      .eq("household_id", hhId)
+      .is("deleted_at", null);
+    if (householdRef.current?.id !== hhId) return null;
+    if (err) { console.warn("[item photo] read failed (non-fatal):", err.code); return null; }
+    const byItem = {};
+    (data || []).forEach((r) => { byItem[r.catalog_item_id] = { id: r.id, thumbPath: r.thumb_path, viewPath: r.view_path }; });
+    setItemPhotos(byItem);
+    return byItem;
+  }, []);
+
+  useEffect(() => {
+    setItemPhotos({});
+    if (household?.id) fetchItemPhotos();
+  }, [household?.id, fetchItemPhotos]);
+
+  const setItemPhoto = useCallback(async (catalogItemId, file) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !catalogItemId || !file) return { ok: false, reason: "save" };
+    let r;
+    try {
+      r = await renderMealPhoto(file);
+    } catch (err) {
+      console.warn("[item photo] could not decode:", file && file.type);
+      return { ok: false, reason: "decode" };
+    }
+    const { thumbPath, viewPath } = mealPhotoPaths(hh.id, catalogItemId, crypto.randomUUID(), r.ext);
+    const bucket = db.storage.from("item-photos");
+    const opts = { contentType: r.type, upsert: false, cacheControl: "3600" };
+    try {
+      const [t, v] = await Promise.all([bucket.upload(thumbPath, r.thumb.blob, opts), bucket.upload(viewPath, r.view.blob, opts)]);
+      if (t.error) throw t.error;
+      if (v.error) throw v.error;
+    } catch (err) {
+      console.warn("[item photo] upload failed:", err && (err.statusCode || err.name));
+      return { ok: false, reason: "upload" };
+    }
+    const { error: err } = await db.rpc("set_household_item_photo", {
+      p_household_id: hh.id, p_catalog_item_id: catalogItemId, p_thumb_path: thumbPath, p_view_path: viewPath,
+    });
+    if (err) { console.warn("[item photo] set_household_item_photo failed:", err.code); return { ok: false, reason: "save" }; }
+    await fetchItemPhotos();
+    return { ok: true };
+  }, [fetchItemPhotos]);
+
   const toggleChecked = useCallback(async (itemName, listItemId) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -4222,7 +4286,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     cooksLoaded: !!household?.id && cooksLoadedFor === household.id,
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    landAskPicks, asks, fetchAsks, createAsk,
+    landAskPicks, asks, fetchAsks, createAsk, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,

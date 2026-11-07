@@ -18,6 +18,7 @@ import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
 import { NewShelfSheet } from './components/NewShelfSheet';
 import { AskRun } from './components/AskRun';
+import { ShelfPhotoStrip } from './components/ShelfPhotoStrip';
 import { askBlocks, categoryPartShown, browseFilterCount as countBrowseFilters, browseFilterDescriptor as describeBrowseFilters } from './lib/askBrowse';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY } from './lib/preRum';
@@ -5312,7 +5313,7 @@ function ProvisionsApp({ scrollRootRef }) {
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
-    asks, createAsk, landAskPicks,
+    asks, createAsk, landAskPicks, itemPhotos, setItemPhoto,
     supabase,
     _supabase,
     _household,
@@ -6990,11 +6991,39 @@ function ProvisionsApp({ scrollRootRef }) {
   // The ask being run (C3b): its tiles are the same ones its Browse block shows, in shelf order,
   // each with its aisle's glyph until it has a photo.
   const runAsk = runAskId ? asks.find(a => a.id === runAskId) || null : null;
-  const runTiles = useMemo(() => {
+  const runItems = useMemo(() => {
     if (!runAsk) return [];
     const [block] = askBlocks([runAsk], new Set([runAsk.id]), askIndex.catalogById, askIndex.rawCategoryByName);
-    return (block ? block.items : []).map(item => ({ id: item.id, name: item.name, glyph: categoryGlyph(item.rawCategory), photoUrl: null }));
+    return block ? block.items : [];
   }, [runAsk, askIndex]);
+
+  // Shelf photos (C3b.2, A23): one per household item, signed only for the tiles on screen — the
+  // selected asks' strips in Browse and the run's tiles. Thumbnails only (≈480 px covers a tile);
+  // minted in one batch and reused by path, like the meal photos (R9).
+  const itemPhotoUrlCacheRef = useRef(null);
+  if (!itemPhotoUrlCacheRef.current) itemPhotoUrlCacheRef.current = createSignedUrlCache({ bucket: "item-photos" });
+  const [itemPhotoUrls, setItemPhotoUrls] = useState({});
+  const wantedItemPhotoPaths = useMemo(() => {
+    const ids = new Set([...askBlocksShown.flatMap(b => b.items.map(i => i.id)), ...runItems.map(i => i.id)]);
+    return [...ids].map(id => itemPhotos[id]?.thumbPath).filter(Boolean);
+  }, [askBlocksShown, runItems, itemPhotos]);
+  useEffect(() => {
+    if (wantedItemPhotoPaths.length === 0) return undefined;
+    let cancelled = false;
+    itemPhotoUrlCacheRef.current.resolve(_supabase.current, wantedItemPhotoPaths).then((got) => {
+      if (cancelled) return;
+      setItemPhotoUrls((prev) => (Object.keys(got).every((k) => prev[k] === got[k]) ? prev : { ...prev, ...got }));
+    });
+    return () => { cancelled = true; };
+  }, [wantedItemPhotoPaths, _supabase]);
+  const itemPhotoUrl = useCallback((id) => {
+    const p = itemPhotos[id];
+    return p ? itemPhotoUrls[p.thumbPath] || null : null;
+  }, [itemPhotos, itemPhotoUrls]);
+
+  const runTiles = useMemo(() => runItems.map(item => ({
+    id: item.id, name: item.name, glyph: categoryGlyph(item.rawCategory), photoUrl: itemPhotoUrl(item.id),
+  })), [runItems, itemPhotoUrl]);
 
   // Only categories that survive Layer 1 count as active — a selection that has
   // gone stale (category deleted here or on another device) must not name every
@@ -8240,6 +8269,16 @@ function ProvisionsApp({ scrollRootRef }) {
           }}
         >Hand it to <span className="op-name">{block.label}</span> →</button>
       </div>
+      {/* Shelf photos (C3b.2): what the tiles show on the run. */}
+      {block.items.length > 0 && (
+        <ShelfPhotoStrip
+          items={block.items.map(item => ({
+            id: item.id, name: item.name, glyph: categoryGlyph(item.rawCategory),
+            photoUrl: itemPhotoUrl(item.id), hasPhoto: !!itemPhotos[item.id],
+          }))}
+          onPick={setItemPhoto}
+        />
+      )}
       <div className="items-grid">
         {block.items.length === 0 ? (
           <div className="declutter-desc" style={{ margin: "4px 0 0" }}>Nothing on this shelf is in your Browse right now.</div>
