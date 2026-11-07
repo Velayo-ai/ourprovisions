@@ -36,9 +36,9 @@ export function browseFilterCount({ stapleFilter, selectedCategoryCount, askBloc
 }
 
 // "Showing only …" — names the active filter set in rail order (Staples, the asks, then the
-// categories) and counts the rows actually rendered, so the number and the names can never
-// disagree. An ask's name is { ask: label }: the caller renders it inside .op-name (K3). null when
-// nothing filters.
+// categories) and counts the DISTINCT items on screen (Dan, 2026-11-07): an item shown in its ask's
+// block and in its own aisle is one item, not two rows. An ask's name is { ask: label }: the
+// caller renders it inside .op-name (K3). null when nothing filters.
 //   shownCats         categories that survive the selection (displayCategories ∩ selected)
 //   displayCategories the category part after Staples and the category pills
 export function browseFilterDescriptor({ stapleFilter, shownCats, displayCategories, blocks, categoryRailLabel }) {
@@ -54,7 +54,9 @@ export function browseFilterDescriptor({ stapleFilter, shownCats, displayCategor
       ...blocks.map((b) => ({ ask: b.label })),
       ...catPart.map((cat) => categoryRailLabel(cat.rawName)),
     ],
-    count: catPart.reduce((total, cat) => total + cat.items.length, 0)
-      + blocks.reduce((total, b) => total + b.items.length, 0),
+    count: new Set([
+      ...catPart.flatMap((cat) => cat.items.map((i) => i.name)),
+      ...blocks.flatMap((b) => b.items.map((i) => i.name)),
+    ]).size,
   };
 }

@@ -7014,8 +7014,9 @@ function ProvisionsApp({ scrollRootRef }) {
   // categories while counting a staple-narrowed set made the line describe a set
   // its own sentence didn't name.
   //
-  // The count always comes from the same rows the list is rendering, so the
-  // number and the names can never disagree.
+  // The count is the DISTINCT items the list is rendering (an item in its ask's
+  // block and in its own aisle counts once), so the number and the names can
+  // never disagree.
   const browseFilterDescriptor = useMemo(() => describeBrowseFilters({
     stapleFilter, shownCats, displayCategories, blocks: askBlocksShown, categoryRailLabel,
   }), [stapleFilter, shownCats, displayCategories, askBlocksShown]);

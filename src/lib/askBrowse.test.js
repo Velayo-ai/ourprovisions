@@ -70,6 +70,14 @@ describe("browseFilterDescriptor", () => {
       names: [{ ask: "Easton" }, "Dairy"], count: 4,
     });
   });
+  test("the count is DISTINCT items: one shown in its ask's block and in its own aisle counts once", () => {
+    const produceWithApples = { rawName: "Produce", name: "Produce", items: [{ name: "Apples" }, { name: "Pears" }] };
+    const twoAsks = askBlocks(ASKS, new Set(["a-easton", "a-everett"]), catalogById, rawCategoryByName);   // Goldfish, Apples · Bread
+    expect(browseFilterDescriptor({ ...base, shownCats: [produceWithApples], displayCategories: [produceWithApples], blocks: twoAsks }))
+      .toEqual({ names: [{ ask: "Easton" }, { ask: "Everett" }, "Produce"], count: 4 });   // Goldfish, Apples, Bread, Pears
+    const sameTileTwice = [{ id: "x", label: "A", items: [{ name: "Apples" }] }, { id: "y", label: "B", items: [{ name: "Apples" }] }];
+    expect(browseFilterDescriptor({ ...base, blocks: sameTileTwice }).count).toBe(1);
+  });
   test("the ask's label is never a plain string, so the caller can't render it outside .op-name", () => {
     const d = browseFilterDescriptor({ ...base, blocks });
     expect(d.names.filter((n) => typeof n === "string" && n.includes("Easton"))).toEqual([]);
