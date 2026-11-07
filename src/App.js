@@ -46,6 +46,8 @@ import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, 
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { swipeRemoveConfirm, provenanceClayLine, pickInitials, joinPickLabels } from './lib/askPicks';
+import { ASK_GLYPH, readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
+import { MoreAsksSheet } from './components/MoreAsksSheet';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -94,9 +96,6 @@ const SPEECH_RECOGNITION_CTOR =
     : null;
 
 const CATEGORY_GLYPH_FALLBACK = "📦";
-// An ask's pill and section (SPEC_ask_slice2 C3): one glyph for every ask, never derived from the
-// name (an initial would be a piece of it outside .op-name).
-const ASK_GLYPH = "🧺";
 // A "Showing only …" name: a category or Staples as text, or an ask ({ ask: label }) as
 // "Ask {Label}" with the name in .op-name (K3).
 const filterNameNode = (n) => (typeof n === "string" ? n : <>Ask <span className="op-name">{n.ask}</span></>);
@@ -6835,7 +6834,27 @@ function ProvisionsApp({ scrollRootRef }) {
   // The ask being run, full screen (C3b). A tab or household switch ends it, picks discarded
   // (nothing lands before That's it!, A16).
   const [runAskId, setRunAskId] = useState(null);
-  useEffect(() => { setNewShelfOpen(false); setSelectedAsks(new Set()); setRunAskId(null); }, [view, activeHouseholdId]);
+  // "+N more" (C4.2): the asks past the rail's two pills, in a small sheet.
+  const [moreAsksOpen, setMoreAsksOpen] = useState(false);
+  useEffect(() => { setNewShelfOpen(false); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
+  // The rail's ask order (C4.2; Dan's rail ruling 2026-11-07): last hand-over first, then A–Z —
+  // computed when Browse opens or the household switches, then frozen while Browse stays open. A
+  // hand-over records its time (this device's localStorage) but never re-sorts the open rail; asks
+  // that arrive later (the first load, a shelf made now) follow the ones already placed.
+  const [askOrder, setAskOrder] = useState({ key: null, ids: [] });
+  useEffect(() => {
+    const key = `${view}|${household?.id ?? ""}`;
+    setAskOrder(prev => {
+      const base = prev.key === key ? prev.ids : [];
+      const ids = freezeAskOrder(base, asks, readAskHandovers(household?.id, asks.map(a => a.id)));
+      return prev.key === key && ids === prev.ids ? prev : { key, ids };
+    });
+  }, [asks, view, household?.id]);
+  const toggleAsk = (askId) => setSelectedAsks(prev => {
+    const next = new Set(prev);
+    if (next.has(askId)) next.delete(askId); else next.add(askId);
+    return next;
+  });
   useScrollLock(!!runAskId, scrollRootRef);
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
@@ -6993,6 +7012,12 @@ function ProvisionsApp({ scrollRootRef }) {
   // Asks in Browse (SPEC_ask_slice2 C3; rules + tests in src/lib/askBrowse.js). The selected
   // asks' sections, oldest ask first, each shelf in its own order, each tile priced from the aisle
   // it is filed under in Browse (D-c). An ask is not a category (K5): selectedAsks is its own set.
+  // What the rail draws (C4.2): at most two ask pills in the frozen order, the rest behind "+N
+  // more"; "+ New shelf" after Staples with no asks, at the very end with 1+.
+  const askRail = useMemo(() => {
+    const byId = new Map(asks.map(a => [a.id, a]));
+    return askRailLayout(askOrder.ids.map(id => byId.get(id)).filter(Boolean), !!(isSignedIn && household?.id));
+  }, [asks, askOrder, isSignedIn, household?.id]);
   const askIndex = useMemo(() => ({
     catalogById: new Map(Object.values(catalogMap).map(i => [i.id, i])),
     rawCategoryByName: new Map(categories.flatMap(cat => cat.items.map(i => [i.name, cat.rawName]))),
@@ -8277,7 +8302,7 @@ function ProvisionsApp({ scrollRootRef }) {
             "Picked by" (11-04 ruling). */}
         <button
           className="ask-handover"
-          onClick={() => setRunAskId(block.id)}
+          onClick={() => { recordAskHandover(household?.id, block.id); setRunAskId(block.id); }}
           style={{
             background: "none", border: "none", fontFamily: "'Lato', sans-serif",
             fontSize: "12.5px", color: "#0A776D", fontWeight: 700, cursor: "pointer",
@@ -11206,23 +11231,26 @@ function ProvisionsApp({ scrollRootRef }) {
                   <span className="cat-em">{categoryGlyph("Staples")}</span>Staples
                 </button>
 
-                {/* Ask pills (SPEC_ask_slice2 C3) — one per ask, oldest first, toggling selectedAsks
+                {/* + New shelf (SPEC_ask_slice2 C2) — the door to making an Ask. With no asks it sits
+                    right after Staples (discovery); with 1+ it moves to the very end (C4.2). Signed
+                    in with a place only: the shelf is the household's. */}
+                {askRail.newShelfAt === "afterStaples" && (
+                  <button className="cat-pill cat-pill-new" onClick={() => setNewShelfOpen(true)}>
+                    <span className="cat-em">+</span>New shelf
+                  </button>
+                )}
+
+                {/* Ask pills (C3, C4.2) — at most two, in the frozen order, toggling selectedAsks
                     (K5). "Ask " is fixed copy; the name sits in .op-name (K3), so it leaves replay
                     and click text in every environment. The key is the ask's id, never its label. */}
-                {asks.map(ask => {
+                {askRail.pills.map(ask => {
                   const isActive = selectedAsks.has(ask.id);
                   return (
                     <button
                       key={ask.id}
                       className={`cat-pill${isActive ? " on" : ""}`}
                       data-active={isActive ? "1" : undefined}
-                      onClick={() => {
-                        setSelectedAsks(prev => {
-                          const next = new Set(prev);
-                          if (next.has(ask.id)) next.delete(ask.id); else next.add(ask.id);
-                          return next;
-                        });
-                      }}
+                      onClick={() => toggleAsk(ask.id)}
                     >
                       <span className="cat-em" aria-hidden="true">{ASK_GLYPH}</span>
                       <span>Ask <span className="op-name">{ask.label}</span></span>
@@ -11230,13 +11258,21 @@ function ProvisionsApp({ scrollRootRef }) {
                   );
                 })}
 
-                {/* + New shelf (SPEC_ask_slice2 C2) — the door to making an Ask, after the ask
-                    pills. Signed in with a place only: the shelf is the household's. */}
-                {isSignedIn && household?.id && (
-                  <button className="cat-pill cat-pill-new" onClick={() => setNewShelfOpen(true)}>
-                    <span className="cat-em">+</span>New shelf
-                  </button>
-                )}
+                {/* "+N more" (C4.2) — the rest of the asks in a small sheet. Shown "on" while one of
+                    them is selected, since its own pill isn't on the rail. */}
+                {askRail.more.length > 0 && (() => {
+                  const isActive = askRail.more.some(a => selectedAsks.has(a.id));
+                  return (
+                    <button
+                      className={`cat-pill cat-pill-more${isActive ? " on" : ""}`}
+                      data-active={isActive ? "1" : undefined}
+                      aria-haspopup="dialog"
+                      onClick={() => setMoreAsksOpen(true)}
+                    >
+                      <span className="cat-em" aria-hidden="true">{ASK_GLYPH}</span>+{askRail.more.length} more
+                    </button>
+                  );
+                })()}
 
                 {/* Category pills — toggle to filter */}
                 {categories.map(cat => {
@@ -11263,6 +11299,12 @@ function ProvisionsApp({ scrollRootRef }) {
                     </button>
                   );
                 })}
+
+                {askRail.newShelfAt === "end" && (
+                  <button className="cat-pill cat-pill-new" onClick={() => setNewShelfOpen(true)}>
+                    <span className="cat-em">+</span>New shelf
+                  </button>
+                )}
               </div>
             </div>
             )}
@@ -11992,6 +12034,22 @@ function ProvisionsApp({ scrollRootRef }) {
           }}
           onExit={() => setRunAskId(null)}
         />
+      )}
+
+      {/* "+N more" (C4.2): a row behaves exactly like its pill; the sheet then closes. */}
+      {moreAsksOpen && (
+        <div className="modal-overlay" onClick={() => setMoreAsksOpen(false)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="More shelves" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "88vh", overflowY: "auto" }}>
+            <MoreAsksSheet
+              asks={askRail.more}
+              selectedAsks={selectedAsks}
+              onToggle={(askId) => { toggleAsk(askId); setMoreAsksOpen(false); }}
+              onNewShelf={askRail.newShelfAt ? () => { setMoreAsksOpen(false); setNewShelfOpen(true); } : null}
+              closeButton={<SheetClose onClose={() => setMoreAsksOpen(false)} />}
+            />
+          </div>
+        </div>
       )}
 
       {/* + New shelf (SPEC_ask_slice2 C2; 078 create_ask) */}
