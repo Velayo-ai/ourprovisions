@@ -1,4 +1,4 @@
-import { landAskPicksArgs, askCompletedAttributes, joinPickLabels, swipeRemoveConfirm } from "./askPicks";
+import { landAskPicksArgs, askCompletedAttributes, joinPickLabels, swipeRemoveConfirm, provenanceClayLine, pickInitials } from "./askPicks";
 
 describe("landAskPicksArgs (A22: ids only, never the label)", () => {
   test("carries exactly the household, the ask and the ids", () => {
@@ -78,5 +78,28 @@ describe("swipeRemoveConfirm (R3)", () => {
     expect(swipeRemoveConfirm({ contributors: [mine, paige] }, me)).toEqual({ verb: "added", byName: "Paige" });
     expect(swipeRemoveConfirm({ addedBy: "Paige H", contributors: [paige] }, me)).toEqual({ verb: "added", byName: "Paige H" });
     expect(swipeRemoveConfirm({ contributors: [{ clerkId: "user_x" }] }, me)).toEqual({ verb: "added", byName: "someone else" });
+  });
+});
+
+describe("provenanceClayLine — one line, Added by then Picked by (C4)", () => {
+  test("either facet alone, both joined by ' · ', or nothing", () => {
+    expect(provenanceClayLine(["you"], null)).toBe("Added by you");
+    expect(provenanceClayLine([], ["Easton"])).toBe("Picked by Easton");
+    expect(provenanceClayLine(["you"], ["Easton"])).toBe("Added by you · Picked by Easton");
+    expect(provenanceClayLine(["you", "Paige"], ["Easton", "Everett"])).toBe("Added by you & Paige · Picked by Easton & Everett");
+    expect(provenanceClayLine([], [])).toBeNull();
+    expect(provenanceClayLine(null, null)).toBeNull();
+  });
+  test("repeated or blank names collapse", () => {
+    expect(provenanceClayLine(["you", "you"], ["Easton", " ", "Easton"])).toBe("Added by you · Picked by Easton");
+  });
+});
+
+describe("pickInitials — the tray's picker initials (A19)", () => {
+  test("one per distinct picker, in order; a shared initial shows twice (rule still open)", () => {
+    expect(pickInitials(["Easton", "Everett"])).toEqual(["E", "E"]);
+    expect(pickInitials(["nina", "Easton", "nina"])).toEqual(["N", "E"]);
+    expect(pickInitials(null)).toEqual([]);
+    expect(pickInitials([" ", ""])).toEqual([]);
   });
 });

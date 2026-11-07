@@ -45,7 +45,7 @@ import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
-import { swipeRemoveConfirm } from './lib/askPicks';
+import { swipeRemoveConfirm, provenanceClayLine, pickInitials, joinPickLabels } from './lib/askPicks';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -1157,7 +1157,7 @@ function ShopLensSegment({ lens, onChange }) {
 // D2: checked items get a PLACE, not a toggle. Collapsed by default, hidden
 // entirely at 0. Rows un-check from inside the tray. `initialFor` returns a
 // small initial for rows the current user did not check (partner's check).
-function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor }) {
+export function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor }) {
   if (items.length === 0 && count === 0) return null;
   return (
     <div className="in-cart-tray">
@@ -1178,6 +1178,17 @@ function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUn
                 <div className="li-name" style={{ cursor: "pointer" }} onClick={() => onUncheck(item)}>{item.name}</div>
                 {item.qty > 1 && <span className="li-qty">×{item.qty}</span>}
                 {initial && <span className="tray-initial" title="Checked by another member">{initial}</span>}
+                {/* A19: the pickers' initials, outlined so they never read as "checked by". The
+                    group wears .op-name, and the spoken "Picked by …" is .sr-only text inside it —
+                    never an attribute, which the recorder would copy. */}
+                {pickInitials(item.pickedByLabels).length > 0 && (
+                  <span className="op-name tray-picked">
+                    <span className="sr-only">Picked by {joinPickLabels(item.pickedByLabels)}</span>
+                    {pickInitials(item.pickedByLabels).map((ch, k) => (
+                      <span key={k} className="tray-initial tray-initial-picked" aria-hidden="true">{ch}</span>
+                    ))}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -6584,13 +6595,13 @@ function ProvisionsApp({ scrollRootRef }) {
   };
 
   const provenanceLines = useCallback((item) => {
-    // Facet 1 — who put it on the list directly.
+    // Facet 1 — who put it on the list directly: the members who added it, and anyone who picked
+    // it through an Ask, on ONE line — "Added by you · Picked by Easton" (SPEC_ask_slice2 C4; the
+    // 11-04 ruling puts "Picked by" on the "Added by" line). The whole line wears .op-name below.
     const contributorNames = (item.contributors || [])
       .map((c) => (c.clerkId && c.clerkId === user?.id ? "you" : c.fullName))
       .filter(Boolean);
-    const catalogLine = contributorNames.length > 0
-      ? `Added by ${joinNames(contributorNames)}`
-      : null;
+    const catalogLine = provenanceClayLine(contributorNames, item.pickedByLabels);
 
     // Facet 2 — which meal(s) pulled it in. Names the meals rather than
     // collapsing to a "Multiple meals" count; that string is deliberately
@@ -6615,7 +6626,8 @@ function ProvisionsApp({ scrollRootRef }) {
     const base = { fontFamily: "'Lato', sans-serif", fontSize: ts(14), letterSpacing: "0.3px", marginTop: "3px" };
     return (
       <>
-        {catalogLine && <div style={{ ...base, color: "#8A5F3A" }}>{catalogLine}</div>}
+        {/* .op-name on the WHOLE clay line (Dan, 2026-11-07): it names members and pickers. */}
+        {catalogLine && <div className="op-name" style={{ ...base, color: "#8A5F3A" }}>{catalogLine}</div>}
         {mealLine && <div style={{ ...base, color: "#0A776D" }}>{mealLine}</div>}
       </>
     );
@@ -9684,6 +9696,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .tray-body .list-item:last-child { border-bottom: none; }
         .tray-body .li-name { text-decoration: line-through; color: #a89878; font-size: calc(0.88rem * var(--op-text-scale)); }
         .tray-initial { width: 20px; height: 20px; border-radius: 50%; background: #E8D5B7; color: #2C1A0E; font-family: 'Lato', sans-serif; font-size: 0.6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        /* Picker initials (A19, Ask Slice 2 C4): outlined in text teal, so a pick never reads as a partner's check. */
+        .tray-picked { display: flex; gap: 4px; flex-shrink: 0; }
+        .tray-initial-picked { background: transparent; border: 1.5px solid #0A776D; color: #0A776D; box-sizing: border-box; }
         /* Rows animate INTO wherever they land — down into the tray, back up into an aisle — so the person sees where the item went. */
         @keyframes opRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
         @keyframes opRowInDown { from { opacity: 0; transform: translateY(6px); } to { opacity: 0.55; transform: none; } }

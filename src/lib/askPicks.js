@@ -27,6 +27,27 @@ export function joinPickLabels(labels) {
   return `${n.slice(0, -1).join(", ")} & ${n[n.length - 1]}`;
 }
 
+// Shop's provenance line (SPEC_ask_slice2 C4; the 11-04 ruling: "Picked by" sits on the "Added by"
+// line). One clay line: "Added by you", "Picked by Easton & Everett", or both joined by " · ",
+// "Added by" first; null when neither applies. The caller wraps the WHOLE line in .op-name (Dan,
+// 2026-11-07): it carries member names and picker names alike.
+export function provenanceClayLine(contributorNames, pickedByLabels) {
+  const added = joinPickLabels(contributorNames);
+  const picked = joinPickLabels(pickedByLabels);
+  const parts = [];
+  if (added) parts.push(`Added by ${added}`);
+  if (picked) parts.push(`Picked by ${picked}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+// The In cart tray's picker initials (A19): one per picker, in label order — "Easton & Everett" →
+// ["E", "E"]. Two pickers who share an initial both show; a rule to tell them apart is still open
+// (SPEC_ask_slice2 C4) and is not invented here.
+export function pickInitials(labels) {
+  return [...new Set((labels || []).filter((l) => typeof l === "string" && l.trim()))]
+    .map((l) => l.trim()[0].toUpperCase());
+}
+
 // SHOP swipe-to-remove (R3, 2026-11-03). Returns null to remove at once, or what the shared-item
 // confirm needs. A row someone picked through an Ask always confirms: a picker has no account, so
 // no member can be "the picker", and an unresolved identity is never proof of ownership. A pick
