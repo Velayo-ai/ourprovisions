@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
+import { tileFace } from "../lib/askRun";
 
 // Shelf photos (A23; SPEC_ask_slice2 C3b.2), under an ask's section header in Browse. One slot per
-// tile, in shelf order: the item's photo when it has one, else its aisle glyph. A tap picks a
+// tile, in shelf order: the item's photo when it has one, else the ITEM's own glyph if the catalog
+// has one, else an empty slot with its ＋ — never the aisle's glyph (tileFace, C3b.1). A tap picks a
 // photo (camera or library, the phone's own chooser) and replaces the item's photo; the same
 // photo then shows on every ask that shelves the item. A grown-up's surface: the run itself never
 // changes photos.
@@ -41,9 +43,10 @@ export function ShelfPhotoStrip({ items, onPick }) {
           <button key={item.id} type="button" className="shelf-photo-slot" onClick={() => open(item.id)} disabled={!!busyId}
             aria-label={`${item.hasPhoto ? "Change the photo of" : "Add a photo of"} ${item.name}`}>
             <span className="shelf-photo-art" aria-hidden="true">
-              {item.photoUrl
-                ? <img className="op-replay-block op-photo" src={item.photoUrl} alt="" draggable="false" />
-                : <span>{busyId === item.id ? "…" : item.glyph}</span>}
+              {busyId === item.id ? <span>…</span>
+                : tileFace(item) === "photo" ? <img className="op-replay-block op-photo" src={item.photoUrl} alt="" draggable="false" />
+                : tileFace(item) === "glyph" ? <span>{item.glyph}</span>
+                : null}
               {!item.hasPhoto && busyId !== item.id && <span className="shelf-photo-plus">＋</span>}
             </span>
             <span className="shelf-photo-name">{busyId === item.id ? "Adding…" : item.name}</span>

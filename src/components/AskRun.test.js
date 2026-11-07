@@ -114,3 +114,38 @@ test("a shelf with fewer tiles than the target says so and does not start", () =
   expect(screen.getByText(/fewer things on it than there are to pick/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Let's pick" })).toBeNull();
 });
+
+// C3b.1 (Dan, 2026-11-07): with no photo, a tile shows the ITEM's own glyph if the catalog has one,
+// else a plain name tile — never the aisle's glyph (Bananas showed Produce's 🥦). The shelf grid,
+// the wagon and Great picks alike.
+test("no photo and no item glyph → plain name tiles everywhere, no glyph or art box", async () => {
+  const plain = ["Apples", "Bananas", "Greek yogurt"].map((name, i) => ({ id: `p-${i}`, name, glyph: null, photoUrl: null }));
+  const { container } = setup({ tiles: plain });
+  toShelf();
+  const bananas = screen.getByRole("button", { name: /^Bananas/ });
+  expect(bananas).toHaveClass("plain");
+  expect(bananas.querySelector(".ask-tile-art")).toBeNull();
+  expect(bananas.textContent.replace("✓", "")).toBe("Bananas");
+  ["Apples", "Bananas", "Greek yogurt"].forEach((n) => fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${n}`) })));
+  // The wagon draws each pick's name, not a glyph.
+  const wagonText = [...container.querySelectorAll(".ask-wagon text")].map((t) => t.textContent);
+  expect(wagonText).toEqual(["Apples", "Bananas", "Greek yogurt"]);
+  fireEvent.click(thatsIt());
+  await screen.findByText("I've added these to our list.");
+  expect(container.querySelectorAll(".ask-landed-art")).toHaveLength(0);
+  expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Apples", "Bananas", "Greek yogurt"]);
+  expect(container.textContent).not.toMatch(/[🥦🥫🥛🍞📦]/u);
+});
+
+test("an item glyph, when the catalog has one, is shown; a photo wins over it", () => {
+  setup({ tiles: [
+    { id: "g", name: "Bananas", glyph: "🍌", photoUrl: null },
+    { id: "p", name: "Apples", glyph: "🍎", photoUrl: "https://x/apples.webp" },
+    { id: "n", name: "Bread", glyph: null, photoUrl: null },
+  ], ask: { ...ASK, pickTarget: 1 } });
+  toShelf();
+  expect(screen.getByRole("button", { name: /^Bananas/ })).toHaveTextContent("🍌");
+  const apples = screen.getByRole("button", { name: /^Apples/ });
+  expect(apples).not.toHaveTextContent("🍎");
+  expect(apples.querySelector("img")).toHaveAttribute("src", "https://x/apples.webp");
+});

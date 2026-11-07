@@ -34,6 +34,15 @@ export function shelfTitlePrefix(target) {
   return target === 1 ? "Pick one, " : `Pick ${target}, `;
 }
 
+// What a tile shows (Dan, C3b.1, 2026-11-07): the household's photo; else the ITEM's own glyph,
+// if the catalog has one; else a plain name tile. Never the aisle's glyph — Bananas is not 🥦.
+// Applies wherever a tile is drawn: the shelf grid, the wagon, Great picks, the Browse photo strip.
+export function tileFace({ photoUrl, glyph }) {
+  if (photoUrl) return "photo";
+  if (glyph) return "glyph";
+  return "name";
+}
+
 // Whether this shelf can be run today: it needs at least as many tiles as the target. A
 // catalog-item delete can shrink a shelf under its target (the spec's WATCH item), and a tile
 // hidden from this person's Browse is not offered; the run screen says so instead of starting.

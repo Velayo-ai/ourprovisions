@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { pickLine } from "../lib/askCreate";
-import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun } from "../lib/askRun";
+import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace } from "../lib/askRun";
 
 // Running an Ask (SPEC_ask amendment A13–A17, A24; SPEC_ask_slice2 C3b). Three screens, full
 // screen over the app: (1) "Your turn, {Label}!" — the hand-over, the wagon on the water at
@@ -54,21 +54,33 @@ function Wagon({ picks, onTakeOut, fresh, kick, className = "" }) {
   );
 }
 
-// One tile's picture inside an SVG: the household's photo when there is one (C3b.2), else the
-// item's aisle glyph on sand.
+// One tile's picture inside an SVG (tileFace): the household's photo, else the item's own glyph,
+// else its name in small type. Never the aisle's glyph (C3b.1).
 function TileArt({ tile, x, y, size }) {
   const id = `ask-clip-${tile.id}-${Math.round(x)}`;
+  const face = tileFace(tile);
   return (
     <>
       <defs><clipPath id={id}><rect x={x} y={y} width={size} height={size} rx={size * 0.18} /></clipPath></defs>
       <rect x={x} y={y} width={size} height={size} rx={size * 0.18} fill="#F3E6CF" stroke="#E8D5B7" />
-      {tile.photoUrl ? (
+      {face === "photo" ? (
         <image className="op-replay-block" href={tile.photoUrl} x={x} y={y} width={size} height={size} preserveAspectRatio="xMidYMid slice" clipPath={`url(#${id})`} />
-      ) : (
+      ) : face === "glyph" ? (
         <text x={x + size / 2} y={y + size * 0.68} textAnchor="middle" fontSize={size * 0.55}>{tile.glyph}</text>
+      ) : (
+        <text x={x + size / 2} y={y + size * 0.58} textAnchor="middle" fontSize={Math.max(6, size * 0.2)} fontFamily="Lato, sans-serif"
+          fill="#2C1A0E" clipPath={`url(#${id})`}>{tile.name}</text>
       )}
     </>
   );
+}
+
+// A tile's face in HTML: the photo, the item's glyph, or nothing (the name carries a plain tile).
+function TileFace({ tile, glyphClass }) {
+  const face = tileFace(tile);
+  if (face === "photo") return <img className="op-replay-block op-photo" src={tile.photoUrl} alt="" draggable="false" />;
+  if (face === "glyph") return <span className={glyphClass}>{tile.glyph}</span>;
+  return null;
 }
 
 // Done (A17): press and hold about a second. A short tap only says "Hold to finish".
@@ -108,7 +120,8 @@ function HoldDone({ onDone }) {
 // The shelf screen's title and the other two screens' names: the name always in .op-name.
 const Name = ({ children }) => <span className="op-name">{children}</span>;
 
-// ask: { id, label, shelfNoun, pickTarget }. tiles: [{ id, name, glyph, photoUrl }] in shelf order.
+// ask: { id, label, shelfNoun, pickTarget }. tiles: [{ id, name, glyph, photoUrl }] in shelf order; glyph is the
+// ITEM's own (null when the catalog has none), never the aisle's.
 // onLand(ids) resolves when the picks are on the list and throws when they are not.
 export function AskRun({ ask, tiles, onLand, onExit }) {
   const target = ask.pickTarget;
@@ -201,12 +214,18 @@ export function AskRun({ ask, tiles, onLand, onExit }) {
           <div className="ask-tiles" role="group" aria-label="The shelf">
             {tiles.map((t) => {
               const on = picks.includes(t.id);
+              const plain = tileFace(t) === "name";
               return (
-                <button key={t.id} type="button" className={`ask-tile${on ? " picked" : ""}`} aria-pressed={on} onClick={() => tap(t.id)}>
-                  <span className="ask-tile-art" aria-hidden="true">
-                    {t.photoUrl ? <img className="op-replay-block op-photo" src={t.photoUrl} alt="" draggable="false" /> : <span className="ask-tile-glyph">{t.glyph}</span>}
-                  </span>
-                  <span className="ask-tile-name">{t.name}</span>
+                <button key={t.id} type="button" className={`ask-tile${on ? " picked" : ""}${plain ? " plain" : ""}`} aria-pressed={on} onClick={() => tap(t.id)}>
+                  {/* A plain name tile: the name fills the face, once — no art box, no second label. */}
+                  {plain ? (
+                    <span className="ask-tile-name ask-tile-name-only">{t.name}</span>
+                  ) : (
+                    <>
+                      <span className="ask-tile-art" aria-hidden="true"><TileFace tile={t} glyphClass="ask-tile-glyph" /></span>
+                      <span className="ask-tile-name">{t.name}</span>
+                    </>
+                  )}
                   <span className="ask-tile-check" aria-hidden="true">✓</span>
                 </button>
               );
@@ -240,9 +259,9 @@ export function AskRun({ ask, tiles, onLand, onExit }) {
           <ul className="ask-landed">
             {inWagon.map((t) => (
               <li key={t.id}>
-                <span className="ask-landed-art" aria-hidden="true">
-                  {t.photoUrl ? <img className="op-replay-block op-photo" src={t.photoUrl} alt="" draggable="false" /> : <span>{t.glyph}</span>}
-                </span>
+                {tileFace(t) !== "name" && (
+                  <span className="ask-landed-art" aria-hidden="true"><TileFace tile={t} /></span>
+                )}
                 {t.name}
               </li>
             ))}
@@ -293,6 +312,8 @@ const ASK_RUN_CSS = `
 .ask-tile-art { display: block; width: 100%; height: 112px; flex: 0 0 auto; background: #F3E6CF; }
 .ask-tile-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ask-tile-glyph { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 46px; }
+.ask-tile.plain { min-height: 150px; justify-content: center; background: #F3E6CF; }
+.ask-tile-name.ask-tile-name-only { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(21px * (1 + (var(--op-text-scale, 1) - 1) * 0.5)); padding: 16px 10px; }
 .ask-tile-name { display: block; font: 400 calc(16px * var(--op-text-scale, 1)) 'Lato', sans-serif; line-height: 1.25; padding: 8px 6px 10px; color: #2C1A0E; text-align: center; }
 .ask-tile-check { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; background: #0D9488; color: #fff;
   display: grid; place-items: center; font-size: 15px; transform: scale(0); transition: transform 0.25s cubic-bezier(.3,1.6,.5,1); }

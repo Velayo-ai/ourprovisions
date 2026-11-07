@@ -47,3 +47,10 @@ test("a photo that can't be read, or doesn't save, says so; the next tap clears 
   expect(await screen.findByText("That photo didn't save. Try again.")).toBeInTheDocument();
   expect(onPick).toHaveBeenLastCalledWith("c-apples", file);
 });
+
+test("an empty slot shows its ＋ only — never an aisle glyph (C3b.1)", () => {
+  const { container } = render(<ShelfPhotoStrip items={[{ id: "b", name: "Bananas", glyph: null, photoUrl: null, hasPhoto: false }]} onPick={jest.fn()} />);
+  const art = container.querySelector(".shelf-photo-art");
+  expect(art.textContent).toBe("＋");
+  expect(art.querySelector("img")).toBeNull();
+});

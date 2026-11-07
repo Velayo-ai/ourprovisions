@@ -1,4 +1,4 @@
-import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun } from "./askRun";
+import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace } from "./askRun";
 
 describe("tapTile — A16", () => {
   test("adds in tap order until the target", () => {
@@ -40,6 +40,13 @@ test("canConfirm — only with the wagon exactly full", () => {
 test("shelfTitlePrefix — 'Pick 3, ' / 'Pick one, '", () => {
   expect(shelfTitlePrefix(3)).toBe("Pick 3, ");
   expect(shelfTitlePrefix(1)).toBe("Pick one, ");
+});
+
+test("tileFace — the photo, else the item's own glyph, else a plain name tile; never the aisle", () => {
+  expect(tileFace({ photoUrl: "https://x/t.webp", glyph: "🍌" })).toBe("photo");
+  expect(tileFace({ photoUrl: null, glyph: "🍌" })).toBe("glyph");
+  expect(tileFace({ photoUrl: null, glyph: null })).toBe("name");
+  expect(tileFace({})).toBe("name");
 });
 
 test("shelfCanRun — at least as many tiles as the target", () => {

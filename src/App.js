@@ -7021,9 +7021,13 @@ function ProvisionsApp({ scrollRootRef }) {
     return p ? itemPhotoUrls[p.thumbPath] || null : null;
   }, [itemPhotos, itemPhotoUrls]);
 
+  // A tile's glyph is the ITEM's own, when the catalog has one (C3b.1, Dan 2026-11-07) — never the
+  // aisle's (Bananas is not 🥦). The catalog carries none today, so a tile without a photo is a
+  // plain name tile; tileFace (src/lib/askRun.js) decides.
+  const itemGlyph = useCallback((id) => askIndex.catalogById.get(id)?.glyph || null, [askIndex]);
   const runTiles = useMemo(() => runItems.map(item => ({
-    id: item.id, name: item.name, glyph: categoryGlyph(item.rawCategory), photoUrl: itemPhotoUrl(item.id),
-  })), [runItems, itemPhotoUrl]);
+    id: item.id, name: item.name, glyph: itemGlyph(item.id), photoUrl: itemPhotoUrl(item.id),
+  })), [runItems, itemPhotoUrl, itemGlyph]);
 
   // Only categories that survive Layer 1 count as active — a selection that has
   // gone stale (category deleted here or on another device) must not name every
@@ -8273,7 +8277,7 @@ function ProvisionsApp({ scrollRootRef }) {
       {block.items.length > 0 && (
         <ShelfPhotoStrip
           items={block.items.map(item => ({
-            id: item.id, name: item.name, glyph: categoryGlyph(item.rawCategory),
+            id: item.id, name: item.name, glyph: itemGlyph(item.id),
             photoUrl: itemPhotoUrl(item.id), hasPhoto: !!itemPhotos[item.id],
           }))}
           onPick={setItemPhoto}
