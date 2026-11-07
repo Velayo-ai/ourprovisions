@@ -18,11 +18,11 @@ function tray(items, initialFor = () => null) {
   return render(<InCartTray items={items} count={items.length} open onToggle={() => {}} onUncheck={() => {}} initialFor={initialFor} />);
 }
 
-test("a picked row in the tray shows one outlined initial per picker, inside .op-name, spoken as 'Picked by …'", () => {
+test("a picked row in the tray shows one outlined initial per picker (Ea/Ev when they share a letter), inside .op-name, spoken as 'Picked by …'", () => {
   const { container } = tray([{ ...base, pickedByLabels: ["Easton", "Everett"] }]);
   const group = container.querySelector(".tray-picked");
   expect(group).toHaveClass("op-name");
-  expect([...group.querySelectorAll(".tray-initial-picked")].map((n) => n.textContent)).toEqual(["E", "E"]);
+  expect([...group.querySelectorAll(".tray-initial-picked")].map((n) => n.textContent)).toEqual(["Ea", "Ev"]);
   group.querySelectorAll(".tray-initial-picked").forEach((n) => expect(n).toHaveAttribute("aria-hidden", "true"));
   expect(screen.getByText("Picked by Easton & Everett")).toHaveClass("sr-only");
 });

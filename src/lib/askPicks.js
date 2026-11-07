@@ -40,12 +40,17 @@ export function provenanceClayLine(contributorNames, pickedByLabels) {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-// The In cart tray's picker initials (A19): one per picker, in label order — "Easton & Everett" →
-// ["E", "E"]. Two pickers who share an initial both show; a rule to tell them apart is still open
-// (SPEC_ask_slice2 C4) and is not invented here.
+// The In cart tray's picker initials (A19; Dan's two-E ruling, C4.1, 2026-11-07): one letter per
+// picker, in label order. When two or more pickers on the SAME row share a first letter, those
+// pickers show two letters — "Easton & Everett" → ["Ea", "Ev"]; a picker whose letter is unique
+// keeps one. If two letters still collide ("Eva", "Evan"), both show as-is: no further rule.
 export function pickInitials(labels) {
-  return [...new Set((labels || []).filter((l) => typeof l === "string" && l.trim()))]
-    .map((l) => l.trim()[0].toUpperCase());
+  const names = [...new Set((labels || []).filter((l) => typeof l === "string" && l.trim()))]
+    .map((l) => Array.from(l.trim().replace(/\s+/g, "")));
+  const first = (chars) => chars[0].toUpperCase();
+  const seen = {};
+  names.forEach((chars) => { seen[first(chars)] = (seen[first(chars)] || 0) + 1; });
+  return names.map((chars) => (seen[first(chars)] > 1 ? first(chars) + (chars[1] || "").toLowerCase() : first(chars)));
 }
 
 // SHOP swipe-to-remove (R3, 2026-11-03). Returns null to remove at once, or what the shared-item

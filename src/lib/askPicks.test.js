@@ -95,11 +95,22 @@ describe("provenanceClayLine — one line, Added by then Picked by (C4)", () => 
   });
 });
 
-describe("pickInitials — the tray's picker initials (A19)", () => {
-  test("one per distinct picker, in order; a shared initial shows twice (rule still open)", () => {
-    expect(pickInitials(["Easton", "Everett"])).toEqual(["E", "E"]);
+describe("pickInitials — the tray's picker initials (A19; two-E ruling C4.1)", () => {
+  test("one letter per distinct picker, in order", () => {
+    expect(pickInitials(["Easton"])).toEqual(["E"]);
     expect(pickInitials(["nina", "Easton", "nina"])).toEqual(["N", "E"]);
     expect(pickInitials(null)).toEqual([]);
     expect(pickInitials([" ", ""])).toEqual([]);
+  });
+  test("pickers on the same row who share a first letter show two letters", () => {
+    expect(pickInitials(["Easton", "Everett"])).toEqual(["Ea", "Ev"]);
+    expect(pickInitials(["easton", "Nina", "everett"])).toEqual(["Ea", "N", "Ev"]);   // Nina keeps one
+  });
+  test("a non-colliding pair stays single letters", () => {
+    expect(pickInitials(["Easton", "Nina"])).toEqual(["E", "N"]);
+  });
+  test("a two-letter collision shows both as-is, no further rule", () => {
+    expect(pickInitials(["Eva", "Evan"])).toEqual(["Ev", "Ev"]);
+    expect(pickInitials(["E", "Easton"])).toEqual(["E", "Ea"]);                      // a one-letter label has no second letter
   });
 });

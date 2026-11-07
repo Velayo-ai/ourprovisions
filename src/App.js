@@ -9698,7 +9698,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .tray-initial { width: 20px; height: 20px; border-radius: 50%; background: #E8D5B7; color: #2C1A0E; font-family: 'Lato', sans-serif; font-size: 0.6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
         /* Picker initials (A19, Ask Slice 2 C4): outlined in text teal, so a pick never reads as a partner's check. */
         .tray-picked { display: flex; gap: 4px; flex-shrink: 0; }
-        .tray-initial-picked { background: transparent; border: 1.5px solid #0A776D; color: #0A776D; box-sizing: border-box; }
+        .tray-initial-picked { background: transparent; border: 1.5px solid #0A776D; color: #0A776D; box-sizing: border-box; width: auto; min-width: 20px; padding: 0 4px; border-radius: 10px; }
         /* Rows animate INTO wherever they land — down into the tray, back up into an aisle — so the person sees where the item went. */
         @keyframes opRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
         @keyframes opRowInDown { from { opacity: 0; transform: translateY(6px); } to { opacity: 0.55; transform: none; } }
