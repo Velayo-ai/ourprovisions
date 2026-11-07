@@ -45,7 +45,7 @@ import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
-import { swipeRemoveConfirm, provenanceClayLine, pickInitials, joinPickLabels } from './lib/askPicks';
+import { swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool, joinPickLabels } from './lib/askPicks';
 import { ASK_GLYPH, readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
 import { trace } from '@opentelemetry/api';
@@ -1156,7 +1156,7 @@ function ShopLensSegment({ lens, onChange }) {
 // D2: checked items get a PLACE, not a toggle. Collapsed by default, hidden
 // entirely at 0. Rows un-check from inside the tray. `initialFor` returns a
 // small initial for rows the current user did not check (partner's check).
-export function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor }) {
+export function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor, pickPool = [] }) {
   if (items.length === 0 && count === 0) return null;
   return (
     <div className="in-cart-tray">
@@ -1180,10 +1180,10 @@ export function InCartTray({ items, count, motionClass = () => "", open, onToggl
                 {/* A19: the pickers' initials, outlined so they never read as "checked by". The
                     group wears .op-name, and the spoken "Picked by …" is .sr-only text inside it —
                     never an attribute, which the recorder would copy. */}
-                {pickInitials(item.pickedByLabels).length > 0 && (
+                {pickInitials(item.pickedByLabels, pickPool).length > 0 && (
                   <span className="op-name tray-picked">
                     <span className="sr-only">Picked by {joinPickLabels(item.pickedByLabels)}</span>
-                    {pickInitials(item.pickedByLabels).map((ch, k) => (
+                    {pickInitials(item.pickedByLabels, pickPool).map((ch, k) => (
                       <span key={k} className="tray-initial tray-initial-picked" aria-hidden="true">{ch}</span>
                     ))}
                   </span>
@@ -7018,6 +7018,9 @@ function ProvisionsApp({ scrollRootRef }) {
     const byId = new Map(asks.map(a => [a.id, a]));
     return askRailLayout(askOrder.ids.map(id => byId.get(id)).filter(Boolean), !!(isSignedIn && household?.id));
   }, [asks, askOrder, isSignedIn, household?.id]);
+  // The household's picker names for the tray's initials (C4.3): live asks' labels ∪ every
+  // picked_by_labels on the loaded rows. Display only; recomputed as asks or rows change.
+  const pickPool = useMemo(() => pickLabelPool(asks.map(a => a.label), listRows), [asks, listRows]);
   const askIndex = useMemo(() => ({
     catalogById: new Map(Object.values(catalogMap).map(i => [i.id, i])),
     rawCategoryByName: new Map(categories.flatMap(cat => cat.items.map(i => [i.name, cat.rawName]))),
@@ -11769,6 +11772,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   onToggle={() => setTrayOpen(o => !o)}
                   onUncheck={handleShopToggle}
                   initialFor={initialFor}
+                  pickPool={pickPool}
                 />
                 {showPrices && (
                 <div className={`list-total ${overBudget ? "over" : ""}`}>

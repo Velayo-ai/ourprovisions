@@ -1,4 +1,4 @@
-import { landAskPicksArgs, askCompletedAttributes, joinPickLabels, swipeRemoveConfirm, provenanceClayLine, pickInitials } from "./askPicks";
+import { landAskPicksArgs, askCompletedAttributes, joinPickLabels, swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool } from "./askPicks";
 
 describe("landAskPicksArgs (A22: ids only, never the label)", () => {
   test("carries exactly the household, the ask and the ids", () => {
@@ -95,8 +95,8 @@ describe("provenanceClayLine — one line, Added by then Picked by (C4)", () => 
   });
 });
 
-describe("pickInitials — the tray's picker initials (A19; two-E ruling C4.1)", () => {
-  test("one letter per distinct picker, in order", () => {
+describe("pickInitials — the tray's picker initials (A19; two-E ruling C4.1, household-wide C4.3)", () => {
+  test("one letter per distinct picker, in order, when no one shares a letter", () => {
     expect(pickInitials(["Easton"])).toEqual(["E"]);
     expect(pickInitials(["nina", "Easton", "nina"])).toEqual(["N", "E"]);
     expect(pickInitials(null)).toEqual([]);
@@ -112,5 +112,24 @@ describe("pickInitials — the tray's picker initials (A19; two-E ruling C4.1)",
   test("a two-letter collision shows both as-is, no further rule", () => {
     expect(pickInitials(["Eva", "Evan"])).toEqual(["Ev", "Ev"]);
     expect(pickInitials(["E", "Easton"])).toEqual(["E", "Ea"]);                      // a one-letter label has no second letter
+  });
+  // C4.3: the check runs over the household's names, not the row's.
+  test("Easton alone on a row while Everett exists in the household → Ea", () => {
+    const pool = pickLabelPool(["Easton", "Everett", "Gus"], []);
+    expect(pickInitials(["Easton"], pool)).toEqual(["Ea"]);
+    expect(pickInitials(["Everett"], pool)).toEqual(["Ev"]);
+  });
+  test("a unique G stays G", () => {
+    expect(pickInitials(["Gus"], pickLabelPool(["Easton", "Everett", "Gus"], []))).toEqual(["G"]);
+  });
+  test("a label only on rows (its ask deleted) still participates", () => {
+    const rows = [{ pickedByLabels: ["Elsie"] }, { pickedByLabels: null }, {}];
+    const pool = pickLabelPool(["Easton"], rows);
+    expect(pool).toEqual(["Easton", "Elsie"]);
+    expect(pickInitials(["Easton"], pool)).toEqual(["Ea"]);
+  });
+  test("the same name in another case or with spaces is one picker, not a collision", () => {
+    const pool = pickLabelPool(["Easton"], [{ pickedByLabels: ["easton ", " Easton"] }]);
+    expect(pickInitials(["Easton"], pool)).toEqual(["E"]);
   });
 });

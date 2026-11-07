@@ -40,17 +40,33 @@ export function provenanceClayLine(contributorNames, pickedByLabels) {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-// The In cart tray's picker initials (A19; Dan's two-E ruling, C4.1, 2026-11-07): one letter per
-// picker, in label order. When two or more pickers on the SAME row share a first letter, those
-// pickers show two letters — "Easton & Everett" → ["Ea", "Ev"]; a picker whose letter is unique
-// keeps one. If two letters still collide ("Eva", "Evan"), both show as-is: no further rule.
-export function pickInitials(labels) {
-  const names = [...new Set((labels || []).filter((l) => typeof l === "string" && l.trim()))]
-    .map((l) => Array.from(l.trim().replace(/\s+/g, "")));
-  const first = (chars) => chars[0].toUpperCase();
+// The In cart tray's picker initials (A19; Dan's two-E ruling, C4.1, made household-wide in C4.3,
+// 2026-11-07). The collision check runs over the HOUSEHOLD's picker names (pickLabelPool), not one
+// row: any two names there that share a first letter (trimmed, case-insensitive) always show two
+// letters, on every row — Easton is "Ea" even when he picked alone, because Everett exists. A
+// unique first letter stays one letter. A two-letter collision ("Eva", "Evan") shows as-is: no
+// further rule. The row's own labels always join the pool, so a row is never ambiguous.
+const cleanLabels = (labels) =>
+  [...new Set((labels || []).filter((l) => typeof l === "string" && l.trim()).map((l) => l.trim()))];
+const labelChars = (l) => Array.from(l.replace(/\s+/g, ""));
+const firstUpper = (chars) => chars[0].toUpperCase();
+
+// The household's picker names: live asks' labels ∪ every label on the rows currently loaded (a
+// deleted ask's label lives on in picked_by_labels, so it still counts).
+export function pickLabelPool(askLabels, rows) {
+  return cleanLabels([...(askLabels || []), ...(rows || []).flatMap((r) => r?.pickedByLabels || [])]);
+}
+
+export function pickInitials(labels, pool = []) {
+  const names = cleanLabels(labels);
+  const people = new Map();   // one entry per name, case-insensitive: "Easton" and "easton" are one picker
+  [...cleanLabels(pool), ...names].forEach((l) => people.set(l.toLowerCase().replace(/\s+/g, ""), labelChars(l)));
   const seen = {};
-  names.forEach((chars) => { seen[first(chars)] = (seen[first(chars)] || 0) + 1; });
-  return names.map((chars) => (seen[first(chars)] > 1 ? first(chars) + (chars[1] || "").toLowerCase() : first(chars)));
+  people.forEach((chars) => { seen[firstUpper(chars)] = (seen[firstUpper(chars)] || 0) + 1; });
+  return names.map((l) => {
+    const chars = labelChars(l);
+    return seen[firstUpper(chars)] > 1 ? firstUpper(chars) + (chars[1] || "").toLowerCase() : firstUpper(chars);
+  });
 }
 
 // SHOP swipe-to-remove (R3, 2026-11-03). Returns null to remove at once, or what the shared-item

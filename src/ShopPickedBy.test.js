@@ -14,8 +14,8 @@ jest.mock("@splunk/otel-web-session-recorder", () => ({ __esModule: true, defaul
 const { InCartTray } = require("./App");
 
 const base = { listItemId: "li-1", catalogItemId: "c-1", name: "Apples", qty: 1 };
-function tray(items, initialFor = () => null) {
-  return render(<InCartTray items={items} count={items.length} open onToggle={() => {}} onUncheck={() => {}} initialFor={initialFor} />);
+function tray(items, initialFor = () => null, pickPool = []) {
+  return render(<InCartTray items={items} count={items.length} open onToggle={() => {}} onUncheck={() => {}} initialFor={initialFor} pickPool={pickPool} />);
 }
 
 test("a picked row in the tray shows one outlined initial per picker (Ea/Ev when they share a letter), inside .op-name, spoken as 'Picked by …'", () => {
@@ -33,6 +33,18 @@ test("no picker name in any attribute anywhere in the tray (the recorder copies 
   expect(attrs.filter((v) => /Easton/.test(v))).toEqual([]);
   // The partner's check initial stays as it was, beside the picker's.
   expect(container.querySelector(".tray-initial:not(.tray-initial-picked)")).toHaveTextContent("P");
+});
+
+test("C4.3: Easton alone on a row shows Ea when Everett is in the household's pool", () => {
+  const { container } = tray([{ ...base, pickedByLabels: ["Easton"] }], () => null, ["Easton", "Everett"]);
+  expect([...container.querySelectorAll(".tray-initial-picked")].map((n) => n.textContent)).toEqual(["Ea"]);
+  expect(screen.getByText("Picked by Easton")).toHaveClass("sr-only");
+});
+
+test("App passes the household pool to the tray (source check)", () => {
+  const app = fs.readFileSync(path.join(__dirname, "App.js"), "utf8");
+  expect(app).toMatch(/const pickPool = useMemo\(\(\) => pickLabelPool\(asks\.map\(a => a\.label\), listRows\), \[asks, listRows\]\);/);
+  expect(app).toMatch(/initialFor=\{initialFor\}\s+pickPool=\{pickPool\}/);
 });
 
 test("a row nobody picked has no picker initials", () => {
