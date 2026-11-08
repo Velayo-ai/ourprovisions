@@ -126,7 +126,7 @@ grant execute on function public.close_cycle(uuid, uuid[]) to authenticated;
 
 commit;
 
-select md5(prosrc) = 'af59f15d027e8e5a767c97140141d603' as body_is_052,
+select md5(replace(prosrc, chr(13), '')) = 'af59f15d027e8e5a767c97140141d603' as body_is_052,
        prosecdef as secdef,
        has_function_privilege('anon', oid, 'execute') as anon,
        has_function_privilege('authenticated', oid, 'execute') as authenticated,

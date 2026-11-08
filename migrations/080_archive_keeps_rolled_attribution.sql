@@ -133,9 +133,9 @@ begin
   if v_src not like '%or list_item_id != all(p_keep_item_ids)%' or v_src like '%Clear ALL contributor badges%'
      then v_bad := v_bad || 'the contributor delete still clears rolled items'; end if;
   v_checked := v_checked + 1;
-  if md5(v_src) <> '09e2a183f4e8b128d59d478e9a54bbdf' then v_bad := v_bad || ('body md5 ' || md5(v_src) || ' is not the file''s'); end if;
+  if md5(replace(v_src, chr(13), '')) <> '09e2a183f4e8b128d59d478e9a54bbdf' then v_bad := v_bad || ('body md5 ' || md5(replace(v_src, chr(13), '')) || ' is not the file''s'); end if;
   v_checked := v_checked + 1;
-  if (select md5(prosrc) from pg_proc where proname = 'close_cycle' and pronamespace = 'public'::regnamespace)
+  if (select md5(replace(prosrc, chr(13), '')) from pg_proc where proname = 'close_cycle' and pronamespace = 'public'::regnamespace)
      is distinct from 'e58456b69bc0d92152fd6622663a198a' then v_bad := v_bad || 'close_cycle is not 079''s (apply 079 first)'; end if;
   raise warning '080 VERIFY: % checked, % mismatches%', v_checked, cardinality(v_bad),
     case when cardinality(v_bad) > 0 then ' — ' || array_to_string(v_bad, '; ') else '' end;
@@ -277,8 +277,8 @@ select
   p.prosrc like '%archive_trip_items: not a member of household%'                              as marker_051,
   p.prosrc like '%080: clear contributor badges, except on rolled items%'                      as marker_080,
   p.prosrc like '%or list_item_id != all(p_keep_item_ids)%'                                    as keeps_rolled,
-  md5(p.prosrc) = '09e2a183f4e8b128d59d478e9a54bbdf'                                         as body_md5_ok,
-  (select md5(prosrc) from pg_proc where proname = 'close_cycle' and pronamespace = 'public'::regnamespace)
+  md5(replace(p.prosrc, chr(13), '')) = '09e2a183f4e8b128d59d478e9a54bbdf'                                         as body_md5_ok,
+  (select md5(replace(prosrc, chr(13), '')) from pg_proc where proname = 'close_cycle' and pronamespace = 'public'::regnamespace)
     = 'e58456b69bc0d92152fd6622663a198a'                                                     as close_cycle_is_079,
   (select count(*) from public.users where clerk_id like '080-fixture-%')
   + (select count(*) from public.households where name like '080-fixture-%')                  as fixture_rows

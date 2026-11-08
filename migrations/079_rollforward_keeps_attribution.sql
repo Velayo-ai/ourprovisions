@@ -183,7 +183,7 @@ begin
   if v_src not like '%079: roll-forward keeps the contributor ledger%' or v_src like '%delete from list_item_contributors%'
      or v_src like '%v_existing_id%' then v_bad := v_bad || 'the contributor wipe is still there (or the 079 marker is missing)'; end if;
   v_checked := v_checked + 1;
-  if md5(v_src) <> 'e58456b69bc0d92152fd6622663a198a' then v_bad := v_bad || ('body md5 ' || md5(v_src) || ' is not the file''s'); end if;
+  if md5(replace(v_src, chr(13), '')) <> 'e58456b69bc0d92152fd6622663a198a' then v_bad := v_bad || ('body md5 ' || md5(replace(v_src, chr(13), '')) || ' is not the file''s'); end if;
   raise warning '079 VERIFY: % checked, % mismatches%', v_checked, cardinality(v_bad),
     case when cardinality(v_bad) > 0 then ' — ' || array_to_string(v_bad, '; ') else '' end;
   if cardinality(v_bad) > 0 then
@@ -301,7 +301,7 @@ select
   p.prosrc like '%052: readiness is earned at Wrap up, and only by a card that was locked%'    as marker_052,
   p.prosrc like '%079: roll-forward keeps the contributor ledger%'                             as marker_079,
   p.prosrc not like '%delete from list_item_contributors%'                                     as no_contributor_delete,
-  md5(p.prosrc) = 'e58456b69bc0d92152fd6622663a198a'                                         as body_md5_ok,
+  md5(replace(p.prosrc, chr(13), '')) = 'e58456b69bc0d92152fd6622663a198a'                                         as body_md5_ok,
   (select count(*) from public.users where clerk_id like '079-fixture-%')
   + (select count(*) from public.households where name like '079-fixture-%')                  as fixture_rows
 from pg_proc p

@@ -53,7 +53,7 @@ grant execute on function public.archive_trip_items(uuid, uuid[]) to authenticat
 
 commit;
 
-select md5(prosrc) = 'a76ae07cdce99787009e0a8641c0e815' as body_is_051,
+select md5(replace(prosrc, chr(13), '')) = 'a76ae07cdce99787009e0a8641c0e815' as body_is_051,
        prosecdef as secdef,
        has_function_privilege('anon', oid, 'execute') as anon,
        has_function_privilege('authenticated', oid, 'execute') as authenticated,
