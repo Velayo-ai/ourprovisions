@@ -69,6 +69,8 @@ where li.rolled_from_item_id is not null
 on conflict (list_item_id, user_id) do nothing;
 ```
 
+**As built (081, Dan's ruling 2026-11-07): rows with a `list_item_meals` link are skipped** (`and not exists (select 1 from list_item_meals m where m.list_item_id = li.id)`). Meal adds never write the ledger, so a meal-only row has no "Added by" by design; its provenance is the teal "For [meal]" line. The SQL above would have given those rows a clay "Added by" for a direct add that never happened (dev: 8 of 9 candidates). Cost: a row that was both a direct add and a meal pull stays without its "Added by".
+
 Tradeoff: it puts back a single name. If two people had added the item, the second name is gone for good. And `added_by` can be stale after a remove → re-add. Without it, the next roll still fixes everything going forward, and the current list stays blank until people re-add. **Recommend running it.** A mostly-right name beats a blank on a shared list, and these are the household's own rows.
 
 No client change.
