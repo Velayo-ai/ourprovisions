@@ -6789,14 +6789,12 @@ function ProvisionsApp({ scrollRootRef }) {
   const [rowMotion, setRowMotion] = useState({});
   const rowMotionTimers = useRef({});
   useEffect(() => () => { Object.values(rowMotionTimers.current).forEach(clearTimeout); }, []);
-  // "✓ {item} checked · Undo" toasts (2026-11-07): one per checked row, each
-  // with its own 5s timer, so Undo only ever reverts its own row. checkSeq
-  // counts taps per row: a check whose write lands after the row was already
-  // tapped again offers no toast.
+  // "✓ {item} checked · Undo" toasts (2026-11-07; on the tap since 11-08): one
+  // per checked row, each with its own 5s timer, so Undo only ever reverts its
+  // own row. Shown before the server answers; dropped if the write fails.
   const [checkUndos, setCheckUndos] = useState([]);
   const undoTimers = useRef({});
   const undoKey = useRef(0);
-  const checkSeq = useRef({});
   useEffect(() => () => { Object.values(undoTimers.current).forEach(clearTimeout); }, []);
   const dismissCheckUndo = useCallback((id) => {
     clearTimeout(undoTimers.current[id]);
@@ -7764,29 +7762,30 @@ function ProvisionsApp({ scrollRootRef }) {
   // then records the event best-effort (D12) — never awaited by the tap, never
   // a toast. The first event of a trip starts the session (and so the store
   // prompt) as a side effect inside recordListEvent.
-  const handleShopToggle = async (item) => {
+  // `to` = "pending" when the caller means uncheck outright (Undo), never a toggle.
+  const handleShopToggle = async (item, to) => {
     const name = item.name;
     const id = item.listItemId;
-    const seq = (checkSeq.current[id] || 0) + 1;
     const clearMotion = () => {
       setRowMotion(prev => { const n = { ...prev }; delete n[id]; return n; });
       delete rowMotionTimers.current[id];
     };
     const m = rowMotion[id];
+    let checking = false;
     if (m && m.dir === "out" && m.phase === "mark") {
-      // A tap during the hold takes the check back where it happened: the row
-      // never left its aisle, so it simply stays, unchecked.
-      checkSeq.current[id] = seq;
+      // A tap during the hold (or Undo) takes the check back where it happened:
+      // the row never left its aisle, so it simply stays, unchecked.
       clearTimeout(rowMotionTimers.current[id]);
       clearMotion();
       dismissCheckUndo(id);
+      to = "pending";
     } else if (m) {
       return;                                          // collapsing or returning — ignore the tap
     } else {
-      checkSeq.current[id] = seq;
       const reduced = typeof window !== "undefined" && window.matchMedia
         && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const dir = checked[id] ? "in" : "out";
+      if (to === "pending" && dir === "out") return;   // Undo on a row that is already unchecked
       const collapseMs = 200;                          // beat 2
       const collapseThenClear = () => {
         setRowMotion(prev => prev[id] ? { ...prev, [id]: { dir, phase: "collapse" } } : prev);
@@ -7797,8 +7796,12 @@ function ProvisionsApp({ scrollRootRef }) {
       // holds in place for CHECK_HOLD_MS even with reduced motion (it is where
       // the row is drawn, not an animation); reduced motion only skips the collapse.
       if (dir === "out") {
+        checking = true;
         setRowMotion(prev => ({ ...prev, [id]: { dir, phase: "mark" } }));
         rowMotionTimers.current[id] = setTimeout(reduced ? clearMotion : collapseThenClear, CHECK_HOLD_MS);
+        // The Undo is offered on the tap, not after the server answers: on a
+        // slow connection it can cancel the check before it lands.
+        offerCheckUndo(id, name);
       } else {
         dismissCheckUndo(id);
         if (!reduced) {
@@ -7807,23 +7810,35 @@ function ProvisionsApp({ scrollRootRef }) {
         }
       }
     }
-    // `status` is the server-confirmed transition, or null when the write
-    // failed OR changed nothing (a re-tap on an already-committed row —
-    // SPEC_checked_event_duplicate_emission). Only a real transition is an event.
-    const status = await toggleChecked(name, item.listItemId);
+    // `status` is the server-confirmed transition; null when the write changed
+    // nothing (a re-tap on an already-committed row —
+    // SPEC_checked_event_duplicate_emission) or was cancelled by a newer tap;
+    // false when it failed and the row was put back. Only a real transition is an event.
+    const status = await toggleChecked(name, item.listItemId, to ? { to } : undefined);
+    if (status === false && checking) {
+      // The check didn't take (offline, or the server refused): the row is back
+      // to unchecked, so drop its toast and its hold.
+      dismissCheckUndo(id);
+      clearTimeout(rowMotionTimers.current[id]);
+      clearMotion();
+    }
     if (!status) return;
-    if (status === "bought" && checkSeq.current[id] === seq) offerCheckUndo(id, name);
     recordListEvent(status === "bought" ? "checked" : "unchecked", { listItemId: item.listItemId, catalogItemId: item.catalogItemId });
   };
   // Undo on a "✓ {item} checked" toast: the same uncheck as a tap on the row's
   // checkbox (handleShopToggle → toggleChecked → the list_items write the other
-  // devices sync from). Only if that row is still checked — someone may have
-  // unchecked it already.
+  // devices sync from), named outright as an uncheck. If the check is still on
+  // its way to the server, this cancels it (lib/checkWrites). Nothing happens if
+  // the row is already unchecked — someone may have unchecked it already.
   const undoCheck = (id) => {
     dismissCheckUndo(id);
     const item = shoppingList.flatMap(c => c.items).find(i => i.listItemId === id);
-    if (item && checked[id]) handleShopToggle(item);
+    if (item && checked[id]) handleShopToggle(item, "pending");
   };
+  // All done waits until the last check has finished its hold and its Undo
+  // window (2026-11-08): the card never covers a toast that can still take the
+  // check back, and a check undone in time never flashes "All done."
+  const shopCheckSettling = checkUndos.length > 0 || Object.values(rowMotion).some(m => m.dir === "out");
   const rowMotionClass = (listItemId) => {
     const m = rowMotion[listItemId];
     if (!m) return "";
@@ -11513,7 +11528,7 @@ function ProvisionsApp({ scrollRootRef }) {
                 <div className="progress-bar">
                   <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
                 </div>
-                {checkedCount === totalItems && totalItems > 0 && (() => {
+                {checkedCount === totalItems && totalItems > 0 && !shopCheckSettling && (() => {
                   /* All done (mockup_shop_all_done.html) — the one earned moment on
                      Shop; typography does the celebrating. States 1 and 2 built:
                      minutes = now − session.started_at (rounded), omitted with no

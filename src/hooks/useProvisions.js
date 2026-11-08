@@ -6,6 +6,7 @@ import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
+import { createRowWriteChain } from "../lib/checkWrites";
 import { inviteFailureNotice } from "../lib/inviteFailure";
 import { updateItemCategory, applyItemCategory } from "../lib/itemCategory";
 import { useConnectivity } from "../contexts/ConnectivityContext";
@@ -169,6 +170,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // status (Bug 3: toggle bounces / takes ~3 taps to stick). Keyed by name,
   // matching `checked`.
   const pendingCheckRef = useRef(new Set());
+  // Per-row check writes, one at a time, newest intent wins (lib/checkWrites; 2026-11-08 Undo on tap).
+  const checkChainRef = useRef(null);
+  if (!checkChainRef.current) checkChainRef.current = createRowWriteChain();
   // In-flight guard for the 2s list poll. On a slow (3G) connection a single
   // loadListItems cycle (get_list_items RPC → contributors query → setStates) can
   // outlast the 2s interval; without this the setInterval keeps firing and the
@@ -1326,7 +1330,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
 
-  const toggleChecked = useCallback(async (itemName, listItemId) => {
+  const toggleChecked = useCallback(async (itemName, listItemId, opts = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return;
@@ -1337,24 +1341,33 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // this can only ever touch the tapped row.
     if (!listItemId) { setError(`"${itemName}" is not on the list`); return; }
 
-    // The tap's INTENT, read from the closure. Whether it is also a real
-    // transition is decided by the server below, never here.
-    const newStatus = checked[listItemId] ? "pending" : "bought";
+    // The tap's INTENT: the row's newest pending intent if a write is still
+    // running, else the rendered state; opts.to ("bought" | "pending") names it
+    // outright (Undo). Whether it is also a real transition is decided by the
+    // server below, never here.
+    const chain = checkChainRef.current;
+    const before = chain.intent(listItemId, !!checked[listItemId]);
+    const wantBought = opts.to ? opts.to === "bought" : !before;
+    if (wantBought === before) return null;
+    const newStatus = wantBought ? "bought" : "pending";
     // F3: mark this row as having an in-flight write so the 2s poll won't
     // snap the optimistic value back to the stale server status before the
     // update commits (Bug 3: toggle bounces / needs ~3 taps to stick).
     pendingCheckRef.current.add(listItemId);
-    setChecked((prev) => ({ ...prev, [listItemId]: !prev[listItemId] }));
+    setChecked((prev) => ({ ...prev, [listItemId]: wantBought }));
 
-    try {
-      // SPEC_checked_event_duplicate_emission: the write is conditional on the
-      // row NOT already being at newStatus, and returns the row it changed. So
-      // the resolved status is a server-confirmed before/after transition — a
-      // re-tap that lands on an already-committed write (the closure or a
-      // late poll still showing the row unchecked) matches zero rows and
-      // resolves to nothing, instead of re-deriving "bought" from stale state
-      // and emitting a second `checked` event. A genuine uncheck → recheck is
-      // two real transitions and still resolves both times.
+    // One row's writes go one at a time (2026-11-08): a newer intent aborts the
+    // write in flight and cancels one still waiting, so "check, then Undo before
+    // the check reached the server" ends unchecked, in order.
+    // SPEC_checked_event_duplicate_emission: the write is conditional on the
+    // row NOT already being at newStatus, and returns the row it changed. So
+    // the resolved status is a server-confirmed before/after transition — a
+    // re-tap that lands on an already-committed write (the closure or a
+    // late poll still showing the row unchecked) matches zero rows and
+    // resolves to nothing, instead of re-deriving "bought" from stale state
+    // and emitting a second `checked` event. A genuine uncheck → recheck is
+    // two real transitions and still resolves both times.
+    const res = await chain.enqueue(listItemId, wantBought, async (signal) => {
       const { data: rows, error: updateErr } = await db
         .from("list_items")
         .update({ status: newStatus })
@@ -1362,16 +1375,38 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         .eq("household_id", hh.id)
         .is("deleted_at", null)
         .neq("status", newStatus)
-        .select("status");
+        .select("status")
+        .abortSignal(signal);
       if (updateErr) throw updateErr;
-      pendingCheckRef.current.delete(listItemId);
-      reportSuccess();
-      if (!rows || rows.length === 0) {
-        // No transition: the row was already at newStatus (or is gone).
-        // Reconcile the optimistic flip to the server's truth and resolve to
-        // nothing, so the caller records no event. Read the truth rather than
-        // assume it; if that read fails, the row already being at newStatus is
-        // by far the likeliest reason for the zero-row update.
+      return rows;
+    });
+    // Cancelled before it was sent: nothing was written.
+    if (res.skipped) return null;
+    // The poll may follow the server again once no newer write is pending.
+    if (res.latest) pendingCheckRef.current.delete(listItemId);
+
+    if (res.error) {
+      // Superseded mid-flight (Undo): the newer write settles the row.
+      if (res.aborted) return null;
+      const err = res.error;
+      console.error("toggleChecked error:", err.message);
+      // Put the row back, unless a newer intent is already on its way.
+      if (res.latest) setChecked((prev) => ({ ...prev, [listItemId]: !wantBought }));
+      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
+      // false = the write failed and the row was put back (the Shop drops its Undo toast).
+      return false;
+    }
+
+    reportSuccess();
+    const rows = res.value;
+    if (!rows || rows.length === 0) {
+      // No transition: the row was already at newStatus (or is gone).
+      // Reconcile the optimistic flip to the server's truth and resolve to
+      // nothing, so the caller records no event. Read the truth rather than
+      // assume it; if that read fails, the row already being at newStatus is
+      // by far the likeliest reason for the zero-row update. Skipped when a
+      // newer intent is pending: its own write reconciles.
+      if (res.latest) {
         let serverBought = newStatus === "bought";
         try {
           const { data: row } = await db
@@ -1384,38 +1419,32 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         } catch (e) {
           console.warn("toggleChecked reconcile read failed:", e?.message || e);
         }
-        setChecked((prev) => ({ ...prev, [listItemId]: serverBought }));
-        return null;
+        if (!chain.pending(listItemId)) setChecked((prev) => ({ ...prev, [listItemId]: serverBought }));
       }
-      const committedStatus = rows[0].status;
-      // DXA event: a row checked off (bought), never the un-check. Same tracer
-      // pattern as item_added_to_list; catalog_item_id may be null when the
-      // name no longer resolves in catalogRef (hidden/evicted). Telemetry never
-      // throws into, or blocks, the toggle.
-      if (committedStatus === "bought") {
-        try {
-          tracer.startSpan("item_checked_off", {
-            attributes: {
-              list_item_id: listItemId,
-              catalog_item_id: catalogRef.current[itemName]?.id ?? null,
-              household_id: hh.id,
-            },
-          }).end();
-        } catch (e) {
-          console.warn("[rum] item_checked_off event failed:", e);
-        }
-      }
-      // Resolves to the committed status so the Shop tab can write the matching
-      // list_item_events row AFTER the primary write (D12) — and only when the
-      // write actually transitioned the row. Nothing on failure or no-op.
-      return committedStatus;
-    } catch (err) {
-      pendingCheckRef.current.delete(listItemId);
-      console.error("toggleChecked error:", err.message);
-      setChecked((prev) => ({ ...prev, [listItemId]: !prev[listItemId] }));
-      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
       return null;
     }
+    const committedStatus = rows[0].status;
+    // DXA event: a row checked off (bought), never the un-check. Same tracer
+    // pattern as item_added_to_list; catalog_item_id may be null when the
+    // name no longer resolves in catalogRef (hidden/evicted). Telemetry never
+    // throws into, or blocks, the toggle.
+    if (committedStatus === "bought") {
+      try {
+        tracer.startSpan("item_checked_off", {
+          attributes: {
+            list_item_id: listItemId,
+            catalog_item_id: catalogRef.current[itemName]?.id ?? null,
+            household_id: hh.id,
+          },
+        }).end();
+      } catch (e) {
+        console.warn("[rum] item_checked_off event failed:", e);
+      }
+    }
+    // Resolves to the committed status so the Shop tab can write the matching
+    // list_item_events row AFTER the primary write (D12) — and only when the
+    // write actually transitioned the row. null on no-op or cancel; false on failure.
+    return committedStatus;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checked]);
 
