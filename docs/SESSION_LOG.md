@@ -25,6 +25,32 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-11-07] — [OurProvisions] — Roll-forward keeps "Added by": a Wrap up no longer wipes who added a rolled item (079 + 080 + 081, dev and prod)
+**Goal:** Fix rolled-forward items losing their "Added by" line at Wrap up, spotted by Dan on the live list at 14:24. Session ran 11-07 14:30 → 23:30 ET (prod applies 11-08 04:11–04:16 UTC); design handoff `7c813b8` on `origin/handoff`, merged here.
+**Completed:**
+- **Traced the bug to the Wrap up's database steps.** The Shop "Added by" line reads only the `list_item_contributors` ledger, and the `added_by` column is ignored as a stale scalar. Wrap up wiped that ledger in TWO functions: `archive_trip_items` deleted every contributor row in the household, then `close_cycle` deleted the rolled row's own rows before its upsert.
+- **Ruled: a rolled item is the same need carried forward, not a new add, so its attribution comes with it.** Archived (bought or not-rolled) rows still lose attribution, so a later re-add starts fresh.
+- **Built the fix in two migrations, each from the live body and byte-checked.**
+  - Wrote SPEC_rollforward_keeps_attribution.md (airlock; routed `a321e60`). It traced only `close_cycle`.
+  - **079** (`c53d19e`): `close_cycle` = 052's body minus the `v_existing_id` lookup and the delete (VERIFY 9/0, fixture 7/7).
+  - Dan's first dev walk failed after the roll, which surfaced `archive_trip_items` the same evening.
+  - **080** (`6b9f4a7`): its delete skips the keep list; the body is otherwise 051's. The fixture runs the client's real order (archive, then close; VERIFY 10/0, fixture 8/8), and the VERIFY refuses to commit unless `close_cycle` is 079's.
+  - Spec amended (`0a5ac11`): 079 + 080 together are the fix.
+- **Ruled backfill B in, then narrowed it at Claude Code's catch.** Meal-only rows are skipped because meal adds never write contributor rows, so backfilling them would invent a direct add. **081** (`580ba77`; spec note `70176e1`) restored 1 row on dev and 8 on prod (Golf Weekend, verified on screen). Contributor ids are recorded in `081_rollback.sql` (`8e8829c`).
+- **Made the function-hash checks strip CR before hashing** (`c12531b`, the 077 pattern). Prod stores function bodies with Windows line endings (seen again on 079's apply), so the LF-only checks would have rolled 079 and 080 back on prod.
+- **Walked on dev with two members (DH + TD), before and after Wrap up.** Hummus kept both names, Dill Pickles and ketchup kept one each, and Tortilla kept "For Taco Night". Prod walk passed.
+- **Closed the Madbury question.** The items in Dan's original screenshot had already been wrapped up and archived (rolled 11-07 01:56; 2 removed, 11 bought and archived at the 22:07 Wrap up), so no second backfill. The 16 other no-contributor rows on prod predate this bug (3 dormant "My Household" households, created Apr–Jun 2026, before the first contributor row on 2026-07-07) and stay as they are.
+**Unfinished:**
+- None for this fix.
+- Open, not this session: 16 live prod rows with no contributors that predate the roll bug. If blank "Added by" lines turn up on items nobody rolled, treat that as its own bug, never a widened backfill.
+**Next session:**
+SESSION START
+Goal: Ask Slice 3 in Claude Code: Simple style (A13) and A26 resume after backgrounding (unchanged from the 11-07 Ask Slice 2 entry; this session was an interrupt).
+State: Roll-forward attribution fixed on dev and prod (079/080/081; no app change; prod app still main `48c022f`). Dev `8e8829c` plus this docs commit. Ask Slices 1–2 complete on dev only. Next migration number is 082.
+Done when: Amendment Verification 3, 4, 5 and 12 are walked on dev (Simple per A13; resume restores the held wagon after backgrounding, per A26); `.op-name` is on any new name surface; prod is untouched. Decide first whether the wagon polish rides with Slice 3 or waits for promotion.
+**Files updated:** `migrations/079_rollforward_keeps_attribution.sql` + `079_rollback.sql`, `migrations/080_archive_keeps_rolled_attribution.sql` + `080_rollback.sql`, `migrations/081_backfill_rolled_contributors.sql` + `081_rollback.sql`, `migrations/059_trip_qualification_v2.sql` (header addendum only), `docs/specs/built/SPEC_rollforward_keeps_attribution.md` (airlock → `active/`, amended, → `built/` here), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`. No `src/` change.
+**DB changes:** Dev and prod: **079** `close_cycle` keeps the contributor ledger; **080** `archive_trip_items` keeps rolled rows' contributors; **081** backfill of direct-add rolled rows (dev 1, prod 8; meal rows skipped). Dev ledger `20261107195120`, `20261108031755`, `20261108033149`. Prod has no ledger table; applied 04:11, 04:14 and 04:16 UTC, confirmed by read-back.
+
 ### [2026-11-07] — [OurProvisions] — Ask Slice 2 COMPLETE ON DEV: create and run on Standard in Browse, "Picked by" in Shop, the name kept out of Splunk (Verification 8 PASS)
 **Goal:** Ask Slice 2 in Claude Code, Step 0 first. Done when: a household makes Ask Easton from + New shelf, sees it as a Browse pill and section, hands it over, picks 3, and Shop shows "Picked by Easton"; no name in any allow-listed class; prod untouched. Session ran 11-06 10:00 → 11-07 14:30; design handoff `3a3fe4e` on `origin/handoff`, merged here.
 **Completed:**
