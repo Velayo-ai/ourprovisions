@@ -48,6 +48,8 @@ import { nextInsetTop } from './lib/standaloneInset';
 import { swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool, joinPickLabels } from './lib/askPicks';
 import { ASK_GLYPH, readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
+import ShopCheckbox from './components/ShopCheckbox';
+import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -1171,10 +1173,8 @@ export function InCartTray({ items, count, motionClass = () => "", open, onToggl
             const initial = initialFor(item.listItemId);
             return (
               <div key={item.name} className={`list-item shop-row-in${motionClass(item.listItemId)}`}>
-                <div className="checkbox checked" onClick={() => onUncheck(item)}>
-                  <span className="checkmark">✓</span>
-                </div>
-                <div className="li-name" style={{ cursor: "pointer" }} onClick={() => onUncheck(item)}>{item.name}</div>
+                <ShopCheckbox checked filled name={item.name} onToggle={() => onUncheck(item)} />
+                <div className="li-name">{item.name}</div>
                 {item.qty > 1 && <span className="li-qty">×{item.qty}</span>}
                 {initial && <span className="tray-initial" title="Checked by another member">{initial}</span>}
                 {/* A19: the pickers' initials, outlined so they never read as "checked by". The
@@ -6804,13 +6804,38 @@ function ProvisionsApp({ scrollRootRef }) {
   // beside the catalog "Milk", a reused cycle row), and two rows must never
   // share a phase.
   // out: beat 1 marks the row (teal check, name dims + strikes, 120ms), hold
-  // ~250ms; beat 2 collapses it (200ms) while the tray count picks it up; then
-  // the row unmounts. in (uncheck from the tray) is the reverse with no hold —
-  // it's a correction. A row in motion ignores further taps, so a fast double
-  // check of two adjacent rows can't stack or jump.
+  // CHECK_HOLD_MS (3s; was ~250ms until the 2026-11-07 accidental-check fix) so a
+  // stray check is seen where it happened; beat 2 collapses it (200ms) while the
+  // tray count picks it up; then the row unmounts. A tap on the checkbox during
+  // the hold takes the check back in place. in (uncheck from the tray) is the
+  // reverse with no hold — it's a correction. Otherwise a row in motion ignores
+  // further taps, so a fast double check of two adjacent rows can't stack or jump.
   const [rowMotion, setRowMotion] = useState({});
   const rowMotionTimers = useRef({});
   useEffect(() => () => { Object.values(rowMotionTimers.current).forEach(clearTimeout); }, []);
+  // "✓ {item} checked · Undo" toasts (2026-11-07): one per checked row, each
+  // with its own 5s timer, so Undo only ever reverts its own row. checkSeq
+  // counts taps per row: a check whose write lands after the row was already
+  // tapped again offers no toast.
+  const [checkUndos, setCheckUndos] = useState([]);
+  const undoTimers = useRef({});
+  const undoKey = useRef(0);
+  const checkSeq = useRef({});
+  useEffect(() => () => { Object.values(undoTimers.current).forEach(clearTimeout); }, []);
+  const dismissCheckUndo = useCallback((id) => {
+    clearTimeout(undoTimers.current[id]);
+    delete undoTimers.current[id];
+    setCheckUndos((l) => dropUndo(l, id));
+  }, []);
+  const offerCheckUndo = useCallback((id, name) => {
+    clearTimeout(undoTimers.current[id]);
+    const key = ++undoKey.current;
+    setCheckUndos((l) => pushUndo(l, { id, name, key }));
+    undoTimers.current[id] = setTimeout(() => {
+      delete undoTimers.current[id];
+      setCheckUndos((l) => dropUndo(l, id, key));
+    }, UNDO_MS);
+  }, []);
   const [storePromptOpen, setStorePromptOpen] = useState(false);
   const [storePromptSkippedFor, setStorePromptSkippedFor] = useState(null);
   const [storeSaving, setStoreSaving] = useState(false);
@@ -7860,30 +7885,62 @@ function ProvisionsApp({ scrollRootRef }) {
   const handleShopToggle = async (item) => {
     const name = item.name;
     const id = item.listItemId;
-    if (rowMotion[id]) return;                         // already in motion — ignore the tap
-    const reduced = typeof window !== "undefined" && window.matchMedia
-      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!reduced) {
+    const seq = (checkSeq.current[id] || 0) + 1;
+    const clearMotion = () => {
+      setRowMotion(prev => { const n = { ...prev }; delete n[id]; return n; });
+      delete rowMotionTimers.current[id];
+    };
+    const m = rowMotion[id];
+    if (m && m.dir === "out" && m.phase === "mark") {
+      // A tap during the hold takes the check back where it happened: the row
+      // never left its aisle, so it simply stays, unchecked.
+      checkSeq.current[id] = seq;
+      clearTimeout(rowMotionTimers.current[id]);
+      clearMotion();
+      dismissCheckUndo(id);
+    } else if (m) {
+      return;                                          // collapsing or returning — ignore the tap
+    } else {
+      checkSeq.current[id] = seq;
+      const reduced = typeof window !== "undefined" && window.matchMedia
+        && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const dir = checked[id] ? "in" : "out";
-      const markMs = dir === "out" ? 120 + 250 : 120; // beat 1 (+ hold on check only)
       const collapseMs = 200;                          // beat 2
-      // Mark BEFORE the write: toggleChecked flips `checked` synchronously and
-      // the row would otherwise leave the aisle on this very render.
-      setRowMotion(prev => ({ ...prev, [id]: { dir, phase: "mark" } }));
-      rowMotionTimers.current[id] = setTimeout(() => {
+      const collapseThenClear = () => {
         setRowMotion(prev => prev[id] ? { ...prev, [id]: { dir, phase: "collapse" } } : prev);
-        rowMotionTimers.current[id] = setTimeout(() => {
-          setRowMotion(prev => { const n = { ...prev }; delete n[id]; return n; });
-          delete rowMotionTimers.current[id];
-        }, collapseMs);
-      }, markMs);
+        rowMotionTimers.current[id] = setTimeout(clearMotion, collapseMs);
+      };
+      // Mark BEFORE the write: toggleChecked flips `checked` synchronously and
+      // the row would otherwise leave the aisle on this very render. A check
+      // holds in place for CHECK_HOLD_MS even with reduced motion (it is where
+      // the row is drawn, not an animation); reduced motion only skips the collapse.
+      if (dir === "out") {
+        setRowMotion(prev => ({ ...prev, [id]: { dir, phase: "mark" } }));
+        rowMotionTimers.current[id] = setTimeout(reduced ? clearMotion : collapseThenClear, CHECK_HOLD_MS);
+      } else {
+        dismissCheckUndo(id);
+        if (!reduced) {
+          setRowMotion(prev => ({ ...prev, [id]: { dir, phase: "mark" } }));
+          rowMotionTimers.current[id] = setTimeout(collapseThenClear, 120);   // beat 1, no hold
+        }
+      }
     }
     // `status` is the server-confirmed transition, or null when the write
     // failed OR changed nothing (a re-tap on an already-committed row —
     // SPEC_checked_event_duplicate_emission). Only a real transition is an event.
     const status = await toggleChecked(name, item.listItemId);
     if (!status) return;
+    if (status === "bought" && checkSeq.current[id] === seq) offerCheckUndo(id, name);
     recordListEvent(status === "bought" ? "checked" : "unchecked", { listItemId: item.listItemId, catalogItemId: item.catalogItemId });
+  };
+  // Undo on a "✓ {item} checked" toast: the same uncheck as a tap on the row's
+  // checkbox (handleShopToggle → toggleChecked → the list_items write the other
+  // devices sync from). Only if that row is still checked — someone may have
+  // unchecked it already.
+  const undoCheck = (id) => {
+    dismissCheckUndo(id);
+    const item = shoppingList.flatMap(c => c.items).find(i => i.listItemId === id);
+    if (item && checked[id]) handleShopToggle(item);
   };
   const rowMotionClass = (listItemId) => {
     const m = rowMotion[listItemId];
@@ -8622,6 +8679,17 @@ function ProvisionsApp({ scrollRootRef }) {
             )}
           </div>
         )}
+
+        {/* "✓ {item} checked · Undo" (2026-11-07) — one per checked row, newest at
+            the bottom, each with its own 5s timer. Shop only; the item name is
+            plain text, the Undo button opts into pointer events. */}
+        {view === "list" && checkUndos.map((u) => (
+          <div key={u.key} className="check-undo" role="status">
+            <span className="check-undo-text">✓ {u.name} checked</span>
+            <span className="check-undo-sep" aria-hidden="true">·</span>
+            <button type="button" className="check-undo-btn op-chrome" onClick={() => undoCheck(u.id)}>Undo</button>
+          </div>
+        ))}
       </div>
 
       {/* The Helm — floating nav pill (SPEC_nav_helm.md). Fixed, outside the
@@ -9743,6 +9811,21 @@ function ProvisionsApp({ scrollRootRef }) {
         .list-item.checking .checkbox::after { content: "✓"; color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 1; }
         .list-item.checking .li-name { color: #a89878; text-decoration: line-through; }
         .list-item.checking, .list-item.unchecking, .list-item.collapsing { pointer-events: none; }
+        /* The hold (CHECK_HOLD_MS): the row ignores taps, but its checkbox takes the check back. */
+        .list-item.checking .shop-check { pointer-events: auto; }
+        /* Shop check target (2026-11-07): only the checkbox checks a row. 44×44 around the circle,
+           pulled into the row's padding so rows keep their height and names keep their place; the
+           left edge sits at the 16px page inset, never nearer the screen edge. Square, not round: a
+           rounded target is hit-tested as a circle and its corners stop responding. */
+        .shop-check { flex: none; width: 44px; height: 44px; margin: -11px -14px -11px -4px; padding: 0; border: none; background: none; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 0; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; touch-action: manipulation; }
+        .shop-check:focus-visible { outline: 2px solid #0A776D; outline-offset: -4px; }
+        .list-item.az .shop-check { margin: -13px -18px -13px -4px; }
+        .tray-body .shop-check { margin-right: -18px; }
+        .list-item .li-name { cursor: default; }
+        .check-undo { background: rgba(44,26,14,0.92); color: #FAF4EC; font-family: 'Lato', sans-serif; font-size: 14px; height: 44px; padding: 0 6px 0 18px; border-radius: 999px; box-shadow: 0 4px 20px rgba(0,0,0,0.35); max-width: 90vw; display: flex; align-items: center; gap: 10px; animation: fadeIn 0.18s ease; pointer-events: auto; }
+        .check-undo-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .check-undo-sep { opacity: 0.6; }
+        .check-undo-btn { flex: none; align-self: stretch; min-width: 64px; background: none; border: none; color: #FAF4EC; padding: 0 12px; cursor: pointer; font-family: 'Lato', sans-serif; font-size: 12px; font-weight: 900; letter-spacing: 1.4px; text-transform: uppercase; border-radius: 999px; }
         .tray-body .list-item.unchecking .checkbox.checked { background: transparent; border-color: #c8b89a; }
         .tray-body .list-item.unchecking .checkmark { opacity: 0; transition: opacity .12s ease; }
         .tray-body .list-item.unchecking .li-name { text-decoration: none; color: #2C1A0E; }
@@ -11722,8 +11805,8 @@ function ProvisionsApp({ scrollRootRef }) {
                       {cat.items.map((item) => (
                         <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
                           <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}`}>
-                            <div className="checkbox" onClick={() => handleShopToggle(item)} />
-                            <div style={{ flex: 1, cursor: "pointer" }} onClick={() => handleShopToggle(item)}>
+                            <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
+                            <div style={{ flex: 1 }}>
                               <div className="li-name">
                                 {item.name}
                                 {addedHereIds.has(item.catalogItemId) && <span className="added-here-tag">added here</span>}
@@ -11751,8 +11834,8 @@ function ProvisionsApp({ scrollRootRef }) {
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
                         <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}`}>
-                          <div className="checkbox" onClick={() => handleShopToggle(item)} />
-                          <div className="li-name" onClick={() => handleShopToggle(item)}>
+                          <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
+                          <div className="li-name">
                             {item.name}
                             {addedHereIds.has(item.catalogItemId) && <span className="added-here-tag">added here</span>}
                           </div>
