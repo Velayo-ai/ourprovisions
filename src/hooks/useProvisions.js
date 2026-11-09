@@ -7,6 +7,7 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { createRowWriteChain } from "../lib/checkWrites";
+import { rollbackQty } from "../lib/qtyRollback";
 import { inviteFailureNotice } from "../lib/inviteFailure";
 import { updateItemCategory, applyItemCategory } from "../lib/itemCategory";
 import { useConnectivity } from "../contexts/ConnectivityContext";
@@ -1320,14 +1321,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       clearPending();
       console.error("updateQty error:", err.message, err);
       console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
-      // Classify FIRST. On a transient (offline) failure, keep the optimistic
-      // value — it's the last-good intent that reconnect will reconcile. Only
-      // roll back on a genuine error (real rejection: bad data, RLS, etc.),
-      // where the value truly didn't take.
+      // The value didn't take, whatever the cause: put the stepper back to the
+      // server's last value (lib/qtyRollback). Offline used to keep the new
+      // number, but nothing retries it, so it was a save that never happened
+      // (2026-11-08, SPEC_offline_retry §4). Transient: the pill, no toast.
+      setQuantities((prev) => rollbackQty(prev, optKey, listRowsRef.current));
       if (classifyFetchError(err) === 'transient') {
         reportTransientFailure();
       } else {
-        setQuantities((prev) => { const n = { ...prev }; if (optKey) delete n[optKey]; return n; });
         setError(`Could not update quantity: ${err.message}`);
       }
       return null;
