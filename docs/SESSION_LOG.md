@@ -25,6 +25,43 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-11-08] — [OurProvisions] — Accidental check-offs fixed and live on prod; offline check-off designed and approved
+**Goal:** Stop grip touches checking off items Dan hadn't picked up yet (3 times on one trip), and decide how check-off should behave with no signal. Session ran 11-07 17:10 → 11-08 20:56 ET (an interrupt to Ask Slice 3); design handoff `e9b1449` on `origin/handoff`, merged here.
+**Completed:**
+- **Diagnosed grip touches and ruled the fix: make accidental checks rare and instantly reversible.** Dan holds the phone in one hand while grabbing items, and a thumb or palm lands mid-row. Built on dev as `0b90532`:
+  - `ShopCheckbox` (a real `role=checkbox` button) is the only toggle on a Shop row: 44×44, inset from the screen edge, square so its corners hit.
+  - Touches held >500ms, moved >10px or cancelled are ignored; mouse and keyboard always count (`lib/shopCheck`).
+  - A checked row holds in place 3s; each check gets its own 5s Undo toast, and Undo runs the same uncheck path, so other devices sync.
+  - Verified 16/16 in a headless-Chrome touch harness at 390×844.
+- **Built Dan's two follow-ups (`c3f3e37`).** The toast appears on the tap, not after the server confirms. `toggleChecked` now runs one row's writes in order (`lib/checkWrites`): Undo aborts a check still in flight, then sends the uncheck, and a waiting write is never sent. All done waits for the last check's hold and Undo window.
+- **Dan's real-phone walk found two bugs already on prod; both were fixed before prod.**
+  - (1) About 1 min offline, Clerk's token expires and Clerk returns null; every write then toasted "AuthTokenMissing". Fixed in `5c0d5fb`: null while offline is `network` → transient (pill + rollback, no toast); null while online (signed out) stays loud.
+  - (2) An offline quantity change stayed on screen but nothing retried it, a phantom save (SPEC_offline_retry §4) that `5c0d5fb` would have hidden. Fixed in `5030a5b`: any failed quantity save rolls back to the server's last number via `lib/qtyRollback`. The old real-error path deleted the value, so the stepper read 0.
+- **Promoted to prod by cherry-pick: main `388ea23`** (`cdf1eca` `b5d3185` `fe372f5` `388ea23` from `0b90532` `c3f3e37` `5c0d5fb` `5030a5b`).
+  - Resolved two conflicts, both Ask-gap: `App.js` imports, and the Ask block beside `toggleChecked`.
+  - The main diff equals the four dev commits line for line. 709/709 tests; `CI=true` build clean.
+  - `main.a3ad07a3.js` markers read back, Ask absent. Rollback `dpl_Abcdo4WXCbsFEcf4Q7rLR8EN3hzN` / `48c022f`.
+  - Dan walked dev on two phones (offline early and after 1+ min, plus quantity) and smoke-tested prod. All passed. No DB change.
+- **Made the token tests independent of `.env` (`9fa485f`, test-only, dev).** They stub the Supabase URL and key and load a fresh client.
+- **Designed offline check-off; `SPEC_offline_checkoff.md` approved with its mockup** (routed to `docs/specs/active/`).
+  - Queue check and uncheck only, and show the cached list when the app opens with no signal. The most recent tap wins, silently.
+  - Offline checks stay in their aisle as compact faded "waiting" rows and slide into In cart together on reconnect. All done works offline with honest wording.
+  - Queued changes get a fresh Clerk token when sent.
+- **Set a Velayo-wide principle and a process ruling.** Principle: apps don't depend on a good connection. Every list item is untouched, done and shared, or done and waiting to share, and the waiting state always looks different (tonight's scope stays the shopping list). Process: Claude Code may push mechanical cherry-pick conflicts to main on Dan's go.
+**Unfinished:**
+- Offline check-off is designed but not built.
+- Unverified: does `list_items` have a last-changed timestamp set on every update by trigger? If not, offline check-off needs migration 082. The spec says to stop and ask Dan first.
+- `9fa485f` (test-only) is on dev, not prod. It rides with the next promotion.
+- SPEC_offline_retry.md is cited by the repo but lives only in Project docs. Consider adding it to `docs/`.
+- Drift to decide at SESSION START: the pre-authored next goal was Ask Slice 3. Tonight Dan called offline check-off very important to the shopping experience. Pick which goes first.
+**Next session:**
+SESSION START
+Goal: Build offline check-off in Claude Code per SPEC_offline_checkoff.md (or resume Ask Slice 3 if Dan prefers; see drift above).
+State: The accidental check-off fix is live on dev and prod (main `388ea23` / `main.a3ad07a3.js`; checkbox-only target, grip filter, 3s hold, per-item Undo, offline token errors quiet, quantity rolls back). Dev `9fa485f` plus this docs commit. Ask Slices 1–2 are on dev only, so promotions stay cherry-picks. Next migration number is 082.
+Done when: the spec's Verify 1–10 pass on two real phones with Wi-Fi and cellular both off; the timestamp-column question is answered first, and any 082 goes dev then prod per the migration discipline; prod untouched until Dan's go.
+**Files updated:** `src/components/ShopCheckbox.js` + test (new), `src/lib/shopCheck.js` + test (new), `src/lib/checkWrites.js` + test (new), `src/lib/qtyRollback.js` + test (new), `src/App.js`, `src/hooks/useProvisions.js`, `src/lib/supabaseClient.js`, `src/lib/classifyFetchError.js`, `src/lib/authHealth.test.js`, `docs/specs/active/SPEC_offline_checkoff.md` (airlock → `active/`), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** None.
+
 ### [2026-11-07] — [OurProvisions] — Roll-forward keeps "Added by": a Wrap up no longer wipes who added a rolled item (079 + 080 + 081, dev and prod)
 **Goal:** Fix rolled-forward items losing their "Added by" line at Wrap up, spotted by Dan on the live list at 14:24. Session ran 11-07 14:30 → 23:30 ET (prod applies 11-08 04:11–04:16 UTC); design handoff `7c813b8` on `origin/handoff`, merged here.
 **Completed:**
