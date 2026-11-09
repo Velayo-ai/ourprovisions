@@ -45,7 +45,12 @@
 -- DEV: parse check clean (VERIFY 9/0, fixture 9/9, nothing persisted); the fixture's owner check run
 --   against 042's body failed as it should ("the owner was demoted"). APPLIED ON DEV 2026-11-09
 --   03:08 UTC by Claude Code; closing VERIFY all as wanted (body md5 e7e524ff…, grants authenticated +
---   service_role, fixture_rows 0); ledger 20261109030809. NOT ON PROD.
+--   service_role, fixture_rows 0); ledger 20261109030809.
+-- PROD: applied by Dan in the prod SQL editor 2026-11-09 (after the Part A client, main 9f4980e).
+--   Read back by Claude Code from pg_proc (prod-readonly): which_db 7606130613603586966, committed,
+--   one function, secdef, search_path public, extensions, EXECUTE authenticated + service_role only,
+--   markers 042 / 082 / revive true, body md5 (CR stripped) e7e524ff… = dev, stored CRLF,
+--   fixture_rows 0. No ledger on prod.
 
 begin;
 
