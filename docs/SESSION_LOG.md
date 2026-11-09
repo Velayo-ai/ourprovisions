@@ -25,6 +25,46 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-11-08] — [OurProvisions] — Invite links lost at sign-up: root-caused from a live test, fixed and live on prod
+**Goal:** Learn from the 2026-11-06 live test (Xavier and Elly, group iMessage) and find out why Xavier's invite to Madbury landed him in a solo "My Household". Design chat ran 11-06 21:45 → 11-08 23:35 ET; build by Claude Code in the same window; design handoff `0ba25e5` on `origin/handoff`, merged here.
+**Completed:**
+- **Sorted the 11-06 test transcript's findings** into the stranded invite (this session); new users reading Shop as the list and the check circle as "add" (next design session); adding items losing to iMessage; one item carrying several reasons (Elly's beef "For Spaghetti and Meatballs"); remote testing by screenshot (SPEC_feedback_bridge is the home).
+- **Root-caused the invite from the database, not the symptom.** Two first theories were wrong: the invite not surviving sign-up, and Elly's tap burning the single-use code.
+  - The facts: Madbury code `5EA0IB` was never accepted (`accepted_at null`); Xavier signed up at 00:30Z with `created_household = true`; his welcome sheet showed no "invite didn't work" line. The code never reached the server.
+  - Dan reproduced it on prod the same way (`Q5Y4R7`, null, same sheet).
+  - The cause: `preRum.js` held `?invite=` in per-tab sessionStorage, and a normal iPhone sign-up (Mail for the OTP, a retry after the Google password sheet) does not keep that tab.
+- **Wrote SPEC_durable_invite_hold.md (built) and SPEC_late_join.md (proposed).**
+- **Built Part A (client) in Claude Code: `1384a49` on dev → main `9f4980e` / `main.93f2889b.js`.** It was a clean cherry-pick; the main diff equals dev line for line; prod markers were read back with Ask absent.
+  - `preRum` holds invite/ref/gift as `{code, heldAt}` in localStorage, with expiry: invite 7d, ref 30d, gift 7d.
+  - Bootstrap and both gift readers go through `readHeld` / `clearHeld`.
+  - The welcome sheet takes a pasted invite link or code, and the share text names the code.
+  - New spans `invite_held` / `invite_consumed` carry booleans and an outcome word only. `preRum` runs before the tracer, so it sets a flag and App.js emits `invite_held`.
+  - Tests: 836/836, plus a headless-Chrome run on the real build in which the hold survived a closed tab and a new tab.
+- **Built Part B, migration 082 (`68f8b23`):** a live member's invite tap is a no-op (no `accepted_at` stamp, no role change), and leave-then-rejoin still revives.
+  - Built from 042's body (live on both databases). VERIFY 9/0 and fixture 9/9; the fixture's owner check failed on the old body ("the owner was demoted"), proving the bug was live.
+  - Dev: applied, ledger `20261109030809`. Prod: applied by Dan and read back from `pg_proc` (body md5 `e7e524ff…` = dev, `anon false`, `public_exec false`, `fixture_rows 0`; header note `f25ac45`).
+  - It also closed a second live bug: a member's tap burned the code, and an owner's tap demoted them. Prod Q3 on Madbury showed no one had hit it yet.
+- **Walked both parts on a real iPhone from Messages, dev then prod, with a fresh identity per run.**
+  - Part A: tap → close tab → new tab → sign up (the failing case) passed on dev (Inv3) and prod (Inv7). The sign-in-first / Mail / retry fumble passed (Inv5, Inv4). A bare-URL sign-up, then pasting the full invite URL into the welcome sheet, passed (Inv6), with the orphan "My Household" discarded (D11). Each code was stamped to its identity.
+  - Part B: an owner tapping their own invite stayed owner with the code unstamped, on dev and on prod (`New invite test`, `8X287W`).
+- **Confirmed the new telemetry end to end in Splunk RUM on prod:** `invite_held`, then `invite_consumed {present: true, outcome: joined}`. `location.href` was already clean and no tag carried a code; `sf_domain` and `household.id` ride along for scoping.
+**Unfinished:**
+- Splunk alerts are not built yet (tomorrow's session; see Next session).
+- SPEC_late_join.md is PROPOSED, not approved: P1–P6 need Dan's yes, Q1–Q4 are open, and a mockup is required before build. Xavier's 6 items are still stranded in his solo place.
+- Xavier has not been re-invited with a fresh link.
+- Resilience gaps remain, by design tonight. A link opened in one browser and a sign-up finished in another (home-screen app vs Safari vs Chrome) still loses the held code; the welcome sheet's paste-the-link field is the backstop, but its copy doesn't say so. On a shared device, a held code is consumed by the next sign-in within 7 days. In group texts: one link, one use.
+- Cosmetic: a current member who taps an invite sees the "You joined" banner, and `invite_consumed` reports it as `joined`. A third outcome `already_member` would separate them (two lines).
+- First-run friction seen twice: "Sign in → no account → find Sign Up". An invite link could open straight to sign-up. Google's save-password sheet covered Clerk's OTP prompt on Dan's run.
+- Dev-only quirk, not a bug: Clerk development instances don't carry sign-in into a new Safari tab, so dev invite taps from Messages land signed out.
+- `9fa485f` (token tests no longer need `.env`; test-only) is still dev-only. It rides the next promotion.
+**Next session:**
+SESSION START
+Goal: Set up Splunk alerting on invite health: a detector on `invite_consumed` with `outcome=absent` (any occurrence, same-day), a lower-urgency one on `outcome=failed`, and a daily chart of joined / absent / failed scoped to `sf_domain = ourprovisions.velayo.ai`. First check whether RUM detectors can key on a custom span name and tag; if not, route the two spans through the OpenTelemetry Collector into a metric or log that can alert. Then approve or redirect SPEC_late_join.md.
+State: Durable invite hold live on dev and prod (main `9f4980e` / `main.93f2889b.js`; rollback `388ea23` / `main.a3ad07a3.js`). Migration 082 on dev and prod. Spans `invite_held` / `invite_consumed` are arriving in Splunk RUM from prod. Ask Slices 1–2 remain dev-only, so promotions stay cherry-picks and the skip-the-prod-walk rule does not apply. Offline check-off (SPEC_offline_checkoff) is still designed, not built; Ask Slice 3 is still queued. Next migration number is 083.
+Done when: an `outcome=absent` on prod raises an alert Dan receives, verified by one deliberate absent (tap an invite in Safari, sign up in Chrome) on a throwaway place; and SPEC_late_join.md has a decision.
+**Files updated:** `src/lib/preRum.js` + `preRum.test.js`, `src/lib/inviteLink.js` + test (new), `src/hooks/useProvisions.js`, `src/App.js`, `src/index.js` (comment), `migrations/082_member_invite_tap_noop.sql` + `082_rollback.sql` (new), `docs/specs/built/SPEC_durable_invite_hold.md` (airlock → `active/` in `1384a49`, → `built/` here), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`. SPEC_late_join.md was delivered to Dan as a download (not yet in the repo).
+**DB changes:** Migration 082 `member_invite_tap_noop`: in `bootstrap_new_user` step 2, a live member of the invite's household gets the existing-household reply, with no `accepted_at` stamp and no role change; leave-then-rejoin still revives. Dev ledger `20261109030809`; prod applied by Dan 2026-11-09 and confirmed by read-back (no ledger on prod).
+
 ### [2026-11-08] — [OurProvisions] — Accidental check-offs fixed and live on prod; offline check-off designed and approved
 **Goal:** Stop grip touches checking off items Dan hadn't picked up yet (3 times on one trip), and decide how check-off should behave with no signal. Session ran 11-07 17:10 → 11-08 20:56 ET (an interrupt to Ask Slice 3); design handoff `e9b1449` on `origin/handoff`, merged here.
 **Completed:**
