@@ -48,6 +48,7 @@ import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStore
 import { nextInsetTop } from './lib/standaloneInset';
 import { swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool, joinPickLabels } from './lib/askPicks';
 import { ASK_GLYPH, readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
+import { heldAskRead, loadHeldAsk, storeHeldAsk } from './lib/askRun';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
 import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
@@ -5332,7 +5333,7 @@ function ProvisionsApp({ scrollRootRef }) {
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
-    asks, createAsk, landAskPicks, itemPhotos, setItemPhoto,
+    asks, asksLoaded, createAsk, landAskPicks, itemPhotos, setItemPhoto,
     supabase,
     _supabase,
     _household,
@@ -6869,6 +6870,28 @@ function ProvisionsApp({ scrollRootRef }) {
   // "+N more" (C4.2): the asks past the rail's two pills, in a small sheet.
   const [moreAsksOpen, setMoreAsksOpen] = useState(false);
   useEffect(() => { setNewShelfOpen(false); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
+  // A26 resume (SPEC_ask_slice3 S3-6). AskRun keeps op_ask_held current while it is up; any end of
+  // the run (Done, Back to the list, a tab or household switch) clears it here. A reload with the
+  // key held reopens the run ONCE, on its screen with its picks — after this place's asks and
+  // catalog are in and the landing has settled (a landing move would end the run again). An ask
+  // that isn't this place's any more clears the key and opens nothing. No hand-over is recorded:
+  // that happened at the first open.
+  const [runResume, setRunResume] = useState(null);
+  const heldAskRef = useRef(undefined);
+  if (heldAskRef.current === undefined) heldAskRef.current = loadHeldAsk();
+  const prevRunAskIdRef = useRef(null);
+  useEffect(() => {
+    if (prevRunAskIdRef.current && !runAskId) { storeHeldAsk(null); setRunResume(null); }
+    prevRunAskIdRef.current = runAskId;
+  }, [runAskId]);
+  useEffect(() => {
+    if (!heldAskRef.current || !asksLoaded || !catalogLoaded || !landingDecided) return;
+    const held = heldAskRead(heldAskRef.current, asks);
+    heldAskRef.current = null;
+    if (!held) { storeHeldAsk(null); return; }
+    setRunResume({ screen: held.screen, ids: held.ids });
+    setRunAskId(held.askId);
+  }, [asks, asksLoaded, catalogLoaded, landingDecided]);
   // The rail's ask order (C4.2; Dan's rail ruling 2026-11-07): last hand-over first, then A–Z —
   // computed when Browse opens or the household switches, then frozen while Browse stays open. A
   // hand-over records its time (this device's localStorage) but never re-sorts the open rail; asks
@@ -12150,6 +12173,7 @@ function ProvisionsApp({ scrollRootRef }) {
           key={runAsk.id}
           ask={runAsk}
           tiles={runTiles}
+          resume={runResume}
           onLand={async (ids) => {
             const landed = await landAskPicks(runAsk.id, ids);
             if (landed == null) throw new Error("not landed");
@@ -12691,7 +12715,7 @@ function ProvisionsApp({ scrollRootRef }) {
             {/* Sign out */}
             <div style={{ height: "0.5px", background: "#e8ddd0", margin: "0 20px" }} />
             <button
-              onClick={() => { markDeliberateSignOut(); signOut(() => setShowProfileSheet(false)); }}
+              onClick={() => { markDeliberateSignOut(); storeHeldAsk(null); signOut(() => setShowProfileSheet(false)); }}
               style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", width: "100%" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>

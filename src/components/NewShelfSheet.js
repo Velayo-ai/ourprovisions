@@ -2,11 +2,17 @@ import { useMemo, useRef, useState } from "react";
 import {
   askDraftProblem, createAskFailure, findDuplicateAsk, pickLine,
   ASK_LABEL_MAX, ASK_NOUN_MAX, ASK_TARGET_MIN, ASK_TARGET_MAX, ASK_SHELF_MAX, ASK_TARGET_DEFAULT,
+  ASK_SIMPLE_MAX, ASK_STYLE_DEFAULT,
 } from "../lib/askCreate";
 
 // + New shelf (SPEC_ask_slice2 C2; 078 create_ask). The body of the sheet: who's picking, an
-// optional noun, how many to pick (1–6), and the shelf, chosen from this place's catalog in tap
-// order. Standard style only (Simple is Slice 3); photos come with the run screens (C3b).
+// optional noun, how many to pick (1–6), the style, and the shelf, chosen from this place's catalog
+// in tap order.
+//
+// THE STYLE (SPEC_ask_slice3 S3-5): Standard or Simple, set here and nowhere else in this slice.
+// It belongs to the ask, not the person, so the copy never mentions age, ability or reading (A3,
+// A4). Simple shows 4 tiles at most (S3-1): the shelf still takes a 5th, and the footer says
+// "Simple shows 4 at most." until it is gone or the style is Standard.
 //
 // ONE ID PER DRAFT (K1): the id is made on the first Save and kept while the draft is unchanged,
 // so a retry after a dropped connection returns the same ask instead of a second one. Any edit to
@@ -29,6 +35,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
   const [label, setLabel] = useState("");
   const [noun, setNoun] = useState("");
   const [target, setTarget] = useState(ASK_TARGET_DEFAULT);
+  const [style, setStyle] = useState(ASK_STYLE_DEFAULT);
   const [itemIds, setItemIds] = useState([]);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
@@ -40,7 +47,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
 
   const edit = (set) => (value) => { attemptId.current = null; setFailure(null); set(value); };
   const onLabel = (value) => { setServerDup(null); edit(setLabel)(value); };
-  const draft = { label, noun, target, itemIds };
+  const draft = { label, noun, target, itemIds, style };
   const problem = askDraftProblem(draft);
   const touched = label.trim() !== "" || itemIds.length > 0;
   const existing = findDuplicateAsk(label, asks);
@@ -119,6 +126,24 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
           ))}
         </div>
         <div className="picker-sub" style={{ margin: "8px 0 0" }}>{pickLine(target, noun)}</div>
+      </div>
+
+      <div className="modal-field">
+        <span className="modal-label" id="new-shelf-style">How it looks</span>
+        <div role="radiogroup" aria-labelledby="new-shelf-style" style={{ display: "flex", gap: "8px" }}>
+          {[
+            { key: "standard", name: "Standard", sub: `Words and up to ${ASK_SHELF_MAX} tiles` },
+            { key: "simple", name: "Simple", sub: `Big pictures, up to ${ASK_SIMPLE_MAX} tiles` },
+          ].map((o) => (
+            <button key={o.key} type="button" role="radio" aria-checked={style === o.key}
+              className={`cat-pill${style === o.key ? " on" : ""}`}
+              style={{ flex: "1 1 0", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", padding: "10px 12px", textAlign: "left", borderRadius: "14px" }}
+              onClick={() => edit(setStyle)(o.key)}>
+              <span style={{ fontWeight: 700 }}>{o.name}</span>
+              <span style={{ fontSize: "0.8rem", fontWeight: 400 }}>{o.sub}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="modal-field" ref={shelfField}>

@@ -148,7 +148,7 @@ test("Save sends the draft once a name and as many items as the target (3) are i
   fireEvent.change(nameInput(), { target: { value: "Easton" } });
   pick("Goldfish"); pick("Apples"); pick("Yogurt");
   await saveAndClose(onClose);
-  expect(onCreate).toHaveBeenCalledWith("ask-1", { label: "Easton", noun: "", target: 3, itemIds: ["i-goldfish", "i-apples", "i-yogurt"] });
+  expect(onCreate).toHaveBeenCalledWith("ask-1", { label: "Easton", noun: "", target: 3, itemIds: ["i-goldfish", "i-apples", "i-yogurt"], style: "standard" });
 });
 
 test("one scroller (C2.1 item 3): the catalog list is not a scroll box; search narrows it", () => {
@@ -174,4 +174,40 @@ test("the pick line follows the target and the noun, and never names the picker"
   pickTarget(1);
   expect(screen.getByText("Pick one for our list.")).toBeInTheDocument();
   expect(screen.queryByText(/Easton/)).toBeNull();
+});
+
+describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
+  const style = (name) => screen.getByRole("radio", { name: new RegExp(`^${name}`) });
+  test("Standard is the default; the copy names no age, ability or reading", () => {
+    setup();
+    expect(style("Standard")).toHaveAttribute("aria-checked", "true");
+    expect(style("Standard")).toHaveTextContent("Words and up to 48 tiles");
+    expect(style("Simple")).toHaveAttribute("aria-checked", "false");
+    expect(style("Simple")).toHaveTextContent("Big pictures, up to 4 tiles");
+    expect(fieldOf(style("Simple")).textContent).not.toMatch(/age|year|old|read|young|kid|child/i);
+  });
+  test("Simple with 4 tiles saves as Simple", async () => {
+    const { onCreate, onClose } = setup();
+    fireEvent.change(nameInput(), { target: { value: "Everett" } });
+    pickTarget(1);
+    fireEvent.click(style("Simple"));
+    ITEMS.forEach((i) => pick(i.name));
+    expect(screen.queryByText("Simple shows 4 at most.")).toBeNull();
+    await saveAndClose(onClose);
+    expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "simple", itemIds: ITEMS.map((i) => i.id) });
+  });
+  test("five items on Simple → \"Simple shows 4 at most.\" in the footer; Standard saves them", () => {
+    const five = [...ITEMS, { id: "i-pears", name: "Pears" }];
+    render(<NewShelfSheet catalogItems={five} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} />);
+    fireEvent.change(nameInput(), { target: { value: "Everett" } });
+    pickTarget(1);
+    fireEvent.click(style("Simple"));
+    five.forEach((i) => pick(i.name));
+    const msg = screen.getByText("Simple shows 4 at most.");
+    expect(footerOf(msg)).not.toBeNull();
+    expect(save()).toBeDisabled();
+    fireEvent.click(style("Standard"));
+    expect(screen.queryByText("Simple shows 4 at most.")).toBeNull();
+    expect(save()).toBeEnabled();
+  });
 });

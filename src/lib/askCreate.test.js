@@ -1,6 +1,6 @@
 import {
   askDraftProblem, createAskArgs, createAskFailure, shapeAsks, pickLine, targetTilesMessage, findDuplicateAsk,
-  ASK_LABEL_MAX, ASK_SHELF_MAX,
+  ASK_LABEL_MAX, ASK_SHELF_MAX, ASK_SIMPLE_MAX,
 } from "./askCreate";
 
 const ids = (n) => Array.from({ length: n }, (_, i) => `item-${i + 1}`);
@@ -31,6 +31,12 @@ describe("askDraftProblem — the sheet refuses what create_ask would", () => {
     expect(askDraftProblem({ ...ok, target: 1, itemIds: ids(ASK_SHELF_MAX + 1) })).toMatch(/48 items at most/);
     expect(askDraftProblem({ ...ok, target: 3, itemIds: ids(2) })).toBe(targetTilesMessage(3));
   });
+  test("Simple shows 4 at most; Standard keeps the 48 cap", () => {
+    expect(askDraftProblem({ ...ok, style: "simple", target: 1, itemIds: ids(ASK_SIMPLE_MAX) })).toBeNull();
+    expect(askDraftProblem({ ...ok, style: "simple", target: 1, itemIds: ids(ASK_SIMPLE_MAX + 1) })).toBe("Simple shows 4 at most.");
+    expect(askDraftProblem({ ...ok, style: "standard", target: 1, itemIds: ids(ASK_SIMPLE_MAX + 1) })).toBeNull();
+    expect(askDraftProblem({ ...ok, style: "simple", target: 4, itemIds: ids(3) })).toBe(targetTilesMessage(4));
+  });
   test("the problem never names the picker", () => {
     expect(askDraftProblem({ ...ok, label: "Easton", itemIds: ids(1) })).not.toMatch(/Easton/);
   });
@@ -47,6 +53,12 @@ describe("createAskArgs — 078's arguments", () => {
       p_pick_target: 3,
       p_catalog_item_ids: ["c", "a", "b"],
     });
+  });
+  test("the chosen style; anything but simple is Standard", () => {
+    const draft = { label: "Everett", target: 1, itemIds: ["a"] };
+    expect(createAskArgs("ask-1", "hh-1", { ...draft, style: "simple" }).p_screen_style).toBe("simple");
+    expect(createAskArgs("ask-1", "hh-1", { ...draft, style: "standard" }).p_screen_style).toBe("standard");
+    expect(createAskArgs("ask-1", "hh-1", { ...draft, style: "bogus" }).p_screen_style).toBe("standard");
   });
   test("the item list is a copy", () => {
     const itemIds = ["a"];

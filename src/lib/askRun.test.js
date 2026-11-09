@@ -1,4 +1,4 @@
-import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace } from "./askRun";
+import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, heldAskWrite, heldAskRead } from "./askRun";
 
 describe("tapTile — A16", () => {
   test("adds in tap order until the target", () => {
@@ -53,4 +53,36 @@ test("shelfCanRun — at least as many tiles as the target", () => {
   expect(shelfCanRun([1, 2, 3], 3)).toBe(true);
   expect(shelfCanRun([1, 2], 3)).toBe(false);
   expect(shelfCanRun(null, 1)).toBe(false);
+});
+
+describe("heldAskWrite / heldAskRead — A26 resume (SPEC_ask_slice3 S3-6)", () => {
+  const ASKS = [{ id: "a-easton", label: "Easton", pickTarget: 3, itemIds: ["c-1", "c-2", "c-3", "c-4"] }];
+  const held = (v) => JSON.stringify(v);
+  test("the value holds the ask id, the screen and the ids — nothing else", () => {
+    const v = JSON.parse(heldAskWrite("a-easton", "shelf", ["c-2", "c-1"]));
+    expect(v).toEqual({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: ["c-2", "c-1"] });
+    expect(Object.keys(v).sort()).toEqual(["ask_id", "catalog_item_ids", "screen"]);
+    expect(JSON.stringify(v)).not.toMatch(/Easton/);
+  });
+  test("a held run reads back", () => {
+    expect(heldAskRead(heldAskWrite("a-easton", "shelf", ["c-2", "c-1"]), ASKS)).toEqual({ askId: "a-easton", screen: "shelf", ids: ["c-2", "c-1"] });
+    expect(heldAskRead(heldAskWrite("a-easton", "turn", []), ASKS)).toEqual({ askId: "a-easton", screen: "turn", ids: [] });
+  });
+  test("a bad value or a missing key is nothing to resume", () => {
+    for (const raw of [null, "", "{", "null", "42", held({ screen: "shelf" }), held({ ask_id: 7 })]) expect(heldAskRead(raw, ASKS)).toBeNull();
+  });
+  test("an ask that isn't one of this place's live asks is nothing to resume", () => {
+    expect(heldAskRead(heldAskWrite("a-gone", "shelf", ["c-1"]), ASKS)).toBeNull();
+    expect(heldAskRead(heldAskWrite("a-easton", "shelf", ["c-1"]), [])).toBeNull();
+  });
+  test("ids off the shelf drop, duplicates collapse, and the picks cap at the target", () => {
+    expect(heldAskRead(held({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: ["c-9", "c-1", 5] }), ASKS).ids).toEqual(["c-1"]);
+    expect(heldAskRead(held({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: ["c-1", "c-1", "c-2"] }), ASKS).ids).toEqual(["c-1", "c-2"]);
+    expect(heldAskRead(held({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: ["c-1", "c-2", "c-3", "c-4"] }), ASKS).ids).toEqual(["c-1", "c-2", "c-3"]);
+    expect(heldAskRead(held({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: "c-1" }), ASKS).ids).toEqual([]);
+  });
+  test("an unknown screen reads as the hand-over", () => {
+    expect(heldAskRead(held({ ask_id: "a-easton", screen: "done", catalog_item_ids: [] }), ASKS).screen).toBe("turn");
+    expect(heldAskRead(held({ ask_id: "a-easton", catalog_item_ids: [] }), ASKS).screen).toBe("turn");
+  });
 });

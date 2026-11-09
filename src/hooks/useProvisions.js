@@ -126,6 +126,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // before that it is "unknown", and the recipe view shows no tags (2026-10-18).
   const [cooksLoadedFor, setCooksLoadedFor] = useState(null);
   const [catalogLoadedFor, setCatalogLoadedFor] = useState(null);
+  // The household whose asks have been read at least once: an Ask resume (A26) must tell "this
+  // place has no such ask" from "the asks aren't in yet" (SPEC_ask_slice3).
+  const [asksLoadedFor, setAsksLoadedFor] = useState(null);
   const [error, setError] = useState(null);
   // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
   const errorSourceRef = useRef(null);
@@ -805,6 +808,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     householdMembersRef.current = [];
     setMembersLoadedFor(null);
     setCatalogLoadedFor(null);
+    setAsksLoadedFor(null);
     bootstrappedRef.current = false;
     setBootstrapped(false);
     bootstrapHouseholdIdRef.current = null;
@@ -1403,6 +1407,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (err) { console.warn("[ask] asks read failed (non-fatal):", err.code); return null; }
     const shaped = shapeAsks(data);
     setAsks(shaped);
+    setAsksLoadedFor(hhId);
     return shaped;
   }, []);
 
@@ -4335,6 +4340,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     membersLoaded: !!household?.id && membersLoadedFor === household.id,
     cooksLoaded: !!household?.id && cooksLoadedFor === household.id,
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
+    asksLoaded: !!household?.id && asksLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     landAskPicks, asks, fetchAsks, createAsk, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,

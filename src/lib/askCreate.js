@@ -9,6 +9,8 @@ export const ASK_TARGET_MIN = 1;   // asks_pick_target_range (077)
 export const ASK_TARGET_MAX = 6;
 export const ASK_SHELF_MAX = 48;   // ask_shelf_items_position_range: 0–47 (077)
 export const ASK_TARGET_DEFAULT = 3;
+export const ASK_SIMPLE_MAX = 4;   // Simple shows at most 4 tiles, 2×2 (SPEC_ask_slice3 S3-1)
+export const ASK_STYLE_DEFAULT = "standard";   // asks.screen_style: standard | simple (077)
 
 // "To pick 3, the shelf needs at least 3 items." — the target-vs-tiles message, shared by the
 // sheet's own check and create_ask's 22023.
@@ -19,7 +21,7 @@ export function targetTilesMessage(target) {
 }
 
 // null when the draft can be saved, else the first problem, in the order the sheet reads.
-export function askDraftProblem({ label, noun, target, itemIds }) {
+export function askDraftProblem({ label, noun, target, itemIds, style }) {
   const l = (label || "").trim();
   const n = (noun || "").trim();
   const count = (itemIds || []).length;
@@ -29,18 +31,20 @@ export function askDraftProblem({ label, noun, target, itemIds }) {
   if (!Number.isInteger(target) || target < ASK_TARGET_MIN || target > ASK_TARGET_MAX) return "Choose how many to pick.";
   if (count === 0) return "Put at least one item on the shelf.";
   if (count > ASK_SHELF_MAX) return `A shelf holds ${ASK_SHELF_MAX} items at most.`;
+  if (style === "simple" && count > ASK_SIMPLE_MAX) return `Simple shows ${ASK_SIMPLE_MAX} at most.`;
   if (target > count) return targetTilesMessage(target);
   return null;
 }
 
-// create_ask's arguments (078). Slice 2 is Standard only; Simple arrives with Slice 3.
-export function createAskArgs(id, householdId, { label, noun, target, itemIds }) {
+// create_ask's arguments (078). The style is chosen at create (SPEC_ask_slice3 S3-5); anything
+// but "simple" is Standard.
+export function createAskArgs(id, householdId, { label, noun, target, itemIds, style }) {
   return {
     p_id: id,
     p_household_id: householdId,
     p_label: (label || "").trim(),
     p_shelf_noun: (noun || "").trim() || null,
-    p_screen_style: "standard",
+    p_screen_style: style === "simple" ? "simple" : ASK_STYLE_DEFAULT,
     p_pick_target: target,
     p_catalog_item_ids: [...(itemIds || [])],
   };

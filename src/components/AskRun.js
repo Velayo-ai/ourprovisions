@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { pickLine } from "../lib/askCreate";
-import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace } from "../lib/askRun";
+import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
 
 // Running an Ask (SPEC_ask amendment A13–A17, A24; SPEC_ask_slice2 C3b). Three screens, full
 // screen over the app: (1) "Your turn, {Label}!" — the hand-over, the wagon on the water at
@@ -16,7 +16,16 @@ import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun, 
 // copy of the name sits in .op-name, so it also leaves click-text spans. No state reaches the URL
 // or document.title.
 //
-// Not here yet: Simple style and A26's resume after backgrounding (Slice 3).
+// SIMPLE (SPEC_ask_slice3 S3-1–S3-4): ONE component for both styles, so they can't drift into two
+// experiences. Simple switches only three things: the tiles (2×2, big, never scrolling), the tile
+// names (off; a plain tile keeps its name, else it would be blank; aria-label carries it), and the
+// child's two buttons (Let's pick → ▶, That's it! → ✓; the words stay as aria-label). The
+// grown-up's controls (Done, Back to the list), the titles and Great picks stay words on both.
+//
+// RESUME (A26 as amended by S3-6): while the hand-over or the shelf is up, every change of screen
+// or picks rewrites op_ask_held ({ask_id, screen, ids}); Great picks clears it, because the picks
+// have landed. A failed land keeps it with the wagon. The caller clears it on every other way out
+// and hands a reloaded run its held screen and picks through `resume`.
 
 const HOLD_MS = 1000;
 
@@ -120,13 +129,15 @@ function HoldDone({ onDone }) {
 // The shelf screen's title and the other two screens' names: the name always in .op-name.
 const Name = ({ children }) => <span className="op-name">{children}</span>;
 
-// ask: { id, label, shelfNoun, pickTarget }. tiles: [{ id, name, glyph, photoUrl }] in shelf order; glyph is the
+// ask: { id, label, shelfNoun, pickTarget, screenStyle }. tiles: [{ id, name, glyph, photoUrl }] in shelf order; glyph is the
 // ITEM's own (null when the catalog has none), never the aisle's.
 // onLand(ids) resolves when the picks are on the list and throws when they are not.
-export function AskRun({ ask, tiles, onLand, onExit }) {
+// resume: { screen, ids } from op_ask_held after a reload (heldAskRead has checked it), else null.
+export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
   const target = ask.pickTarget;
-  const [screen, setScreen] = useState("turn");     // turn | shelf | done
-  const [picks, setPicks] = useState([]);
+  const simple = ask.screenStyle === "simple";
+  const [screen, setScreen] = useState(() => resume?.screen || "turn");     // turn | shelf | done
+  const [picks, setPicks] = useState(() => resume?.ids || []);
   const [fresh, setFresh] = useState(null);
   const [kick, setKick] = useState(null);           // { kind: "hop" | "shake", n } — restarts the motion
   const [landing, setLanding] = useState(false);
@@ -134,6 +145,10 @@ export function AskRun({ ask, tiles, onLand, onExit }) {
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const inWagon = picks.map((id) => byId.get(id)).filter(Boolean);
   const runnable = shelfCanRun(tiles, target);
+
+  useEffect(() => {
+    storeHeldAsk(screen === "done" ? null : heldAskWrite(ask.id, screen, picks));
+  }, [ask.id, screen, picks]);
 
   const bump = (kind) => setKick((k) => ({ kind, n: (k ? k.n : 0) + 1 }));
   const tap = (id) => {
@@ -200,7 +215,13 @@ export function AskRun({ ask, tiles, onLand, onExit }) {
           <div className="ask-turn-wagon"><Wagon picks={[]} /></div>
           {runnable && (
             <div className="ask-foot">
-              <button type="button" className="ask-primary" onClick={() => setScreen("shelf")}>Let's pick</button>
+              {simple ? (
+                <button type="button" className="ask-primary ask-icon ask-go" aria-label="Let's pick" onClick={() => setScreen("shelf")}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L18.8 12z" fill="currentColor" /></svg>
+                </button>
+              ) : (
+                <button type="button" className="ask-primary" onClick={() => setScreen("shelf")}>Let's pick</button>
+              )}
             </div>
           )}
         </div>
@@ -211,19 +232,21 @@ export function AskRun({ ask, tiles, onLand, onExit }) {
           {top}
           <h1 className="ask-h1 ask-h1-left">{shelfTitlePrefix(target)}<Name>{ask.label}</Name>!</h1>
           <div className="ask-rule ask-rule-left" aria-hidden="true" />
-          <div className="ask-tiles" role="group" aria-label="The shelf">
+          <div className={`ask-tiles${simple ? " ask-tiles-simple" : ""}`} role="group" aria-label="The shelf">
             {tiles.map((t) => {
               const on = picks.includes(t.id);
               const plain = tileFace(t) === "name";
               return (
-                <button key={t.id} type="button" className={`ask-tile${on ? " picked" : ""}${plain ? " plain" : ""}`} aria-pressed={on} onClick={() => tap(t.id)}>
-                  {/* A plain name tile: the name fills the face, once — no art box, no second label. */}
+                <button key={t.id} type="button" className={`ask-tile${on ? " picked" : ""}${plain ? " plain" : ""}`} aria-pressed={on}
+                  aria-label={simple && !plain ? t.name : undefined} onClick={() => tap(t.id)}>
+                  {/* A plain name tile: the name fills the face, once — no art box, no second label.
+                      On Simple the picture alone carries any other tile (S3-2). */}
                   {plain ? (
                     <span className="ask-tile-name ask-tile-name-only">{t.name}</span>
                   ) : (
                     <>
                       <span className="ask-tile-art" aria-hidden="true"><TileFace tile={t} glyphClass="ask-tile-glyph" /></span>
-                      <span className="ask-tile-name">{t.name}</span>
+                      {!simple && <span className="ask-tile-name">{t.name}</span>}
                     </>
                   )}
                   <span className="ask-tile-check" aria-hidden="true">✓</span>
@@ -238,12 +261,19 @@ export function AskRun({ ask, tiles, onLand, onExit }) {
                 {Array.from({ length: target }, (_, k) => <span key={k} className={`ask-dot${k < picks.length ? " on" : ""}`} />)}
               </div>
             </div>
-            {failed && <div className="ask-failed" role="alert">That didn't reach the list. Try That's it! again.</div>}
+            {failed && <div className="ask-failed" role="alert">That didn't reach the list. {simple ? "Tap ✓ again." : "Try That's it! again."}</div>}
             <div className="ask-actions">
               <button type="button" className={`ask-undo${picks.length > 0 ? " show" : ""}`} aria-label="Take the last one out"
                 onClick={undo} disabled={picks.length === 0 || landing}>↶</button>
-              <button type="button" className={`ask-primary ask-thats-it${canConfirm(picks, target) ? " show" : ""}`}
-                onClick={confirm} disabled={!canConfirm(picks, target) || landing}>{landing ? "Adding…" : "That's it!"}</button>
+              {simple ? (
+                <button type="button" className={`ask-primary ask-icon ask-thats-it${canConfirm(picks, target) ? " show" : ""}`}
+                  aria-label={landing ? "Adding…" : "That's it!"} onClick={confirm} disabled={!canConfirm(picks, target) || landing}>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.6 4.6L19 7.6" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+              ) : (
+                <button type="button" className={`ask-primary ask-thats-it${canConfirm(picks, target) ? " show" : ""}`}
+                  onClick={confirm} disabled={!canConfirm(picks, target) || landing}>{landing ? "Adding…" : "That's it!"}</button>
+              )}
             </div>
           </div>
         </div>
@@ -318,6 +348,21 @@ const ASK_RUN_CSS = `
 .ask-tile-check { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; background: #0D9488; color: #fff;
   display: grid; place-items: center; font-size: 15px; transform: scale(0); transition: transform 0.25s cubic-bezier(.3,1.6,.5,1); }
 .ask-tile.picked .ask-tile-check { transform: scale(1); }
+
+/* Simple (S3-1): at most four tiles, two columns, rows that share the height left, so the grid
+   shrinks to fit and never scrolls on a 375 px phone. The photo or glyph fills the tile and the
+   glyph scales with it (container units; a fixed size where they are unsupported). */
+.ask-tiles.ask-tiles-simple { overflow: hidden; grid-template-rows: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); align-content: stretch; }
+.ask-tiles-simple .ask-tile { min-height: 0; container-type: size; }
+.ask-tiles-simple .ask-tile-art { flex: 1 1 auto; height: auto; min-height: 0; }
+.ask-tiles-simple .ask-tile-glyph { font-size: 64px; font-size: 52cqmin; }
+.ask-tiles-simple .ask-tile.plain { min-height: 0; }
+.ask-tiles-simple .ask-tile-name.ask-tile-name-only { font-size: calc(24px * (1 + (var(--op-text-scale, 1) - 1) * 0.5)); }
+.ask-tiles-simple .ask-tile-check { width: 36px; height: 36px; font-size: 19px; top: 10px; right: 10px; }
+.ask-icon { display: grid; place-items: center; padding: 0; border-radius: 50%; width: 72px; height: 72px; min-height: 0; }
+.ask-icon svg { width: 38px; height: 38px; }
+.ask-go { width: 96px; height: 96px; }
+.ask-go svg { width: 46px; height: 46px; margin-left: 6px; }
 
 .ask-cartbar { border-top: 1px solid #EFE3D0; padding: 8px 20px 18px; background: #FAF4EC; }
 .ask-cartrow { display: flex; align-items: center; justify-content: center; gap: 14px; }
