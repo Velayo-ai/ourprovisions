@@ -196,3 +196,40 @@ describe("classifyAuthFailure", () => {
     expect(classifyAuthFailure({ message: "TypeError: Load failed" }, 0)).toBe(null);
   });
 });
+
+// ── a write refused for want of a token (2026-11-08, Shop check offline) ────
+describe("classifyFetchError — AuthTokenMissing", () => {
+  test("network (offline / Clerk unreachable) → transient, thrown or postgrest-wrapped", () => {
+    expect(classifyFetchError(new AuthTokenMissing("network"))).toBe("transient");
+    expect(classifyFetchError({ message: "AuthTokenMissing: no Clerk token (network) — refusing to query as anon", code: "" })).toBe("transient");
+  });
+  test("clerk (Clerk said no: signed out) → real, so the error stays loud", () => {
+    expect(classifyFetchError(new AuthTokenMissing("clerk"))).toBe("real");
+    expect(classifyFetchError({ message: "AuthTokenMissing: no Clerk token (clerk) — refusing to query as anon", code: "" })).toBe("real");
+  });
+});
+
+describe("the fetch wrapper — a null token's class", () => {
+  async function refusal(getToken) {
+    const { createSupabaseClient } = require("./supabaseClient");
+    const { error } = await createSupabaseClient(getToken, "op-test").from("list_items").select("id");
+    return error;
+  }
+  test("Clerk returns null while offline → refused as network → transient", async () => {
+    goOffline();
+    const error = await refusal(async () => null);
+    expect(error.message).toMatch(/^AuthTokenMissing: no Clerk token \(network\)/);
+    expect(classifyFetchError(error)).toBe("transient");
+    expect(getAuthHealth().lastFailClass).toBe("network");
+  });
+  test("Clerk returns null while online (signed out) → refused as clerk → real", async () => {
+    const error = await refusal(async () => null);
+    expect(error.message).toMatch(/^AuthTokenMissing: no Clerk token \(clerk\)/);
+    expect(classifyFetchError(error)).toBe("real");
+  });
+  test("the request to Clerk fails (Load failed) while navigator says online → network → transient", async () => {
+    const error = await refusal(async () => { throw new TypeError("Load failed"); });
+    expect(error.message).toMatch(/\(network\)/);
+    expect(classifyFetchError(error)).toBe("transient");
+  });
+});
