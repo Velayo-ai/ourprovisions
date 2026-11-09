@@ -37,6 +37,15 @@ export function isAuthTokenMissing(err) {
   return typeof err.message === "string" && err.message.startsWith("AuthTokenMissing");
 }
 
+// 'network' | 'clerk' for a refusal, null otherwise. The thrown error carries
+// failClass; the postgrest-wrapped copy only has the message, so read it there.
+export function authTokenMissingClass(err) {
+  if (!isAuthTokenMissing(err)) return null;
+  if (err.failClass) return err.failClass;
+  const m = /no Clerk token \((\w+)\)/.exec(err.message || "");
+  return m ? m[1] : "clerk";
+}
+
 export function createSupabaseClient(getToken, storageKey) {
   return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
@@ -58,7 +67,12 @@ export function createSupabaseClient(getToken, storageKey) {
         let failClass = null;
         try {
           token = await getToken({ template: "supabase" });
-          if (!token) failClass = "clerk";
+          // Offline, Clerk answers a token request it cannot refresh with null,
+          // not a rejection (2026-11-08: Shop checks after ~1 min in Airplane
+          // mode, once the cached token had expired). null while the device is
+          // offline is the network, not Clerk; online, null still means Clerk
+          // has no session to mint for.
+          if (!token) failClass = classifyTokenFailure(null);
         } catch (err) {
           failClass = classifyTokenFailure(err);
         }

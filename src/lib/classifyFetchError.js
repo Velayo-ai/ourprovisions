@@ -1,4 +1,4 @@
-import { isAuthTokenMissing } from "./supabaseClient";
+import { isAuthTokenMissing, authTokenMissingClass } from "./supabaseClient";
 import { hasTransientNetworkPhrase, splitErrorMessage } from "./transientPhrases";
 
 // §Polling discipline (SPEC_auth_state_ui_gating.md). Auth failures are a class
@@ -15,6 +15,12 @@ export function classifyAuthFailure(error, status) {
 
 export function classifyFetchError(err) {
   if (!err) return 'real';
+
+  // The wrapper refused for want of a Clerk token (2026-11-08). Offline, or
+  // Clerk unreachable: transient — the write never left, the pill says
+  // "Reconnecting…", no toast. Clerk itself said no (signed out): real — a lost
+  // session must not hide behind "Reconnecting…".
+  if (isAuthTokenMissing(err)) return authTokenMissingClass(err) === 'network' ? 'transient' : 'real';
 
   // postgrest-js hands a rejected fetch back as a NAMELESS object with message
   // "TypeError: Load failed" (status 0); the browser's own error carries the
