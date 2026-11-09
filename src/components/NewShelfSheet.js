@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   askDraftProblem, createAskFailure, findDuplicateAsk, pickLine,
   ASK_LABEL_MAX, ASK_NOUN_MAX, ASK_TARGET_MIN, ASK_TARGET_MAX, ASK_SHELF_MAX, ASK_TARGET_DEFAULT,
-  ASK_SIMPLE_MAX, ASK_STYLE_DEFAULT,
+  ASK_SIMPLE_MAX, ASK_STYLE_DEFAULT, ASK_SIMPLE_CAP_MESSAGE,
 } from "../lib/askCreate";
 
 // + New shelf (SPEC_ask_slice2 C2; 078 create_ask). The body of the sheet: who's picking, an
@@ -13,8 +13,9 @@ import {
 // Shopper and Explorer (Dan, 2026-11-09); the stored values stay standard / simple. It belongs to
 // the ask, not the person, so the copy never mentions age, ability or reading (A3, A4). Explorer
 // shows 4 tiles at most (S3-1): pick targets above 4 are greyed out and choosing Explorer drops a
-// higher target to 4. The shelf still takes a 5th item, and the footer says "Explorer shows 4 at
-// most." until it is gone or the style is Shopper.
+// higher target to 4. The shelf still takes a 5th item and nothing is removed for you: the shelf
+// header reads "6 of 4" in the error colour and, right under the chips, "Explorer shows 4 at most.
+// Remove 2." counts down to nothing at 4. That line replaces the footer's copy of the message.
 //
 // ONE ID PER DRAFT (K1): the id is made on the first Save and kept while the draft is unchanged,
 // so a retry after a dropped connection returns the same ask instead of a second one. Any edit to
@@ -63,6 +64,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
   const results = q ? sorted.filter((i) => i.name.toLowerCase().includes(q)) : sorted;
 
   const explorer = style === "simple";
+  const overBy = explorer ? Math.max(0, itemIds.length - ASK_SIMPLE_MAX) : 0;
   const chooseStyle = (key) => {
     edit(setStyle)(key);
     if (key === "simple" && target > ASK_SIMPLE_MAX) setTarget(ASK_SIMPLE_MAX);
@@ -96,7 +98,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
   // The footer line: a failed save first, else what the draft still needs (once started).
   const footer = failure
     ? <div className={`modal-error${failure.hasName ? " op-name" : ""}`} role="alert" style={{ flexBasis: "100%", margin: 0 }}>{failure.message}</div>
-    : problem && touched && !dupName
+    : problem && touched && !dupName && problem !== ASK_SIMPLE_CAP_MESSAGE
       ? <div className="picker-sub" style={{ flexBasis: "100%", margin: 0 }}>{problem}</div>
       : null;
 
@@ -159,7 +161,11 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
       </div>
 
       <div className="modal-field" ref={shelfField}>
-        <span className="modal-label">The shelf · {itemIds.length} {itemIds.length === 1 ? "item" : "items"}</span>
+        <span className="modal-label">
+          The shelf · {overBy > 0
+            ? <span style={{ color: "#e05c5c" }}>{itemIds.length} of {ASK_SIMPLE_MAX}</span>
+            : <>{itemIds.length} {itemIds.length === 1 ? "item" : "items"}</>}
+        </span>
         {itemIds.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
             {itemIds.map((id) => (
@@ -169,6 +175,9 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
               </button>
             ))}
           </div>
+        )}
+        {overBy > 0 && (
+          <div className="modal-error" role="status" style={{ margin: "0 0 10px" }}>{ASK_SIMPLE_CAP_MESSAGE} Remove {overBy}.</div>
         )}
         <input className="modal-input" type="search" autoComplete="off" placeholder="Find an item"
           aria-label="Find an item for the shelf" value={query} onChange={(e) => setQuery(e.target.value)} />

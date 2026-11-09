@@ -11,6 +11,9 @@ export const ASK_SHELF_MAX = 48;   // ask_shelf_items_position_range: 0–47 (07
 export const ASK_TARGET_DEFAULT = 3;
 export const ASK_SIMPLE_MAX = 4;   // Simple (on screen: Explorer) shows at most 4 tiles, 2×2 (SPEC_ask_slice3 S3-1)
 export const ASK_STYLE_DEFAULT = "standard";   // asks.screen_style: standard | simple (077)
+// The Explorer shelf cap, as askDraftProblem says it. The sheet shows it under the shelf (with how
+// many to remove) instead of in the footer.
+export const ASK_SIMPLE_CAP_MESSAGE = `Explorer shows ${ASK_SIMPLE_MAX} at most.`;
 
 // "To pick 3, the shelf needs at least 3 items." — the target-vs-tiles message, shared by the
 // sheet's own check and create_ask's 22023.
@@ -31,7 +34,7 @@ export function askDraftProblem({ label, noun, target, itemIds, style }) {
   if (!Number.isInteger(target) || target < ASK_TARGET_MIN || target > ASK_TARGET_MAX) return "Choose how many to pick.";
   if (count === 0) return "Put at least one item on the shelf.";
   if (count > ASK_SHELF_MAX) return `A shelf holds ${ASK_SHELF_MAX} items at most.`;
-  if (style === "simple" && count > ASK_SIMPLE_MAX) return `Explorer shows ${ASK_SIMPLE_MAX} at most.`;
+  if (style === "simple" && count > ASK_SIMPLE_MAX) return ASK_SIMPLE_CAP_MESSAGE;
   if (target > count) return targetTilesMessage(target);
   return null;
 }

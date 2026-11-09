@@ -232,21 +232,61 @@ describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
     await saveAndClose(onClose);
     expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "simple", target: 4, itemIds: ITEMS.map((i) => i.id) });
   });
-  test("five items on Explorer → \"Explorer shows 4 at most.\" in the footer; Shopper saves them as standard", async () => {
-    const five = [...ITEMS, { id: "i-pears", name: "Pears" }];
+
+  // Over 4 on Explorer: the header reads "6 of 4" and, under the chips, one error-coloured line
+  // counts down how many to remove. No copy in the footer; nothing is removed for you.
+  const SIX = [...ITEMS, { id: "i-pears", name: "Pears" }, { id: "i-plums", name: "Plums" }];
+  const capLine = () => screen.queryByText(/^Explorer shows 4 at most\./);
+  const shelfHeader = () => screen.getByText(/^The shelf ·/);
+  function sixSheet() {
     const onCreate = jest.fn(async () => ({ ok: true, id: "x" }));
     const onClose = jest.fn();
-    render(<NewShelfSheet catalogItems={five} asks={[]} onCreate={onCreate} onClose={onClose} closeButton={null} />);
+    render(<NewShelfSheet catalogItems={SIX} asks={[]} onCreate={onCreate} onClose={onClose} closeButton={null} />);
     fireEvent.change(nameInput(), { target: { value: "Everett" } });
     pickTarget(1);
+    return { onCreate, onClose };
+  }
+  const takeOff = (name) => fireEvent.click(screen.getByRole("button", { name: `Take ${name} off the shelf` }));
+
+  test("six on Explorer: \"6 of 4\" in the error colour; \"Remove 2.\" under the chips counts down and goes at 4", async () => {
+    const { onCreate, onClose } = sixSheet();
     fireEvent.click(style("Explorer"));
-    five.forEach((i) => pick(i.name));
-    const msg = screen.getByText("Explorer shows 4 at most.");
-    expect(footerOf(msg)).not.toBeNull();
+    SIX.forEach((i) => pick(i.name));
+    expect(shelfHeader()).toHaveTextContent("The shelf · 6 of 4");
+    expect(screen.getByText("6 of 4").style.color).toBe("rgb(224, 92, 92)");   // #e05c5c, .modal-error's
+    const line = capLine();
+    expect(line).toHaveTextContent("Explorer shows 4 at most. Remove 2.");
+    expect(line).toHaveClass("modal-error");
+    expect(line).not.toHaveClass("picker-sub");
+    // Directly under the chips, above the search; never in the footer.
+    expect(line.previousElementSibling.querySelector("[aria-label='Take Goldfish off the shelf']")).not.toBeNull();
+    expect(line.nextElementSibling).toBe(screen.getByLabelText("Find an item for the shelf"));
+    expect(footerOf(line)).toBeNull();
+    expect(footerOf(save()).textContent).not.toMatch(/Explorer shows/);
     expect(save()).toBeDisabled();
-    fireEvent.click(style("Shopper"));
-    expect(screen.queryByText("Explorer shows 4 at most.")).toBeNull();
+    takeOff("Plums");
+    expect(capLine()).toHaveTextContent("Explorer shows 4 at most. Remove 1.");
+    expect(shelfHeader()).toHaveTextContent("The shelf · 5 of 4");
+    takeOff("Pears");
+    expect(capLine()).toBeNull();
+    expect(shelfHeader()).toHaveTextContent("The shelf · 4 items");
+    expect(save()).toBeEnabled();
     await saveAndClose(onClose);
-    expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "standard" });
+    expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "simple", itemIds: ITEMS.map((i) => i.id) });
+  });
+  test("choosing Explorer with six already on the shelf shows the line at once and removes nothing; Shopper saves all six", async () => {
+    const { onCreate, onClose } = sixSheet();
+    SIX.forEach((i) => pick(i.name));
+    expect(capLine()).toBeNull();
+    expect(shelfHeader()).toHaveTextContent("The shelf · 6 items");
+    fireEvent.click(style("Explorer"));
+    expect(capLine()).toHaveTextContent("Explorer shows 4 at most. Remove 2.");
+    expect(shelfHeader()).toHaveTextContent("The shelf · 6 of 4");
+    expect(screen.getAllByRole("button", { name: /off the shelf$/ })).toHaveLength(6);
+    fireEvent.click(style("Shopper"));
+    expect(capLine()).toBeNull();
+    expect(shelfHeader()).toHaveTextContent("The shelf · 6 items");
+    await saveAndClose(onClose);
+    expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "standard", itemIds: SIX.map((i) => i.id) });
   });
 });
