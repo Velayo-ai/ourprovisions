@@ -187,6 +187,9 @@ describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
     expect(style("Shopper")).toHaveTextContent("Names and pictures, up to 48");
     expect(style("Explorer")).toHaveAttribute("aria-checked", "false");
     expect(style("Explorer")).toHaveTextContent("Big pictures, up to 4");
+    // Explorer on the left, Shopper on the right (Dan, 2026-11-09); Shopper is still the default.
+    const cards = [...style("Explorer").closest("[role=radiogroup]").querySelectorAll("[role=radio]")];
+    expect(cards.map((c) => c.firstChild.textContent)).toEqual(["Explorer", "Shopper"]);
     const copy = fieldOf(style("Explorer")).textContent;
     expect(copy).not.toMatch(/age|year|old|read|young|kid|child/i);
     expect(copy).not.toMatch(/standard|simple/i);

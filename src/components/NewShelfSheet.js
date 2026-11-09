@@ -144,8 +144,8 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
         <span className="modal-label" id="new-shelf-style">How it looks</span>
         <div role="radiogroup" aria-labelledby="new-shelf-style" style={{ display: "flex", gap: "8px" }}>
           {[
-            { key: "standard", name: "Shopper", sub: `Names and pictures, up to ${ASK_SHELF_MAX}` },
             { key: "simple", name: "Explorer", sub: `Big pictures, up to ${ASK_SIMPLE_MAX}` },
+            { key: "standard", name: "Shopper", sub: `Names and pictures, up to ${ASK_SHELF_MAX}` },
           ].map((o) => (
             <button key={o.key} type="button" role="radio" aria-checked={style === o.key}
               className={`cat-pill${style === o.key ? " on" : ""}`}
