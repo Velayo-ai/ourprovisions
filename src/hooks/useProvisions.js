@@ -9,6 +9,8 @@ import { scheduleHoldRetry } from "../lib/holdRetry";
 import { createRowWriteChain } from "../lib/checkWrites";
 import { rollbackQty } from "../lib/qtyRollback";
 import { inviteFailureNotice } from "../lib/inviteFailure";
+import { readHeld, clearHeld, heldStore, INVITE_KEY, REF_KEY, INVITE_MAX_AGE_MS, REF_MAX_AGE_MS } from "../lib/preRum";
+import { inviteConsumedAttributes } from "../lib/inviteLink";
 import { updateItemCategory, applyItemCategory } from "../lib/itemCategory";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
@@ -601,13 +603,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // Check for pending invite before bootstrapping. The code is read from the key
         // src/lib/preRum.js held at app entry — never from the URL, which preRum has
         // already cleaned before Splunk started (S29 / S33; Amendment 2026-10-26 R3).
-        // The held copy survives Clerk's sign-up redirect for brand-new users.
-        const pendingInviteCode = sessionStorage.getItem("pending_invite_code");
+        // The hold is localStorage (SPEC_durable_invite_hold A1): it survives Clerk's
+        // sign-up in ANY tab of this browser, not only the one the link opened. A hold
+        // older than its species' max age reads as nothing and is cleared (A2).
+        const store = heldStore();
+        const pendingInviteCode = readHeld(INVITE_KEY, INVITE_MAX_AGE_MS, store);
 
         // Same bridge for the referral code (spec D7). It attributes but never enrolls,
         // so it takes no part in any branch below — it is handed to the server, written
         // once at signup, and forgotten.
-        const pendingRefCode = sessionStorage.getItem("pending_ref_code");
+        const pendingRefCode = readHeld(REF_KEY, REF_MAX_AGE_MS, store);
 
         // Use bootstrap_new_user RPC (SECURITY DEFINER — bypasses RLS).
         // Pass invite code so joining happens in one atomic transaction.
@@ -663,8 +668,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
         // Code has been attempted — clear the persisted copy so it can't re-trigger
         // on a future visit, regardless of whether the join actually succeeded.
-        sessionStorage.removeItem("pending_invite_code");
-        sessionStorage.removeItem("pending_ref_code");
+        // Consumed on the first attempt (A3): cleared once the RPC has answered, joined
+        // or not. The same-load intents below (invite_failed, just_joined_*,
+        // just_signed_up) stay in sessionStorage on purpose: they are this tab's.
+        clearHeld(INVITE_KEY, store);
+        clearHeld(REF_KEY, store);
         // The failed-invite flag (set below) is bounded to THIS bootstrap: cleared here
         // first, so a stale one can never reach a later sign-up in the same tab.
         sessionStorage.removeItem("invite_failed");
@@ -674,6 +682,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
 
         // Flag for the join banner. (The URL carries no code to clear — preRum removed
         // it before Splunk started; the held key is cleared above.)
+        let inviteJoined = bootstrapData.joined_via_invite === true;
         if (bootstrapData.joined_via_invite) {
           sessionStorage.setItem("just_joined_household", bootstrapData.household_name || "the place");
           sessionStorage.setItem("just_joined_household_id", bootstrapData.household_id);
@@ -704,7 +713,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
             // member no-op short-circuit). Route it through the same banner/switch flags.
             sessionStorage.setItem("just_joined_household", joinResult.household_name || "the place");
             sessionStorage.setItem("just_joined_household_id", joinResult.household_id);
+            inviteJoined = true;
           }
+        }
+        // A6: where an invite went, so a lost code shows up in Splunk, not only in SQL.
+        // Booleans and a fixed outcome word — never the code. Telemetry never throws
+        // into, or blocks, bootstrap.
+        try {
+          tracer.startSpan("invite_consumed", {
+            attributes: inviteConsumedAttributes(!!pendingInviteCode, inviteJoined),
+          }).end();
+        } catch (e) {
+          console.warn("[rum] invite_consumed event failed:", e);
         }
 
         // Referral code for the Share-the-app verb (D9). Absent against an un-migrated
