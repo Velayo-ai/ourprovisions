@@ -6,7 +6,7 @@ import { tapTile, takeOut, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, 
 // screen over the app: (1) "Your turn, {Label}!" — the hand-over, the wagon on the water at
 // sunrise, Let's pick; (2) the shelf — "Pick {n}, {Label}!", the tiles, the small wagon + dots,
 // That's it!; (3) "Great picks, {Label}!" — the wagon holding his picks, what landed, Back to
-// the list. The reference image governs the look, mockup_ask_cart.html the behaviour.
+// the list ("Great pick" / "I've added this" when exactly one landed, Dan 2026-11-09). The reference image governs the look, mockup_ask_cart.html the behaviour.
 //
 // Picks stay on the phone (in the wagon) until That's it!, then land in ONE write (onLand →
 // land_ask_picks, A16 / A22). Done needs a press-and-hold of about a second (A17); before the
@@ -145,6 +145,7 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const inWagon = picks.map((id) => byId.get(id)).filter(Boolean);
   const runnable = shelfCanRun(tiles, target);
+  const one = picks.length === 1;   // Great picks reads singular when exactly one landed
 
   useEffect(() => {
     storeHeldAsk(screen === "done" ? null : heldAskWrite(ask.id, screen, picks));
@@ -279,10 +280,10 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
       {screen === "done" && (
         <div className="ask-screen ask-finale">
           {top}
-          <h1 className="ask-h1">Great picks,{" "}<br /><Name>{ask.label}</Name>!</h1>
+          <h1 className="ask-h1">{one ? "Great pick," : "Great picks,"}{" "}<br /><Name>{ask.label}</Name>!</h1>
           <div className="ask-rule" aria-hidden="true" />
           <div className="ask-rollin"><Wagon picks={inWagon} /></div>
-          <p className="ask-line">I've added these to our list.</p>
+          <p className="ask-line">{one ? "I've added this to our list." : "I've added these to our list."}</p>
           <ul className="ask-landed">
             {inWagon.map((t) => (
               <li key={t.id}>

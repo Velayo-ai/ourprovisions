@@ -104,7 +104,9 @@ test("after the confirm, Done and Back to the list both just leave", async () =>
   expect(screen.getByRole("heading")).toHaveTextContent("Pick one, Easton!");
   fireEvent.click(tile("Apples"));
   fireEvent.click(thatsIt());
-  await screen.findByText("I've added these to our list.");
+  await screen.findByText("I've added this to our list.");
+  expect(screen.getByRole("heading")).toHaveTextContent("Great pick, Easton!");   // one landed: singular
+  expect(screen.queryByText("I've added these to our list.")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   fireEvent.click(screen.getByRole("button", { name: "Back to the list" }));
   await waitFor(() => expect(onExit).toHaveBeenCalledTimes(2));
@@ -184,9 +186,9 @@ describe("Simple", () => {
     expect(ok.textContent).toBe("");
     fireEvent.click(screen.getByRole("button", { name: "Apples" }));
     fireEvent.click(ok);
-    await screen.findByText("I've added these to our list.");
+    await screen.findByText("I've added this to our list.");
     expect(onLand).toHaveBeenCalledWith(["s-0"]);
-    expect(screen.getByRole("heading")).toHaveTextContent("Great picks, Everett!");
+    expect(screen.getByRole("heading")).toHaveTextContent("Great pick, Everett!");
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["🍎Apples"]);
     expect(screen.getByRole("button", { name: "Back to the list" })).toHaveTextContent("Back to the list");
   });
