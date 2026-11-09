@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { pickLine } from "../lib/askCreate";
-import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
+import { tapTile, takeOut, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
 
 // Running an Ask (SPEC_ask amendment A13–A17, A24; SPEC_ask_slice2 C3b). Three screens, full
 // screen over the app: (1) "Your turn, {Label}!" — the hand-over, the wagon on the water at
 // sunrise, Let's pick; (2) the shelf — "Pick {n}, {Label}!", the tiles, the small wagon + dots,
-// ↶ and That's it!; (3) "Great picks, {Label}!" — the wagon holding his picks, what landed, Back to
+// That's it!; (3) "Great picks, {Label}!" — the wagon holding his picks, what landed, Back to
 // the list. The reference image governs the look, mockup_ask_cart.html the behaviour.
 //
 // Picks stay on the phone (in the wagon) until That's it!, then land in ONE write (onLand →
@@ -160,7 +160,6 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
     if (r.effect === "added") { setFresh(id); bump("hop"); }
   };
   const out = (id) => { if (!landing) { setPicks((p) => takeOut(p, id)); setFailed(false); } };
-  const undo = () => { if (!landing) { setPicks((p) => undoLast(p)); setFailed(false); } };
   const confirm = async () => {
     if (!canConfirm(picks, target) || landing) return;
     setLanding(true);
@@ -263,8 +262,6 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
             </div>
             {failed && <div className="ask-failed" role="alert">That didn't reach the list. {simple ? "Tap ✓ again." : "Try That's it! again."}</div>}
             <div className="ask-actions">
-              <button type="button" className={`ask-undo${picks.length > 0 ? " show" : ""}`} aria-label="Take the last one out"
-                onClick={undo} disabled={picks.length === 0 || landing}>↶</button>
               {simple ? (
                 <button type="button" className={`ask-primary ask-icon ask-thats-it${canConfirm(picks, target) ? " show" : ""}`}
                   aria-label={landing ? "Adding…" : "That's it!"} onClick={confirm} disabled={!canConfirm(picks, target) || landing}>
@@ -379,9 +376,6 @@ const ASK_RUN_CSS = `
 .ask-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #C9A97A; transition: background 0.25s, border-color 0.25s; }
 .ask-dot.on { background: #0D9488; border-color: #0D9488; }
 .ask-actions { display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 58px; margin-top: 6px; }
-.ask-undo { width: 48px; height: 48px; border-radius: 50%; border: 2px solid #E8D5B7; background: #FFFDF9; color: #8A5F3A; font-size: 22px; cursor: pointer;
-  transform: scale(0); transition: transform 0.25s cubic-bezier(.3,1.6,.5,1); }
-.ask-undo.show { transform: scale(1); }
 .ask-thats-it { transform: scale(0); transition: transform 0.3s cubic-bezier(.3,1.6,.5,1); }
 .ask-thats-it.show { transform: scale(1); }
 .ask-failed { text-align: center; font: 400 14px 'Lato', sans-serif; color: #B3412E; margin-top: 6px; }

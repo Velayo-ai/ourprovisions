@@ -49,7 +49,7 @@ test("Your turn → the shelf; picks fill the wagon in order; That's it! only wh
   expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["🍎Cheese", "🍎Goldfish", "🍎Yogurt"]);
 });
 
-test("changing his mind: the tile again, the item in the wagon, or ↶; a full wagon takes nothing new", () => {
+test("changing his mind: the tile again or the item in the wagon; a full wagon takes nothing new; no ↶", () => {
   const { onLand } = setup();
   toShelf();
   fireEvent.click(tile("Goldfish"));
@@ -61,9 +61,10 @@ test("changing his mind: the tile again, the item in the wagon, or ↶; a full w
   expect(screen.getByLabelText("3 of 3 picked")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Take out Apples" }));   // the wagon
   expect(tile("Apples")).toHaveAttribute("aria-pressed", "false");
-  fireEvent.click(screen.getByRole("button", { name: "Take the last one out" }));   // ↶ → Cheese out
-  expect(tile("Cheese")).toHaveAttribute("aria-pressed", "false");
-  expect(screen.getByLabelText("1 of 3 picked")).toBeInTheDocument();
+  expect(screen.getByLabelText("2 of 3 picked")).toBeInTheDocument();
+  // A16 amended 2026-11-09: no ↶ on either style; That's it! is the only button under the wagon.
+  expect(screen.queryByRole("button", { name: "Take the last one out" })).toBeNull();
+  expect(screen.queryByText("↶")).toBeNull();
   expect(onLand).not.toHaveBeenCalled();
 });
 
@@ -169,6 +170,8 @@ describe("Simple", () => {
     expect(screen.getByRole("button", { name: "Hold to finish" })).toHaveTextContent("Done");
     fireEvent.click(go);
     expect(container.querySelector(".ask-tiles")).toHaveClass("ask-tiles-simple");
+    expect(screen.queryByRole("button", { name: "Take the last one out" })).toBeNull();   // no ↶ here either
+    expect(container.querySelectorAll(".ask-actions button")).toHaveLength(1);         // ✓ alone, centred
     expect(container.querySelectorAll(".ask-tile-name")).toHaveLength(1);       // Bread, the plain tile
     expect(screen.getByRole("button", { name: "Bread" })).toHaveTextContent("Bread");
     for (const n of ["Apples", "Bananas", "Cheese"]) {

@@ -1,4 +1,4 @@
-import { tapTile, takeOut, undoLast, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, heldAskWrite, heldAskRead } from "./askRun";
+import { tapTile, takeOut, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, heldAskWrite, heldAskRead } from "./askRun";
 
 describe("tapTile — A16", () => {
   test("adds in tap order until the target", () => {
@@ -24,11 +24,6 @@ describe("tapTile — A16", () => {
 test("takeOut — a tap on the item in the wagon", () => {
   expect(takeOut(["a", "b", "c"], "b")).toEqual(["a", "c"]);
   expect(takeOut(["a"], "z")).toEqual(["a"]);
-});
-
-test("undoLast — ↶ takes the last pick out; an empty wagon stays empty", () => {
-  expect(undoLast(["a", "b"])).toEqual(["a"]);
-  expect(undoLast([])).toEqual([]);
 });
 
 test("canConfirm — only with the wagon exactly full", () => {

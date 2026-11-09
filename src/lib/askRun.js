@@ -1,9 +1,10 @@
 // The wagon's rules on the shelf screen (SPEC_ask amendment A16; mockup_ask_cart.html governs the
 // behaviour). Pure, so each rule has a test beside it; AskRun holds the state and the motion.
 //
-// Picks live in the wagon, in tap order, until "That's it!". He can change his mind three ways:
-// tap the tile again, tap the item in the wagon, or ↶ (the last pick out). A new tile when the
-// wagon is full changes nothing; the wagon shakes. Nothing reaches the list before the confirm.
+// Picks live in the wagon, in tap order, until "That's it!". He can change his mind two ways: tap
+// the tile again, or tap the item in the wagon (A16, amended 2026-11-09: ↶ is gone). A new tile
+// when the wagon is full changes nothing; the wagon shakes. Nothing reaches the list before the
+// confirm.
 
 // A tile tap → { picks, effect }: "added", "removed" (it was already in), or "full" (unchanged).
 export function tapTile(picks, id, target) {
@@ -15,11 +16,6 @@ export function tapTile(picks, id, target) {
 // A tap on the item in the wagon.
 export function takeOut(picks, id) {
   return picks.filter((p) => p !== id);
-}
-
-// ↶ — the last pick out.
-export function undoLast(picks) {
-  return picks.slice(0, -1);
 }
 
 // "That's it!" shows, and the confirm runs, only with the wagon exactly full (land_ask_picks
