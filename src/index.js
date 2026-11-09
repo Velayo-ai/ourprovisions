@@ -7,7 +7,7 @@ import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { ClerkProvider } from '@clerk/clerk-react';
 
-// ?invite= / ?ref= (and a /g/<code> path) are held in sessionStorage and cleared
+// ?invite= / ?ref= (and a /g/<code> path) are held in localStorage and cleared
 // from the URL by src/lib/preRum.js — the FIRST import above, so it runs before
 // src/rum.js starts Splunk (S29 / S33; Amendment 2026-10-26 R1–R3). The bridge
 // used to be inline here, which ran AFTER every hoisted import, i.e. after both

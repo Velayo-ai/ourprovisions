@@ -21,7 +21,8 @@ import { AskRun } from './components/AskRun';
 import { ShelfPhotoStrip } from './components/ShelfPhotoStrip';
 import { askBlocks, categoryPartShown, browseFilterCount as countBrowseFilters, browseFilterDescriptor as describeBrowseFilters } from './lib/askBrowse';
 import { GiftCard } from './components/GiftCard';
-import { GIFT_KEY } from './lib/preRum';
+import { GIFT_KEY, GIFT_MAX_AGE_MS, readHeld, clearHeld, heldStore, takeInviteHeld } from './lib/preRum';
+import { inviteCodeFromInput, inviteShareText } from './lib/inviteLink';
 import { useConnectivity } from './contexts/ConnectivityContext';
 import { useAuthHealth, useSessionLive, resetAuthHealth, markDeliberateSignOut, consumeDeliberateSignOut, isPollingOpen, REJECTED_HOLD_MS } from './lib/authHealth';
 import { parseSteps } from './lib/parseSteps';
@@ -55,6 +56,13 @@ import { trace } from '@opentelemetry/api';
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
 // registers; a no-op provider stands in with no RUM token.
 const tracer = trace.getTracer("ourprovisions-app");
+
+// invite_held (SPEC_durable_invite_hold A6): preRum held an invite on this load.
+// preRum runs before rum.js starts the tracer, so it only sets a flag; this module
+// is evaluated after rum.js, so the span lands. A boolean fact — never the code.
+if (takeInviteHeld()) {
+  try { tracer.startSpan("invite_held").end(); } catch (e) { console.warn("[rum] invite_held event failed:", e); }
+}
 
 // Maps Supabase category names → display names with emoji
 const CATEGORY_DISPLAY = {
@@ -5192,13 +5200,14 @@ function ProvisionsApp({ scrollRootRef }) {
   // under GIFT_KEY and the path cleaned by src/lib/preRum.js before Splunk started — this is the
   // only reader of that key on the signed-out side, and it never reads the URL. Read once at
   // mount: while the session is not live the gift card stands where the Home welcome would; the
-  // key is NOT cleared here, because the same tab comes back through Clerk's sign-up round trip
-  // and the signed-in arrival (Commit 3) consumes it after bootstrap. "Add to our meals" is the
+  // key is NOT cleared here, because the sign-up comes back (in this tab or another — the hold is
+  // localStorage since SPEC_durable_invite_hold A1) and the signed-in arrival (Commit 3) consumes
+  // it after bootstrap. A hold older than GIFT_MAX_AGE_MS reads as nothing and is cleared (A2). "Add to our meals" is the
   // 042 referral sign-up itself (the ?ref= that rode the link is already held under REF_KEY and
   // bootstrap passes it) — one mechanism, no second bridge. Clerk's modal redirect is the current
   // URL, already clean, so no redirect_url is set.
   const [pendingGiftCode] = useState(() => {
-    try { return sessionStorage.getItem(GIFT_KEY) || null; } catch (e) { return null; }
+    return readHeld(GIFT_KEY, GIFT_MAX_AGE_MS, heldStore());
   });
   // D5 (SPEC_auth_state_ui_gating §PII scrub 1): the pre-fill params leave the
   // URL the moment they are read. The memo above already holds the values, so
@@ -5213,7 +5222,7 @@ function ProvisionsApp({ scrollRootRef }) {
   //
   // Deliberately narrower than "strip the whole query": only the three pre-fill
   // keys go. ?invite= and ?ref= never reach this effect any more — src/lib/preRum.js
-  // held them in sessionStorage and removed them from the URL before Splunk started
+  // held them (localStorage since 2026-11-08) and removed them from the URL before Splunk started
   // (S29 / S33; Amendment 2026-10-26 R2–R3). Nothing in the app reads a code from
   // the URL: bootstrap reads the held keys, the join banner keys on
   // just_joined_household, the welcome sheet on just_joined_household_id.
@@ -7451,11 +7460,11 @@ function ProvisionsApp({ scrollRootRef }) {
   useEffect(() => {
     if (giftArrivalRanRef.current) return;
     if (!MEALS_ENABLED || authPhase !== "ready" || !household?.id || !catalogLoaded || loading || welcomeOpen || mealSheet) return;
-    let code = null;
-    try { code = sessionStorage.getItem(GIFT_KEY); } catch (e) { return; }
+    const store = heldStore();
+    const code = readHeld(GIFT_KEY, GIFT_MAX_AGE_MS, store);
     if (!code) return;
     giftArrivalRanRef.current = true;
-    try { sessionStorage.removeItem(GIFT_KEY); } catch (e) { /* storage blocked */ }
+    clearHeld(GIFT_KEY, store);
     const placeName = household?.name || null;
     const placeCount = (myHouseholds || []).length;
     const existingNames = (meals || []).filter((m) => m && m.kind === "meal" && !m.deleted_at).map((m) => m.name);
@@ -7507,8 +7516,10 @@ function ProvisionsApp({ scrollRootRef }) {
   // screen to abandon.
   const handleWelcomeJoin = async () => {
     if (welcomeBusy) return;
-    const code = welcomeCode.trim();
-    if (!code) { setWelcomeError("Enter an invite code."); return; }
+    // A pasted invite link or a bare code (SPEC_durable_invite_hold A4): the link is
+    // the one thing a real invitee can get at.
+    const code = inviteCodeFromInput(welcomeCode);
+    if (!code) { setWelcomeError("Paste the invite link or its code."); return; }
     setWelcomeBusy(true);
     setWelcomeError(null);
 
@@ -7559,7 +7570,9 @@ function ProvisionsApp({ scrollRootRef }) {
       // The link rides the `url` field, not the prose, so platforms that render a
       // preview card get a clean target instead of parsing it out of the sentence.
       // It is therefore ABSENT from `text` — including both would print it twice.
-      const text = `Come aboard my OurProvisions list — join ${name} and it gets smarter as we go.`;
+      // The text names the CODE instead (SPEC_durable_invite_hold A5): if the link
+      // doesn't open the app, the invitee can still type it into the welcome sheet.
+      const text = inviteShareText(name, url);
       if (typeof navigator !== "undefined" && navigator.share) {
         try {
           await navigator.share({ title: "Come aboard my OurProvisions list", text, url });
@@ -10744,12 +10757,15 @@ function ProvisionsApp({ scrollRootRef }) {
                       value={welcomeCode}
                       onChange={(e) => { setWelcomeCode(e.target.value); setWelcomeError(null); }}
                       onKeyDown={(e) => { if (e.key === "Enter") handleWelcomeJoin(); }}
-                      placeholder="Invite code"
+                      placeholder="Invite link or code"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       style={{
                         flex: 1, minWidth: 0, padding: "12px 13px", borderRadius: "9px",
                         border: "1.5px solid #0D9488", fontFamily: "'Lato', sans-serif",
                         fontSize: "14px", background: "#fff", color: "#2C1A0E",
-                        textTransform: "uppercase", letterSpacing: "0.06em",
+                        letterSpacing: "0.02em",
                       }}
                     />
                     <button
@@ -10763,6 +10779,10 @@ function ProvisionsApp({ scrollRootRef }) {
                       }}
                     >{welcomeBusy ? "Joining…" : "Join"}</button>
                   </div>
+                  <div style={{
+                    fontFamily: "'Lato', sans-serif", fontSize: "11.5px", color: "#5f5348",
+                    marginTop: "7px", lineHeight: 1.4,
+                  }}>Paste the invite link or its code.</div>
                   {welcomeError && (
                     <div style={{
                       fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#B3261E",
