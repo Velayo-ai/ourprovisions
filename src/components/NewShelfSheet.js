@@ -9,10 +9,12 @@ import {
 // optional noun, how many to pick (1–6), the style, and the shelf, chosen from this place's catalog
 // in tap order.
 //
-// THE STYLE (SPEC_ask_slice3 S3-5): Standard or Simple, set here and nowhere else in this slice.
-// It belongs to the ask, not the person, so the copy never mentions age, ability or reading (A3,
-// A4). Simple shows 4 tiles at most (S3-1): the shelf still takes a 5th, and the footer says
-// "Simple shows 4 at most." until it is gone or the style is Standard.
+// THE STYLE (SPEC_ask_slice3 S3-5): set here and nowhere else in this slice. On screen the two are
+// Shopper and Explorer (Dan, 2026-11-09); the stored values stay standard / simple. It belongs to
+// the ask, not the person, so the copy never mentions age, ability or reading (A3, A4). Explorer
+// shows 4 tiles at most (S3-1): pick targets above 4 are greyed out and choosing Explorer drops a
+// higher target to 4. The shelf still takes a 5th item, and the footer says "Explorer shows 4 at
+// most." until it is gone or the style is Shopper.
 //
 // ONE ID PER DRAFT (K1): the id is made on the first Save and kept while the draft is unchanged,
 // so a retry after a dropped connection returns the same ask instead of a second one. Any edit to
@@ -59,6 +61,12 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
   const nameById = useMemo(() => new Map(sorted.map((i) => [i.id, i.name])), [sorted]);
   const q = query.trim().toLowerCase();
   const results = q ? sorted.filter((i) => i.name.toLowerCase().includes(q)) : sorted;
+
+  const explorer = style === "simple";
+  const chooseStyle = (key) => {
+    edit(setStyle)(key);
+    if (key === "simple" && target > ASK_SIMPLE_MAX) setTarget(ASK_SIMPLE_MAX);
+  };
 
   const toggle = (id) => edit(setItemIds)((prev) =>
     prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= ASK_SHELF_MAX ? prev : [...prev, id]);
@@ -119,11 +127,15 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
       <div className="modal-field">
         <span className="modal-label" id="new-shelf-target">How many to pick</span>
         <div role="radiogroup" aria-labelledby="new-shelf-target" style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-          {targets.map((n) => (
-            <button key={n} type="button" role="radio" aria-checked={target === n}
-              className={`cat-pill${target === n ? " on" : ""}`} style={{ padding: "9px 14px" }}
-              onClick={() => edit(setTarget)(n)}>{n}</button>
-          ))}
+          {targets.map((n) => {
+            const off = explorer && n > ASK_SIMPLE_MAX;
+            return (
+              <button key={n} type="button" role="radio" aria-checked={target === n} disabled={off}
+                className={`cat-pill${target === n ? " on" : ""}`}
+                style={{ padding: "9px 14px", ...(off ? { opacity: 0.4, cursor: "not-allowed" } : null) }}
+                onClick={() => edit(setTarget)(n)}>{n}</button>
+            );
+          })}
         </div>
         <div className="picker-sub" style={{ margin: "8px 0 0" }}>{pickLine(target, noun)}</div>
       </div>
@@ -132,13 +144,13 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
         <span className="modal-label" id="new-shelf-style">How it looks</span>
         <div role="radiogroup" aria-labelledby="new-shelf-style" style={{ display: "flex", gap: "8px" }}>
           {[
-            { key: "standard", name: "Standard", sub: `Words and up to ${ASK_SHELF_MAX} tiles` },
-            { key: "simple", name: "Simple", sub: `Big pictures, up to ${ASK_SIMPLE_MAX} tiles` },
+            { key: "standard", name: "Shopper", sub: `Names and pictures, up to ${ASK_SHELF_MAX}` },
+            { key: "simple", name: "Explorer", sub: `Big pictures, up to ${ASK_SIMPLE_MAX}` },
           ].map((o) => (
             <button key={o.key} type="button" role="radio" aria-checked={style === o.key}
               className={`cat-pill${style === o.key ? " on" : ""}`}
               style={{ flex: "1 1 0", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", padding: "10px 12px", textAlign: "left", borderRadius: "14px" }}
-              onClick={() => edit(setStyle)(o.key)}>
+              onClick={() => chooseStyle(o.key)}>
               <span style={{ fontWeight: 700 }}>{o.name}</span>
               <span style={{ fontSize: "0.8rem", fontWeight: 400 }}>{o.sub}</span>
             </button>

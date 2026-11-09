@@ -31,9 +31,9 @@ describe("askDraftProblem — the sheet refuses what create_ask would", () => {
     expect(askDraftProblem({ ...ok, target: 1, itemIds: ids(ASK_SHELF_MAX + 1) })).toMatch(/48 items at most/);
     expect(askDraftProblem({ ...ok, target: 3, itemIds: ids(2) })).toBe(targetTilesMessage(3));
   });
-  test("Simple shows 4 at most; Standard keeps the 48 cap", () => {
+  test("Simple (Explorer) shows 4 at most; Standard keeps the 48 cap", () => {
     expect(askDraftProblem({ ...ok, style: "simple", target: 1, itemIds: ids(ASK_SIMPLE_MAX) })).toBeNull();
-    expect(askDraftProblem({ ...ok, style: "simple", target: 1, itemIds: ids(ASK_SIMPLE_MAX + 1) })).toBe("Simple shows 4 at most.");
+    expect(askDraftProblem({ ...ok, style: "simple", target: 1, itemIds: ids(ASK_SIMPLE_MAX + 1) })).toBe("Explorer shows 4 at most.");
     expect(askDraftProblem({ ...ok, style: "standard", target: 1, itemIds: ids(ASK_SIMPLE_MAX + 1) })).toBeNull();
     expect(askDraftProblem({ ...ok, style: "simple", target: 4, itemIds: ids(3) })).toBe(targetTilesMessage(4));
   });

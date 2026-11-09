@@ -176,38 +176,74 @@ test("the pick line follows the target and the noun, and never names the picker"
   expect(screen.queryByText(/Easton/)).toBeNull();
 });
 
+// On screen the styles are Shopper and Explorer (Dan, 2026-11-09); the stored values stay
+// standard / simple.
 describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
   const style = (name) => screen.getByRole("radio", { name: new RegExp(`^${name}`) });
-  test("Standard is the default; the copy names no age, ability or reading", () => {
+  const targetPill = (n) => screen.getByRole("radio", { name: String(n) });
+  test("Shopper is the default; the copy names no age, ability or reading, and never the stored names", () => {
     setup();
-    expect(style("Standard")).toHaveAttribute("aria-checked", "true");
-    expect(style("Standard")).toHaveTextContent("Words and up to 48 tiles");
-    expect(style("Simple")).toHaveAttribute("aria-checked", "false");
-    expect(style("Simple")).toHaveTextContent("Big pictures, up to 4 tiles");
-    expect(fieldOf(style("Simple")).textContent).not.toMatch(/age|year|old|read|young|kid|child/i);
+    expect(style("Shopper")).toHaveAttribute("aria-checked", "true");
+    expect(style("Shopper")).toHaveTextContent("Names and pictures, up to 48");
+    expect(style("Explorer")).toHaveAttribute("aria-checked", "false");
+    expect(style("Explorer")).toHaveTextContent("Big pictures, up to 4");
+    const copy = fieldOf(style("Explorer")).textContent;
+    expect(copy).not.toMatch(/age|year|old|read|young|kid|child/i);
+    expect(copy).not.toMatch(/standard|simple/i);
   });
-  test("Simple with 4 tiles saves as Simple", async () => {
+  test("Explorer greys out and disables targets above 4; Shopper brings them back", () => {
+    setup();
+    fireEvent.click(style("Explorer"));
+    for (const n of [1, 2, 3, 4]) expect(targetPill(n)).toBeEnabled();
+    for (const n of [5, 6]) {
+      expect(targetPill(n)).toBeDisabled();
+      expect(targetPill(n).style.opacity).toBe("0.4");
+    }
+    fireEvent.click(targetPill(6));
+    expect(targetPill(3)).toHaveAttribute("aria-checked", "true");   // the default stays
+    fireEvent.click(style("Shopper"));
+    for (const n of [5, 6]) {
+      expect(targetPill(n)).toBeEnabled();
+      expect(targetPill(n).style.opacity).toBe("");
+    }
+  });
+  test("choosing Explorer with a target above 4 drops it to 4; a target of 4 or less stays", () => {
+    setup();
+    pickTarget(6);
+    fireEvent.click(style("Explorer"));
+    expect(targetPill(4)).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Pick 4 for our list.")).toBeInTheDocument();
+    fireEvent.click(style("Shopper"));
+    expect(targetPill(4)).toHaveAttribute("aria-checked", "true");   // no bounce back to 6
+    pickTarget(2);
+    fireEvent.click(style("Explorer"));
+    expect(targetPill(2)).toHaveAttribute("aria-checked", "true");
+  });
+  test("Explorer with 4 tiles saves as simple", async () => {
     const { onCreate, onClose } = setup();
     fireEvent.change(nameInput(), { target: { value: "Everett" } });
-    pickTarget(1);
-    fireEvent.click(style("Simple"));
+    pickTarget(5);
+    fireEvent.click(style("Explorer"));
     ITEMS.forEach((i) => pick(i.name));
-    expect(screen.queryByText("Simple shows 4 at most.")).toBeNull();
+    expect(screen.queryByText("Explorer shows 4 at most.")).toBeNull();
     await saveAndClose(onClose);
-    expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "simple", itemIds: ITEMS.map((i) => i.id) });
+    expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "simple", target: 4, itemIds: ITEMS.map((i) => i.id) });
   });
-  test("five items on Simple → \"Simple shows 4 at most.\" in the footer; Standard saves them", () => {
+  test("five items on Explorer → \"Explorer shows 4 at most.\" in the footer; Shopper saves them as standard", async () => {
     const five = [...ITEMS, { id: "i-pears", name: "Pears" }];
-    render(<NewShelfSheet catalogItems={five} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} />);
+    const onCreate = jest.fn(async () => ({ ok: true, id: "x" }));
+    const onClose = jest.fn();
+    render(<NewShelfSheet catalogItems={five} asks={[]} onCreate={onCreate} onClose={onClose} closeButton={null} />);
     fireEvent.change(nameInput(), { target: { value: "Everett" } });
     pickTarget(1);
-    fireEvent.click(style("Simple"));
+    fireEvent.click(style("Explorer"));
     five.forEach((i) => pick(i.name));
-    const msg = screen.getByText("Simple shows 4 at most.");
+    const msg = screen.getByText("Explorer shows 4 at most.");
     expect(footerOf(msg)).not.toBeNull();
     expect(save()).toBeDisabled();
-    fireEvent.click(style("Standard"));
-    expect(screen.queryByText("Simple shows 4 at most.")).toBeNull();
-    expect(save()).toBeEnabled();
+    fireEvent.click(style("Shopper"));
+    expect(screen.queryByText("Explorer shows 4 at most.")).toBeNull();
+    await saveAndClose(onClose);
+    expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "standard" });
   });
 });
