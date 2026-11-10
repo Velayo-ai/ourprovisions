@@ -53,3 +53,31 @@ select (select system_identifier from pg_control_system()) as which_db,
 ```
 
 Run it before and after the dry run: `rows_total` and `objects_total` must not move (Verification 9).
+
+## The item pass (2026-11-10; SPEC_ask_slice4 S4-8, migration 084)
+
+The same run sweeps `item-photos` — the household item photos Ask's shelves use (077, A23) — as a
+second pass, after the meal pass, through 084's `item_photo_sweep_expired`, `item_photo_sweep_orphans`
+and `item_photo_sweep_delete_rows` (service_role only). Same windows (30-day grace for a replaced or
+removed photo, 7 days for an orphan), the same path guard, the same two-key live mode and the same
+secret and schedule. A soft-deleted row whose paths a live row also names is never listed. Deleting
+an ask removes no photo: the photo belongs to the household's item.
+
+The response carries the meal pass's keys as before and the item pass's under `item_`:
+`item_expired_found, item_expired_removed, item_rows_deleted, item_orphans_found, item_orphans_removed,
+item_skipped_bad_path, item_capped`; `errors` counts both passes. Deploy order: 084 first, then
+the function; `084_rollback.sql` needs the function deployed without this pass first.
+
+Hand count for the item pass (both totals unchanged after a dry run):
+
+```sql
+select (select system_identifier from pg_control_system()) as which_db,
+  (select count(*) from household_item_photos p where p.deleted_at < now() - interval '30 days'
+      and not exists (select 1 from household_item_photos l where l.deleted_at is null
+                       and (l.thumb_path in (p.thumb_path, p.view_path) or l.view_path in (p.thumb_path, p.view_path)))) as item_expired,
+  (select count(*) from storage.objects o
+    where bucket_id = 'item-photos' and created_at < now() - interval '7 days'
+      and not exists (select 1 from household_item_photos p where p.thumb_path = o.name or p.view_path = o.name)) as item_orphans,
+  (select count(*) from household_item_photos) as item_rows_total,
+  (select count(*) from storage.objects where bucket_id = 'item-photos') as item_objects_total;
+```
