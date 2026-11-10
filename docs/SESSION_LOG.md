@@ -25,6 +25,51 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-11-09] — [OurProvisions] — Ask Slice 3: Explorer style + resume after a reload, designed, built and walked on dev
+**Goal:** Build Ask Slice 3 (the Simple style per A13 and A26's resume after backgrounding) and walk it on dev. Taken as an interrupt ahead of the pre-authored Splunk invite alerts, which move to the next session. The design chat ran 2026-11-08 23:58 → 2026-11-09 22:17 ET; Claude Code built it in the same window. Design handoff `de0481c` on `origin/handoff`, merged here.
+**Completed:**
+- **Ruled Slice 3 and wrote SPEC_ask_slice3.md (S3-1–S3-6); Claude Code built it as `2d343d3` with no migration.**
+  - Simple shows 4 tiles at most in a 2×2. Its tile names are always off, except on a tile with no photo and no glyph.
+  - Only the child's buttons become icons: Let's pick → ▶, That's it! → ✓. The grown-up's Done and Back to the list stay words.
+  - The style is set at create. A26 is amended so the resume key holds `{ask_id, screen, catalog_item_ids[]}`.
+  - Resume reopens the run once after a reload, waiting on `asksLoaded` (new in `useProvisions`), the catalog and landing. The ids are filtered to the shelf, deduplicated and capped at the target. The spec was routed to `docs/specs/active/` in the same commit.
+- **Renamed the styles on screen: Standard → Shopper, Simple → Explorer** (`6d7f4d7`, `897423f`).
+  - Dan proposed Beginner / Growing; it was turned down because it grades the person (A3/A4). Explorer was accepted as a word that describes how someone picks, not their level, and Shopper is its peer.
+  - Explorer sits on the left so the pair reads as a growth path; Shopper stays the default.
+  - Explorer greys out pick targets above 4, and choosing it drops a higher target to 4. The stored values stay `simple` / `standard`.
+- **Made the over-4 block explain itself** (`bff7e0e`). The header reads "THE SHELF · 6 OF 4" in the error colour, and the line under the chips says "Explorer shows 4 at most. Remove 2." and counts down. Nothing is removed automatically, and the footer no longer repeats the message.
+- **Removed ↶ from the shelf on both styles** (`60e44cd`). Dan: "too complex".
+  - Tapping the tile again or tapping the item in the wagon remains; removing ↶ on both keeps A13. `undoLast` and its test went with it.
+  - Fixed the singular copy: "Great pick, {Label}!" / "I've added this to our list." (`3c213e7`).
+  - Dev `3c213e7` serves `main.025ce12e.js` (`dpl_9gJFqxWdwyGS3SmPHpVA82LFxdVo`). Markers were read back from the served bundle. Tests 856/856; the `CI=true` build is clean.
+- **Walked everything on dev, Dan, iPhone + desktop. All passed:**
+  - V3: Explorer end to end; Ev, 4 tiles, two of them plain name tiles.
+  - V4: the Done hold; a short tap does nothing.
+  - V5 a–d: app switch, Safari reload on the shelf, reload on "Your turn", reload after confirm → back to the list.
+  - V5 storage: `op_ask_held` holds the three fields only (no label, names or style) and is cleared on confirm.
+  - V12: reduced motion.
+  - V2: a Shopper run (Ask Easton, 3 picks).
+  - The list reads "Picked by EV & Easton".
+- **Found that Ask Everett (made in Slice 2) won't run:** "This shelf has fewer things on it than there are to pick. A grown-up can fix it in Browse."
+  - This isn't Slice 3; the guard is from Slice 2.
+  - The likely cause is that a shelf item dropped out of the catalog after create.
+  - The message promises a fix in Browse that doesn't exist.
+- **Logged Planner as a later idea:** a third style where the person picks meals, not items. Updated `SPEC_ask_slice3.md` on Dan's ask: S3-3 / S3-4 drop ↶ (A16 amended, `60e44cd`), S3-5 notes the on-screen names Explorer / Shopper.
+**Unfinished:**
+- **The short-shelf screen is an open design question.** Its message points to a Browse fix that doesn't exist. Either Slice 4's edit sheet makes it true, or the run lowers the target to the tiles it has, so a child never meets a "grown-up" screen. Lean: lower the target. Ask Everett's cause is unconfirmed; the read-only query was given but not run.
+- No way to add to or change an existing ask's shelf until Slice 4 (Dan hit this on Ask Everett).
+- Explorer shelves can be half words: a tile without a photo shows its name, which a non-reader can't use. A photo nudge is designed for Slice 4; it isn't built.
+- The wagon polish still waits for its own pass before Ask goes to prod: it sits below the scene, has empty space under it, and reads as a shopping cart.
+- One unconfirmed visual: the "4" pick-target pill looked reddish in one screenshot (it may have been hover).
+- Splunk invite alerts and the SPEC_late_join decision are carried from 11-08, untouched tonight. Xavier is still not re-invited, and his 6 items are still stranded.
+**Next session:**
+SESSION START
+Goal: Set up Splunk alerting on invite health: a detector on `invite_consumed` `outcome=absent` (any occurrence, same day), a lower-urgency one on `outcome=failed`, and a daily joined / absent / failed chart scoped to `sf_domain = ourprovisions.velayo.ai`. First check whether RUM detectors can key on a custom span name and tag; if not, route the spans through the OpenTelemetry Collector. Then approve or redirect SPEC_late_join.md.
+State: Ask Slices 1–3 complete on dev (dev `3c213e7` / `main.025ce12e.js`): Shopper / Explorer, resume after a reload, ↶ gone. Prod unchanged at main `9f4980e` / `main.93f2889b.js`, with the durable invite hold and 082 live. Ask promotes to prod only whole, after Slice 4 and the wagon polish, so promotions stay cherry-picks. Offline check-off is designed, not built. Next migration 083.
+Done when: an `outcome=absent` on prod raises an alert Dan receives, verified by one deliberate absent (an invite tapped in Safari, sign-up in Chrome, on a throwaway place); and SPEC_late_join.md has a decision.
+**Files updated:** `src/lib/askRun.js` + test, `src/lib/askCreate.js` + test, `src/components/AskRun.js` + test, `src/components/NewShelfSheet.js` + test, `src/hooks/useProvisions.js`, `src/App.js`, `docs/specs/active/SPEC_ask_slice3.md` (airlock → `active/` in `2d343d3`; S3-3 / S3-4 / S3-5 updated at SESSION END), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`. Client commits on dev: `2d343d3`, `6d7f4d7`, `897423f`, `bff7e0e`, `60e44cd`, `3c213e7`.
+**DB changes:** None.
+
 ### [2026-11-08] — [OurProvisions] — Invite links lost at sign-up: root-caused from a live test, fixed and live on prod
 **Goal:** Learn from the 2026-11-06 live test (Xavier and Elly, group iMessage) and find out why Xavier's invite to Madbury landed him in a solo "My Household". Design chat ran 11-06 21:45 → 11-08 23:35 ET; build by Claude Code in the same window; design handoff `0ba25e5` on `origin/handoff`, merged here.
 **Completed:**
