@@ -125,8 +125,8 @@ describe("App wiring", () => {
     expect(body).not.toMatch(/await deleteItem\(/);
   });
 
-  test("one muted line covers both (Dan, 2026-11-10): standard categories are not listed, and nothing names them in a form", () => {
-    expect(APP.match(/Standard categories can't be renamed or deleted\./g)).toHaveLength(1);
+  test("standard categories are not listed and nothing says so (Dan, 2026-11-10); nothing names a category in a form", () => {
+    expect(APP).not.toContain("Standard categories can't be renamed or deleted.");
     expect(APP).not.toContain("can’t be deleted — only categories you’ve created");
     expect(APP).not.toContain("can't be renamed — only categories you've created");
     // The rows are text: a category name never sits in an aria-label or an <option> value.

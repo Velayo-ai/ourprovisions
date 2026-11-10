@@ -12551,12 +12551,12 @@ function ProvisionsApp({ scrollRootRef }) {
             {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a tap on the
                 row turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
                 centred confirmation with the required move-items picker (Pantry preselected; never
-                deletes items). Standard categories are not listed. "+ New category" at the end. The
+                deletes items). Standard categories are not listed, and nothing says so (Dan 2026-11-10).
+                "+ New category" at the end. The
                 rows are text: no category name in an <option> value or an aria-label (replay, 2026-10-19). */}
             {isSignedIn && (
               <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
                 <span className="modal-label" id="manage-categories">Categories</span>
-                <p className="picker-sub" style={{ margin: "0 0 8px" }}>Standard categories can't be renamed or deleted.</p>
                 {categoryError && (
                   <div className="modal-error" role="alert" style={{ margin: "0 0 8px" }}>{categoryError}</div>
                 )}
