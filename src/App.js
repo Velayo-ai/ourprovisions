@@ -13,7 +13,7 @@ import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { AddSheetPanel } from './components/AddSheetPanel';
 import { CategorySelect } from './components/CategorySelect';
-import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete } from './lib/deleteCategory';
+import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
 import { NewShelfSheet } from './components/NewShelfSheet';
@@ -6683,6 +6683,8 @@ function ProvisionsApp({ scrollRootRef }) {
   const [renameValue, setRenameValue] = useState("");
   const [deletingCategory, setDeletingCategory] = useState(null);
   const [deleteMoveTarget, setDeleteMoveTarget] = useState("");
+  // Manage categories & asks (Dan, 2026-11-10): "+ New category" reveals the name field.
+  const [newCategoryOpen, setNewCategoryOpen] = useState(false);
   const [householdCategories, setHouseholdCategories] = useState(new Set());
   const [stapleFilter, setStapleFilter] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(new Set());
@@ -12283,6 +12285,38 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       ) : null; })()}
 
+      {/* Delete a category (Dan, 2026-11-10): the centred confirmation over Manage, with the required
+          move-items picker (deleteCategory.js: never deletes items). Rendered after Manage, on top. */}
+      {deletingCategory && (
+        <div className="modal-overlay" onClick={() => setDeletingCategory(null)}>
+          <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title" onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "360px", margin: "auto" }}>
+            <h2 id="delete-category-title">Delete {deletingCategory.name}?</h2>
+            {deletingCategory.itemCount > 0 ? (
+              <>
+                <p className="modal-subtitle">{categoryCountText(deletingCategory.itemCount)} in it. Move them to:</p>
+                {/* CategorySelect: option values are indexes, never the household's category names (replay, 2026-10-19). */}
+                <CategorySelect
+                  categories={categories.filter(c => c.rawName !== deletingCategory.rawName)}
+                  value={deleteMoveTarget}
+                  onChange={rawName => setDeleteMoveTarget(rawName)}
+                  style={{ marginBottom: "12px" }}
+                />
+              </>
+            ) : (
+              <p className="modal-subtitle">Nothing in it.</p>
+            )}
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setDeletingCategory(null)}>Keep it</button>
+              <button className="modal-remove" disabled={deletingCategory.itemCount > 0 && !deleteMoveTarget}
+                onClick={() => deleteCategory(deletingCategory.rawName, deleteMoveTarget || null)}>
+                {deleteCategoryLabel(deletingCategory.itemCount)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Ask {Label} (SPEC_ask_slice4 S4-2): the same sheet in edit mode. Save → update_ask (083). */}
       {editAsk && (
         <div className="modal-overlay" onClick={() => setEditAskId(null)}>
@@ -12472,113 +12506,12 @@ function ProvisionsApp({ scrollRootRef }) {
             <SheetClose onClose={() => setShowManageCategoriesModal(false)} />
             <h2>Manage categories &amp; asks</h2>
 
-            {/* Create */}
-            <div className="modal-field">
-              <label className="modal-label">Create New Category</label>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <input
-                  className="modal-input"
-                  placeholder="e.g. Frozen Foods"
-                  value={newCategoryName}
-                  onChange={e => setNewCategoryName(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && createCategory(newCategoryName)}
-                  style={{ flex: 1 }}
-                />
-                <button
-                  className="modal-confirm"
-                  onClick={() => createCategory(newCategoryName)}
-                  style={{ opacity: newCategoryName.trim() ? 1 : 0.5, pointerEvents: newCategoryName.trim() ? "auto" : "none" }}
-                >Create</button>
-              </div>
-            </div>
-
-            {/* Rename */}
-            {isSignedIn && (
-              <div className="modal-field">
-                <label className="modal-label">Rename Category</label>
-                {/* CategorySelect: option values are indexes, never the household's category names (replay, 2026-10-19). */}
-                <CategorySelect
-                  categories={categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName))}
-                  value={renamingCategory || ""}
-                  onChange={rawName => { setRenamingCategory(rawName || null); setRenameValue(rawName); }}
-                  placeholder="— select category —"
-                  style={{ marginBottom: "8px" }}
-                />
-                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
-                  Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
-                </p>
-                {renamingCategory && (
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <input
-                      className="modal-input"
-                      value={renameValue}
-                      onChange={e => setRenameValue(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && renameCategory(renamingCategory, renameValue)}
-                      style={{ flex: 1 }}
-                    />
-                    <button
-                      className="modal-confirm"
-                      onClick={() => renameCategory(renamingCategory, renameValue)}
-                      style={{ opacity: renameValue.trim() ? 1 : 0.5, pointerEvents: renameValue.trim() ? "auto" : "none" }}
-                    >Rename</button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Delete */}
-            {isSignedIn && (
-              <div className="modal-field">
-                <label className="modal-label">Delete Category</label>
-                <CategorySelect
-                  categories={categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName))}
-                  value={deletingCategory?.rawName || ""}
-                  onChange={rawName => {
-                    if (!rawName) { setDeletingCategory(null); return; }
-                    const itemCount = Object.values(catalogMap).filter(i => i.category === rawName).length;
-                    setDeletingCategory({ rawName, itemCount });
-                    // The move picker is required: preselected, no "delete all items" choice.
-                    setDeleteMoveTarget(itemCount > 0 ? defaultMoveTarget(categories, rawName, CATEGORY_ORDER) : "");
-                  }}
-                  placeholder="— select category —"
-                  style={{ marginBottom: "8px" }}
-                />
-                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
-                  Standard categories can’t be deleted — only categories you’ve created.
-                </p>
-                {deletingCategory && (
-                  <>
-                    {deletingCategory.itemCount > 0 && (
-                      <>
-                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#8a7a60", marginBottom: "8px" }}>
-                          {deletingCategory.itemCount} item{deletingCategory.itemCount !== 1 ? "s" : ""} in this category. Move them to:
-                        </div>
-                        <CategorySelect
-                          categories={categories.filter(c => c.rawName !== deletingCategory.rawName)}
-                          value={deleteMoveTarget}
-                          onChange={rawName => setDeleteMoveTarget(rawName)}
-                          style={{ marginBottom: "8px" }}
-                        />
-                      </>
-                    )}
-                    <button
-                      className="modal-remove"
-                      disabled={deletingCategory.itemCount > 0 && !deleteMoveTarget}
-                      onClick={() => deleteCategory(deletingCategory.rawName, deleteMoveTarget || null)}
-                    >
-                      {deleteCategoryLabel(deletingCategory.itemCount)}
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-
             {/* Asks (SPEC_ask_slice4 S4-1): one row per live ask — "Ask {Label}" (.op-name), the style
                 word, "pick {n}", the tile count or the grown-up's note (S4-5). A row opens the edit
                 sheet (Manage closes first). "+ New shelf" sits at the end. The rows are text, so the
                 replay rules apply; no label ever sits in an <option> or an aria-label. */}
             {isSignedIn && household?.id && (
-              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+              <div className="modal-field">
                 <span className="modal-label" id="manage-asks">Asks</span>
                 {asks.length === 0 && (
                   <p className="picker-sub" style={{ margin: "0 0 8px" }}>A shelf of things someone can pick for the list. They don't need an account.</p>
@@ -12614,6 +12547,82 @@ function ProvisionsApp({ scrollRootRef }) {
               </div>
             )}
 
+            {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a pencil
+                turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
+                centred confirmation with the required move-items picker (Pantry preselected; never
+                deletes items). Standard categories are not listed. "+ New category" at the end. The
+                rows are text: no category name in an <option> value or an aria-label (replay, 2026-10-19). */}
+            {isSignedIn && (
+              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+                <span className="modal-label" id="manage-categories">Categories</span>
+                <p className="picker-sub" style={{ margin: "0 0 8px" }}>Standard categories can't be renamed or deleted.</p>
+                {categoryError && (
+                  <div className="modal-error" role="alert" style={{ margin: "0 0 8px" }}>{categoryError}</div>
+                )}
+                <div role="list" aria-labelledby="manage-categories">
+                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => {
+                    const n = cat.items.length;
+                    const renaming = renamingCategory === cat.rawName;
+                    const iconButton = { flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" };
+                    return (
+                      <div key={cat.rawName} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
+                        {renaming ? (
+                          <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", gap: "6px", alignItems: "center", padding: "6px 0" }}>
+                            <input className="modal-input" aria-label="Category name" value={renameValue} autoFocus
+                              onChange={e => setRenameValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") renameCategory(cat.rawName, renameValue); if (e.key === "Escape") setRenamingCategory(null); }}
+                              style={{ flex: 1, minWidth: 0 }} />
+                            <button className="modal-confirm" onClick={() => renameCategory(cat.rawName, renameValue)}
+                              disabled={!renameValue.trim() || renameValue.trim() === cat.rawName}
+                              style={{ opacity: renameValue.trim() && renameValue.trim() !== cat.rawName ? 1 : 0.5 }}>Save</button>
+                            <button className="modal-cancel" onClick={() => setRenamingCategory(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: "2px", padding: "10px 4px", fontFamily: "'Lato', sans-serif", color: "#2C1A0E" }}>
+                              <span style={{ fontSize: "0.95rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
+                              <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>{categoryCountText(n)}</span>
+                            </div>
+                            <button type="button" aria-label="Rename this category" style={iconButton}
+                              onClick={() => { setRenamingCategory(cat.rawName); setRenameValue(cat.rawName); }}>
+                              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3" />
+                              </svg>
+                            </button>
+                            <button type="button" aria-label="Delete this category" style={iconButton}
+                              onClick={() => {
+                                setDeletingCategory({ rawName: cat.rawName, name: cat.name, itemCount: n });
+                                // The move picker is required: preselected, no "delete all items" choice.
+                                setDeleteMoveTarget(n > 0 ? defaultMoveTarget(categories, cat.rawName, CATEGORY_ORDER) : "");
+                              }}>
+                              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                              </svg>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {newCategoryOpen ? (
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "10px" }}>
+                    <input className="modal-input" aria-label="New category name" placeholder="e.g. Frozen Foods" value={newCategoryName} autoFocus
+                      onChange={e => setNewCategoryName(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && newCategoryName.trim()) { createCategory(newCategoryName); setNewCategoryOpen(false); } if (e.key === "Escape") { setNewCategoryOpen(false); setNewCategoryName(""); } }}
+                      style={{ flex: 1, minWidth: 0 }} />
+                    <button className="modal-confirm" disabled={!newCategoryName.trim()} style={{ opacity: newCategoryName.trim() ? 1 : 0.5 }}
+                      onClick={() => { createCategory(newCategoryName); setNewCategoryOpen(false); }}>Create</button>
+                    <button className="modal-cancel" onClick={() => { setNewCategoryOpen(false); setNewCategoryName(""); }}>Cancel</button>
+                  </div>
+                ) : (
+                  <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={() => setNewCategoryOpen(true)}>
+                    <span className="cat-em">+</span>New category
+                  </button>
+                )}
+              </div>
+            )}
+
             {isSignedIn && (
               <div style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
                 <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "8px" }}>Danger Zone</div>
@@ -12637,7 +12646,7 @@ function ProvisionsApp({ scrollRootRef }) {
             )}
 
             <div className="modal-actions">
-              <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setShowResetConfirm(false); }}>Done</button>
+              <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setShowResetConfirm(false); setRenamingCategory(null); setNewCategoryOpen(false); }}>Done</button>
             </div>
           </div>
         </div>
