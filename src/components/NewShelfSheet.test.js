@@ -418,6 +418,12 @@ describe("the Explorer photo nudge (S4-7)", () => {
     expect(hint()).toBeNull();
     fireEvent.click(style("Explorer"));
     expect(cameras().map((b) => b.getAttribute("aria-label"))).toEqual(["Add a photo of Goldfish", "Add a photo of Yogurt"]);
+    // One dark pill per tile (Dan, 2026-11-10): the camera is a segment INSIDE the chip's pill, not a second pill.
+    const goldfishPill = screen.getByRole("button", { name: "Take Goldfish off the shelf" }).closest(".cat-pill");
+    expect(goldfishPill).toHaveClass("on");
+    expect(screen.getByRole("button", { name: "Add a photo of Goldfish" }).closest(".cat-pill")).toBe(goldfishPill);
+    expect(screen.getByRole("button", { name: "Add a photo of Goldfish" })).not.toHaveClass("cat-pill");
+    expect(screen.getByRole("button", { name: "Add a photo of Goldfish" }).style.minHeight).toBe("44px");
     const h = hint();
     expect(h).toHaveTextContent("Explorers pick by picture. Add a photo for Goldfish and Yogurt.");
     expect(h).toHaveClass("picker-sub");
