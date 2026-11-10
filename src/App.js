@@ -6685,6 +6685,19 @@ function ProvisionsApp({ scrollRootRef }) {
   const [deleteMoveTarget, setDeleteMoveTarget] = useState("");
   // Manage categories & asks (Dan, 2026-11-10): "+ New category" reveals the name field.
   const [newCategoryOpen, setNewCategoryOpen] = useState(false);
+  // A created-but-empty category lives only in householdCategories; when Manage opens, the ones
+  // that still have no item are let go, so they don't linger until a reload (Dan, 2026-11-10). The
+  // catalog is read through a ref: the prune is on open only, never on every catalog change.
+  const catalogForPruneRef = useRef(catalogMap);
+  catalogForPruneRef.current = catalogMap;
+  useEffect(() => {
+    if (!showManageCategoriesModal) return;
+    const items = Object.values(catalogForPruneRef.current);
+    setHouseholdCategories(prev => {
+      const kept = new Set([...prev].filter(c => items.some(i => i.category === c)));
+      return kept.size === prev.size ? prev : kept;
+    });
+  }, [showManageCategoriesModal]);
   const [householdCategories, setHouseholdCategories] = useState(new Set());
   const [stapleFilter, setStapleFilter] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(new Set());
@@ -6694,7 +6707,6 @@ function ProvisionsApp({ scrollRootRef }) {
   // sitting open as a second, competing answer to "where does this go?".
   const [searchNewCatOpen, setSearchNewCatOpen] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
   // Two pieces, deliberately separate:
@@ -7814,26 +7826,6 @@ function ProvisionsApp({ scrollRootRef }) {
 
     await refreshCatalog();
     setShowManageCategoriesModal(false);
-  };
-
-  const handleResetCategories = async () => {
-    const db = _supabase.current;
-    const hh = _household.current;
-    if (!db || !hh) return;
-    const { error: delErr } = await db
-      .from("catalog_items")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("household_id", hh.id)
-      .eq("is_global", false)
-      .is("deleted_at", null);
-    if (delErr) { setCategoryError(`Could not reset: ${delErr.message}`); return; }
-    await db
-      .from("user_hidden_items")
-      .delete()
-      .eq("clerk_id", user.id);
-    setShowResetConfirm(false);
-    setShowManageCategoriesModal(false);
-    await refreshCatalog();
   };
 
   // Never deletes items (2026-11-05, src/lib/deleteCategory.js): a category with items is
@@ -12621,30 +12613,8 @@ function ProvisionsApp({ scrollRootRef }) {
               </div>
             )}
 
-            {isSignedIn && (
-              <div style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "8px" }}>Danger Zone</div>
-                {!showResetConfirm ? (
-                  <button
-                    onClick={() => setShowResetConfirm(true)}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#c0392b", cursor: "pointer", padding: 0, textDecoration: "underline" }}
-                  >Restore default categories</button>
-                ) : (
-                  <div>
-                    <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#2C1A0E", marginBottom: "10px" }}>
-                      This will remove all custom categories and items you've created, and restore the original catalog. Items from the standard catalog on your current list will not be affected.
-                    </p>
-                    <div style={{ display: "flex", gap: "8px" }}>
-                      <button onClick={() => setShowResetConfirm(false)} className="modal-cancel" style={{ fontSize: "12px" }}>Cancel</button>
-                      <button onClick={handleResetCategories} style={{ background: "#c0392b", color: "white", border: "none", borderRadius: "4px", padding: "6px 12px", fontFamily: "'Lato', sans-serif", fontSize: "12px", cursor: "pointer" }}>Yes, restore defaults</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
             <div className="modal-actions">
-              <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setShowResetConfirm(false); setRenamingCategory(null); setNewCategoryOpen(false); }}>Done</button>
+              <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setRenamingCategory(null); setNewCategoryOpen(false); }}>Done</button>
             </div>
           </div>
         </div>

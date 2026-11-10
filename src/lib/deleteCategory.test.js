@@ -133,6 +133,18 @@ describe("App wiring", () => {
     expect(APP).toContain('aria-label="Rename this category"');   // the row itself: tap to edit (no pencil)
     expect(APP).toContain('aria-label="Delete this category"');
     expect(APP).not.toContain("M4 20h4l10.5-10.5");                // the pencil icon is gone
+  });
+
+  test("no factory reset under Categories (Dan, 2026-11-10): household factory reset belongs in its own designed flow", () => {
+    expect(APP).not.toContain("Restore default categories");
+    expect(APP).not.toContain("handleResetCategories");
+    expect(APP).not.toContain("Danger Zone");
+  });
+
+  test("empty created categories are let go when Manage opens, on open only", () => {
+    const body = APP.slice(APP.indexOf("const catalogForPruneRef"), APP.indexOf("}, [showManageCategoriesModal]);"));
+    expect(body).toContain("if (!showManageCategoriesModal) return;");
+    expect(body).toContain("items.some(i => i.category === c)");
     expect(APP).not.toMatch(/aria-label=\{`(Rename|Delete) \$\{cat\./);
   });
 });
