@@ -229,29 +229,21 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
         </span>
         {itemIds.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
-            {/* One dark pill per tile: the name, then × as its own segment behind a thin inner divider;
-                on Explorer a photo-less tile gets a third segment, 📷, with the same treatment (Dan,
-                2026-11-10). Segments are the buttons; the pill is only their shape. 44 px targets. */}
-            {itemIds.map((id) => {
-              const name = nameById.get(id) || "this item";
-              const segment = { background: "none", border: "none", color: "inherit", font: "inherit", cursor: "pointer", minHeight: "44px",
-                display: "inline-flex", alignItems: "center" };
-              const divider = { borderLeft: "1px solid rgba(250,244,236,0.35)" };
-              return (
-                <span key={id} className="cat-pill on" style={{ display: "inline-flex", alignItems: "stretch", padding: 0, gap: 0, overflow: "hidden" }}>
-                  <button type="button" aria-label={`Take ${name} off the shelf`} onClick={() => toggle(id)} style={{ ...segment, padding: 0 }}>
-                    <span style={{ padding: "0 10px 0 13px" }}>{nameById.get(id) || "Item"}</span>
-                    <span aria-hidden="true" style={{ ...divider, padding: "0 12px", alignSelf: "stretch", display: "inline-flex", alignItems: "center" }}>×</span>
+            {itemIds.map((id) => (
+              <span key={id} style={{ display: "inline-flex", alignItems: "stretch" }}>
+                <button type="button" className="cat-pill on" style={{ padding: "6px 12px" }}
+                  aria-label={`Take ${nameById.get(id) || "this item"} off the shelf`} onClick={() => toggle(id)}>
+                  {nameById.get(id) || "Item"} <span aria-hidden="true">×</span>
+                </button>
+                {nudgeIds.includes(id) && (
+                  <button type="button" className="cat-pill ask-photo-badge" disabled={!!photoBusy}
+                    aria-label={`Add a photo of ${nameById.get(id) || "this item"}`} onClick={() => openPhoto(id)}
+                    style={{ padding: "6px 9px", marginLeft: "-6px", borderTopLeftRadius: 0, borderBottomLeftRadius: 0, fontSize: "14px", lineHeight: 1 }}>
+                    <span aria-hidden="true">{photoBusy === id ? "…" : "📷"}</span>
                   </button>
-                  {nudgeIds.includes(id) && (
-                    <button type="button" className="ask-photo-badge" disabled={!!photoBusy} aria-label={`Add a photo of ${name}`}
-                      onClick={() => openPhoto(id)} style={{ ...segment, ...divider, padding: "0 12px", minWidth: "44px", justifyContent: "center", fontSize: "14px" }}>
-                      <span aria-hidden="true">{photoBusy === id ? "…" : "📷"}</span>
-                    </button>
-                  )}
-                </span>
-              );
-            })}
+                )}
+              </span>
+            ))}
           </div>
         )}
         {overBy > 0 && (
