@@ -7122,6 +7122,8 @@ function ProvisionsApp({ scrollRootRef }) {
     });
     return () => { cancelled = true; };
   }, [wantedItemPhotoPaths, _supabase]);
+  // The items with a live household photo, for the sheet's Explorer nudge (S4-7).
+  const itemPhotoIds = useMemo(() => new Set(Object.keys(itemPhotos)), [itemPhotos]);
   const itemPhotoUrl = useCallback((id) => {
     const p = itemPhotos[id];
     return p ? itemPhotoUrls[p.thumbPath] || null : null;
@@ -12231,6 +12233,8 @@ function ProvisionsApp({ scrollRootRef }) {
             <NewShelfSheet
               catalogItems={Object.values(catalogMap)}
               asks={asks}
+              photoIds={itemPhotoIds}
+              onPhoto={setItemPhoto}
               onCreate={createAsk}
               onClose={() => setNewShelfOpen(false)}
               closeButton={<SheetClose onClose={() => setNewShelfOpen(false)} />}
@@ -12248,6 +12252,8 @@ function ProvisionsApp({ scrollRootRef }) {
             <NewShelfSheet
               catalogItems={Object.values(catalogMap)}
               asks={asks}
+              photoIds={itemPhotoIds}
+              onPhoto={setItemPhoto}
               edit={editAsk}
               onUpdate={async (draft) => {
                 // The growth moment (S4-6): the parent's own move, said once, to the parent. No span.

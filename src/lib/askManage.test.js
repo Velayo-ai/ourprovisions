@@ -1,4 +1,4 @@
-import { styleWord, shelfNote, manageRow, saveOutcome } from "./askManage";
+import { styleWord, shelfNote, manageRow, saveOutcome, photoNudge } from "./askManage";
 
 const item = (name, extra = {}) => ({ name, category: "Snacks", isGlobal: true, householdId: null, deletedAt: null, ...extra });
 const shelf = (...rows) => rows.map(([id, it]) => ({ id, item: it }));
@@ -52,4 +52,13 @@ describe("saveOutcome — the growth moment (S4-6)", () => {
     expect(saveOutcome({ pickTarget: 3, screenStyle: "standard" }, { target: 3, style: "simple" })).toBe("saved");
     expect(saveOutcome({ pickTarget: 3, screenStyle: "standard" }, { target: 2, style: "simple" })).toBe("saved");
   });
+});
+
+test("photoNudge — S4-7: one, two, or two and n more; nothing to name → null", () => {
+  expect(photoNudge(["Butter"])).toBe("Explorers pick by picture. Add a photo for Butter.");
+  expect(photoNudge(["Butter", "Canned tomatoes"])).toBe("Explorers pick by picture. Add a photo for Butter and Canned tomatoes.");
+  expect(photoNudge(["Butter", "Canned tomatoes", "Bread"])).toBe("Explorers pick by picture. Add a photo for Butter, Canned tomatoes and 1 more.");
+  expect(photoNudge(["A", "B", "C", "D"])).toBe("Explorers pick by picture. Add a photo for A, B and 2 more.");
+  expect(photoNudge([])).toBeNull();
+  expect(photoNudge(null)).toBeNull();
 });

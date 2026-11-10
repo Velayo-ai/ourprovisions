@@ -396,3 +396,66 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 });
+
+// The Explorer photo nudge (SPEC_ask_slice4 S4-7): a camera on a photo-less chip, Explorer only;
+// a muted hint naming them; the tap runs the same photo flow as Browse; never a block.
+describe("the Explorer photo nudge (S4-7)", () => {
+  const style = (name) => screen.getByRole("radio", { name: new RegExp(`^${name}`) });
+  const cameras = () => screen.queryAllByRole("button", { name: /^Add a photo of / });
+  const hint = () => screen.queryByText(/^Explorers pick by picture\./);
+  function setupPhoto({ photoIds = new Set(["i-apples"]), onPhoto = jest.fn(async () => ({ ok: true })) } = {}) {
+    const view = render(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null}
+      photoIds={photoIds} onPhoto={onPhoto} />);
+    const rerender = (ids) => view.rerender(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null}
+      photoIds={ids} onPhoto={onPhoto} />);
+    // eslint-disable-next-line testing-library/no-node-access
+    return { onPhoto, rerender, input: () => view.container.querySelector("input[type=file]") };
+  }
+  test("Shopper: no camera, no hint; Explorer: a camera on each photo-less chip and the hint names them in shelf order", () => {
+    setupPhoto();
+    pick("Goldfish"); pick("Apples"); pick("Yogurt");
+    expect(cameras()).toHaveLength(0);
+    expect(hint()).toBeNull();
+    fireEvent.click(style("Explorer"));
+    expect(cameras().map((b) => b.getAttribute("aria-label"))).toEqual(["Add a photo of Goldfish", "Add a photo of Yogurt"]);
+    const h = hint();
+    expect(h).toHaveTextContent("Explorers pick by picture. Add a photo for Goldfish and Yogurt.");
+    expect(h).toHaveClass("picker-sub");
+    expect(h).not.toHaveClass("modal-error");
+    expect(save()).toBeDisabled();   // the name is missing, not the photos
+    fireEvent.change(nameInput(), { target: { value: "Ev" } });
+    expect(save()).toBeEnabled();    // a hint, never a block
+    pick("Crackers");
+    expect(hint()).toHaveTextContent("Add a photo for Goldfish, Yogurt and 1 more.");
+    fireEvent.click(style("Shopper"));
+    expect(cameras()).toHaveLength(0);
+    expect(hint()).toBeNull();
+  });
+  test("the camera runs the photo flow for that item; with the photo in, the badge goes and the hint moves on", async () => {
+    const { onPhoto, rerender, input } = setupPhoto();
+    fireEvent.click(style("Explorer"));
+    pick("Goldfish"); pick("Yogurt");
+    fireEvent.click(screen.getByRole("button", { name: "Add a photo of Goldfish" }));
+    const file = new File(["x"], "goldfish.jpg", { type: "image/jpeg" });
+    fireEvent.change(input(), { target: { files: [file] } });
+    await waitFor(() => expect(onPhoto).toHaveBeenCalledWith("i-goldfish", file));
+    rerender(new Set(["i-apples", "i-goldfish"]));
+    expect(cameras().map((b) => b.getAttribute("aria-label"))).toEqual(["Add a photo of Yogurt"]);
+    expect(hint()).toHaveTextContent("Add a photo for Yogurt.");
+  });
+  test("a photo that fails says so in the same muted line", async () => {
+    const { input } = setupPhoto({ onPhoto: jest.fn(async () => ({ ok: false, reason: "decode" })) });
+    fireEvent.click(style("Explorer"));
+    pick("Goldfish");
+    fireEvent.click(screen.getByRole("button", { name: "Add a photo of Goldfish" }));
+    fireEvent.change(input(), { target: { files: [new File(["x"], "g.jpg", { type: "image/jpeg" })] } });
+    expect(await screen.findByText("Couldn't read that photo. Try another.")).toHaveClass("picker-sub");
+  });
+  test("without a photo flow (no onPhoto) the sheet shows no camera and no hint", () => {
+    setup();
+    fireEvent.click(style("Explorer"));
+    pick("Goldfish");
+    expect(cameras()).toHaveLength(0);
+    expect(hint()).toBeNull();
+  });
+});

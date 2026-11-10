@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { photoNudge } from "../lib/askManage";
 import {
   askDraftProblem, createAskFailure, findDuplicateAsk, pickLine,
   ASK_LABEL_MAX, ASK_NOUN_MAX, ASK_TARGET_MIN, ASK_TARGET_MAX, ASK_SHELF_MAX, ASK_TARGET_DEFAULT,
@@ -25,6 +26,13 @@ import {
 // are create's. The ask's own name is never a duplicate of itself. Delete sits at the bottom,
 // destructive, behind a confirmation; a yes calls onDelete() (a soft delete) and closes.
 //
+// THE EXPLORER PHOTO NUDGE (S4-7): on Explorer only, a chip whose item has no household photo
+// wears a small camera; a tap runs Browse's own photo flow (onPhoto → setItemPhoto, the
+// item-photos bucket; the phone's chooser, "Photograph the item, not a person."). Under the chips,
+// in muted text, "Explorers pick by picture. Add a photo for {A} and {B}." A hint, never a block:
+// the parent may have a reader at the Explorer stage. The photo is the household's item's (A23),
+// so it can be taken before the ask exists.
+//
 // ONE ID PER DRAFT (K1): the id is made on the first Save and kept while the draft is unchanged,
 // so a retry after a dropped connection returns the same ask instead of a second one. Any edit to
 // what would be saved drops it; the next Save makes a new one.
@@ -44,7 +52,8 @@ import {
 // (create_ask's message names the label).
 // edit: null for + New shelf, else { id, label, shelfNoun, pickTarget, screenStyle, tiles: [{ id, name }] }
 // (the live tiles, in shelf order). onUpdate(draft) and onDelete() resolve to { ok } or { ok: false, code }.
-export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete, onClose, closeButton, edit: editing = null }) {
+// photoIds: the catalog item ids with a live household photo; onPhoto(itemId, file) → { ok, reason }.
+export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete, onClose, closeButton, edit: editing = null, photoIds = null, onPhoto = null }) {
   const [label, setLabel] = useState(editing ? editing.label : "");
   const [noun, setNoun] = useState(editing ? editing.shelfNoun || "" : "");
   const [target, setTarget] = useState(editing ? editing.pickTarget : ASK_TARGET_DEFAULT);
@@ -55,6 +64,10 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
   const [failure, setFailure] = useState(null);
   const [serverDup, setServerDup] = useState(null);   // the name create_ask refused with 23505
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [photoFor, setPhotoFor] = useState(null);       // the chip the chooser is open for
+  const [photoBusy, setPhotoBusy] = useState(null);
+  const [photoFailed, setPhotoFailed] = useState(null);  // "decode" | "upload" | "save"
+  const photoInput = useRef(null);
   const attemptId = useRef(null);
   const labelField = useRef(null);
   const shelfField = useRef(null);
@@ -81,6 +94,24 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
   const chooseStyle = (key) => {
     edit(setStyle)(key);
     if (key === "simple" && target > ASK_SIMPLE_MAX) setTarget(ASK_SIMPLE_MAX);
+  };
+
+  // The nudge (S4-7): Explorer only, with a photo flow to offer; the photo-less chips in shelf order.
+  const nudgeIds = explorer && onPhoto ? itemIds.filter((id) => !(photoIds && photoIds.has(id))) : [];
+  const openPhoto = (id) => {
+    if (photoBusy) return;
+    setPhotoFor(id);
+    setPhotoFailed(null);
+    if (photoInput.current) { photoInput.current.value = ""; photoInput.current.click(); }
+  };
+  const pickPhoto = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    const id = photoFor;
+    if (!file || !id) return;
+    setPhotoBusy(id);
+    const r = await onPhoto(id, file);
+    setPhotoBusy(null);
+    if (!r || !r.ok) setPhotoFailed(r ? r.reason : "save");
   };
 
   const toggle = (id) => edit(setItemIds)((prev) =>
@@ -199,16 +230,33 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
         {itemIds.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
             {itemIds.map((id) => (
-              <button key={id} type="button" className="cat-pill on" style={{ padding: "6px 12px" }}
-                aria-label={`Take ${nameById.get(id) || "this item"} off the shelf`} onClick={() => toggle(id)}>
-                {nameById.get(id) || "Item"} <span aria-hidden="true">×</span>
-              </button>
+              <span key={id} style={{ display: "inline-flex", alignItems: "stretch" }}>
+                <button type="button" className="cat-pill on" style={{ padding: "6px 12px" }}
+                  aria-label={`Take ${nameById.get(id) || "this item"} off the shelf`} onClick={() => toggle(id)}>
+                  {nameById.get(id) || "Item"} <span aria-hidden="true">×</span>
+                </button>
+                {nudgeIds.includes(id) && (
+                  <button type="button" className="cat-pill ask-photo-badge" disabled={!!photoBusy}
+                    aria-label={`Add a photo of ${nameById.get(id) || "this item"}`} onClick={() => openPhoto(id)}
+                    style={{ padding: "6px 9px", marginLeft: "-6px", borderTopLeftRadius: 0, borderBottomLeftRadius: 0, fontSize: "14px", lineHeight: 1 }}>
+                    <span aria-hidden="true">{photoBusy === id ? "…" : "📷"}</span>
+                  </button>
+                )}
+              </span>
             ))}
           </div>
         )}
         {overBy > 0 && (
           <div className="modal-error" role="status" style={{ margin: "0 0 10px" }}>{ASK_SIMPLE_CAP_MESSAGE} Remove {overBy}.</div>
         )}
+        {(nudgeIds.length > 0 || photoFailed) && (
+          <div className="picker-sub" style={{ margin: "0 0 10px" }}>
+            {photoFailed
+              ? (photoFailed === "decode" ? "Couldn't read that photo. Try another." : "That photo didn't save. Try again.")
+              : photoNudge(nudgeIds.map((id) => nameById.get(id)))}
+          </div>
+        )}
+        {onPhoto && <input ref={photoInput} type="file" accept="image/*" hidden onChange={pickPhoto} />}
         <input className="modal-input" type="search" autoComplete="off" placeholder="Find an item"
           aria-label="Find an item for the shelf" value={query} onChange={(e) => setQuery(e.target.value)} />
         <div data-testid="new-shelf-catalog" style={{ marginTop: "8px", borderTop: "1px solid #E8D5B7" }}>

@@ -45,3 +45,15 @@ export function saveOutcome(before, draft) {
   const opened = before.screenStyle === "simple" && draft.style !== "simple";
   return raised || opened ? "grown" : "saved";
 }
+
+// The Explorer photo nudge (S4-7): the hint under the chips naming the shelf items with no household
+// photo, in shelf order. A hint, never a block — the parent may have a reader at the Explorer
+// stage. null with nothing to name.
+export function photoNudge(names) {
+  const n = (names || []).filter(Boolean);
+  if (n.length === 0) return null;
+  const who = n.length === 1 ? n[0]
+    : n.length === 2 ? `${n[0]} and ${n[1]}`
+    : `${n[0]}, ${n[1]} and ${n.length - 2} more`;
+  return `Explorers pick by picture. Add a photo for ${who}.`;
+}
