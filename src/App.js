@@ -19,6 +19,7 @@ import { EditItemCategoryField } from './components/EditItemCategoryField';
 import { NewShelfSheet } from './components/NewShelfSheet';
 import { AskRun } from './components/AskRun';
 import { ShelfPhotoStrip } from './components/ShelfPhotoStrip';
+import { manageRow, shelfNote } from './lib/askManage';
 import { askBlocks, categoryPartShown, browseFilterCount as countBrowseFilters, browseFilterDescriptor as describeBrowseFilters } from './lib/askBrowse';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY, GIFT_MAX_AGE_MS, readHeld, clearHeld, heldStore, takeInviteHeld } from './lib/preRum';
@@ -6861,6 +6862,14 @@ function ProvisionsApp({ scrollRootRef }) {
   // + New shelf (SPEC_ask_slice2 C2): the sheet belongs to one place's Browse, so a tab or
   // household switch closes it (a half-made shelf never lands in the other household).
   const [newShelfOpen, setNewShelfOpen] = useState(false);
+  // Edit Ask {Label} (SPEC_ask_slice4 S4-1, S4-2): opened from a Manage row or a Browse header's
+  // "· Edit". Manage closes first — the two share one overlay layer and Manage is drawn later, so
+  // the sheet would open under it (Step 0 #2). An ask that is gone (deleted elsewhere) closes it.
+  const [editAskId, setEditAskId] = useState(null);
+  const openEditAsk = (askId) => { setShowManageCategoriesModal(false); setEditAskId(askId); };
+  useEffect(() => {
+    if (editAskId && !asks.some(a => a.id === editAskId)) setEditAskId(null);
+  }, [asks, editAskId]);
   // Selected ask pills (C3, K5): ask ids, never mixed into selectedCategories. Ephemeral like the
   // category pills: a tab or household switch clears them.
   const [selectedAsks, setSelectedAsks] = useState(new Set());
@@ -6869,7 +6878,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const [runAskId, setRunAskId] = useState(null);
   // "+N more" (C4.2): the asks past the rail's two pills, in a small sheet.
   const [moreAsksOpen, setMoreAsksOpen] = useState(false);
-  useEffect(() => { setNewShelfOpen(false); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
+  useEffect(() => { setNewShelfOpen(false); setEditAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
   // A26 resume (SPEC_ask_slice3 S3-6). AskRun keeps op_ask_held current while it is up; any end of
   // the run (Done, Back to the list, a tab or household switch) clears it here. A reload with the
   // key held reopens the run ONCE, on its screen with its picks — after this place's asks and
@@ -7080,7 +7089,10 @@ function ProvisionsApp({ scrollRootRef }) {
   // come from the shelf rows (S4-9, liveTiles), never from this list.
   const rawCategoryByName = useMemo(
     () => new Map(categories.flatMap(cat => cat.items.map(i => [i.name, cat.rawName]))), [categories]);
-  const askBlocksShown = useMemo(() => askBlocks(asks, selectedAsks, rawCategoryByName), [asks, selectedAsks, rawCategoryByName]);
+  const askBlocksShown = useMemo(() => {
+    const byId = new Map(asks.map(a => [a.id, a]));
+    return askBlocks(asks, selectedAsks, rawCategoryByName).map(b => ({ ...b, note: shelfNote(byId.get(b.id)) }));
+  }, [asks, selectedAsks, rawCategoryByName]);
   // The ask being run (C3b): its LIVE tiles, in shelf order (the same ones its Browse block shows),
   // and the effective target (S4-5). A run never opens with 0 live tiles.
   const runAsk = runAskId ? asks.find(a => a.id === runAskId) || null : null;
@@ -8405,19 +8417,29 @@ function ProvisionsApp({ scrollRootRef }) {
           <span aria-hidden="true">{ASK_GLYPH}</span> Ask <span className="op-name">{block.label}</span>
         </div>
         {/* The hand-over (C3b): opens the run on "Your turn, {Label}!". Only a hand-over writes
-            "Picked by" (11-04 ruling). A shelf with no live tile can't run (S4-5), so there is no
-            hand-over to offer. */}
-        {block.items.length > 0 && (
-          <button
-            className="ask-handover"
-            onClick={() => { recordAskHandover(household?.id, block.id); setRunAskId(block.id); }}
-            style={{
-              background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-              fontSize: "12.5px", color: "#0A776D", fontWeight: 700, cursor: "pointer",
-              letterSpacing: "0.5px", padding: "0",
-            }}
-          >Hand it to <span className="op-name">{block.label}</span> →</button>
-        )}
+            "Picked by" (11-04 ruling). A shelf with no live tile can't run (S4-5), so the grown-up's
+            note takes the hand-over's place; a short shelf shows the note under it. Quiet text,
+            never the error colour. */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
+          {block.items.length > 0 && (
+            <button
+              className="ask-handover"
+              onClick={() => { recordAskHandover(household?.id, block.id); setRunAskId(block.id); }}
+              style={{
+                background: "none", border: "none", fontFamily: "'Lato', sans-serif",
+                fontSize: "12.5px", color: "#0A776D", fontWeight: 700, cursor: "pointer",
+                letterSpacing: "0.5px", padding: "0",
+              }}
+            >Hand it to <span className="op-name">{block.label}</span> →</button>
+          )}
+          {block.note && (
+            <span className="ask-shelf-note" style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#8A5F3A" }}>
+              {block.note} ·{" "}
+              <button type="button" onClick={() => openEditAsk(block.id)}
+                style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "#0A776D", fontWeight: 700, cursor: "pointer" }}>Edit</button>
+            </span>
+          )}
+        </div>
       </div>
       {/* Shelf photos (C3b.2): what the tiles show on the run. */}
       {block.items.length > 0 && (
@@ -11740,7 +11762,7 @@ function ProvisionsApp({ scrollRootRef }) {
                       fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
                       letterSpacing: "1px", textDecoration: "underline",
                     }}
-                  >Manage Categories</button>
+                  >Manage categories &amp; asks</button>
                 </div>
               </>
             )}
@@ -12369,9 +12391,9 @@ function ProvisionsApp({ scrollRootRef }) {
       {/* Manage Categories Modal */}
       {showManageCategoriesModal && (
         <div className="modal-overlay" onClick={() => setShowManageCategoriesModal(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Manage categories" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Manage categories and asks" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
             <SheetClose onClose={() => setShowManageCategoriesModal(false)} />
-            <h2>Manage Categories</h2>
+            <h2>Manage categories &amp; asks</h2>
 
             {/* Create */}
             <div className="modal-field">
@@ -12471,6 +12493,39 @@ function ProvisionsApp({ scrollRootRef }) {
                     </button>
                   </>
                 )}
+              </div>
+            )}
+
+            {/* Asks (SPEC_ask_slice4 S4-1): one row per live ask — "Ask {Label}" (.op-name), the style
+                word, "pick {n}", the tile count or the grown-up's note (S4-5). A row opens the edit
+                sheet (Manage closes first). "+ New shelf" sits at the end. The rows are text, so the
+                replay rules apply; no label ever sits in an <option> or an aria-label. */}
+            {isSignedIn && household?.id && (
+              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+                <span className="modal-label" id="manage-asks">Asks</span>
+                {asks.length === 0 && (
+                  <p className="picker-sub" style={{ margin: "0 0 8px" }}>A shelf of things someone can pick for the list. They don't need an account.</p>
+                )}
+                <div role="list" aria-labelledby="manage-asks">
+                  {asks.map(a => { const row = manageRow(a); return (
+                    <button key={row.id} type="button" role="listitem" onClick={() => openEditAsk(row.id)}
+                      aria-label="Edit this ask"
+                      style={{
+                        display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", width: "100%", textAlign: "left",
+                        padding: "10px 4px", border: "none", borderBottom: "1px solid #F0E4D2", background: "transparent",
+                        fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer",
+                      }}>
+                      <span style={{ fontSize: "0.95rem", fontWeight: 700 }}>Ask <span className="op-name">{row.label}</span></span>
+                      <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>
+                        {row.style} · {row.pick} · {row.shelf}{row.short ? " · Edit" : ""}
+                      </span>
+                    </button>
+                  ); })}
+                </div>
+                <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }}
+                  onClick={() => { setShowManageCategoriesModal(false); setNewShelfOpen(true); }}>
+                  <span className="cat-em">+</span>New shelf
+                </button>
               </div>
             )}
 
