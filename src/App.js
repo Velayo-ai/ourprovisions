@@ -10023,7 +10023,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
         /* Add-item picker — same pill, wrapped and exhaustive. Never scrolls. */
         .cat-grid { display: flex; flex-wrap: wrap; gap: 9px; }
-        .cat-pill-new { background: transparent; border-style: dashed; }
+        /* "+ New shelf" / "+ New category" (Dan 2026-11-10): a solid clay border, the label and + one step
+           darker; same size and placement as any pill. */
+        .cat-pill-new { background: transparent; border: 1px solid #8A5F3A; color: #6E4A2A; }
         .picker-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 12px; }
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
