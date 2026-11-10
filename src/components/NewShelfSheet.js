@@ -23,8 +23,8 @@ import {
 // come with the rows, so a tile this person hid in Browse still shows as a chip; the catalog list
 // below is still this person's Browse, so such a tile can be taken off but not put back). Save
 // calls onUpdate(draft) → update_ask (083), the whole form, last write wins; the codes and copy
-// are create's. The ask's own name is never a duplicate of itself. Delete sits at the bottom,
-// destructive, behind a confirmation; a yes calls onDelete() (a soft delete) and closes.
+// are create's. The ask's own name is never a duplicate of itself. Delete is not here: it lives on
+// the ask's row in Manage categories & asks (Dan, 2026-11-10).
 //
 // THE SHELF IS A TILE GRID (Dan, 2026-11-10): the shelf's items in shelf order, three across on a
 // phone (~96 px), each the item's household thumb, else a dashed box with a muted camera; the name
@@ -56,10 +56,10 @@ import {
 // both RUM pipelines exclude in every environment. The failure copy is ours, never the server's
 // (create_ask's message names the label).
 // edit: null for + New shelf, else { id, label, shelfNoun, pickTarget, screenStyle, tiles: [{ id, name }] }
-// (the live tiles, in shelf order). onUpdate(draft) and onDelete() resolve to { ok } or { ok: false, code }.
+// (the live tiles, in shelf order). onUpdate(draft) resolves to { ok } or { ok: false, code }.
 // photoIds: the catalog item ids with a live household photo; photoUrl(id) → the signed thumb, or null
 // while it is still being minted; onPhoto(itemId, file) → { ok, reason }.
-export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null }) {
+export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null }) {
   const [label, setLabel] = useState(editing ? editing.label : "");
   const [noun, setNoun] = useState(editing ? editing.shelfNoun || "" : "");
   const [target, setTarget] = useState(editing ? editing.pickTarget : ASK_TARGET_DEFAULT);
@@ -69,7 +69,6 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState(null);
   const [serverDup, setServerDup] = useState(null);   // the name create_ask refused with 23505
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [photoFor, setPhotoFor] = useState(null);       // the tile the chooser is open for
   const [photoBusy, setPhotoBusy] = useState(null);
   const [photoFailed, setPhotoFailed] = useState(null);  // "decode" | "upload" | "save"
@@ -141,17 +140,6 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
     if (result?.code === "23505") setServerDup(label.trim());
     else setFailure(f);
     bringIntoView(f.field);
-  };
-
-  const remove = async () => {
-    if (saving) return;
-    setSaving(true);
-    setFailure(null);
-    const result = await onDelete();
-    if (result?.ok) { onClose(); return; }
-    setSaving(false);
-    setConfirmDelete(false);
-    setFailure({ message: "Couldn't delete the shelf. Check your connection and try again.", hasName: false, field: null });
   };
 
   const targets = [];
@@ -297,25 +285,6 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
           })}
         </div>
       </div>
-
-      {/* Delete (S4-2): at the bottom, destructive, behind a confirmation that says what stays. */}
-      {editing && (
-        <div className="modal-field" style={{ borderTop: "1px solid #F0E4D2", paddingTop: "14px" }}>
-          {!confirmDelete ? (
-            <button type="button" className="modal-remove" onClick={() => setConfirmDelete(true)} disabled={saving}>Delete</button>
-          ) : (
-            <div role="group" aria-label="Delete this ask">
-              <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.95rem", color: "#2C1A0E", margin: "0 0 10px" }}>
-                Delete Ask <span className="op-name">{editing.label}</span>? Anything <span className="op-name">{editing.label}</span> already picked stays on the list.
-              </p>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button type="button" className="modal-cancel" onClick={() => setConfirmDelete(false)} disabled={saving}>Keep it</button>
-                <button type="button" className="modal-remove" onClick={remove} disabled={saving}>{saving ? "Deleting…" : "Delete"}</button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* The sticky footer (.modal-actions): its message line sits above the buttons, so it is
           always on screen. */}

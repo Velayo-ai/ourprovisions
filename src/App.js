@@ -6867,6 +6867,23 @@ function ProvisionsApp({ scrollRootRef }) {
   // the sheet would open under it (Step 0 #2). An ask that is gone (deleted elsewhere) closes it.
   const [editAskId, setEditAskId] = useState(null);
   const openEditAsk = (askId) => { setShowManageCategoriesModal(false); setEditAskId(askId); };
+  // Delete Ask {Label} (S4-2; Dan 2026-11-10): the trash on the ask's Manage row opens a centred
+  // confirmation over Manage; a yes is the plain soft delete, and the ask leaves the rail, Manage
+  // and any selected pill.
+  const [deleteAskId, setDeleteAskId] = useState(null);
+  const [deleteAskBusy, setDeleteAskBusy] = useState(false);
+  const [deleteAskFailed, setDeleteAskFailed] = useState(false);
+  const confirmDeleteAsk = async () => {
+    if (!deleteAskId || deleteAskBusy) return;
+    setDeleteAskBusy(true);
+    setDeleteAskFailed(false);
+    const r = await deleteAsk(deleteAskId);
+    setDeleteAskBusy(false);
+    if (!r?.ok) { setDeleteAskFailed(true); return; }
+    const gone = deleteAskId;
+    setDeleteAskId(null);
+    setSelectedAsks(prev => { if (!prev.has(gone)) return prev; const n = new Set(prev); n.delete(gone); return n; });
+  };
   useEffect(() => {
     if (editAskId && !asks.some(a => a.id === editAskId)) setEditAskId(null);
   }, [asks, editAskId]);
@@ -6878,7 +6895,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const [runAskId, setRunAskId] = useState(null);
   // "+N more" (C4.2): the asks past the rail's two pills, in a small sheet.
   const [moreAsksOpen, setMoreAsksOpen] = useState(false);
-  useEffect(() => { setNewShelfOpen(false); setEditAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
+  useEffect(() => { setNewShelfOpen(false); setEditAskId(null); setDeleteAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
   // A26 resume (SPEC_ask_slice3 S3-6). AskRun keeps op_ask_held current while it is up; any end of
   // the run (Done, Back to the list, a tab or household switch) clears it here. A reload with the
   // key held reopens the run ONCE, on its screen with its picks — after this place's asks and
@@ -12247,8 +12264,26 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       )}
 
-      {/* Edit Ask {Label} (SPEC_ask_slice4 S4-2): the same sheet in edit mode. Save → update_ask
-          (083); Delete → a soft delete, and the ask leaves any selected pill. */}
+      {/* Delete Ask {Label} (S4-2): a centred confirmation over Manage — rendered after it, so it sits
+          on top; short enough to show whole without scrolling. */}
+      {deleteAskId && (() => { const a = asks.find(x => x.id === deleteAskId); return a ? (
+        <div className="modal-overlay" onClick={() => { if (!deleteAskBusy) setDeleteAskId(null); }}>
+          <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-ask-title" onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "360px", margin: "auto" }}>
+            <h2 id="delete-ask-title">Delete Ask <span className="op-name">{a.label}</span>?</h2>
+            <p className="modal-subtitle">Anything <span className="op-name">{a.label}</span> already picked stays on the list.</p>
+            {deleteAskFailed && (
+              <div className="modal-error" role="alert" style={{ margin: "0 0 10px" }}>Couldn't delete the shelf. Check your connection and try again.</div>
+            )}
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setDeleteAskId(null)} disabled={deleteAskBusy}>Keep it</button>
+              <button className="modal-remove" onClick={confirmDeleteAsk} disabled={deleteAskBusy}>{deleteAskBusy ? "Deleting…" : "Delete"}</button>
+            </div>
+          </div>
+        </div>
+      ) : null; })()}
+
+      {/* Edit Ask {Label} (SPEC_ask_slice4 S4-2): the same sheet in edit mode. Save → update_ask (083). */}
       {editAsk && (
         <div className="modal-overlay" onClick={() => setEditAskId(null)}>
           <div className="modal" role="dialog" aria-modal="true" aria-label="Edit shelf" onClick={(e) => e.stopPropagation()}
@@ -12267,11 +12302,6 @@ function ProvisionsApp({ scrollRootRef }) {
                 if (r?.ok) showToast(outcome === "grown"
                   ? <><span className="op-name">{draft.label.trim()}</span>'s ready for more.</>
                   : "Saved.");
-                return r;
-              }}
-              onDelete={async () => {
-                const r = await deleteAsk(editAsk.id);
-                if (r?.ok) setSelectedAsks(prev => { if (!prev.has(editAsk.id)) return prev; const n = new Set(prev); n.delete(editAsk.id); return n; });
                 return r;
               }}
               onClose={() => setEditAskId(null)}
@@ -12555,18 +12585,26 @@ function ProvisionsApp({ scrollRootRef }) {
                 )}
                 <div role="list" aria-labelledby="manage-asks">
                   {asks.map(a => { const row = manageRow(a); return (
-                    <button key={row.id} type="button" role="listitem" onClick={() => openEditAsk(row.id)}
-                      aria-label="Edit this ask"
-                      style={{
-                        display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", width: "100%", textAlign: "left",
-                        padding: "10px 4px", border: "none", borderBottom: "1px solid #F0E4D2", background: "transparent",
-                        fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer",
-                      }}>
-                      <span style={{ fontSize: "0.95rem", fontWeight: 700 }}>Ask <span className="op-name">{row.label}</span></span>
-                      <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>
-                        {row.style} · {row.pick} · {row.shelf}{row.short ? " · Edit" : ""}
-                      </span>
-                    </button>
+                    <div key={row.id} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
+                      <button type="button" onClick={() => openEditAsk(row.id)} aria-label="Edit this ask"
+                        style={{
+                          flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
+                          padding: "10px 4px", border: "none", background: "transparent",
+                          fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer",
+                        }}>
+                        <span style={{ fontSize: "0.95rem", fontWeight: 700 }}>Ask <span className="op-name">{row.label}</span></span>
+                        <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>
+                          {row.style} · {row.pick} · {row.shelf}{row.short ? " · Edit" : ""}
+                        </span>
+                      </button>
+                      {/* The trash (Dan 2026-11-10): a 44 px target at the row's right end. */}
+                      <button type="button" aria-label="Delete this ask" onClick={() => { setDeleteAskFailed(false); setDeleteAskId(row.id); }}
+                        style={{ flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                        </svg>
+                      </button>
+                    </div>
                   ); })}
                 </div>
                 <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }}

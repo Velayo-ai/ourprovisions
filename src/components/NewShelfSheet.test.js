@@ -292,16 +292,16 @@ describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
 });
 
 // Edit (SPEC_ask_slice4 S4-2): the same sheet, prefilled from the ask's live shelf rows; Save →
-// onUpdate; Delete behind a confirmation → onDelete. The ask's own name is no duplicate.
+// onUpdate. The ask's own name is no duplicate. Delete is not here (it is the Manage row's).
 describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
   const EVERETT = { id: "a-2", label: "Everett", pickTarget: 1, itemIds: [] };
   const EDIT = { id: "a-1", label: "Easton", shelfNoun: "snacks", pickTarget: 2, screenStyle: "simple",
     tiles: [{ id: "i-yogurt", name: "Yogurt" }, { id: "i-hidden", name: "Hidden thing" }, { id: "i-apples", name: "Apples" }] };
-  function setupEdit({ onUpdate = jest.fn(async () => ({ ok: true })), onDelete = jest.fn(async () => ({ ok: true })), asks = [EASTON, EVERETT], edit = EDIT } = {}) {
+  function setupEdit({ onUpdate = jest.fn(async () => ({ ok: true })), asks = [EASTON, EVERETT], edit = EDIT } = {}) {
     const onClose = jest.fn();
     const onCreate = jest.fn();
-    render(<NewShelfSheet catalogItems={ITEMS} asks={asks} edit={edit} onCreate={onCreate} onUpdate={onUpdate} onDelete={onDelete} onClose={onClose} closeButton={null} />);
-    return { onUpdate, onDelete, onClose, onCreate };
+    render(<NewShelfSheet catalogItems={ITEMS} asks={asks} edit={edit} onCreate={onCreate} onUpdate={onUpdate} onClose={onClose} closeButton={null} />);
+    return { onUpdate, onClose, onCreate };
   }
   // The shelf's tiles, in order, by the name under each.
   const chips = () => screen.getAllByRole("listitem").map((li) => li.querySelector(".shelf-tile-name").textContent);
@@ -361,41 +361,16 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
     expect(save()).toBeDisabled();
   });
 
-  test("Delete: at the bottom, behind a confirmation naming what stays (the name in .op-name); Keep it backs out; Delete calls onDelete and closes", async () => {
-    const { onDelete, onUpdate, onClose } = setupEdit();
-    expect(screen.queryByRole("group", { name: "Delete this ask" })).toBeNull();
-    const del = screen.getByRole("button", { name: "Delete" });
-    expect(del).toHaveClass("modal-remove");
-    expect(del.compareDocumentPosition(save()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // above the footer only
-    fireEvent.click(del);
-    const confirm = screen.getByRole("group", { name: "Delete this ask" });
-    expect(confirm).toHaveTextContent("Delete Ask Easton? Anything Easton already picked stays on the list.");
-    expect([...confirm.querySelectorAll(".op-name")].map((n) => n.textContent)).toEqual(["Easton", "Easton"]);
-    fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
-    expect(screen.queryByRole("group", { name: "Delete this ask" })).toBeNull();
-    expect(onDelete).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(onDelete).toHaveBeenCalledTimes(1);
-    expect(onUpdate).not.toHaveBeenCalled();
+  test("no Delete in the sheet, in either mode (it is the Manage row's)", () => {
+    setupEdit();
+    expect(screen.queryByRole("button", { name: /Delete/ })).toBeNull();
+    expect(screen.queryByText(/already picked stays on the list/)).toBeNull();
   });
 
-  test("a failed delete says so in the footer and leaves the sheet open", async () => {
-    const { onClose } = setupEdit({ onDelete: jest.fn(async () => ({ ok: false, code: null })) });
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Couldn't delete the shelf.");
-    expect(footerOf(alert)).not.toBeNull();
-    expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Delete" })).toBeEnabled();
-  });
-
-  test("create mode is unchanged: no Delete, the New shelf title", () => {
+  test("create mode is unchanged: the New shelf title, no Delete", () => {
     setup();
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("New shelf");
-    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Delete/ })).toBeNull();
   });
 });
 
