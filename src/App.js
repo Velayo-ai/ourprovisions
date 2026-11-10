@@ -48,7 +48,7 @@ import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStore
 import { nextInsetTop } from './lib/standaloneInset';
 import { swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool, joinPickLabels } from './lib/askPicks';
 import { ASK_GLYPH, readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
-import { heldAskRead, loadHeldAsk, storeHeldAsk } from './lib/askRun';
+import { heldAskRead, loadHeldAsk, storeHeldAsk, liveTiles } from './lib/askRun';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
 import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
@@ -7076,21 +7076,15 @@ function ProvisionsApp({ scrollRootRef }) {
   // The household's picker names for the tray's initials (C4.3): live asks' labels ∪ every
   // picked_by_labels on the loaded rows. Display only; recomputed as asks or rows change.
   const pickPool = useMemo(() => pickLabelPool(asks.map(a => a.label), listRows), [asks, listRows]);
-  const askIndex = useMemo(() => ({
-    catalogById: new Map(Object.values(catalogMap).map(i => [i.id, i])),
-    rawCategoryByName: new Map(categories.flatMap(cat => cat.items.map(i => [i.name, cat.rawName]))),
-  }), [catalogMap, categories]);
-  const askBlocksShown = useMemo(
-    () => askBlocks(asks, selectedAsks, askIndex.catalogById, askIndex.rawCategoryByName),
-    [asks, selectedAsks, askIndex]);
-  // The ask being run (C3b): its tiles are the same ones its Browse block shows, in shelf order,
-  // each with its aisle's glyph until it has a photo.
+  // The aisle each Browse item is filed under, for an ask block's prices (D-c). The tiles themselves
+  // come from the shelf rows (S4-9, liveTiles), never from this list.
+  const rawCategoryByName = useMemo(
+    () => new Map(categories.flatMap(cat => cat.items.map(i => [i.name, cat.rawName]))), [categories]);
+  const askBlocksShown = useMemo(() => askBlocks(asks, selectedAsks, rawCategoryByName), [asks, selectedAsks, rawCategoryByName]);
+  // The ask being run (C3b): its LIVE tiles, in shelf order (the same ones its Browse block shows),
+  // and the effective target (S4-5). A run never opens with 0 live tiles.
   const runAsk = runAskId ? asks.find(a => a.id === runAskId) || null : null;
-  const runItems = useMemo(() => {
-    if (!runAsk) return [];
-    const [block] = askBlocks([runAsk], new Set([runAsk.id]), askIndex.catalogById, askIndex.rawCategoryByName);
-    return block ? block.items : [];
-  }, [runAsk, askIndex]);
+  const runLive = useMemo(() => (runAsk ? liveTiles(runAsk) : []), [runAsk]);
 
   // Shelf photos (C3b.2, A23): one per household item, signed only for the tiles on screen — the
   // selected asks' strips in Browse and the run's tiles. Thumbnails only (≈480 px covers a tile);
@@ -7099,9 +7093,9 @@ function ProvisionsApp({ scrollRootRef }) {
   if (!itemPhotoUrlCacheRef.current) itemPhotoUrlCacheRef.current = createSignedUrlCache({ bucket: "item-photos" });
   const [itemPhotoUrls, setItemPhotoUrls] = useState({});
   const wantedItemPhotoPaths = useMemo(() => {
-    const ids = new Set([...askBlocksShown.flatMap(b => b.items.map(i => i.id)), ...runItems.map(i => i.id)]);
+    const ids = new Set([...askBlocksShown.flatMap(b => b.items.map(i => i.id)), ...runLive.map(i => i.id)]);
     return [...ids].map(id => itemPhotos[id]?.thumbPath).filter(Boolean);
-  }, [askBlocksShown, runItems, itemPhotos]);
+  }, [askBlocksShown, runLive, itemPhotos]);
   useEffect(() => {
     if (wantedItemPhotoPaths.length === 0) return undefined;
     let cancelled = false;
@@ -7116,13 +7110,13 @@ function ProvisionsApp({ scrollRootRef }) {
     return p ? itemPhotoUrls[p.thumbPath] || null : null;
   }, [itemPhotos, itemPhotoUrls]);
 
-  // A tile's glyph is the ITEM's own, when the catalog has one (C3b.1, Dan 2026-11-07) — never the
-  // aisle's (Bananas is not 🥦). The catalog carries none today, so a tile without a photo is a
-  // plain name tile; tileFace (src/lib/askRun.js) decides.
-  const itemGlyph = useCallback((id) => askIndex.catalogById.get(id)?.glyph || null, [askIndex]);
-  const runTiles = useMemo(() => runItems.map(item => ({
+  // A tile's glyph would be the ITEM's own, when the catalog has one (C3b.1, Dan 2026-11-07) — never
+  // the aisle's (Bananas is not 🥦). catalog_items carries no glyph column, so a tile without a
+  // photo is a plain name tile; tileFace (src/lib/askRun.js) decides.
+  const itemGlyph = useCallback(() => null, []);
+  const runTiles = useMemo(() => runLive.map(item => ({
     id: item.id, name: item.name, glyph: itemGlyph(item.id), photoUrl: itemPhotoUrl(item.id),
-  })), [runItems, itemPhotoUrl, itemGlyph]);
+  })), [runLive, itemPhotoUrl, itemGlyph]);
 
   // Only categories that survive Layer 1 count as active — a selection that has
   // gone stale (category deleted here or on another device) must not name every
@@ -8398,8 +8392,9 @@ function ProvisionsApp({ scrollRootRef }) {
   };
 
   // An ask's section in Browse (SPEC_ask_slice2 C3, D-b / D-c / D-d): its own block, keyed by the
-  // ask's id, tiles in the shelf's order, each priced from its own aisle (item.rawCategory, never
-  // the ask). The header names the ask with the name in .op-name (K3) and has no "＋ New item"
+  // ask's id, the LIVE tiles in the shelf's order (S4-9: a tile this person hid is still here — the
+  // shelf is the household's; Hide on such a row is a no-op), each priced from its own aisle
+  // (item.rawCategory, never the ask). The header names the ask with the name in .op-name (K3) and has no "＋ New item"
   // (D-d) — that spot is the hand-over's, which arrives with the run screens (C3b). The rows are
   // Browse's own: Hide, Edit, Staple and the stepper behave as in any section, and an ordinary add
   // from here carries no label (11-04 ruling).
@@ -8410,16 +8405,19 @@ function ProvisionsApp({ scrollRootRef }) {
           <span aria-hidden="true">{ASK_GLYPH}</span> Ask <span className="op-name">{block.label}</span>
         </div>
         {/* The hand-over (C3b): opens the run on "Your turn, {Label}!". Only a hand-over writes
-            "Picked by" (11-04 ruling). */}
-        <button
-          className="ask-handover"
-          onClick={() => { recordAskHandover(household?.id, block.id); setRunAskId(block.id); }}
-          style={{
-            background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-            fontSize: "12.5px", color: "#0A776D", fontWeight: 700, cursor: "pointer",
-            letterSpacing: "0.5px", padding: "0",
-          }}
-        >Hand it to <span className="op-name">{block.label}</span> →</button>
+            "Picked by" (11-04 ruling). A shelf with no live tile can't run (S4-5), so there is no
+            hand-over to offer. */}
+        {block.items.length > 0 && (
+          <button
+            className="ask-handover"
+            onClick={() => { recordAskHandover(household?.id, block.id); setRunAskId(block.id); }}
+            style={{
+              background: "none", border: "none", fontFamily: "'Lato', sans-serif",
+              fontSize: "12.5px", color: "#0A776D", fontWeight: 700, cursor: "pointer",
+              letterSpacing: "0.5px", padding: "0",
+            }}
+          >Hand it to <span className="op-name">{block.label}</span> →</button>
+        )}
       </div>
       {/* Shelf photos (C3b.2): what the tiles show on the run. */}
       {block.items.length > 0 && (
@@ -8433,7 +8431,7 @@ function ProvisionsApp({ scrollRootRef }) {
       )}
       <div className="items-grid">
         {block.items.length === 0 ? (
-          <div className="declutter-desc" style={{ margin: "4px 0 0" }}>Nothing on this shelf is in your Browse right now.</div>
+          <div className="declutter-desc" style={{ margin: "4px 0 0" }}>Nothing on this shelf yet.</div>
         ) : block.items.map((item) => {
           const qty = qtyFor(item);
           const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
@@ -12168,7 +12166,7 @@ function ProvisionsApp({ scrollRootRef }) {
 
       {/* Running an Ask (SPEC_ask_slice2 C3b) — full screen over the app. onLand throws unless
           land_ask_picks landed, so the wagon stays held for another That's it!. */}
-      {runAsk && (
+      {runAsk && runLive.length > 0 && (
         <AskRun
           key={runAsk.id}
           ask={runAsk}

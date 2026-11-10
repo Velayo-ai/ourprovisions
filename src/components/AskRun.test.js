@@ -112,10 +112,21 @@ test("after the confirm, Done and Back to the list both just leave", async () =>
   await waitFor(() => expect(onExit).toHaveBeenCalledTimes(2));
 });
 
-test("a shelf with fewer tiles than the target says so and does not start", () => {
-  setup({ tiles: TILES.slice(0, 2) });
-  expect(screen.getByText(/fewer things on it than there are to pick/)).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Let's pick" })).toBeNull();
+// S4-5: a short shelf runs at the effective target, end to end; no grown-up screen for the child.
+test("a shelf with fewer tiles than the target runs at the tiles it has: Pick 2, two dots, two land", async () => {
+  const { onLand } = setup({ tiles: TILES.slice(0, 2) });
+  expect(screen.getByText("Pick 2 snacks for our list.")).toBeInTheDocument();
+  expect(screen.queryByText(/fewer things/)).toBeNull();
+  toShelf();
+  expect(screen.getByRole("heading")).toHaveTextContent("Pick 2, Easton!");
+  expect(screen.getByLabelText("0 of 2 picked")).toBeInTheDocument();
+  fireEvent.click(tile("Goldfish"));
+  expect(thatsIt()).toBeDisabled();
+  fireEvent.click(tile("Apples"));
+  expect(thatsIt()).toBeEnabled();
+  fireEvent.click(thatsIt());
+  await screen.findByText("I've added these to our list.");
+  expect(onLand).toHaveBeenCalledWith(["c-0", "c-1"]);
 });
 
 // C3b.1 (Dan, 2026-11-07): with no photo, a tile shows the ITEM's own glyph if the catalog has one,

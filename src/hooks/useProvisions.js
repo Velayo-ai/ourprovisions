@@ -1387,7 +1387,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // ─────────────────────────────────────────────────────────────
   // ASKS (078 create_ask; SPEC_ask_slice2 C2). fetchAsks reads the household's live asks and their
   // shelves by household id ONLY — never filtered by label: the span scrub keeps a Supabase REST
-  // query in http.url, so a label in a filter would reach a span. createAsk is one RPC (the ask and
+  // query in http.url, so a label in a filter would reach a span. Each shelf row embeds its catalog
+  // item (S4-9): the tiles are decided from the shelf, never from Browse's list, so a tile this
+  // person hid is still a tile, and a deleted one is seen as deleted (catalog_items_select lets a
+  // member read their own deleted rows; liveTiles filters). createAsk is one RPC (the ask and
   // its shelf in one transaction) with a caller-supplied id, so a retry returns the same ask.
   // Failures resolve to { ok: false, code } and log the code alone: create_ask's messages name the
   // label (rules + copy in src/lib/askCreate.js).
@@ -1400,7 +1403,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hhId = hh.id;
     const { data, error: err } = await db
       .from("asks")
-      .select("id, label, shelf_noun, screen_style, pick_target, created_at, ask_shelf_items(catalog_item_id, position)")
+      .select("id, household_id, label, shelf_noun, screen_style, pick_target, created_at, ask_shelf_items(catalog_item_id, position, catalog_items(name, category, is_global, household_id, deleted_at))")
       .eq("household_id", hhId)
       .is("deleted_at", null);
     if (householdRef.current?.id !== hhId) return null;   // switched mid-read: not this place's asks

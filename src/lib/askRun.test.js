@@ -1,4 +1,4 @@
-import { tapTile, takeOut, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, heldAskWrite, heldAskRead } from "./askRun";
+import { tapTile, takeOut, canConfirm, shelfTitlePrefix, liveTiles, effectiveTarget, tileFace, heldAskWrite, heldAskRead } from "./askRun";
 
 describe("tapTile — A16", () => {
   test("adds in tap order until the target", () => {
@@ -44,14 +44,34 @@ test("tileFace — the photo, else the item's own glyph, else a plain name tile;
   expect(tileFace({})).toBe("name");
 });
 
-test("shelfCanRun — at least as many tiles as the target", () => {
-  expect(shelfCanRun([1, 2, 3], 3)).toBe(true);
-  expect(shelfCanRun([1, 2], 3)).toBe(false);
-  expect(shelfCanRun(null, 1)).toBe(false);
+// S4-9: the live-tile rule, the one 083 computes. The shelf's rows decide, never Browse's list.
+const row = (id, item) => ({ id, item });
+const live = (name, extra = {}) => ({ name, category: "Snacks", isGlobal: true, householdId: null, deletedAt: null, ...extra });
+describe("liveTiles / effectiveTarget — S4-9, S4-5", () => {
+  const ask = { id: "a", householdId: "hh", pickTarget: 3, shelf: [
+    row("c-1", live("Apples")),
+    row("c-2", live("Ours", { isGlobal: false, householdId: "hh" })),
+    row("c-3", live("Gone", { isGlobal: false, householdId: "hh", deletedAt: "2026-11-10T00:00:00Z" })),
+    row("c-4", live("Theirs", { isGlobal: false, householdId: "other" })),
+    row("c-5", null),
+  ] };
+  test("live = not deleted, and global or this household's own; in shelf order; a hidden tile is still a tile", () => {
+    expect(liveTiles(ask)).toEqual([{ id: "c-1", name: "Apples", category: "Snacks" }, { id: "c-2", name: "Ours", category: "Snacks" }]);
+    expect(liveTiles({ id: "x", householdId: "hh", shelf: [] })).toEqual([]);
+    expect(liveTiles(null)).toEqual([]);
+  });
+  test("short (2 of 3) → 2; exact → the target; 0 live → 0", () => {
+    expect(effectiveTarget(ask, liveTiles(ask))).toBe(2);
+    expect(effectiveTarget({ pickTarget: 2 }, [{ id: "c-1" }, { id: "c-2" }])).toBe(2);
+    expect(effectiveTarget({ pickTarget: 1 }, [{ id: "c-1" }, { id: "c-2" }])).toBe(1);
+    expect(effectiveTarget({ pickTarget: 3 }, [])).toBe(0);
+    expect(effectiveTarget(null, null)).toBe(0);
+  });
 });
 
 describe("heldAskWrite / heldAskRead — A26 resume (SPEC_ask_slice3 S3-6)", () => {
-  const ASKS = [{ id: "a-easton", label: "Easton", pickTarget: 3, itemIds: ["c-1", "c-2", "c-3", "c-4"] }];
+  const ASKS = [{ id: "a-easton", label: "Easton", householdId: "hh", pickTarget: 3,
+    shelf: ["c-1", "c-2", "c-3", "c-4"].map((id) => row(id, live(id))) }];
   const held = (v) => JSON.stringify(v);
   test("the value holds the ask id, the screen and the ids — nothing else", () => {
     const v = JSON.parse(heldAskWrite("a-easton", "shelf", ["c-2", "c-1"]));
@@ -75,6 +95,12 @@ describe("heldAskWrite / heldAskRead — A26 resume (SPEC_ask_slice3 S3-6)", () 
     expect(heldAskRead(held({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: ["c-1", "c-1", "c-2"] }), ASKS).ids).toEqual(["c-1", "c-2"]);
     expect(heldAskRead(held({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: ["c-1", "c-2", "c-3", "c-4"] }), ASKS).ids).toEqual(["c-1", "c-2", "c-3"]);
     expect(heldAskRead(held({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: "c-1" }), ASKS).ids).toEqual([]);
+  });
+  test("the picks are filtered to the LIVE tiles and capped at the effective target; a shelf with nothing live is nothing to resume", () => {
+    const short = [{ ...ASKS[0], shelf: [row("c-1", live("A")), row("c-2", live("B")), row("c-3", live("C", { deletedAt: "2026-11-10T00:00:00Z" }))] }];
+    expect(heldAskRead(held({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: ["c-3", "c-1", "c-2"] }), short).ids).toEqual(["c-1", "c-2"]);
+    const dead = [{ ...ASKS[0], shelf: [row("c-1", null)] }];
+    expect(heldAskRead(held({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: [] }), dead)).toBeNull();
   });
   test("an unknown screen reads as the hand-over", () => {
     expect(heldAskRead(held({ ask_id: "a-easton", screen: "done", catalog_item_ids: [] }), ASKS).screen).toBe("turn");

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { pickLine } from "../lib/askCreate";
-import { tapTile, takeOut, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
+import { tapTile, takeOut, canConfirm, shelfTitlePrefix, effectiveTarget, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
 
 // Running an Ask (SPEC_ask amendment A13–A17, A24; SPEC_ask_slice2 C3b). Three screens, full
 // screen over the app: (1) "Your turn, {Label}!" — the hand-over, the wagon on the water at
@@ -21,6 +21,12 @@ import { tapTile, takeOut, canConfirm, shelfTitlePrefix, shelfCanRun, tileFace, 
 // names (off; a plain tile keeps its name, else it would be blank; aria-label carries it), and the
 // child's two buttons (Let's pick → ▶, That's it! → ✓; the words stay as aria-label). The
 // grown-up's controls (Done, Back to the list), the titles and Great picks stay words on both.
+//
+// A SHORT SHELF RUNS (SPEC_ask_slice4 S4-5): the target is the EFFECTIVE one, least(pick_target,
+// live tiles) — "Pick 2, Everett!" on a 2-tile shelf with target 3 — on Your turn, the title, the
+// dots and That's it! alike; land_ask_picks (083) accepts exactly that count. The child never
+// meets a grown-up screen: a missing tile is the grown-up's business, said in Browse and Manage.
+// The caller never opens a run with 0 live tiles.
 //
 // RESUME (A26 as amended by S3-6): while the hand-over or the shelf is up, every change of screen
 // or picks rewrites op_ask_held ({ask_id, screen, ids}); Great picks clears it, because the picks
@@ -129,12 +135,12 @@ function HoldDone({ onDone }) {
 // The shelf screen's title and the other two screens' names: the name always in .op-name.
 const Name = ({ children }) => <span className="op-name">{children}</span>;
 
-// ask: { id, label, shelfNoun, pickTarget, screenStyle }. tiles: [{ id, name, glyph, photoUrl }] in shelf order; glyph is the
-// ITEM's own (null when the catalog has none), never the aisle's.
+// ask: { id, label, shelfNoun, pickTarget, screenStyle }. tiles: the LIVE tiles [{ id, name, glyph,
+// photoUrl }] in shelf order; glyph is the ITEM's own (null when the catalog has none), never the aisle's.
 // onLand(ids) resolves when the picks are on the list and throws when they are not.
 // resume: { screen, ids } from op_ask_held after a reload (heldAskRead has checked it), else null.
 export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
-  const target = ask.pickTarget;
+  const target = effectiveTarget(ask, tiles);
   const simple = ask.screenStyle === "simple";
   const [screen, setScreen] = useState(() => resume?.screen || "turn");     // turn | shelf | done
   const [picks, setPicks] = useState(() => resume?.ids || []);
@@ -144,7 +150,6 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
   const [failed, setFailed] = useState(false);
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const inWagon = picks.map((id) => byId.get(id)).filter(Boolean);
-  const runnable = shelfCanRun(tiles, target);
   const one = picks.length === 1;   // Great picks reads singular when exactly one landed
 
   useEffect(() => {
@@ -208,22 +213,18 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
           <div className="ask-turn-body">
             <h1 className="ask-h1">Your turn,{" "}<br /><Name>{ask.label}</Name>!</h1>
             <div className="ask-rule" aria-hidden="true" />
-            {runnable
-              ? <p className="ask-line">{pickLine(target, ask.shelfNoun)}</p>
-              : <p className="ask-line">This shelf has fewer things on it than there are to pick. A grown-up can fix it in Browse.</p>}
+            <p className="ask-line">{pickLine(target, ask.shelfNoun)}</p>
           </div>
           <div className="ask-turn-wagon"><Wagon picks={[]} /></div>
-          {runnable && (
-            <div className="ask-foot">
-              {simple ? (
-                <button type="button" className="ask-primary ask-icon ask-go" aria-label="Let's pick" onClick={() => setScreen("shelf")}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L18.8 12z" fill="currentColor" /></svg>
-                </button>
-              ) : (
-                <button type="button" className="ask-primary" onClick={() => setScreen("shelf")}>Let's pick</button>
-              )}
-            </div>
-          )}
+          <div className="ask-foot">
+            {simple ? (
+              <button type="button" className="ask-primary ask-icon ask-go" aria-label="Let's pick" onClick={() => setScreen("shelf")}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.2v13.6L18.8 12z" fill="currentColor" /></svg>
+              </button>
+            ) : (
+              <button type="button" className="ask-primary" onClick={() => setScreen("shelf")}>Let's pick</button>
+            )}
+          </div>
         </div>
       )}
 

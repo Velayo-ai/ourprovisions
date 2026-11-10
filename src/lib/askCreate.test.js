@@ -103,15 +103,23 @@ describe("findDuplicateAsk — K2 as the name is typed", () => {
 });
 
 describe("shapeAsks — the asks read", () => {
-  test("oldest first; each shelf in position order; missing fields are safe", () => {
+  test("oldest first; each shelf in position order with its catalog item (S4-9); missing fields are safe", () => {
     const rows = [
-      { id: "b", label: "Everett", shelf_noun: null, screen_style: "standard", pick_target: 1, created_at: "2026-11-07T10:00:00Z",
-        ask_shelf_items: [{ catalog_item_id: "y", position: 1 }, { catalog_item_id: "x", position: 0 }] },
+      { id: "b", household_id: "hh", label: "Everett", shelf_noun: null, screen_style: "standard", pick_target: 1, created_at: "2026-11-07T10:00:00Z",
+        ask_shelf_items: [
+          { catalog_item_id: "y", position: 1, catalog_items: { name: "Yogurt", category: "Dairy", is_global: false, household_id: "hh", deleted_at: "2026-11-10T00:00:00Z" } },
+          { catalog_item_id: "x", position: 0, catalog_items: { name: "Apples", category: "Produce", is_global: true, household_id: null, deleted_at: null } },
+          { catalog_item_id: "z", position: 2 },
+        ] },
       { id: "a", label: "Easton", shelf_noun: "snacks", screen_style: "standard", pick_target: 3, created_at: "2026-11-06T10:00:00Z" },
     ];
     expect(shapeAsks(rows)).toEqual([
-      { id: "a", label: "Easton", shelfNoun: "snacks", screenStyle: "standard", pickTarget: 3, createdAt: "2026-11-06T10:00:00Z", itemIds: [] },
-      { id: "b", label: "Everett", shelfNoun: null, screenStyle: "standard", pickTarget: 1, createdAt: "2026-11-07T10:00:00Z", itemIds: ["x", "y"] },
+      { id: "a", householdId: null, label: "Easton", shelfNoun: "snacks", screenStyle: "standard", pickTarget: 3, createdAt: "2026-11-06T10:00:00Z", itemIds: [], shelf: [] },
+      { id: "b", householdId: "hh", label: "Everett", shelfNoun: null, screenStyle: "standard", pickTarget: 1, createdAt: "2026-11-07T10:00:00Z", itemIds: ["x", "y", "z"], shelf: [
+        { id: "x", item: { name: "Apples", category: "Produce", isGlobal: true, householdId: null, deletedAt: null } },
+        { id: "y", item: { name: "Yogurt", category: "Dairy", isGlobal: false, householdId: "hh", deletedAt: "2026-11-10T00:00:00Z" } },
+        { id: "z", item: null },
+      ] },
     ]);
     expect(shapeAsks(null)).toEqual([]);
   });

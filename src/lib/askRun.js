@@ -39,11 +39,22 @@ export function tileFace({ photoUrl, glyph }) {
   return "name";
 }
 
-// Whether this shelf can be run today: it needs at least as many tiles as the target. A
-// catalog-item delete can shrink a shelf under its target (the spec's WATCH item), and a tile
-// hidden from this person's Browse is not offered; the run screen says so instead of starting.
-export function shelfCanRun(tiles, target) {
-  return (tiles || []).length >= target;
+// THE LIVE-TILE RULE (SPEC_ask_slice4 S4-9; 083's create_ask / update_ask / land_ask_picks compute
+// the same): a shelf tile is live when its catalog item is not deleted and is global or this
+// household's own. One person's Hide never narrows a shelf — the shelf is the household's, so a
+// tile the runner hid in Browse is still offered. Every client site reads these two: the Browse
+// blocks, the run, the Browse header note, the Manage row and the edit prefill. A catalog-item
+// delete can still shrink a shelf (077's CASCADE); the run then lowers its target (S4-5).
+export function liveTiles(ask) {
+  return (ask?.shelf || [])
+    .filter((t) => t.item && t.item.deletedAt == null && (t.item.isGlobal || t.item.householdId === ask.householdId))
+    .map((t) => ({ id: t.id, name: t.item.name, category: t.item.category ?? null }));
+}
+
+// What the run asks for: the target, or the live tiles when there are fewer (S4-5). 0 = the ask
+// can't run today; nothing offers it.
+export function effectiveTarget(ask, tiles) {
+  return Math.max(0, Math.min(ask?.pickTarget || 0, (tiles || []).length));
 }
 
 // A26 resume (SPEC_ask_slice3 S3-6). iOS can discard a backgrounded page and reload it in the same
@@ -57,21 +68,25 @@ export function heldAskWrite(askId, screen, ids) {
   return JSON.stringify({ ask_id: askId, screen: screen === "shelf" ? "shelf" : "turn", catalog_item_ids: [...(ids || [])] });
 }
 
-// The held run → { askId, screen, ids }, or null when there is nothing to resume: a bad value, or
-// an ask that isn't one of liveAsks (this place's, loaded). The picks are filtered to ids still on
-// that ask's shelf, deduplicated and capped at its target; an unknown screen reads as "turn".
+// The held run → { askId, screen, ids }, or null when there is nothing to resume: a bad value, an
+// ask that isn't one of liveAsks (this place's, loaded), or one with no live tile (it can't run).
+// The picks are filtered to the ask's LIVE tiles, deduplicated and capped at the effective target;
+// an unknown screen reads as "turn".
 export function heldAskRead(raw, liveAsks) {
   let held;
   try { held = JSON.parse(raw); } catch (_e) { return null; }
   if (!held || typeof held !== "object" || typeof held.ask_id !== "string") return null;
   const ask = (liveAsks || []).find((a) => a.id === held.ask_id);
   if (!ask) return null;
-  const shelf = new Set(ask.itemIds || []);
+  const live = liveTiles(ask);
+  const target = effectiveTarget(ask, live);
+  if (target === 0) return null;
+  const shelf = new Set(live.map((t) => t.id));
   const ids = [];
   for (const id of Array.isArray(held.catalog_item_ids) ? held.catalog_item_ids : []) {
     if (shelf.has(id) && !ids.includes(id)) ids.push(id);
   }
-  return { askId: ask.id, screen: held.screen === "shelf" ? "shelf" : "turn", ids: ids.slice(0, ask.pickTarget) };
+  return { askId: ask.id, screen: held.screen === "shelf" ? "shelf" : "turn", ids: ids.slice(0, target) };
 }
 
 // The key's storage: the one impure pair here. Blocked storage (a private window) means no resume,

@@ -77,21 +77,39 @@ export function createAskFailure(code, { label, target, itemIds }) {
   return { message: "Couldn't save the shelf. Check your connection and try again.", hasName: false, field: null };
 }
 
-// The asks read (asks + embedded ask_shelf_items) → [{ id, label, shelfNoun, screenStyle,
-// pickTarget, createdAt, itemIds }], oldest first (the rail's order), each shelf in position order.
+// The asks read (asks + embedded ask_shelf_items, each with its catalog item) → [{ id, householdId,
+// label, shelfNoun, screenStyle, pickTarget, createdAt, itemIds, shelf }], oldest first (the rail's
+// order), each shelf in position order. `shelf` carries what the live-tile rule reads (S4-9,
+// liveTiles in src/lib/askRun.js): the tiles come from the shelf rows, never from Browse's list.
+// `itemIds` is every shelf id, live or not. A shelf row whose catalog item didn't come back
+// (`item: null`) is not live.
 export function shapeAsks(rows) {
   return (rows || [])
-    .map((r) => ({
-      id: r.id,
-      label: r.label,
-      shelfNoun: r.shelf_noun ?? null,
-      screenStyle: r.screen_style,
-      pickTarget: r.pick_target,
-      createdAt: r.created_at,
-      itemIds: [...(r.ask_shelf_items || [])]
+    .map((r) => {
+      const shelf = [...(r.ask_shelf_items || [])]
         .sort((a, b) => a.position - b.position)
-        .map((s) => s.catalog_item_id),
-    }))
+        .map((s) => ({
+          id: s.catalog_item_id,
+          item: s.catalog_items ? {
+            name: s.catalog_items.name,
+            category: s.catalog_items.category ?? null,
+            isGlobal: !!s.catalog_items.is_global,
+            householdId: s.catalog_items.household_id ?? null,
+            deletedAt: s.catalog_items.deleted_at ?? null,
+          } : null,
+        }));
+      return {
+        id: r.id,
+        householdId: r.household_id ?? null,
+        label: r.label,
+        shelfNoun: r.shelf_noun ?? null,
+        screenStyle: r.screen_style,
+        pickTarget: r.pick_target,
+        createdAt: r.created_at,
+        itemIds: shelf.map((s) => s.id),
+        shelf,
+      };
+    })
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 }
 
