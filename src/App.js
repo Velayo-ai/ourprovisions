@@ -6685,6 +6685,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const [deleteMoveTarget, setDeleteMoveTarget] = useState("");
   // Manage categories & asks (Dan, 2026-11-10): "+ New category" reveals the name field.
   const [newCategoryOpen, setNewCategoryOpen] = useState(false);
+  const [householdCategories, setHouseholdCategories] = useState(new Set());
   // A created-but-empty category lives only in householdCategories; when Manage opens, the ones
   // that still have no item are let go, so they don't linger until a reload (Dan, 2026-11-10). The
   // catalog is read through a ref: the prune is on open only, never on every catalog change.
@@ -6698,7 +6699,6 @@ function ProvisionsApp({ scrollRootRef }) {
       return kept.size === prev.size ? prev : kept;
     });
   }, [showManageCategoriesModal]);
-  const [householdCategories, setHouseholdCategories] = useState(new Set());
   const [stapleFilter, setStapleFilter] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(new Set());
   const [searchQuery, setSearchQuery] = useState("");
