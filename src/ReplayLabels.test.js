@@ -351,8 +351,9 @@ describe("photo surfaces carry .op-replay-block", () => {
     // + the arrival form's gift photo (C10, 2026-10-30 — a signed gift-photos URL) (App.js)
     // + an Ask's tile face — the shelf tile and the "I've added these" row share one TileFace <img>
     //   (SPEC_ask_slice2 C3b.1; signed item-photos URLs) (components/AskRun.js), and the shelf-photo
-    //   slot in Browse (C3b.2) (components/ShelfPhotoStrip.js)
-    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "components/AskRun.js", "components/GiftCard.js", "components/LibraryCards.js", "components/ShelfPhotoStrip.js"]);
+    //   slot in Browse (C3b.2) (components/ShelfPhotoStrip.js), and the shelf sheet's tile grid (SPEC_ask_slice4,
+//   Dan 2026-11-10) (components/NewShelfSheet.js)
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "components/AskRun.js", "components/GiftCard.js", "components/LibraryCards.js", "components/NewShelfSheet.js", "components/ShelfPhotoStrip.js"]);
   });
 
   // S30 / R6 (2026-10-26): every photo <img> people put in the app also carries .op-photo
@@ -378,8 +379,9 @@ describe("photo surfaces carry .op-replay-block", () => {
     // + the arrival form's gift photo (C10, 2026-10-30) (App.js)
     // + an Ask's tile face, shared by the shelf tile and the "I've added these" row (SPEC_ask_slice2 C3b.1)
     //   (components/AskRun.js)
-    // + the shelf-photo slot in Browse (C3b.2) (components/ShelfPhotoStrip.js)
-    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js:avatar", "components/AskRun.js", "components/GiftCard.js", "components/LibraryCards.js", "components/ShelfPhotoStrip.js"]);
+    // + the shelf-photo slot in Browse (C3b.2) (components/ShelfPhotoStrip.js) + the shelf sheet's tile grid
+//   (components/NewShelfSheet.js)
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js:avatar", "components/AskRun.js", "components/GiftCard.js", "components/LibraryCards.js", "components/NewShelfSheet.js", "components/ShelfPhotoStrip.js"]);
     const app = SOURCES.find(([f]) => f === "App.js")[1];
     expect(app).toMatch(/\.op-photo \{ -webkit-user-drag: none; -webkit-touch-callout: none; \}/);
     expect(app).not.toMatch(/\.rv-(photo|viewer)-img \{[^}]*-webkit-user-drag/);   // folded into .op-photo

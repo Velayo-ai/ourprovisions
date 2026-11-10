@@ -26,12 +26,17 @@ import {
 // are create's. The ask's own name is never a duplicate of itself. Delete sits at the bottom,
 // destructive, behind a confirmation; a yes calls onDelete() (a soft delete) and closes.
 //
-// THE EXPLORER PHOTO NUDGE (S4-7): on Explorer only, a chip whose item has no household photo
-// wears a small camera; a tap runs Browse's own photo flow (onPhoto → setItemPhoto, the
-// item-photos bucket; the phone's chooser, "Photograph the item, not a person."). Under the chips,
-// in muted text, "Explorers pick by picture. Add a photo for {A} and {B}." A hint, never a block:
-// the parent may have a reader at the Explorer stage. The photo is the household's item's (A23),
-// so it can be taken before the ask exists.
+// THE SHELF IS A TILE GRID (Dan, 2026-11-10): the shelf's items in shelf order, three across on a
+// phone (~96 px), each the item's household thumb, else a dashed box with a muted camera; the name
+// under it; a small × in the corner takes it off. Tapping a photo-less tile runs Browse's own photo
+// flow (onPhoto → setItemPhoto, the item-photos bucket; the phone's chooser, "Photograph the item,
+// not a person."); tapping a photo tile does nothing. The same grid on Shopper and Explorer, in
+// create and edit. Search and the ✓ list below remain the way to add.
+//
+// THE EXPLORER PHOTO NUDGE (S4-7): on Explorer only, under the grid, in muted text: "Explorers
+// pick by picture. Add a photo for {A} and {B}." A hint, never a block: the parent may have a
+// reader at the Explorer stage. The photo is the household's item's (A23), so it can be taken
+// before the ask exists.
 //
 // ONE ID PER DRAFT (K1): the id is made on the first Save and kept while the draft is unchanged,
 // so a retry after a dropped connection returns the same ask instead of a second one. Any edit to
@@ -52,8 +57,9 @@ import {
 // (create_ask's message names the label).
 // edit: null for + New shelf, else { id, label, shelfNoun, pickTarget, screenStyle, tiles: [{ id, name }] }
 // (the live tiles, in shelf order). onUpdate(draft) and onDelete() resolve to { ok } or { ok: false, code }.
-// photoIds: the catalog item ids with a live household photo; onPhoto(itemId, file) → { ok, reason }.
-export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete, onClose, closeButton, edit: editing = null, photoIds = null, onPhoto = null }) {
+// photoIds: the catalog item ids with a live household photo; photoUrl(id) → the signed thumb, or null
+// while it is still being minted; onPhoto(itemId, file) → { ok, reason }.
+export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null }) {
   const [label, setLabel] = useState(editing ? editing.label : "");
   const [noun, setNoun] = useState(editing ? editing.shelfNoun || "" : "");
   const [target, setTarget] = useState(editing ? editing.pickTarget : ASK_TARGET_DEFAULT);
@@ -64,7 +70,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
   const [failure, setFailure] = useState(null);
   const [serverDup, setServerDup] = useState(null);   // the name create_ask refused with 23505
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [photoFor, setPhotoFor] = useState(null);       // the chip the chooser is open for
+  const [photoFor, setPhotoFor] = useState(null);       // the tile the chooser is open for
   const [photoBusy, setPhotoBusy] = useState(null);
   const [photoFailed, setPhotoFailed] = useState(null);  // "decode" | "upload" | "save"
   const photoInput = useRef(null);
@@ -96,8 +102,9 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
     if (key === "simple" && target > ASK_SIMPLE_MAX) setTarget(ASK_SIMPLE_MAX);
   };
 
-  // The nudge (S4-7): Explorer only, with a photo flow to offer; the photo-less chips in shelf order.
-  const nudgeIds = explorer && onPhoto ? itemIds.filter((id) => !(photoIds && photoIds.has(id))) : [];
+  const hasPhoto = (id) => !!(photoIds && photoIds.has(id));
+  // The nudge (S4-7): Explorer only, with a photo flow to offer; the photo-less tiles in shelf order.
+  const nudgeIds = explorer && onPhoto ? itemIds.filter((id) => !hasPhoto(id)) : [];
   const openPhoto = (id) => {
     if (photoBusy) return;
     setPhotoFor(id);
@@ -228,22 +235,34 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
             : <>{itemIds.length} {itemIds.length === 1 ? "item" : "items"}</>}
         </span>
         {itemIds.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "10px" }}>
-            {itemIds.map((id) => (
-              <span key={id} style={{ display: "inline-flex", alignItems: "stretch" }}>
-                <button type="button" className="cat-pill on" style={{ padding: "6px 12px" }}
-                  aria-label={`Take ${nameById.get(id) || "this item"} off the shelf`} onClick={() => toggle(id)}>
-                  {nameById.get(id) || "Item"} <span aria-hidden="true">×</span>
-                </button>
-                {nudgeIds.includes(id) && (
-                  <button type="button" className="cat-pill ask-photo-badge" disabled={!!photoBusy}
-                    aria-label={`Add a photo of ${nameById.get(id) || "this item"}`} onClick={() => openPhoto(id)}
-                    style={{ padding: "6px 9px", marginLeft: "-6px", borderTopLeftRadius: 0, borderBottomLeftRadius: 0, fontSize: "14px", lineHeight: 1 }}>
-                    <span aria-hidden="true">{photoBusy === id ? "…" : "📷"}</span>
+          <div className="shelf-tiles" role="list" aria-label="On the shelf">
+            {itemIds.map((id) => {
+              const name = nameById.get(id) || "this item";
+              const url = hasPhoto(id) && photoUrl ? photoUrl(id) : null;
+              const busy = photoBusy === id;
+              return (
+                <div key={id} className="shelf-tile" role="listitem">
+                  {hasPhoto(id) ? (
+                    // A photo tile: the thumb (an empty box while the signed URL is still coming); a tap does nothing.
+                    <div className="shelf-tile-art shelf-tile-photo" aria-hidden="true">
+                      {url && <img className="op-replay-block op-photo" src={url} alt="" draggable="false" />}
+                    </div>
+                  ) : onPhoto ? (
+                    <button type="button" className="shelf-tile-art shelf-tile-empty" disabled={!!photoBusy}
+                      aria-label={`Add a photo of ${name}`} onClick={() => openPhoto(id)}>
+                      <span className="shelf-tile-camera" aria-hidden="true">{busy ? "…" : "📷"}</span>
+                    </button>
+                  ) : (
+                    <div className="shelf-tile-art shelf-tile-empty" aria-hidden="true"><span className="shelf-tile-camera">📷</span></div>
+                  )}
+                  <button type="button" className="shelf-tile-remove" aria-label={`Take ${name} off the shelf`} onClick={() => toggle(id)}>
+                    <span aria-hidden="true">×</span>
                   </button>
-                )}
-              </span>
-            ))}
+                  <span className="shelf-tile-name">{nameById.get(id) || "Item"}</span>
+                </div>
+              );
+            })}
+            <style>{SHELF_TILES_CSS}</style>
           </div>
         )}
         {overBy > 0 && (
@@ -309,5 +328,24 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete
     </>
   );
 }
+
+// Three across on a phone (~96 px tiles in a ~330 px sheet), more on a wider screen. The art box
+// is square; a photo covers it, the dashed box carries a muted camera. The × is a 32 px target
+// riding the top-right corner; the name sits under the art, two lines at most.
+const SHELF_TILES_CSS = `
+.shelf-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px 10px; margin: 2px 0 12px; }
+.shelf-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
+.shelf-tile-art { width: 100%; aspect-ratio: 1 / 1; border-radius: 14px; overflow: hidden; background: #F3E6CF; display: grid; place-items: center; padding: 0; }
+.shelf-tile-photo { border: 1px solid #E8D5B7; }
+.shelf-tile-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shelf-tile-empty { border: 1px dashed #C9A97A; cursor: pointer; font-family: inherit; }
+.shelf-tile-empty:disabled { cursor: default; opacity: 0.7; }
+.shelf-tile-camera { font-size: 26px; opacity: 0.45; filter: grayscale(1); }
+.shelf-tile-remove { position: absolute; top: -6px; right: -6px; width: 32px; height: 32px; border-radius: 50%; border: 1px solid #E8D5B7;
+  background: #FFFDF9; color: #2C1A0E; font: 700 16px/1 'Lato', sans-serif; cursor: pointer; display: grid; place-items: center;
+  box-shadow: 0 1px 3px rgba(44,26,14,0.18); }
+.shelf-tile-name { font: 400 calc(12.5px * var(--op-text-scale, 1)) 'Lato', sans-serif; line-height: 1.2; color: #2C1A0E; text-align: center;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+`;
 
 export default NewShelfSheet;

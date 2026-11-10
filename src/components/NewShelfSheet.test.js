@@ -303,7 +303,8 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
     render(<NewShelfSheet catalogItems={ITEMS} asks={asks} edit={edit} onCreate={onCreate} onUpdate={onUpdate} onDelete={onDelete} onClose={onClose} closeButton={null} />);
     return { onUpdate, onDelete, onClose, onCreate };
   }
-  const chips = () => screen.getAllByRole("button", { name: /off the shelf$/ }).map((b) => b.textContent.replace("×", "").trim());
+  // The shelf's tiles, in order, by the name under each.
+  const chips = () => screen.getAllByRole("listitem").map((li) => li.querySelector(".shelf-tile-name").textContent);
 
   test("prefilled from the ask: title with the name in .op-name, name, noun, target, style, the shelf in order (a hidden tile named from its row)", () => {
     setupEdit();
@@ -316,6 +317,7 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
     expect(screen.getByRole("radio", { name: "2" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("radio", { name: /^Explorer/ })).toHaveAttribute("aria-checked", "true");
     expect(chips()).toEqual(["Yogurt", "Hidden thing", "Apples"]);
+    expect(screen.getByRole("list", { name: "On the shelf" })).toBeInTheDocument();
     expect(screen.getByText("The shelf · 3 items")).toBeInTheDocument();
     // Its own name is no duplicate; another ask's is.
     expect(screen.queryByRole("alert")).toBeNull();
@@ -403,21 +405,36 @@ describe("the Explorer photo nudge (S4-7)", () => {
   const style = (name) => screen.getByRole("radio", { name: new RegExp(`^${name}`) });
   const cameras = () => screen.queryAllByRole("button", { name: /^Add a photo of / });
   const hint = () => screen.queryByText(/^Explorers pick by picture\./);
-  function setupPhoto({ photoIds = new Set(["i-apples"]), onPhoto = jest.fn(async () => ({ ok: true })) } = {}) {
+  const chips = () => screen.getAllByRole("listitem").map((li) => li.querySelector(".shelf-tile-name").textContent);
+  function setupPhoto({ photoIds = new Set(["i-apples"]), photoUrl = () => null, onPhoto = jest.fn(async () => ({ ok: true })) } = {}) {
     const view = render(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null}
-      photoIds={photoIds} onPhoto={onPhoto} />);
+      photoIds={photoIds} photoUrl={photoUrl} onPhoto={onPhoto} />);
     const rerender = (ids) => view.rerender(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null}
-      photoIds={ids} onPhoto={onPhoto} />);
+      photoIds={ids} photoUrl={photoUrl} onPhoto={onPhoto} />);
     // eslint-disable-next-line testing-library/no-node-access
-    return { onPhoto, rerender, input: () => view.container.querySelector("input[type=file]") };
+    return { onPhoto, rerender, container: view.container, input: () => view.container.querySelector("input[type=file]") };
   }
-  test("Shopper: no camera, no hint; Explorer: a camera on each photo-less chip and the hint names them in shelf order", () => {
-    setupPhoto();
+  test("the grid: a photo tile shows the thumb and takes no tap; a photo-less tile is a dashed camera box that opens the photo flow, on Shopper too; × removes; Explorer adds the hint", () => {
+    setupPhoto({ photoUrl: (id) => (id === "i-apples" ? "https://x/apples.webp" : null) });
     pick("Goldfish"); pick("Apples"); pick("Yogurt");
-    expect(cameras()).toHaveLength(0);
-    expect(hint()).toBeNull();
-    fireEvent.click(style("Explorer"));
+    // Shelf order, three tiles; the name under each.
+    expect(chips()).toEqual(["Goldfish", "Apples", "Yogurt"]);
+    // Apples has a photo: its thumb, no button, nothing to tap.
+    const apples = screen.getAllByRole("listitem")[1];
+    expect(apples.querySelector("img")).toHaveAttribute("src", "https://x/apples.webp");
+    expect(apples.querySelector("img")).toHaveClass("op-replay-block");
+    expect(apples.querySelector("button.shelf-tile-art")).toBeNull();
+    // The other two are dashed camera boxes that open the photo flow — on Shopper as well.
     expect(cameras().map((b) => b.getAttribute("aria-label"))).toEqual(["Add a photo of Goldfish", "Add a photo of Yogurt"]);
+    expect(cameras()[0]).toHaveClass("shelf-tile-empty");
+    expect(screen.getByRole("list", { name: "On the shelf" }).querySelectorAll(".cat-pill")).toHaveLength(0);   // no chips any more
+    expect(hint()).toBeNull();                                            // the hint is Explorer's
+    // × in the corner removes.
+    fireEvent.click(screen.getByRole("button", { name: "Take Apples off the shelf" }));
+    expect(chips()).toEqual(["Goldfish", "Yogurt"]);
+    expect(screen.getByText("The shelf · 2 items")).toBeInTheDocument();
+    pick("Apples");
+    fireEvent.click(style("Explorer"));
     const h = hint();
     expect(h).toHaveTextContent("Explorers pick by picture. Add a photo for Goldfish and Yogurt.");
     expect(h).toHaveClass("picker-sub");
@@ -428,10 +445,10 @@ describe("the Explorer photo nudge (S4-7)", () => {
     pick("Crackers");
     expect(hint()).toHaveTextContent("Add a photo for Goldfish, Yogurt and 1 more.");
     fireEvent.click(style("Shopper"));
-    expect(cameras()).toHaveLength(0);
-    expect(hint()).toBeNull();
+    expect(cameras()).toHaveLength(3);   // the grid is the same on Shopper
+    expect(hint()).toBeNull();           // only the hint is Explorer's
   });
-  test("the camera runs the photo flow for that item; with the photo in, the badge goes and the hint moves on", async () => {
+  test("a photo-less tile runs the photo flow for that item; with the photo in, the tile is a photo tile and the hint moves on", async () => {
     const { onPhoto, rerender, input } = setupPhoto();
     fireEvent.click(style("Explorer"));
     pick("Goldfish"); pick("Yogurt");
@@ -441,6 +458,7 @@ describe("the Explorer photo nudge (S4-7)", () => {
     await waitFor(() => expect(onPhoto).toHaveBeenCalledWith("i-goldfish", file));
     rerender(new Set(["i-apples", "i-goldfish"]));
     expect(cameras().map((b) => b.getAttribute("aria-label"))).toEqual(["Add a photo of Yogurt"]);
+    expect(screen.getAllByRole("listitem")[0].querySelector(".shelf-tile-photo")).not.toBeNull();   // Goldfish, now a photo tile
     expect(hint()).toHaveTextContent("Add a photo for Yogurt.");
   });
   test("a photo that fails says so in the same muted line", async () => {
@@ -451,11 +469,12 @@ describe("the Explorer photo nudge (S4-7)", () => {
     fireEvent.change(input(), { target: { files: [new File(["x"], "g.jpg", { type: "image/jpeg" })] } });
     expect(await screen.findByText("Couldn't read that photo. Try another.")).toHaveClass("picker-sub");
   });
-  test("without a photo flow (no onPhoto) the sheet shows no camera and no hint", () => {
-    setup();
+  test("without a photo flow (no onPhoto) the tiles are plain dashed boxes: nothing to tap, no hint", () => {
+    const { container } = (() => { const r = setup(); return { ...r, container: document.body }; })();
     fireEvent.click(style("Explorer"));
     pick("Goldfish");
     expect(cameras()).toHaveLength(0);
+    expect(container.querySelectorAll(".shelf-tile-empty")).toHaveLength(1);
     expect(hint()).toBeNull();
   });
 });

@@ -7109,10 +7109,13 @@ function ProvisionsApp({ scrollRootRef }) {
   const itemPhotoUrlCacheRef = useRef(null);
   if (!itemPhotoUrlCacheRef.current) itemPhotoUrlCacheRef.current = createSignedUrlCache({ bucket: "item-photos" });
   const [itemPhotoUrls, setItemPhotoUrls] = useState({});
+  // While a shelf sheet is open, every household item photo is wanted: the sheet's grid shows the
+  // shelf's thumbs, and the shelf is the sheet's own state (a few dozen paths at most).
   const wantedItemPhotoPaths = useMemo(() => {
-    const ids = new Set([...askBlocksShown.flatMap(b => b.items.map(i => i.id)), ...runLive.map(i => i.id)]);
+    const ids = new Set([...askBlocksShown.flatMap(b => b.items.map(i => i.id)), ...runLive.map(i => i.id),
+      ...((newShelfOpen || editAskId) ? Object.keys(itemPhotos) : [])]);
     return [...ids].map(id => itemPhotos[id]?.thumbPath).filter(Boolean);
-  }, [askBlocksShown, runLive, itemPhotos]);
+  }, [askBlocksShown, runLive, itemPhotos, newShelfOpen, editAskId]);
   useEffect(() => {
     if (wantedItemPhotoPaths.length === 0) return undefined;
     let cancelled = false;
@@ -12234,6 +12237,7 @@ function ProvisionsApp({ scrollRootRef }) {
               catalogItems={Object.values(catalogMap)}
               asks={asks}
               photoIds={itemPhotoIds}
+              photoUrl={itemPhotoUrl}
               onPhoto={setItemPhoto}
               onCreate={createAsk}
               onClose={() => setNewShelfOpen(false)}
@@ -12253,6 +12257,7 @@ function ProvisionsApp({ scrollRootRef }) {
               catalogItems={Object.values(catalogMap)}
               asks={asks}
               photoIds={itemPhotoIds}
+              photoUrl={itemPhotoUrl}
               onPhoto={setItemPhoto}
               edit={editAsk}
               onUpdate={async (draft) => {
