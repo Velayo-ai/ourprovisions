@@ -1,4 +1,4 @@
-import { styleWord, shelfNote, manageRow } from "./askManage";
+import { styleWord, shelfNote, manageRow, saveOutcome } from "./askManage";
 
 const item = (name, extra = {}) => ({ name, category: "Snacks", isGlobal: true, householdId: null, deletedAt: null, ...extra });
 const shelf = (...rows) => rows.map(([id, it]) => ({ id, item: it }));
@@ -36,5 +36,20 @@ describe("manageRow — one row in Manage categories & asks (S4-1)", () => {
     const short = { ...everett, shelf: everett.shelf.slice(0, 2) };
     expect(manageRow(short)).toMatchObject({ style: "Shopper", pick: "pick 3", shelf: "2 of 3 on the shelf", short: true });
     expect(manageRow({ ...everett, shelf: [] })).toMatchObject({ shelf: "Nothing on this shelf yet", short: true });
+  });
+});
+
+describe("saveOutcome — the growth moment (S4-6)", () => {
+  const was = { pickTarget: 2, screenStyle: "simple" };
+  test("a raised target, or Explorer → Shopper, is growth", () => {
+    expect(saveOutcome(was, { target: 3, style: "simple" })).toBe("grown");
+    expect(saveOutcome(was, { target: 2, style: "standard" })).toBe("grown");
+    expect(saveOutcome({ pickTarget: 1, screenStyle: "standard" }, { target: 2, style: "standard" })).toBe("grown");
+  });
+  test("the same, a lowered target, Shopper → Explorer, or a shelf-only change is just saved", () => {
+    expect(saveOutcome(was, { target: 2, style: "simple" })).toBe("saved");
+    expect(saveOutcome(was, { target: 1, style: "simple" })).toBe("saved");
+    expect(saveOutcome({ pickTarget: 3, screenStyle: "standard" }, { target: 3, style: "simple" })).toBe("saved");
+    expect(saveOutcome({ pickTarget: 3, screenStyle: "standard" }, { target: 2, style: "simple" })).toBe("saved");
   });
 });

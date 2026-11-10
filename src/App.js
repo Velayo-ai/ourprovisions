@@ -19,7 +19,7 @@ import { EditItemCategoryField } from './components/EditItemCategoryField';
 import { NewShelfSheet } from './components/NewShelfSheet';
 import { AskRun } from './components/AskRun';
 import { ShelfPhotoStrip } from './components/ShelfPhotoStrip';
-import { manageRow, shelfNote } from './lib/askManage';
+import { manageRow, shelfNote, saveOutcome } from './lib/askManage';
 import { askBlocks, categoryPartShown, browseFilterCount as countBrowseFilters, browseFilterDescriptor as describeBrowseFilters } from './lib/askBrowse';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY, GIFT_MAX_AGE_MS, readHeld, clearHeld, heldStore, takeInviteHeld } from './lib/preRum';
@@ -12249,7 +12249,15 @@ function ProvisionsApp({ scrollRootRef }) {
               catalogItems={Object.values(catalogMap)}
               asks={asks}
               edit={editAsk}
-              onUpdate={(draft) => updateAsk(editAsk.id, draft)}
+              onUpdate={async (draft) => {
+                // The growth moment (S4-6): the parent's own move, said once, to the parent. No span.
+                const outcome = saveOutcome(editAsk, draft);
+                const r = await updateAsk(editAsk.id, draft);
+                if (r?.ok) showToast(outcome === "grown"
+                  ? <><span className="op-name">{draft.label.trim()}</span>'s ready for more.</>
+                  : "Saved.");
+                return r;
+              }}
               onDelete={async () => {
                 const r = await deleteAsk(editAsk.id);
                 if (r?.ok) setSelectedAsks(prev => { if (!prev.has(editAsk.id)) return prev; const n = new Set(prev); n.delete(editAsk.id); return n; });

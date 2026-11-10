@@ -34,3 +34,14 @@ export function manageRow(ask) {
     short: note !== null,
   };
 }
+
+// The growth moment (S4-6; "growth lives in the move, not the label", 2026-11-09). After a save
+// that RAISES the target or moves Explorer → Shopper, the editor sees "{Label}'s ready for more.";
+// any other save sees "Saved.". The parent's action is the trigger: nothing here infers anything
+// about the person, and the caller sends no span and records nothing. before: the ask as it was
+// ({ pickTarget, screenStyle }); draft: the form as saved ({ target, style }).
+export function saveOutcome(before, draft) {
+  const raised = (draft.target || 0) > (before.pickTarget || 0);
+  const opened = before.screenStyle === "simple" && draft.style !== "simple";
+  return raised || opened ? "grown" : "saved";
+}
