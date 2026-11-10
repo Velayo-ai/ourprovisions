@@ -17,6 +17,14 @@ import {
 // header reads "6 of 4" in the error colour and, right under the chips, "Explorer shows 4 at most.
 // Remove 2." counts down to nothing at 4. That line replaces the footer's copy of the message.
 //
+// EDIT (SPEC_ask_slice4 S4-2): the same sheet, so create and edit can't drift apart. With `edit`
+// it is "Edit Ask {Label}", prefilled from the ask's LIVE shelf rows in order (S4-9: the names
+// come with the rows, so a tile this person hid in Browse still shows as a chip; the catalog list
+// below is still this person's Browse, so such a tile can be taken off but not put back). Save
+// calls onUpdate(draft) → update_ask (083), the whole form, last write wins; the codes and copy
+// are create's. The ask's own name is never a duplicate of itself. Delete sits at the bottom,
+// destructive, behind a confirmation; a yes calls onDelete() (a soft delete) and closes.
+//
 // ONE ID PER DRAFT (K1): the id is made on the first Save and kept while the draft is unchanged,
 // so a retry after a dropped connection returns the same ask instead of a second one. Any edit to
 // what would be saved drops it; the next Save makes a new one.
@@ -34,16 +42,19 @@ import {
 // The name is a person's (K3): its input and the name inside any message carry .op-name, which
 // both RUM pipelines exclude in every environment. The failure copy is ours, never the server's
 // (create_ask's message names the label).
-export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButton }) {
-  const [label, setLabel] = useState("");
-  const [noun, setNoun] = useState("");
-  const [target, setTarget] = useState(ASK_TARGET_DEFAULT);
-  const [style, setStyle] = useState(ASK_STYLE_DEFAULT);
-  const [itemIds, setItemIds] = useState([]);
+// edit: null for + New shelf, else { id, label, shelfNoun, pickTarget, screenStyle, tiles: [{ id, name }] }
+// (the live tiles, in shelf order). onUpdate(draft) and onDelete() resolve to { ok } or { ok: false, code }.
+export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onDelete, onClose, closeButton, edit: editing = null }) {
+  const [label, setLabel] = useState(editing ? editing.label : "");
+  const [noun, setNoun] = useState(editing ? editing.shelfNoun || "" : "");
+  const [target, setTarget] = useState(editing ? editing.pickTarget : ASK_TARGET_DEFAULT);
+  const [style, setStyle] = useState(editing && editing.screenStyle === "simple" ? "simple" : ASK_STYLE_DEFAULT);
+  const [itemIds, setItemIds] = useState(editing ? editing.tiles.map((t) => t.id) : []);
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState(null);
   const [serverDup, setServerDup] = useState(null);   // the name create_ask refused with 23505
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const attemptId = useRef(null);
   const labelField = useRef(null);
   const shelfField = useRef(null);
@@ -53,13 +64,15 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
   const draft = { label, noun, target, itemIds, style };
   const problem = askDraftProblem(draft);
   const touched = label.trim() !== "" || itemIds.length > 0;
-  const existing = findDuplicateAsk(label, asks);
+  const existing = findDuplicateAsk(label, editing ? (asks || []).filter((a) => a.id !== editing.id) : asks);
   const dupName = existing ? existing.label : serverDup;
 
   const sorted = useMemo(
     () => [...catalogItems].filter((i) => i.id).sort((a, b) => a.name.localeCompare(b.name)),
     [catalogItems]);
-  const nameById = useMemo(() => new Map(sorted.map((i) => [i.id, i.name])), [sorted]);
+  // Names for the chips: the shelf's own rows first (a tile hidden from this Browse has no catalog
+  // row here), then the catalog.
+  const nameById = useMemo(() => new Map([...(editing ? editing.tiles : []), ...sorted].map((i) => [i.id, i.name])), [editing, sorted]);
   const q = query.trim().toLowerCase();
   const results = q ? sorted.filter((i) => i.name.toLowerCase().includes(q)) : sorted;
 
@@ -80,16 +93,27 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
 
   const save = async () => {
     if (problem || dupName || saving) return;
-    if (!attemptId.current) attemptId.current = crypto.randomUUID();
+    if (!editing && !attemptId.current) attemptId.current = crypto.randomUUID();
     setSaving(true);
     setFailure(null);
-    const result = await onCreate(attemptId.current, draft);
+    const result = editing ? await onUpdate(draft) : await onCreate(attemptId.current, draft);
     if (result?.ok) { onClose(); return; }
     setSaving(false);
     const f = createAskFailure(result?.code, draft);
     if (result?.code === "23505") setServerDup(label.trim());
     else setFailure(f);
     bringIntoView(f.field);
+  };
+
+  const remove = async () => {
+    if (saving) return;
+    setSaving(true);
+    setFailure(null);
+    const result = await onDelete();
+    if (result?.ok) { onClose(); return; }
+    setSaving(false);
+    setConfirmDelete(false);
+    setFailure({ message: "Couldn't delete the shelf. Check your connection and try again.", hasName: false, field: null });
   };
 
   const targets = [];
@@ -105,8 +129,14 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
   return (
     <>
       {closeButton}
-      <h2>New shelf</h2>
-      <p className="modal-subtitle">A shelf of things someone can pick for the list. They don't need an account.</p>
+      {editing ? (
+        <h2>Edit Ask <span className="op-name">{editing.label}</span></h2>
+      ) : (
+        <>
+          <h2>New shelf</h2>
+          <p className="modal-subtitle">A shelf of things someone can pick for the list. They don't need an account.</p>
+        </>
+      )}
 
       <div className="modal-field" ref={labelField}>
         <label className="modal-label" htmlFor="new-shelf-label">Who's picking?</label>
@@ -200,6 +230,25 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onClose, closeButt
           })}
         </div>
       </div>
+
+      {/* Delete (S4-2): at the bottom, destructive, behind a confirmation that says what stays. */}
+      {editing && (
+        <div className="modal-field" style={{ borderTop: "1px solid #F0E4D2", paddingTop: "14px" }}>
+          {!confirmDelete ? (
+            <button type="button" className="modal-remove" onClick={() => setConfirmDelete(true)} disabled={saving}>Delete</button>
+          ) : (
+            <div role="group" aria-label="Delete this ask">
+              <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "0.95rem", color: "#2C1A0E", margin: "0 0 10px" }}>
+                Delete Ask <span className="op-name">{editing.label}</span>? Anything <span className="op-name">{editing.label}</span> already picked stays on the list.
+              </p>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button type="button" className="modal-cancel" onClick={() => setConfirmDelete(false)} disabled={saving}>Keep it</button>
+                <button type="button" className="modal-remove" onClick={remove} disabled={saving}>{saving ? "Deleting…" : "Delete"}</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* The sticky footer (.modal-actions): its message line sits above the buttons, so it is
           always on screen. */}

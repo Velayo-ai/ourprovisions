@@ -1,5 +1,5 @@
 import {
-  askDraftProblem, createAskArgs, createAskFailure, shapeAsks, pickLine, targetTilesMessage, findDuplicateAsk,
+  askDraftProblem, createAskArgs, updateAskArgs, createAskFailure, shapeAsks, pickLine, targetTilesMessage, findDuplicateAsk,
   ASK_LABEL_MAX, ASK_SHELF_MAX, ASK_SIMPLE_MAX,
 } from "./askCreate";
 
@@ -132,4 +132,12 @@ describe("pickLine — A14 / A25", () => {
     expect(pickLine(1, "")).toBe("Pick one for our list.");
     expect(pickLine(1, "snacks")).toBe("Pick one for our list.");
   });
+});
+
+test("updateAskArgs — 083's arguments: create's shape with the ask's id, the whole form every time", () => {
+  expect(updateAskArgs("hh-1", "ask-1", { label: " Easton ", noun: "  ", target: 2, itemIds: ["c", "a"], style: "simple" })).toEqual({
+    p_household_id: "hh-1", p_ask_id: "ask-1", p_label: "Easton", p_shelf_noun: null, p_screen_style: "simple",
+    p_pick_target: 2, p_catalog_item_ids: ["c", "a"],
+  });
+  expect(updateAskArgs("hh-1", "ask-1", { label: "E", noun: "snacks", target: 1, itemIds: ["a"] }).p_screen_style).toBe("standard");
 });

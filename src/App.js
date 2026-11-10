@@ -5334,7 +5334,7 @@ function ProvisionsApp({ scrollRootRef }) {
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
-    asks, asksLoaded, createAsk, landAskPicks, itemPhotos, setItemPhoto,
+    asks, asksLoaded, createAsk, updateAsk, deleteAsk, landAskPicks, itemPhotos, setItemPhoto,
     supabase,
     _supabase,
     _household,
@@ -7097,6 +7097,11 @@ function ProvisionsApp({ scrollRootRef }) {
   // and the effective target (S4-5). A run never opens with 0 live tiles.
   const runAsk = runAskId ? asks.find(a => a.id === runAskId) || null : null;
   const runLive = useMemo(() => (runAsk ? liveTiles(runAsk) : []), [runAsk]);
+  // The ask being edited (S4-2): the sheet is prefilled from its LIVE tiles, in shelf order (S4-9).
+  const editAsk = useMemo(() => {
+    const a = editAskId ? asks.find(x => x.id === editAskId) || null : null;
+    return a ? { ...a, tiles: liveTiles(a) } : null;
+  }, [asks, editAskId]);
 
   // Shelf photos (C3b.2, A23): one per household item, signed only for the tiles on screen — the
   // selected asks' strips in Browse and the run's tiles. Thumbnails only (≈480 px covers a tile);
@@ -12229,6 +12234,29 @@ function ProvisionsApp({ scrollRootRef }) {
               onCreate={createAsk}
               onClose={() => setNewShelfOpen(false)}
               closeButton={<SheetClose onClose={() => setNewShelfOpen(false)} />}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Edit Ask {Label} (SPEC_ask_slice4 S4-2): the same sheet in edit mode. Save → update_ask
+          (083); Delete → a soft delete, and the ask leaves any selected pill. */}
+      {editAsk && (
+        <div className="modal-overlay" onClick={() => setEditAskId(null)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Edit shelf" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "88vh", overflowY: "auto" }}>
+            <NewShelfSheet
+              catalogItems={Object.values(catalogMap)}
+              asks={asks}
+              edit={editAsk}
+              onUpdate={(draft) => updateAsk(editAsk.id, draft)}
+              onDelete={async () => {
+                const r = await deleteAsk(editAsk.id);
+                if (r?.ok) setSelectedAsks(prev => { if (!prev.has(editAsk.id)) return prev; const n = new Set(prev); n.delete(editAsk.id); return n; });
+                return r;
+              }}
+              onClose={() => setEditAskId(null)}
+              closeButton={<SheetClose onClose={() => setEditAskId(null)} />}
             />
           </div>
         </div>

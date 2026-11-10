@@ -21,7 +21,7 @@ import { setKindFailure } from "../lib/mealPhotos";
 import { giveFailure, giftObjectPath, giftExt, GIFT_RENDITIONS } from "../lib/giveMeal";
 import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArrival";
 import { landAskPicksArgs, askCompletedAttributes } from "../lib/askPicks";
-import { createAskArgs, shapeAsks } from "../lib/askCreate";
+import { createAskArgs, updateAskArgs, shapeAsks } from "../lib/askCreate";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -1434,6 +1434,48 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
     await fetchAsks();
     return { ok: true, id: data };
+  }, [fetchAsks]);
+
+  // Edit (083 update_ask; SPEC_ask_slice4 S4-3): the whole form in one RPC, the same codes as
+  // create (23505 / 22023), the asks re-read after. Any member edits any ask (A10). update_ask is
+  // the only edit door (S4-10): the column grants for a direct write are gone.
+  const updateAsk = useCallback(async (askId, draft) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !askId) return { ok: false, code: null };
+    const { error: err } = await db.rpc("update_ask", updateAskArgs(hh.id, askId, draft));
+    if (err) {
+      console.warn("[ask] update_ask failed:", err.code);
+      if (err.code === "23505") await fetchAsks();
+      return { ok: false, code: err.code || null };
+    }
+    await fetchAsks();
+    return { ok: true };
+  }, [fetchAsks]);
+
+  // Delete (S4-2; Step 0 #4): a plain soft delete — one column, already atomic, 077's column grant
+  // and asks_update policy let any member. The label is free again at once (K2's index is partial
+  // on live asks); rows already picked keep their "Picked by" (V10); the household's item photos
+  // stay (A23). The read-back row proves the write reached a live ask of this place.
+  const deleteAsk = useCallback(async (askId) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !askId) return { ok: false, code: null };
+    const now = new Date().toISOString();
+    const { data, error: err } = await db
+      .from("asks")
+      .update({ deleted_at: now, updated_at: now })
+      .eq("id", askId)
+      .eq("household_id", hh.id)
+      .is("deleted_at", null)
+      .select("id");
+    if (err || !data || data.length === 0) {
+      console.warn("[ask] delete failed:", err ? err.code : "no live row");
+      await fetchAsks();
+      return { ok: false, code: err ? err.code || null : null };
+    }
+    await fetchAsks();
+    return { ok: true };
   }, [fetchAsks]);
 
   // ─────────────────────────────────────────────────────────────
@@ -4345,7 +4387,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     asksLoaded: !!household?.id && asksLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    landAskPicks, asks, fetchAsks, createAsk, itemPhotos, setItemPhoto,
+    landAskPicks, asks, fetchAsks, createAsk, updateAsk, deleteAsk, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,

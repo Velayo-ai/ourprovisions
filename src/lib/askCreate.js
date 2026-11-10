@@ -53,6 +53,20 @@ export function createAskArgs(id, householdId, { label, noun, target, itemIds, s
   };
 }
 
+// update_ask's arguments (083, S4-3): create_ask's shape with the ask's id in place of a new one.
+// The whole form goes every time; last write wins.
+export function updateAskArgs(householdId, askId, { label, noun, target, itemIds, style }) {
+  return {
+    p_household_id: householdId,
+    p_ask_id: askId,
+    p_label: (label || "").trim(),
+    p_shelf_noun: (noun || "").trim() || null,
+    p_screen_style: style === "simple" ? "simple" : ASK_STYLE_DEFAULT,
+    p_pick_target: target,
+    p_catalog_item_ids: [...(itemIds || [])],
+  };
+}
+
 // The live ask whose label matches this one, trimmed and case-insensitive (K2, 078's
 // asks_household_label_live_uq), or null. The sheet checks it as the name is typed and shows the
 // EXISTING ask's spelling; create_ask's 23505 is the backstop for a race with another member.
