@@ -130,8 +130,9 @@ describe("App wiring", () => {
     expect(APP).not.toContain("can’t be deleted — only categories you’ve created");
     expect(APP).not.toContain("can't be renamed — only categories you've created");
     // The rows are text: a category name never sits in an aria-label or an <option> value.
-    expect(APP).toContain('aria-label="Rename this category"');
+    expect(APP).toContain('aria-label="Rename this category"');   // the row itself: tap to edit (no pencil)
     expect(APP).toContain('aria-label="Delete this category"');
+    expect(APP).not.toContain("M4 20h4l10.5-10.5");                // the pencil icon is gone
     expect(APP).not.toMatch(/aria-label=\{`(Rename|Delete) \$\{cat\./);
   });
 });

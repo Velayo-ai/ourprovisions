@@ -12510,8 +12510,9 @@ function ProvisionsApp({ scrollRootRef }) {
                 word, "pick {n}", the tile count or the grown-up's note (S4-5). A row opens the edit
                 sheet (Manage closes first). "+ New shelf" sits at the end. The rows are text, so the
                 replay rules apply; no label ever sits in an <option> or an aria-label. */}
+            {/* Breathing room under the heading (Dan 2026-11-10): the same gap the sections keep between them. */}
             {isSignedIn && household?.id && (
-              <div className="modal-field">
+              <div className="modal-field" style={{ marginTop: "18px" }}>
                 <span className="modal-label" id="manage-asks">Asks</span>
                 {asks.length === 0 && (
                   <p className="picker-sub" style={{ margin: "0 0 8px" }}>A shelf of things someone can pick for the list. They don't need an account.</p>
@@ -12547,8 +12548,8 @@ function ProvisionsApp({ scrollRootRef }) {
               </div>
             )}
 
-            {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a pencil
-                turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
+            {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a tap on the
+                row turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
                 centred confirmation with the required move-items picker (Pantry preselected; never
                 deletes items). Standard categories are not listed. "+ New category" at the end. The
                 rows are text: no category name in an <option> value or an aria-label (replay, 2026-10-19). */}
@@ -12579,15 +12580,12 @@ function ProvisionsApp({ scrollRootRef }) {
                           </div>
                         ) : (
                           <>
-                            <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", gap: "2px", padding: "10px 4px", fontFamily: "'Lato', sans-serif", color: "#2C1A0E" }}>
-                              <span style={{ fontSize: "0.95rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
+                            {/* The row itself opens the rename (Dan 2026-11-10): tap to edit, trash to delete, as the ask rows. */}
+                            <button type="button" aria-label="Rename this category" onClick={() => { setRenamingCategory(cat.rawName); setRenameValue(cat.rawName); }}
+                              style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
+                                padding: "10px 4px", border: "none", background: "transparent", fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer" }}>
+                              <span style={{ fontSize: "0.95rem", fontWeight: 700, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
                               <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>{categoryCountText(n)}</span>
-                            </div>
-                            <button type="button" aria-label="Rename this category" style={iconButton}
-                              onClick={() => { setRenamingCategory(cat.rawName); setRenameValue(cat.rawName); }}>
-                              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3" />
-                              </svg>
                             </button>
                             <button type="button" aria-label="Delete this category" style={iconButton}
                               onClick={() => {
