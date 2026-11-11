@@ -15,6 +15,21 @@ export const ASK_STYLE_DEFAULT = "standard";   // asks.screen_style: standard | 
 // many to remove) instead of in the footer.
 export const ASK_SIMPLE_CAP_MESSAGE = `Explorer shows ${ASK_SIMPLE_MAX} at most.`;
 
+// The shelf sheet's add-list (Dan, 2026-11-11): the household's whole live catalog, the editor's
+// hidden items included and shown plainly — a shelf is the household's (S4-9), so a tile this
+// person hid in Browse must still be addable. Putting one on a shelf changes nothing in Browse.
+// Deduplicated by id; the sheet sorts.
+export function shelfCatalog(catalogMap, hiddenItems) {
+  const seen = new Set();
+  const out = [];
+  for (const item of [...Object.values(catalogMap || {}), ...(hiddenItems || [])]) {
+    if (!item || !item.id || seen.has(item.id)) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out;
+}
+
 // The label as it will be saved (Dan, 2026-11-11): trimmed, then any leading "Ask " taken off,
 // case-insensitive and repeated ("ask ask Test" → "Test"), because the screen already says "Ask
 // {Label}" everywhere. A bare "Ask" with nothing after it stays as typed. The duplicate check and

@@ -1,5 +1,5 @@
 import {
-  askDraftProblem, createAskArgs, updateAskArgs, createAskFailure, cleanAskLabel, shapeAsks, pickLine, targetTilesMessage, findDuplicateAsk,
+  askDraftProblem, createAskArgs, updateAskArgs, createAskFailure, cleanAskLabel, shelfCatalog, shapeAsks, pickLine, targetTilesMessage, findDuplicateAsk,
   ASK_LABEL_MAX, ASK_SHELF_MAX, ASK_SIMPLE_MAX,
 } from "./askCreate";
 
@@ -153,4 +153,12 @@ test("cleanAskLabel — trims, strips a leading 'Ask ' (any case, repeated); a b
   expect(cleanAskLabel("Askew Kid")).toBe("Askew Kid");
   expect(cleanAskLabel("")).toBe("");
   expect(cleanAskLabel(null)).toBe("");
+});
+
+test("shelfCatalog — Browse's catalog plus the editor's hidden items, once each, shown as they are", () => {
+  const map = { Apples: { id: "a", name: "Apples" }, Bread: { id: "b", name: "Bread" } };
+  const hidden = [{ id: "h", name: "Hidden thing" }, { id: "a", name: "Apples" }, { name: "no id" }];
+  expect(shelfCatalog(map, hidden).map((i) => i.id)).toEqual(["a", "b", "h"]);
+  expect(shelfCatalog(map, null).map((i) => i.id)).toEqual(["a", "b"]);
+  expect(shelfCatalog(null, hidden).map((i) => i.id)).toEqual(["h", "a"]);
 });
