@@ -1,4 +1,4 @@
-import { inviteCodeFromInput, inviteShareText, inviteConsumedAttributes } from "./inviteLink";
+import { inviteCodeFromInput, inviteShareText, inviteConsumedAttributes, inviteWorkflowName } from "./inviteLink";
 
 describe("inviteCodeFromInput (A4)", () => {
   test("a full invite URL → its code", () => {
@@ -36,5 +36,24 @@ describe("inviteConsumedAttributes (A6)", () => {
     expect(inviteConsumedAttributes(true, true)).toEqual({ present: true, outcome: "joined" });
     expect(inviteConsumedAttributes(true, false)).toEqual({ present: true, outcome: "failed" });
     expect(inviteConsumedAttributes("5EA0IB", false)).toEqual({ present: true, outcome: "failed" });
+  });
+});
+
+describe("inviteWorkflowName", () => {
+  test("joined and failed get a Splunk workflow name", () => {
+    expect(inviteWorkflowName("joined")).toBe("invite_joined");
+    expect(inviteWorkflowName("failed")).toBe("invite_failed");
+  });
+  test("absent → null: it fires on every app open, so it stays an unnamed span", () => {
+    expect(inviteWorkflowName("absent")).toBeNull();
+    expect(inviteWorkflowName(inviteConsumedAttributes(false, false).outcome)).toBeNull();
+  });
+  test("anything else → null", () => {
+    expect(inviteWorkflowName(undefined)).toBeNull();
+    expect(inviteWorkflowName("")).toBeNull();
+  });
+  test("the names follow the attributes' outcome", () => {
+    expect(inviteWorkflowName(inviteConsumedAttributes(true, true).outcome)).toBe("invite_joined");
+    expect(inviteWorkflowName(inviteConsumedAttributes(true, false).outcome)).toBe("invite_failed");
   });
 });

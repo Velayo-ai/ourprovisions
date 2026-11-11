@@ -10,7 +10,7 @@ import { createRowWriteChain } from "../lib/checkWrites";
 import { rollbackQty } from "../lib/qtyRollback";
 import { inviteFailureNotice } from "../lib/inviteFailure";
 import { readHeld, clearHeld, heldStore, INVITE_KEY, REF_KEY, INVITE_MAX_AGE_MS, REF_MAX_AGE_MS } from "../lib/preRum";
-import { inviteConsumedAttributes } from "../lib/inviteLink";
+import { inviteConsumedAttributes, inviteWorkflowName } from "../lib/inviteLink";
 import { updateItemCategory, applyItemCategory } from "../lib/itemCategory";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
@@ -729,9 +729,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // Booleans and a fixed outcome word — never the code. Telemetry never throws
         // into, or blocks, bootstrap.
         try {
-          tracer.startSpan("invite_consumed", {
-            attributes: inviteConsumedAttributes(!!pendingInviteCode, inviteJoined),
-          }).end();
+          const inviteAttrs = inviteConsumedAttributes(!!pendingInviteCode, inviteJoined);
+          const inviteWorkflow = inviteWorkflowName(inviteAttrs.outcome);
+          if (inviteWorkflow) inviteAttrs["workflow.name"] = inviteWorkflow;
+          tracer.startSpan("invite_consumed", { attributes: inviteAttrs }).end();
         } catch (e) {
           console.warn("[rum] invite_consumed event failed:", e);
         }

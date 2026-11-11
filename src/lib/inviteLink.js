@@ -37,3 +37,13 @@ export function inviteShareText(name, url) {
 export function inviteConsumedAttributes(present, joined) {
   return { present: !!present, outcome: !present ? "absent" : joined ? "joined" : "failed" };
 }
+
+// Splunk RUM turns a span into a metric (rum.custom_event.count) only when it carries
+// a workflow.name attribute. joined and failed get one; absent stays unnamed — it fires
+// on every app open, so it is waterfall-only and never a lost-invite signal.
+// Lost = held − (joined + failed). (Ruled 2026-11-11.)
+export function inviteWorkflowName(outcome) {
+  if (outcome === "joined") return "invite_joined";
+  if (outcome === "failed") return "invite_failed";
+  return null;
+}

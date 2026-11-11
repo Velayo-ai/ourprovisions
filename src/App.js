@@ -64,7 +64,7 @@ const tracer = trace.getTracer("ourprovisions-app");
 // preRum runs before rum.js starts the tracer, so it only sets a flag; this module
 // is evaluated after rum.js, so the span lands. A boolean fact — never the code.
 if (takeInviteHeld()) {
-  try { tracer.startSpan("invite_held").end(); } catch (e) { console.warn("[rum] invite_held event failed:", e); }
+  try { tracer.startSpan("invite_held", { attributes: { "workflow.name": "invite_held" } }).end(); } catch (e) { console.warn("[rum] invite_held event failed:", e); }
 }
 
 // Maps Supabase category names → display names with emoji
