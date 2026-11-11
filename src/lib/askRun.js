@@ -51,6 +51,16 @@ export function liveTiles(ask) {
     .map((t) => ({ id: t.id, name: t.item.name, category: t.item.category ?? null }));
 }
 
+// A custom item was just deleted (deleteItem): mark it deleted on every shelf that holds it, so the
+// Browse block, the Manage row and the run drop the tile at once — the same shape the next asks
+// read returns (the shelf row stays, its item carries deleted_at). Nothing else changes.
+export function asksAfterCatalogDelete(asks, catalogItemId, at) {
+  return (asks || []).map((a) => {
+    if (!(a.shelf || []).some((t) => t.id === catalogItemId && t.item && t.item.deletedAt == null)) return a;
+    return { ...a, shelf: a.shelf.map((t) => (t.id === catalogItemId && t.item ? { ...t, item: { ...t.item, deletedAt: at } } : t)) };
+  });
+}
+
 // What the run asks for: the target, or the live tiles when there are fewer (S4-5). 0 = the ask
 // can't run today; nothing offers it.
 export function effectiveTarget(ask, tiles) {

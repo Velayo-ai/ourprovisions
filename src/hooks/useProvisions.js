@@ -22,6 +22,7 @@ import { giveFailure, giftObjectPath, giftExt, GIFT_RENDITIONS } from "../lib/gi
 import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArrival";
 import { landAskPicksArgs, askCompletedAttributes } from "../lib/askPicks";
 import { createAskArgs, updateAskArgs, shapeAsks } from "../lib/askCreate";
+import { asksAfterCatalogDelete } from "../lib/askRun";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -2388,6 +2389,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         p_catalog_item_id: catalogItem.id,
       });
       if (rpcErr) throw rpcErr;
+      // The item is off every ask shelf it was on (S4-9: a deleted item is not a live tile): mark it
+      // locally so Browse's block, the Manage row and the run drop it now, then re-read the asks.
+      setAsks((prev) => asksAfterCatalogDelete(prev, catalogItem.id, new Date().toISOString()));
+      fetchAsks();
     } catch (err) {
       console.error("deleteItem error:", err.message);
       setError(`Could not delete item: ${err.message}`);
@@ -2396,7 +2401,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       catalogRef.current = prevCatalogRef;
       setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
     }
-  }, []);
+  }, [fetchAsks]);
 
   const restoreHiddenByCategory = useCallback(async (rawCategoryName) => {
     const db = supabaseRef.current;

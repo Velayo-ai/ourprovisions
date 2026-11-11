@@ -1,4 +1,4 @@
-import { tapTile, takeOut, canConfirm, shelfTitlePrefix, liveTiles, effectiveTarget, tileFace, heldAskWrite, heldAskRead } from "./askRun";
+import { tapTile, takeOut, canConfirm, shelfTitlePrefix, liveTiles, effectiveTarget, asksAfterCatalogDelete, tileFace, heldAskWrite, heldAskRead } from "./askRun";
 
 describe("tapTile — A16", () => {
   test("adds in tap order until the target", () => {
@@ -59,6 +59,15 @@ describe("liveTiles / effectiveTarget — S4-9, S4-5", () => {
     expect(liveTiles(ask)).toEqual([{ id: "c-1", name: "Apples", category: "Snacks" }, { id: "c-2", name: "Ours", category: "Snacks" }]);
     expect(liveTiles({ id: "x", householdId: "hh", shelf: [] })).toEqual([]);
     expect(liveTiles(null)).toEqual([]);
+  });
+  test("asksAfterCatalogDelete — a deleted custom item leaves every shelf at once; untouched asks keep their identity", () => {
+    const other = { id: "b", householdId: "hh", pickTarget: 1, shelf: [row("c-1", live("Apples"))] };
+    const after = asksAfterCatalogDelete([ask, other], "c-2", "2026-11-11T00:00:00Z");
+    expect(liveTiles(after[0]).map((t) => t.id)).toEqual(["c-1"]);
+    expect(after[0].shelf[1].item.deletedAt).toBe("2026-11-11T00:00:00Z");
+    expect(after[0].shelf[1].id).toBe("c-2");
+    expect(after[1]).toBe(other);
+    expect(asksAfterCatalogDelete(null, "c-2", "x")).toEqual([]);
   });
   test("short (2 of 3) → 2; exact → the target; 0 live → 0", () => {
     expect(effectiveTarget(ask, liveTiles(ask))).toBe(2);
