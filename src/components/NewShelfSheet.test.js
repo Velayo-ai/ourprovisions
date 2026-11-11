@@ -453,3 +453,29 @@ describe("the Explorer photo nudge (S4-7)", () => {
     expect(hint()).toBeNull();
   });
 });
+
+// The label guard (Dan, 2026-11-11): the screen already says "Ask {Label}", so a typed "Ask " prefix
+// is taken off on save (any case, repeated); a bare "Ask" stays; the duplicate check reads the clean label.
+describe("the label guard", () => {
+  test("'Ask Test' saves as Test; 'ask ask Test' too; a bare 'Ask' stays as typed", async () => {
+    let { onCreate, onClose } = setup();
+    readyDraft("Ask Test");
+    await saveAndClose(onClose);
+    expect(onCreate.mock.calls[0][1].label).toBe("Test");
+    ({ onCreate, onClose } = setup());
+    readyDraft("ask ask Test");
+    await saveAndClose(onClose);
+    expect(onCreate.mock.calls[0][1].label).toBe("Test");
+    ({ onCreate, onClose } = setup());
+    readyDraft("Ask");
+    await saveAndClose(onClose);
+    expect(onCreate.mock.calls[0][1].label).toBe("Ask");
+  });
+  test("'Ask Easton' beside an existing Easton is the usual duplicate; the field keeps what was typed", () => {
+    setup({ asks: [EASTON] });
+    readyDraft("Ask Easton");
+    expect(screen.getByRole("alert")).toHaveTextContent("You already have Ask Easton.");
+    expect(nameInput()).toHaveValue("Ask Easton");
+    expect(save()).toBeDisabled();
+  });
+});

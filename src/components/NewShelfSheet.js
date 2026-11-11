@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { photoNudge } from "../lib/askManage";
 import {
-  askDraftProblem, createAskFailure, findDuplicateAsk, pickLine,
+  askDraftProblem, createAskFailure, findDuplicateAsk, pickLine, cleanAskLabel,
   ASK_LABEL_MAX, ASK_NOUN_MAX, ASK_TARGET_MIN, ASK_TARGET_MAX, ASK_SHELF_MAX, ASK_TARGET_DEFAULT,
   ASK_SIMPLE_MAX, ASK_STYLE_DEFAULT, ASK_SIMPLE_CAP_MESSAGE,
 } from "../lib/askCreate";
@@ -79,10 +79,12 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 
   const edit = (set) => (value) => { attemptId.current = null; setFailure(null); set(value); };
   const onLabel = (value) => { setServerDup(null); edit(setLabel)(value); };
-  const draft = { label, noun, target, itemIds, style };
+  // The label as it will be saved (cleanAskLabel): the field keeps what was typed.
+  const cleanLabel = cleanAskLabel(label);
+  const draft = { label: cleanLabel, noun, target, itemIds, style };
   const problem = askDraftProblem(draft);
   const touched = label.trim() !== "" || itemIds.length > 0;
-  const existing = findDuplicateAsk(label, editing ? (asks || []).filter((a) => a.id !== editing.id) : asks);
+  const existing = findDuplicateAsk(cleanLabel, editing ? (asks || []).filter((a) => a.id !== editing.id) : asks);
   const dupName = existing ? existing.label : serverDup;
 
   const sorted = useMemo(
@@ -137,7 +139,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     if (result?.ok) { onClose(); return; }
     setSaving(false);
     const f = createAskFailure(result?.code, draft);
-    if (result?.code === "23505") setServerDup(label.trim());
+    if (result?.code === "23505") setServerDup(cleanLabel);
     else setFailure(f);
     bringIntoView(f.field);
   };

@@ -1,5 +1,5 @@
 import {
-  askDraftProblem, createAskArgs, updateAskArgs, createAskFailure, shapeAsks, pickLine, targetTilesMessage, findDuplicateAsk,
+  askDraftProblem, createAskArgs, updateAskArgs, createAskFailure, cleanAskLabel, shapeAsks, pickLine, targetTilesMessage, findDuplicateAsk,
   ASK_LABEL_MAX, ASK_SHELF_MAX, ASK_SIMPLE_MAX,
 } from "./askCreate";
 
@@ -140,4 +140,17 @@ test("updateAskArgs — 083's arguments: create's shape with the ask's id, the w
     p_pick_target: 2, p_catalog_item_ids: ["c", "a"],
   });
   expect(updateAskArgs("hh-1", "ask-1", { label: "E", noun: "snacks", target: 1, itemIds: ["a"] }).p_screen_style).toBe("standard");
+});
+
+test("cleanAskLabel — trims, strips a leading 'Ask ' (any case, repeated); a bare Ask stays", () => {
+  expect(cleanAskLabel("  Easton ")).toBe("Easton");
+  expect(cleanAskLabel("Ask Test")).toBe("Test");
+  expect(cleanAskLabel("ASK  Easton")).toBe("Easton");
+  expect(cleanAskLabel("ask ask Test")).toBe("Test");
+  expect(cleanAskLabel("Ask")).toBe("Ask");
+  expect(cleanAskLabel(" ask ")).toBe("ask");
+  expect(cleanAskLabel("Asker")).toBe("Asker");
+  expect(cleanAskLabel("Askew Kid")).toBe("Askew Kid");
+  expect(cleanAskLabel("")).toBe("");
+  expect(cleanAskLabel(null)).toBe("");
 });

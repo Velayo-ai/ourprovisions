@@ -15,6 +15,19 @@ export const ASK_STYLE_DEFAULT = "standard";   // asks.screen_style: standard | 
 // many to remove) instead of in the footer.
 export const ASK_SIMPLE_CAP_MESSAGE = `Explorer shows ${ASK_SIMPLE_MAX} at most.`;
 
+// The label as it will be saved (Dan, 2026-11-11): trimmed, then any leading "Ask " taken off,
+// case-insensitive and repeated ("ask ask Test" → "Test"), because the screen already says "Ask
+// {Label}" everywhere. A bare "Ask" with nothing after it stays as typed. The duplicate check and
+// the save both read this, never the raw field.
+export function cleanAskLabel(raw) {
+  let l = (raw || "").trim();
+  for (;;) {
+    const m = /^ask\s+(\S.*)$/i.exec(l);
+    if (!m) return l;
+    l = m[1].trim();
+  }
+}
+
 // "To pick 3, the shelf needs at least 3 items." — the target-vs-tiles message, shared by the
 // sheet's own check and create_ask's 22023.
 export function targetTilesMessage(target) {
