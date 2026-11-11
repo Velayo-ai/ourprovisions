@@ -12,8 +12,11 @@ import { LANDSCAPE_HEADER, LANDSCAPE_EMPTY, QTY_HINT, tileTap } from "../lib/lan
 // Portalled to <body>: a sideways phone is wider than COLUMN_MIN_WIDTH, so the desktop
 // phone-frame is live and its transform would pin a fixed child to a 430px column. For the
 // same reason the 2+ hint is drawn here — the app's toast stack is inside that frame,
-// underneath this view. Styles: the .ls-* rules in App.js's style block.
-export function LandscapeStaples({ items, qtyOf, onAdd, onRemove }) {
+// underneath this view. The app's error toast is under here too, so while this view is up
+// the same error shows in the hint slot, with its Dismiss; an error outranks the hint.
+// (A network failure is not an error: it goes to the offline queue, as in portrait.)
+// Styles: the .ls-* rules in App.js's style block.
+export function LandscapeStaples({ items, qtyOf, onAdd, onRemove, error = null, onDismissError }) {
   const [hint, setHint] = useState(false);
   const hintTimer = useRef(null);
   useEffect(() => () => { if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
@@ -53,7 +56,12 @@ export function LandscapeStaples({ items, qtyOf, onAdd, onRemove }) {
           })}
         </div>
       )}
-      {hint && <div className="ls-hint" role="status">{QTY_HINT}</div>}
+      {error ? (
+        <div className="ls-hint ls-error" role="alert">
+          <span>⚠ {error}</span>
+          {onDismissError && <button type="button" className="ls-dismiss op-chrome" onClick={onDismissError}>Dismiss</button>}
+        </div>
+      ) : hint && <div className="ls-hint" role="status">{QTY_HINT}</div>}
     </div>,
     document.body
   );

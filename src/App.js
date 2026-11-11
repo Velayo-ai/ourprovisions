@@ -8868,9 +8868,10 @@ function ProvisionsApp({ scrollRootRef }) {
       {/* Not on the signed-out gift card or its A3 answer (Dan 2026-10-30): the pill's doors lead
           nowhere without an account, and the mockup has no tab bar there. Back once signed in. */}
       {/* Landscape = Staples: a phone sideways in Browse. Portalled to <body>, over everything
-          (the Helm included — the grid gets the room); the portrait Browse stays mounted below. */}
+          (the Helm included — the grid gets the room); the portrait Browse stays mounted below.
+          The error toast above is underneath it, so the view shows the same `error` in its own slot. */}
       {landscapeStaples && (
-        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} />
+        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} error={error} onDismissError={dismissError} />
       )}
 
       {!(signedOutWelcome && pendingGiftCode) && <Helm
@@ -9757,6 +9758,8 @@ function ProvisionsApp({ scrollRootRef }) {
         .ls-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
                    background: rgba(44,26,14,0.92); color: #FAF4EC; font-family: 'Lato', sans-serif; font-size: 14px; padding: 10px 22px; border-radius: 999px;
                    box-shadow: 0 4px 20px rgba(0,0,0,0.35); animation: fadeIn 0.18s ease; }
+        .ls-hint.ls-error { pointer-events: auto; white-space: normal; max-width: 80vw; display: flex; align-items: center; gap: 14px; background: #2C1A0E; border-radius: 8px; padding: 10px 14px 10px 18px; }
+        .ls-dismiss { flex: none; min-height: 32px; background: none; border: 1px solid rgba(255,255,255,0.3); color: #FAF4EC; border-radius: 4px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
         .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; -webkit-tap-highlight-color: transparent; }
         @media (hover: hover) { .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); } }
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }

@@ -62,6 +62,23 @@ describe("LandscapeStaples", () => {
     jest.useRealTimers();
   });
 
+  test("an error shows in the hint slot with Dismiss, and outranks the quantity hint", () => {
+    const onDismissError = jest.fn();
+    render(<LandscapeStaples items={items} qtyOf={(i) => (i.name === "Milk" ? 3 : 0)} onAdd={jest.fn()} onRemove={jest.fn()}
+      error="Could not add Milk" onDismissError={onDismissError} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not add Milk");
+    expect(screen.getByRole("alert")).toHaveClass("ls-hint");
+    fireEvent.click(screen.getByRole("button", { name: /Milk/ }));   // would raise the 2+ hint
+    expect(screen.queryByText(QTY_HINT)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(onDismissError).toHaveBeenCalledTimes(1);
+  });
+
+  test("no error → no alert", () => {
+    setup();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   test("no staples → the empty line, no grid", () => {
     render(<LandscapeStaples items={[]} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} />);
     expect(screen.getByText(LANDSCAPE_EMPTY)).toBeInTheDocument();
@@ -95,9 +112,9 @@ describe("landscape never touches portrait filter state", () => {
     expect(block).toMatch(/landscapeItems\(categories, catalogMap\)/);
   });
 
-  test("the element is handed items and the two list writes, nothing else", () => {
+  test("the element is handed items, the two list writes and the error to mirror, nothing else", () => {
     const m = APP.match(/<LandscapeStaples ([^>]*)\/>/);
     expect(m).not.toBeNull();
-    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove}");
+    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} error={error} onDismissError={dismissError}");
   });
 });
