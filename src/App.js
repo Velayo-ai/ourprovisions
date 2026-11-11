@@ -12260,57 +12260,6 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       )}
 
-      {/* Delete Ask {Label} (S4-2): a centred confirmation over Manage — rendered after it, so it sits
-          on top; short enough to show whole without scrolling. */}
-      {deleteAskId && (() => { const a = asks.find(x => x.id === deleteAskId); return a ? (
-        <div className="modal-overlay" onClick={() => { if (!deleteAskBusy) setDeleteAskId(null); }}>
-          <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-ask-title" onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: "360px", margin: "auto" }}>
-            <h2 id="delete-ask-title">Delete Ask <span className="op-name">{a.label}</span>?</h2>
-            <p className="modal-subtitle">Anything <span className="op-name">{a.label}</span> already picked stays on the list.</p>
-            {deleteAskFailed && (
-              <div className="modal-error" role="alert" style={{ margin: "0 0 10px" }}>Couldn't delete the shelf. Check your connection and try again.</div>
-            )}
-            <div className="modal-actions">
-              <button className="modal-cancel" onClick={() => setDeleteAskId(null)} disabled={deleteAskBusy}>Keep it</button>
-              <button className="modal-remove" onClick={confirmDeleteAsk} disabled={deleteAskBusy}>{deleteAskBusy ? "Deleting…" : "Delete"}</button>
-            </div>
-          </div>
-        </div>
-      ) : null; })()}
-
-      {/* Delete a category (Dan, 2026-11-10): the centred confirmation over Manage, with the required
-          move-items picker (deleteCategory.js: never deletes items). Rendered after Manage, on top. */}
-      {deletingCategory && (
-        <div className="modal-overlay" onClick={() => setDeletingCategory(null)}>
-          <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title" onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: "360px", margin: "auto" }}>
-            <h2 id="delete-category-title">Delete {deletingCategory.name}?</h2>
-            {deletingCategory.itemCount > 0 ? (
-              <>
-                <p className="modal-subtitle">{categoryCountText(deletingCategory.itemCount)} in it. Move them to:</p>
-                {/* CategorySelect: option values are indexes, never the household's category names (replay, 2026-10-19). */}
-                <CategorySelect
-                  categories={categories.filter(c => c.rawName !== deletingCategory.rawName)}
-                  value={deleteMoveTarget}
-                  onChange={rawName => setDeleteMoveTarget(rawName)}
-                  style={{ marginBottom: "12px" }}
-                />
-              </>
-            ) : (
-              <p className="modal-subtitle">Nothing in it.</p>
-            )}
-            <div className="modal-actions">
-              <button className="modal-cancel" onClick={() => setDeletingCategory(null)}>Keep it</button>
-              <button className="modal-remove" disabled={deletingCategory.itemCount > 0 && !deleteMoveTarget}
-                onClick={() => deleteCategory(deletingCategory.rawName, deleteMoveTarget || null)}>
-                {deleteCategoryLabel(deletingCategory.itemCount)}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Edit Ask {Label} (SPEC_ask_slice4 S4-2): the same sheet in edit mode. Save → update_ask (083). */}
       {editAsk && (
         <div className="modal-overlay" onClick={() => setEditAskId(null)}>
@@ -12617,6 +12566,60 @@ function ProvisionsApp({ scrollRootRef }) {
 
             <div className="modal-actions">
               <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setRenamingCategory(null); setNewCategoryOpen(false); }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Ask {Label} (S4-2): a centred confirmation over Manage. Rendered AFTER the Manage
+          modal in the tree AND one layer above it (z 110 over .modal-overlay's 100) — the first
+          build had it before Manage, same z, so it opened behind (Dan's walk, 2026-11-11). Short
+          enough to show whole without scrolling. */}
+      {deleteAskId && (() => { const a = asks.find(x => x.id === deleteAskId); return a ? (
+        <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => { if (!deleteAskBusy) setDeleteAskId(null); }}>
+          <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-ask-title" onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "360px", margin: "auto" }}>
+            <h2 id="delete-ask-title">Delete Ask <span className="op-name">{a.label}</span>?</h2>
+            <p className="modal-subtitle">Anything <span className="op-name">{a.label}</span> already picked stays on the list.</p>
+            {deleteAskFailed && (
+              <div className="modal-error" role="alert" style={{ margin: "0 0 10px" }}>Couldn't delete the shelf. Check your connection and try again.</div>
+            )}
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setDeleteAskId(null)} disabled={deleteAskBusy}>Keep it</button>
+              <button className="modal-remove" onClick={confirmDeleteAsk} disabled={deleteAskBusy}>{deleteAskBusy ? "Deleting…" : "Delete"}</button>
+            </div>
+          </div>
+        </div>
+      ) : null; })()}
+
+      {/* Delete a category (Dan, 2026-11-10): the centred confirmation over Manage, with the required
+          move-items picker (deleteCategory.js: never deletes items). After Manage in the tree and
+          one layer above it, like the ask's. */}
+      {deletingCategory && (
+        <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => setDeletingCategory(null)}>
+          <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title" onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "360px", margin: "auto" }}>
+            <h2 id="delete-category-title">Delete {deletingCategory.name}?</h2>
+            {deletingCategory.itemCount > 0 ? (
+              <>
+                <p className="modal-subtitle">{categoryCountText(deletingCategory.itemCount)} in it. Move them to:</p>
+                {/* CategorySelect: option values are indexes, never the household's category names (replay, 2026-10-19). */}
+                <CategorySelect
+                  categories={categories.filter(c => c.rawName !== deletingCategory.rawName)}
+                  value={deleteMoveTarget}
+                  onChange={rawName => setDeleteMoveTarget(rawName)}
+                  style={{ marginBottom: "12px" }}
+                />
+              </>
+            ) : (
+              <p className="modal-subtitle">Nothing in it.</p>
+            )}
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setDeletingCategory(null)}>Keep it</button>
+              <button className="modal-remove" disabled={deletingCategory.itemCount > 0 && !deleteMoveTarget}
+                onClick={() => deleteCategory(deletingCategory.rawName, deleteMoveTarget || null)}>
+                {deleteCategoryLabel(deletingCategory.itemCount)}
+              </button>
             </div>
           </div>
         </div>

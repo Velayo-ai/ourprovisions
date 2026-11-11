@@ -141,6 +141,17 @@ describe("App wiring", () => {
     expect(APP).not.toContain("Danger Zone");
   });
 
+  test("both delete confirmations sit after the Manage modal in the tree and one layer above it (2026-11-11)", () => {
+    const manage = APP.indexOf("{showManageCategoriesModal && (");
+    const askConfirm = APP.indexOf("{deleteAskId && (() =>");
+    const catConfirm = APP.indexOf("{deletingCategory && (");
+    expect(manage).toBeGreaterThan(0);
+    expect(askConfirm).toBeGreaterThan(manage);
+    expect(catConfirm).toBeGreaterThan(askConfirm);
+    expect(APP.slice(askConfirm, catConfirm)).toContain('className="modal-overlay" style={{ zIndex: 110 }}');
+    expect(APP.slice(catConfirm, catConfirm + 400)).toContain('className="modal-overlay" style={{ zIndex: 110 }}');
+  });
+
   test("empty created categories are let go when Manage opens, on open only", () => {
     const body = APP.slice(APP.indexOf("const catalogForPruneRef"), APP.indexOf("}, [showManageCategoriesModal]);"));
     expect(body).toContain("if (!showManageCategoriesModal) return;");
