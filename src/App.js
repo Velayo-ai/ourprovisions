@@ -50,6 +50,7 @@ import { nextInsetTop } from './lib/standaloneInset';
 import { swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool, joinPickLabels } from './lib/askPicks';
 import { ASK_GLYPH, readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
 import { heldAskRead, loadHeldAsk, storeHeldAsk, liveTiles } from './lib/askRun';
+import { shelfCatalog } from './lib/askCreate';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
 import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
@@ -7156,6 +7157,9 @@ function ProvisionsApp({ scrollRootRef }) {
     });
     return () => { cancelled = true; };
   }, [wantedItemPhotoPaths, _supabase]);
+  // The shelf sheet's add-list: the household's whole live catalog, this person's hidden items included
+  // (S4-9; Dan 2026-11-11). Browse's own list stays as it is.
+  const shelfCatalogItems = useMemo(() => shelfCatalog(catalogMap, hiddenCatalogItems), [catalogMap, hiddenCatalogItems]);
   // The items with a live household photo, for the sheet's Explorer nudge (S4-7).
   const itemPhotoIds = useMemo(() => new Set(Object.keys(itemPhotos)), [itemPhotos]);
   const itemPhotoUrl = useCallback((id) => {
@@ -12247,7 +12251,7 @@ function ProvisionsApp({ scrollRootRef }) {
           <div className="modal" role="dialog" aria-modal="true" aria-label="New shelf" onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "88vh", overflowY: "auto" }}>
             <NewShelfSheet
-              catalogItems={Object.values(catalogMap)}
+              catalogItems={shelfCatalogItems}
               asks={asks}
               photoIds={itemPhotoIds}
               photoUrl={itemPhotoUrl}
@@ -12266,7 +12270,7 @@ function ProvisionsApp({ scrollRootRef }) {
           <div className="modal" role="dialog" aria-modal="true" aria-label="Edit shelf" onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "88vh", overflowY: "auto" }}>
             <NewShelfSheet
-              catalogItems={Object.values(catalogMap)}
+              catalogItems={shelfCatalogItems}
               asks={asks}
               photoIds={itemPhotoIds}
               photoUrl={itemPhotoUrl}
