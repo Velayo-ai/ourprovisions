@@ -54,6 +54,9 @@ import { shelfCatalog } from './lib/askCreate';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
 import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
+import { useLandscapePhone } from './hooks/useLandscapePhone';
+import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
+import { LandscapeStaples } from './components/LandscapeStaples';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -8522,6 +8525,73 @@ function ProvisionsApp({ scrollRootRef }) {
   // an unloaded catalog is the quiet placeholder, never an empty Browse with one chip.
   const catalogLoading = loading || (sessionLive && !catalogLoaded);
 
+  // ── Landscape = Staples (SPEC_landscape_staples) ──
+  // In Browse, a PHONE turned sideways shows a separate, fixed Staples-only view. It is not
+  // a filter state: it reads the unfiltered `categories` and the staple flag, and nothing
+  // here reads or sets stapleFilter, selectedCategories, searchQuery or browsePhase — the
+  // portrait Browse stays mounted underneath, exactly as it was left. Home, Plan and Shop
+  // never look at the orientation. The gate and its 300ms debounce live in useLandscapePhone.
+  const landscapePhone = useLandscapePhone();
+  const landscapeStaples = landscapePhone && view === "input" && !signedOutWelcome && !catalogLoading;
+  const landscapeTiles = useMemo(
+    () => (landscapeStaples ? landscapeItems(categories, catalogMap) : []),
+    [landscapeStaples, categories, catalogMap]
+  );
+  // Names added during THIS landscape visit; a tile removed again leaves the set. Adds and
+  // removes go through updateQty — the Add button's own path (realtime, optimistic, offline).
+  const landscapeAddedRef = useRef(new Set());
+  const landscapeAdd = useCallback((item) => {
+    landscapeAddedRef.current.add(item.name);
+    updateQty(item.name, 1, item.rawCategory);
+  }, [updateQty]);
+  const landscapeRemove = useCallback((item) => {
+    landscapeAddedRef.current.delete(item.name);
+    updateQty(item.name, 0, item.rawCategory);
+  }, [updateQty]);
+  useEffect(() => {
+    if (!landscapeStaples) return undefined;
+    const added = landscapeAddedRef.current;
+    added.clear();
+    // A focused field (search, a sheet's input) would keep the keyboard up over the grid.
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    return () => {
+      const line = staplesAddedLine(added.size);
+      if (line) showToast(line);
+    };
+  }, [landscapeStaples, showToast]);
+  // Portrait scroll survives the trip. Sideways, a phone is wider than COLUMN_MIN_WIDTH, so
+  // the document stops scrolling (the column does) and the browser drops the page's offset.
+  // Remember it while upright in Browse; put it back when the phone is upright again. Coarse
+  // pointers only, so a desktop window resize is never touched.
+  const browseScrollYRef = useRef(0);
+  useEffect(() => {
+    // Arriving in Browse: start from where the page is now, not from the last visit.
+    if (view === "input" && window.innerWidth <= window.innerHeight) browseScrollYRef.current = window.scrollY;
+  }, [view]);
+  useEffect(() => {
+    if (view !== "input" || !window.matchMedia) return undefined;
+    if (!window.matchMedia("(pointer: coarse)").matches) return undefined;
+    const upright = () => window.innerWidth <= window.innerHeight;
+    const onScroll = () => { if (!landscapeStaples && upright()) browseScrollYRef.current = window.scrollY; };
+    let raf = 0;
+    const onTurn = () => {
+      if (!upright()) return;
+      cancelAnimationFrame(raf);
+      // Two frames: the column's rules have to come off before the document can scroll again.
+      raf = requestAnimationFrame(() => { raf = requestAnimationFrame(() => {
+        if (Math.abs(window.scrollY - browseScrollYRef.current) > 1) window.scrollTo(0, browseScrollYRef.current);
+      }); });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    const mq = window.matchMedia("(orientation: portrait)");
+    if (mq.addEventListener) mq.addEventListener("change", onTurn);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+      if (mq.removeEventListener) mq.removeEventListener("change", onTurn);
+    };
+  }, [view, landscapeStaples]);
+
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
   const hasEstimatedPrices = shoppingList.some(c => c.items.some(i => !prices[i.name]));
@@ -8797,6 +8867,12 @@ function ProvisionsApp({ scrollRootRef }) {
           transform makes it the containing block for every fixed descendant. */}
       {/* Not on the signed-out gift card or its A3 answer (Dan 2026-10-30): the pill's doors lead
           nowhere without an account, and the mockup has no tab bar there. Back once signed in. */}
+      {/* Landscape = Staples: a phone sideways in Browse. Portalled to <body>, over everything
+          (the Helm included — the grid gets the room); the portrait Browse stays mounted below. */}
+      {landscapeStaples && (
+        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} />
+      )}
+
       {!(signedOutWelcome && pendingGiftCode) && <Helm
         view={signedOutWelcome ? "home" : view}
         onChange={goToDoor}
@@ -9660,6 +9736,27 @@ function ProvisionsApp({ scrollRootRef }) {
         .items-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         /* One column on phones, and one column inside the desktop phone column (it is 430px wide, whatever the window is). */
         @media (max-width: 520px), (min-width: ${COLUMN_MIN_WIDTH}px) { .items-grid { grid-template-columns: 1fr; } }
+        /* Landscape = Staples (SPEC_landscape_staples; components/LandscapeStaples.js). On <body>, above the
+           phone-frame and everything in it. 5 columns, 6 on a wider phone; tiles at least 48px tall. */
+        .ls-root { position: fixed; inset: 0; z-index: 3000; background: #FAF4EC; display: flex; flex-direction: column;
+                   padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
+        .ls-head { flex: none; padding: 8px 2px 6px; font-family: 'Lato', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #8A5F3A; }
+        .ls-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+                   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; align-content: start;
+                   padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
+        @media (min-width: 740px) { .ls-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+        .ls-tile { position: relative; min-height: 48px; padding: 6px 8px; display: flex; align-items: center; justify-content: center;
+                   background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; color: #2C1A0E; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.2; text-align: center;
+                   touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+        .ls-tile.on { background: #2C1A0E; border-color: #c8973a; color: #FAF4EC; }
+        .ls-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+        .ls-badge { position: absolute; top: -1px; right: -1px; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 0 7px 0 8px;
+                    background: #c8973a; color: #2C1A0E; font-size: 12px; font-weight: 900; line-height: 20px; }
+        .ls-empty { margin: auto; max-width: 420px; padding: 0 16px 24px; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #8A5F3A; }
+        .ls-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
+                   background: rgba(44,26,14,0.92); color: #FAF4EC; font-family: 'Lato', sans-serif; font-size: 14px; padding: 10px 22px; border-radius: 999px;
+                   box-shadow: 0 4px 20px rgba(0,0,0,0.35); animation: fadeIn 0.18s ease; }
         .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; -webkit-tap-highlight-color: transparent; }
         @media (hover: hover) { .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); } }
         .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
