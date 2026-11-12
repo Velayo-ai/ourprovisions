@@ -8963,6 +8963,9 @@ function ProvisionsApp({ scrollRootRef }) {
            0px and is pixel-identical. BOTTOM stays gated to display-mode: standalone: a tab's bottom inset becomes ~34px
            when Safari's toolbar collapses, which would move the Helm. */
         :root { --op-inset-top: 0px; --op-inset-bottom: 0px; }
+        /* The cream edge fade's stops, clear → cream. One list: the Helm's fade runs it downwards, the landscape
+           Staples header runs it upwards, so the two edges can't drift apart. */
+        :root { --op-fade-stops: rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC; }
         @media (display-mode: standalone) {
           :root { --op-inset-bottom: env(safe-area-inset-bottom, 0px); }
         }
@@ -9748,7 +9751,7 @@ function ProvisionsApp({ scrollRootRef }) {
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
         .app-root { min-height: 100vh; padding-bottom: calc(96px + var(--op-inset-bottom)); }
         .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(90px + var(--op-inset-bottom)); pointer-events: none; z-index: 899;
-                     background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
+                     background: linear-gradient(to bottom, var(--op-fade-stops)); }
         /* Bottom status stack rides above the pill — at every width now. */
         .bottom-stack { bottom: calc(92px + var(--op-inset-bottom)); }
         /* With the Wrap Up bar on the page the stack rides above IT (the error toast overlapped the bar on
@@ -9815,7 +9818,12 @@ function ProvisionsApp({ scrollRootRef }) {
           body.${LANDSCAPE_ELIGIBLE_CLASS} .ls-root { display: flex; }
           body.${LANDSCAPE_ELIGIBLE_CLASS} .phone-frame { visibility: hidden; }
         }
-        .ls-head { flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 2px 6px; font-family: 'Lato', sans-serif; font-size: 14px; font-weight: 700; color: #8A5F3A; }
+        .ls-head { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 2px 6px; font-family: 'Lato', sans-serif; font-size: 14px; font-weight: 700; color: #8A5F3A; }
+        /* Scrolled: tiles dissolve under the header instead of cutting hard — the Helm fade's own stops, turned upwards.
+           Only while scrolled (LandscapeStaples sets .scrolled), so the first row is never washed out at rest. */
+        .ls-head::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 22px; pointer-events: none;
+                          background: linear-gradient(to top, var(--op-fade-stops)); opacity: 0; transition: opacity 0.15s ease; }
+        .ls-root.scrolled .ls-head::after { opacity: 1; }
         .ls-em { font-size: 15px; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
         .ls-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
                    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); grid-auto-rows: minmax(48px, 140px); align-content: start; gap: 6px;

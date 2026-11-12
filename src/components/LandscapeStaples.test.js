@@ -206,6 +206,21 @@ describe("LandscapeStaples", () => {
     expect(tile).not.toMatch(/#2C1A0E;\s*border/);
   });
 
+  test("scrolled: the header's fade comes on, and goes again at the top; it is the Helm fade's stops turned upwards", () => {
+    setup();
+    const root = document.querySelector(".ls-root"), grid = document.querySelector(".ls-grid");
+    expect(root).not.toHaveClass("scrolled");
+    grid.scrollTop = 40; fireEvent.scroll(grid);
+    expect(root).toHaveClass("scrolled");
+    grid.scrollTop = 0; fireEvent.scroll(grid);
+    expect(root).not.toHaveClass("scrolled");
+    const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+    expect(APP).toMatch(/:root \{ --op-fade-stops: rgba\(250,244,236,0\), rgba\(250,244,236,0\.85\) 55%, #FAF4EC; \}/);
+    expect(APP).toMatch(/\.helm-fade \{[^}]*background: linear-gradient\(to bottom, var\(--op-fade-stops\)\);/);
+    expect(APP).toMatch(/\.ls-head::after \{[^}]*background: linear-gradient\(to top, var\(--op-fade-stops\)\); opacity: 0;/);
+    expect(APP).toMatch(/\.ls-root\.scrolled \.ls-head::after \{ opacity: 1; \}/);
+  });
+
   test("no staples → the empty line, no grid", () => {
     render(<LandscapeStaples items={[]} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} />);
     expect(screen.getByText(LANDSCAPE_EMPTY)).toBeInTheDocument();

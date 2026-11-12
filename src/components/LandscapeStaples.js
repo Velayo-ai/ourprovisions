@@ -49,6 +49,8 @@ function StapleTile({ item, qty, onTap, onHoldRemove }) {
 
 export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onRemove, glyph = null, error = null, onDismissError }) {
   const [hint, setHint] = useState(false);
+  // The grid has moved off its top: the header's fade comes on (.ls-root.scrolled, App.js's style block).
+  const [scrolled, setScrolled] = useState(false);
   const hintTimer = useRef(null);
   useEffect(() => () => { if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
 
@@ -64,12 +66,12 @@ export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onRemove
   };
 
   return createPortal(
-    <div className="ls-root" role="region" aria-label="Staples">
+    <div className={`ls-root${scrolled ? " scrolled" : ""}`} role="region" aria-label="Staples">
       <div className="ls-head">{glyph && <span className="ls-em" aria-hidden="true">{glyph}</span>}{LANDSCAPE_HEADER}</div>
       {items.length === 0 ? (
         <div className="ls-empty">{LANDSCAPE_EMPTY}</div>
       ) : (
-        <div className="ls-grid">
+        <div className="ls-grid" onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
           {items.map((item) => (
             <StapleTile key={item.name} item={item} qty={qtyOf(item)} onTap={tap} onHoldRemove={onRemove} />
           ))}
