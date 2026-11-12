@@ -221,6 +221,34 @@ describe("LandscapeStaples", () => {
     expect(APP).toMatch(/\.ls-root\.scrolled \.ls-head::after \{ opacity: 1; \}/);
   });
 
+  test("first-run subtitle: beside the header only when asked; the header itself is unchanged", () => {
+    const { unmount } = render(<LandscapeStaples items={items} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} glyph="⭐" showHint />);
+    expect(document.querySelector(".ls-head .ls-sub")).toHaveTextContent("Tap to add · Hold to remove");
+    expect(document.querySelector(".ls-head").textContent).toBe("⭐StaplesTap to add · Hold to remove");
+    unmount();
+    render(<LandscapeStaples items={items} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} glyph="⭐" />);
+    expect(document.querySelector(".ls-sub")).toBeNull();
+    expect(document.querySelector(".ls-head").textContent).toBe("⭐Staples");
+  });
+
+  test("the subtitle is counted per visit: pre-rendered for the next visit, counted when one starts", () => {
+    const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8").replace(/\s+/g, " ");
+    expect(APP).toContain("const [landscapeHintOn, setLandscapeHintOn] = useState(() => hintForNextVisit());");
+    expect(APP).toContain("if (!landscapeStaples) return undefined; setLandscapeHintOn(beginHintVisit());");
+    expect(APP).toContain("setLandscapeHintOn(hintForNextVisit());");
+  });
+
+  test("add palette only: no checked / in-cart / list state reaches the view", () => {
+    const LIST_STATE = /checked|toggleChecked|listRows|shoppingList|inCart|activeSession|checkedCount/;
+    const strip = (src) => src.split("\n").filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*") && !l.trim().startsWith("/*")).join("\n");
+    ["components/LandscapeStaples.js", "lib/landscapeStaples.js", "lib/landscapeHint.js"].forEach((p) => {
+      expect(strip(fs.readFileSync(path.join(__dirname, "..", p), "utf8"))).not.toMatch(LIST_STATE);
+    });
+    setup({ Milk: 1 });
+    const tile = screen.getByRole("button", { name: /Milk/ });
+    expect([...tile.classList].sort()).toEqual(["ls-tile", "on"]);   // on-list + quantity is all a tile can say
+  });
+
   test("no staples → the empty line, no grid", () => {
     render(<LandscapeStaples items={[]} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} />);
     expect(screen.getByText(LANDSCAPE_EMPTY)).toBeInTheDocument();
@@ -239,13 +267,21 @@ describe("display is CSS-driven", () => {
     expect(flat).toContain("@media ${LANDSCAPE_PHONE_QUERY} { body.${LANDSCAPE_ELIGIBLE_CLASS} .ls-root { display: flex; } body.${LANDSCAPE_ELIGIBLE_CLASS} .phone-frame { visibility: hidden; } }");
   });
 
-  test("mounted on Browse (signed in, catalog loaded) — not on the debounced hook", () => {
-    expect(flat).toContain('const landscapeMounted = view === "input" && !signedOutWelcome && !catalogLoading;');
+  test("mounted app-wide (signed in, catalog loaded, no screen claiming landscape) — not on a tab, not on the debounced hook", () => {
+    expect(flat).toContain("const landscapeMounted = !signedOutWelcome && !catalogLoading && !claimsLandscape;");
+    expect(flat).not.toMatch(/const landscapeMounted = [^;]*view ===/);
     expect(flat).toContain("{landscapeMounted && ( <LandscapeStaples ");
     expect(flat).not.toContain("{landscapeStaples && ( <LandscapeStaples ");
   });
 
-  test("the body class is Browse-up AND no text field focused", () => {
+  test("the opt-out flag: an Ask run in progress claims landscape, so the view is not mounted and the class is off", () => {
+    expect(flat).toContain("const claimsLandscape = !!runAskId;");
+    // mounted → eligible → class: with claimsLandscape true none of the three can be on
+    expect(flat).toContain("const landscapeEligible = landscapeMounted && !textFocused;");
+    expect(flat).toContain("{landscapeMounted && ( <LandscapeStaples ");
+  });
+
+  test("the body class is mounted AND no text field focused", () => {
     expect(flat).toContain("const landscapeEligible = landscapeMounted && !textFocused;");
     expect(flat).toContain("document.body.classList.toggle(LANDSCAPE_ELIGIBLE_CLASS, landscapeEligible);");
   });
@@ -270,7 +306,7 @@ describe("rotation: bottom chrome is CSS-only; scroll restore and inset wait for
   });
 
   test("the scroll restore runs from onViewportSettled, after a real trip sideways, never off an animation frame", () => {
-    const start = APP.indexOf("// Portrait scroll survives the trip.");
+    const start = APP.indexOf("// Portrait scroll survives the trip");
     const block = APP.slice(start, APP.indexOf("const totalItems = shoppingList.reduce", start));
     expect(block).toMatch(/onViewportSettled\(window, \(\) => \{/);
     expect(block).toMatch(/if \(!browseAwayRef\.current\) return;/);
@@ -313,6 +349,6 @@ describe("landscape never touches portrait filter state", () => {
   test("the element is handed items, the visit's add-set test, the two list writes and the error to mirror, nothing else", () => {
     const m = APP.match(/<LandscapeStaples ([^>]*)\/>/);
     expect(m).not.toBeNull();
-    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph(\"Staples\")} error={error} onDismissError={dismissError}");
+    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph(\"Staples\")} showHint={landscapeHintOn} error={error} onDismissError={dismissError}");
   });
 });

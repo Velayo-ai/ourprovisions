@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { LANDSCAPE_HEADER, LANDSCAPE_EMPTY, HOLD_HINT, tileTap } from "../lib/landscapeStaples";
 import { useHold } from "../hooks/useHold";
+import { HINT_TEXT } from "../lib/landscapeHint";
 
 // Landscape = Staples (SPEC_landscape_staples): the sideways view itself. A flat grid of
 // tiles; no filters, no search, no steppers, no nav. To leave, rotate back.
@@ -15,9 +16,11 @@ import { useHold } from "../hooks/useHold";
 //   press and hold, on the list     → remove, whatever the quantity
 // The hold is the Ask run's Done pill's (useHold): same second, same fill.
 //
-// Its whole interface is items in, onAdd / onRemove out. It is handed no portrait state
-// and no setter for any — it CAN'T touch the Staples pill, the category pills, search or
-// scroll (LandscapeStaples.test.js holds that line on the source too).
+// An ADD PALETTE, on every tab: its whole interface is items and their quantities in,
+// onAdd / onRemove out. It is handed no portrait state and no setter for any — it CAN'T touch
+// the Staples pill, the category pills, search or scroll — and no list state beyond quantity:
+// it never knows, so never shows, what is checked off or in the cart
+// (LandscapeStaples.test.js holds both lines on the source too).
 //
 // Portalled to <body>: a sideways phone is wider than COLUMN_MIN_WIDTH, so the desktop
 // phone-frame is live and its transform would pin a fixed child to a 430px column. For the
@@ -47,7 +50,7 @@ function StapleTile({ item, qty, onTap, onHoldRemove }) {
   );
 }
 
-export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onRemove, glyph = null, error = null, onDismissError }) {
+export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onRemove, glyph = null, showHint = false, error = null, onDismissError }) {
   const [hint, setHint] = useState(false);
   // The grid has moved off its top: the header's fade comes on (.ls-root.scrolled, App.js's style block).
   const [scrolled, setScrolled] = useState(false);
@@ -67,7 +70,7 @@ export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onRemove
 
   return createPortal(
     <div className={`ls-root${scrolled ? " scrolled" : ""}`} role="region" aria-label="Staples">
-      <div className="ls-head">{glyph && <span className="ls-em" aria-hidden="true">{glyph}</span>}{LANDSCAPE_HEADER}</div>
+      <div className="ls-head">{glyph && <span className="ls-em" aria-hidden="true">{glyph}</span>}{LANDSCAPE_HEADER}{showHint && <span className="ls-sub">{HINT_TEXT}</span>}</div>
       {items.length === 0 ? (
         <div className="ls-empty">{LANDSCAPE_EMPTY}</div>
       ) : (

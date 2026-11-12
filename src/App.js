@@ -59,6 +59,7 @@ import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
 import { LandscapeStaples } from './components/LandscapeStaples';
 import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
+import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -8532,17 +8533,24 @@ function ProvisionsApp({ scrollRootRef }) {
   const catalogLoading = loading || (sessionLive && !catalogLoaded);
 
   // ── Landscape = Staples (SPEC_landscape_staples) ──
-  // In Browse, a PHONE turned sideways shows a separate, fixed Staples-only view. It is not
-  // a filter state: it reads the unfiltered `categories` and the staple flag, and nothing
-  // here reads or sets the portrait pills, search or declutter phase — the portrait Browse
-  // stays mounted, exactly as it was left. Home, Plan and Shop never look at the orientation.
+  // A PHONE turned sideways shows a separate, fixed Staples-only view — from Home, Plan,
+  // Browse and Shop alike (app-wide since 2026-11-11). It is an ADD PALETTE and nothing else:
+  // it reads the unfiltered `categories`, the staple flag and each item's quantity, never a
+  // row's checked / in-cart state or any other list state. It is not a filter state either:
+  // nothing here reads or sets the portrait pills, search or declutter phase. The portrait
+  // app stays mounted underneath, so rotating back lands on the same tab, exactly as it was left.
   //
-  // DISPLAY is CSS, not state. The view is mounted (hidden) the whole time Browse is up, and
-  // the LANDSCAPE_PHONE_QUERY rule in the style block swaps it in — and portrait Browse out —
+  // A screen that wants landscape for itself opts out with `claimsLandscape`: while it is
+  // true the view is not even mounted. Today that is an Ask run in progress; cook mode and
+  // video will add their own terms to the same flag.
+  const claimsLandscape = !!runAskId;
+  //
+  // DISPLAY is CSS, not state. The view is mounted (hidden) the whole time the app is up, and
+  // the LANDSCAPE_PHONE_QUERY rule in the style block swaps it in — and the portrait app out —
   // in the same frame as the rotation. That rule only applies under body.lp-eligible, set
-  // here while Browse is up and no text field has focus (an open keyboard can make a
+  // here while the view is mounted and no text field has focus (an open keyboard can make a
   // portrait viewport wider than tall; the class is the display's keyboard guard).
-  const landscapeMounted = view === "input" && !signedOutWelcome && !catalogLoading;
+  const landscapeMounted = !signedOutWelcome && !catalogLoading && !claimsLandscape;
   const [textFocused, setTextFocused] = useState(false);
   useEffect(() => {
     const onIn = (e) => setTextFocused(isTextEntry(e.target));
@@ -8602,13 +8610,21 @@ function ProvisionsApp({ scrollRootRef }) {
     landscapeAddedRef.current.delete(item.name);
     updateQty(item.name, 0, item.rawCategory);
   }, [updateQty]);
+  // The first-run subtitle (lib/landscapeHint): the first three landscape visits on this
+  // device. The state is what the NEXT visit shows, so the hidden view is already right when
+  // the phone turns; a visit is counted when it starts and the state re-read when it ends.
+  const [landscapeHintOn, setLandscapeHintOn] = useState(() => hintForNextVisit());
   useEffect(() => {
     if (!landscapeStaples) return undefined;
-    return flushLandscapeAdds;
+    setLandscapeHintOn(beginHintVisit());
+    return () => {
+      flushLandscapeAdds();
+      setLandscapeHintOn(hintForNextVisit());
+    };
   }, [landscapeStaples, flushLandscapeAdds]);
-  // Portrait scroll survives the trip. Sideways, a phone is wider than COLUMN_MIN_WIDTH, so
-  // the document stops scrolling (the column does) and the browser drops the page's offset.
-  // Remember it while upright in Browse; put it back when the phone is upright again.
+  // Portrait scroll survives the trip, on every tab. Sideways, a phone is wider than
+  // COLUMN_MIN_WIDTH, so the document stops scrolling (the column does) and the browser drops
+  // the page's offset. Remember it while upright; put it back when the phone is upright again.
   //
   // The restore runs only once the viewport has SETTLED (onViewportSettled), never off the
   // orientation event: iOS animates a rotation, and a programmatic scroll in the middle of it
@@ -8622,12 +8638,12 @@ function ProvisionsApp({ scrollRootRef }) {
   const landscapeVisitRef = useRef(false);
   landscapeVisitRef.current = landscapeStaples;
   useEffect(() => {
-    // Arriving in Browse: start from where the page is now, not from the last visit.
-    if (view === "input" && window.innerWidth < window.innerHeight && window.innerWidth < COLUMN_MIN_WIDTH) browseScrollYRef.current = window.scrollY;
+    // Arriving on a tab: start from where the page is now, not from the last tab's offset.
+    if (window.innerWidth < window.innerHeight && window.innerWidth < COLUMN_MIN_WIDTH) browseScrollYRef.current = window.scrollY;
     browseAwayRef.current = false;
   }, [view]);
   useEffect(() => {
-    if (view !== "input" || !window.matchMedia) return undefined;
+    if (!landscapeMounted || !window.matchMedia) return undefined;
     if (!window.matchMedia("(pointer: coarse)").matches) return undefined;
     // "Upright" = taller than wide AND narrower than the desktop column's threshold, i.e. the
     // document is the scroll root. A half-turned square that is wide enough for the column has
@@ -8654,7 +8670,7 @@ function ProvisionsApp({ scrollRootRef }) {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("scroll", onScroll);
     };
-  }, [view, flushLandscapeAdds]);
+  }, [landscapeMounted, flushLandscapeAdds]);
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
@@ -8931,12 +8947,12 @@ function ProvisionsApp({ scrollRootRef }) {
           transform makes it the containing block for every fixed descendant. */}
       {/* Not on the signed-out gift card or its A3 answer (Dan 2026-10-30): the pill's doors lead
           nowhere without an account, and the mockup has no tab bar there. Back once signed in. */}
-      {/* Landscape = Staples: mounted, hidden, the whole time Browse is up; the LANDSCAPE_PHONE_QUERY
-          rule shows it when a phone is sideways. Portalled to <body>, over everything (the Helm
+      {/* Landscape = Staples: mounted, hidden, on every tab unless a screen claims landscape for itself;
+          the LANDSCAPE_PHONE_QUERY rule shows it when a phone is sideways. Portalled to <body>, over everything (the Helm
           included — the grid gets the room); the portrait Browse stays mounted below.
           The error toast above is underneath it, so the view shows the same `error` in its own slot. */}
       {landscapeMounted && (
-        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} error={error} onDismissError={dismissError} />
+        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} showHint={landscapeHintOn} error={error} onDismissError={dismissError} />
       )}
 
       {!(signedOutWelcome && pendingGiftCode) && <Helm
@@ -9812,8 +9828,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .ls-root { position: fixed; inset: 0; z-index: 3000; background: #FAF4EC; display: none; flex-direction: column;
                    padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
         /* DISPLAY: pure CSS, so the swap lands in the same frame as the rotation. Phones only — a desktop fails
-           (pointer: coarse), a tablet fails max-height. body.lp-eligible = Browse is up and no text field has focus.
-           Portrait Browse is hidden, not removed: visibility keeps its layout and every scroll offset. */
+           (pointer: coarse), a tablet fails max-height. body.lp-eligible = the view is mounted (any tab, no screen
+           claiming landscape) and no text field has focus. The portrait app is hidden, not removed: visibility
+           keeps its layout and every scroll offset. */
         @media ${LANDSCAPE_PHONE_QUERY} {
           body.${LANDSCAPE_ELIGIBLE_CLASS} .ls-root { display: flex; }
           body.${LANDSCAPE_ELIGIBLE_CLASS} .phone-frame { visibility: hidden; }
@@ -9825,6 +9842,8 @@ function ProvisionsApp({ scrollRootRef }) {
                           background: linear-gradient(to top, var(--op-fade-stops)); opacity: 0; transition: opacity 0.15s ease; }
         .ls-root.scrolled .ls-head::after { opacity: 1; }
         .ls-em { font-size: 15px; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
+        /* First-run subtitle beside the header (first 3 landscape visits on a device): small, muted, never wraps the header. */
+        .ls-sub { margin-left: 6px; font-size: 12px; font-weight: 400; color: #8a7a60; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
         .ls-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
                    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); grid-auto-rows: minmax(48px, 140px); align-content: start; gap: 6px;
                    padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
