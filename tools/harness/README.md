@@ -58,3 +58,45 @@ Screenshots and text dumps land in `out/` (git-ignored); the browser profile in 
   take the person's own browser with it. `chrome.js stop` does the right thing.
 - Deploys reload the page: the app picks up a new build while it is open, so don't run a walk
   across a push.
+
+## Local-build checks (`local/`) — Landscape = Staples
+
+The scripts above drive the dev deployment. The ones in `local/` drive a **local production
+build** (so a branch can be checked before it is pushed), still as the dev test account and
+still against the **dev** database — `.env` / `.env.local` point there. Never prod.
+
+```
+# from the repo root
+CI=true npx react-scripts build
+
+cd tools/harness
+node local/serve.js                          # serves ../../build on http://localhost:3000/ (leave running)
+node chrome.js start
+node -r ./local/use-local.js signin.js       # sign in at the local URL (its own session, separate from dev's)
+
+node local/verify-walk.js                    # the spec's verify list: tap / hold rules, toast, portrait untouched, tablet + desktop negatives
+node local/app-wide.js                       # every tab → Staples → back to the same tab and state; Ask-run opt-out; first-run hint; Shop add
+node local/rotation.js                       # rapid rotate cycles with mid-rotation sizes: Helm at the bottom, Browse scroll restored
+node local/top-band.js                       # header + status-bar area pixel-identical before/after rotation, every tab; measured top inset survives
+node local/empty-state.js                    # the no-staples state (answers this page's household_staples reads with [])
+
+node local/unlist.js Apples Bananas          # only if a check died midway: take its adds back off the test list
+
+node chrome.js stop                          # ALWAYS
+```
+
+Each prints `PASS` / `FAIL` lines and a `DONE n/n passed` total; screenshots land in `out/`.
+A different port: `OP_LOCAL_PORT=3100` for every command (and `node local/serve.js "" 3100`).
+
+What they need, and what they leave behind:
+
+- **The test place needs staples** (verify-walk, app-wide and rotation tap tiles) and **an ask
+  with live tiles** on the Browse rail (app-wide hands it over to prove the opt-out). Cody Test
+  House has both on dev.
+- **They write to the test place's list** — adds and removes through the app's own buttons —
+  and take their adds back off at the end. A run that dies midway can leave an item on the list.
+- **They are Chrome emulation.** They cannot show iOS-only behaviour: the rotation animation,
+  the on-screen keyboard, the status-bar tint, the installed app. Those stay phone checks.
+- **A flip-and-back inside one frame** reaches the page as a single portrait-sized resize, so
+  `rotation.js` holds each sideways step for at least two frames. A real rotation is far slower.
+- `serve.js` sends `Cache-Control: no-store`: rebuild, and the next page load has the new build.
