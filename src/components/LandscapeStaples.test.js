@@ -103,6 +103,33 @@ describe("LandscapeStaples", () => {
   });
 });
 
+// Display is CSS, not JS state (2026-11-11): the view is mounted whenever Browse is up and the
+// media query swaps it in, in the same frame as the rotation. Held on the source.
+describe("display is CSS-driven", () => {
+  const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+  const flat = APP.replace(/\s+/g, " ");
+
+  test("hidden by default; shown, with portrait Browse hidden, only inside the phone query under the body class", () => {
+    expect(APP).toMatch(/^\s*\.ls-root \{[^}]*display: none;/m);
+    expect(flat).toContain("@media ${LANDSCAPE_PHONE_QUERY} { body.${LANDSCAPE_ELIGIBLE_CLASS} .ls-root { display: flex; } body.${LANDSCAPE_ELIGIBLE_CLASS} .phone-frame { visibility: hidden; } }");
+  });
+
+  test("mounted on Browse (signed in, catalog loaded) — not on the debounced hook", () => {
+    expect(flat).toContain('const landscapeMounted = view === "input" && !signedOutWelcome && !catalogLoading;');
+    expect(flat).toContain("{landscapeMounted && ( <LandscapeStaples ");
+    expect(flat).not.toContain("{landscapeStaples && ( <LandscapeStaples ");
+  });
+
+  test("the body class is Browse-up AND no text field focused", () => {
+    expect(flat).toContain("const landscapeEligible = landscapeMounted && !textFocused;");
+    expect(flat).toContain("document.body.classList.toggle(LANDSCAPE_ELIGIBLE_CLASS, landscapeEligible);");
+  });
+
+  test("the debounced hook only marks the visit", () => {
+    expect(flat).toContain("const landscapeStaples = landscapePhone && landscapeEligible;");
+  });
+});
+
 // The decision in the spec: landscape is a separate view, NOT a filter state. With the
 // Staples pill off in portrait, a trip through landscape must leave it off — and the
 // category pills, search and declutter phase alone. Held on the source, because the wiring

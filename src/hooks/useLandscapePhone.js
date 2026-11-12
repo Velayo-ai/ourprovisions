@@ -11,8 +11,30 @@ import { useEffect, useState } from "react";
 // plus one guard the spec's query can't see: on Android an open keyboard in PORTRAIT
 // shrinks the viewport until it is wider than tall, which reads as landscape. Where
 // screen.orientation exists it must agree; where it doesn't, the media query stands.
+//
+// Two readers of the same gate (2026-11-11):
+//   DISPLAY is CSS. LANDSCAPE_PHONE_QUERY shows the view and hides portrait Browse in the
+//     same frame as the rotation — no JS in between, so no stretched-portrait frame. The
+//     rule only applies under body.lp-eligible, which App.js sets while Browse is up and no
+//     text field has focus (isTextEntry) — that class is the keyboard guard for display.
+//   BOOKKEEPING is this hook: the debounced value, with the screen.orientation guard,
+//     marks a landscape VISIT (the add-set, the "N staples added" toast, scroll restore,
+//     blurring a focused field). It never decides what is on screen.
 export const LANDSCAPE_MAX_HEIGHT = 500;
 export const LANDSCAPE_DEBOUNCE_MS = 300;
+export const LANDSCAPE_PHONE_QUERY = `(orientation: landscape) and (pointer: coarse) and (max-height: ${LANDSCAPE_MAX_HEIGHT}px)`;
+export const LANDSCAPE_ELIGIBLE_CLASS = "lp-eligible";
+
+// Is this element one that raises the on-screen keyboard? Pure — jest beside it.
+const NON_TEXT_INPUTS = ["button", "checkbox", "radio", "range", "file", "submit", "reset", "color", "image", "hidden"];
+export function isTextEntry(el) {
+  if (!el || !el.tagName) return false;
+  if (el.isContentEditable) return true;
+  const tag = String(el.tagName).toUpperCase();
+  if (tag === "TEXTAREA") return true;
+  if (tag === "INPUT") return !NON_TEXT_INPUTS.includes(String(el.type || "text").toLowerCase());
+  return false;
+}
 
 // Pure — jest beside it.
 export function isLandscapePhone({ coarse, landscape, height, screenType }) {
@@ -33,7 +55,7 @@ export function readLandscapePhone(win) {
   });
 }
 
-// true while the device passes the gate. Read once on mount (the gate already excludes
+// Bookkeeping only (see above). true while the device passes the gate. Read once on mount (the gate already excludes
 // desktops and tablets, so a phone that is already sideways counts), then re-read on every
 // orientation / resize change after LANDSCAPE_DEBOUNCE_MS of quiet — a tilt-and-back
 // inside that window never flips the value, in either direction.

@@ -1,5 +1,5 @@
 import { renderHook, act } from "@testing-library/react";
-import { isLandscapePhone, readLandscapePhone, useLandscapePhone, LANDSCAPE_DEBOUNCE_MS } from "./useLandscapePhone";
+import { isLandscapePhone, readLandscapePhone, useLandscapePhone, isTextEntry, LANDSCAPE_DEBOUNCE_MS, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS } from "./useLandscapePhone";
 
 // A stand-in window: the two media queries, innerHeight, screen.orientation and timers.
 function fakeWin({ coarse = true, landscape = false, height = 844, screenType } = {}) {
@@ -57,7 +57,31 @@ describe("isLandscapePhone — the gate", () => {
   });
 });
 
-describe("useLandscapePhone — mount, change, debounce", () => {
+describe("the display side: the CSS query, the body class, the keyboard test", () => {
+  test("the query is the gate: landscape + coarse pointer + short side", () => {
+    expect(LANDSCAPE_PHONE_QUERY).toBe("(orientation: landscape) and (pointer: coarse) and (max-height: 500px)");
+    expect(LANDSCAPE_ELIGIBLE_CLASS).toBe("lp-eligible");
+  });
+  test("isTextEntry: fields that raise the keyboard", () => {
+    const el = (tag, props = {}) => Object.assign(document.createElement(tag), props);
+    expect(isTextEntry(el("input"))).toBe(true);
+    expect(isTextEntry(el("input", { type: "search" }))).toBe(true);
+    expect(isTextEntry(el("input", { type: "tel" }))).toBe(true);
+    expect(isTextEntry(el("textarea"))).toBe(true);
+    expect(isTextEntry({ tagName: "DIV", isContentEditable: true })).toBe(true);
+  });
+  test("isTextEntry: everything else does not", () => {
+    const el = (tag, props = {}) => Object.assign(document.createElement(tag), props);
+    expect(isTextEntry(el("button"))).toBe(false);
+    expect(isTextEntry(el("input", { type: "checkbox" }))).toBe(false);
+    expect(isTextEntry(el("input", { type: "file" }))).toBe(false);
+    expect(isTextEntry(el("div"))).toBe(false);
+    expect(isTextEntry(document.body)).toBe(false);
+    expect(isTextEntry(null)).toBe(false);
+  });
+});
+
+describe("useLandscapePhone — mount, change, debounce (bookkeeping)", () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 

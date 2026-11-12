@@ -54,7 +54,7 @@ import { shelfCatalog } from './lib/askCreate';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
 import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
-import { useLandscapePhone } from './hooks/useLandscapePhone';
+import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS } from './hooks/useLandscapePhone';
 import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
 import { LandscapeStaples } from './components/LandscapeStaples';
 import { trace } from '@opentelemetry/api';
@@ -8528,17 +8528,50 @@ function ProvisionsApp({ scrollRootRef }) {
   // ── Landscape = Staples (SPEC_landscape_staples) ──
   // In Browse, a PHONE turned sideways shows a separate, fixed Staples-only view. It is not
   // a filter state: it reads the unfiltered `categories` and the staple flag, and nothing
-  // here reads or sets stapleFilter, selectedCategories, searchQuery or browsePhase — the
-  // portrait Browse stays mounted underneath, exactly as it was left. Home, Plan and Shop
-  // never look at the orientation. The gate and its 300ms debounce live in useLandscapePhone.
-  const landscapePhone = useLandscapePhone();
-  const landscapeStaples = landscapePhone && view === "input" && !signedOutWelcome && !catalogLoading;
+  // here reads or sets the portrait pills, search or declutter phase — the portrait Browse
+  // stays mounted, exactly as it was left. Home, Plan and Shop never look at the orientation.
+  //
+  // DISPLAY is CSS, not state. The view is mounted (hidden) the whole time Browse is up, and
+  // the LANDSCAPE_PHONE_QUERY rule in the style block swaps it in — and portrait Browse out —
+  // in the same frame as the rotation. That rule only applies under body.lp-eligible, set
+  // here while Browse is up and no text field has focus (an open keyboard can make a
+  // portrait viewport wider than tall; the class is the display's keyboard guard).
+  const landscapeMounted = view === "input" && !signedOutWelcome && !catalogLoading;
+  const [textFocused, setTextFocused] = useState(false);
+  useEffect(() => {
+    const onIn = (e) => setTextFocused(isTextEntry(e.target));
+    const onOut = (e) => setTextFocused(isTextEntry(e.relatedTarget));
+    setTextFocused(isTextEntry(document.activeElement));
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    return () => {
+      document.removeEventListener("focusin", onIn);
+      document.removeEventListener("focusout", onOut);
+    };
+  }, []);
+  const landscapeEligible = landscapeMounted && !textFocused;
+  useLayoutEffect(() => {
+    document.body.classList.toggle(LANDSCAPE_ELIGIBLE_CLASS, landscapeEligible);
+    return () => document.body.classList.remove(LANDSCAPE_ELIGIBLE_CLASS);
+  }, [landscapeEligible]);
   const landscapeTiles = useMemo(
-    () => (landscapeStaples ? landscapeItems(categories, catalogMap) : []),
-    [landscapeStaples, categories, catalogMap]
+    () => (landscapeMounted ? landscapeItems(categories, catalogMap) : []),
+    [landscapeMounted, categories, catalogMap]
   );
+  // BOOKKEEPING is the debounced hook (with its screen.orientation guard): it marks a
+  // landscape VISIT, 300ms behind the display, and never decides what is on screen.
+  const landscapePhone = useLandscapePhone();
+  const landscapeStaples = landscapePhone && landscapeEligible;
+  // Really sideways with a field focused: drop the focus (and the keyboard) so the class
+  // above comes on and the view can show. A keyboard-shrunk portrait never gets here — the
+  // hook's guard reads the screen as portrait.
+  useEffect(() => {
+    if (landscapePhone && landscapeMounted && textFocused && document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  }, [landscapePhone, landscapeMounted, textFocused]);
   // Names added during THIS landscape visit; a tile removed again leaves the set. Adds and
   // removes go through updateQty — the Add button's own path (realtime, optimistic, offline).
+  // The view is tappable before the visit is marked, so the set is emptied when a visit
+  // ENDS (after its toast), never when one starts.
   const landscapeAddedRef = useRef(new Set());
   const landscapeAdd = useCallback((item) => {
     landscapeAddedRef.current.add(item.name);
@@ -8551,11 +8584,9 @@ function ProvisionsApp({ scrollRootRef }) {
   useEffect(() => {
     if (!landscapeStaples) return undefined;
     const added = landscapeAddedRef.current;
-    added.clear();
-    // A focused field (search, a sheet's input) would keep the keyboard up over the grid.
-    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     return () => {
       const line = staplesAddedLine(added.size);
+      added.clear();
       if (line) showToast(line);
     };
   }, [landscapeStaples, showToast]);
@@ -8576,6 +8607,13 @@ function ProvisionsApp({ scrollRootRef }) {
     let raf = 0;
     const onTurn = () => {
       if (!upright()) return;
+      // Upright again before the visit was ever marked (in and out inside the debounce): the
+      // visit's cleanup will never run, so count its adds here.
+      if (!landscapeStaples && landscapeAddedRef.current.size) {
+        const line = staplesAddedLine(landscapeAddedRef.current.size);
+        landscapeAddedRef.current.clear();
+        if (line) showToast(line);
+      }
       cancelAnimationFrame(raf);
       // Two frames: the column's rules have to come off before the document can scroll again.
       raf = requestAnimationFrame(() => { raf = requestAnimationFrame(() => {
@@ -8590,7 +8628,7 @@ function ProvisionsApp({ scrollRootRef }) {
       window.removeEventListener("scroll", onScroll);
       if (mq.removeEventListener) mq.removeEventListener("change", onTurn);
     };
-  }, [view, landscapeStaples]);
+  }, [view, landscapeStaples, showToast]);
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
@@ -8867,10 +8905,11 @@ function ProvisionsApp({ scrollRootRef }) {
           transform makes it the containing block for every fixed descendant. */}
       {/* Not on the signed-out gift card or its A3 answer (Dan 2026-10-30): the pill's doors lead
           nowhere without an account, and the mockup has no tab bar there. Back once signed in. */}
-      {/* Landscape = Staples: a phone sideways in Browse. Portalled to <body>, over everything
-          (the Helm included — the grid gets the room); the portrait Browse stays mounted below.
+      {/* Landscape = Staples: mounted, hidden, the whole time Browse is up; the LANDSCAPE_PHONE_QUERY
+          rule shows it when a phone is sideways. Portalled to <body>, over everything (the Helm
+          included — the grid gets the room); the portrait Browse stays mounted below.
           The error toast above is underneath it, so the view shows the same `error` in its own slot. */}
-      {landscapeStaples && (
+      {landscapeMounted && (
         <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} error={error} onDismissError={dismissError} />
       )}
 
@@ -9741,8 +9780,15 @@ function ProvisionsApp({ scrollRootRef }) {
            phone-frame and everything in it. The tiles size themselves: as many ≥120px columns as fit, rows
            sharing the height left under the header but never under 48px — few staples fill the screen, many
            hold at ~120×48 and the grid scrolls. The label stays one size; only the tile grows. */
-        .ls-root { position: fixed; inset: 0; z-index: 3000; background: #FAF4EC; display: flex; flex-direction: column;
+        .ls-root { position: fixed; inset: 0; z-index: 3000; background: #FAF4EC; display: none; flex-direction: column;
                    padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
+        /* DISPLAY: pure CSS, so the swap lands in the same frame as the rotation. Phones only — a desktop fails
+           (pointer: coarse), a tablet fails max-height. body.lp-eligible = Browse is up and no text field has focus.
+           Portrait Browse is hidden, not removed: visibility keeps its layout and every scroll offset. */
+        @media ${LANDSCAPE_PHONE_QUERY} {
+          body.${LANDSCAPE_ELIGIBLE_CLASS} .ls-root { display: flex; }
+          body.${LANDSCAPE_ELIGIBLE_CLASS} .phone-frame { visibility: hidden; }
+        }
         .ls-head { flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 2px 6px; font-family: 'Lato', sans-serif; font-size: 14px; font-weight: 700; color: #8A5F3A; }
         .ls-em { font-size: 15px; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
         .ls-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
