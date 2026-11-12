@@ -57,6 +57,7 @@ import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
 import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS } from './hooks/useLandscapePhone';
 import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
 import { LandscapeStaples } from './components/LandscapeStaples';
+import { onViewportSettled } from './lib/viewportSettled';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -6497,7 +6498,11 @@ function ProvisionsApp({ scrollRootRef }) {
     window.addEventListener("orientationchange", apply);
     const so = window.screen && window.screen.orientation;
     if (so && so.addEventListener) so.addEventListener("change", apply);
+    // …and once more when the viewport has SETTLED: the events above can fire with numbers from
+    // the middle of a rotation, and nothing re-read them afterwards (2026-11-11).
+    const offSettled = onViewportSettled(window, apply);
     return () => {
+      offSettled();
       window.clearTimeout(later);
       window.removeEventListener("resize", apply);
       window.removeEventListener("orientationchange", apply);
@@ -8592,43 +8597,54 @@ function ProvisionsApp({ scrollRootRef }) {
   }, [landscapeStaples, showToast]);
   // Portrait scroll survives the trip. Sideways, a phone is wider than COLUMN_MIN_WIDTH, so
   // the document stops scrolling (the column does) and the browser drops the page's offset.
-  // Remember it while upright in Browse; put it back when the phone is upright again. Coarse
-  // pointers only, so a desktop window resize is never touched.
+  // Remember it while upright in Browse; put it back when the phone is upright again.
+  //
+  // The restore runs only once the viewport has SETTLED (onViewportSettled), never off the
+  // orientation event: iOS animates a rotation, and a programmatic scroll in the middle of it
+  // is a known way to leave position: fixed chrome — the Helm, its fade — drawn away from the
+  // bottom edge (seen on a real iPhone 2026-11-11, intermittent). It also runs only after a
+  // real trip sideways, so an ordinary resize (Safari's toolbar) never moves the page, and
+  // never while a field has focus (the keyboard owns the viewport then). Coarse pointers
+  // only, so a desktop window resize is never touched.
   const browseScrollYRef = useRef(0);
+  const browseAwayRef = useRef(false);
+  const landscapeVisitRef = useRef(false);
+  landscapeVisitRef.current = landscapeStaples;
   useEffect(() => {
     // Arriving in Browse: start from where the page is now, not from the last visit.
     if (view === "input" && window.innerWidth <= window.innerHeight) browseScrollYRef.current = window.scrollY;
+    browseAwayRef.current = false;
   }, [view]);
   useEffect(() => {
     if (view !== "input" || !window.matchMedia) return undefined;
     if (!window.matchMedia("(pointer: coarse)").matches) return undefined;
     const upright = () => window.innerWidth <= window.innerHeight;
-    const onScroll = () => { if (!landscapeStaples && upright()) browseScrollYRef.current = window.scrollY; };
-    let raf = 0;
-    const onTurn = () => {
-      if (!upright()) return;
+    const onResize = () => { if (!upright()) browseAwayRef.current = true; };
+    const onScroll = () => {
+      if (!browseAwayRef.current && !landscapeVisitRef.current && upright()) browseScrollYRef.current = window.scrollY;
+    };
+    const offSettled = onViewportSettled(window, () => {
+      if (!upright()) { browseAwayRef.current = true; return; }
       // Upright again before the visit was ever marked (in and out inside the debounce): the
       // visit's cleanup will never run, so count its adds here.
-      if (!landscapeStaples && landscapeAddedRef.current.size) {
+      if (!landscapeVisitRef.current && landscapeAddedRef.current.size) {
         const line = staplesAddedLine(landscapeAddedRef.current.size);
         landscapeAddedRef.current.clear();
         if (line) showToast(line);
       }
-      cancelAnimationFrame(raf);
-      // Two frames: the column's rules have to come off before the document can scroll again.
-      raf = requestAnimationFrame(() => { raf = requestAnimationFrame(() => {
-        if (Math.abs(window.scrollY - browseScrollYRef.current) > 1) window.scrollTo(0, browseScrollYRef.current);
-      }); });
-    };
+      if (!browseAwayRef.current) return;
+      browseAwayRef.current = false;
+      if (isTextEntry(document.activeElement)) return;
+      if (Math.abs(window.scrollY - browseScrollYRef.current) > 1) window.scrollTo(0, browseScrollYRef.current);
+    });
+    window.addEventListener("resize", onResize);
     window.addEventListener("scroll", onScroll, { passive: true });
-    const mq = window.matchMedia("(orientation: portrait)");
-    if (mq.addEventListener) mq.addEventListener("change", onTurn);
     return () => {
-      cancelAnimationFrame(raf);
+      offSettled();
+      window.removeEventListener("resize", onResize);
       window.removeEventListener("scroll", onScroll);
-      if (mq.removeEventListener) mq.removeEventListener("change", onTurn);
     };
-  }, [view, landscapeStaples, showToast]);
+  }, [view, showToast]);
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);

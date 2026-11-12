@@ -141,6 +141,35 @@ describe("display is CSS-driven", () => {
   });
 });
 
+// The bottom chrome is CSS-only, and nothing moves the page mid-rotation (2026-11-11: the Helm
+// and its fade were seen ~200pt too high on a real iPhone after a rotation). Held on the source.
+describe("rotation: bottom chrome is CSS-only; scroll restore and inset wait for the settled viewport", () => {
+  const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+  const rule = (sel) => APP.match(new RegExp(`^\\s*${sel.replace(/[.-]/g, (c) => `\\${c}`)} \\{([^}]*)\\}`, "m"))[1];
+
+  test("the Helm, its fade and the status stack are placed by CSS from the bottom edge — no JS height", () => {
+    expect(rule(".helm")).toMatch(/position: fixed;[^}]*bottom: calc\(18px \+ var\(--op-inset-bottom\)\);/);
+    expect(rule(".helm-fade")).toMatch(/position: fixed;[^}]*bottom: 0;/);
+    expect(rule(".bottom-stack")).toMatch(/bottom: calc\(92px \+ var\(--op-inset-bottom\)\);/);
+    expect(APP).toMatch(/:root \{ --op-inset-bottom: env\(safe-area-inset-bottom, 0px\); \}/);
+    expect(APP).not.toMatch(/setProperty\("--op-inset-bottom"/);
+  });
+
+  test("the scroll restore runs from onViewportSettled, after a real trip sideways, never off an animation frame", () => {
+    const start = APP.indexOf("// Portrait scroll survives the trip.");
+    const block = APP.slice(start, APP.indexOf("const totalItems = shoppingList.reduce", start));
+    expect(block).toMatch(/onViewportSettled\(window, \(\) => \{/);
+    expect(block).toMatch(/if \(!browseAwayRef\.current\) return;/);
+    expect(block).toMatch(/if \(isTextEntry\(document\.activeElement\)\) return;/);
+    expect(block).not.toMatch(/requestAnimationFrame/);
+    expect(block.match(/window\.scrollTo\(/g)).toHaveLength(1);
+  });
+
+  test("the measured top inset is re-read on the settled viewport", () => {
+    expect(APP).toMatch(/const offSettled = onViewportSettled\(window, apply\);/);
+  });
+});
+
 // The decision in the spec: landscape is a separate view, NOT a filter state. With the
 // Staples pill off in portrait, a trip through landscape must leave it off — and the
 // category pills, search and declutter phase alone. Held on the source, because the wiring
