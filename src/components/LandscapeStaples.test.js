@@ -279,11 +279,29 @@ describe("LandscapeStaples", () => {
     expect([...tile.classList].sort()).toEqual(["ls-tile", "on"]);   // on-list + quantity is all a tile can say
   });
 
-  test("no staples → the empty line, no grid", () => {
-    render(<LandscapeStaples items={[]} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} />);
-    expect(screen.getByText(LANDSCAPE_EMPTY)).toBeInTheDocument();
+  test("no staples → three lines of text under the header, no grid, no button, no emoji in the text", () => {
+    render(<LandscapeStaples items={[]} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} glyph="⭐" />);
+    expect(LANDSCAPE_EMPTY).toEqual({
+      title: "Your everyday essentials",
+      body: "Star the items you buy most, and they'll be one turn of your phone away.",
+      how: "In Browse, swipe left on any item and tap Staple.",
+    });
+    const block = document.querySelector(".ls-empty");
+    expect([...block.children].map((p) => `${p.className}|${p.textContent}`)).toEqual([
+      `ls-empty-title|${LANDSCAPE_EMPTY.title}`, `ls-empty-body|${LANDSCAPE_EMPTY.body}`, `ls-empty-how|${LANDSCAPE_EMPTY.how}`,
+    ]);
+    expect(block.textContent).not.toMatch(/[\u2B50\u{1F300}-\u{1FAFF}]/u);
+    expect(block.querySelector("button, img, svg")).toBeNull();
+    expect(document.querySelector(".ls-head .cat-title")).toHaveTextContent("⭐ Staples");   // the header keeps its star
+    expect(document.querySelector(".ls-grid")).toBeNull();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
+    const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+    expect(APP).toMatch(/^\s*\.ls-empty \{ margin: auto; max-width: 440px;[^}]*text-align: center;/m);
+    expect(APP).toMatch(/\.ls-empty-title \{ font-size: calc\(17px \* var\(--op-text-scale\)\); font-weight: 700; color: #8A5F3A;/);
+    expect(APP).toMatch(/\.ls-empty-body \{ font-size: calc\(15px \* var\(--op-text-scale\)\); color: #8a7a60;/);
+    expect(APP).toMatch(/\.ls-empty-how \{ font-size: calc\(13px \* var\(--op-text-scale\)\); color: #8a7a60;/);
   });
+
 });
 
 // Display is CSS, not JS state (2026-11-11): the view is mounted whenever Browse is up and the

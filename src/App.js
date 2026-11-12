@@ -9858,7 +9858,12 @@ function ProvisionsApp({ scrollRootRef }) {
         ${holdFillCss(".ls-fill", ".ls-tile.holding .ls-fill")}
         .ls-badge { position: absolute; top: 0; right: 0; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 0 0 0 8px;
                     background: #c8973a; color: #2C1A0E; font-size: 12px; font-weight: 900; line-height: 20px; }
-        .ls-empty { margin: auto; max-width: 420px; padding: 0 16px 24px; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #8A5F3A; }
+        /* No staples yet: a centred block of three lines under the header rule. The title takes the header's own
+           colour at body + 2px; the two lines under it are muted. Text only. */
+        .ls-empty { margin: auto; max-width: 440px; padding: 0 16px 24px; text-align: center; font-family: 'Lato', sans-serif; line-height: 1.45; }
+        .ls-empty-title { font-size: calc(17px * var(--op-text-scale)); font-weight: 700; color: #8A5F3A; margin-bottom: 8px; }
+        .ls-empty-body { font-size: calc(15px * var(--op-text-scale)); color: #8a7a60; margin-bottom: 10px; }
+        .ls-empty-how { font-size: calc(13px * var(--op-text-scale)); color: #8a7a60; }
         .ls-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
                    background: rgba(44,26,14,0.92); color: #FAF4EC; font-family: 'Lato', sans-serif; font-size: 14px; padding: 10px 22px; border-radius: 999px;
                    box-shadow: 0 4px 20px rgba(0,0,0,0.35); animation: fadeIn 0.18s ease; }

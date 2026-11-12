@@ -79,7 +79,11 @@ export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onRemove
         </CategoryHeader>
       </div>
       {items.length === 0 ? (
-        <div className="ls-empty">{LANDSCAPE_EMPTY}</div>
+        <div className="ls-empty">
+          <p className="ls-empty-title">{LANDSCAPE_EMPTY.title}</p>
+          <p className="ls-empty-body">{LANDSCAPE_EMPTY.body}</p>
+          <p className="ls-empty-how">{LANDSCAPE_EMPTY.how}</p>
+        </div>
       ) : (
         <div className="ls-grid" onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}>
           {items.map((item) => (

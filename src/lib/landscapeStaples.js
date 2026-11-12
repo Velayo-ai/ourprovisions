@@ -14,7 +14,13 @@ export const PRESET_FILTERS = {
 
 // The header is the portrait pill's star + this word, and nothing else — no exit instructions.
 export const LANDSCAPE_HEADER = "Staples";
-export const LANDSCAPE_EMPTY = "No staples yet. Rotate back, swipe an item left and tap ⭐ Staple.";
+// No staples yet: three lines of text, centred under the header rule. What the view is for,
+// then how to fill it. No emoji in the text (the header keeps its star), no button.
+export const LANDSCAPE_EMPTY = {
+  title: "Your everyday essentials",
+  body: "Star the items you buy most, and they'll be one turn of your phone away.",
+  how: "In Browse, swipe left on any item and tap Staple.",
+};
 export const HOLD_HINT = "Hold to remove";
 
 // The flat tile list: every catalog item any preset filter accepts, in category order
