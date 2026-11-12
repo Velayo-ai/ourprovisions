@@ -349,7 +349,7 @@ describe("rotation: bottom chrome is CSS-only; scroll restore and inset wait for
     expect(rule(".helm")).toMatch(/position: fixed;[^}]*bottom: calc\(18px \+ var\(--op-inset-bottom\)\);/);
     expect(rule(".helm-fade")).toMatch(/position: fixed;[^}]*bottom: 0;/);
     expect(rule(".bottom-stack")).toMatch(/bottom: calc\(92px \+ var\(--op-inset-bottom\)\);/);
-    expect(APP).toMatch(/:root \{ --op-inset-bottom: env\(safe-area-inset-bottom, 0px\);/);
+    expect(APP).toMatch(/:root \{ --op-inset-bottom: env\(safe-area-inset-bottom, 0px\); \}/);
     expect(APP).not.toMatch(/setProperty\("--op-inset-bottom"/);
   });
 

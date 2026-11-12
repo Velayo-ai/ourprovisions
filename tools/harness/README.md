@@ -79,7 +79,6 @@ node local/app-wide.js                       # every tab → Staples → back to
 node local/rotation.js                       # rapid rotate cycles with mid-rotation sizes: Helm at the bottom, Browse scroll restored
 node local/top-band.js                       # header + status-bar area pixel-identical before/after rotation, every tab; measured top inset survives
 node local/empty-state.js                    # the no-staples state (answers this page's household_staples reads with [])
-node local/under-bar.js                      # installed app with the page UNDER a 62px status bar: dark strip, header, sticky search, sheets, sideways
 
 node local/unlist.js Apples Bananas          # only if a check died midway: take its adds back off the test list
 

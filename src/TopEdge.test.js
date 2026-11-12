@@ -1,8 +1,10 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/TopEdge
 //
-// The top edge is ONE colour (2026-11-12): the header's dark runs up behind the status bar in the
-// installed app. Four places carry it — a CSS variable can only reach one of them — so this holds
-// them together, with the rules that keep content out from under the bar, on the source (the header lives inside ProvisionsApp: Clerk + Supabase).
+// The top edge of the installed app (2026-11-12). iOS 26/27 draws its own blur over the top of a
+// home-screen web app and owns the status-bar strip (the page starts BELOW it; iOS 27 ignores
+// "black-translucent"), so the app does two things only: its theme colour is the header's dark, and
+// the header's first row of content sits 12px lower inside the dark header, clear of the blur.
+// Held on the source (the header lives inside ProvisionsApp: Clerk + Supabase).
 const fs = require("fs");
 const path = require("path");
 
@@ -11,72 +13,38 @@ const HTML = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"),
 const MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "public", "manifest.json"), "utf8"));
 const meta = (name) => (HTML.match(new RegExp(`<meta name="${name}" content="([^"]*)"`)) || [])[1];
 
-describe("the top edge: the header's dark behind the status bar", () => {
+describe("the top edge", () => {
   const token = (APP.match(/:root \{ --op-header-dark: (#[0-9a-fA-F]{6}); \}/) || [])[1];
 
-  test("one token, and it is the header's top-row colour", () => {
+  test("one dark: the header's top row, theme-color and the manifest's theme_color; the splash background is the app cream", () => {
     expect(token).toBe("#1a0e06");
     expect(APP).toMatch(/background: bannerHasPhoto \? "transparent" : "var\(--op-header-dark\)"/);
-  });
-
-  test("the status bar's strip is the same dark, static in index.html: installed app only, sized by the real inset, above everything", () => {
-    const m = HTML.match(/@media \(display-mode: standalone\) \{\s*body::before \{([^}]*)\}/);
-    expect(m).not.toBeNull();
-    const strip = m[1].replace(/\s+/g, " ");
-    expect(strip).toMatch(/position: fixed; top: 0; left: 0; right: 0; height: env\(safe-area-inset-top, 0px\);/);
-    expect(strip.toLowerCase()).toContain(`background: ${token.toLowerCase()};`);
-    expect(strip).toMatch(/z-index: 5000; pointer-events: none;/);
-  });
-
-  test("--op-under-bar is the real inset in an installed app and 0 everywhere else", () => {
-    expect(APP).toMatch(/:root \{ --op-under-bar: 0px; \}/);
-    expect(APP).toMatch(/@media \(display-mode: standalone\) \{\s*:root \{ --op-inset-bottom: env\(safe-area-inset-bottom, 0px\); --op-under-bar: env\(safe-area-inset-top, 0px\); \}/);
-  });
-
-  test("the header's box runs up behind the bar; its content starts below it", () => {
-    expect(APP).toMatch(/^\s*\.header \{ background: #2C1A0E; color: #FAF4EC; position: relative; padding-top: var\(--op-under-bar\); \}/m);
-  });
-
-  test("the Home banner photo and its dissolve start below the bar — the strip sits above the photo, not behind it", () => {
-    expect(APP.match(/position: "absolute", inset: 0, top: "var\(--op-under-bar, 0px\)", zIndex: 0/g)).toHaveLength(2);
-  });
-
-  test("nothing top-anchored hides under the clock: sticky search, the top toast, every full-height sheet, modal and viewer", () => {
-    expect(APP).toMatch(/position: "sticky",\s*top: "var\(--op-under-bar, 0px\)",/);
-    expect(APP).toMatch(/body:has\(\.modal-overlay\) \.bottom-stack \{ bottom: auto; top: calc\(10px \+ var\(--op-under-bar\)\); \}/);
-    expect(APP).toMatch(/\.lib-type-scrim, \.rv-scrim, \.rv-psheet-scrim, \.add-sheet-scrim \{ padding-top: var\(--op-under-bar\); \}/);
-    expect(APP).toMatch(/body \.rv-viewer \{ padding-top: var\(--op-under-bar\); \}/);
-    expect(APP).toMatch(/body \.modal-overlay \{ padding-top: calc\(20px \+ var\(--op-under-bar\)\); \}/);
-    // the four inline bottom-sheet scrims, and the two 94vh sheets capped to the scrim's box
-    expect(APP.match(/paddingTop: "var\(--op-under-bar, 0px\)"/g)).toHaveLength(4);
-    expect(APP.match(/maxHeight: "min\(94vh, 100%\)"/g)).toHaveLength(2);
-    expect(APP).not.toMatch(/maxHeight: "94vh"/);
-    const PANEL = fs.readFileSync(path.join(__dirname, "components", "SheetPanel.js"), "utf8");
-    expect(PANEL).toMatch(/maxHeight: "calc\(100dvh - 24px - var\(--op-under-bar, 0px\)\)",/);
-    const ASK = fs.readFileSync(path.join(__dirname, "components", "AskRun.js"), "utf8");
-    expect(ASK).toMatch(/\.ask-run \{[^}]*padding: env\(safe-area-inset-top\)/);
-  });
-
-  test("an install with the OLD icon is untouched: the legacy band is cream again, above the viewport, sized by the measured inset", () => {
-    const band = APP.match(/^\.safe-top \{([^}]*)\}/m)[1];
-    expect(band).toMatch(/background: #FAF4EC;/);
-    expect(band).toMatch(/top: calc\(-1 \* var\(--op-inset-top\)\);/);
-    expect(band).toMatch(/height: var\(--op-inset-top\);/);
-    expect(APP).toMatch(/<div className="safe-top" aria-hidden="true" \/>/);
-  });
-
-  test("theme-color (meta and manifest) is the same dark; the splash background is the app cream", () => {
     expect(meta("theme-color").toLowerCase()).toBe(token.toLowerCase());
     expect(MANIFEST.theme_color.toLowerCase()).toBe(token.toLowerCase());
     expect(MANIFEST.background_color).toBe("#FAF4EC");
   });
 
-  test('status-bar style is "black-translucent": white clock, the page under the bar', () => {
-    expect(meta("apple-mobile-web-app-status-bar-style")).toBe("black-translucent");
-    expect(meta("viewport")).toMatch(/viewport-fit=cover/);
+  test("the header's content row sits 12px lower in the installed app — inside the row, so nothing is added above the header", () => {
+    expect(APP).toMatch(/:root \{ --op-header-nudge: 0px; \}/);
+    expect(APP).toMatch(/@media \(display-mode: standalone\) \{ :root \{ --op-header-nudge: 12px; \} \}/);
+    // the row's OWN top padding and min-height grow; its background (the header's dark, or the Home photo) covers the extra
+    expect(APP).toMatch(/padding: "calc\(10px \+ var\(--op-header-nudge\)\) 16px 10px", minHeight: "calc\(44px \+ var\(--op-header-nudge\)\)"/);
+    // the header itself gets no padding or margin: no space above it
+    expect(APP).toMatch(/^\s*\.header \{ background: #2C1A0E; color: #FAF4EC; position: relative; \}/m);
   });
 
-  test("the probe renders only through probeEnabled (installed app, dev host)", () => {
-    expect(APP).toMatch(/if \(!probeEnabled\(\{ hostname: window\.location\.hostname, standalone: window\.navigator\.standalone \}\)\) return undefined;/);
+  test("it is the one header every tab shares, and the Home banner photo spans it (so the banner moves with it)", () => {
+    expect(APP.match(/<div className="header"/g)).toHaveLength(1);
+    expect(APP).toMatch(/position: "absolute", inset: 0, zIndex: 0,\s*backgroundColor: "#2C1A0E",/);
+  });
+
+  test('the trials are undone: status-bar style "default", the cream band above the viewport, no under-bar machinery, no probe', () => {
+    expect(meta("apple-mobile-web-app-status-bar-style")).toBe("default");
+    expect(HTML).not.toMatch(/body::before/);
+    const band = APP.match(/^\.safe-top \{([^}]*)\}/m)[1];
+    expect(band).toMatch(/background: #FAF4EC;/);
+    expect(band).toMatch(/top: calc\(-1 \* var\(--op-inset-top\)\);/);
+    expect(APP).not.toMatch(/--op-under-bar|InsetProbe|inset-probe/);
+    expect(fs.existsSync(path.join(__dirname, "lib", "insetProbe.js"))).toBe(false);
   });
 });
