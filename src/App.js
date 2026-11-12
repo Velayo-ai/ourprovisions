@@ -61,6 +61,7 @@ import { CategoryHeader, CATEGORY_HEADER_ACTION } from './components/CategoryHea
 import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
+import { probeEnabled, insetProbeLines } from './lib/insetProbe';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -708,6 +709,38 @@ function SplashScreen({ onDone, ready }) {
       </div>
     </div>
   );
+}
+
+// Top-edge re-measure (lib/insetProbe.js): in the installed app on the dev host, show what iOS reports
+// about the status bar — env(safe-area-inset-top), and whether the page starts below the bar — so it can
+// be read off the phone. Re-read when the viewport changes; tap to dismiss. Renders nothing anywhere else.
+function InsetProbe() {
+  const [lines, setLines] = useState(null);
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    if (!probeEnabled({ hostname: window.location.hostname, standalone: window.navigator.standalone })) return undefined;
+    const ruler = document.createElement("div");
+    ruler.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;padding-top:env(safe-area-inset-top, 0px)";
+    document.body.appendChild(ruler);
+    const read = () => {
+      const vv = window.visualViewport;
+      const next = insetProbeLines({
+        envTop: getComputedStyle(ruler).paddingTop,
+        opInsetTop: getComputedStyle(document.documentElement).getPropertyValue("--op-inset-top").trim(),
+        screenHeight: window.screen.height, innerHeight: window.innerHeight,
+        vvHeight: vv ? vv.height : null, vvOffsetTop: vv ? vv.offsetTop : 0,
+        landscape: window.innerWidth > window.innerHeight,
+      });
+      console.info("[top-edge probe]", next.join(" | "));
+      setLines(next);
+    };
+    read();
+    const later = window.setTimeout(read, 600);   // after the measured inset has been written
+    const off = onViewportSettled(window, read);
+    return () => { window.clearTimeout(later); off(); ruler.remove(); };
+  }, []);
+  if (!lines || !open) return null;
+  return <div className="inset-probe" role="status" onClick={() => setOpen(false)}>{lines.join("\n")}{"\n"}tap to dismiss</div>;
 }
 
 function HouseholdDebugLog() {
@@ -8980,6 +9013,10 @@ function ProvisionsApp({ scrollRootRef }) {
            0px and is pixel-identical. BOTTOM stays gated to display-mode: standalone: a tab's bottom inset becomes ~34px
            when Safari's toolbar collapses, which would move the Helm. */
         :root { --op-inset-top: 0px; --op-inset-bottom: 0px; }
+        /* The header's dark — its top row, the band behind the status bar, and (as literals, they can't read a
+           variable) the theme-color meta in index.html and theme_color in manifest.json. One colour for the whole
+           top edge; TopEdge.test.js fails if any of the four drifts. */
+        :root { --op-header-dark: #1a0e06; }
         /* The cream edge fade's stops, clear → cream. One list: the Helm's fade runs it downwards, the landscape
            Staples header runs it upwards, so the two edges can't drift apart. */
         :root { --op-fade-stops: rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC; }
@@ -8994,14 +9031,22 @@ function ProvisionsApp({ scrollRootRef }) {
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
 /* iOS standalone: the status bar overlays the page, so once the header scrolls away content passes under the clock. This
-   fixed band is the status bar's own background — PAGE CREAM, because the clock on Dan's iPhone is BLACK (the 2026-10-16
-   first cut assumed a white clock and painted it #1a0e06). Height follows the MEASURED inset (0 in a browser tab, so the
-   band is 0 tall and top 0 there — nothing changes). It sits ABOVE the layout viewport, at −inset…0: Dan's phone
-   (2026-10-17, the fourth cut's first check) showed a double-height strip when the band also covered 0…+inset, which
-   proves a fixed top:0 sits at the viewport's top edge, one bar-height BELOW the clock — the WebView lays the page out
-   below the bar at rest and only PAINTS scrolled content up into the bar's region. So the band covers exactly that
-   region and nothing in the viewport; the header needs no offset. Below every scrim (1000). */
-.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: #FAF4EC; z-index: 950; pointer-events: none; }
+   fixed band is the status bar's own background.
+   DARK since 2026-11-12 — the header's own colour (--op-header-dark), with a WHITE clock (status-bar style "black" in
+   index.html) — so the dark header runs up behind the status bar on every tab, and the strip stays above the Home
+   banner photo rather than behind it. This REVERSES the 2026-10-16/17 decision ("page cream, because the clock on
+   Dan's iPhone is BLACK"): on iOS 26/27 the system draws its own blur over the top edge of an installed web app, and a
+   cream edge over a dark header read as a cream smear. Dev only for now; the phone decides.
+   Height follows the MEASURED inset (0 in a browser tab, so the band is 0 tall and top 0 there — nothing changes;
+   0 sideways, where iOS hides the bar). It sits ABOVE the layout viewport, at −inset…0: Dan's phone (2026-10-17, the
+   fourth cut's first check) showed a double-height strip when the band also covered 0…+inset, which proves a fixed
+   top:0 sits at the viewport's top edge, one bar-height BELOW the clock — the WebView lays the page out below the bar
+   at rest and only PAINTS scrolled content up into the bar's region. So the band covers exactly that region and
+   nothing in the viewport; the header needs no offset. Below every scrim (1000). */
+.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: var(--op-header-dark); z-index: 950; pointer-events: none; }
+/* Top-edge probe (lib/insetProbe.js): the installed app on the dev host only. Four lines of numbers, tap to dismiss. */
+.inset-probe { position: fixed; left: 12px; right: 12px; top: 72px; z-index: 2500; padding: 10px 12px; border-radius: 10px; background: rgba(13,148,136,0.96); color: #fff;
+               font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
 /* Visually hidden, read by assistive tech. Used for the fixed VERB half of an aria-labelledby accessible name (2026-10-16): a
    button names itself from this span plus the masked title element, so no attribute ever carries a meal name or a count —
    the session recorder copies every attribute except title / alt / on* into replay snapshots, and masks only text nodes. */
@@ -10378,9 +10423,10 @@ function ProvisionsApp({ scrollRootRef }) {
           </>
         )}
       <div className="safe-top" aria-hidden="true" />
+      <InsetProbe />
       <div className="header" style={{ position: "relative", zIndex: bannerHasPhoto ? 1 : undefined, background: bannerHasPhoto ? "transparent" : undefined }}>
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
-        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
+        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "var(--op-header-dark)" }}>
           {isSignedIn && household?.name && (
             <button
               onClick={() => setShowHouseholdModal(true)}
