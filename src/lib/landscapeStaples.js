@@ -15,7 +15,7 @@ export const PRESET_FILTERS = {
 // The header is the portrait pill's star + this word, and nothing else — no exit instructions.
 export const LANDSCAPE_HEADER = "Staples";
 export const LANDSCAPE_EMPTY = "No staples yet. Rotate back, swipe an item left and tap ⭐ Staple.";
-export const QTY_HINT = "Edit quantity in portrait";
+export const HOLD_HINT = "Hold to remove";
 
 // The flat tile list: every catalog item any preset filter accepts, in category order
 // (the order `categories` already carries), no headers. `categories` is Browse's
@@ -33,17 +33,20 @@ export function landscapeItems(categories, catalogMap, preset = LANDSCAPE_PRESET
   return out;
 }
 
-// What a tile tap does at this quantity. Off the list → add 1. On at exactly 1 → remove.
-// On at 2+ → nothing but a hint: a stray thumb in a dense grid must not wipe a quantity
-// someone set on purpose (Dan, 2026-11-11). Steppers stay in portrait.
-export function tileTap(qty) {
+// What a TAP on a tile does (final, 2026-11-11).
+//   not on the list                       → "add" (quantity 1)
+//   on the list, added during THIS visit  → "remove" (an undo of this visit's own tap)
+//   on the list before the visit began    → "hint": nothing is written; "Hold to remove"
+// A stray thumb in a dense grid can therefore only ever undo what it just did. Taking
+// something off that was already on the list is a press-and-hold, at any quantity — that
+// lives in the component (useHold), not here. Steppers stay in portrait.
+export function tileTap({ qty, addedThisVisit }) {
   const q = Number(qty) || 0;
   if (q <= 0) return "add";
-  if (q === 1) return "remove";
-  return "hint";
+  return addedThisVisit ? "remove" : "hint";
 }
 
-// The toast on the way back to portrait; null = no toast.
+// The toast on the way back to portrait, for the visit's NET adds; null = no toast.
 export function staplesAddedLine(n) {
   if (!(n > 0)) return null;
   return n === 1 ? "1 staple added" : `${n} staples added`;

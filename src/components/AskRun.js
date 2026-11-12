@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { pickLine } from "../lib/askCreate";
 import { tapTile, takeOut, canConfirm, shelfTitlePrefix, effectiveTarget, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
+import { useHold, holdFillCss } from "../hooks/useHold";
 
 // Running an Ask (SPEC_ask amendment A13–A17, A24; SPEC_ask_slice2 C3b). Three screens, full
 // screen over the app: (1) "Your turn, {Label}!" — the hand-over, the wagon on the water at
@@ -32,8 +33,6 @@ import { tapTile, takeOut, canConfirm, shelfTitlePrefix, effectiveTarget, tileFa
 // or picks rewrites op_ask_held ({ask_id, screen, ids}); Great picks clears it, because the picks
 // have landed. A failed land keeps it with the wagon. The caller clears it on every other way out
 // and hands a reloaded run its held screen and picks through `resume`.
-
-const HOLD_MS = 1000;
 
 // The wagon (A15): cream body, a teal stripe, wooden wheels and handle. Picks sit inside, behind
 // the front panel; each is tappable to take it out while the shelf is open.
@@ -99,33 +98,22 @@ function TileFace({ tile, glyphClass }) {
 }
 
 // Done (A17): press and hold about a second. A short tap only says "Hold to finish".
+// The hold itself is hooks/useHold — shared with the landscape Staples tiles.
 function HoldDone({ onDone }) {
-  const [holding, setHolding] = useState(false);
   const [hint, setHint] = useState(false);
-  const timer = useRef(null);
   const hintTimer = useRef(null);
-  useEffect(() => () => { clearTimeout(timer.current); clearTimeout(hintTimer.current); }, []);
-  const start = (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    if (timer.current) return;
-    setHolding(true);
-    timer.current = setTimeout(() => { timer.current = null; setHolding(false); onDone(); }, HOLD_MS);
-  };
-  const stop = () => {
-    if (!timer.current) return;
-    clearTimeout(timer.current);
-    timer.current = null;
-    setHolding(false);
-    setHint(true);
-    clearTimeout(hintTimer.current);
-    hintTimer.current = setTimeout(() => setHint(false), 1600);
-  };
+  useEffect(() => () => { clearTimeout(hintTimer.current); }, []);
+  const { holding, bind } = useHold({
+    onHold: onDone,
+    onRelease: () => {
+      setHint(true);
+      clearTimeout(hintTimer.current);
+      hintTimer.current = setTimeout(() => setHint(false), 1600);
+    },
+  });
   return (
     <button type="button" className={`ask-done${holding ? " holding" : ""}`} aria-label="Hold to finish"
-      onPointerDown={start} onPointerUp={stop} onPointerLeave={stop} onPointerCancel={stop}
-      onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !e.repeat) start(e); }}
-      onKeyUp={(e) => { if (e.key === "Enter" || e.key === " ") stop(); }}
-      onContextMenu={(e) => e.preventDefault()}>
+      {...bind}>
       <span className="ask-done-fill" aria-hidden="true" />
       <span className="ask-done-text">{hint ? "Hold to finish" : "Done"}</span>
     </button>
@@ -315,8 +303,7 @@ const ASK_RUN_CSS = `
 .ask-eyebrow { font: 700 calc(12.5px * var(--op-text-scale, 1)) 'Lato', sans-serif; letter-spacing: 0.16em; text-transform: uppercase; color: #2C1A0E; }
 .ask-done { position: relative; overflow: hidden; border: 1px solid #E8D5B7; background: #FFFDF9; color: #2C1A0E; border-radius: 999px;
   padding: 9px 16px; font: 700 14px 'Lato', sans-serif; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; min-height: 40px; }
-.ask-done-fill { position: absolute; inset: 0; background: #E8D5B7; transform: scaleX(0); transform-origin: left; transition: transform 0.2s; }
-.ask-done.holding .ask-done-fill { transform: scaleX(1); transition: transform ${HOLD_MS}ms linear; }
+${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-done-text { position: relative; }
 .ask-h1 { position: relative; z-index: 1; font-family: 'Playfair Display', serif; font-weight: 700; font-size: 40px; line-height: 1.1; text-align: center; margin: 28px 20px 0; }
 .ask-h1-left { text-align: left; font-size: 32px; margin-top: 20px; }

@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { LandscapeStaples } from "./LandscapeStaples";
-import { LANDSCAPE_HEADER, LANDSCAPE_EMPTY, QTY_HINT } from "../lib/landscapeStaples";
+import { LANDSCAPE_HEADER, LANDSCAPE_EMPTY, HOLD_HINT } from "../lib/landscapeStaples";
+import { HOLD_MS } from "../hooks/useHold";
 
 const fs = require("fs");
 const path = require("path");
@@ -10,10 +11,11 @@ const items = [
   { name: "Milk", rawCategory: "Dairy" },
   { name: "Eggs", rawCategory: "Dairy" },
 ];
-const setup = (qty = {}) => {
+// `qty` = what is on the list; `visit` = names added during this landscape visit.
+const setup = (qty = {}, visit = []) => {
   const onAdd = jest.fn();
   const onRemove = jest.fn();
-  render(<LandscapeStaples items={items} qtyOf={(i) => qty[i.name] || 0} onAdd={onAdd} onRemove={onRemove} />);
+  render(<LandscapeStaples items={items} qtyOf={(i) => qty[i.name] || 0} addedThisVisit={(i) => visit.includes(i.name)} onAdd={onAdd} onRemove={onRemove} />);
   return { onAdd, onRemove };
 };
 
@@ -44,34 +46,131 @@ describe("LandscapeStaples", () => {
     expect(screen.getByRole("button", { name: "Eggs" })).not.toHaveClass("on");
   });
 
-  test("tap at quantity 1 → remove", () => {
-    const { onAdd, onRemove } = setup({ Milk: 1 });
+  test("tap a tile added during THIS visit → take it back off", () => {
+    const { onAdd, onRemove } = setup({ Milk: 1 }, ["Milk"]);
     fireEvent.click(screen.getByRole("button", { name: /Milk/ }));
     expect(onRemove).toHaveBeenCalledWith(items[1]);
     expect(onAdd).not.toHaveBeenCalled();
+    expect(screen.queryByText(HOLD_HINT)).toBeNull();
   });
 
-  test("tap at quantity 2+ → no write, a brief hint", () => {
+  test("tap a tile that was on the list before the visit → no write, 'Hold to remove' — at 1 and at 3", () => {
     jest.useFakeTimers();
-    const { onAdd, onRemove } = setup({ Milk: 3 });
-    expect(screen.queryByText(QTY_HINT)).toBeNull();
+    const { onAdd, onRemove } = setup({ Milk: 1, Eggs: 3 });
+    expect(screen.queryByText(HOLD_HINT)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Milk/ }));
+    expect(screen.getByText(HOLD_HINT)).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(2000); });
+    expect(screen.queryByText(HOLD_HINT)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Eggs/ }));
+    expect(screen.getByText(HOLD_HINT)).toBeInTheDocument();
     expect(onAdd).not.toHaveBeenCalled();
     expect(onRemove).not.toHaveBeenCalled();
-    expect(screen.getByText(QTY_HINT)).toBeInTheDocument();
     act(() => { jest.advanceTimersByTime(2000); });
-    expect(screen.queryByText(QTY_HINT)).toBeNull();
     jest.useRealTimers();
   });
 
-  test("an error shows in the hint slot with Dismiss, and outranks the quantity hint", () => {
+  test("the old quantity hint is gone", () => {
+    setup({ Milk: 3 });
+    fireEvent.click(screen.getByRole("button", { name: /Milk/ }));
+    expect(document.querySelector(".ls-root").textContent).not.toMatch(/edit quantity/i);
+  });
+
+  describe("press and hold", () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    test("holding an on-list tile for HOLD_MS removes it at any quantity; the press's own click is swallowed", () => {
+      const { onAdd, onRemove } = setup({ Eggs: 3 });
+      const tile = screen.getByRole("button", { name: /Eggs/ });
+      expect(tile.querySelector(".ls-fill")).not.toBeNull();
+      fireEvent.pointerDown(tile);
+      expect(tile).toHaveClass("holding");
+      act(() => { jest.advanceTimersByTime(HOLD_MS - 1); });
+      expect(onRemove).not.toHaveBeenCalled();
+      act(() => { jest.advanceTimersByTime(1); });
+      expect(onRemove).toHaveBeenCalledTimes(1);
+      expect(onRemove).toHaveBeenCalledWith(items[2]);
+      expect(tile).not.toHaveClass("holding");
+      fireEvent.pointerUp(tile);
+      fireEvent.click(tile);   // the browser's click for the same press
+      expect(onRemove).toHaveBeenCalledTimes(1);
+      expect(onAdd).not.toHaveBeenCalled();
+      expect(screen.queryByText(HOLD_HINT)).toBeNull();
+    });
+
+    test("a tile added this visit can be held off too", () => {
+      const { onRemove } = setup({ Milk: 1 }, ["Milk"]);
+      const tile = screen.getByRole("button", { name: /Milk/ });
+      fireEvent.pointerDown(tile);
+      act(() => { jest.advanceTimersByTime(HOLD_MS); });
+      expect(onRemove).toHaveBeenCalledTimes(1);
+    });
+
+    test("letting go early is just a tap: no remove by hold; a scroll that cancels the press does nothing", () => {
+      const { onRemove } = setup({ Eggs: 3 });
+      const tile = screen.getByRole("button", { name: /Eggs/ });
+      fireEvent.pointerDown(tile);
+      act(() => { jest.advanceTimersByTime(400); });
+      fireEvent.pointerUp(tile);
+      fireEvent.click(tile);
+      act(() => { jest.advanceTimersByTime(HOLD_MS); });
+      expect(onRemove).not.toHaveBeenCalled();
+      expect(screen.getByText(HOLD_HINT)).toBeInTheDocument();   // the tap's own answer
+      act(() => { jest.advanceTimersByTime(2000); });
+      fireEvent.pointerDown(tile);
+      act(() => { jest.advanceTimersByTime(300); });
+      fireEvent.pointerCancel(tile);   // the browser took the gesture for scrolling: no click follows
+      act(() => { jest.advanceTimersByTime(HOLD_MS); });
+      expect(onRemove).not.toHaveBeenCalled();
+      expect(screen.queryByText(HOLD_HINT)).toBeNull();
+    });
+
+    test("a tile that is not on the list has no hold: holding it does nothing, the tap adds", () => {
+      const { onAdd, onRemove } = setup();
+      const tile = screen.getByRole("button", { name: "Milk" });
+      expect(tile.querySelector(".ls-fill")).toBeNull();
+      fireEvent.pointerDown(tile);
+      act(() => { jest.advanceTimersByTime(HOLD_MS * 2); });
+      expect(tile).not.toHaveClass("holding");
+      fireEvent.pointerUp(tile);
+      fireEvent.click(tile);
+      expect(onRemove).not.toHaveBeenCalled();
+      expect(onAdd).toHaveBeenCalledTimes(1);
+    });
+
+    test("after a hold whose click never came, the next tap still works", () => {
+      const { onAdd, onRemove } = setup({ Eggs: 3 });
+      const eggs = screen.getByRole("button", { name: /Eggs/ });
+      fireEvent.pointerDown(eggs);
+      act(() => { jest.advanceTimersByTime(HOLD_MS); });
+      expect(onRemove).toHaveBeenCalledTimes(1);
+      fireEvent.pointerLeave(eggs);   // finger slid off: no click
+      fireEvent.pointerDown(eggs);
+      fireEvent.pointerUp(eggs);
+      fireEvent.click(eggs);
+      expect(screen.getByText(HOLD_HINT)).toBeInTheDocument();   // (the fake qty is still 3)
+      expect(onAdd).not.toHaveBeenCalled();
+    });
+
+    test("the fill is the Ask Done pill's: both stylesheets take it from holdFillCss", () => {
+      const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+      const ASK = fs.readFileSync(path.join(__dirname, "AskRun.js"), "utf8");
+      expect(APP).toContain('${holdFillCss(".ls-fill", ".ls-tile.holding .ls-fill")}');
+      expect(ASK).toContain('${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}');
+      expect(ASK).toMatch(/const \{ holding, bind \} = useHold\(/);
+      expect(ASK).not.toMatch(/const HOLD_MS/);
+    });
+  });
+
+  test("an error shows in the hint slot with Dismiss, and outranks the hold hint", () => {
     const onDismissError = jest.fn();
     render(<LandscapeStaples items={items} qtyOf={(i) => (i.name === "Milk" ? 3 : 0)} onAdd={jest.fn()} onRemove={jest.fn()}
       error="Could not add Milk" onDismissError={onDismissError} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Could not add Milk");
     expect(screen.getByRole("alert")).toHaveClass("ls-hint");
-    fireEvent.click(screen.getByRole("button", { name: /Milk/ }));   // would raise the 2+ hint
-    expect(screen.queryByText(QTY_HINT)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Milk/ }));   // would raise "Hold to remove"
+    expect(screen.queryByText(HOLD_HINT)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(onDismissError).toHaveBeenCalledTimes(1);
   });
@@ -92,7 +191,7 @@ describe("LandscapeStaples", () => {
     jest.useFakeTimers();
     setup({ Milk: 3 });
     fireEvent.click(screen.getByRole("button", { name: /Milk/ }));
-    expect(screen.getByText(QTY_HINT).closest(".ls-grid")).toBeNull();
+    expect(screen.getByText(HOLD_HINT).closest(".ls-grid")).toBeNull();
     act(() => { jest.advanceTimersByTime(2000); });
     jest.useRealTimers();
   });
@@ -196,9 +295,9 @@ describe("landscape never touches portrait filter state", () => {
     expect(block).toMatch(/landscapeItems\(categories, catalogMap\)/);
   });
 
-  test("the element is handed items, the two list writes and the error to mirror, nothing else", () => {
+  test("the element is handed items, the visit's add-set test, the two list writes and the error to mirror, nothing else", () => {
     const m = APP.match(/<LandscapeStaples ([^>]*)\/>/);
     expect(m).not.toBeNull();
-    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph(\"Staples\")} error={error} onDismissError={dismissError}");
+    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph(\"Staples\")} error={error} onDismissError={dismissError}");
   });
 });

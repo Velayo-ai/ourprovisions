@@ -58,6 +58,7 @@ import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIB
 import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
 import { LandscapeStaples } from './components/LandscapeStaples';
 import { onViewportSettled } from './lib/viewportSettled';
+import { holdFillCss } from './hooks/useHold';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -8573,11 +8574,26 @@ function ProvisionsApp({ scrollRootRef }) {
   useEffect(() => {
     if (landscapePhone && landscapeMounted && textFocused && document.activeElement && document.activeElement.blur) document.activeElement.blur();
   }, [landscapePhone, landscapeMounted, textFocused]);
-  // Names added during THIS landscape visit; a tile removed again leaves the set. Adds and
-  // removes go through updateQty — the Add button's own path (realtime, optimistic, offline).
-  // The view is tappable before the visit is marked, so the set is emptied when a visit
-  // ENDS (after its toast), never when one starts.
+  // Names added during THIS landscape visit; a tile removed again leaves the set, so its size
+  // is the visit's NET adds. Adds and removes go through updateQty — the Add button's own
+  // path (realtime, optimistic, offline). A tap only ever takes off what this visit put on
+  // (the set is how the view knows); anything else comes off by press-and-hold.
+  // Every rotation INTO landscape starts a fresh set: flushLandscapeAdds runs when a visit
+  // ends, and again the moment the display flips sideways (the query itself, no debounce).
   const landscapeAddedRef = useRef(new Set());
+  const flushLandscapeAdds = useCallback(() => {
+    const line = staplesAddedLine(landscapeAddedRef.current.size);
+    landscapeAddedRef.current.clear();
+    if (line) showToast(line);
+  }, [showToast]);
+  const landscapeAddedThisVisit = useCallback((item) => landscapeAddedRef.current.has(item.name), []);
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const mq = window.matchMedia(LANDSCAPE_PHONE_QUERY);
+    const onFlip = () => { if (mq.matches) flushLandscapeAdds(); };
+    if (mq.addEventListener) mq.addEventListener("change", onFlip);
+    return () => { if (mq.removeEventListener) mq.removeEventListener("change", onFlip); };
+  }, [flushLandscapeAdds]);
   const landscapeAdd = useCallback((item) => {
     landscapeAddedRef.current.add(item.name);
     updateQty(item.name, 1, item.rawCategory);
@@ -8588,13 +8604,8 @@ function ProvisionsApp({ scrollRootRef }) {
   }, [updateQty]);
   useEffect(() => {
     if (!landscapeStaples) return undefined;
-    const added = landscapeAddedRef.current;
-    return () => {
-      const line = staplesAddedLine(added.size);
-      added.clear();
-      if (line) showToast(line);
-    };
-  }, [landscapeStaples, showToast]);
+    return flushLandscapeAdds;
+  }, [landscapeStaples, flushLandscapeAdds]);
   // Portrait scroll survives the trip. Sideways, a phone is wider than COLUMN_MIN_WIDTH, so
   // the document stops scrolling (the column does) and the browser drops the page's offset.
   // Remember it while upright in Browse; put it back when the phone is upright again.
@@ -8612,13 +8623,16 @@ function ProvisionsApp({ scrollRootRef }) {
   landscapeVisitRef.current = landscapeStaples;
   useEffect(() => {
     // Arriving in Browse: start from where the page is now, not from the last visit.
-    if (view === "input" && window.innerWidth <= window.innerHeight) browseScrollYRef.current = window.scrollY;
+    if (view === "input" && window.innerWidth < window.innerHeight && window.innerWidth < COLUMN_MIN_WIDTH) browseScrollYRef.current = window.scrollY;
     browseAwayRef.current = false;
   }, [view]);
   useEffect(() => {
     if (view !== "input" || !window.matchMedia) return undefined;
     if (!window.matchMedia("(pointer: coarse)").matches) return undefined;
-    const upright = () => window.innerWidth <= window.innerHeight;
+    // "Upright" = taller than wide AND narrower than the desktop column's threshold, i.e. the
+    // document is the scroll root. A half-turned square that is wide enough for the column has
+    // already dropped the page's offset; it must count as away, never be recorded as a position.
+    const upright = () => window.innerWidth < window.innerHeight && window.innerWidth < COLUMN_MIN_WIDTH;
     const onResize = () => { if (!upright()) browseAwayRef.current = true; };
     const onScroll = () => {
       if (!browseAwayRef.current && !landscapeVisitRef.current && upright()) browseScrollYRef.current = window.scrollY;
@@ -8627,11 +8641,7 @@ function ProvisionsApp({ scrollRootRef }) {
       if (!upright()) { browseAwayRef.current = true; return; }
       // Upright again before the visit was ever marked (in and out inside the debounce): the
       // visit's cleanup will never run, so count its adds here.
-      if (!landscapeVisitRef.current && landscapeAddedRef.current.size) {
-        const line = staplesAddedLine(landscapeAddedRef.current.size);
-        landscapeAddedRef.current.clear();
-        if (line) showToast(line);
-      }
+      if (!landscapeVisitRef.current) flushLandscapeAdds();
       if (!browseAwayRef.current) return;
       browseAwayRef.current = false;
       if (isTextEntry(document.activeElement)) return;
@@ -8644,7 +8654,7 @@ function ProvisionsApp({ scrollRootRef }) {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("scroll", onScroll);
     };
-  }, [view, showToast]);
+  }, [view, flushLandscapeAdds]);
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
@@ -8926,7 +8936,7 @@ function ProvisionsApp({ scrollRootRef }) {
           included — the grid gets the room); the portrait Browse stays mounted below.
           The error toast above is underneath it, so the view shows the same `error` in its own slot. */}
       {landscapeMounted && (
-        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} error={error} onDismissError={dismissError} />
+        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} error={error} onDismissError={dismissError} />
       )}
 
       {!(signedOutWelcome && pendingGiftCode) && <Helm
@@ -9813,8 +9823,10 @@ function ProvisionsApp({ scrollRootRef }) {
         .ls-tile { position: relative; min-height: 48px; padding: 1px 8px; display: flex; align-items: center; justify-content: center; overflow: hidden;
                    background: #F5EDE0; border: 2px solid #E8D5B7; border-radius: 8px; color: #2C1A0E; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: calc(17px * var(--op-text-scale)); line-height: 1.15; text-align: center;
-                   touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
-        .ls-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+                   touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+        .ls-name { position: relative; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+        /* Press-and-hold to remove: the Ask Done pill's own fill (hooks/useHold), under the label and the badge. */
+        ${holdFillCss(".ls-fill", ".ls-tile.holding .ls-fill")}
         .ls-badge { position: absolute; top: 0; right: 0; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 0 0 0 8px;
                     background: #c8973a; color: #2C1A0E; font-size: 12px; font-weight: 900; line-height: 20px; }
         .ls-empty { margin: auto; max-width: 420px; padding: 0 16px 24px; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #8A5F3A; }

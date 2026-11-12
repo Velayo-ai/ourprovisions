@@ -1,4 +1,4 @@
-import { LANDSCAPE_PRESET, landscapeItems, tileTap, staplesAddedLine } from "./landscapeStaples";
+import { LANDSCAPE_PRESET, landscapeItems, tileTap, staplesAddedLine, HOLD_HINT } from "./landscapeStaples";
 
 const categories = [
   { rawName: "Produce", items: [{ name: "Apples" }, { name: "Bananas" }] },
@@ -28,16 +28,21 @@ describe("landscapeItems", () => {
 });
 
 describe("tileTap", () => {
-  test("off the list → add", () => {
-    expect(tileTap(0)).toBe("add");
-    expect(tileTap(undefined)).toBe("add");
+  test("off the list → add, whatever the visit says", () => {
+    expect(tileTap({ qty: 0, addedThisVisit: false })).toBe("add");
+    expect(tileTap({ qty: undefined, addedThisVisit: false })).toBe("add");
+    expect(tileTap({ qty: 0, addedThisVisit: true })).toBe("add");
   });
-  test("on at exactly 1 → remove", () => {
-    expect(tileTap(1)).toBe("remove");
+  test("on the list, added during this visit → remove", () => {
+    expect(tileTap({ qty: 1, addedThisVisit: true })).toBe("remove");
   });
-  test("on at 2 or more → hint only, never a remove", () => {
-    expect(tileTap(2)).toBe("hint");
-    expect(tileTap(12)).toBe("hint");
+  test("on the list before the visit → hint only, at ANY quantity — never a remove", () => {
+    expect(tileTap({ qty: 1, addedThisVisit: false })).toBe("hint");
+    expect(tileTap({ qty: 2, addedThisVisit: false })).toBe("hint");
+    expect(tileTap({ qty: 12, addedThisVisit: false })).toBe("hint");
+  });
+  test("the hint says how", () => {
+    expect(HOLD_HINT).toBe("Hold to remove");
   });
 });
 
