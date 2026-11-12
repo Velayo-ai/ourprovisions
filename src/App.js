@@ -9778,8 +9778,8 @@ function ProvisionsApp({ scrollRootRef }) {
         @media (max-width: 520px), (min-width: ${COLUMN_MIN_WIDTH}px) { .items-grid { grid-template-columns: 1fr; } }
         /* Landscape = Staples (SPEC_landscape_staples; components/LandscapeStaples.js). On <body>, above the
            phone-frame and everything in it. The tiles size themselves: as many ≥120px columns as fit, rows
-           sharing the height left under the header but never under 48px — few staples fill the screen, many
-           hold at ~120×48 and the grid scrolls. The label stays one size; only the tile grows. */
+           48px to 140px tall — few staples grow up to the cap and the leftover space falls to the bottom, many
+           hold at ~120×48 and the grid scrolls. The label stays one size (17px × the text-size knob). */
         .ls-root { position: fixed; inset: 0; z-index: 3000; background: #FAF4EC; display: none; flex-direction: column;
                    padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
         /* DISPLAY: pure CSS, so the swap lands in the same frame as the rotation. Phones only — a desktop fails
@@ -9792,15 +9792,14 @@ function ProvisionsApp({ scrollRootRef }) {
         .ls-head { flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 2px 6px; font-family: 'Lato', sans-serif; font-size: 14px; font-weight: 700; color: #8A5F3A; }
         .ls-em { font-size: 15px; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
         .ls-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
-                   display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); grid-auto-rows: minmax(48px, 1fr); gap: 6px;
+                   display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); grid-auto-rows: minmax(48px, 140px); align-content: start; gap: 6px;
                    padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
-        .ls-tile { position: relative; min-height: 48px; padding: 6px 8px; display: flex; align-items: center; justify-content: center;
-                   background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; color: #2C1A0E; cursor: pointer;
-                   font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.2; text-align: center;
+        .ls-tile { position: relative; min-height: 48px; padding: 1px 8px; display: flex; align-items: center; justify-content: center; overflow: hidden;
+                   background: #F5EDE0; border: 2px solid #E8D5B7; border-radius: 8px; color: #2C1A0E; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: calc(17px * var(--op-text-scale)); line-height: 1.15; text-align: center;
                    touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
-        .ls-tile.on { background: #2C1A0E; border-color: #c8973a; color: #FAF4EC; }
         .ls-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
-        .ls-badge { position: absolute; top: -1px; right: -1px; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 0 7px 0 8px;
+        .ls-badge { position: absolute; top: 0; right: 0; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 0 0 0 8px;
                     background: #c8973a; color: #2C1A0E; font-size: 12px; font-weight: 900; line-height: 20px; }
         .ls-empty { margin: auto; max-width: 420px; padding: 0 16px 24px; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.5; color: #8A5F3A; }
         .ls-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
@@ -9810,7 +9809,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .ls-dismiss { flex: none; min-height: 32px; background: none; border: 1px solid rgba(255,255,255,0.3); color: #FAF4EC; border-radius: 4px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
         .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; -webkit-tap-highlight-color: transparent; }
         @media (hover: hover) { .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); } }
-        .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
+        /* "On the list" — ONE rule for the portrait row and the landscape tile, so the two can't drift.
+           Dark brown stays reserved for active filters and tabs. */
+        .item-row.has-qty, .ls-tile.on { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
         .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-text-scale)); color: #2C1A0E; flex: 1; }
         .op-mic-btn { flex: none; align-self: flex-start; width: 44px; height: 44px; border-radius: 10px; background: #2C1A0E; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }

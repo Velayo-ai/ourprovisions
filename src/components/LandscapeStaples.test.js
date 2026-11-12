@@ -87,13 +87,24 @@ describe("LandscapeStaples", () => {
     expect(css).toMatch(/min-height: 0;/);
     expect(css).toMatch(/overflow-y: auto;/);
     expect(css).toMatch(/grid-template-columns: repeat\(auto-fit, minmax\(120px, 1fr\)\);/);
-    expect(css).toMatch(/grid-auto-rows: minmax\(48px, 1fr\);/);
+    expect(css).toMatch(/grid-auto-rows: minmax\(48px, 140px\);/);
+    expect(css).toMatch(/align-content: start;/);
     jest.useFakeTimers();
     setup({ Milk: 3 });
     fireEvent.click(screen.getByRole("button", { name: /Milk/ }));
     expect(screen.getByText(QTY_HINT).closest(".ls-grid")).toBeNull();
     act(() => { jest.advanceTimersByTime(2000); });
     jest.useRealTimers();
+  });
+
+  test("an on-list tile looks like an on-list portrait row: one shared rule, no dark fill; label 17px × the knob", () => {
+    const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+    expect(APP).toMatch(/^\s*\.item-row\.has-qty, \.ls-tile\.on \{ border-color: #c8973a; background: #FAF4EC; \}/m);
+    expect(APP.match(/\.ls-tile\.on \{/g)).toHaveLength(1);
+    const tile = APP.match(/^\s*\.ls-tile \{([^}]*)\}/m)[1];
+    expect(tile).toMatch(/border: 2px solid #E8D5B7;/);
+    expect(tile).toMatch(/font-size: calc\(17px \* var\(--op-text-scale\)\);/);
+    expect(tile).not.toMatch(/#2C1A0E;\s*border/);
   });
 
   test("no staples → the empty line, no grid", () => {
