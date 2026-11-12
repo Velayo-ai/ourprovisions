@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { LANDSCAPE_HEADER, LANDSCAPE_EMPTY, HOLD_HINT, tileTap } from "../lib/landscapeStaples";
 import { useHold } from "../hooks/useHold";
 import { HINT_TEXT } from "../lib/landscapeHint";
+import { CategoryHeader, CATEGORY_HEADER_ACTION } from "./CategoryHeader";
 
 // Landscape = Staples (SPEC_landscape_staples): the sideways view itself. A flat grid of
 // tiles; no filters, no search, no steppers, no nav. To leave, rotate back.
@@ -70,7 +71,13 @@ export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onRemove
 
   return createPortal(
     <div className={`ls-root${scrolled ? " scrolled" : ""}`} role="region" aria-label="Staples">
-      <div className="ls-head">{glyph && <span className="ls-em" aria-hidden="true">{glyph}</span>}{LANDSCAPE_HEADER}{showHint && <span className="ls-sub">{HINT_TEXT}</span>}</div>
+      {/* Portrait Browse's own section header: "⭐ STAPLES" + the gold rule; the first-run hint sits where
+          "＋ New item" does. The grid's top padding is the gap under the rule, so no bottom margin here. */}
+      <div className="ls-head">
+        <CategoryHeader title={glyph ? `${glyph} ${LANDSCAPE_HEADER}` : LANDSCAPE_HEADER} style={{ marginBottom: 0 }}>
+          {showHint && <span className="ls-sub" style={{ ...CATEGORY_HEADER_ACTION, cursor: "default" }}>{HINT_TEXT}</span>}
+        </CategoryHeader>
+      </div>
       {items.length === 0 ? (
         <div className="ls-empty">{LANDSCAPE_EMPTY}</div>
       ) : (

@@ -57,6 +57,7 @@ import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
 import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS } from './hooks/useLandscapePhone';
 import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
 import { LandscapeStaples } from './components/LandscapeStaples';
+import { CategoryHeader, CATEGORY_HEADER_ACTION } from './components/CategoryHeader';
 import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
@@ -9835,18 +9836,19 @@ function ProvisionsApp({ scrollRootRef }) {
           body.${LANDSCAPE_ELIGIBLE_CLASS} .ls-root { display: flex; }
           body.${LANDSCAPE_ELIGIBLE_CLASS} .phone-frame { visibility: hidden; }
         }
-        .ls-head { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 2px 6px; font-family: 'Lato', sans-serif; font-size: 14px; font-weight: 700; color: #8A5F3A; }
+        /* The header is portrait Browse's own section header (components/CategoryHeader): emoji + tracked uppercase
+           label + the gold rule, the first-run hint where "＋ New item" sits. .ls-head only places it — 18px of air
+           above (below the safe area) — and carries the scrolled fade. The 14px between the rule and the first
+           row is the grid's own top padding, so scrolled tiles pass under the rule, not under a gap. */
+        .ls-head { position: relative; z-index: 1; flex: none; padding-top: calc(18px + env(safe-area-inset-top, 0px)); }
         /* Scrolled: tiles dissolve under the header instead of cutting hard — the Helm fade's own stops, turned upwards.
            Only while scrolled (LandscapeStaples sets .scrolled), so the first row is never washed out at rest. */
         .ls-head::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 22px; pointer-events: none;
                           background: linear-gradient(to top, var(--op-fade-stops)); opacity: 0; transition: opacity 0.15s ease; }
         .ls-root.scrolled .ls-head::after { opacity: 1; }
-        .ls-em { font-size: 15px; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
-        /* First-run subtitle beside the header (first 3 landscape visits on a device): small, muted, never wraps the header. */
-        .ls-sub { margin-left: 6px; font-size: 12px; font-weight: 400; color: #8a7a60; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
         .ls-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
                    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); grid-auto-rows: minmax(48px, 140px); align-content: start; gap: 6px;
-                   padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
+                   padding-top: 14px; padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
         .ls-tile { position: relative; min-height: 48px; padding: 1px 8px; display: flex; align-items: center; justify-content: center; overflow: hidden;
                    background: #F5EDE0; border: 2px solid #E8D5B7; border-radius: 8px; color: #2C1A0E; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: calc(17px * var(--op-text-scale)); line-height: 1.15; text-align: center;
@@ -11937,20 +11939,15 @@ function ProvisionsApp({ scrollRootRef }) {
                   {askBlocksShown.map(renderAskBlock)}
                   {categoryBlocks.map((cat) => (
                   <div className="category-block" key={cat.name}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
-                      <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>{cat.name}</div>
+                    <CategoryHeader title={cat.name}>
                       <button
                         onClick={() => {
                           setNewItemCategory(cat.rawName);
                           setShowAddModal(true);
                         }}
-                        style={{
-                          background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                          fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
-                          letterSpacing: "0.5px", padding: "0",
-                        }}
+                        style={CATEGORY_HEADER_ACTION}
                       >＋ New item</button>
-                    </div>
+                    </CategoryHeader>
                     <div className="items-grid">
                       {cat.items.map((item) => {
                         const qty = qtyFor(item);

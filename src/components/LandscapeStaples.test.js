@@ -23,7 +23,7 @@ describe("LandscapeStaples", () => {
   test("header is the star and the word, no exit instructions; a flat grid, no filter or search UI", () => {
     render(<LandscapeStaples items={items} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} glyph="⭐" />);
     expect(LANDSCAPE_HEADER).toBe("Staples");
-    expect(document.querySelector(".ls-head").textContent).toBe("⭐Staples");
+    expect(document.querySelector(".ls-head").textContent).toBe("⭐ Staples");
     expect(document.querySelector(".ls-root").textContent).not.toMatch(/rotate/i);
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Bananas", "Milk", "Eggs"]);
     expect(document.querySelector("input")).toBeNull();
@@ -224,11 +224,41 @@ describe("LandscapeStaples", () => {
   test("first-run subtitle: beside the header only when asked; the header itself is unchanged", () => {
     const { unmount } = render(<LandscapeStaples items={items} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} glyph="⭐" showHint />);
     expect(document.querySelector(".ls-head .ls-sub")).toHaveTextContent("Tap to add · Hold to remove");
-    expect(document.querySelector(".ls-head").textContent).toBe("⭐StaplesTap to add · Hold to remove");
+    expect(document.querySelector(".ls-head").textContent).toBe("⭐ StaplesTap to add · Hold to remove");
     unmount();
     render(<LandscapeStaples items={items} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} glyph="⭐" />);
     expect(document.querySelector(".ls-sub")).toBeNull();
-    expect(document.querySelector(".ls-head").textContent).toBe("⭐Staples");
+    expect(document.querySelector(".ls-head").textContent).toBe("⭐ Staples");
+  });
+
+  test("the header IS portrait's section header: one component, the same title class, rule and action style", () => {
+    const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+    const LS = fs.readFileSync(path.join(__dirname, "LandscapeStaples.js"), "utf8");
+    // both render CategoryHeader; neither carries its own copy of the header's styles
+    expect(APP).toMatch(/<CategoryHeader title=\{cat\.name\}>/);
+    expect(APP).toMatch(/style=\{CATEGORY_HEADER_ACTION\}\s*>＋ New item<\/button>/);
+    expect(LS).toMatch(/<CategoryHeader title=/);
+    expect(APP).not.toMatch(/\.ls-em \{|\.ls-sub \{/);
+    render(<LandscapeStaples items={items} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} glyph="⭐" showHint />);
+    const title = document.querySelector(".ls-head .cat-title");
+    expect(title).toHaveTextContent("⭐ Staples");            // .cat-title uppercases and tracks it
+    const row = title.parentElement;
+    expect(row).toHaveStyle({ borderBottom: "2px solid #E8D5B7" });   // the gold rule, #E8D5B7
+    expect(row.style.justifyContent).toBe("space-between");
+    expect(row.style.paddingBottom).toBe("8px");
+    const hint = document.querySelector(".ls-sub");
+    expect(hint.parentElement).toBe(row);                    // on the header line, at the right end
+    expect(hint.style.fontSize).toBe("12.5px");
+    expect(hint).toHaveStyle({ color: "#8A5F3A" });        // ＋ New item's own #8A5F3A
+    expect(hint.style.letterSpacing).toBe("0.5px");
+  });
+
+  test("breathing room: 18px above the header, 14px from the rule to the first row; the grid stays top-anchored", () => {
+    const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+    expect(APP).toMatch(/^\s*\.ls-head \{[^}]*padding-top: calc\(18px \+ env\(safe-area-inset-top, 0px\)\);/m);
+    const grid = APP.match(/^\s*\.ls-grid \{([^}]*)\}/m)[1];
+    expect(grid).toMatch(/padding-top: 14px;/);
+    expect(grid).toMatch(/align-content: start;/);
   });
 
   test("the subtitle is counted per visit: pre-rendered for the next visit, counted when one starts", () => {
