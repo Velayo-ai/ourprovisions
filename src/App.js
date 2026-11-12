@@ -8871,7 +8871,7 @@ function ProvisionsApp({ scrollRootRef }) {
           (the Helm included — the grid gets the room); the portrait Browse stays mounted below.
           The error toast above is underneath it, so the view shows the same `error` in its own slot. */}
       {landscapeStaples && (
-        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} error={error} onDismissError={dismissError} />
+        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} error={error} onDismissError={dismissError} />
       )}
 
       {!(signedOutWelcome && pendingGiftCode) && <Helm
@@ -9738,14 +9738,16 @@ function ProvisionsApp({ scrollRootRef }) {
         /* One column on phones, and one column inside the desktop phone column (it is 430px wide, whatever the window is). */
         @media (max-width: 520px), (min-width: ${COLUMN_MIN_WIDTH}px) { .items-grid { grid-template-columns: 1fr; } }
         /* Landscape = Staples (SPEC_landscape_staples; components/LandscapeStaples.js). On <body>, above the
-           phone-frame and everything in it. 5 columns, 6 on a wider phone; tiles at least 48px tall. */
+           phone-frame and everything in it. The tiles size themselves: as many ≥120px columns as fit, rows
+           sharing the height left under the header but never under 48px — few staples fill the screen, many
+           hold at ~120×48 and the grid scrolls. The label stays one size; only the tile grows. */
         .ls-root { position: fixed; inset: 0; z-index: 3000; background: #FAF4EC; display: flex; flex-direction: column;
                    padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
-        .ls-head { flex: none; padding: 8px 2px 6px; font-family: 'Lato', sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #8A5F3A; }
+        .ls-head { flex: none; display: flex; align-items: center; gap: 7px; padding: 8px 2px 6px; font-family: 'Lato', sans-serif; font-size: 14px; font-weight: 700; color: #8A5F3A; }
+        .ls-em { font-size: 15px; line-height: 1; width: 17px; text-align: center; flex: 0 0 auto; }
         .ls-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
-                   display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; align-content: start;
+                   display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); grid-auto-rows: minmax(48px, 1fr); gap: 6px;
                    padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
-        @media (min-width: 740px) { .ls-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
         .ls-tile { position: relative; min-height: 48px; padding: 6px 8px; display: flex; align-items: center; justify-content: center;
                    background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; color: #2C1A0E; cursor: pointer;
                    font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.2; text-align: center;

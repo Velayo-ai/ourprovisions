@@ -18,9 +18,11 @@ const setup = (qty = {}) => {
 };
 
 describe("LandscapeStaples", () => {
-  test("header explains the gesture; a flat grid, no filter or search UI", () => {
-    setup();
-    expect(screen.getByText(LANDSCAPE_HEADER)).toBeInTheDocument();
+  test("header is the star and the word, no exit instructions; a flat grid, no filter or search UI", () => {
+    render(<LandscapeStaples items={items} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} glyph="⭐" />);
+    expect(LANDSCAPE_HEADER).toBe("Staples");
+    expect(document.querySelector(".ls-head").textContent).toBe("⭐Staples");
+    expect(document.querySelector(".ls-root").textContent).not.toMatch(/rotate/i);
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Bananas", "Milk", "Eggs"]);
     expect(document.querySelector("input")).toBeNull();
     expect(document.querySelector(".cat-pill")).toBeNull();
@@ -79,6 +81,21 @@ describe("LandscapeStaples", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  test("the grid sizes its own tiles, and the hint slot is outside the scroller", () => {
+    const css = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8").match(/^\s*\.ls-grid \{([^}]*)\}/m)[1];
+    expect(css).toMatch(/flex: 1;/);
+    expect(css).toMatch(/min-height: 0;/);
+    expect(css).toMatch(/overflow-y: auto;/);
+    expect(css).toMatch(/grid-template-columns: repeat\(auto-fit, minmax\(120px, 1fr\)\);/);
+    expect(css).toMatch(/grid-auto-rows: minmax\(48px, 1fr\);/);
+    jest.useFakeTimers();
+    setup({ Milk: 3 });
+    fireEvent.click(screen.getByRole("button", { name: /Milk/ }));
+    expect(screen.getByText(QTY_HINT).closest(".ls-grid")).toBeNull();
+    act(() => { jest.advanceTimersByTime(2000); });
+    jest.useRealTimers();
+  });
+
   test("no staples → the empty line, no grid", () => {
     render(<LandscapeStaples items={[]} qtyOf={() => 0} onAdd={jest.fn()} onRemove={jest.fn()} />);
     expect(screen.getByText(LANDSCAPE_EMPTY)).toBeInTheDocument();
@@ -115,6 +132,6 @@ describe("landscape never touches portrait filter state", () => {
   test("the element is handed items, the two list writes and the error to mirror, nothing else", () => {
     const m = APP.match(/<LandscapeStaples ([^>]*)\/>/);
     expect(m).not.toBeNull();
-    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} error={error} onDismissError={dismissError}");
+    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph(\"Staples\")} error={error} onDismissError={dismissError}");
   });
 });

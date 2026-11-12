@@ -12,7 +12,8 @@ export const PRESET_FILTERS = {
   staples: (entry) => !!(entry && entry.is_staple),
 };
 
-export const LANDSCAPE_HEADER = "Staples · rotate back for full catalog";
+// The header is the portrait pill's star + this word, and nothing else — no exit instructions.
+export const LANDSCAPE_HEADER = "Staples";
 export const LANDSCAPE_EMPTY = "No staples yet. Rotate back, swipe an item left and tap ⭐ Staple.";
 export const QTY_HINT = "Edit quantity in portrait";
 

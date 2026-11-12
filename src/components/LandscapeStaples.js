@@ -4,6 +4,8 @@ import { LANDSCAPE_HEADER, LANDSCAPE_EMPTY, QTY_HINT, tileTap } from "../lib/lan
 
 // Landscape = Staples (SPEC_landscape_staples): the sideways view itself. A flat grid of
 // tiles, one tap each; no filters, no search, no steppers, no nav. To leave, rotate back.
+// The tiles size themselves: few staples fill the screen, many hold at ~120×48 and the grid
+// scrolls. The hint / error slot is a sibling of the grid, so it never scrolls away.
 //
 // Its whole interface is items in, onAdd / onRemove out. It is handed no portrait state
 // and no setter for any — it CAN'T touch the Staples pill, the category pills, search or
@@ -16,7 +18,7 @@ import { LANDSCAPE_HEADER, LANDSCAPE_EMPTY, QTY_HINT, tileTap } from "../lib/lan
 // the same error shows in the hint slot, with its Dismiss; an error outranks the hint.
 // (A network failure is not an error: it goes to the offline queue, as in portrait.)
 // Styles: the .ls-* rules in App.js's style block.
-export function LandscapeStaples({ items, qtyOf, onAdd, onRemove, error = null, onDismissError }) {
+export function LandscapeStaples({ items, qtyOf, onAdd, onRemove, glyph = null, error = null, onDismissError }) {
   const [hint, setHint] = useState(false);
   const hintTimer = useRef(null);
   useEffect(() => () => { if (hintTimer.current) clearTimeout(hintTimer.current); }, []);
@@ -34,7 +36,7 @@ export function LandscapeStaples({ items, qtyOf, onAdd, onRemove, error = null, 
 
   return createPortal(
     <div className="ls-root" role="region" aria-label="Staples">
-      <div className="ls-head op-chrome">{LANDSCAPE_HEADER}</div>
+      <div className="ls-head">{glyph && <span className="ls-em" aria-hidden="true">{glyph}</span>}{LANDSCAPE_HEADER}</div>
       {items.length === 0 ? (
         <div className="ls-empty">{LANDSCAPE_EMPTY}</div>
       ) : (
