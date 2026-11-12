@@ -296,7 +296,7 @@ describe("LandscapeStaples", () => {
     expect(document.querySelector(".ls-grid")).toBeNull();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
-    expect(APP).toMatch(/^\s*\.ls-empty \{ margin: auto; max-width: 440px;[^}]*text-align: center;/m);
+    expect(APP).toMatch(/^\s*\.ls-empty \{ margin: auto; max-width: 440px;[^}]*text-align: center; text-wrap: balance;/m);   // no orphaned last line
     expect(APP).toMatch(/\.ls-empty-title \{ font-size: calc\(17px \* var\(--op-text-scale\)\); font-weight: 700; color: #8A5F3A;/);
     expect(APP).toMatch(/\.ls-empty-body \{ font-size: calc\(15px \* var\(--op-text-scale\)\); color: #8a7a60;/);
     expect(APP).toMatch(/\.ls-empty-how \{ font-size: calc\(13px \* var\(--op-text-scale\)\); color: #8a7a60;/);

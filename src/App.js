@@ -9860,7 +9860,7 @@ function ProvisionsApp({ scrollRootRef }) {
                     background: #c8973a; color: #2C1A0E; font-size: 12px; font-weight: 900; line-height: 20px; }
         /* No staples yet: a centred block of three lines under the header rule. The title takes the header's own
            colour at body + 2px; the two lines under it are muted. Text only. */
-        .ls-empty { margin: auto; max-width: 440px; padding: 0 16px 24px; text-align: center; font-family: 'Lato', sans-serif; line-height: 1.45; }
+        .ls-empty { margin: auto; max-width: 440px; padding: 0 16px 24px; text-align: center; text-wrap: balance; font-family: 'Lato', sans-serif; line-height: 1.45; }
         .ls-empty-title { font-size: calc(17px * var(--op-text-scale)); font-weight: 700; color: #8A5F3A; margin-bottom: 8px; }
         .ls-empty-body { font-size: calc(15px * var(--op-text-scale)); color: #8a7a60; margin-bottom: 10px; }
         .ls-empty-how { font-size: calc(13px * var(--op-text-scale)); color: #8a7a60; }
