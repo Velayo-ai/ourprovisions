@@ -12,11 +12,12 @@ describe("the top-edge probe", () => {
   });
 
   test("a bar-sized gap reads as: the page starts below the bar", () => {
-    const lines = insetProbeLines({ envTop: "0px", opInsetTop: "62px", screenHeight: 956, innerHeight: 894, vvHeight: 894, vvOffsetTop: 0 });
+    const lines = insetProbeLines({ envTop: "0px", opInsetTop: "62px", underBar: "0px", screenHeight: 956, innerHeight: 894, vvHeight: 894, vvOffsetTop: 0 });
     expect(lines[0]).toBe("env(safe-area-inset-top): 0px");
     expect(lines[1]).toBe("page starts BELOW the bar (gap 62px)");
-    expect(lines[2]).toBe("--op-inset-top: 62px · screen 956 · inner 894");
-    expect(lines[3]).toBe("visualViewport: 894 @ 0");
+    expect(lines[2]).toBe("--op-under-bar: 0px · --op-inset-top: 62px");
+    expect(lines[3]).toBe("screen 956 · inner 894");
+    expect(lines[4]).toBe("visualViewport: 894 @ 0");
   });
 
   test("no gap reads as: the page runs behind the bar; sideways is labelled; no visualViewport is n/a", () => {
@@ -24,6 +25,9 @@ describe("the top-edge probe", () => {
       .toBe("page runs BEHIND the bar (gap 0)");
     expect(insetProbeLines({ envTop: "0px", opInsetTop: "0px", screenHeight: 440, innerHeight: 440, landscape: true })[1])
       .toBe("sideways — page runs BEHIND the bar (gap 0)");
-    expect(insetProbeLines({ envTop: "0px", opInsetTop: "0px", screenHeight: 956, innerHeight: 894 })[3]).toBe("visualViewport: n/a");
+    expect(insetProbeLines({ envTop: "0px", opInsetTop: "0px", screenHeight: 956, innerHeight: 894 })[4]).toBe("visualViewport: n/a");
+    // a new install: the page runs under the bar and the inset is real
+    const fresh = insetProbeLines({ envTop: "62px", opInsetTop: "0px", underBar: "62px", screenHeight: 956, innerHeight: 956, vvHeight: 956, vvOffsetTop: 0 });
+    expect(fresh.slice(0, 3)).toEqual(["env(safe-area-inset-top): 62px", "page runs BEHIND the bar (gap 0)", "--op-under-bar: 62px · --op-inset-top: 0px"]);
   });
 });

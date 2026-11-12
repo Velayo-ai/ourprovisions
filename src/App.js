@@ -720,13 +720,14 @@ function InsetProbe() {
   useEffect(() => {
     if (!probeEnabled({ hostname: window.location.hostname, standalone: window.navigator.standalone })) return undefined;
     const ruler = document.createElement("div");
-    ruler.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;padding-top:env(safe-area-inset-top, 0px)";
+    ruler.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;padding-top:env(safe-area-inset-top, 0px);padding-bottom:var(--op-under-bar, 0px)";
     document.body.appendChild(ruler);
     const read = () => {
       const vv = window.visualViewport;
       const next = insetProbeLines({
         envTop: getComputedStyle(ruler).paddingTop,
         opInsetTop: getComputedStyle(document.documentElement).getPropertyValue("--op-inset-top").trim(),
+        underBar: getComputedStyle(ruler).paddingBottom,
         screenHeight: window.screen.height, innerHeight: window.innerHeight,
         vvHeight: vv ? vv.height : null, vvOffsetTop: vv ? vv.offsetTop : 0,
         landscape: window.innerWidth > window.innerHeight,
@@ -9020,32 +9021,41 @@ function ProvisionsApp({ scrollRootRef }) {
         /* The cream edge fade's stops, clear → cream. One list: the Helm's fade runs it downwards, the landscape
            Staples header runs it upwards, so the two edges can't drift apart. */
         :root { --op-fade-stops: rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC; }
+        /* --op-under-bar (2026-11-12): how much of the page lies UNDER the status bar. Since the status-bar style
+           became "black-translucent" (index.html) an installed app's page starts at the very top of the screen and
+           env(safe-area-inset-top) is the bar's height (~62px on Dan's phone). 0 in a browser tab, on desktop, sideways,
+           and in an install whose icon predates the change (iOS keeps that icon's old chrome: page below the bar,
+           env 0, and the measured --op-inset-top / cream .safe-top band still do their job there, untouched).
+           The dark strip behind the clock is body::before in index.html, there from first paint and above everything;
+           everything else only has to keep its content out from under it: the header, Browse's sticky search, the
+           top-anchored toast, and every full-height sheet / modal / viewer (their scrims pad their top by this). */
+        :root { --op-under-bar: 0px; }
         @media (display-mode: standalone) {
-          :root { --op-inset-bottom: env(safe-area-inset-bottom, 0px); }
+          :root { --op-inset-bottom: env(safe-area-inset-bottom, 0px); --op-under-bar: env(safe-area-inset-top, 0px); }
         }
+        .lib-type-scrim, .rv-scrim, .rv-psheet-scrim, .add-sheet-scrim { padding-top: var(--op-under-bar); }
+        body .rv-viewer { padding-top: var(--op-under-bar); }
+        body .modal-overlay { padding-top: calc(20px + var(--op-under-bar)); }
         /* Landscape with a notch, in EVERY mode: viewport-fit=cover lets a page extend under the notch, so the side insets come
            back as body padding — 0 in portrait, so a portrait tab is untouched; in landscape it restores exactly what iOS
            used to inset on its own. Fixed elements (the Helm, the Wrap Up bar) sit at the bottom edge, clear of the notch. */
         body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
-/* iOS standalone: the status bar overlays the page, so once the header scrolls away content passes under the clock. This
-   fixed band is the status bar's own background.
-   DARK since 2026-11-12 — the header's own colour (--op-header-dark), with a WHITE clock (status-bar style "black" in
-   index.html) — so the dark header runs up behind the status bar on every tab, and the strip stays above the Home
-   banner photo rather than behind it. This REVERSES the 2026-10-16/17 decision ("page cream, because the clock on
-   Dan's iPhone is BLACK"): on iOS 26/27 the system draws its own blur over the top edge of an installed web app, and a
-   cream edge over a dark header read as a cream smear. Dev only for now; the phone decides.
-   Height follows the MEASURED inset (0 in a browser tab, so the band is 0 tall and top 0 there — nothing changes;
-   0 sideways, where iOS hides the bar). It sits ABOVE the layout viewport, at −inset…0: Dan's phone (2026-10-17, the
-   fourth cut's first check) showed a double-height strip when the band also covered 0…+inset, which proves a fixed
-   top:0 sits at the viewport's top edge, one bar-height BELOW the clock — the WebView lays the page out below the bar
-   at rest and only PAINTS scrolled content up into the bar's region. So the band covers exactly that region and
-   nothing in the viewport; the header needs no offset. Below every scrim (1000). */
-.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: var(--op-header-dark); z-index: 950; pointer-events: none; }
+        /* padding-top: the header's box reaches the top of the screen (behind the status bar and its dark strip); its
+           content — avatar, household name, the dots — starts below the bar. 0 everywhere but a new install. */
+        .header { background: #2C1A0E; color: #FAF4EC; position: relative; padding-top: var(--op-under-bar); }
+/* LEGACY band — installs whose Home Screen icon predates 2026-11-12 (status-bar style "default"): iOS lays the page
+   out BELOW the bar and only paints scrolled content up into the bar's region; this fixed band is that region's
+   background. PAGE CREAM, because those installs keep a BLACK clock. Height follows the MEASURED inset (0 in a browser
+   tab, 0 sideways, and 0 in a new install, where the page runs under the bar and the gap is 0). It sits ABOVE the
+   layout viewport, at −inset…0 (Dan's phone, 2026-10-17: a fixed top:0 sits one bar-height BELOW the clock there).
+   The 2026-11-12 dev trial that painted this band dark is undone: with the page below the bar iOS owns that strip
+   and a dark band could not show — and on an old icon it would have put a black clock on a dark band.
+   New installs get the dark strip from body::before (index.html) instead; see --op-under-bar. Below every scrim. */
+.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: #FAF4EC; z-index: 950; pointer-events: none; }
 /* Top-edge probe (lib/insetProbe.js): the installed app on the dev host only. Four lines of numbers, tap to dismiss. */
-.inset-probe { position: fixed; left: 12px; right: 12px; top: 72px; z-index: 2500; padding: 10px 12px; border-radius: 10px; background: rgba(13,148,136,0.96); color: #fff;
+.inset-probe { position: fixed; left: 12px; right: 12px; top: calc(72px + var(--op-under-bar)); z-index: 2500; padding: 10px 12px; border-radius: 10px; background: rgba(13,148,136,0.96); color: #fff;
                font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
 /* Visually hidden, read by assistive tech. Used for the fixed VERB half of an aria-labelledby accessible name (2026-10-16): a
    button names itself from this span plus the masked title element, so no attribute ever carries a meal name or a count —
@@ -9828,7 +9838,7 @@ function ProvisionsApp({ scrollRootRef }) {
            LibraryFilterSheet's own state) and the next one would miss a flag.
            Position stays with the stack; the pill carries none (ConnectivityPill.js).
            Engines without :has() (Safari < 15.4) keep today's bottom anchor. */
-        body:has(.modal-overlay) .bottom-stack { bottom: auto; top: 10px; }   /* not + --op-inset-top: the viewport already starts below the bar (2026-10-17) */
+        body:has(.modal-overlay) .bottom-stack { bottom: auto; top: calc(10px + var(--op-under-bar)); }   /* not + --op-inset-top (that bar is above the viewport); + --op-under-bar, the bar the page runs under */
         /* …and the Helm with its fade leave entirely. A sheet is modal, so the nav
            cannot be used anyway, and at z 900 / 899 over the overlay's 100 the pill
            and the fade drew across the sheet's pinned Cancel / Save Meal, which were
@@ -10412,14 +10422,14 @@ function ProvisionsApp({ scrollRootRef }) {
           <>
             {/* .op-replay-block: excluded from session replay (the URL is a signed household-photo link). */}
             <div className="op-replay-block" aria-hidden="true" style={{
-              position: "absolute", inset: 0, zIndex: 0,
+              position: "absolute", inset: 0, top: "var(--op-under-bar, 0px)", zIndex: 0,   // the photo starts BELOW the status bar; the dark strip sits above it
               backgroundColor: "#2C1A0E",
               backgroundImage: `url("${bannerPhotoUrl}")`,
               backgroundSize: `${bannerZoom}% auto`,
               backgroundPosition: `${bannerX}% ${bannerY}%`,
               backgroundRepeat: "no-repeat",
             }} />
-            <div aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 0, background: BANNER_DISSOLVE }} />
+            <div aria-hidden="true" style={{ position: "absolute", inset: 0, top: "var(--op-under-bar, 0px)", zIndex: 0, background: BANNER_DISSOLVE }} />
           </>
         )}
       <div className="safe-top" aria-hidden="true" />
@@ -10958,7 +10968,7 @@ function ProvisionsApp({ scrollRootRef }) {
         <div
           style={{
             position: "fixed", inset: 0, background: "rgba(20,12,6,0.55)",
-            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            display: "flex", alignItems: "flex-end", justifyContent: "center", paddingTop: "var(--op-under-bar, 0px)",
             zIndex: 1200, animation: "fadeIn 0.2s ease",
           }}
         >
@@ -11002,14 +11012,14 @@ function ProvisionsApp({ scrollRootRef }) {
         <div
           style={{
             position: "fixed", inset: 0, background: "rgba(20,12,6,0.55)",
-            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            display: "flex", alignItems: "flex-end", justifyContent: "center", paddingTop: "var(--op-under-bar, 0px)",
             zIndex: 1200, animation: "fadeIn 0.2s ease",
           }}
         >
           <div
             style={{
               background: "#FAF4EC", borderRadius: "22px 22px 0 0", padding: "8px 0 0",
-              width: "min(440px, 100vw)", maxHeight: "94vh", overflowY: "auto",
+              width: "min(440px, 100vw)", maxHeight: "min(94vh, 100%)", overflowY: "auto",
               boxShadow: "0 -12px 40px rgba(0,0,0,0.4)",
             }}
           >
@@ -11187,7 +11197,7 @@ function ProvisionsApp({ scrollRootRef }) {
           onClick={closeEditHousehold}
           style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)",
-            display: "flex", alignItems: "flex-end", justifyContent: "center",
+            display: "flex", alignItems: "flex-end", justifyContent: "center", paddingTop: "var(--op-under-bar, 0px)",
             zIndex: 1100, animation: "fadeIn 0.2s ease",
           }}
         >
@@ -11195,7 +11205,7 @@ function ProvisionsApp({ scrollRootRef }) {
             onClick={(e) => e.stopPropagation()}
             style={{
               background: "#FAF4EC", borderRadius: "18px 18px 0 0", padding: 0,
-              width: "min(440px, 100vw)", maxHeight: "94vh", overflowY: "auto",
+              width: "min(440px, 100vw)", maxHeight: "min(94vh, 100%)", overflowY: "auto",
               boxShadow: "0 -12px 40px rgba(0,0,0,0.4)",
               display: "flex", flexDirection: "column",
             }}
@@ -11645,7 +11655,7 @@ function ProvisionsApp({ scrollRootRef }) {
               padding: "8px 0 16px",
               background: "#FAF4EC",
               position: "sticky",
-              top: 0,
+              top: "var(--op-under-bar, 0px)",   // below the status bar's strip, not under the clock
               zIndex: 10,
               borderBottom: "1px solid #E8D5B7",
               marginBottom: "12px",
@@ -12971,7 +12981,7 @@ function ProvisionsApp({ scrollRootRef }) {
           (SheetPanel → useSheetDrag, 2026-10-05). */}
       {showProfileSheet && (
         <div
-          style={{ position: "fixed", inset: 0, background: "rgba(2,15,26,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-end" }}
+          style={{ position: "fixed", inset: 0, background: "rgba(2,15,26,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-end", paddingTop: "var(--op-under-bar, 0px)" }}
           onClick={() => setShowProfileSheet(false)}
         >
           <SheetPanel

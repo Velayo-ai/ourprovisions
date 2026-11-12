@@ -13,7 +13,7 @@ export function probeEnabled({ hostname, standalone }) {
   return standalone === true && DEV_HOSTS.includes(String(hostname || ""));
 }
 
-export function insetProbeLines({ envTop, opInsetTop, screenHeight, innerHeight, vvHeight, vvOffsetTop, landscape }) {
+export function insetProbeLines({ envTop, opInsetTop, underBar, screenHeight, innerHeight, vvHeight, vvOffsetTop, landscape }) {
   const gap = Math.round(Number(screenHeight) - Number(innerHeight));
   const below = gap > 0
     ? `page starts BELOW the bar (gap ${gap}px)`
@@ -21,7 +21,8 @@ export function insetProbeLines({ envTop, opInsetTop, screenHeight, innerHeight,
   return [
     `env(safe-area-inset-top): ${envTop}`,
     landscape ? `sideways — ${below}` : below,
-    `--op-inset-top: ${opInsetTop} · screen ${screenHeight} · inner ${innerHeight}`,
+    `--op-under-bar: ${underBar == null ? "n/a" : underBar} · --op-inset-top: ${opInsetTop}`,
+    `screen ${screenHeight} · inner ${innerHeight}`,
     `visualViewport: ${vvHeight == null ? "n/a" : `${Math.round(vvHeight)} @ ${Math.round(vvOffsetTop || 0)}`}`,
   ];
 }

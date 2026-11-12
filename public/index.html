@@ -11,13 +11,25 @@
     <!-- The header's dark (--op-header-dark in App.js; manifest.json theme_color is the same literal). Was CRA's
          #000000 default until 2026-11-12. -->
     <meta name="theme-color" content="#1a0e06" />
-    <!-- Standalone status bar: "black" (2026-11-12) — a WHITE clock and battery, with the page still laid out BELOW
-         the bar, exactly as "default" lays it out, so nothing in the app moves. The band behind the clock is the
-         .safe-top strip, now the header's dark. Not "black-translucent": that also gives a white clock, but it
-         moves the page up under the bar and every screen would need new top padding.
-         This reverses the 2026-10-16/17 "default: black clock on a cream band" decision. iOS reads this tag when
-         the icon is added to the Home Screen: delete the icon and add it again to see a change. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <!-- Standalone status bar: "black-translucent" (2026-11-12) — a WHITE clock and battery, and the page laid out
+         from the very top of the screen, UNDER the bar; env(safe-area-inset-top) is then the bar's height. Measured
+         on iOS 27 with the old "default": env 0 and the page 62px BELOW the bar — iOS owns that strip, paints it
+         light and fades its blur over the header, so nothing the page drew could darken it. With the page under
+         the bar the strip is ours: body::before below paints it the header's dark, and the app keeps its content
+         out from under it (--op-under-bar in App.js).
+         Reverses the 2026-10-16/17 "default: black clock on a cream band" decision. iOS reads this tag when the
+         icon is added to the Home Screen; an icon added earlier keeps the old chrome and the app still handles it. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- The status bar's own background in an installed app: the header's dark (the same literal as theme-color
+         above and --op-header-dark in App.js), there from the first paint — before React — and above every sheet,
+         modal and full-screen surface, so the white clock is never left on cream. 0 tall in a browser tab, on
+         desktop and sideways (the inset is 0 there). -->
+    <style>
+      @media (display-mode: standalone) {
+        body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px);
+                       background: #1a0e06; z-index: 5000; pointer-events: none; }
+      }
+    </style>
     <meta name="description" content="A smarter grocery list for your household. Live Better. Live Smarter." />
 
     <!-- Open Graph -->
