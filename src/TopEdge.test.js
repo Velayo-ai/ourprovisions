@@ -40,10 +40,17 @@ describe("the top edge", () => {
     expect(APP).toMatch(/background: bannerHasPhoto \? "transparent" : "var\(--op-header-dark\)"/);
   });
 
-  test("the header's content row sits 12px lower in the installed app — inside the row, so nothing is added above the header", () => {
+  test("the header's content row sits 12px lower in the installed app — inside the row", () => {
     expect(APP).toMatch(/:root \{ --op-header-nudge: 0px; \}/);
     expect(APP).toMatch(/@media \(display-mode: standalone\) \{ :root \{ --op-header-nudge: 12px; \} \}/);
     expect(APP).toMatch(/padding: "calc\(10px \+ var\(--op-header-nudge\)\) 16px 10px", minHeight: "calc\(44px \+ var\(--op-header-nudge\)\)"/);
+  });
+
+  test("8px of page cream sits above the header in the installed app, upright only; the banner wrapper starts below it", () => {
+    expect(APP).toMatch(/:root \{ --op-header-gap: 0px; \}/);
+    expect(APP).toMatch(/@media \(display-mode: standalone\) and \(orientation: portrait\) \{ :root \{ --op-header-gap: 8px; \} \}/);
+    expect(APP).toMatch(/\.header-gap \{ height: var\(--op-header-gap\); \}/);
+    expect(APP).toMatch(/<div className="header-gap" aria-hidden="true" \/>\s*<div style=\{\{ position: "relative" \}\}>/);
   });
 
   test("safety net: if the page ever runs behind the status bar, the header pads by the inset (0 when the page starts below the bar)", () => {

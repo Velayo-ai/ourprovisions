@@ -8993,6 +8993,13 @@ function ProvisionsApp({ scrollRootRef }) {
            (Expo) build, which paints behind the status bar - its strip must match the header colour. */
         :root { --op-header-nudge: 0px; }
         @media (display-mode: standalone) { :root { --op-header-nudge: 12px; } }
+        /* --op-header-gap (2026-11-12): 8px of page cream ABOVE the dark header in the installed app, on every tab
+           (the Home banner photo starts below it too), so the header starts 8px lower at rest and the gap from the
+           top of the screen to the header matches the gap under the Helm (about 63pt each on Dan's iPhone). The
+           cream is .app-root's own background. Upright only; 0 in a browser tab, on desktop and sideways. */
+        :root { --op-header-gap: 0px; }
+        @media (display-mode: standalone) and (orientation: portrait) { :root { --op-header-gap: 8px; } }
+        .header-gap { height: var(--op-header-gap); }
         /* The cream edge fade's stops, clear → cream. One list: the Helm's fade runs it downwards, the landscape
            Staples header runs it upwards, so the two edges can't drift apart. */
         :root { --op-fade-stops: rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC; }
@@ -10380,6 +10387,8 @@ function ProvisionsApp({ scrollRootRef }) {
           header keeps its solid espresso — Row 1 alone off Home. The layer spans
           the wrapper's flow height = the header (the modals in between are
           position:fixed and add no height). */}
+      {/* 8px of page cream above the header in the installed app, upright (--op-header-gap; 0 elsewhere). */}
+      <div className="header-gap" aria-hidden="true" />
       <div style={{ position: "relative" }}>
         {bannerHasPhoto && (
           <>
