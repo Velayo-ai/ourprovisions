@@ -23,6 +23,7 @@ import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArr
 import { landAskPicksArgs, askCompletedAttributes } from "../lib/askPicks";
 import { createAskArgs, updateAskArgs, shapeAsks } from "../lib/askCreate";
 import { asksAfterCatalogDelete } from "../lib/askRun";
+import { ASK_ENABLED } from "../lib/featureFlags";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -1370,6 +1371,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // keeps the wagon held and can offer the confirm again.
   // ─────────────────────────────────────────────────────────────
   const landAskPicks = useCallback(async (askId, catalogItemIds) => {
+    if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return null;
@@ -1399,6 +1401,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // ─────────────────────────────────────────────────────────────
   const [asks, setAsks] = useState([]);
   const fetchAsks = useCallback(async () => {
+    if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
@@ -1423,6 +1426,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }, [household?.id, fetchAsks]);
 
   const createAsk = useCallback(async (askId, draft) => {
+    if (!ASK_ENABLED) return { ok: false, code: null };   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return { ok: false, code: null };
@@ -1442,6 +1446,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // create (23505 / 22023), the asks re-read after. Any member edits any ask (A10). update_ask is
   // the only edit door (S4-10): the column grants for a direct write are gone.
   const updateAsk = useCallback(async (askId, draft) => {
+    if (!ASK_ENABLED) return { ok: false, code: null };   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !askId) return { ok: false, code: null };
@@ -1460,6 +1465,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // on live asks); rows already picked keep their "Picked by" (V10); the household's item photos
   // stay (A23). The read-back row proves the write reached a live ask of this place.
   const deleteAsk = useCallback(async (askId) => {
+    if (!ASK_ENABLED) return { ok: false, code: null };   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !askId) return { ok: false, code: null };
@@ -1492,6 +1498,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // ─────────────────────────────────────────────────────────────
   const [itemPhotos, setItemPhotos] = useState({});   // catalog_item_id → { id, thumbPath, viewPath }
   const fetchItemPhotos = useCallback(async () => {
+    if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
@@ -1515,6 +1522,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }, [household?.id, fetchItemPhotos]);
 
   const setItemPhoto = useCallback(async (catalogItemId, file) => {
+    if (!ASK_ENABLED) return { ok: false, reason: "save" };   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !catalogItemId || !file) return { ok: false, reason: "save" };

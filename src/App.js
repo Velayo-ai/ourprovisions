@@ -61,6 +61,7 @@ import { CategoryHeader, CATEGORY_HEADER_ACTION } from './components/CategoryHea
 import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
+import { ASK_ENABLED, ASK_FLAG_MARKER } from './lib/featureFlags';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -6937,7 +6938,7 @@ function ProvisionsApp({ scrollRootRef }) {
     prevRunAskIdRef.current = runAskId;
   }, [runAskId]);
   useEffect(() => {
-    if (!heldAskRef.current || !asksLoaded || !catalogLoaded || !landingDecided) return;
+    if (!ASK_ENABLED || !heldAskRef.current || !asksLoaded || !catalogLoaded || !landingDecided) return;
     const held = heldAskRead(heldAskRef.current, asks);
     heldAskRef.current = null;
     if (!held) { storeHeldAsk(null); return; }
@@ -7123,7 +7124,7 @@ function ProvisionsApp({ scrollRootRef }) {
   // more"; "+ New shelf" after Staples with no asks, at the very end with 1+.
   const askRail = useMemo(() => {
     const byId = new Map(asks.map(a => [a.id, a]));
-    return askRailLayout(askOrder.ids.map(id => byId.get(id)).filter(Boolean), !!(isSignedIn && household?.id));
+    return askRailLayout(askOrder.ids.map(id => byId.get(id)).filter(Boolean), ASK_ENABLED && !!(isSignedIn && household?.id));   // Ask off: no "+ New shelf"
   }, [asks, askOrder, isSignedIn, household?.id]);
   // The household's picker names for the tray's initials (C4.3): live asks' labels ∪ every
   // picked_by_labels on the loaded rows. Display only; recomputed as asks or rows change.
@@ -7138,7 +7139,7 @@ function ProvisionsApp({ scrollRootRef }) {
   }, [asks, selectedAsks, rawCategoryByName]);
   // The ask being run (C3b): its LIVE tiles, in shelf order (the same ones its Browse block shows),
   // and the effective target (S4-5). A run never opens with 0 live tiles.
-  const runAsk = runAskId ? asks.find(a => a.id === runAskId) || null : null;
+  const runAsk = ASK_ENABLED && runAskId ? asks.find(a => a.id === runAskId) || null : null;
   const runLive = useMemo(() => (runAsk ? liveTiles(runAsk) : []), [runAsk]);
   // The ask being edited (S4-2): the sheet is prefilled from its LIVE tiles, in shelf order (S4-9).
   const editAsk = useMemo(() => {
@@ -8817,7 +8818,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const WORDMARK_SHADOW = bannerHasPhoto ? "0 2px 14px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.7)" : "none";
 
   return (
-      <div className="app-root" style={{ fontFamily: "'Georgia', serif", background: "#FAF4EC", color: "#2C1A0E" }}>
+      <div className="app-root" data-op-ask={ASK_FLAG_MARKER} style={{ fontFamily: "'Georgia', serif", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
       {/* Gated on householdReady for the same reason as the landing effect — the list must have actually arrived, not merely stopped loading — so the landing tab is settled before the splash dissolves and there is no flash of Browse before Shop; the 5s failsafe still bounds it. */}
@@ -12022,7 +12023,7 @@ function ProvisionsApp({ scrollRootRef }) {
                       fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
                       letterSpacing: "1px", textDecoration: "underline",
                     }}
-                  >Manage categories &amp; asks</button>
+                  >{ASK_ENABLED ? "Manage categories & asks" : "Manage categories"}</button>
                 </div>
               </>
             )}
@@ -12463,7 +12464,7 @@ function ProvisionsApp({ scrollRootRef }) {
       )}
 
       {/* "+N more" (C4.2): a row behaves exactly like its pill; the sheet then closes. */}
-      {moreAsksOpen && (
+      {ASK_ENABLED && moreAsksOpen && (
         <div className="modal-overlay" onClick={() => setMoreAsksOpen(false)}>
           <div className="modal" role="dialog" aria-modal="true" aria-label="More shelves" onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "88vh", overflowY: "auto" }}>
@@ -12479,7 +12480,7 @@ function ProvisionsApp({ scrollRootRef }) {
       )}
 
       {/* + New shelf (SPEC_ask_slice2 C2; 078 create_ask) */}
-      {newShelfOpen && (
+      {ASK_ENABLED && newShelfOpen && (
         <div className="modal-overlay" onClick={() => setNewShelfOpen(false)}>
           <div className="modal" role="dialog" aria-modal="true" aria-label="New shelf" onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "88vh", overflowY: "auto" }}>
@@ -12498,7 +12499,7 @@ function ProvisionsApp({ scrollRootRef }) {
       )}
 
       {/* Edit Ask {Label} (SPEC_ask_slice4 S4-2): the same sheet in edit mode. Save → update_ask (083). */}
-      {editAsk && (
+      {ASK_ENABLED && editAsk && (
         <div className="modal-overlay" onClick={() => setEditAskId(null)}>
           <div className="modal" role="dialog" aria-modal="true" aria-label="Edit shelf" onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "88vh", overflowY: "auto" }}>
@@ -12682,16 +12683,16 @@ function ProvisionsApp({ scrollRootRef }) {
       {/* Manage Categories Modal */}
       {showManageCategoriesModal && (
         <div className="modal-overlay" onClick={() => setShowManageCategoriesModal(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Manage categories and asks" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label={ASK_ENABLED ? "Manage categories and asks" : "Manage categories"} onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
             <SheetClose onClose={() => setShowManageCategoriesModal(false)} />
-            <h2>Manage categories &amp; asks</h2>
+            <h2>{ASK_ENABLED ? "Manage categories & asks" : "Manage categories"}</h2>
 
             {/* Asks (SPEC_ask_slice4 S4-1): one row per live ask — "Ask {Label}" (.op-name), the style
                 word, "pick {n}", the tile count or the grown-up's note (S4-5). A row opens the edit
                 sheet (Manage closes first). "+ New shelf" sits at the end. The rows are text, so the
                 replay rules apply; no label ever sits in an <option> or an aria-label. */}
             {/* Breathing room under the heading (Dan 2026-11-10): the same gap the sections keep between them. */}
-            {isSignedIn && household?.id && (
+            {ASK_ENABLED && isSignedIn && household?.id && (
               <div className="modal-field" style={{ marginTop: "18px" }}>
                 <span className="modal-label" id="manage-asks">Asks</span>
                 {asks.length === 0 && (
@@ -12812,7 +12813,7 @@ function ProvisionsApp({ scrollRootRef }) {
           modal in the tree AND one layer above it (z 110 over .modal-overlay's 100) — the first
           build had it before Manage, same z, so it opened behind (Dan's walk, 2026-11-11). Short
           enough to show whole without scrolling. */}
-      {deleteAskId && (() => { const a = asks.find(x => x.id === deleteAskId); return a ? (
+      {ASK_ENABLED && deleteAskId && (() => { const a = asks.find(x => x.id === deleteAskId); return a ? (
         <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => { if (!deleteAskBusy) setDeleteAskId(null); }}>
           <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-ask-title" onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: "360px", margin: "auto" }}>

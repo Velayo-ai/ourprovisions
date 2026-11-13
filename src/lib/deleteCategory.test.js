@@ -143,7 +143,7 @@ describe("App wiring", () => {
 
   test("both delete confirmations sit after the Manage modal in the tree and one layer above it (2026-11-11)", () => {
     const manage = APP.indexOf("{showManageCategoriesModal && (");
-    const askConfirm = APP.indexOf("{deleteAskId && (() =>");
+    const askConfirm = APP.indexOf("{ASK_ENABLED && deleteAskId && (() =>");
     const catConfirm = APP.indexOf("{deletingCategory && (");
     expect(manage).toBeGreaterThan(0);
     expect(askConfirm).toBeGreaterThan(manage);
