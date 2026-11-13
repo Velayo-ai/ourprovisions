@@ -8,28 +8,12 @@
          for the clock. With it the real insets arrive; the app applies them ONLY in standalone (the
          --op-inset-* variables under @media (display-mode: standalone)), so a Safari tab is unchanged. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <!-- The header's dark (--op-header-dark in App.js; manifest.json theme_color is the same literal). Was CRA's
-         #000000 default until 2026-11-12. -->
-    <meta name="theme-color" content="#1a0e06" />
-    <!-- Standalone status bar: "default", written out exactly as prod has it (2026-11-12, dev trial 5) - prod is
-         the known-good baseline: on Dan's phone it starts 62px BELOW the bar. On fresh iOS 27 installs
-         "black-translucent", "black" and NO tag all put the page BEHIND the bar. -->
+    <meta name="theme-color" content="#000000" />
+    <!-- Standalone status bar: "default" asks iOS for an opaque, light status bar with dark text that the
+         page lays out BELOW. Where iOS honours it, nothing can scroll under the clock and the insets are 0;
+         where it does not (manifest-only installs on some versions overlay the bar), the cream .safe-top
+         band plus the inset-padded header do the same job. Either way the clock stays black on cream. -->
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <!-- Colour-extension strip (the div is the first thing in <body>): a fixed element at the very top of the page
-         whose background-color iOS samples to tint the status bar's region, so the strip behind the clock is the
-         header's dark (the same literal as theme-color above and --op-header-dark in App.js). background-clip:
-         text leaves it with nothing to paint, so it draws no band of its own. Installed app only; hidden on a
-         sideways phone (the same query as Landscape = Staples). -->
-    <style>
-      .ios-status-strip { display: none; }
-      @media (display-mode: standalone) {
-        .ios-status-strip { display: block; position: fixed; inset: 0 0 auto; height: 11px; pointer-events: none;
-                            background-color: #1a0e06; -webkit-background-clip: text; background-clip: text; }
-      }
-      @media (orientation: landscape) and (pointer: coarse) and (max-height: 500px) {
-        .ios-status-strip { display: none; }
-      }
-    </style>
     <meta name="description" content="A smarter grocery list for your household. Live Better. Live Smarter." />
 
     <!-- Open Graph -->
@@ -68,7 +52,6 @@
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div class="ios-status-strip" aria-hidden="true"></div>
     <div id="root"></div>
     <!--
       This HTML file is a template.

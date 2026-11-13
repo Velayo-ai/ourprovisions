@@ -61,7 +61,6 @@ import { CategoryHeader, CATEGORY_HEADER_ACTION } from './components/CategoryHea
 import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
-import { probeEnabled, insetProbeLines } from './lib/insetProbe';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -709,39 +708,6 @@ function SplashScreen({ onDone, ready }) {
       </div>
     </div>
   );
-}
-
-// Top-edge re-measure (lib/insetProbe.js): in the installed app on the dev host, show what iOS reports
-// about the status bar — env(safe-area-inset-top), and whether the page starts below the bar — so it can
-// be read off the phone. Re-read when the viewport changes; tap to dismiss. Renders nothing anywhere else.
-function InsetProbe() {
-  const [lines, setLines] = useState(null);
-  const [open, setOpen] = useState(true);
-  useEffect(() => {
-    if (!probeEnabled({ hostname: window.location.hostname, standalone: window.navigator.standalone })) return undefined;
-    const ruler = document.createElement("div");
-    ruler.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;padding-top:env(safe-area-inset-top, 0px);padding-bottom:0px";
-    document.body.appendChild(ruler);
-    const read = () => {
-      const vv = window.visualViewport;
-      const next = insetProbeLines({
-        envTop: getComputedStyle(ruler).paddingTop,
-        opInsetTop: getComputedStyle(document.documentElement).getPropertyValue("--op-inset-top").trim(),
-        underBar: getComputedStyle(ruler).paddingBottom,
-        screenHeight: window.screen.height, innerHeight: window.innerHeight,
-        vvHeight: vv ? vv.height : null, vvOffsetTop: vv ? vv.offsetTop : 0,
-        landscape: window.innerWidth > window.innerHeight,
-      });
-      console.info("[top-edge probe]", next.join(" | "));
-      setLines(next);
-    };
-    read();
-    const later = window.setTimeout(read, 600);   // after the measured inset has been written
-    const off = onViewportSettled(window, read);
-    return () => { window.clearTimeout(later); off(); ruler.remove(); };
-  }, []);
-  if (!lines || !open) return null;
-  return <div className="inset-probe" role="status" onClick={() => setOpen(false)}>{lines.join("\n")}{"\n"}tap to dismiss</div>;
 }
 
 function HouseholdDebugLog() {
@@ -9014,16 +8980,17 @@ function ProvisionsApp({ scrollRootRef }) {
            0px and is pixel-identical. BOTTOM stays gated to display-mode: standalone: a tab's bottom inset becomes ~34px
            when Safari's toolbar collapses, which would move the Helm. */
         :root { --op-inset-top: 0px; --op-inset-bottom: 0px; }
-        /* The header's dark — its top row; and, as literals (they can't read a variable), the theme-color meta in
-           index.html and theme_color in manifest.json. TopEdge.test.js fails if any of them drifts. */
+        /* The header's dark — its top row. (index.html's theme-color and the manifest's theme_color are PROD's
+           values, not this: the 2026-11-12 status-bar trials are undone.) */
         :root { --op-header-dark: #1a0e06; }
         /* --op-header-nudge (2026-11-12): in the installed app iOS 26/27 draws its own blur over the top edge of
            the page, and it reaches down over the header's first row. The row's content (avatar, household name,
            the dots) sits 12px lower INSIDE the dark header there, clear of the blur; nothing is added above the
            header. 0 in a browser tab and on desktop, where there is no such blur and the header keeps its height.
-           (iOS 27 ignores status-bar style "black-translucent" for home-screen apps — measured on the phone,
-           inset still 0, page still below the bar — so the page cannot run under the bar and darken that strip;
-           both 2026-11-12 trials of that are undone and the style is "default" again.) */
+           Confirmed on Dan's phone 2026-11-12. The blur itself is ACCEPTED on the web app: five dev trials that
+           day (black-translucent, black, no tag, a colour-extension strip, a new install identity) could not
+           close it, so index.html and the manifest are back to prod's chrome. The proper fix is the native
+           (Expo) build, which paints behind the status bar - its strip must match the header colour. */
         :root { --op-header-nudge: 0px; }
         @media (display-mode: standalone) { :root { --op-header-nudge: 12px; } }
         /* The cream edge fade's stops, clear → cream. One list: the Helm's fade runs it downwards, the landscape
@@ -9041,8 +9008,8 @@ function ProvisionsApp({ scrollRootRef }) {
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
         /* If the page ever runs BEHIND the status bar (an install whose icon carries a translucent bar style),
            env(safe-area-inset-top) is the bar's height and the header pads by it, so its content can never sit
-           under the clock. 0 when the page starts below the bar - the measured state without a status-bar-style
-           tag - and 0 sideways. The 12px nudge is added inside the row, on top of this. */
+           under the clock. 0 when the page starts below the bar - prod's measured state, style "default" -
+           and 0 sideways. The 12px nudge is added inside the row, on top of this. */
         @media (display-mode: standalone) { .header { padding-top: env(safe-area-inset-top, 0px); } }
 /* iOS standalone: the status bar overlays the page, so once the header scrolls away content passes under the clock. This
    fixed band is the status bar's own background — PAGE CREAM, because the clock on Dan's iPhone is BLACK (the 2026-10-16
@@ -9052,10 +9019,7 @@ function ProvisionsApp({ scrollRootRef }) {
    proves a fixed top:0 sits at the viewport's top edge, one bar-height BELOW the clock — the WebView lays the page out
    below the bar at rest and only PAINTS scrolled content up into the bar's region. So the band covers exactly that
    region and nothing in the viewport; the header needs no offset. Below every scrim (1000). */
-.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: var(--op-header-dark); z-index: 950; pointer-events: none; }   /* dark since 2026-11-12: status-bar style "black" gives a WHITE clock */
-/* Top-edge probe (lib/insetProbe.js): the installed app on the dev host only. Four lines of numbers, tap to dismiss. */
-.inset-probe { position: fixed; left: 12px; right: 12px; top: 84px; z-index: 2500; padding: 10px 12px; border-radius: 10px; background: rgba(13,148,136,0.96); color: #fff;
-               font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: #FAF4EC; z-index: 950; pointer-events: none; }
 /* Visually hidden, read by assistive tech. Used for the fixed VERB half of an aria-labelledby accessible name (2026-10-16): a
    button names itself from this span plus the masked title element, so no attribute ever carries a meal name or a count —
    the session recorder copies every attribute except title / alt / on* into replay snapshots, and masks only text nodes. */
@@ -10432,7 +10396,6 @@ function ProvisionsApp({ scrollRootRef }) {
           </>
         )}
       <div className="safe-top" aria-hidden="true" />
-      <InsetProbe />
       <div className="header" style={{ position: "relative", zIndex: bannerHasPhoto ? 1 : undefined, background: bannerHasPhoto ? "transparent" : undefined }}>
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
         <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + var(--op-header-nudge)) 16px 10px", minHeight: "calc(44px + var(--op-header-nudge))", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "var(--op-header-dark)" }}>
