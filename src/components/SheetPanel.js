@@ -30,11 +30,10 @@ import { useSheetDrag } from "../hooks/useSheetDrag";
 //     …
 //   </SheetPanel>
 const CAP = {
-  // 100dvh is the layout viewport. In an install with the OLD icon it starts BELOW the status bar (proven on the
-  // phone 2026-10-17), and --op-inset-top — the bar ABOVE the viewport — is never subtracted from layout inside it.
-  // In a NEW install (status-bar style black-translucent, 2026-11-12) the viewport runs UNDER the bar, and
-  // --op-under-bar is the part of it the bar covers: that IS inside the viewport, so it comes off the cap.
-  maxHeight: "calc(100dvh - 24px - var(--op-under-bar, 0px))",
+  // 100dvh is the layout viewport, which in iOS standalone already starts BELOW the status bar
+  // (proven on the phone 2026-10-17). --op-inset-top is the height of the bar ABOVE the viewport
+  // and is never subtracted from layout inside it — the 2026-10-16 subtraction here was wrong.
+  maxHeight: "calc(100dvh - 24px)",
   overflowY: "auto",
   overscrollBehavior: "contain",
 };

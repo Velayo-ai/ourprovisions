@@ -11,32 +11,24 @@
     <!-- The header's dark (--op-header-dark in App.js; manifest.json theme_color is the same literal). Was CRA's
          #000000 default until 2026-11-12. -->
     <meta name="theme-color" content="#1a0e06" />
-    <!-- Standalone status bar: "black-translucent" (2026-11-12) — a WHITE clock and battery, and the page laid out
-         from the very top of the screen, UNDER the bar; env(safe-area-inset-top) is then the bar's height. Measured
-         on iOS 27 with the old "default": env 0 and the page 62px BELOW the bar — iOS owns that strip, paints it
-         light and fades its blur over the header, so nothing the page drew could darken it. With the page under
-         the bar the strip is ours: #op-status-strip below paints it the header's dark, and the app keeps its content
-         out from under it (--op-under-bar in App.js).
-         Reverses the 2026-10-16/17 "default: black clock on a cream band" decision. iOS reads this tag when the
-         icon is added to the Home Screen; an icon added earlier keeps the old chrome and the app still handles it. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <!-- The status bar's region in an installed app is the header's dark (the same literal as theme-color above
-         and --op-header-dark in App.js), from the first paint — before React — on every tab:
-         1. the canvas: html is dark, and body is dark with its cream laid over everything BELOW the bar, so
-            whatever iOS samples for its top blur (the root / body background colour) is the dark, not cream.
-            (2026-11-12, fresh install: the page ran under the bar and a dark pseudo-element on body covered it, yet iOS
-            drew a grey haze there — it was tinting from the cream body, not from what was painted.)
-         2. #op-status-strip: a REAL fixed element pinned at top: 0 (iOS 26+ takes the top edge's colour from a
-            fixed element there; a pseudo-element with pointer-events: none was not picked up), above every
-            sheet, modal and full-screen surface.
-         0 tall in a browser tab, on desktop and sideways (the inset is 0 there). -->
+    <!-- Standalone status bar: "black" (2026-11-12, dev trial 3) — an opaque bar with a WHITE clock that the page
+         lays out BELOW. "black-translucent" did take on a fresh iOS 27 install (inset 62px, page behind the bar),
+         but it is what triggers iOS's top blur, and no opaque strip closes that blur under it — two builds tried.
+         iOS reads this tag when the icon is added to the Home Screen. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <!-- Colour-extension strip (the div is the first thing in <body>): a fixed element at the very top of the page
+         whose background-color iOS samples to tint the status bar's region, so the strip behind the clock is the
+         header's dark (the same literal as theme-color above and --op-header-dark in App.js). background-clip:
+         text leaves it with nothing to paint, so it draws no band of its own. Installed app only; hidden on a
+         sideways phone (the same query as Landscape = Staples). -->
     <style>
-      #op-status-strip { display: none; }
+      .ios-status-strip { display: none; }
       @media (display-mode: standalone) {
-        html { background-color: #1a0e06; }
-        html body { background: linear-gradient(#FAF4EC, #FAF4EC) 0 env(safe-area-inset-top, 0px) / 100% 100% no-repeat #1a0e06; }
-        #op-status-strip { display: block; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px);
-                           background-color: #1a0e06; z-index: 5000; }
+        .ios-status-strip { display: block; position: fixed; inset: 0 0 auto; height: 11px; pointer-events: none;
+                            background-color: #1a0e06; -webkit-background-clip: text; background-clip: text; }
+      }
+      @media (orientation: landscape) and (pointer: coarse) and (max-height: 500px) {
+        .ios-status-strip { display: none; }
       }
     </style>
     <meta name="description" content="A smarter grocery list for your household. Live Better. Live Smarter." />
@@ -77,7 +69,7 @@
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="op-status-strip" aria-hidden="true"></div>
+    <div class="ios-status-strip" aria-hidden="true"></div>
     <div id="root"></div>
     <!--
       This HTML file is a template.
