@@ -1,0 +1,863 @@
+# SPEC_meal_sharing_v2.md — Giving a meal to another place (link first, Home second)
+
+**Status:** ACTIVE — design chat 2026-10-07. **Phase A ready for Claude Code after `SPEC_recipe_import.md` ships** (it reuses import's prefilled-form path). Phase B is spec'd here; confirm its open items before building it.
+**Scope:** OurProvisions · dev first, prod by its own fresh-eyes promotion per phase
+**Mockups of record:** `mockup_recipe_arrival.html` frames 4 (the link in a text) and 5 (Home notice); `mockup_new_meal_import.html` frame 6 (the gift arriving in the form). **Copy in those frames that says "share" / "Shared by" / "sent you" is superseded by the verb rule below.**
+**Reconciles and supersedes:** `SPEC_meal_sharing.md` (2026-07-28, never built) and the 2026-09-27 recipe-giving design (crew + link). Where this spec is silent, July's principles stand.
+
+---
+
+## Decisions
+
+Confirmed by Dan 2026-10-07 unless marked *carried*.
+
+| # | Decision | Why |
+|---|---|---|
+| V1 | **The verb is give.** "Give this meal", "Andrew gave you…", "Given by Andrew". Internal names may say share. | *Carried from July, reconfirmed tonight.* A copy leaves your hands and becomes theirs; "share" implies a thing held in common and invites the wrong model (that edits flow back). |
+| V2 | **Copy, never reference.** The recipient owns an independent meal. Andrew's later edits or deletes never touch it. | *Carried.* Reference is OurChef. |
+| V3 | **A gift is a snapshot taken at give time.** The recipe Andrew gives is the recipe Dan gets, even if Andrew edits or deletes his meal afterwards. | Supersedes July's copy-at-accept. With a link anyone can open, any day, copy-at-accept means the recipient gets whatever the source looks like that day, and a deleted source silently voids the gift (July's open Q2). A snapshot also means no cross-household read of `meals` is ever needed — which routes around the crew RLS bug entirely. |
+| V4 | **Arrival = the New Meal form, prefilled** (import's path), with a "gave you" banner and the giver's note. Footer: **Not for us** / **Add to our meals**. | Confirmed tonight. One editor, one save path, matching against *the recipient's* catalog. Replaces July's batch review list (v2 gives one meal at a time). |
+| V5 | **Any member of a place can give any of its meals.** | Confirmed tonight (July Q4). The household owns the meal. |
+| V6 | **Two phases, one spec.** **A:** give by link (works for anyone, doubles as an invite). **B:** accepting a link *connects* the two places; after that you can give to a connected place in-app (household cards) and it arrives as one line on their Home. | Confirmed tonight. A proves the flow with the smallest surface; B is the 09-27 "crew path" rebuilt on connections instead of `velayo_crews`. |
+| V7 | **`created_by` on the copy = the person who pressed Add to our meals.** The giver lives in the receipt and lineage; "whose recipe" lives in `meals.attribution` (From). | **Supersedes July's "preserve original author".** 2026-09-22 clarified `created_by` means *added by*, with Recipe by / Shared by / Added by as three roles. July predates that. |
+| V8 | **Lineage breadcrumb on the copy** — `copied_from_meal_id`, `copied_from_household_id`, `copied_at`. Provenance only, never sync, never read at edit time. | *Carried from July.* Also what 09-27's "loves route to the direct giver" reads. |
+| V9 | **Displayed attribution is free text; the ledger is immutable.** The recipient may edit From, rename the meal, strip everything. Never validated against gifts. | *Carried from July* ("Elly and Cassie's meatballs"). |
+| V10 | **Thank-you is offered once, at accept.** Phase A: a prefilled message through the phone's share sheet. Phase B: delivered in-app to the giver's Home. "Loved it" after cooking is **not** in v2 (crew feed spec). | July Q5 + 09-27. |
+| V11 | **One link can go to many people; Andrew can stop it; no expiry.** Each place can accept a given link once. | Set earlier tonight. |
+
+## Phase A — give by link
+
+### Giver (Andrew)
+- Meal ⋯ menu (library card and the meal sheet's overflow, wherever the meal's ⋯ lives today) → **Give this meal**.
+- A small sheet: the meal name, **Add a note (optional)** — 280 chars, placeholder *"Easton's favourite. Don't skip the pickle."* — and **Give**.
+- **Give** calls `give_meal` → gets a code → `navigator.share({ title, text, url })`:
+  - text: *"I'm giving you {meal name} on OurProvisions."*
+  - url: `https://ourprovisions.velayo.ai/g/{CODE}?ref={giver referral_code}` — **every in-app share carries `ref`** (08-25 hard rule).
+  - No `navigator.share` → copy link + toast "Link copied".
+- **Stop giving this link:** the meal's ⋯ shows **Stop giving** while the meal has any unrevoked gift; it revokes all of them (one confirm: *"Anyone who hasn't added it yet won't be able to."*). Places that already added it keep their copy (V2).
+
+### Recipient (Dan)
+- `/g/{CODE}`:
+  - **Signed out** → normal sign-up through the 042 referral bridge (`ref` attributes, never enrolls; welcome sheet as usual). The code is held in `localStorage` (`pendingGift:{CODE}`, 24h) and resumed after bootstrap.
+  - **Signed in** → call `preview_meal_gift(code, activePlaceId)`; open New Meal prefilled.
+- Prefilled form (frame 6):
+  - Banner: **"Andrew gave you this. It's your copy to change."** + under it, when he has more than one place, *"Adding to Madbury · Change"* (switches the target place before saving).
+  - The note as a quote (Playfair italic, "— Andrew"). **Not editable** — it's his words; not saved on the meal (it lives on the gift).
+  - Name, Good for, Steps, From (snapshot `attribution`, only if present — **never prefilled with the giver**, who is Shared by, not Recipe by), ingredients.
+  - Ingredients run through `createCatalogItem` against **Dan's** catalog: matches plain, the rest NEW (pending, written only at save). Andrew's catalog ids never cross.
+  - **Name collision:** if the target place already has a live meal with the same normalised name, prefill as **"{name} (from Andrew)"** — editable. (*Carried from July.*)
+  - Doors (Ask AI / Bring a recipe) hidden — a draft is present.
+- **Add to our meals** → the normal save (materialize pending → create meal, `created_by` = Dan, `attribution` from From) → then `record_meal_gift_receipt(code, place, meal_id)` writes the receipt and the lineage columns. Toast: *"Added to your meals."* Then, once: **"Send Andrew a thank you?"** → share sheet with *"Thank you for {meal}! Adding it to our meals."* Skip = gone for good.
+- **Not for us** → closes; nothing written anywhere.
+- Errors (in the form's place, plain language): revoked → *"Andrew stopped giving this one."*; not found → *"That link doesn't work. Ask for a new one."*; already added to this place → *"Already in Madbury's meals"* with **Open it**.
+
+### Known residual (accepted)
+The save and the receipt are two calls. If the receipt fails after the meal saves, the meal exists without lineage/receipt: no data loss, the recipe is Dan's. `record_meal_gift_receipt` is idempotent; the client retries once silently. Same posture as 09-08's accepted save residual. In Phase B a missing receipt means no connection was made — the giver can simply give again.
+
+### Data — Phase A migration (`06x_meal_gifts.sql`, next free number after import's)
+
+```sql
+-- lineage on meals (V8)
+alter table public.meals
+  add column if not exists copied_from_meal_id uuid references public.meals(id) on delete set null,
+  add column if not exists copied_from_household_id uuid references public.households(id) on delete set null,
+  add column if not exists copied_at timestamptz;
+
+create table if not exists public.meal_gifts (
+  id                uuid primary key default gen_random_uuid(),
+  code              text not null unique,               -- 8 chars, alphabet without 0/O/1/I/L
+  from_household_id uuid not null references public.households(id) on delete cascade,
+  given_by          uuid references public.users(id) on delete set null,
+  source_meal_id    uuid references public.meals(id) on delete set null,  -- provenance only
+  snapshot          jsonb not null,                     -- V3; shape below
+  note              text check (char_length(note) <= 280),
+  created_at        timestamptz not null default now(),
+  revoked_at        timestamptz
+);
+
+create table if not exists public.meal_gift_receipts (
+  gift_id         uuid not null references public.meal_gifts(id) on delete cascade,
+  to_household_id uuid not null references public.households(id) on delete cascade,
+  accepted_by     uuid references public.users(id) on delete set null,
+  meal_id         uuid references public.meals(id) on delete set null,
+  accepted_at     timestamptz not null default now(),
+  primary key (gift_id, to_household_id)                -- V11: once per place
+);
+```
+
+**Snapshot shape** (built server-side by `give_meal`, never by the client):
+```json
+{ "name": "...", "base_servings": 2, "instructions": "...", "occasion": ["lunch"],
+  "attribution": "Easton",
+  "ingredients": [{ "name": "Sourdough bread", "category": "Bakery", "quantity_per_serving": 2 }],
+  "giver_first_name": "Andrew" }
+```
+`attribution` depends on `SPEC_recipe_import`'s column; ship import first.
+
+**RLS / grants** (`auth.jwt()->>'sub'` identity, never `auth.uid()`; membership via `is_member_of`):
+- `meal_gifts`: SELECT for members of `from_household_id`. **No client INSERT/UPDATE/DELETE** — RPCs only. Grants revoked from `anon` and `authenticated` by name, SELECT back to `authenticated`.
+- `meal_gift_receipts`: SELECT for members of `to_household_id` **or** of the gift's `from_household_id` (the giver can see who added it — Phase B's thank-you reads this). No client writes.
+- Recipients **never** read `meal_gifts` directly — only through `preview_meal_gift`.
+
+**RPCs** — all `security definer`, `search_path` pinned, `anon` EXECUTE revoked, 051 authorization pattern, membership checked first:
+| RPC | Does | Refuses |
+|---|---|---|
+| `give_meal(p_meal_id uuid, p_note text) returns text` | Caller is a member of the meal's place; `kind = 'meal'`; builds the snapshot from `meals` + `meal_ingredients` + catalog names; mints a unique code (retry on collision); returns the code. | non-member; no-shop kinds (leftovers/out/other); note > 280. |
+| `preview_meal_gift(p_code text, p_household_id uuid) returns jsonb` | Caller is a member of `p_household_id`. Returns snapshot + note + `already_added` (receipt exists for that place → its `meal_id`). | unknown code → `not_found`; revoked → `revoked`; non-member of the target place. |
+| `record_meal_gift_receipt(p_code text, p_household_id uuid, p_meal_id uuid) returns void` | Caller is a member of `p_household_id`; `p_meal_id` belongs to that place; inserts the receipt (`on conflict do nothing`) and stamps the meal's three lineage columns. Idempotent. | revoked gift; meal from another place; non-member. |
+| `revoke_meal_gifts(p_meal_id uuid) returns int` | Caller is a member of the meal's place; sets `revoked_at` on all its unrevoked gifts; returns the count. | non-member. |
+
+`July's meal_shares` table is **not created** — superseded by `meal_gifts` + `meal_gift_receipts`. ARCHITECTURE's `meal_shares` entry should be marked superseded at merge.
+
+### Phase A verification (two real accounts in two different places; dev)
+1. Andrew gives a meal with a note → share sheet opens with text + `/g/{CODE}?ref=…`. Code avoids 0/O/1/I/L.
+2. **Snapshot holds:** Andrew edits the meal's name and deletes an ingredient after giving → Dan opens the link → sees the original.
+3. Andrew **deletes** the meal → the link still works (V3). `source_meal_id` is now null (SQL).
+4. Dan signed in → form prefilled; banner, note, From (or none), ingredients matched against **Dan's** catalog; Andrew-only items show NEW.
+5. **Not for us** → 0 rows in `meals`, `catalog_items`, `meal_gift_receipts` (SQL).
+6. **Add to our meals** → one meal in Dan's place, `created_by` = Dan, lineage columns = Andrew's meal/place/now, one receipt; NEW items minted in **Dan's** catalog only.
+7. Open the same link again in the same place → "Already in Madbury's meals · Open it".
+8. Dan switches to a second place → can add it there too (one receipt per place).
+9. Name collision → prefilled "{name} (from Andrew)".
+10. Signed-out tester opens the link → signs up → welcome sheet → lands in the prefilled form; `referred_by` = Andrew (SQL); no auto-join to Andrew's place.
+11. Andrew → **Stop giving** → a fresh device opening the link sees the revoked message; Dan's copy is untouched.
+12. **RLS, live in the app** (SQL editor bypasses RLS): a third account cannot SELECT `meal_gifts` rows from Andrew's place; cannot call `record_meal_gift_receipt` into a place it isn't in; cannot `give_meal` a meal from another place; `anon` gets 401 on every RPC.
+13. Thank-you prompt appears once after accept and never again for that gift.
+
+## Phase B — connections, household cards, Home
+
+Build only after Phase A is walked. All design items settled 10-07.
+
+- **Connection:** the first receipt between two places connects them (either direction). Table `place_connections (household_a, household_b, created_at, ended_at, ended_by)` with `household_a < household_b`; written inside `record_meal_gift_receipt`. **Consent at the door:** on a gift from a place you're not yet connected to, the form shows one line under the banner — *"Adding this connects you with Andrew's place, so you can give each other meals."* — so the connection is never a surprise. (Dan 10-07: *"here is a meal, and let's link so I can send you more."*)
+- **Ending a connection** (settled 10-07): a **"Places you give to"** list in the household sheet, near Invite aboard, each row with ×. **Either place can end it, and any member of that place can** (same rule as V5 — the place owns its connections, not the person who happened to accept the link; that person may later leave). Ending stops in-app giving both ways and removes the card for both sides; meals already given stay (the 08-23 unlink principle); either side can reconnect by accepting a new link. **The other side is not notified** — their card simply goes away. **Not** offered on the Home notice (a block option beside a gift from family reads cold). Ships in Phase B with the connection itself: the off switch ships with the on switch.
+- **Give sheet gains household cards** (July's 🏠 Madbury / 🏠 Sacandaga idea): connected places as cards above **Send a link** — each card shows the **place name and its creator's first name** (*"My Household · Andrew"*), which also tells apart two places with the same name. Cards are **multi-select**: one directed gift per chosen place. Choosing a card creates a *directed* gift: `meal_gifts.to_household_id` (nullable column; null = link gift). No link is sent.
+- **Home notice** (frame 5): one line below the essentials, where crew news goes — *"Andrew gave you Easton's Famous Grilled Cheese & Pickle · Take a look →"*. One line, always: one pending gift → *"Andrew gave you {meal} · Take a look →"*; several → *"Andrew gave you 3 meals · Take a look →"* (or *"You have 3 meals waiting"* across givers), opening a short list where each meal opens the prefilled form. No badge, no teal. **Every member of the place sees it; whoever handles a gift first (Add or Not for us) clears it for everyone** — the collaborative-tension principle. Opens the same prefilled form. **Not for us** on a directed gift writes a receipt with `status = 'declined'` (new column, default `'accepted'`) so it stops showing. **Lifetime if ignored: 14 days** (settled 10-07), then the line goes away; the gift can be accepted later only if re-given.
+- **Thank-you, in-app:** at accept, *"Send Andrew a thank you?"* → **Send** stamps `thanked_at` on the receipt → Andrew's Home shows *"Dan said thanks for Easton's Grilled Cheese"* for 7 days. Replaces Phase A's share-sheet thank-you entirely: accepting any gift connects the two places, so every giver can now be thanked in-app.
+- **Precedence on Home:** an incoming gift beats a thank-you; one line total.
+- **RPCs added:** `list_connected_places(p_household_id)` (place name + creator's first name only), `give_meal_to_place(p_meal_id, p_to_household_id, p_note)` (requires a live connection), `pending_gifts_for_place(p_household_id)`, `decline_meal_gift(p_gift_id, p_household_id)`, `thank_giver(p_gift_id, p_household_id)`, `end_place_connection(…)`.
+- **Privacy line** (settled 10-07): a connected place sees **your place name and its creator's first name — not the member list**, and nothing else (never meals, lists, spend, members). The giver's first name still travels inside each gift snapshot.
+
+Phase B gets its own migration and full verification list at build; draft cases: directed gift appears on the right Home only; declined gift never reappears; ended connection removes the card both ways and keeps given meals; RLS — an unconnected place can't `give_meal_to_place`; a connected place sees only place name + creator first name; one member clears a gift for all members; multi-select creates one gift per place.
+
+## Out of scope
+- "Give all my meals" (July's bulk give) — later, on top of this.
+- "Loved it" after cooking, the crew feed, reactions → crew feed spec.
+- Meal photos travelling with the gift → after Meal photos v1 (the dashed slot in frame 6 stays a placeholder).
+- Any read of `velayo_crews` — v2 does not need the crew RLS fix.
+- Showing "Given by Andrew" on the library card or meal sheet afterwards (lineage is stored; display is the attribution session's call — July: "the ledger stays nearly hidden").
+
+## Open (don't invent)
+1. Phase B's design items are all settled (10-07). *Note for the crew feed spec:* Phase B's Home line is the **first occupant of the 09-27 crew-news slot** — the crew feed should absorb it, not sit beside it.
+2. Typed code entry (for someone who can't tap the link): **lean no** in v2 — the code in the URL is enough; add a field only if a real person needs it.
+3. Whether `give_meal` should reuse an existing unrevoked gift for the same meal + giver + note instead of minting a new code each tap. Lean: mint new — codes are cheap and notes differ.
+
+---
+
+# SPEC_meal_sharing_v2 — Amendment 2026-10-22 (design chat)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`. Append-only; do not edit the original text. Where this amendment and the original disagree, this amendment wins.
+**Status:** Design-final for Phase A. The crew return flow is decided in principle, but its design is not finished (see Open).
+**Supersedes:** sharing v2 Phase B's "the first accepted gift connects the two places" and everything that hangs off it.
+**Reconciles with:** the 10-21 crew sharing model (DECISIONS 2026-10-21) and the 10-13 meal-photos amendment A4 (photos travel with gifts).
+
+---
+
+## Why
+
+Sharing v2 (10-07) had a gift create a standing connection between two places. The 10-21 model added a rule that a public link must never connect places. Those two can't both hold, because Phase A link gifts are exactly how a stranger arrives.
+
+Dan's ruling resolves it: **a gift is a one-time handoff of a recipe. It never connects households, and it never adds a person to a household.** The crew is the only standing relationship in the app, so we don't build a second one.
+
+A short detour this session considered "first cook and rating come back once, to the giver only" for gifts outside the crew. **It was rejected.** Someone who cooks a recipe they found on Instagram may reasonably find it invasive that the giver was told.
+
+---
+
+## Decisions
+
+**S1 — A gift never connects.** Accepting a gift copies a snapshot into the receiver's Library, and that is the whole relationship. No row anywhere links the two households, and no person joins a household. The following are retired:
+- the first-gift consent line
+- "Places you give to"
+- ending a connection
+- connection-based visibility ("connected places see place name + creator's first name")
+
+**S2 — Outside the crew, a gift is one-way.**
+- Nothing comes back: no cooks, ratings, photos or notes.
+- The giver is never told whether the gift was accepted, cooked or rated.
+- The receiver sees no disclosure line, because nothing is collected.
+- This applies to every gift link, wherever it was posted.
+
+**S3 — Inside the crew, the gift stays alive.** When giver and receiver are in the same crew:
+- each cook of the gifted meal comes back to the giver
+- each person's own rating comes back (per person, per cook, as 066)
+- each cook photo comes back
+- **notes never come back**, not even inside the crew
+
+The 10-21 model stands unchanged here.
+
+**S4 — How people are named inside the crew:** first name · place, for example "Elly · Madbury". Outside the crew nothing comes back, so no naming rule is needed.
+
+**S5 — Mute, per person and per meal.** A giver can mute crew activity for one gifted meal.
+- **Silent:** nobody is told.
+- **Reversible:** unmute any time.
+- **It hides; it doesn't stop.** The receiver's cooks and ratings are still recorded and still flow; the muted person just doesn't see them. Unmuting shows the history.
+- **It's per person:** the giver's household and the rest of the crew are unaffected.
+- **Two doors:** ⋯ → "Mute this meal" on the activity line, and the same control (Mute / Unmute) on the meal's recipe view.
+- **Not now:** muting a whole person or a whole crew. That waits until beta shows per-meal mute isn't enough.
+
+**S6 — The giver's photo travels with every gift, inside or outside the crew.**
+- The gift carries the giver's **latest** cook photo at give time, in both renditions.
+- This confirms 10-13 A4. The photo is part of the snapshot, kept apart from the receiver's own photos and never aged out.
+- After the gift, outside the crew, the receiver never sees the giver's later photos.
+- The 10-13 child-safety rule for shared photos stands.
+- A gift whose meal has no photo arrives with no photo.
+
+**S7 — Standing crew-level sharing is deferred.** Examples would be auto-sharing every new meal with the crew, or a crew recipe shelf. We revisit this only if beta feedback says sharing one meal at a time is too much.
+
+---
+
+## What this changes in the build
+
+**Phase A (link gifts) is now one-way and buildable after the span scrub.**
+- It's a snapshot that lands as the prefilled New Meal form (as 10-07), plus the S6 photo.
+- There is no feedback table, no receipt-to-giver read path, and no disclosure UI.
+- `meal_gift_receipts`, if it is kept, records only what the **receiver's** household needs (which gift they accepted). It is never readable by the giver's household.
+- **Builder: confirm that against the 10-07 RLS before writing 0xx.**
+
+**Phase B shrinks to crew-only:**
+- household cards and the Home gift notice are **parked** until the crew sharing design
+- the crew return flow (S3–S5) builds after that design, and after the crew recursion fix below
+
+---
+
+## Prerequisites and constraints
+
+- **Grants:** every new table states its grants for `anon`, `authenticated` and `service_role` explicitly (standing rule since 10-21; Supabase ends automatic grants 2026-10-30).
+- **Crew recursion `42P17`:** `crew_members_in_same_crew` selects from its own table. It must move to a SECURITY DEFINER `is_crew_member(crew_id)` before **any** S3–S5 read path ships. Phase A does not touch crew tables.
+- **Photos:** S6 depends on `meal_photos` (065) and the private `meal-photos` bucket, which are dev-only until the Meal Photos v1 promotion. Phase A builds on dev after that promotion, or holds with it.
+- **Span scrub first:** gift photos add more signed storage URLs, so `SPEC_rum_span_url_scrub.md` must be on prod before any gift-photo surface is built.
+- **Replay:** every gift photo `<img>` carries `.op-replay-block`. Gift titles and giver names stay masked, and no name goes into an `aria-label`.
+
+---
+
+## Step 0 (builder, read-only, before code)
+
+1. Read `SPEC_meal_sharing_v2.md` against this amendment. Report every clause that S1/S2 retire, and every table, column or policy that existed only to serve a connection.
+2. Report the planned shape of `meal_gift_receipts` and its RLS. Confirm the giver's household can read none of it outside the crew.
+3. Report how the S6 photo is stored: an origin row in `meal_photos` versus a field on the gift (10-16 lean: a row with `origin`). Report the signed-URL path for a receiver.
+4. Name the next free migration number from the live ledger on dev.
+
+---
+
+## Verification (Phase A)
+
+- **V1:** giving a meal with a photo gives the receiver the meal and the giver's latest photo. The receiver's own photos are separate.
+- **V2:** giving a meal with no photo gives the receiver the meal with no photo slot filled.
+- **V3:** after the receiver accepts, cooks and rates, **nothing** changes for the giver. Check by direct query as the giver: zero rows visible about the receiver.
+- **V4:** no row links the two households. A query for any relationship between the giver's and receiver's households returns nothing.
+- **V5:** a later cook photo on the giver's side is never visible to the receiver.
+- **V6:** the gift photo is replay-excluded, and in a HAR its storage path reads `…/meal-photos/[object]` with no token.
+- **V7:** the new tables' grants match the migration's stated grants on dev.
+
+---
+
+## Open (for the crew sharing design session, not Phase A)
+
+- Does crew feedback (S3) go to the giver only, or to the giver's whole household? The 10-21 example is a per-person feed ("Andrew's feed").
+- An "Only us" option on a cook photo inside the crew. Lean: offer it, defaulting to share with the crew.
+- The Home activity record across households.
+- Where a muted meal's history lives for unmuting, if the meal has left the giver's Library.
+
+---
+
+# SPEC_meal_sharing_v2 — Amendment 2026-10-23 (design chat)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after the 2026-10-22 amendment. Append-only. Where this and earlier text disagree, this wins.
+**Status:** Design-final. It changes Phase A's photo rule (S6) before Phase A is built.
+**Supersedes:** 10-22 **S6** ("the giver's latest cook photo travels with every gift, crew or not"), and the "Only us" photo toggle discussed in design chat on 10-23, which is dropped unless beta asks for it.
+
+---
+
+## Why
+
+Under S6, a gift link posted on Instagram would have carried a family cook photo out of the house.
+
+Dan's scenario makes the need concrete. Elly, a household member, wants an Instagram channel for meals she cooks, using styled photos. The household's cook photos (faces, funny dinners) must never reach it, **and nobody should have to mark photos private one at a time.**
+
+The answer is **safety by kind of photo, not by tagging.** Every photo is private by default. Only a deliberately different kind of photo, added by its own author, can ever leave the crew.
+
+---
+
+## Decisions
+
+**S8 — The return flow goes to the giving household.** Inside the crew, cooks, ratings and cook photos of a gifted meal are visible to **every member of the household that gave it**, not only the person who sent it.
+- Recipes belong to households (Collaborative Intelligence), so the whole household celebrates when one is loved.
+- The gift still records **who** gave it, for attribution only ("Dan shared it").
+- Each member can mute for themselves (S5 is unchanged and remains per person).
+- It reuses the household-membership RLS pattern; there's no new per-person visibility rule.
+
+**S9 — Two kinds of meal photo.**
+
+| Kind | Added by | Where | Audience, ever |
+|---|---|---|---|
+| **Cook photo** (exists: 065) | any member | Cooked it, or the recipe view | the household; plus the giving household's crew return flow when the meal is a crew gift |
+| **Showcase photo** (new) | any member, as an explicit separate action, "Add a showcase photo", labelled *"Can be shared publicly"* | the recipe view only | the household, plus anyone a public or outside-crew gift reaches, but **only when its own author gives it** |
+
+**S10 — A cook photo can never go public.** No setting, button, gift path or re-gift turns a cook photo into a public one. This is the guarantee that needs no per-photo work from anyone.
+
+**S11 — Only the author can share a showcase photo publicly.** A showcase photo travels on a public or outside-crew gift only when the **giver is the member who added it**.
+- If Dan gives a meal publicly and only Elly has added a showcase photo, the gift goes out with **no photo**.
+- Nobody can publish another member's photo.
+
+**S12 — Photo selection at give time (replaces S6):**
+- **Crew gift:** the giving household's latest **cook** photo of that meal, or none.
+- **Public or outside-crew gift:** the giver's own latest **showcase** photo of that meal, or **none**. Never fall back to a cook photo.
+- In both cases the photo is part of the snapshot. Later photos never reach an outside receiver.
+
+**S13 — A prompt when adding a showcase photo:** *"Showcase photos can be seen by anyone. Check everyone in it is happy with that."* It's shown once per upload. Responsibility for people pictured in a showcase photo rests with its author; the app doesn't police content.
+
+**S14 — No easy exits for other people's photos.** The app never offers download, save or share on a photo the viewer didn't add. Honest limit: it can't stop a screenshot.
+
+**S15 — Ratings never go public.** Stars stay within the household and, for crew gifts, the giving household. A public gift carries no rating, count or "loved by" line.
+
+**S16 — "Only us" is dropped.** With S9–S12, cook photos are household- and crew-scoped by construction, and anything public is a deliberate separate kind. A per-photo private toggle adds a decision no one should have to make. Revisit only if beta testers ask to keep a particular crew-gift cook photo from the giving household.
+
+---
+
+## What this changes in the build
+
+- **Schema (Phase A migration):** `meal_photos` gains a kind, `cook` or `showcase`, with **default `cook`**, so every existing row stays a cook photo. Confirm `meal_photos` already records its uploader. If not, add `added_by` (a users id) and backfill it from whatever 065 records; Step 0 reports which.
+- **RLS / RPC:**
+  - The gift-snapshot RPC selects the photo per S12, server-side. The client never chooses which photo travels.
+  - A `showcase` row is selectable on a public gift only when `added_by` = the giver.
+  - Cook photos are never selectable for a non-crew gift.
+- **Client:**
+  - The recipe view gains "Add a showcase photo" (the uploader's own action, with the S13 prompt).
+  - Showcase photos are visibly marked inside the household so everyone knows which ones can travel.
+  - No download or share on photos the viewer didn't add (S14).
+- **Unchanged:** Meal Photos v1 (065/066) as promoted. Showcase is additive and lands with or after Phase A. It doesn't block tonight's promotion.
+
+---
+
+## Step 0 additions (builder, read-only)
+
+1. Does `meal_photos` (065) record the uploader? Give the column name and type, and report how a `kind` column with default `cook` interacts with 065's policies and the RPCs `add_meal_photo` / `remove_meal_photo`.
+2. Confirm no current code path offers download or share on a photo; list any `<a download>`, share sheet or long-press save surface.
+3. Report where the card, hero and viewer choose "latest photo", and whether a showcase photo should be eligible there (see Open).
+
+---
+
+## Verification (adds to Phase A's V-list)
+
+- **V8:** a public gift from a member with no showcase photo goes out with **no photo**, even when the meal has cook photos. Checked by direct query on the snapshot.
+- **V9:** a public gift from Dan of a meal where only Elly has a showcase photo goes out with **no photo**.
+- **V10:** a public gift from Elly carries her latest showcase photo only.
+- **V11:** a crew gift carries the giving household's latest cook photo, and never a showcase photo selected by someone other than its author.
+- **V12:** no RPC, policy or URL path lets a cook photo be read by anyone outside the household and the crew return flow.
+- **V13:** the recipe view offers no download or share on photos the viewer didn't add.
+
+---
+
+## Decided 2026-10-23 (closes the open photo questions)
+
+**S17 — The card and hero show the latest cook photo, always.** The library card and recipe hero keep the 10-03 rule. Inside the household they show the dinner you actually had, so the Library doesn't drift into a portfolio.
+- Showcase photos appear in the recipe view's photo strip, visibly marked as showcase, and never on the card while a cook photo exists.
+- **Edge case:** a meal with only a showcase photo and no cook photo shows the showcase photo on its card and hero. It drops back to the cook photo once one exists.
+
+**S18 — The crew return flow shows cook photos only.** The feed is the real night ("Madbury cooked Andrew's tacos"), never a styled post. A showcase photo never enters the crew feed, so the only path a showcase photo has out of the household is its author's own public gift (S11).
+
+**Verification:**
+- **V14:** a meal with a cook photo and a newer showcase photo shows the cook photo on its card and hero.
+- **V15:** a meal with only a showcase photo shows it on its card. After a cook photo is added, the card switches to the cook photo.
+- **V16:** the crew return flow and Home activity never render a showcase photo.
+
+No open photo questions remain for Phase A.
+
+---
+
+# SPEC_meal_sharing_v2 — Amendment 2026-10-24 (design chat)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after the 2026-10-23 amendment. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final for Phase A's photo path. The read-only Step 0 below runs before any code.
+**Context:** Phase A prep, after Meal Photos v1 went live on prod (2026-10-23). All Phase A prerequisites are now met: recipe import (prod since 10-13), span scrub (prod), Meal Photos v1 (prod, 10-23).
+
+---
+
+## Already answered
+
+- **Uploader column.** `meal_photos` (065) already records its uploader as `uploaded_by uuid NOT NULL`, FK to `users(id)`, set server-side by `get_current_user_id()` in `add_meal_photo`. The 10-23 amendment's planned `added_by` column is **not needed**. Wherever that amendment says `added_by`, read `uploaded_by`. No backfill.
+
+---
+
+## Decisions (confirmed by Dan 2026-10-24)
+
+**S19 — Phase A builds only the public branch of S12, and ships showcase photos with it.**
+- Link gifts are public by definition. A Phase A gift therefore carries the giver's own latest showcase photo, or no photo. It never carries a cook photo (S12).
+- The crew branch of S12 (the giving household's latest cook photo) waits for the crew return flow and the `42P17` recursion fix.
+- Showcase upload ("Add a showcase photo", with the S13 prompt) lands **inside Phase A**. Without it, Phase A's photo path couldn't be built or tested.
+
+**S20 — A gift photo travels as copies, never as a reference.**
+- **At give time:** the server copies the giver's showcase image into a **gift-scoped storage location** owned by the gift, not by either household. A link preview, including one opened by a non-user, is served from that copy through a signed URL minted server-side.
+- **At accept:** the server copies the gift's image into the **receiver's own household folder** and creates the receiver's `meal_photos` row. The receiver never holds a path into the giver's folder.
+- **Why:** the storage policy grants a household access to its own folder only, and that stays unchanged. Copies also keep the snapshot rule (V3): if the giver later deletes or replaces the photo, the gift and the receiver's copy are unaffected.
+- **Consequence:** copying storage objects needs service-role access, so the photo step runs in an **Edge Function** (Clerk JWKS identity, as `recipe-import` does), not a SQL RPC. `give_meal` and the accept path call it server-side. The client never chooses or copies which photo travels.
+
+**S21 — Showcase photos count toward the existing 3-live-photo cap.** One rule per meal, whatever the photo kind.
+- **Principle (Dan):** keep the limit at what serves people today, and let users ask for more before we spend storage, cost and complexity on it.
+- Revisit only on real beta requests.
+
+**S22 — A gift code is a bearer key and is scrubbed like `token=`.**
+- Anyone holding a gift link can open the gift, so the code must never reach Splunk: not in span URLs, and not in replay's page location.
+- If Step 0 #6 finds it unmasked, the fix **folds into the `SPEC_rum_clerk_id_scrub.md` build** (same file, same HAR verification).
+- **Either way, it lands on prod before Phase A's link surfaces ship.**
+
+**S23 — A received photo is a showcase row whose `uploaded_by` stays the giver.**
+- The receiver's copy is `kind = showcase`, so it never enters the crew feed (S18).
+- `uploaded_by` = the giver's user id, so S11 holds by construction: a public re-gift selects only showcase rows where `uploaded_by` = the person giving. The receiver can never re-gift it as their own.
+- The receiver can remove it from their meal like any photo.
+- **Accepted trade-off:** the receiving household can see the giver's internal user id. It's an opaque UUID with no name, and the giver's first name already travels in the gift snapshot.
+- If an `origin` marker is wanted later (e.g. "Given by…" on the photo), that's the attribution session's call. It is not added in Phase A.
+
+---
+
+## Step 0 (builder, read-only, before code; replaces the earlier Step 0 lists)
+
+1. Read `SPEC_meal_sharing_v2` against all three amendments (10-22, 10-23, 10-24). List every clause, table, column or policy that existed only to serve a connection (retired by S1/S2).
+2. Report the planned shape of `meal_gift_receipts` and its RLS. Confirm the giver's household can read none of it.
+3. Report how a `kind` column (`cook` | `showcase`, default `cook`) would interact with `add_meal_photo` / `remove_meal_photo`, their policies, and the 3-live-photo cap (S21).
+4. Report where the card, hero and viewer choose "latest photo". Quote the code. Cross-check against S17 and its showcase-only edge case.
+5. List any download, share or long-press-save surface on a photo. Expect none (S14).
+6. Report whether the current RUM scrub masks a gift code in `?ref=` (span URLs and replay location) (S22).
+7. Report the next free migration number from the dev ledger.
+8. Propose the gift-scoped storage location for S20: a path inside the `meal-photos` bucket or a separate private bucket, with its policy (lean: no client policy at all, server-side access only). Name the Edge Function's inputs and outputs. **Report and stop.** The layout comes back to the design chat before code.
+
+---
+
+## Verification (adds to V1–V16)
+
+- **V17:** a giver deleting their showcase photo after giving changes nothing for the gift's preview or for a receiver who already accepted.
+- **V18:** the receiver's photo row lives under the receiver's household folder. No receiver row or URL references the giver's folder.
+- **V19:** the receiver cannot select a received photo for their own public gift. Checked by direct query and by RPC call.
+- **V20:** a gift link opened by a signed-out visitor shows the gift photo through a server-minted signed URL. A HAR shows no `?ref=` code and no token in spans or replay.
+- **V21:** adding a showcase photo when the meal already has 3 live photos is refused with the same cap behaviour as a cook photo.
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-24b (design chat, rulings on Phase A Step 0)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after the 2026-10-24 amendment. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final for the items below. Step 0 #8 (gift storage layout + the Edge Function's shape) is still open and comes back to the design chat before 069 is drafted.
+**Source:** Claude Code's Step 0 report of 2026-10-24 (#1–#7), ruled by Dan the same night.
+**Supersedes:** S21 and V21 (2026-10-24); V4 (10-22) as worded; V20 (2026-10-24) as worded.
+
+---
+
+## Rulings
+
+**S24 — The Phase A thank-you prompt stays.** After accepting, "Send Andrew a thank you?" opens the receiver's **own** share sheet. The app records nothing and tells the giver nothing.
+- S2 governs what the *app* reports to the giver. A message the receiver chooses to send from their own device is outside S2.
+- V10's Phase A half and verification #13 stand.
+
+**S25 — Lineage is crew-only, and the receipt stays.**
+- On a public (link) gift, the receiver's copy stores `copied_from_household_id = NULL` and `copied_from_meal_id = NULL`. `copied_at` and `meals.attribution` (From) stay as they are.
+- Those two columns fill in only for crew gifts, when the crew return flow builds. Routing loves to the giving household is their only purpose.
+- `meal_gift_receipts` stays, because the server needs the gift to stop double-adds. Its shape:
+  - `(gift_id → meal_gifts CASCADE, to_household_id → households CASCADE, accepted_by → users SET NULL, meal_id → meals SET NULL, accepted_at)`
+  - primary key `(gift_id, to_household_id)`
+  - no `status` and no `thanked_at`
+- The receipt's RLS is SELECT `is_member_of(to_household_id)` **only**. Delete the 10-07 "or the gift's `from_household_id`" clause and its verification #12 check.
+- Writes go only through `record_meal_gift_receipt` (SECURITY DEFINER). The table gets no INSERT, UPDATE or DELETE policy, and explicit grants for all three roles.
+- **Standing trap (Step 0):** no view, RPC or count may join receipts into anything the giver's household can read. That includes a "given 3×" count. `revoke_meal_gifts` keeps returning how many it revoked, never how many were accepted.
+
+**V4 (reworded):** No row links the two households in a way **either household** can read. Check as the giver and as the receiver: both see zero rows about the other. The server's own record that a gift was accepted (the receipt) is expected.
+
+**S26 — Showcase photos: one per person per meal, outside the cook cap.** This replaces S21.
+- Each member holds at most **one live showcase photo per meal**. Adding a new one soft-deletes their previous showcase photo for that meal.
+- Showcase photos **do not count** toward the 3-live-photo cap. The cap and its server-side trim apply to **cook photos only**, so a showcase upload can never age out a cook photo, and S17 always has a cook photo to show when one exists.
+- **Why:** a public gift only ever uses the giver's *own latest* showcase photo (S12), so one per person is exactly what the feature needs. This follows Dan's principle: serve today's need, and let users ask for more before we spend resource or complexity.
+- A showcase add must refuse a non-null `p_meal_cook_id` (raise `22023`). P1 (one live photo per cook) touches cook photos only.
+- The client's `MEAL_PHOTO_CAP` / `atCap` count cook photos only.
+- **`add_meal_photo` gains `p_kind`.** That creates a new overload, so 069 drops the 6-argument version, re-grants the new one, and the client moves to it in the same promotion.
+
+**V21 (replaces 2026-10-24 V21):**
+- Three live cook photos plus a new showcase upload leaves all three cook photos live.
+- A second showcase upload by the same member leaves only the newer one live.
+- A fourth cook photo still ages out the oldest cook photo, never a showcase photo.
+
+**S27 — Any member can remove any photo, showcase included (P3 unchanged).** The household owns its meals, and removing a photo only ever reduces exposure.
+
+**S28 — One pick function, and the strip's order.**
+- A single function picks the S17 photo: **newest live cook photo; if none, newest live showcase photo; else none.** Both the library card and the hero's first slide use it.
+- The strip shows the S17 pick first, then every other live photo newest-first. Showcase photos are visibly marked.
+- The viewer receives the strip's list, unchanged.
+- The afterglow thumbnail stays as it is (it matches on `meal_cook_id`, so it's cook-only).
+- **Why:** today the card takes `[0]` of a kind-blind newest-first list (`src/App.js:5658`, `:5644`), and the hero strip uses the same list (`:2120`, `:2169`). One shared pick removes the risk of the card and the hero disagreeing.
+
+**S29 — Code-bearing URLs are cleared before Splunk starts (detail for S22).**
+- Step 0 found that replay records the page's full `location.href` (query and hash), with no hook to scrub it, and that spans keep the `/g/{CODE}` path. Today's `?ref=` and `?invite=` already reach replay, so this is a **live leak** as well as a Phase A prerequisite.
+- **Fix:** a small module runs at the very top of `index.js`, before the RUM init. It reads any gift code (`/g/{CODE}`), `ref` and `invite`, holds them in memory for the app's gates to read, then `history.replaceState`s the URL to a clean one. Splunk's first event then sees a clean URL.
+  - The app's existing gates (the pre-fill scrub at `src/App.js:4674` and the two `?ref=` readers) read the held values instead of `location`.
+  - Use memory, not `sessionStorage`, unless a gate needs the value across a reload. Step 0 of that build reports which do.
+- **Backup:** `scrubUrl` also masks `/g/<code>` to `/g/[code]` in spans.
+- **Where it builds:** folded into the `SPEC_rum_clerk_id_scrub.md` build (same file area, same HAR verification). It ships **before** Phase A's link surfaces.
+
+**V20 (replaces 2026-10-24 V20):** for a signed-out visitor opening a gift link:
+- the gift photo shows through a server-minted signed URL;
+- a HAR shows **0** occurrences of the gift code (path form), **0** of the `ref` code, and **0** of the `invite` code, checked **separately**, in spans **and** replay (`pageUrl` included);
+- **0** `token=`.
+
+**S30 — Long-press and drag protection ships with the scrub build (S14).**
+- One CSS rule on every photo image: `-webkit-touch-callout: none; -webkit-user-drag: none`. Also `draggable="false"` on `.lib-slot-img`.
+- Confirm `.board-photo-thumb` inherits `touch-callout: none` from `.board-card` on a real iPhone.
+- It's client-only, so it rides the same promotion as S29 and the Clerk-id scrub.
+- S14's honest limit (screenshots) still holds.
+
+---
+
+## Still open (back to the design chat before 069)
+
+- **Step 0 #8:** the gift-scoped storage location (inside `meal-photos` or a separate private bucket; lean: no client policy, server-side access only), and the Edge Function's inputs and outputs for the S20 copies. Run read-only, then report and stop.
+
+---
+
+## Notes for the `SPEC_rum_clerk_id_scrub.md` build
+
+That build's scope grows by S29 and S30. Its Step 0 adds:
+- (a) every reader of `ref`, `invite` and the gift code, and whether any needs the value across a reload;
+- (b) confirm the pre-init module runs before `SplunkOtelWeb.init` and `SplunkSessionRecorder.init`.
+
+Its verification adds V20's separate code checks on dev, using a test gift link once Phase A exists. Until then, test with `?ref=` and `?invite=` only.
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-24c (design chat, review pass)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after Addendum 2026-10-24b. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final for S31–S33. S20's storage layout is reopened for Step 0 #8 (two candidates, both reported, design chat decides).
+**Source:** a fresh-eyes review of all 10-24 work, confirmed by Dan 2026-10-24.
+**Supersedes:** in S26, the `p_kind` argument and the overload drop; in S20, the fixed choice of an Edge Function; in S29, "memory, not `sessionStorage`".
+
+---
+
+## S31 — Showcase photos get their own RPC: `add_showcase_photo`. (Replaces part of S26.)
+
+- `add_meal_photo` (065) stays exactly as promoted on prod: same signature, same overload, no drop, no re-grant. It stays cook-only.
+- `add_showcase_photo(p_meal_id, p_path, p_thumb_path, p_width, p_height)` is new in 069. SECURITY DEFINER, pinned `search_path`, EXECUTE to `authenticated` only, explicit grants for all three roles.
+  - It has **no `p_meal_cook_id`**: "a showcase photo never attaches to a cook" is encoded in the signature, not by a raise.
+  - It sets `kind = 'showcase'`, `uploaded_by = get_current_user_id()`, and `household_id` from the meal.
+  - It soft-deletes the caller's previous live showcase photo for that meal, then inserts the new one. One per person per meal (S26) is enforced by a **partial unique index** on `(meal_id, household_id, uploaded_by)` where `kind = 'showcase'` and the row is live.
+  - It never touches the cook-photo cap or its trim.
+- `meal_photos` gains `kind text not null default 'cook'` with a check constraint (`cook` | `showcase`). Every existing row is a cook photo by default; no backfill.
+- **Why:** a `p_kind` argument would force 069 to drop the 6-argument overload, coupling the migration and the client into one promotion. A separate RPC leaves prod's function untouched and keeps each change small.
+
+## S32 — Step 0 #8 evaluates two storage layouts for the gift photo. (Reopens S20's "Edge Function" choice; S20's copies-not-references rule stands.)
+
+**Why reopen:** `preview_meal_gift` is a SQL RPC opened by signed-out visitors through the 042 bridge. SQL can't mint a signed URL, so the Edge Function approach would need a second function just to serve previews. There may be a simpler way.
+
+**Candidate A — policy-guarded `gift-photos` bucket, client-side copies (lean).**
+- A new private bucket `gift-photos`, path `{gift_id}/{rendition}.webp`. The path carries the **gift id only**, never a household id.
+- SELECT policy for `anon` and `authenticated`: the first folder segment is a UUID that matches a `meal_gifts` row that is **not revoked**. The client signs its own URL, as it does today for `meal-photos`. Revocation makes the photo unreadable automatically.
+- INSERT policy for `authenticated`: the gift's `from_household_id` is one the caller is a member of. DELETE: none for clients.
+- **Give time:** `give_meal` selects the photo per S12 server-side and returns the source path (or null). The giver's client downloads that object (it already holds a signed URL) and uploads it to the gift path. The client copies what the server chose; it never selects.
+- **Accept time:** the receiver's client downloads the gift copy and uploads into its own household folder through `add_showcase_photo` (S31, with `uploaded_by` = the giver per S23: **this needs a parameter or a second RPC, which Step 0 #8 reports**).
+- **Revoke:** `revoke_meal_gifts` leaves the objects; a later cleanup can delete copies of revoked gifts. Receivers' copies are unaffected (V3).
+- No service-role key in any function, no new runtime, no new egress path beyond the two copies.
+- **Honest limit:** a hacked giver client could upload a different image to the gift path. The giver can already upload any image as a showcase photo, so this changes nothing about who can publish what.
+
+**Candidate B — Edge Function copies (10-24 S20 as written).**
+- A function with service-role access copies the object at give time and at accept time, and mints signed URLs for previews.
+- Report what it needs: inputs, outputs, how previews for `anon` get a signed URL, and how revocation is checked.
+
+**Step 0 #8 reports both, with the policies written out for A, and stops.** The design chat picks.
+
+## S33 — S29 clarified: `sessionStorage`, a clean redirect, and the documentLoad span.
+
+- **`sessionStorage`, not memory.** A non-user opens `/g/{CODE}`, signs up through Clerk, and comes back to the same tab. Memory doesn't survive that round trip; `sessionStorage` does. The pre-init module stores the gift code, `ref` and `invite` under one key, then `replaceState`s to a clean URL. Gates read from `sessionStorage` and clear it once consumed.
+- **The `redirect_url` given to Clerk must be the clean URL.** If it carries `/g/{CODE}` or `?ref=`, the code comes straight back after sign-in and the first page event re-records it.
+- **The documentLoad span is not fixed by `replaceState`.** It can read `PerformanceNavigationTiming.name`, which is the original URL and can't be changed. So the `/g/<code>` → `/g/[code]` mask in `scrubUrl` is **load-bearing, not a backup**, and the HAR check must look at that span specifically.
+- **`?invite=` is the most serious of the three.** An invite code lets its holder join a household, and it reaches replay today. If the Clerk-id part of the scrub build drags, **S29 ships alone first**, in its own small promotion.
+
+## Client grouping (detail for S26 / S28)
+
+- `photosByMeal` (`src/lib/mealPhotos.js`) stops at `MEAL_PHOTO_CAP` across kinds, so it would drop showcase rows once three photos exist. It must count **cook photos only**, like `atCap`. Showcase rows are always kept.
+
+---
+
+## Session record
+
+SESSION END ran before tonight's Phase A prep. The builder adds, under the 2026-10-23 SESSION_LOG entry, a dated addendum:
+
+> 2026-10-24 (same night): Phase A prep in the design chat. Step 0 #1–#7 run read-only by Claude Code. Amendment 10-24 (S19–S23) and Addenda 10-24b (S24–S30) and 10-24c (S31–S33) appended. `SPEC_rum_clerk_id_scrub.md` scope grown by S29/S30; a live replay leak of `?ref=` / `?invite=` found. Step 0 #8 (gift storage, two candidates) still open.
+
+And rewrites the Next session block:
+
+> SESSION START
+> Goal: Build `SPEC_rum_clerk_id_scrub.md` on dev, now including S29 (pre-Splunk clearing of gift / ref / invite codes, `sessionStorage`, clean Clerk redirect, `/g/<code>` mask) and S30 (photo long-press CSS). S29 ships first on its own if the rest drags.
+> State: Meal Photos v1 live on prod (`5836534`). `src/` identical on prod and dev. Phase A design-final through S33; Step 0 #8 (gift-photo storage: policy bucket vs Edge Function) open. Jest green. Dev ahead of origin by the 10-24 docs commits until pushed.
+> Done when: the scrub build's Step 0 is reported, the code is built with tests, and a dev HAR shows 0 Clerk ids, 0 gift/ref/invite codes (checked separately, documentLoad span included, spans and replay), while `sess_[id]` route shapes survive.
+
+---
+
+> **Note 2026-10-24 (Claude Code, at Dan's instruction) — on Addendum 2026-10-24c, S31:** migration 069 went to Drink (`migrations/069_meals_occasion_drink.sql`, `SPEC_meal_occasion_drink.md`; applied on dev 2026-10-25 00:45 UTC). Wherever S31 says `add_showcase_photo` "is new in 069", read: new in the next free migration number at build. Nothing else in S31 changes.
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-28 (design chat, Step 0 #8 ruled)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after Addendum 2026-10-24c. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final. Step 0 #8 is closed. Phase A has no open design questions; the builder's Step 0 for the migration can run.
+**Source:** design chat 2026-10-28, ruled by Dan.
+**Supersedes:** in S20, "the photo step runs in an Edge Function" and "a signed URL minted server-side"; in S32, the open choice between A and B. S20's copies-not-references rule stands unchanged.
+**Migration note:** earlier addenda say "069" for Phase A. 069 went to Drink and 071 is burned; Phase A's migration takes the next free number from the dev ledger at build time (072 as of 2026-10-28).
+
+---
+
+## S34 — Gift photos live in a policy-guarded `gift-photos` bucket. Clients copy; nobody mints.
+
+Candidate A is adopted. Candidate B (an Edge Function with service-role storage access, plus a second function to serve previews) is not built.
+
+**Why A:**
+- It reuses what is on prod today: a private bucket under storage RLS, client-signed URLs, and `?token=` already masked by the span scrub. B adds a new runtime path, service-role secrets on both environments, and a second function only because `preview_meal_gift` is SQL and SQL cannot sign a URL.
+- Revocation is automatic. The SELECT policy checks the gift is live, so a revoked gift's photo stops being readable when the row changes. Under B a signed URL already minted stays valid until it expires.
+- No new blast radius. A holds no service-role key anywhere new. (The sweep function holds one, but calls three narrow RPCs; a gift-photo function would need raw storage copy rights.)
+- The cost of client copies is small: renditions are ~50–100 KB, two transfers on the giver's device and two on the receiver's, for a rare event.
+
+**Layout (as S32 Candidate A, confirmed):**
+- Private bucket `gift-photos`, path `{gift_id}/{rendition}.webp`. The path carries the gift id only, never a household id.
+- SELECT for `anon` and `authenticated`: the first folder segment is the id of a live gift (see S35 for how the policy asks).
+- INSERT for `authenticated`: the gift's `from_household_id` is one the caller is a member of.
+- DELETE: none for clients.
+- No service-role key in any function. No new runtime. No new egress path beyond the two copies.
+
+**Give flow (ordering is part of the design):**
+1. `give_meal` selects the photo per S12 server-side and returns the source path, or null.
+2. The giver's client downloads that object (it already holds a signed URL) and uploads it to `{gift_id}/…` in `gift-photos`.
+3. Only then does the share sheet open.
+The link is in nobody's hands until the upload finishes, so a preview never shows a half-arrived photo. If the upload fails, the gift goes out with no photo (S12 allows it) and the giver sees one plain line: "The photo didn't attach." No retry loop; the giver can revoke and give again.
+
+**Honest limits (accepted):**
+- A hacked giver client could upload a different image to the gift path. The giver can already upload any image as a showcase photo, so this changes nothing about who can publish what.
+- The receiving household's copy carries the giver's opaque user id (S23, already accepted).
+
+**Upgrade path:** if beta shows people giving many meals at once, or client copies prove unreliable on iOS, B replaces the copy step. S20's copies-not-references rule carries over unchanged.
+
+## S35 — The storage policy asks a SECURITY DEFINER helper, never a table.
+
+Under 068, `anon` holds no table grants, and storage policies run as the calling role. A policy that subqueries `meal_gifts` would fail for `anon`.
+
+- New function `gift_photo_readable(p_gift_id uuid) returns boolean`: SECURITY DEFINER, `search_path` pinned, EXECUTE to `anon` and `authenticated`, explicit grants for all three roles. Returns true only for a gift row that exists and is not revoked (and not expired, if gifts gain expiry). It reads nothing else and returns nothing else.
+- The `gift-photos` SELECT policy is `gift_photo_readable((storage.foldername(name))[1]::uuid)`, with a guard that the first segment parses as a uuid.
+- Same shape as `health()` (067): one narrow definer function instead of a grant.
+- **Builder check (Step 0):** confirm `anon` can create a signed URL on an object under a SELECT policy that calls a definer function, on dev, with a rolled-back probe. If it cannot, stop and bring it back; the fallback is a tiny `sign_gift_photo` definer RPC, not Candidate B.
+
+## S36 — Accept uses its own RPC, `accept_gift_photo`. `uploaded_by` is derived, never passed.
+
+`add_showcase_photo` (S31) sets `uploaded_by = get_current_user_id()`. S23 needs the receiver's copy to carry the **giver** as `uploaded_by`. A `p_uploaded_by` parameter would let any caller forge the value, so:
+
+- New RPC `accept_gift_photo(p_gift_id, p_path, p_thumb_path, p_width, p_height)`: SECURITY DEFINER, pinned `search_path`, EXECUTE to `authenticated` only, explicit grants.
+  - Derives `uploaded_by` from the gift row's giver, `household_id` from the caller's membership in the receiving household, and `meal_id` from the receipt row for that gift and household. It raises if the caller's household holds no receipt for that gift.
+  - Inserts a `kind = 'showcase'` row. It never touches the cook cap or its trim.
+  - The one-per-person-per-meal index (S31) applies: the giver's id is the "person", so a receiver who accepts the same gift twice replaces, not duplicates.
+- Accept flow: the receiver's client downloads the gift copy from `gift-photos`, uploads it under its own household folder in `meal-photos`, then calls `accept_gift_photo`. The receiver never holds a path into the giver's folder (S20, V18).
+- S23 and S11 hold by construction: the receiver cannot re-gift the photo as their own because `uploaded_by` was never theirs to set.
+
+## S37 — Revoked-gift objects join the existing sweep.
+
+`meal-photo-sweep` gains a `gift-photos` pass: objects whose gift row is revoked for longer than the orphan grace window (7 days, as 070) are removed. No new cleanup mechanism, no new schedule, the same dry-run-first rollout. Receivers' copies in `meal-photos` are unaffected (V3).
+
+---
+
+## Verification (adds to V1–V21)
+
+- **V22:** a signed-out visitor opening a live gift link sees the gift photo through a client-signed URL on the `gift-photos` bucket. A HAR shows 0 gift codes, 0 `ref`, 0 `invite`, 0 `token=` in spans and replay (as V20, now with the client signing).
+- **V23:** after `revoke_meal_gifts`, the same link shows no photo, and a direct `createSignedUrl` on the gift path as `anon` is refused.
+- **V24:** a receiver's accepted copy has `uploaded_by` = the giver's id, `kind = showcase`, and a path under the receiver's household folder. Checked by direct query.
+- **V25:** calling `accept_gift_photo` from a household with no receipt for that gift raises; nothing is inserted.
+- **V26:** a give where the client upload fails leaves a gift with no photo and a readable preview; the giver sees the one-line notice.
+- **V27:** the sweep's `gift-photos` pass, dry run on dev with a revoked fixture past 7 days, reports it; the live run removes it; a live gift's object is untouched.
+
+---
+
+## What the builder's Step 0 now adds (read-only, before 072)
+
+1. The S35 probe: `anon` signing under a definer-backed policy, rolled back.
+2. The exact receipt-row lookup for S36 (`meal_gift_receipts` shape from Step 0 #2).
+3. Whether `storage.foldername` is available on dev's storage version; if not, the equivalent split.
+4. The next free migration number from the dev ledger (072 expected).
+Report and stop.
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-28b (S38–S45)
+
+Append to `docs/specs/active/SPEC_meal_sharing_v2.md` after Addendum 2026-10-28. Append-only. Where this text and earlier text disagree, this wins.
+
+**Status:** Design-final for migration 072. Rulings on the builder's Step 0 report (2026-10-28, late).
+**Source:** design chat 2026-10-28, ruled by Dan.
+**Step 0 facts this rests on (dev `7642734024280108049`):** no gift tables, lineage columns or gift RPCs exist; `meal_photos.kind` and `add_showcase_photo` are unbuilt (S31); the S35 probe passed (anon sees only the live gift's object through a definer-backed CASE policy; nothing persisted); `storage.foldername` is identical on dev and prod; `anon` / `authenticated` hold `arwd` on `storage.objects` and `storage.buckets`; dev's default privileges still grant new functions to `anon`; 17 dev users belong to more than one household; next free migration 072.
+
+---
+
+## S38 — One migration, 072. Lineage and the sweep stay out.
+
+Dan's call: Phase A's schema ships as **one** migration, 072, in one transaction. It is written in dependency order, in numbered sections, with a VERIFY block per section, so a failure names its section and the whole thing rolls back.
+
+1. `meal_photos.kind` + CHECK + the showcase partial unique index (S31)
+2. `add_meal_photo` body change (S39)
+3. `add_showcase_photo` (S31)
+4. `meal_gifts`, `meal_gift_receipts` + RLS + explicit grants; index on `meal_gifts.source_meal_id`
+5. `give_meal`, `preview_meal_gift`, `record_meal_gift_receipt`, `revoke_meal_gifts`
+6. `preview_meal_gift_public` (S43)
+7. `gift_photo_readable`, `gift_photo_writable` (S41)
+8. `accept_gift_photo` (S40)
+9. The `gift-photos` bucket and its SELECT and INSERT policies
+
+**Not in 072:**
+- **The `meals` lineage columns** (`copied_from_meal_id`, `copied_from_household_id`, `copied_at`). Deferred to Phase B (S42).
+- **The S37 sweep RPC.** It gets its own later migration, shipped with the `meal-photo-sweep` change.
+
+072 ships with a `072_rollback.sql`, as 068 did.
+
+## S39 — `add_meal_photo`: signature unchanged, the trim counts cook photos only.
+
+The trim gains `and kind = 'cook'`. Without it, a cook upload would age out a showcase photo, which breaks S26. This does not conflict with S31: S31 forbids widening `add_meal_photo`, and nothing is widened. Cook behaviour is identical until a showcase row exists. `create or replace` keeps the existing ACL; VERIFY reads it back unchanged.
+
+## S40 — `accept_gift_photo` names its household. `uploaded_by` stays derived.
+
+**Signature:** `accept_gift_photo(p_gift_id uuid, p_household_id uuid, p_path text, p_thumb_path text, p_width int, p_height int)`.
+
+- `p_household_id` is checked with `is_member_of`, as `preview_meal_gift` and `record_meal_gift_receipt` already do. A caller in several households is unambiguous. Passing the household is safe because membership is checked. `uploaded_by` would not be safe to pass, so it stays derived from the gift (S36).
+- Both paths must sit under `{p_household_id}/{meal_id}/`, as `add_meal_photo` requires.
+- The receipt row for `(p_gift_id, p_household_id)` must exist, or the call raises `42501` and inserts nothing (V25).
+- **Refuses the photo, never the meal,** when:
+  - the gift is revoked, matching the read policy; or
+  - the giver's account is gone (`given_by` is null, but `uploaded_by` is NOT NULL).
+  The meal itself was already saved by the receiver.
+- **A second accept replaces.** It soft-deletes the giver's previous live showcase row for that meal and household, then inserts.
+
+> **Ruling 2026-10-29 (Dan, at the 072 draft):** the path arguments follow 065's `add_meal_photo` order, thumb first: `accept_gift_photo(p_gift_id, p_household_id, p_thumb_path, p_view_path, p_width, p_height)` and `add_showcase_photo(p_meal_id, p_thumb_path, p_view_path, p_width, p_height)`. The `p_path, p_thumb_path` order written in S31, S36 and above is superseded. 072's VERIFY reads the identity arguments back.
+
+## S41 — Writes to `gift-photos` go through a second definer.
+
+- **INSERT policy for `authenticated`:** the same CASE / uuid guard as the SELECT policy, then `gift_photo_writable(uuid)`. That function is SECURITY DEFINER with a pinned `search_path`, and returns true only when the gift exists, isn't revoked, and the caller is a member of `from_household_id`. EXECUTE goes to `authenticated` only.
+- **No UPDATE or DELETE policy.** The client upload never uses `upsert: true`. This is a build note for the client slice.
+
+## S42 — Lineage columns are deferred to Phase B.
+
+On link gifts the lineage columns are always null (S25), and nothing in Phase A writes them. If they shipped now, members could write them through `meals`' table-level UPDATE, and a column revoke can't override that. They therefore ship with Phase B, together with a write guard (a trigger or equivalent), before anything reads them to route crew activity. `record_meal_gift_receipt` stamps no lineage in Phase A. The 10-07 "stamps lineage" wording waits for Phase B.
+
+## S43 — A signed-out visitor sees a preview card.
+
+Opening a live gift link without an account shows a **preview card**:
+- the photo (if the gift has one)
+- the meal's title
+- the "from" line (`attribution`; never possessive, never `created_by`)
+- the ingredient count
+- **"Add to our meals"**, which leads to sign-up, then the prefilled New Meal form (10-07 flow).
+
+The full recipe arrives in their own kitchen, not on a public page.
+
+**New RPC `preview_meal_gift_public(p_code text)`:**
+- SECURITY DEFINER, pinned `search_path`, EXECUTE to `anon` and `authenticated`, explicit grants for all three roles.
+- Returns exactly: `gift_id`, `title`, `attribution`, `ingredient_count`, `has_photo` — and, since **S47 (2026-10-30, 074)**, `photo_ext` (`webp` | `jpg` | null): the format the giver stored the photo in, so the client signs `{gift_id}/view.{photo_ext}`. `has_photo` is `photo_ext is not null` — the server's mark from `attach_gift_photo`, never a storage probe.
+- Never returns the giver's name, the household's name or id, the ingredient names, the steps, or any `meal_photos` path.
+- **An unknown code and a revoked code return the same empty result,** so the RPC can't be used to test whether a code exists.
+
+The signed-in `preview_meal_gift(code, household)` stays as specified, and now also returns `gift_id` — and `photo_ext` (S47) — so the client can sign `{gift_id}/view.{photo_ext}`.
+
+`gift_photo_readable` keeps EXECUTE for `anon`; V20 and V22 stand.
+
+**Builder check at draft:** report the gift code's length and alphabet from the 10-07 shape. The code is a bearer token for the card, so its entropy is the only rate limit SQL can offer. Stop if it's under ~60 bits.
+
+> **Ruling 2026-10-28 (Dan, at the draft's entropy check):** the 10-07 shape (8 chars, 31 symbols) is ≈40 bits and fails the check. Gift codes are **16 characters** from the same alphabet (A–Z without O/I/L, 2–9: 31 symbols), ≈79 bits; 072 mints them with rejection-sampled `gen_random_bytes`, so every symbol is equally likely. Invite and referral codes are unchanged. **Security item for a later session:** the household invite code is 6 chars of base-36 from `Math.random()` (`useProvisions.js` createInvite), ≈31 bits nominal and not from a CSPRNG; the referral code is 8 hex (32 bits). Neither is in Phase A's scope.
+
+## S44 — `give_meal` returns what the client needs to copy the photo.
+
+`give_meal` returns `{code, gift_id, photo_path}`, where `photo_path` is the S12-selected source, or null. The client copies the photo to `gift-photos/{gift_id}/…` before the share sheet opens (S34).
+
+## S45 — Grants: revoke first, then grant.
+
+Dev's default privileges still hand every new function to `anon`, `authenticated` and `service_role`, and every new table to `anon` / `authenticated`. Every object in 072 therefore gets an explicit `revoke … from public, anon, authenticated, service_role`, then its grant.
+
+| Object | anon | authenticated | service_role |
+|---|---|---|---|
+| `meal_gifts` | none | SELECT (RLS: member of `from_household_id`) | ALL |
+| `meal_gift_receipts` | none | SELECT (RLS: member of `to_household_id` only) | ALL |
+| `give_meal`, `preview_meal_gift`, `record_meal_gift_receipt`, `revoke_meal_gifts`, `add_showcase_photo`, `accept_gift_photo`, `gift_photo_writable` | — | EXECUTE | — |
+| `preview_meal_gift_public`, `gift_photo_readable` | EXECUTE | EXECUTE | — |
+| `add_meal_photo` | existing ACL, unchanged | | |
+| `gift-photos` bucket | SELECT policy | SELECT + INSERT policies | (bypasses RLS) |
+
+No client write policies on either gift table.
+
+> **Ruling 2026-10-29 (Dan, at the 072 draft) — error codes:** the 10-07 table's words map to SQLSTATEs, one vocabulary with 065: `not_found` (unknown code, in `preview_meal_gift` and `record_meal_gift_receipt`) = `P0002`; `revoked` = `55000`, and `accept_gift_photo` raises `55000` for "the giver's account is gone" as well; not a member / no JWT user / no receipt / a meal outside the target place = `42501`; bad kind, note length, paths or missing objects = `22023`. `preview_meal_gift_public` raises nothing: unknown and revoked both return no row (S43).
+
+> **Ruling 2026-10-29 (Dan, at the 072 draft) — `mint_gift_code`:** the 16-character minter is an internal helper, owner-only: EXECUTE is revoked from `public`, `anon`, `authenticated` **and** `service_role` and granted to nobody (stricter than 042's `mint_referral_code`, which service_role may call). It runs only inside `give_meal`, which executes as owner. It is the one 072 function outside the S45 table.
+
+---
+
+## Verification (adds to V1–V27)
+
+- **V28:** `preview_meal_gift_public` returns exactly the five S43 fields for a live code. For an unknown code and a revoked code it returns the identical empty result. As `anon`, a direct SELECT on `meal_gifts` is refused.
+- **V29:** after 072, `meals` has no `copied_from_*` columns.
+- **V30:** with a live showcase photo on a meal, three further cook uploads leave the showcase live (S26 / S39). The cook trim still keeps exactly 3 cook photos.
+- **V31:** `accept_gift_photo` with a `p_household_id` the caller is not a member of raises `42501` and inserts nothing; a path outside `{p_household_id}/{meal_id}/` raises; a second accept leaves one live showcase row.
+- **V32:** each new function's `proacl` and each new table's `relacl` match the S45 table exactly; `anon` holds nothing beyond the two named functions.
+
+---
+
+## Next step (builder)
+
+Draft `migrations/072_meal_sharing_phase_a.sql` + `072_rollback.sql` per S38–S45, with VERIFY per section. **Not applied.** Report the S43 code-entropy check with the draft.
+
+
+---
+
+# SPEC_meal_sharing_v2 — Addendum 2026-10-30 (S48, the household's showcase)
+
+**Append to:** `docs/specs/active/SPEC_meal_sharing_v2.md`, after the S47 lines. Append-only. Where this text and earlier text disagree, this wins.
+**Status:** Design-final. Ruled by Dan in the design chat 2026-10-30, during the Phase A fix walk.
+**Supersedes:** S11 (only the author can share a showcase photo publicly); S26's one showcase *per person* per meal; S46's author-only flip; S23's "uploaded_by = giver" as the re-gift guard (replaced below); S12's public branch ("the giver's own latest showcase"); C1's pre-check wording ("a live showcase row where uploaded_by = me"). S10 is reworded, not removed.
+
+---
+
+## Why
+
+A walk found Dan H could not give a meal with the showcase photo that Dan T had made, though both are in the same household. Per-person showcase ownership broke the **Collaborative Intelligence** anchor: the household owns its meals, its list and its photos (any member can remove any photo, S27). The meal has one public face, and it belongs to the house.
+
+The real worry behind S11 was **consent**, not ownership. It is met the way the shared list meets conflict (collaborative tension): changes are visible, any member can reverse them, and the household sorts it out.
+
+## Decisions
+
+**S48 — One showcase per meal, owned by the household.**
+- Each meal has **at most one live showcase photo** in a household. Making a new one retires the old one, whoever made it (flips it back to a meal photo, never deletes it).
+- **Any member** can make **any** live photo of the meal the showcase, with the existing prompt. Any member can make the showcase a meal photo again (un-showcase). Neither is author-only.
+- **Any member giving the meal sends the showcase** (V5). The S12 public branch becomes: *the household's live showcase photo of that meal, or none.* Never a cook photo.
+- **S10 reworded:** a meal photo never leaves the household unless a member deliberately makes it the showcase. No gift, re-gift or setting does it silently.
+- **Visibility is the safeguard.** Photo details shows who made the photo the showcase and when (`showcased_by`, `showcased_at`). A Home activity line for showcase changes is NEXT, with the crew feed / Home activity design.
+- **Snapshot honesty.** A gift copies the photo when given (V3). Changing or removing the showcase later does not pull back copies already given; Stop giving makes the link and card unreadable, and accepted copies stay. The Make-showcase prompt says so.
+- **No re-gift of a received photo.** A photo that arrived on a gift (`accept_gift_photo`) can never be made the receiving household's showcase. It is a showcase-kind row in the receiver's strip (chip shown) but marked as received, and `give_meal` never selects it. The household that chose to publish it decided where it goes; a receiving household did not.
+
+**Prompt copy of record (replaces S13's line from 10-30):**
+> **Make this the meal's showcase photo?**
+> Showcase photos can be shared outside the household. Once a meal is given, its photo goes with it.
+> [Make showcase] [Not now]
+
+**B2 copy:** "No photo goes with it." + "Make one of the photos a showcase →". The per-person explanation line drafted earlier on 10-30 is **not built**: with a household showcase it can't arise.
+
+## Build shape (Step 0 confirms or corrects)
+
+- **Data:** replace 072's per-person partial unique index with one live showcase per `(meal_id, household_id)`, excluding received rows. Add `showcased_by uuid` (users, set null) and `showcased_at timestamptz` to `meal_photos`. Mark received rows (e.g. `received_gift_id uuid` set by `accept_gift_photo`, or a `kind`-adjacent flag); Step 0 proposes. Backfill: where a meal has more than one live non-received showcase in a household, keep the newest, flip the rest to cook (report counts first; dev only has walk data).
+- **`set_photo_kind`:** drop the author check; keep membership. To showcase: refuse a received row (`22023`), stamp `showcased_by/at`, flip the household's current showcase to cook. To cook: any member; the 3-cook cap refusal stays.
+- **`give_meal`:** picks the household's live, non-received showcase; returns its paths as today.
+- **`accept_gift_photo`:** marks the row as received; `uploaded_by` stays the photo's original author (attribution), but the re-gift guard is the received mark, not `uploaded_by`.
+- **`add_showcase_photo` (072):** unused; drop in this migration or leave for its own retirement — Step 0 recommends.
+- **Client:** flip items on every photo for every member (received rows: no "Make showcase"); the C1 pre-check reads "does this meal have a live, non-received showcase"; Photo details shows "Made showcase by {First} · {date}"; the prompt copy above. Save/Download stays author-only (S14 unchanged).
+
+## Verification
+
+- **V36:** Dan T makes a photo the showcase; Dan H gives the meal; the gift carries that photo (`photo_ext` set, objects present).
+- **V37:** Dan H makes a different photo the showcase; Dan T's is now a meal photo (not deleted); exactly one live showcase on the meal in that household.
+- **V38:** any member can un-showcase any showcase; the 3-cook cap refusal still holds on un-showcase.
+- **V39:** a received photo shows no "Make showcase" and `set_photo_kind(..., 'showcase')` on it raises `22023`; giving the receiver's copy carries no photo.
+- **V40:** Photo details shows who made the showcase and when.
+- **V41:** changing the showcase after a gift leaves that gift's photo unchanged; Stop giving makes it unreadable.

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What sounds good? — Meal Library v1.1 mockup</title>
+<!--
+  OurProvisions · Meal Library v1.1 — mockup of record for the grid screen.
+  Pairs with SPEC_meal_library_v1_1_amendment.md (2026-10-02).
+  Standalone: open in any browser. Interactive: tap Plan to see the pill,
+  the week line count and the toast change. Card bodies are buttons that
+  "open the meal" (no-op here). Tones are the real MEAL_TONES from App.js.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#F6EFE4; --paper:#FFFDF9; --sand:#EFE6D6; --line:#D9C8B0; --card-line:#E6DACA;
+    --ink:#2C1A0E; --espresso:#3A2A20; --muted:#6E5A4A; --helm:#2C1A0E; --helm-lit:#4A3628;
+    --helm-text:#CDBBA4; --gold:#D9BC8C;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:#2a3a3c;display:flex;align-items:center;justify-content:center;padding:24px 16px;font-family:'DM Sans',system-ui,sans-serif;color:var(--ink)}
+  button{font-family:inherit}
+  .phone{width:390px;max-width:100%;height:844px;background:var(--cream);border-radius:28px;overflow:hidden;position:relative;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+  .hh{height:56px;flex-shrink:0;background:var(--helm);display:flex;align-items:center;justify-content:space-between;padding:0 16px}
+  .mono{width:32px;height:32px;border-radius:50%;background:#1F8A86;color:#FAF4EC;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700}
+  .hhname{color:var(--gold);font-size:12px;letter-spacing:.18em;font-weight:600}
+  .body{flex:1;overflow-y:auto;padding:16px 16px 120px}
+  .head{display:flex;align-items:center;gap:10px}
+  .head .t{flex:1;min-width:0}
+  h1{font-family:'Playfair Display',serif;font-weight:700;font-size:26px;line-height:1.1;margin:0}
+  .week{display:inline-flex;align-items:center;gap:3px;min-height:28px;font-size:12.5px;font-weight:500;color:var(--muted);text-decoration:none;margin-top:2px}
+  .create{height:40px;padding:0 16px;border-radius:20px;background:var(--espresso);color:#FAF4EC;border:none;display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600;cursor:pointer;flex-shrink:0}
+  .searchrow{display:flex;gap:8px;margin-top:14px}
+  .search{flex:1;height:44px;border-radius:12px;background:var(--sand);display:flex;align-items:center;gap:10px;padding:0 14px}
+  .search input{border:none;background:transparent;outline:none;font:inherit;font-size:14px;color:var(--ink);width:100%}
+  .filter{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--paper);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .rail{display:flex;gap:8px;margin-top:12px;overflow-x:auto;scrollbar-width:none}
+  .rail::-webkit-scrollbar{display:none}
+  .pill{height:34px;padding:0 16px;border-radius:17px;border:1px solid var(--line);background:var(--paper);color:var(--espresso);font-size:13px;font-weight:500;flex-shrink:0;cursor:pointer}
+  .pill.on{background:var(--espresso);border-color:var(--espresso);color:#FAF4EC;font-weight:600}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 12px;margin-top:14px}
+  .card{border-radius:14px;overflow:hidden;background:var(--paper);border:1px solid var(--card-line);display:flex;flex-direction:column}
+  .top{display:block;width:100%;text-align:left;border:none;font:inherit;cursor:pointer;min-height:84px;padding:11px 12px 12px;flex:1}
+  .occ{font-size:11px;font-weight:700;letter-spacing:.13em}
+  .name{font-family:'Playfair Display',serif;font-weight:700;font-size:18px;line-height:1.15;margin-top:4px}
+  .strip{display:flex;align-items:center;justify-content:space-between;padding:8px 8px 8px 12px;gap:6px}
+  .count{font-size:12px;color:var(--muted)}
+  .plan{height:34px;padding:0 14px;border-radius:17px;border:1.5px solid var(--espresso);background:transparent;color:var(--espresso);font-size:12.5px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:4px}
+  .plan[disabled]{border-color:transparent;background:var(--sand);font-weight:600;padding:0 12px;cursor:default}
+  .toast{position:absolute;left:50%;bottom:96px;transform:translate(-50%,8px);height:42px;border-radius:21px;background:var(--espresso);color:#FAF4EC;display:flex;align-items:center;padding:0 18px;font-size:13.5px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .helm{position:absolute;left:12px;right:12px;bottom:16px;height:64px;border-radius:32px;background:var(--helm);display:grid;grid-template-columns:repeat(4,minmax(0,1fr));align-items:center;padding:0 6px}
+  .helm span{text-align:center;color:var(--helm-text);font-size:10.5px;letter-spacing:.12em;font-weight:600}
+  .helm .lit{margin:0 4px;height:50px;border-radius:25px;background:var(--helm-lit);display:flex;align-items:center;justify-content:center;color:#FAF4EC;font-weight:700}
+</style>
+</head>
+<body>
+<div class="phone">
+  <div class="hh"><div class="mono">DH</div><div class="hhname">BVI · SAILING</div><div style="width:32px"></div></div>
+
+  <div class="body">
+    <div class="head">
+      <div class="t">
+        <h1>What sounds good?</h1>
+        <a class="week" href="#" id="week"><span id="weekText">3 meals planned this week</span>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6E5A4A" stroke-width="2.4" stroke-linecap="round"><path d="M9 6l6 6-6 6"/></svg></a>
+      </div>
+      <button class="create" aria-label="Create a meal">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FAF4EC" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        Create
+      </button>
+    </div>
+
+    <div class="searchrow">
+      <label class="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6E5A4A" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="q" placeholder="Search your meals…" aria-label="Search your meals">
+      </label>
+      <button class="filter" aria-label="Filter meals">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3A2A20" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z"/></svg>
+      </button>
+    </div>
+
+    <div class="rail" id="rail"></div>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <nav class="helm" aria-label="Main">
+    <span>HOME</span><span class="lit">PLAN</span><span>BROWSE</span><span>SHOP</span>
+  </nav>
+</div>
+
+<script>
+  // Real MEAL_TONES from App.js (bg / fg precomputed for contrast).
+  var meals = [
+    { id:'salad',    name:'Caribbean Grilled Shrimp Salad', occ:['dinner'],            count:12, bg:'#5f6b4f', fg:'#FAF4EC' },
+    { id:'pasta',    name:'Caribbean Shrimp Pasta',         occ:['dinner'],            count:11, bg:'#B8945F', fg:'#2C1A0E' },
+    { id:'chicken',  name:'Creamy Garlic Chicken and Rice', occ:['dinner'],            count:9,  bg:'#A0724A', fg:'#2C1A0E', planned:true },
+    { id:'pizza',    name:'Pizza',                          occ:['lunch','dinner'],    count:3,  bg:'#6f5a45', fg:'#FAF4EC', planned:true },
+    { id:'pancakes', name:'Banana Pancakes',                occ:['breakfast','dessert'],count:6, bg:'#9a9384', fg:'#2C1A0E', planned:true },
+    { id:'lemon',    name:'Lemon Pasta',                    occ:['dinner'],            count:3,  bg:'#7d8fa0', fg:'#2C1A0E' }
+  ];
+  var ORDER = ['dinner','breakfast','lunch','snack','side','appetizer','dessert'];
+  var LABEL = { dinner:'Dinner', breakfast:'Breakfast', lunch:'Lunch', snack:'Snacks', side:'Sides', appetizer:'Appetizers', dessert:'Dessert' };
+  var state = { occ:'all', q:'' };
+  var toastTimer;
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function renderRail(){
+    var present = ORDER.filter(function(o){ return meals.some(function(m){ return m.occ.indexOf(o) > -1; }); });
+    var html = '<button class="pill' + (state.occ==='all'?' on':'') + '" data-occ="all">All</button>';
+    present.forEach(function(o){ html += '<button class="pill' + (state.occ===o?' on':'') + '" data-occ="' + o + '">' + LABEL[o] + '</button>'; });
+    document.getElementById('rail').innerHTML = html;
+  }
+
+  function renderGrid(){
+    var q = state.q.trim().toLowerCase();
+    var html = meals.filter(function(m){
+      var occOk = state.occ==='all' || m.occ.indexOf(state.occ) > -1;
+      var qOk = !q || m.name.toLowerCase().indexOf(q) > -1 || m.occ.some(function(o){ return o.indexOf(q) > -1 || LABEL[o].toLowerCase().indexOf(q) > -1; });
+      return occOk && qOk;
+    }).map(function(m){
+      var btn = m.planned
+        ? '<button class="plan" disabled aria-label="Planned for this week"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3A2A20" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>Planned</button>'
+        : '<button class="plan" data-plan="' + m.id + '" aria-label="Plan ' + esc(m.name) + '">Plan</button>';
+      return '<div class="card">' +
+        '<button class="top" style="background:' + m.bg + ';color:' + m.fg + '" aria-label="Open ' + esc(m.name) + '">' +
+          '<div class="occ">' + m.occ[0].toUpperCase() + '</div><div class="name">' + esc(m.name) + '</div></button>' +
+        '<div class="strip"><div class="count">' + m.count + ' ingredient' + (m.count===1?'':'s') + '</div>' + btn + '</div></div>';
+    }).join('');
+    document.getElementById('grid').innerHTML = html || '<p style="grid-column:1/-1;color:#6E5A4A;font-size:14px">Nothing matches that yet.</p>';
+  }
+
+  function renderWeek(){
+    var n = meals.filter(function(m){ return m.planned; }).length;
+    document.getElementById('weekText').textContent =
+      n === 0 ? 'Nothing planned yet this week' : n === 1 ? '1 meal planned this week' : n + ' meals planned this week';
+  }
+
+  function toast(text){
+    var t = document.getElementById('toast');
+    t.textContent = text; t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ t.classList.remove('show'); }, 2600);
+  }
+
+  document.getElementById('rail').addEventListener('click', function(e){
+    var b = e.target.closest('[data-occ]'); if(!b) return;
+    state.occ = b.getAttribute('data-occ'); renderRail(); renderGrid();
+  });
+  document.getElementById('grid').addEventListener('click', function(e){
+    var b = e.target.closest('[data-plan]'); if(!b) return;
+    var m = meals.filter(function(x){ return x.id === b.getAttribute('data-plan'); })[0];
+    m.planned = true; renderGrid(); renderWeek(); toast(m.name + ' added to your week ✓');
+  });
+  document.getElementById('q').addEventListener('input', function(e){ state.q = e.target.value; renderGrid(); });
+  document.getElementById('week').addEventListener('click', function(e){ e.preventDefault(); toast('Opens This Week'); });
+
+  renderRail(); renderGrid(); renderWeek();
+</script>
+</body>
+</html>

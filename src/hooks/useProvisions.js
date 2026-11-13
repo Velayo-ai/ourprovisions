@@ -20,6 +20,10 @@ import { cooksFromRows, resolveCookId } from "../lib/cooks";
 import { setKindFailure } from "../lib/mealPhotos";
 import { giveFailure, giftObjectPath, giftExt, GIFT_RENDITIONS } from "../lib/giveMeal";
 import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArrival";
+import { landAskPicksArgs, askCompletedAttributes } from "../lib/askPicks";
+import { createAskArgs, updateAskArgs, shapeAsks } from "../lib/askCreate";
+import { asksAfterCatalogDelete } from "../lib/askRun";
+import { ASK_ENABLED } from "../lib/featureFlags";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -124,6 +128,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // before that it is "unknown", and the recipe view shows no tags (2026-10-18).
   const [cooksLoadedFor, setCooksLoadedFor] = useState(null);
   const [catalogLoadedFor, setCatalogLoadedFor] = useState(null);
+  // The household whose asks have been read at least once: an Ask resume (A26) must tell "this
+  // place has no such ask" from "the asks aren't in yet" (SPEC_ask_slice3).
+  const [asksLoadedFor, setAsksLoadedFor] = useState(null);
   const [error, setError] = useState(null);
   // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
   const errorSourceRef = useRef(null);
@@ -407,6 +414,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         status: item.status,
         pricePerUnit: item.price_per_unit != null ? parseFloat(item.price_per_unit) : null,
         addedBy: item.added_by ?? null,
+        // 077: who picked this need through an Ask (free text, never a user). Null before 077
+        // is applied — the RPC simply doesn't return the field.
+        pickedByLabels: Array.isArray(item.picked_by_labels) ? item.picked_by_labels : null,
       });
       newQty[item.id] = item.quantity;
       newChecked[item.id] = item.status === "bought";
@@ -801,6 +811,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     householdMembersRef.current = [];
     setMembersLoadedFor(null);
     setCatalogLoadedFor(null);
+    setAsksLoadedFor(null);
     bootstrappedRef.current = false;
     setBootstrapped(false);
     bootstrapHouseholdIdRef.current = null;
@@ -1351,6 +1362,195 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
+
+  // ─────────────────────────────────────────────────────────────
+  // landAskPicks: an Ask's "That's it!" (A16) — every held pick lands in ONE server write
+  // (077 land_ask_picks). The request carries ids only; the server reads the label from the
+  // ask (A22). Exactly one ask_completed span, the count only (A24). Picks emit no
+  // item_added_to_list. Resolves to the count landed; throws on failure so the Ask screen
+  // keeps the wagon held and can offer the confirm again.
+  // ─────────────────────────────────────────────────────────────
+  const landAskPicks = useCallback(async (askId, catalogItemIds) => {
+    if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!hh || !db) return null;
+    const { data: landed, error: landErr } = await db
+      .rpc("land_ask_picks", landAskPicksArgs(hh.id, askId, catalogItemIds));
+    if (landErr) throw landErr;
+    try {
+      tracer.startSpan("ask_completed", { attributes: askCompletedAttributes(landed) }).end();
+    } catch (e) {
+      console.warn("[rum] ask_completed event failed:", e);
+    }
+    await loadListItems(db, hh.id);
+    return landed;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // empty deps — uses refs, never stale
+
+  // ─────────────────────────────────────────────────────────────
+  // ASKS (078 create_ask; SPEC_ask_slice2 C2). fetchAsks reads the household's live asks and their
+  // shelves by household id ONLY — never filtered by label: the span scrub keeps a Supabase REST
+  // query in http.url, so a label in a filter would reach a span. Each shelf row embeds its catalog
+  // item (S4-9): the tiles are decided from the shelf, never from Browse's list, so a tile this
+  // person hid is still a tile, and a deleted one is seen as deleted (catalog_items_select lets a
+  // member read their own deleted rows; liveTiles filters). createAsk is one RPC (the ask and
+  // its shelf in one transaction) with a caller-supplied id, so a retry returns the same ask.
+  // Failures resolve to { ok: false, code } and log the code alone: create_ask's messages name the
+  // label (rules + copy in src/lib/askCreate.js).
+  // ─────────────────────────────────────────────────────────────
+  const [asks, setAsks] = useState([]);
+  const fetchAsks = useCallback(async () => {
+    if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const hhId = hh.id;
+    const { data, error: err } = await db
+      .from("asks")
+      .select("id, household_id, label, shelf_noun, screen_style, pick_target, created_at, ask_shelf_items(catalog_item_id, position, catalog_items(name, category, is_global, household_id, deleted_at))")
+      .eq("household_id", hhId)
+      .is("deleted_at", null);
+    if (householdRef.current?.id !== hhId) return null;   // switched mid-read: not this place's asks
+    if (err) { console.warn("[ask] asks read failed (non-fatal):", err.code); return null; }
+    const shaped = shapeAsks(data);
+    setAsks(shaped);
+    setAsksLoadedFor(hhId);
+    return shaped;
+  }, []);
+
+  // A household switch clears the last place's asks before the new read lands.
+  useEffect(() => {
+    setAsks([]);
+    if (household?.id) fetchAsks();
+  }, [household?.id, fetchAsks]);
+
+  const createAsk = useCallback(async (askId, draft) => {
+    if (!ASK_ENABLED) return { ok: false, code: null };   // Ask off (featureFlags): no request to an Ask table or RPC
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return { ok: false, code: null };
+    const { data, error: err } = await db.rpc("create_ask", createAskArgs(askId, hh.id, draft));
+    if (err) {
+      console.warn("[ask] create_ask failed:", err.code);
+      // 23505: another member made this ask since our read. Re-read, so the sheet's own
+      // duplicate check sees it and names it with the existing spelling.
+      if (err.code === "23505") await fetchAsks();
+      return { ok: false, code: err.code || null };
+    }
+    await fetchAsks();
+    return { ok: true, id: data };
+  }, [fetchAsks]);
+
+  // Edit (083 update_ask; SPEC_ask_slice4 S4-3): the whole form in one RPC, the same codes as
+  // create (23505 / 22023), the asks re-read after. Any member edits any ask (A10). update_ask is
+  // the only edit door (S4-10): the column grants for a direct write are gone.
+  const updateAsk = useCallback(async (askId, draft) => {
+    if (!ASK_ENABLED) return { ok: false, code: null };   // Ask off (featureFlags): no request to an Ask table or RPC
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !askId) return { ok: false, code: null };
+    const { error: err } = await db.rpc("update_ask", updateAskArgs(hh.id, askId, draft));
+    if (err) {
+      console.warn("[ask] update_ask failed:", err.code);
+      if (err.code === "23505") await fetchAsks();
+      return { ok: false, code: err.code || null };
+    }
+    await fetchAsks();
+    return { ok: true };
+  }, [fetchAsks]);
+
+  // Delete (S4-2; Step 0 #4): a plain soft delete — one column, already atomic, 077's column grant
+  // and asks_update policy let any member. The label is free again at once (K2's index is partial
+  // on live asks); rows already picked keep their "Picked by" (V10); the household's item photos
+  // stay (A23). The read-back row proves the write reached a live ask of this place.
+  const deleteAsk = useCallback(async (askId) => {
+    if (!ASK_ENABLED) return { ok: false, code: null };   // Ask off (featureFlags): no request to an Ask table or RPC
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !askId) return { ok: false, code: null };
+    const now = new Date().toISOString();
+    const { data, error: err } = await db
+      .from("asks")
+      .update({ deleted_at: now, updated_at: now })
+      .eq("id", askId)
+      .eq("household_id", hh.id)
+      .is("deleted_at", null)
+      .select("id");
+    if (err || !data || data.length === 0) {
+      console.warn("[ask] delete failed:", err ? err.code : "no live row");
+      await fetchAsks();
+      return { ok: false, code: err ? err.code || null : null };
+    }
+    await fetchAsks();
+    return { ok: true };
+  }, [fetchAsks]);
+
+  // ─────────────────────────────────────────────────────────────
+  // SHELF PHOTOS (077 household_item_photos + the item-photos bucket; A23; SPEC_ask_slice2 C3b.2).
+  // One live photo per (household, item), reused by every ask that shelves that item.
+  // fetchItemPhotos reads this household's live rows by household id only. setItemPhoto renders
+  // the two renditions (renderMealPhoto: WebP, JPEG on an older Safari, metadata stripped), uploads
+  // both under {household}/{item}/{uuid}-thumb|view (mealPhotoPaths' shape, with the item in the
+  // meal's place), THEN calls set_household_item_photo, which checks the paths and both objects
+  // and retires the item's previous photo. Quiet on failure: { ok: false, reason: "decode" |
+  // "upload" | "save" }; an upload whose RPC fails leaves orphan objects (the Slice 4 sweep).
+  // ─────────────────────────────────────────────────────────────
+  const [itemPhotos, setItemPhotos] = useState({});   // catalog_item_id → { id, thumbPath, viewPath }
+  const fetchItemPhotos = useCallback(async () => {
+    if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return null;
+    const hhId = hh.id;
+    const { data, error: err } = await db
+      .from("household_item_photos")
+      .select("id, catalog_item_id, thumb_path, view_path")
+      .eq("household_id", hhId)
+      .is("deleted_at", null);
+    if (householdRef.current?.id !== hhId) return null;
+    if (err) { console.warn("[item photo] read failed (non-fatal):", err.code); return null; }
+    const byItem = {};
+    (data || []).forEach((r) => { byItem[r.catalog_item_id] = { id: r.id, thumbPath: r.thumb_path, viewPath: r.view_path }; });
+    setItemPhotos(byItem);
+    return byItem;
+  }, []);
+
+  useEffect(() => {
+    setItemPhotos({});
+    if (household?.id) fetchItemPhotos();
+  }, [household?.id, fetchItemPhotos]);
+
+  const setItemPhoto = useCallback(async (catalogItemId, file) => {
+    if (!ASK_ENABLED) return { ok: false, reason: "save" };   // Ask off (featureFlags): no request to an Ask table or RPC
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !catalogItemId || !file) return { ok: false, reason: "save" };
+    let r;
+    try {
+      r = await renderMealPhoto(file);
+    } catch (err) {
+      console.warn("[item photo] could not decode:", file && file.type);
+      return { ok: false, reason: "decode" };
+    }
+    const { thumbPath, viewPath } = mealPhotoPaths(hh.id, catalogItemId, crypto.randomUUID(), r.ext);
+    const bucket = db.storage.from("item-photos");
+    const opts = { contentType: r.type, upsert: false, cacheControl: "3600" };
+    try {
+      const [t, v] = await Promise.all([bucket.upload(thumbPath, r.thumb.blob, opts), bucket.upload(viewPath, r.view.blob, opts)]);
+      if (t.error) throw t.error;
+      if (v.error) throw v.error;
+    } catch (err) {
+      console.warn("[item photo] upload failed:", err && (err.statusCode || err.name));
+      return { ok: false, reason: "upload" };
+    }
+    const { error: err } = await db.rpc("set_household_item_photo", {
+      p_household_id: hh.id, p_catalog_item_id: catalogItemId, p_thumb_path: thumbPath, p_view_path: viewPath,
+    });
+    if (err) { console.warn("[item photo] set_household_item_photo failed:", err.code); return { ok: false, reason: "save" }; }
+    await fetchItemPhotos();
+    return { ok: true };
+  }, [fetchItemPhotos]);
 
   const toggleChecked = useCallback(async (itemName, listItemId, opts = {}) => {
     const db = supabaseRef.current;
@@ -2198,6 +2398,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         p_catalog_item_id: catalogItem.id,
       });
       if (rpcErr) throw rpcErr;
+      // The item is off every ask shelf it was on (S4-9: a deleted item is not a live tile): mark it
+      // locally so Browse's block, the Manage row and the run drop it now, then re-read the asks.
+      setAsks((prev) => asksAfterCatalogDelete(prev, catalogItem.id, new Date().toISOString()));
+      fetchAsks();
     } catch (err) {
       console.error("deleteItem error:", err.message);
       setError(`Could not delete item: ${err.message}`);
@@ -2206,7 +2410,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       catalogRef.current = prevCatalogRef;
       setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
     }
-  }, []);
+  }, [fetchAsks]);
 
   const restoreHiddenByCategory = useCallback(async (rawCategoryName) => {
     const db = supabaseRef.current;
@@ -4195,7 +4399,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     membersLoaded: !!household?.id && membersLoadedFor === household.id,
     cooksLoaded: !!household?.id && cooksLoadedFor === household.id,
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
+    asksLoaded: !!household?.id && asksLoadedFor === household.id,
     updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
+    landAskPicks, asks, fetchAsks, createAsk, updateAsk, deleteAsk, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,

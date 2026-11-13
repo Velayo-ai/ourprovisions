@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask — the cart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --espresso:#1a0e06; --ink:#2B1E16; --cream:#EFE9DE; --paper:#FAF7F1;
+    --sand:#D9BC8C; --sand-deep:#B8945F; --sand-pale:#F3E6CF;
+    --teal:#2F7F76; --bvi-1:#E2F7F7; --bvi-2:#A8E7E6; --bvi-3:#5ECECD; --bvi-4:#26A9B1; --bvi-5:#117C8C;
+    --muted:#7a6a5c; --line:#E4DACB;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--cream);color:var(--ink);font-family:'Lato',sans-serif;}
+  header.page{max-width:900px;margin:0 auto;padding:28px 20px 8px}
+  header.page h1{font-family:'Playfair Display',serif;font-size:26px;margin:0 0 6px}
+  header.page p{margin:0 0 4px;color:var(--muted);font-size:14px;line-height:1.5}
+  .stage{max-width:900px;margin:18px auto 30px;padding:0 20px;display:flex;gap:28px;flex-wrap:wrap;justify-content:center}
+  .col{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .col h2{font:900 12px 'Lato';letter-spacing:.12em;text-transform:uppercase;color:var(--sand-deep);margin:0}
+  .col .why{font-size:13px;color:var(--muted);max-width:300px;text-align:center;line-height:1.45;margin:0}
+
+  .phone{width:320px;height:640px;border-radius:38px;background:var(--espresso);padding:10px;box-shadow:0 18px 40px rgba(26,14,6,.25)}
+  .screen{position:relative;width:100%;height:100%;border-radius:30px;background:var(--paper);overflow:hidden;display:flex;flex-direction:column}
+  .top{display:flex;justify-content:space-between;align-items:center;padding:18px 18px 0}
+  .eyebrow{font:900 11px 'Lato';letter-spacing:.12em;color:var(--sand-deep)}
+  .done-hold{position:relative;border:1px solid var(--line);background:transparent;color:var(--muted);font:700 11px 'Lato';
+    padding:6px 10px;border-radius:999px;cursor:pointer;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:none}
+  .done-hold .fill{position:absolute;inset:0;background:var(--sand);transform:scaleX(0);transform-origin:left;z-index:0}
+  .done-hold span{position:relative;z-index:1}
+  .ask-title{font-family:'Playfair Display',serif;font-size:28px;margin:12px 18px 0;line-height:1.1}
+
+  .shelf{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px 4px;align-content:start}
+  .simple .shelf{gap:14px;padding-top:18px}
+  .tile{position:relative;border:2px solid var(--line);border-radius:18px;background:#fff;padding:8px 8px 6px;display:flex;flex-direction:column;
+    align-items:center;gap:2px;cursor:pointer;transition:transform .15s ease,border-color .2s,opacity .2s;-webkit-tap-highlight-color:transparent}
+  .tile:active{transform:scale(.97)}
+  .tile svg{width:52px;height:52px}
+  .simple .tile svg{width:84px;height:84px}
+  .tile .lbl{font:700 13px 'Lato'}
+  .simple .tile .lbl{display:none}
+  .tile.picked{border-color:var(--bvi-4);opacity:.5}
+  .tile .check{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;background:var(--bvi-4);color:#fff;
+    display:grid;place-items:center;font-size:13px;transform:scale(0);transition:transform .25s cubic-bezier(.3,1.6,.5,1)}
+  .tile.picked .check{transform:scale(1)}
+
+  /* the cart — one component, both screens */
+  .cart-row{display:flex;flex-direction:column;align-items:center;gap:6px;padding:0 18px 14px}
+  .cart{width:220px;height:120px;display:block;overflow:visible}
+  .cart .pick{cursor:pointer}
+  .cart .pick.new{animation:drop .38s cubic-bezier(.3,1.5,.5,1);transform-box:fill-box;transform-origin:center bottom}
+  @keyframes drop{from{transform:translateY(-22px) scale(.7);opacity:0}to{transform:none;opacity:1}}
+  .hop{animation:hop .45s ease}
+  @keyframes hop{0%{transform:none}35%{transform:translateY(-6px) rotate(-1.5deg)}70%{transform:translateY(1px)}100%{transform:none}}
+  .shake{animation:shake .4s ease}
+  @keyframes shake{0%,100%{transform:none}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+  .dots{display:flex;gap:8px;height:12px}
+  .dot{width:10px;height:10px;border-radius:50%;border:2px solid var(--sand);transition:background .25s,border-color .25s}
+  .dot.on{background:var(--bvi-4);border-color:var(--bvi-4)}
+  .actions{display:flex;align-items:center;gap:12px;height:56px}
+  .undo{width:46px;height:46px;border-radius:50%;border:2px solid var(--line);background:#fff;color:var(--muted);font-size:22px;cursor:pointer;
+    transform:scale(0);transition:transform .25s cubic-bezier(.3,1.6,.5,1)}
+  .undo.show{transform:scale(1)}
+  .thats-it{border:0;background:var(--teal);color:#fff;font:900 18px 'Lato';height:52px;min-width:52px;padding:0 26px;border-radius:999px;cursor:pointer;
+    transform:scale(0);transition:transform .3s cubic-bezier(.3,1.6,.5,1)}
+  .thats-it.show{transform:scale(1)}
+  .simple .thats-it{font-size:28px;padding:0 30px}
+  .flyer{position:absolute;width:44px;height:44px;pointer-events:none;z-index:5;transition:transform .48s cubic-bezier(.5,-.3,.6,1),opacity .48s}
+
+  /* finale — the same for everyone */
+  .finale{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+    background:var(--paper);opacity:0;pointer-events:none;transition:opacity .5s ease;text-align:center;padding:24px}
+  .finale.show{opacity:1;pointer-events:auto}
+  .finale h3{font-family:'Playfair Display',serif;font-size:32px;margin:0;line-height:1.1}
+  .finale p{margin:0;color:var(--muted);font-size:14px}
+  .finale .back{margin-top:16px;border:0;background:var(--ink);color:var(--paper);font:700 14px 'Lato';padding:12px 20px;border-radius:999px;cursor:pointer}
+  .finale .art{width:260px;height:160px;overflow:visible}
+  .sunrise{transform:translateY(46px);transition:transform 1.3s cubic-bezier(.2,.8,.2,1) .2s}
+  .finale.show .sunrise{transform:none}
+  .rollin{transform:translateX(-200px);transition:transform 1s cubic-bezier(.2,.9,.25,1.05)}
+  .finale.show .rollin{transform:none}
+  .ripple{stroke-dasharray:240;stroke-dashoffset:240;transition:stroke-dashoffset 1.2s ease .5s}
+  .finale.show .ripple{stroke-dashoffset:0}
+
+  @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} }
+  footer.notes{max-width:900px;margin:0 auto 50px;padding:0 20px;font-size:13px;color:var(--muted);line-height:1.6}
+  footer.notes b{color:var(--ink)}
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>Ask: the cart</h1>
+  <p>One cart, drawn once, used on both screens: the same flight, hop and celebration. Simple changes only what the dial says it should: bigger tiles, no labels, and a ✓ in place of words. Hold <b>Done</b> for about a second to reset.</p>
+  <p>Mockup only: drawn tiles stand in for the family's photos, and nothing here is wired to anything.</p>
+</header>
+
+<main class="stage">
+  <section class="col">
+    <h2>Standard · Ask Easton, pick 3</h2>
+    <div class="phone"><div class="screen" id="std"></div></div>
+  </section>
+  <section class="col">
+    <h2>Simple · Ask Everett, pick 1</h2>
+    <div class="phone"><div class="screen simple" id="smp"></div></div>
+  </section>
+</main>
+
+<footer class="notes">
+  <p><b>Changing his mind, three ways, on both screens:</b> tap the tile again, tap the item in the cart, or tap <b>↶</b> to take the last one out. If the cart is full, a new tile makes it shake: take one out first. Nothing lands until <b>That's it!</b> (✓ on Simple). After that, changing a pick is a grown-up job, done on the list.</p>
+  <p><b>The cart:</b> line work in espresso, like the Velayo horizon mark: a sand sun arc on the basket, a BVI-teal waterline and two ripples. The items sit inside, behind the front panel. The celebration: his own picks roll in, in the cart, while the sun comes up over the water. No score, no sound, no prices, no other names. With reduced motion, everything just appears.</p>
+</footer>
+
+<script>
+const ITEMS = [
+  {n:'Goldfish', g:'<ellipse cx="30" cy="32" rx="18" ry="11" fill="#E8913A"/><path d="M46 32 L58 22 L58 42Z" fill="#E8913A"/><circle cx="22" cy="29" r="2.4" fill="#2B1E16"/>'},
+  {n:'Apple',    g:'<circle cx="32" cy="36" r="18" fill="#C9473B"/><path d="M32 18 q2 -8 9 -9" stroke="#5a3d1f" stroke-width="3" fill="none"/><ellipse cx="40" cy="14" rx="6" ry="3" fill="#5f9a4a"/>'},
+  {n:'Cheese',   g:'<path d="M10 44 L50 20 L54 44Z" fill="#F2C94C"/><circle cx="36" cy="36" r="3" fill="#d9a92a"/><circle cx="45" cy="39" r="2" fill="#d9a92a"/>'},
+  {n:'Yogurt',   g:'<path d="M18 22 h28 l-4 30 h-20z" fill="#fff" stroke="#B8945F" stroke-width="2"/><rect x="16" y="16" width="32" height="7" rx="2" fill="#2F7F76"/><circle cx="32" cy="38" r="5" fill="#e98fa6"/>'},
+  {n:'Pretzels', g:'<path d="M20 40 c-8 -10 2 -22 12 -10 c10 -12 20 0 12 10 c-6 8 -18 -8 -24 0z" fill="none" stroke="#8a5a2b" stroke-width="5" stroke-linecap="round"/>'},
+  {n:'Grapes',   g:'<g fill="#7b4a8f"><circle cx="26" cy="26" r="6"/><circle cx="38" cy="26" r="6"/><circle cx="32" cy="36" r="6"/><circle cx="22" cy="38" r="6"/><circle cx="42" cy="38" r="6"/><circle cx="32" cy="48" r="6"/></g><path d="M32 20 v-8" stroke="#5f9a4a" stroke-width="3"/>'},
+];
+const itemSVG = it => `<svg viewBox="0 0 64 64">${it.g}</svg>`;
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// The one cart. picks = item indexes in order; fresh = index just added (for the drop animation).
+function cartSVG(items, picks, fresh, cls='cart'){
+  const n = picks.length, w = 46, gap = 4, total = n*w + (n-1)*gap, x0 = 118 - total/2;
+  const inside = picks.map((i,k)=>`<g class="pick${i===fresh?' new':''}" data-i="${i}" role="button" aria-label="Take out ${items[i].n}">
+      <svg x="${x0 + k*(w+gap)}" y="9" width="${w}" height="${w}" viewBox="0 0 64 64">${items[i].g}</svg></g>`).join('');
+  return `<svg class="${cls}" viewBox="0 0 220 120" aria-hidden="false">
+    <defs><clipPath id="panel-${cls}-${Math.random().toString(36).slice(2,7)}"><path d="M44 36 H196 L178 86 H62 Z"/></clipPath></defs>
+    <!-- back wall -->
+    <path d="M44 36 H196 L178 86 H62 Z" fill="#E9D8B9"/>
+    <!-- what's inside -->
+    ${inside}
+    <!-- front panel with the horizon (taps pass through to the picks) -->
+    <g pointer-events="none">
+      <path d="M44 36 H196 L178 86 H62 Z" fill="#F3E6CF"/>
+      <path d="M102 66 a18 18 0 0 1 36 0 Z" fill="#D9BC8C"/>
+      <path d="M66 66 H174" stroke="#26A9B1" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M86 73 q8 -3 16 0 t16 0 t16 0 t16 0" stroke="#5ECECD" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M100 79 q6 -2.5 12 0 t12 0 t12 0" stroke="#A8E7E6" stroke-width="2" fill="none" stroke-linecap="round"/>
+      <path d="M44 36 H196 L178 86 H62 Z" fill="none" stroke="#2B1E16" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M40 36 H200" stroke="#2B1E16" stroke-width="4" stroke-linecap="round"/>
+    </g>
+    <!-- handle -->
+    <path d="M10 18 H26 Q32 18 34 24 L44 36" fill="none" stroke="#117C8C" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- base -->
+    <path d="M62 86 L58 98 H178" fill="none" stroke="#2B1E16" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="76" cy="108" r="8" fill="#2B1E16"/><circle cx="76" cy="108" r="3" fill="#D9BC8C"/>
+    <circle cx="162" cy="108" r="8" fill="#2B1E16"/><circle cx="162" cy="108" r="3" fill="#D9BC8C"/>
+  </svg>`;
+}
+
+function buildAsk(id, {who, target, items, simple}){
+  const el = document.getElementById(id);
+  el.innerHTML = `
+    <div class="top"><span class="eyebrow">ASK ${who.toUpperCase()}</span>
+      <button class="done-hold" aria-label="Hold to finish"><span class="fill"></span><span>Hold · Done</span></button></div>
+    <div class="ask-title">${target === 1 ? 'Pick one, ' : 'Pick ' + target + ', '}${who}!</div>
+    <div class="shelf">${items.map((it,i)=>`<div class="tile" data-i="${i}" role="button" aria-label="${it.n}">${itemSVG(it)}<span class="lbl">${it.n}</span><span class="check">✓</span></div>`).join('')}</div>
+    <div class="cart-row">
+      <div class="cart-wrap"></div>
+      <div class="dots">${Array.from({length:target},()=>'<span class="dot"></span>').join('')}</div>
+      <div class="actions"><button class="undo" aria-label="Take the last one out">↶</button>
+        <button class="thats-it" aria-label="That's it">${simple ? '✓' : "That's it!"}</button></div>
+    </div>
+    <div class="finale" aria-live="polite">
+      <svg class="art" viewBox="0 0 260 160">
+        <defs><clipPath id="sky-${id}"><rect x="0" y="0" width="260" height="112"/></clipPath></defs>
+        <g clip-path="url(#sky-${id})"><circle class="sunrise" cx="150" cy="106" r="40" fill="#D9BC8C"/></g>
+        <path d="M6 112 H254" stroke="#26A9B1" stroke-width="3" stroke-linecap="round"/>
+        <path class="ripple" d="M40 124 q12 -4 24 0 t24 0 t24 0 t24 0 t24 0 t24 0 t24 0" stroke="#5ECECD" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <path class="ripple" d="M70 136 q10 -3 20 0 t20 0 t20 0 t20 0 t20 0 t20 0" stroke="#A8E7E6" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <g class="rollin"><g class="final-cart" transform="translate(28 8) scale(.9)"></g></g>
+      </svg>
+      <h3>All done, ${who}!</h3>
+      <p>Hand the phone back.</p>
+      <button class="back">Back to the list</button>
+      <p class="landed" style="font-size:12px;margin-top:4px"></p>
+    </div>`;
+
+  const picks = [];
+  const wrap = el.querySelector('.cart-wrap'), undo = el.querySelector('.undo'), done = el.querySelector('.thats-it');
+  const render = (fresh) => {
+    wrap.innerHTML = cartSVG(items, picks, fresh);
+    wrap.querySelectorAll('.pick').forEach(p => p.addEventListener('click', () => takeOut(+p.dataset.i)));
+    el.querySelectorAll('.tile').forEach(t => t.classList.toggle('picked', picks.includes(+t.dataset.i)));
+    el.querySelectorAll('.dot').forEach((d,k) => d.classList.toggle('on', k < picks.length));
+    undo.classList.toggle('show', picks.length > 0);
+    done.classList.toggle('show', picks.length === target);
+  };
+  const kick = cls => { const c = wrap.querySelector('.cart'); c.classList.remove('hop','shake'); void c.getBoundingClientRect(); c.classList.add(cls); };
+  const takeOut = i => { picks.splice(picks.indexOf(i), 1); render(); };
+
+  el.querySelectorAll('.tile').forEach(t => t.addEventListener('click', () => {
+    if (el.querySelector('.finale').classList.contains('show')) return;
+    const i = +t.dataset.i;
+    if (picks.includes(i)) return takeOut(i);
+    if (picks.length >= target) { if (!reduced) kick('shake'); return; }
+    if (!reduced) fly(el, t, wrap);
+    setTimeout(() => { picks.push(i); render(i); if (!reduced) kick('hop'); }, reduced ? 0 : 440);
+  }));
+  undo.addEventListener('click', () => { if (picks.length) { picks.pop(); render(); } });
+  done.addEventListener('click', () => {
+    el.querySelector('.final-cart').innerHTML = cartSVG(items, picks, null, 'cart-final').replace(/^<svg[^>]*>|<\/svg>$/g,'');
+    el.querySelector('.landed').textContent = 'Lands on the list: ' + picks.map(i=>items[i].n).join(', ') + ' · Picked by ' + who;
+    el.querySelector('.finale').classList.add('show');
+  });
+
+  const hold = el.querySelector('.done-hold'), fill = hold.querySelector('.fill'); let ht = null;
+  const rebuild = () => buildAsk(id, {who, target, items, simple});
+  hold.addEventListener('pointerdown', e => { e.preventDefault(); fill.style.transition='transform 1s linear'; fill.style.transform='scaleX(1)'; ht=setTimeout(rebuild,1000); });
+  ['pointerup','pointerleave','pointercancel'].forEach(ev => hold.addEventListener(ev, () => { clearTimeout(ht); fill.style.transition='transform .2s'; fill.style.transform='scaleX(0)'; }));
+  el.querySelector('.back').addEventListener('click', rebuild);
+  render();
+}
+
+function fly(el, tile, wrap){
+  const f = document.createElement('div'); f.className='flyer'; f.innerHTML = tile.querySelector('svg').outerHTML;
+  const tb = tile.getBoundingClientRect(), sb = el.getBoundingClientRect(), cb = wrap.getBoundingClientRect();
+  f.style.left = (tb.left - sb.left + tb.width/2 - 22) + 'px'; f.style.top = (tb.top - sb.top + 8) + 'px';
+  el.appendChild(f);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    f.style.transform = `translate(${cb.left + cb.width*0.54 - tb.left - tb.width/2}px, ${cb.top - tb.top}px) scale(.8)`;
+    f.style.opacity = '0.4';
+  }));
+  setTimeout(()=>f.remove(), 500);
+}
+
+buildAsk('std', {who:'Easton',  target:3, items:ITEMS,            simple:false});
+buildAsk('smp', {who:'Everett', target:1, items:ITEMS.slice(0,4), simple:true});
+</script>
+</body>
+</html>

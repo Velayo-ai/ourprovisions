@@ -210,25 +210,38 @@ describe("classifyFetchError — AuthTokenMissing", () => {
 });
 
 describe("the fetch wrapper — a null token's class", () => {
+  // supabaseClient reads the URL and key when it loads, and they come from the
+  // gitignored .env. Stub them and load a fresh copy, so the test runs in any
+  // checkout. The wrapper refuses before it fetches, so nothing is sent.
+  const saved = {};
+  const STUB = { REACT_APP_SUPABASE_URL: "http://supabase.test", REACT_APP_SUPABASE_ANON_KEY: "test-anon-key" };
+  beforeAll(() => { Object.keys(STUB).forEach((k) => { saved[k] = process.env[k]; process.env[k] = STUB[k]; }); });
+  afterAll(() => { Object.keys(STUB).forEach((k) => { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }); });
+
+  // The fresh supabaseClient reports to its own fresh authHealth: read that one.
   async function refusal(getToken) {
-    const { createSupabaseClient } = require("./supabaseClient");
-    const { error } = await createSupabaseClient(getToken, "op-test").from("list_items").select("id");
-    return error;
+    let client, health;
+    jest.isolateModules(() => {
+      client = require("./supabaseClient");
+      health = require("./authHealth");
+    });
+    const { error } = await client.createSupabaseClient(getToken, "op-test").from("list_items").select("id");
+    return { error, health: health.getAuthHealth() };
   }
   test("Clerk returns null while offline → refused as network → transient", async () => {
     goOffline();
-    const error = await refusal(async () => null);
+    const { error, health } = await refusal(async () => null);
     expect(error.message).toMatch(/^AuthTokenMissing: no Clerk token \(network\)/);
     expect(classifyFetchError(error)).toBe("transient");
-    expect(getAuthHealth().lastFailClass).toBe("network");
+    expect(health.lastFailClass).toBe("network");
   });
   test("Clerk returns null while online (signed out) → refused as clerk → real", async () => {
-    const error = await refusal(async () => null);
+    const { error } = await refusal(async () => null);
     expect(error.message).toMatch(/^AuthTokenMissing: no Clerk token \(clerk\)/);
     expect(classifyFetchError(error)).toBe("real");
   });
   test("the request to Clerk fails (Load failed) while navigator says online → network → transient", async () => {
-    const error = await refusal(async () => { throw new TypeError("Load failed"); });
+    const { error } = await refusal(async () => { throw new TypeError("Load failed"); });
     expect(error.message).toMatch(/\(network\)/);
     expect(classifyFetchError(error)).toBe("transient");
   });

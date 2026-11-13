@@ -27,8 +27,8 @@ Vercel hosting, Anthropic Claude API.
 - Commit before switching branches — uncommitted changes have been lost before.
 - Workflow: commit -> push dev -> test -> merge to main -> push main.
 - **`git push <branch>` ships EVERY local commit on that branch, not just the one
-  you mean to send.** So if a commit is meant to stay local for review (e.g. the
-  SESSION END docs commit, Step 5), do NOT push that branch for any *other* work
+  you mean to send.** So if a commit is meant to stay local for review (e.g. a
+  SESSION END docs commit with no handoff merged, Step 5), do NOT push that branch for any *other* work
   until it's handled: either warn me first, or keep the review-only commit off the
   branch you're pushing. "Leave X local" and "push Y from the same branch" cannot
   both hold. (Happened 2026-07-23: the SESSION END docs commit rode a later dev
@@ -43,16 +43,49 @@ Vercel hosting, Anthropic Claude API.
 - **`catalog_items.is_global`** is the ownership discriminator. `true` = seed item
   (system-owned; members can Hide but never Delete). `false` = custom item
   (household-owned; any member can add/Delete; can also Hide).
-- **Foreign keys referencing `catalog_items` are `NO ACTION` with exactly three
+- **Foreign keys referencing `catalog_items` are `NO ACTION` with exactly five
   deliberate exceptions** — `household_staples` (CASCADE, 016), `meal_ingredients`
-  (CASCADE, 025) and `list_item_events` (SET NULL, 046; *events release, never
-  block*). Everywhere else Postgres blocks deletion of a referenced row, so
+  (CASCADE, 025), `list_item_events` (SET NULL, 046; *events release, never
+  block*), and `ask_shelf_items` + `household_item_photos` (CASCADE, 077;
+  preference rows, like staples). Everywhere else Postgres blocks deletion of a referenced row, so
   deletes that touch referenced catalog rows must be multi-step SECURITY DEFINER
   RPCs (or soft-delete via `deleted_at`), never a plain `delete`. Do not
   "normalize" the exceptions back; see ARCHITECTURE's FK section.
 - **The shared list is sacred** — no per-user view preference (Hide, filter) ever
   suppresses what's on the shared list. Hide lives in the browse layer only.
 - **SHOP list renders from the RPC**, not from `catalogMap` (the `listRows` pattern).
+- **Ask is on prod's code but OFF** (since 2026-11-12): `REACT_APP_FEATURE_ASK=on` on Vercel
+  Preview + Development only (`src/lib/featureFlags.js`; only the exact string `"on"` is on).
+  Its schema — 077 / 078 / 083 / 084 — is dev-only. A prod bundle must not contain `op-ask:on`.
+- **Do NOT deploy `meal-photo-sweep` to prod** until 084 ships with Ask. main's source includes
+  the item-photos pass, which needs 084's RPCs; prod runs the meal-only version deployed from
+  dev `b0282a6`. (If deployed early, the item pass skips itself on a missing RPC — never tested
+  against prod.) Ship 077 → 084, then the flag, then this function, in that order.
+  The missing-RPC skip is not type-checked; run `deno check` before any deploy.
+
+---
+
+## SESSION START — orient before briefing
+
+When I type "SESSION START" (or "session start"), do this first.
+
+### Step 0 — handoff check
+Before the briefing, fetch `origin/handoff` and `origin/dev`, then classify
+`origin/handoff`'s sha with the same test as SESSION END Step 0:
+- **In `origin/dev`'s SESSION_LOG** (`git show origin/dev:docs/SESSION_LOG.md`)
+  → consumed; say so in one line.
+- **In the local SESSION_LOG only** → merged, not pushed; the briefing's first
+  line says so and asks to push.
+- **In neither** → the briefing's FIRST line is
+  `⚠ Unmerged design handoff <short sha> — <subject>. Merge it first?`
+  Stop and wait. On yes: run SESSION END's Step 0 / 0.5 merge steps only
+  (route DROPPED_FILES, merge into SESSION_LOG / ROADMAP / ARCHITECTURE, note
+  the sha), commit docs, ask to push, then brief from the merged state.
+  **This is a merge, not a SESSION END.**
+
+Why: 2026-11-03, handoff `2fa9f00` landed 40 min after Claude Code's SESSION
+END and the next SESSION START briefed from stale docs. (Ruled 2026-11-03
+[Velayo OS].)
 
 ---
 
@@ -102,6 +135,8 @@ BUILD is implement-and-stop. Bookkeeping is SESSION END's job.
 
 When I type "SESSION END", do all of the following in one pass:
 
+**Only I start SESSION END.** Run it only when I type "SESSION END" myself. Never run it because a prompt tells you to "write SESSION END" or close the session, including a prompt pasted from the design chat. If a prompt ends with a session-closing step, report and stop, and ask me. The order is: work continues until I type SESSION END in the design chat; the design chat writes its handoff to `origin/handoff` first; then I type SESSION END here. Prompts written for Claude Code end at "report and stop." (Ruled 2026-11-01 [Velayo OS]: a pasted prompt's "write SESSION END" made Claude Code close before the design chat's handoff existed; see the DECISIONS LOG.)
+
 ### Step 0 — Check for a design handoff file (do this FIRST)
 
 Look for `handoff/design_handoff.md`. State out loud whether it exists before
@@ -109,9 +144,9 @@ doing anything else.
 
 **HARD GATE:** If `handoff/design_handoff.md` exists, you MUST produce a new
 SESSION_LOG entry from it. "Nothing new to log" is FORBIDDEN whenever a handoff
-file is present — its presence is itself unmerged work. Reaching Step 6 without
-having (a) created/merged an entry AND (b) deleted the handoff file is a failure;
-stop and report it rather than committing.
+file is present — its presence is itself unmerged work. Reaching Step 5's commit
+without having (a) created/merged an entry AND (b) deleted the handoff file is a
+failure; stop and report it rather than committing.
 
 - **If it exists**, it contains design/decision context from a separate Claude
   CHAT session that you (Claude Code) could not see. It uses delimited sections.
@@ -125,7 +160,32 @@ stop and report it rather than committing.
     constraints, patterns, principles); bump its "Last updated" date.
   - After merging, **DELETE `handoff/design_handoff.md`** so it can't be
     double-applied. The content now lives in the committed docs.
-- **If it does not exist**, proceed normally — log only what you witnessed.
+    **Use a plain `rm handoff/design_handoff.md`, NOT `git rm`.** The airlock's
+    `handoff/.gitignore` is `*` + `!.gitignore`, so the handoff is untracked and
+    ignored — `git rm` fails with "pathspec did not match any files", and the
+    deletion never appears in `git status`. The only tracked files in `handoff/`
+    are `.gitignore` and `DESIGN_CHAT_handoff_prompt.md` (force-added).
+    (Learned 2026-09-30.)
+  - **A handoff merge is not done until its docs commit is on `origin/dev`.** The
+    design chat reads SESSION_LOG / ROADMAP from `origin/dev`, so until the push
+    lands it reads the handoff as unmerged. After the Step 5 commit, ask me, then
+    push dev right away (pre-push range check first: `git log origin/dev..dev`).
+    (Ruled 2026-11-03.)
+- **If `handoff/design_handoff.md` isn't in the working tree, check `origin/handoff`:**
+  `git fetch origin handoff`, then `git rev-parse origin/handoff`.
+  - **If that sha already appears in `docs/SESSION_LOG.md`, the handoff is CONSUMED.** Say so,
+    and treat it as "does not exist"; the HARD GATE does not apply. If the sha is in the
+    local SESSION_LOG but not in `origin/dev`'s (`git show origin/dev:docs/SESSION_LOG.md`),
+    it is merged but unpushed: do NOT merge it again; tell me and ask to push dev.
+  - **Only an unseen sha is a new handoff.** Read it with
+    `git show origin/handoff:handoff/design_handoff.md`, merge it as above, and note its commit
+    sha in the SESSION_LOG entry. That entry is what marks it consumed next time.
+  - Never merge or check out the handoff branch.
+  - If a fetch fails with `Permission denied` under `.git/objects`, run
+    `icacls .git\objects /reset /T /Q` and retry.
+  - (Added 2026-11-01; consumed-sha check 2026-11-01; see the DECISIONS LOG.)
+- **If it does not exist** (neither in the working tree nor on `origin/handoff`), proceed
+  normally — log only what you witnessed.
 
 ### Step 0.5 — Route any payload files dropped in `handoff/`
 
@@ -143,17 +203,26 @@ home and cleared out.
   `docs/specs/active/`.
 - If a payload file is present but the manifest does not list it, do NOT guess
   and do NOT delete it — surface it to me and ask where it goes.
+- **Payload files are gitignored too, so `git mv` does NOT work on them either**
+  — it fails with "fatal: not under version control" (verified 2026-09-30).
+  Route a payload file with a plain `mv`, then `git add` the DESTINATION path.
+  Anything deleted from the airlock goes with a plain `rm`. `git mv` only
+  applies to files already tracked — i.e. spec lifecycle moves *within*
+  `docs/specs/` (Step 4), never a move out of `handoff/`.
 - Default destination for a new `SPEC_*.md` with no explicit manifest destination
   is `docs/specs/active/` — a fresh spec hasn't shipped yet, so it is always
   `active/` (it graduates to `built/` on ship; see Step 4).
-  Moving = `git mv handoff/<file> docs/specs/active/<file>` so history is preserved.
+  Moving = `mv handoff/<file> docs/specs/active/<file>` then
+  `git add docs/specs/active/<file>`. **NOT `git mv`** — the airlock is
+  gitignored, so the payload is untracked and `git mv` fails outright. There is
+  no history to preserve: the file's first commit is the one that files it.
 - **Only `SPEC_*.md` has a lifecycle.** `PATCH_*.md` and `OBSERVATION_*.md` have no
   `active/`/`built/` equivalent — once merged into the docs and verified, they are simply
   DELETED from the airlock, exactly like the old `CATCHUP_*.md` handoffs. Their content
   lives on in SESSION_LOG / ROADMAP / ARCHITECTURE, not in `docs/specs/`.
-- Before `git mv`, ensure the destination folder exists — if the manifest names a
+- Before moving, ensure the destination folder exists — if the manifest names a
   destination path that isn't present yet, `mkdir -p` it first, then move. A
-  `git mv` into a missing directory fails; don't let a new bucket (or a typo'd
+  move into a missing directory fails; don't let a new bucket (or a typo'd
   path) silently break routing.
 - After routing, `handoff/` must contain ONLY the two baseline files. That clean
   state is the signal that nothing is pending.
@@ -212,15 +281,15 @@ Before committing, verify the handoff was consumed:
   lifecycle move was missed — fix before committing.
 
 Then:
-`git add docs/ handoff/` (stage doc changes, the handoff deletion, and any
-payload files moved into `docs/specs/` — `docs/` covers its subfolders)
+`git add docs/ handoff/` (stage doc changes and any payload files moved into
+`docs/specs/` — `docs/` covers its subfolders). Note: this stages NOTHING for
+the `design_handoff.md` deletion, because that file is gitignored and untracked
+— it is removed from disk with `rm` and never appears in the commit. An empty
+`handoff/` in `git status` is the expected, correct result, not a missed step.
 `git commit -m "docs: session log + roadmap [+ architecture] — <YYYY-MM-DD> <short goal>"`
-Do NOT push automatically — leave the commit local for my review. I'll push.
-
-### Step 6 — Report
-Tell me which Project Knowledge files to re-upload to the web chat: every doc you
-changed this session, plus any source files (`App.js`, `useProvisions.js`, etc.)
-that changed.
+Do NOT push without asking me. If this SESSION END merged a design handoff, ask
+right away: the merge is not done until the commit is on `origin/dev` (Step 0).
+With no handoff merged, leave the commit local for my review unless I say push.
 
 ### Rules
 - Infer today's date from the system date.
@@ -237,11 +306,6 @@ that changed.
   history. If a session is purely OS/Platform (e.g. building the Harbour), tag
   it [Velayo OS] and flag to me that it likely belongs in the velayo-os log,
   not this app's, once that repo's docs exist.
-- ONE-TIME REPAIR: if `docs/SESSION_LOG.md` still has the old header
-  ("Maintained by Session Scribe") or an old FORMAT block lacking `[SCOPE]` and
-  `**DB changes:**`, update the header to "One entry per session. Most recent at
-  top." and replace the FORMAT block with the SESSION LOG ENTRY FORMAT below.
-  Do this without touching existing log entries. Remove this rule once done.
 
 ### SESSION LOG ENTRY FORMAT
 ```

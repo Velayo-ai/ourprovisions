@@ -35,3 +35,12 @@ qa/test_fixture.dev.json
 # Supabase CLI version-check cache (written by `supabase functions deploy`);
 # `.temp/linked-project.json` above it IS tracked on purpose — it names the dev project.
 supabase/.temp/cli-latest
+
+# local verification helper; bakes in the dev anon key, never committed
+scripts/verify6.ps1
+
+# recipe-import test fixtures — real screenshots (personal captions/handles), never committed
+scripts/recipe-fixtures/
+
+# recipe-import standalone probe; takes a live dev JWT at the prompt, never committed
+scripts/recipe_import_probe.ps1

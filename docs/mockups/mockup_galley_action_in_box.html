@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Galley Action In Box</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;1,500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --page:#EFE7DC; --sheet:#F8F3EC; --card:#F1E9DF; --box:#FFFDF9;
+  --line:#E8D5B7; --ink:#3A2414; --muted:#8A5F3A; --soft:#A8957F;
+  --esp:#3A2414; --cream:#FBF6EE; --save:#C9B19A; --kb:#2E2C2A; --key:#5A5754;
+  --flag:#B4532A;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:24px 16px 48px}
+h1{font-family:"Playfair Display",serif;font-weight:600;font-size:24px;margin:0 0 4px}
+.lede{color:var(--muted);font-size:15px;margin:0 0 24px;max-width:760px;line-height:1.45}
+.row{display:flex;flex-wrap:wrap;gap:28px;justify-content:center}
+.col{display:flex;flex-direction:column;align-items:center;gap:10px;max-width:340px}
+.tag{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.tag.bad{color:var(--flag)}
+.cap{font-size:14px;color:var(--muted);line-height:1.45;text-align:center}
+
+/* phone */
+.phone{width:320px;height:640px;border-radius:38px;background:#7d7268;position:relative;overflow:hidden;
+  box-shadow:0 10px 30px rgba(58,36,20,.18)}
+.status{height:38px;display:flex;justify-content:space-between;align-items:center;padding:0 26px;
+  font-weight:700;font-size:14px;color:#111}
+.sheet{position:absolute;left:10px;right:10px;top:38px;bottom:270px;background:var(--sheet);
+  border-radius:0 0 18px 18px;overflow:hidden;display:flex;flex-direction:column}
+.scroll{flex:1;overflow:hidden;padding:10px 16px 0;position:relative}
+.lbl{font-size:10px;letter-spacing:.16em;color:var(--muted);margin:0 0 6px}
+.steps{border:1.5px dashed var(--line);border-radius:10px;padding:10px;font-size:12px;color:var(--soft);text-align:center}
+.or{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:10px;color:var(--soft);letter-spacing:.14em}
+.or:before,.or:after{content:"";flex:1;height:1px;background:var(--line)}
+.galley{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:10px 10px 12px}
+.gh{font-size:11px;letter-spacing:.14em;color:var(--muted);font-weight:700;margin-bottom:3px}
+.gs{font-size:12px;color:var(--muted);line-height:1.35;margin-bottom:8px}
+.box{background:var(--box);border:1.5px solid var(--line);border-radius:14px;padding:10px 10px 8px;position:relative}
+.txt{font-size:14px;line-height:1.35;min-height:46px;padding-right:24px}
+.caret{display:inline-block;width:1.5px;height:15px;background:var(--ink);vertical-align:-2px;margin-left:1px}
+.x{position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;background:#EEE7DE;
+  font-size:11px;display:grid;place-items:center;color:var(--ink)}
+.tools{display:flex;align-items:center;gap:6px;margin-top:6px}
+.ic{width:34px;height:34px;display:grid;place-items:center;color:var(--muted)}
+.ic svg{width:20px;height:20px}
+.spacer{flex:1}
+.go{background:var(--esp);color:var(--cream);border:0;border-radius:999px;font-weight:600;
+  font-size:13px;padding:0 14px;height:34px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+/* quieter variants */
+.go-soft{background:transparent;color:var(--muted);border:1.5px solid var(--line);border-radius:999px;
+  font-weight:600;font-size:13px;padding:0 12px;height:32px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.go-link{background:none;border:0;color:var(--muted);font-weight:600;font-size:13px;padding:0 4px;height:34px;
+  display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+.go-tint{background:#F1E7D8;color:var(--ink);border:0;border-radius:999px;font-weight:600;font-size:13px;
+  padding:0 12px;height:32px;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.vlbl{font-size:11px;color:var(--muted);margin:14px 0 6px;font-weight:700;letter-spacing:.06em}
+.vnote{font-size:11px;color:var(--soft);margin-top:5px;line-height:1.35}
+.go.big{width:100%;justify-content:center;height:40px;font-size:14px;margin-top:10px}
+.echo{font-size:11px;color:var(--soft);margin-top:6px;line-height:1.3}
+.footer{background:var(--sheet);padding:8px 16px 10px;display:flex;justify-content:flex-end;gap:8px;
+  box-shadow:0 -8px 12px -6px rgba(58,36,20,.12)}
+.btn{height:34px;border-radius:8px;padding:0 14px;font-size:13px;display:grid;place-items:center}
+.cancel{border:1.5px solid var(--line);color:var(--muted);background:transparent}
+.saveb{background:var(--save);color:#fff}
+.kb{position:absolute;left:0;right:0;bottom:0;height:262px;background:var(--kb);border-radius:28px 28px 38px 38px;
+  padding:14px 6px;display:flex;flex-direction:column;gap:9px}
+.kr{display:flex;gap:5px;justify-content:center}
+.k{background:var(--key);border-radius:6px;height:38px;flex:0 0 26px}
+.k.w{flex:0 0 150px}.k.m{flex:0 0 64px}
+
+/* "hidden under the footer" annotation */
+.under{position:absolute;left:16px;right:16px;bottom:-28px;opacity:.35;filter:blur(.3px)}
+.ghost{outline:2px dashed var(--flag);outline-offset:3px;border-radius:999px}
+.note{position:absolute;left:18px;right:18px;font-size:11px;color:var(--flag);font-weight:600;text-align:center}
+.ring{box-shadow:0 0 0 3px rgba(13,148,136,.35)}
+.photos{display:flex;gap:8px;flex-wrap:wrap}
+.th{width:48px;height:64px;border-radius:8px;background:linear-gradient(160deg,#D9C7B0,#BFA587);position:relative}
+.th b{position:absolute;top:3px;left:4px;font-size:10px;color:#fff}
+.plus{width:48px;height:64px;border-radius:8px;border:1.5px dashed var(--line);display:grid;place-items:center;color:var(--muted)}
+.prow{display:flex;justify-content:space-between;margin-top:10px}
+.clear{font-size:13px;color:var(--muted);align-self:center}
+ul{margin:28px auto 0;max-width:760px;color:var(--ink);font-size:14px;line-height:1.5;padding-left:18px}
+li{margin-bottom:6px}
+</style>
+</head>
+<body>
+<h1>Ask the Galley — action in the box</h1>
+<p class="lede">The Galley's button lives under the text box, exactly where the sheet's sticky Cancel / Save Meal footer sits, so with the keyboard up it's always just out of view. Proposal: the button moves into the box's tool row, beside the camera and mic — the one row that stays on screen while you type.</p>
+
+<div class="row">
+
+  <!-- BEFORE -->
+  <div class="col">
+    <div class="tag bad">Today</div>
+    <div class="phone">
+      <div class="status"><span>9:37</span><span>●●● 31</span></div>
+      <div class="sheet">
+        <div class="scroll">
+          <div class="lbl">STEPS</div>
+          <div class="steps">No steps yet — write them, or ask the Galley.</div>
+          <div class="or">OR</div>
+          <div class="galley">
+            <div class="gh">✦ ASK THE GALLEY</div>
+            <div class="gs">Tell it what you're in the mood for, or bring a recipe you already have.</div>
+            <div class="box">
+              <div class="txt">Something cozy with chicken<span class="caret"></span></div>
+              <div class="x">✕</div>
+              <div class="tools"><span class="spacer"></span>
+                <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
+                <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>
+              </div>
+            </div>
+          </div>
+          <div class="under"><button class="go big ghost">Create a meal</button></div>
+        </div>
+        <div class="footer"><span class="btn cancel">Cancel</span><span class="btn saveb">Save Meal</span></div>
+      </div>
+      <div class="note" style="bottom:282px">↑ “Create a meal” is under the footer</div>
+      <div class="kb">
+        <div class="kr"><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span></div>
+        <div class="kr"><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span></div>
+        <div class="kr"><span class="k m"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k m"></span></div>
+        <div class="kr"><span class="k m"></span><span class="k w"></span><span class="k m"></span></div>
+      </div>
+    </div>
+    <div class="cap">You type, look for the button, and have to scroll the sheet up to find it.</div>
+  </div>
+
+  <!-- AFTER -->
+  <div class="col">
+    <div class="tag">Proposed</div>
+    <div class="phone">
+      <div class="status"><span>9:37</span><span>●●● 31</span></div>
+      <div class="sheet">
+        <div class="scroll">
+          <div class="lbl">STEPS</div>
+          <div class="steps">No steps yet — write them, or ask the Galley.</div>
+          <div class="or">OR</div>
+          <div class="galley">
+            <div class="gh">✦ ASK THE GALLEY</div>
+            <div class="gs">Tell it what you're in the mood for, or bring a recipe you already have.</div>
+            <div class="box">
+              <div class="txt">Something cozy with chicken<span class="caret"></span></div>
+              <div class="x">✕</div>
+              <div class="tools">
+                <button class="go-link">Create a meal <span aria-hidden="true">→</span></button>
+                <span class="spacer"></span>
+                <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
+                <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span>
+              </div>
+            </div>
+            <div class="echo">Drafts a new meal from what you typed. You review it before saving.</div>
+          </div>
+        </div>
+        <div class="footer"><span class="btn cancel">Cancel</span><span class="btn saveb">Save Meal</span></div>
+      </div>
+      <div class="kb">
+        <div class="kr"><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span></div>
+        <div class="kr"><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span></div>
+        <div class="kr"><span class="k m"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k m"></span></div>
+        <div class="kr"><span class="k m"></span><span class="k w"></span><span class="k m"></span></div>
+      </div>
+    </div>
+    <div class="cap">A quiet text action in the box's tool row — the same weight as the camera and mic, so the box stays calm. Same words, same class; it just moved.</div>
+  </div>
+
+  <!-- VARIANTS -->
+  <div class="col">
+    <div class="tag">Quieter options</div>
+    <div class="phone" style="background:var(--sheet);height:auto;padding:12px 14px 18px">
+      <div class="vlbl">A · TEXT ACTION (shown in Proposed)</div>
+      <div class="box"><div class="txt">Something cozy with chicken</div><div class="tools"><button class="go-link">Create a meal <span aria-hidden="true">→</span></button><span class="spacer"></span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span></div></div>
+      <div class="vnote">Quietest. Reads like the icons beside it; the arrow says “go”.</div>
+      <div class="vlbl">B · OUTLINED</div>
+      <div class="box"><div class="txt">Something cozy with chicken</div><div class="tools"><button class="go-soft">Create a meal <span aria-hidden="true">→</span></button><span class="spacer"></span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span></div></div>
+      <div class="vnote">Clearly a button, still no fill. Echoes the Cancel button's border.</div>
+      <div class="vlbl">C · SOFT TINT</div>
+      <div class="box"><div class="txt">Something cozy with chicken</div><div class="tools"><button class="go-tint">Create a meal <span aria-hidden="true">→</span></button><span class="spacer"></span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span></div></div>
+      <div class="vnote">The On Deck fill. A touch more presence without the espresso weight.</div>
+      <div class="vlbl">D · FILLED (the loud one, for reference)</div>
+      <div class="box"><div class="txt">Something cozy with chicken</div><div class="tools"><button class="go">Create a meal <span aria-hidden="true">→</span></button><span class="spacer"></span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span></div></div>
+    </div>
+    <div class="cap">All keep the words. Pick by how it feels on the phone, not here.</div>
+  </div>
+
+  <!-- EMPTY + PASTE STATES -->
+  <div class="col">
+    <div class="tag">Other states</div>
+    <div class="phone" style="background:var(--sheet);height:auto;padding:16px 14px 18px">
+      <div class="lbl">EMPTY — no button yet</div>
+      <div class="box"><div class="txt" style="color:var(--soft)">Something cozy with chicken…</div>
+        <div class="tools"><span class="spacer"></span>
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span></div></div>
+
+      <div class="lbl" style="margin-top:16px">PASTED RECIPE — label follows the mode</div>
+      <div class="box"><div class="txt" style="font-size:12px">Grandma's Cornbread<br>1 c. cornmeal<br>1 c. flour…</div>
+        <div class="tools"><button class="go-link">Read this recipe <span aria-hidden="true">→</span></button><span class="spacer"></span>
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8h3l2-2h6l2 2h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg></span>
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></span></div></div>
+
+      <div class="lbl" style="margin-top:16px">PHOTOS STAGED — unchanged (no box, no keyboard)</div>
+      <div class="photos"><div class="th"><b>1</b></div><div class="th"><b>2</b></div><div class="th"><b>3</b></div><div class="plus">+</div></div>
+      <div class="prow"><span class="clear">Clear</span><button class="go">Read these</button></div>
+    </div>
+    <div class="cap">The action appears only once there's input. Photo mode keeps today's layout.</div>
+  </div>
+</div>
+
+<ul>
+  <li><b>Label stays verb + outcome</b> — Create a meal / Read this recipe, never an icon-only arrow (keeps the 10-12 rule; 10-07 rejected a bare arrow, not this).</li>
+  <li><b>Quiet by default</b> — the action sits at the same visual weight as the camera and mic; the box is where you write, not a call to action.</li>
+  <li><b>Left in the tool row</b> so the thumb finds it first; camera and mic keep the right.</li>
+  <li><b>Echo line stays under the box</b> — a bonus when visible, not the only place the contract is stated.</li>
+  <li><b>Edit Meal</b> (Invent forced) gets the same placement; the label is always Create a meal.</li>
+  <li><b>At 320 XXL</b> the pill may push the icons to wrap — harness to check; if it doesn't fit, the icons wrap below, the pill never shrinks its words.</li>
+</ul>
+</body>
+</html>

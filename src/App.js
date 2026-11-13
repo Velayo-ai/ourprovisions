@@ -13,9 +13,14 @@ import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { AddSheetPanel } from './components/AddSheetPanel';
 import { CategorySelect } from './components/CategorySelect';
-import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete } from './lib/deleteCategory';
+import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
+import { NewShelfSheet } from './components/NewShelfSheet';
+import { AskRun } from './components/AskRun';
+import { ShelfPhotoStrip } from './components/ShelfPhotoStrip';
+import { manageRow, shelfNote, saveOutcome } from './lib/askManage';
+import { askBlocks, categoryPartShown, browseFilterCount as countBrowseFilters, browseFilterDescriptor as describeBrowseFilters } from './lib/askBrowse';
 import { GiftCard } from './components/GiftCard';
 import { GIFT_KEY, GIFT_MAX_AGE_MS, readHeld, clearHeld, heldStore, takeInviteHeld } from './lib/preRum';
 import { inviteCodeFromInput, inviteShareText } from './lib/inviteLink';
@@ -42,8 +47,21 @@ import { createSignedUrlCache } from './lib/signedUrls';
 import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, planAnchor } from './lib/ingredientTags';
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
+import { swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool, joinPickLabels } from './lib/askPicks';
+import { ASK_GLYPH, readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
+import { heldAskRead, loadHeldAsk, storeHeldAsk, liveTiles } from './lib/askRun';
+import { shelfCatalog } from './lib/askCreate';
+import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
 import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
+import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS } from './hooks/useLandscapePhone';
+import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
+import { LandscapeStaples } from './components/LandscapeStaples';
+import { CategoryHeader, CATEGORY_HEADER_ACTION } from './components/CategoryHeader';
+import { onViewportSettled } from './lib/viewportSettled';
+import { holdFillCss } from './hooks/useHold';
+import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
+import { ASK_ENABLED, ASK_FLAG_MARKER } from './lib/featureFlags';
 import { trace } from '@opentelemetry/api';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
@@ -99,6 +117,9 @@ const SPEECH_RECOGNITION_CTOR =
     : null;
 
 const CATEGORY_GLYPH_FALLBACK = "📦";
+// A "Showing only …" name: a category or Staples as text, or an ask ({ ask: label }) as
+// "Ask {Label}" with the name in .op-name (K3).
+const filterNameNode = (n) => (typeof n === "string" ? n : <>Ask <span className="op-name">{n.ask}</span></>);
 const categoryGlyph = (value) =>
   CATEGORY_GLYPH[String(value ?? "").trim().toLowerCase()] || CATEGORY_GLYPH_FALLBACK;
 
@@ -1156,7 +1177,7 @@ function ShopLensSegment({ lens, onChange }) {
 // D2: checked items get a PLACE, not a toggle. Collapsed by default, hidden
 // entirely at 0. Rows un-check from inside the tray. `initialFor` returns a
 // small initial for rows the current user did not check (partner's check).
-function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor }) {
+export function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor, pickPool = [] }) {
   if (items.length === 0 && count === 0) return null;
   return (
     <div className="in-cart-tray">
@@ -1175,6 +1196,17 @@ function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUn
                 <div className="li-name">{item.name}</div>
                 {item.qty > 1 && <span className="li-qty">×{item.qty}</span>}
                 {initial && <span className="tray-initial" title="Checked by another member">{initial}</span>}
+                {/* A19: the pickers' initials, outlined so they never read as "checked by". The
+                    group wears .op-name, and the spoken "Picked by …" is .sr-only text inside it —
+                    never an attribute, which the recorder would copy. */}
+                {pickInitials(item.pickedByLabels, pickPool).length > 0 && (
+                  <span className="op-name tray-picked">
+                    <span className="sr-only">Picked by {joinPickLabels(item.pickedByLabels)}</span>
+                    {pickInitials(item.pickedByLabels, pickPool).map((ch, k) => (
+                      <span key={k} className="tray-initial tray-initial-picked" aria-hidden="true">{ch}</span>
+                    ))}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -5311,6 +5343,7 @@ function ProvisionsApp({ scrollRootRef }) {
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
+    asks, asksLoaded, createAsk, updateAsk, deleteAsk, landAskPicks, itemPhotos, setItemPhoto,
     supabase,
     _supabase,
     _household,
@@ -5747,15 +5780,16 @@ function ProvisionsApp({ scrollRootRef }) {
   const [removeConfirmItem, setRemoveConfirmItem] = useState(null);
 
   // SHOP swipe-to-remove. Own item (sole contributor) → remove immediately.
-  // Shared item (anyone else contributed) → confirm first.
+  // Shared item (anyone else contributed) → confirm first. A row picked through
+  // an Ask always confirms (R3, 2026-11-03) — the rule lives in lib/askPicks.
   const handleSwipeRemove = (item) => {
-    const contributors = item.contributors || [];
-    const sharedByOther = contributors.some(c => c.clerkId && c.clerkId !== user?.id);
-    if (sharedByOther) {
+    const confirm = swipeRemoveConfirm(item, user?.id);
+    if (confirm) {
       setRemoveConfirmItem({
         name: item.name,
         catalogItemId: item.catalogItemId,
-        addedByName: item.addedBy || (contributors.find(c => c.clerkId !== user?.id)?.fullName) || "someone else",
+        verb: confirm.verb,
+        byName: confirm.byName,
       });
     } else {
       removeFromList(item.name, item.catalogItemId);
@@ -6468,7 +6502,11 @@ function ProvisionsApp({ scrollRootRef }) {
     window.addEventListener("orientationchange", apply);
     const so = window.screen && window.screen.orientation;
     if (so && so.addEventListener) so.addEventListener("change", apply);
+    // …and once more when the viewport has SETTLED: the events above can fire with numbers from
+    // the middle of a rotation, and nothing re-read them afterwards (2026-11-11).
+    const offSettled = onViewportSettled(window, apply);
     return () => {
+      offSettled();
       window.clearTimeout(later);
       window.removeEventListener("resize", apply);
       window.removeEventListener("orientationchange", apply);
@@ -6580,13 +6618,13 @@ function ProvisionsApp({ scrollRootRef }) {
   };
 
   const provenanceLines = useCallback((item) => {
-    // Facet 1 — who put it on the list directly.
+    // Facet 1 — who put it on the list directly: the members who added it, and anyone who picked
+    // it through an Ask, on ONE line — "Added by you · Picked by Easton" (SPEC_ask_slice2 C4; the
+    // 11-04 ruling puts "Picked by" on the "Added by" line). The whole line wears .op-name below.
     const contributorNames = (item.contributors || [])
       .map((c) => (c.clerkId && c.clerkId === user?.id ? "you" : c.fullName))
       .filter(Boolean);
-    const catalogLine = contributorNames.length > 0
-      ? `Added by ${joinNames(contributorNames)}`
-      : null;
+    const catalogLine = provenanceClayLine(contributorNames, item.pickedByLabels);
 
     // Facet 2 — which meal(s) pulled it in. Names the meals rather than
     // collapsing to a "Multiple meals" count; that string is deliberately
@@ -6611,7 +6649,8 @@ function ProvisionsApp({ scrollRootRef }) {
     const base = { fontFamily: "'Lato', sans-serif", fontSize: ts(14), letterSpacing: "0.3px", marginTop: "3px" };
     return (
       <>
-        {catalogLine && <div style={{ ...base, color: "#8A5F3A" }}>{catalogLine}</div>}
+        {/* .op-name on the WHOLE clay line (Dan, 2026-11-07): it names members and pickers. */}
+        {catalogLine && <div className="op-name" style={{ ...base, color: "#8A5F3A" }}>{catalogLine}</div>}
         {mealLine && <div style={{ ...base, color: "#0A776D" }}>{mealLine}</div>}
       </>
     );
@@ -6657,7 +6696,22 @@ function ProvisionsApp({ scrollRootRef }) {
   const [renameValue, setRenameValue] = useState("");
   const [deletingCategory, setDeletingCategory] = useState(null);
   const [deleteMoveTarget, setDeleteMoveTarget] = useState("");
+  // Manage categories & asks (Dan, 2026-11-10): "+ New category" reveals the name field.
+  const [newCategoryOpen, setNewCategoryOpen] = useState(false);
   const [householdCategories, setHouseholdCategories] = useState(new Set());
+  // A created-but-empty category lives only in householdCategories; when Manage opens, the ones
+  // that still have no item are let go, so they don't linger until a reload (Dan, 2026-11-10). The
+  // catalog is read through a ref: the prune is on open only, never on every catalog change.
+  const catalogForPruneRef = useRef(catalogMap);
+  catalogForPruneRef.current = catalogMap;
+  useEffect(() => {
+    if (!showManageCategoriesModal) return;
+    const items = Object.values(catalogForPruneRef.current);
+    setHouseholdCategories(prev => {
+      const kept = new Set([...prev].filter(c => items.some(i => i.category === c)));
+      return kept.size === prev.size ? prev : kept;
+    });
+  }, [showManageCategoriesModal]);
   const [stapleFilter, setStapleFilter] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(new Set());
   const [searchQuery, setSearchQuery] = useState("");
@@ -6666,7 +6720,6 @@ function ProvisionsApp({ scrollRootRef }) {
   // sitting open as a second, competing answer to "where does this go?".
   const [searchNewCatOpen, setSearchNewCatOpen] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
   // Two pieces, deliberately separate:
@@ -6833,6 +6886,84 @@ function ProvisionsApp({ scrollRootRef }) {
     setSelectedCategories(new Set());
     setStapleFilter(false);
   }, [view, activeHouseholdId]);
+  // + New shelf (SPEC_ask_slice2 C2): the sheet belongs to one place's Browse, so a tab or
+  // household switch closes it (a half-made shelf never lands in the other household).
+  const [newShelfOpen, setNewShelfOpen] = useState(false);
+  // Edit Ask {Label} (SPEC_ask_slice4 S4-1, S4-2): opened from a Manage row or a Browse header's
+  // "· Edit". Manage closes first — the two share one overlay layer and Manage is drawn later, so
+  // the sheet would open under it (Step 0 #2). An ask that is gone (deleted elsewhere) closes it.
+  const [editAskId, setEditAskId] = useState(null);
+  const openEditAsk = (askId) => { setShowManageCategoriesModal(false); setEditAskId(askId); };
+  // Delete Ask {Label} (S4-2; Dan 2026-11-10): the trash on the ask's Manage row opens a centred
+  // confirmation over Manage; a yes is the plain soft delete, and the ask leaves the rail, Manage
+  // and any selected pill.
+  const [deleteAskId, setDeleteAskId] = useState(null);
+  const [deleteAskBusy, setDeleteAskBusy] = useState(false);
+  const [deleteAskFailed, setDeleteAskFailed] = useState(false);
+  const confirmDeleteAsk = async () => {
+    if (!deleteAskId || deleteAskBusy) return;
+    setDeleteAskBusy(true);
+    setDeleteAskFailed(false);
+    const r = await deleteAsk(deleteAskId);
+    setDeleteAskBusy(false);
+    if (!r?.ok) { setDeleteAskFailed(true); return; }
+    const gone = deleteAskId;
+    setDeleteAskId(null);
+    setSelectedAsks(prev => { if (!prev.has(gone)) return prev; const n = new Set(prev); n.delete(gone); return n; });
+  };
+  useEffect(() => {
+    if (editAskId && !asks.some(a => a.id === editAskId)) setEditAskId(null);
+  }, [asks, editAskId]);
+  // Selected ask pills (C3, K5): ask ids, never mixed into selectedCategories. Ephemeral like the
+  // category pills: a tab or household switch clears them.
+  const [selectedAsks, setSelectedAsks] = useState(new Set());
+  // The ask being run, full screen (C3b). A tab or household switch ends it, picks discarded
+  // (nothing lands before That's it!, A16).
+  const [runAskId, setRunAskId] = useState(null);
+  // "+N more" (C4.2): the asks past the rail's two pills, in a small sheet.
+  const [moreAsksOpen, setMoreAsksOpen] = useState(false);
+  useEffect(() => { setNewShelfOpen(false); setEditAskId(null); setDeleteAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
+  // A26 resume (SPEC_ask_slice3 S3-6). AskRun keeps op_ask_held current while it is up; any end of
+  // the run (Done, Back to the list, a tab or household switch) clears it here. A reload with the
+  // key held reopens the run ONCE, on its screen with its picks — after this place's asks and
+  // catalog are in and the landing has settled (a landing move would end the run again). An ask
+  // that isn't this place's any more clears the key and opens nothing. No hand-over is recorded:
+  // that happened at the first open.
+  const [runResume, setRunResume] = useState(null);
+  const heldAskRef = useRef(undefined);
+  if (heldAskRef.current === undefined) heldAskRef.current = loadHeldAsk();
+  const prevRunAskIdRef = useRef(null);
+  useEffect(() => {
+    if (prevRunAskIdRef.current && !runAskId) { storeHeldAsk(null); setRunResume(null); }
+    prevRunAskIdRef.current = runAskId;
+  }, [runAskId]);
+  useEffect(() => {
+    if (!ASK_ENABLED || !heldAskRef.current || !asksLoaded || !catalogLoaded || !landingDecided) return;
+    const held = heldAskRead(heldAskRef.current, asks);
+    heldAskRef.current = null;
+    if (!held) { storeHeldAsk(null); return; }
+    setRunResume({ screen: held.screen, ids: held.ids });
+    setRunAskId(held.askId);
+  }, [asks, asksLoaded, catalogLoaded, landingDecided]);
+  // The rail's ask order (C4.2; Dan's rail ruling 2026-11-07): last hand-over first, then A–Z —
+  // computed when Browse opens or the household switches, then frozen while Browse stays open. A
+  // hand-over records its time (this device's localStorage) but never re-sorts the open rail; asks
+  // that arrive later (the first load, a shelf made now) follow the ones already placed.
+  const [askOrder, setAskOrder] = useState({ key: null, ids: [] });
+  useEffect(() => {
+    const key = `${view}|${household?.id ?? ""}`;
+    setAskOrder(prev => {
+      const base = prev.key === key ? prev.ids : [];
+      const ids = freezeAskOrder(base, asks, readAskHandovers(household?.id, asks.map(a => a.id)));
+      return prev.key === key && ids === prev.ids ? prev : { key, ids };
+    });
+  }, [asks, view, household?.id]);
+  const toggleAsk = (askId) => setSelectedAsks(prev => {
+    const next = new Set(prev);
+    if (next.has(askId)) next.delete(askId); else next.add(askId);
+    return next;
+  });
+  useScrollLock(!!runAskId, scrollRootRef);
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -6986,42 +7117,115 @@ function ProvisionsApp({ scrollRootRef }) {
     return result;
   }, [categories, stapleFilter, selectedCategories, catalogMap]);
 
+  // Asks in Browse (SPEC_ask_slice2 C3; rules + tests in src/lib/askBrowse.js). The selected
+  // asks' sections, oldest ask first, each shelf in its own order, each tile priced from the aisle
+  // it is filed under in Browse (D-c). An ask is not a category (K5): selectedAsks is its own set.
+  // What the rail draws (C4.2): at most two ask pills in the frozen order, the rest behind "+N
+  // more"; "+ New shelf" after Staples with no asks, at the very end with 1+.
+  const askRail = useMemo(() => {
+    const byId = new Map(asks.map(a => [a.id, a]));
+    return askRailLayout(askOrder.ids.map(id => byId.get(id)).filter(Boolean), ASK_ENABLED && !!(isSignedIn && household?.id));   // Ask off: no "+ New shelf"
+  }, [asks, askOrder, isSignedIn, household?.id]);
+  // The household's picker names for the tray's initials (C4.3): live asks' labels ∪ every
+  // picked_by_labels on the loaded rows. Display only; recomputed as asks or rows change.
+  const pickPool = useMemo(() => pickLabelPool(asks.map(a => a.label), listRows), [asks, listRows]);
+  // The aisle each Browse item is filed under, for an ask block's prices (D-c). The tiles themselves
+  // come from the shelf rows (S4-9, liveTiles), never from this list.
+  const rawCategoryByName = useMemo(
+    () => new Map(categories.flatMap(cat => cat.items.map(i => [i.name, cat.rawName]))), [categories]);
+  const askBlocksShown = useMemo(() => {
+    const byId = new Map(asks.map(a => [a.id, a]));
+    return askBlocks(asks, selectedAsks, rawCategoryByName).map(b => ({ ...b, note: shelfNote(byId.get(b.id)) }));
+  }, [asks, selectedAsks, rawCategoryByName]);
+  // The ask being run (C3b): its LIVE tiles, in shelf order (the same ones its Browse block shows),
+  // and the effective target (S4-5). A run never opens with 0 live tiles.
+  const runAsk = ASK_ENABLED && runAskId ? asks.find(a => a.id === runAskId) || null : null;
+  const runLive = useMemo(() => (runAsk ? liveTiles(runAsk) : []), [runAsk]);
+  // The ask being edited (S4-2): the sheet is prefilled from its LIVE tiles, in shelf order (S4-9).
+  const editAsk = useMemo(() => {
+    const a = editAskId ? asks.find(x => x.id === editAskId) || null : null;
+    return a ? { ...a, tiles: liveTiles(a) } : null;
+  }, [asks, editAskId]);
+
+  // Shelf photos (C3b.2, A23): one per household item, signed only for the tiles on screen — the
+  // selected asks' strips in Browse and the run's tiles. Thumbnails only (≈480 px covers a tile);
+  // minted in one batch and reused by path, like the meal photos (R9).
+  const itemPhotoUrlCacheRef = useRef(null);
+  if (!itemPhotoUrlCacheRef.current) itemPhotoUrlCacheRef.current = createSignedUrlCache({ bucket: "item-photos" });
+  const [itemPhotoUrls, setItemPhotoUrls] = useState({});
+  // While a shelf sheet is open, every household item photo is wanted: the sheet's grid shows the
+  // shelf's thumbs, and the shelf is the sheet's own state (a few dozen paths at most).
+  const wantedItemPhotoPaths = useMemo(() => {
+    const ids = new Set([...askBlocksShown.flatMap(b => b.items.map(i => i.id)), ...runLive.map(i => i.id),
+      ...((newShelfOpen || editAskId) ? Object.keys(itemPhotos) : [])]);
+    return [...ids].map(id => itemPhotos[id]?.thumbPath).filter(Boolean);
+  }, [askBlocksShown, runLive, itemPhotos, newShelfOpen, editAskId]);
+  useEffect(() => {
+    if (wantedItemPhotoPaths.length === 0) return undefined;
+    let cancelled = false;
+    itemPhotoUrlCacheRef.current.resolve(_supabase.current, wantedItemPhotoPaths).then((got) => {
+      if (cancelled) return;
+      setItemPhotoUrls((prev) => (Object.keys(got).every((k) => prev[k] === got[k]) ? prev : { ...prev, ...got }));
+    });
+    return () => { cancelled = true; };
+  }, [wantedItemPhotoPaths, _supabase]);
+  // The shelf sheet's add-list: the household's whole live catalog, this person's hidden items included
+  // (S4-9; Dan 2026-11-11). Browse's own list stays as it is.
+  const shelfCatalogItems = useMemo(() => shelfCatalog(catalogMap, hiddenCatalogItems), [catalogMap, hiddenCatalogItems]);
+  // The items with a live household photo, for the sheet's Explorer nudge (S4-7).
+  const itemPhotoIds = useMemo(() => new Set(Object.keys(itemPhotos)), [itemPhotos]);
+  const itemPhotoUrl = useCallback((id) => {
+    const p = itemPhotos[id];
+    return p ? itemPhotoUrls[p.thumbPath] || null : null;
+  }, [itemPhotos, itemPhotoUrls]);
+
+  // A tile's glyph would be the ITEM's own, when the catalog has one (C3b.1, Dan 2026-11-07) — never
+  // the aisle's (Bananas is not 🥦). catalog_items carries no glyph column, so a tile without a
+  // photo is a plain name tile; tileFace (src/lib/askRun.js) decides.
+  const itemGlyph = useCallback(() => null, []);
+  const runTiles = useMemo(() => runLive.map(item => ({
+    id: item.id, name: item.name, glyph: itemGlyph(item.id), photoUrl: itemPhotoUrl(item.id),
+  })), [runLive, itemPhotoUrl, itemGlyph]);
+
+  // Only categories that survive Layer 1 count as active — a selection that has
+  // gone stale (category deleted here or on another device) must not name every
+  // category, and must not suppress a Staples-only line.
+  const shownCats = useMemo(
+    () => displayCategories.filter(cat => selectedCategories.has(cat.rawName)),
+    [displayCategories, selectedCategories]);
+  // The category sections beside the ask sections. With ONLY asks selected, only their blocks
+  // show (D-b); Staples or a category pill brings the category part back, narrowed as before.
+  // Staples never narrows an ask's shelf (K4) — the ask blocks skip displayCategories entirely.
+  const categoryBlocks = useMemo(() => (categoryPartShown({
+    stapleFilter, categoriesActive: shownCats.length > 0, asksActive: askBlocksShown.length > 0,
+  }) ? displayCategories : []), [stapleFilter, shownCats, askBlocksShown, displayCategories]);
+
   // Browse declutter phase 2 — flat A–Z across the filtered catalog (rawCategory attached for price fallback).
+  // The category part only: an ask's block stays its own block and never joins A–Z (D-b).
   const browseFlatItems = useMemo(() =>
-    displayCategories
+    categoryBlocks
       .flatMap(cat => cat.items.map(item => ({ ...item, rawCategory: cat.rawName })))
       .sort((a, b) => a.name.localeCompare(b.name)),
-    [displayCategories]);
-  // Count of active filters for the declutter descriptor line.
-  const browseFilterCount = (stapleFilter ? 1 : 0) + selectedCategories.size;
+    [categoryBlocks]);
+  // Count of active filters for the declutter descriptor line (asks count: they filter, D-e).
+  const browseFilterCount = countBrowseFilters({
+    stapleFilter, selectedCategoryCount: selectedCategories.size, askBlockCount: askBlocksShown.length,
+  });
 
   // Filter descriptor — names the active FILTER SET, not the active categories.
-  // The rail carries two kinds of filter: category values, and Staples, which is
+  // The rail carries three kinds of filter: category values; Staples, which is
   // NOT a category — it is per-household row-presence in `household_staples`
-  // (migration 016), applied as a predicate in displayCategories Layer 1. Naming
-  // only the categories while counting a staple-narrowed set made the line
-  // describe a set its own sentence didn't name.
+  // (migration 016), applied as a predicate in displayCategories Layer 1; and asks,
+  // named by label ({ ask } entries, rendered inside .op-name). Naming only the
+  // categories while counting a staple-narrowed set made the line describe a set
+  // its own sentence didn't name.
   //
-  // The count always comes from the same rows the list is rendering, so the
-  // number and the names can never disagree.
-  const browseFilterDescriptor = useMemo(() => {
-    // Only categories that survive Layer 1 count as active — a selection that has
-    // gone stale (category deleted here or on another device) must not name every
-    // category, and must not suppress a Staples-only line.
-    const shownCats = displayCategories.filter(cat => selectedCategories.has(cat.rawName));
-    const categoriesActive = shownCats.length > 0;
-    if (!stapleFilter && !categoriesActive) return null;
-
-    const shown = categoriesActive ? shownCats : displayCategories;
-    return {
-      // Staples leads: it is the broader predicate, and it isn't a category.
-      names: [
-        ...(stapleFilter ? ["Staples"] : []),
-        ...shown.map(cat => categoryRailLabel(cat.rawName)),
-      ],
-      count: shown.reduce((total, cat) => total + cat.items.length, 0),
-    };
-  }, [stapleFilter, selectedCategories, displayCategories]);
+  // The count is the DISTINCT items the list is rendering (an item in its ask's
+  // block and in its own aisle counts once), so the number and the names can
+  // never disagree.
+  const browseFilterDescriptor = useMemo(() => describeBrowseFilters({
+    stapleFilter, shownCats, displayCategories, blocks: askBlocksShown, categoryRailLabel,
+  }), [stapleFilter, shownCats, displayCategories, askBlocksShown]);
 
   const catRailNode = useRef(null);
   // Which edges have more content past them — drives the fade masks, so a mask
@@ -7640,26 +7844,6 @@ function ProvisionsApp({ scrollRootRef }) {
     setShowManageCategoriesModal(false);
   };
 
-  const handleResetCategories = async () => {
-    const db = _supabase.current;
-    const hh = _household.current;
-    if (!db || !hh) return;
-    const { error: delErr } = await db
-      .from("catalog_items")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("household_id", hh.id)
-      .eq("is_global", false)
-      .is("deleted_at", null);
-    if (delErr) { setCategoryError(`Could not reset: ${delErr.message}`); return; }
-    await db
-      .from("user_hidden_items")
-      .delete()
-      .eq("clerk_id", user.id);
-    setShowResetConfirm(false);
-    setShowManageCategoriesModal(false);
-    await refreshCatalog();
-  };
-
   // Never deletes items (2026-11-05, src/lib/deleteCategory.js): a category with items is
   // moved-and-deleted or nothing happens; the old no-target branch ran deleteItem per item.
   const deleteCategory = async (rawName, moveTo) => {
@@ -8228,6 +8412,7 @@ function ProvisionsApp({ scrollRootRef }) {
         category: CATEGORY_DISPLAY[rawCat] || rawCat,
         isOwnItem,
         contributors,
+        pickedByLabels: row.pickedByLabels || null,
       });
     }
 
@@ -8254,6 +8439,89 @@ function ProvisionsApp({ scrollRootRef }) {
     const pre = quantities[`pre:${cid}`];
     return pre != null ? pre : 0;
   };
+
+  // An ask's section in Browse (SPEC_ask_slice2 C3, D-b / D-c / D-d): its own block, keyed by the
+  // ask's id, the LIVE tiles in the shelf's order (S4-9: a tile this person hid is still here — the
+  // shelf is the household's; Hide on such a row is a no-op), each priced from its own aisle
+  // (item.rawCategory, never the ask). The header names the ask with the name in .op-name (K3) and has no "＋ New item"
+  // (D-d) — that spot is the hand-over's, which arrives with the run screens (C3b). The rows are
+  // Browse's own: Hide, Edit, Staple and the stepper behave as in any section, and an ordinary add
+  // from here carries no label (11-04 ruling).
+  const renderAskBlock = (block) => (
+    <div className="category-block ask-block" key={`ask:${block.id}`}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
+        <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>
+          <span aria-hidden="true">{ASK_GLYPH}</span> Ask <span className="op-name">{block.label}</span>
+        </div>
+        {/* The hand-over (C3b): opens the run on "Your turn, {Label}!". Only a hand-over writes
+            "Picked by" (11-04 ruling). A shelf with no live tile can't run (S4-5), so the grown-up's
+            note takes the hand-over's place; a short shelf shows the note under it. Quiet text,
+            never the error colour. */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
+          {block.items.length > 0 && (
+            <button
+              className="ask-handover"
+              onClick={() => { recordAskHandover(household?.id, block.id); setRunAskId(block.id); }}
+              style={{
+                background: "none", border: "none", fontFamily: "'Lato', sans-serif",
+                fontSize: "12.5px", color: "#0A776D", fontWeight: 700, cursor: "pointer",
+                letterSpacing: "0.5px", padding: "0",
+              }}
+            >Hand it to <span className="op-name">{block.label}</span> →</button>
+          )}
+          {block.note && (
+            <span className="ask-shelf-note" style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#8A5F3A" }}>
+              {block.note} ·{" "}
+              <button type="button" onClick={() => openEditAsk(block.id)}
+                style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "#0A776D", fontWeight: 700, cursor: "pointer" }}>Edit</button>
+            </span>
+          )}
+        </div>
+      </div>
+      {/* Shelf photos (C3b.2): what the tiles show on the run. */}
+      {block.items.length > 0 && (
+        <ShelfPhotoStrip
+          items={block.items.map(item => ({
+            id: item.id, name: item.name, glyph: itemGlyph(item.id),
+            photoUrl: itemPhotoUrl(item.id), hasPhoto: !!itemPhotos[item.id],
+          }))}
+          onPick={setItemPhoto}
+        />
+      )}
+      <div className="items-grid">
+        {block.items.length === 0 ? (
+          <div className="declutter-desc" style={{ margin: "4px 0 0" }}>Nothing on this shelf yet.</div>
+        ) : block.items.map((item) => {
+          const qty = qtyFor(item);
+          const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
+          const price = prices[item.name] || (Math.round(rawFallback * 2) / 2);
+          const isEditing = editingPrice === item.name;
+          const isStaple = catalogMap[item.name]?.is_staple;
+          const isCustom = catalogMap[item.name]?.is_global === false;
+          // Catalog items only expose price editing — nothing to edit when pricing is off.
+          const canEdit = isCustom || showPrices;
+          return (
+            <SwipeToRemove key={item.name} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)} isStaple={isStaple} canEdit={canEdit}>
+              <CatalogItemRow
+                item={item}
+                qty={qty}
+                rawCategory={item.rawCategory}
+                showPrices={showPrices}
+                price={price}
+                isEditing={isEditing}
+                priceInput={priceInput}
+                centsToDisplay={centsToDisplay}
+                onUpdateQty={updateQty}
+                onPriceInput={handlePriceInput}
+                onCommitPrice={commitPrice}
+                onCancelEditPrice={() => setEditingPrice(null)}
+              />
+            </SwipeToRemove>
+          );
+        })}
+      </div>
+    </div>
+  );
   const pendingItems = shoppingList.flatMap(cat =>
     cat.items.filter(item => !checked[item.listItemId])
   );
@@ -8265,6 +8533,146 @@ function ProvisionsApp({ scrollRootRef }) {
   // A5 (Amendment 2026-09-27): and until this place's catalog has actually been read —
   // an unloaded catalog is the quiet placeholder, never an empty Browse with one chip.
   const catalogLoading = loading || (sessionLive && !catalogLoaded);
+
+  // ── Landscape = Staples (SPEC_landscape_staples) ──
+  // A PHONE turned sideways shows a separate, fixed Staples-only view — from Home, Plan,
+  // Browse and Shop alike (app-wide since 2026-11-11). It is an ADD PALETTE and nothing else:
+  // it reads the unfiltered `categories`, the staple flag and each item's quantity, never a
+  // row's checked / in-cart state or any other list state. It is not a filter state either:
+  // nothing here reads or sets the portrait pills, search or declutter phase. The portrait
+  // app stays mounted underneath, so rotating back lands on the same tab, exactly as it was left.
+  //
+  // A screen that wants landscape for itself opts out with `claimsLandscape`: while it is
+  // true the view is not even mounted. Today that is an Ask run in progress; cook mode and
+  // video will add their own terms to the same flag.
+  const claimsLandscape = !!runAskId;
+  //
+  // DISPLAY is CSS, not state. The view is mounted (hidden) the whole time the app is up, and
+  // the LANDSCAPE_PHONE_QUERY rule in the style block swaps it in — and the portrait app out —
+  // in the same frame as the rotation. That rule only applies under body.lp-eligible, set
+  // here while the view is mounted and no text field has focus (an open keyboard can make a
+  // portrait viewport wider than tall; the class is the display's keyboard guard).
+  const landscapeMounted = !signedOutWelcome && !catalogLoading && !claimsLandscape;
+  const [textFocused, setTextFocused] = useState(false);
+  useEffect(() => {
+    const onIn = (e) => setTextFocused(isTextEntry(e.target));
+    const onOut = (e) => setTextFocused(isTextEntry(e.relatedTarget));
+    setTextFocused(isTextEntry(document.activeElement));
+    document.addEventListener("focusin", onIn);
+    document.addEventListener("focusout", onOut);
+    return () => {
+      document.removeEventListener("focusin", onIn);
+      document.removeEventListener("focusout", onOut);
+    };
+  }, []);
+  const landscapeEligible = landscapeMounted && !textFocused;
+  useLayoutEffect(() => {
+    document.body.classList.toggle(LANDSCAPE_ELIGIBLE_CLASS, landscapeEligible);
+    return () => document.body.classList.remove(LANDSCAPE_ELIGIBLE_CLASS);
+  }, [landscapeEligible]);
+  const landscapeTiles = useMemo(
+    () => (landscapeMounted ? landscapeItems(categories, catalogMap) : []),
+    [landscapeMounted, categories, catalogMap]
+  );
+  // BOOKKEEPING is the debounced hook (with its screen.orientation guard): it marks a
+  // landscape VISIT, 300ms behind the display, and never decides what is on screen.
+  const landscapePhone = useLandscapePhone();
+  const landscapeStaples = landscapePhone && landscapeEligible;
+  // Really sideways with a field focused: drop the focus (and the keyboard) so the class
+  // above comes on and the view can show. A keyboard-shrunk portrait never gets here — the
+  // hook's guard reads the screen as portrait.
+  useEffect(() => {
+    if (landscapePhone && landscapeMounted && textFocused && document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  }, [landscapePhone, landscapeMounted, textFocused]);
+  // Names added during THIS landscape visit; a tile removed again leaves the set, so its size
+  // is the visit's NET adds. Adds and removes go through updateQty — the Add button's own
+  // path (realtime, optimistic, offline). A tap only ever takes off what this visit put on
+  // (the set is how the view knows); anything else comes off by press-and-hold.
+  // Every rotation INTO landscape starts a fresh set: flushLandscapeAdds runs when a visit
+  // ends, and again the moment the display flips sideways (the query itself, no debounce).
+  const landscapeAddedRef = useRef(new Set());
+  const flushLandscapeAdds = useCallback(() => {
+    const line = staplesAddedLine(landscapeAddedRef.current.size);
+    landscapeAddedRef.current.clear();
+    if (line) showToast(line);
+  }, [showToast]);
+  const landscapeAddedThisVisit = useCallback((item) => landscapeAddedRef.current.has(item.name), []);
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const mq = window.matchMedia(LANDSCAPE_PHONE_QUERY);
+    const onFlip = () => { if (mq.matches) flushLandscapeAdds(); };
+    if (mq.addEventListener) mq.addEventListener("change", onFlip);
+    return () => { if (mq.removeEventListener) mq.removeEventListener("change", onFlip); };
+  }, [flushLandscapeAdds]);
+  const landscapeAdd = useCallback((item) => {
+    landscapeAddedRef.current.add(item.name);
+    updateQty(item.name, 1, item.rawCategory);
+  }, [updateQty]);
+  const landscapeRemove = useCallback((item) => {
+    landscapeAddedRef.current.delete(item.name);
+    updateQty(item.name, 0, item.rawCategory);
+  }, [updateQty]);
+  // The first-run subtitle (lib/landscapeHint): the first three landscape visits on this
+  // device. The state is what the NEXT visit shows, so the hidden view is already right when
+  // the phone turns; a visit is counted when it starts and the state re-read when it ends.
+  const [landscapeHintOn, setLandscapeHintOn] = useState(() => hintForNextVisit());
+  useEffect(() => {
+    if (!landscapeStaples) return undefined;
+    setLandscapeHintOn(beginHintVisit());
+    return () => {
+      flushLandscapeAdds();
+      setLandscapeHintOn(hintForNextVisit());
+    };
+  }, [landscapeStaples, flushLandscapeAdds]);
+  // Portrait scroll survives the trip, on every tab. Sideways, a phone is wider than
+  // COLUMN_MIN_WIDTH, so the document stops scrolling (the column does) and the browser drops
+  // the page's offset. Remember it while upright; put it back when the phone is upright again.
+  //
+  // The restore runs only once the viewport has SETTLED (onViewportSettled), never off the
+  // orientation event: iOS animates a rotation, and a programmatic scroll in the middle of it
+  // is a known way to leave position: fixed chrome — the Helm, its fade — drawn away from the
+  // bottom edge (seen on a real iPhone 2026-11-11, intermittent). It also runs only after a
+  // real trip sideways, so an ordinary resize (Safari's toolbar) never moves the page, and
+  // never while a field has focus (the keyboard owns the viewport then). Coarse pointers
+  // only, so a desktop window resize is never touched.
+  const browseScrollYRef = useRef(0);
+  const browseAwayRef = useRef(false);
+  const landscapeVisitRef = useRef(false);
+  landscapeVisitRef.current = landscapeStaples;
+  useEffect(() => {
+    // Arriving on a tab: start from where the page is now, not from the last tab's offset.
+    if (window.innerWidth < window.innerHeight && window.innerWidth < COLUMN_MIN_WIDTH) browseScrollYRef.current = window.scrollY;
+    browseAwayRef.current = false;
+  }, [view]);
+  useEffect(() => {
+    if (!landscapeMounted || !window.matchMedia) return undefined;
+    if (!window.matchMedia("(pointer: coarse)").matches) return undefined;
+    // "Upright" = taller than wide AND narrower than the desktop column's threshold, i.e. the
+    // document is the scroll root. A half-turned square that is wide enough for the column has
+    // already dropped the page's offset; it must count as away, never be recorded as a position.
+    const upright = () => window.innerWidth < window.innerHeight && window.innerWidth < COLUMN_MIN_WIDTH;
+    const onResize = () => { if (!upright()) browseAwayRef.current = true; };
+    const onScroll = () => {
+      if (!browseAwayRef.current && !landscapeVisitRef.current && upright()) browseScrollYRef.current = window.scrollY;
+    };
+    const offSettled = onViewportSettled(window, () => {
+      if (!upright()) { browseAwayRef.current = true; return; }
+      // Upright again before the visit was ever marked (in and out inside the debounce): the
+      // visit's cleanup will never run, so count its adds here.
+      if (!landscapeVisitRef.current) flushLandscapeAdds();
+      if (!browseAwayRef.current) return;
+      browseAwayRef.current = false;
+      if (isTextEntry(document.activeElement)) return;
+      if (Math.abs(window.scrollY - browseScrollYRef.current) > 1) window.scrollTo(0, browseScrollYRef.current);
+    });
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      offSettled();
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [landscapeMounted, flushLandscapeAdds]);
 
   const totalItems = shoppingList.reduce((acc, c) => acc + c.items.length, 0);
   const totalCost = shoppingList.reduce((acc, c) => acc + c.items.reduce((a, i) => a + i.subtotal, 0), 0);
@@ -8410,7 +8818,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const WORDMARK_SHADOW = bannerHasPhoto ? "0 2px 14px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.7)" : "none";
 
   return (
-      <div className="app-root" style={{ fontFamily: "'Georgia', serif", background: "#FAF4EC", color: "#2C1A0E" }}>
+      <div className="app-root" data-op-ask={ASK_FLAG_MARKER} style={{ fontFamily: "'Georgia', serif", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
       {/* Gated on householdReady for the same reason as the landing effect — the list must have actually arrived, not merely stopped loading — so the landing tab is settled before the splash dissolves and there is no flash of Browse before Shop; the 5s failsafe still bounds it. */}
@@ -8541,6 +8949,14 @@ function ProvisionsApp({ scrollRootRef }) {
           transform makes it the containing block for every fixed descendant. */}
       {/* Not on the signed-out gift card or its A3 answer (Dan 2026-10-30): the pill's doors lead
           nowhere without an account, and the mockup has no tab bar there. Back once signed in. */}
+      {/* Landscape = Staples: mounted, hidden, on every tab unless a screen claims landscape for itself;
+          the LANDSCAPE_PHONE_QUERY rule shows it when a phone is sideways. Portalled to <body>, over everything (the Helm
+          included — the grid gets the room); the portrait Browse stays mounted below.
+          The error toast above is underneath it, so the view shows the same `error` in its own slot. */}
+      {landscapeMounted && (
+        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} showHint={landscapeHintOn} error={error} onDismissError={dismissError} />
+      )}
+
       {!(signedOutWelcome && pendingGiftCode) && <Helm
         view={signedOutWelcome ? "home" : view}
         onChange={goToDoor}
@@ -8565,6 +8981,29 @@ function ProvisionsApp({ scrollRootRef }) {
            0px and is pixel-identical. BOTTOM stays gated to display-mode: standalone: a tab's bottom inset becomes ~34px
            when Safari's toolbar collapses, which would move the Helm. */
         :root { --op-inset-top: 0px; --op-inset-bottom: 0px; }
+        /* The header's dark — its top row. (index.html's theme-color and the manifest's theme_color are PROD's
+           values, not this: the 2026-11-12 status-bar trials are undone.) */
+        :root { --op-header-dark: #1a0e06; }
+        /* --op-header-nudge (2026-11-12): in the installed app iOS 26/27 draws its own blur over the top edge of
+           the page, and it reaches down over the header's first row. The row's content (avatar, household name,
+           the dots) sits 12px lower INSIDE the dark header there, clear of the blur; nothing is added above the
+           header. 0 in a browser tab and on desktop, where there is no such blur and the header keeps its height.
+           Confirmed on Dan's phone 2026-11-12. The blur itself is ACCEPTED on the web app: five dev trials that
+           day (black-translucent, black, no tag, a colour-extension strip, a new install identity) could not
+           close it, so index.html and the manifest are back to prod's chrome. The proper fix is the native
+           (Expo) build, which paints behind the status bar - its strip must match the header colour. */
+        :root { --op-header-nudge: 0px; }
+        @media (display-mode: standalone) { :root { --op-header-nudge: 12px; } }
+        /* --op-header-gap (2026-11-12): 8px of page cream ABOVE the dark header in the installed app, on every tab
+           (the Home banner photo starts below it too), so the header starts 8px lower at rest and the gap from the
+           top of the screen to the header matches the gap under the Helm (about 63pt each on Dan's iPhone). The
+           cream is .app-root's own background. Upright only; 0 in a browser tab, on desktop and sideways. */
+        :root { --op-header-gap: 0px; }
+        @media (display-mode: standalone) and (orientation: portrait) { :root { --op-header-gap: 8px; } }
+        .header-gap { height: var(--op-header-gap); }
+        /* The cream edge fade's stops, clear → cream. One list: the Helm's fade runs it downwards, the landscape
+           Staples header runs it upwards, so the two edges can't drift apart. */
+        :root { --op-fade-stops: rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC; }
         @media (display-mode: standalone) {
           :root { --op-inset-bottom: env(safe-area-inset-bottom, 0px); }
         }
@@ -8575,6 +9014,11 @@ function ProvisionsApp({ scrollRootRef }) {
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
+        /* If the page ever runs BEHIND the status bar (an install whose icon carries a translucent bar style),
+           env(safe-area-inset-top) is the bar's height and the header pads by it, so its content can never sit
+           under the clock. 0 when the page starts below the bar - prod's measured state, style "default" -
+           and 0 sideways. The 12px nudge is added inside the row, on top of this. */
+        @media (display-mode: standalone) { .header { padding-top: env(safe-area-inset-top, 0px); } }
 /* iOS standalone: the status bar overlays the page, so once the header scrolls away content passes under the clock. This
    fixed band is the status bar's own background — PAGE CREAM, because the clock on Dan's iPhone is BLACK (the 2026-10-16
    first cut assumed a white clock and painted it #1a0e06). Height follows the MEASURED inset (0 in a browser tab, so the
@@ -9350,7 +9794,7 @@ function ProvisionsApp({ scrollRootRef }) {
            on phones the document is the scroll root, on desktop the phone column's inner scroller is. */
         .app-root { min-height: 100vh; padding-bottom: calc(96px + var(--op-inset-bottom)); }
         .helm-fade { position: fixed; left: 0; right: 0; bottom: 0; height: calc(90px + var(--op-inset-bottom)); pointer-events: none; z-index: 899;
-                     background: linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, #FAF4EC); }
+                     background: linear-gradient(to bottom, var(--op-fade-stops)); }
         /* Bottom status stack rides above the pill — at every width now. */
         .bottom-stack { bottom: calc(92px + var(--op-inset-bottom)); }
         /* With the Wrap Up bar on the page the stack rides above IT (the error toast overlapped the bar on
@@ -9404,9 +9848,58 @@ function ProvisionsApp({ scrollRootRef }) {
         .items-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         /* One column on phones, and one column inside the desktop phone column (it is 430px wide, whatever the window is). */
         @media (max-width: 520px), (min-width: ${COLUMN_MIN_WIDTH}px) { .items-grid { grid-template-columns: 1fr; } }
+        /* Landscape = Staples (SPEC_landscape_staples; components/LandscapeStaples.js). On <body>, above the
+           phone-frame and everything in it. The tiles size themselves: as many ≥120px columns as fit, rows
+           48px to 140px tall — few staples grow up to the cap and the leftover space falls to the bottom, many
+           hold at ~120×48 and the grid scrolls. The label stays one size (17px × the text-size knob). */
+        .ls-root { position: fixed; inset: 0; z-index: 3000; background: #FAF4EC; display: none; flex-direction: column;
+                   padding: 0 max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); }
+        /* DISPLAY: pure CSS, so the swap lands in the same frame as the rotation. Phones only — a desktop fails
+           (pointer: coarse), a tablet fails max-height. body.lp-eligible = the view is mounted (any tab, no screen
+           claiming landscape) and no text field has focus. The portrait app is hidden, not removed: visibility
+           keeps its layout and every scroll offset. */
+        @media ${LANDSCAPE_PHONE_QUERY} {
+          body.${LANDSCAPE_ELIGIBLE_CLASS} .ls-root { display: flex; }
+          body.${LANDSCAPE_ELIGIBLE_CLASS} .phone-frame { visibility: hidden; }
+        }
+        /* The header is portrait Browse's own section header (components/CategoryHeader): emoji + tracked uppercase
+           label + the gold rule, the first-run hint where "＋ New item" sits. .ls-head only places it — 18px of air
+           above (below the safe area) — and carries the scrolled fade. The 14px between the rule and the first
+           row is the grid's own top padding, so scrolled tiles pass under the rule, not under a gap. */
+        .ls-head { position: relative; z-index: 1; flex: none; padding-top: calc(18px + env(safe-area-inset-top, 0px)); }
+        /* Scrolled: tiles dissolve under the header instead of cutting hard — the Helm fade's own stops, turned upwards.
+           Only while scrolled (LandscapeStaples sets .scrolled), so the first row is never washed out at rest. */
+        .ls-head::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 22px; pointer-events: none;
+                          background: linear-gradient(to top, var(--op-fade-stops)); opacity: 0; transition: opacity 0.15s ease; }
+        .ls-root.scrolled .ls-head::after { opacity: 1; }
+        .ls-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+                   display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); grid-auto-rows: minmax(48px, 140px); align-content: start; gap: 6px;
+                   padding-top: 14px; padding-bottom: max(10px, env(safe-area-inset-bottom, 0px)); }
+        .ls-tile { position: relative; min-height: 48px; padding: 1px 8px; display: flex; align-items: center; justify-content: center; overflow: hidden;
+                   background: #F5EDE0; border: 2px solid #E8D5B7; border-radius: 8px; color: #2C1A0E; cursor: pointer;
+                   font-family: 'Lato', sans-serif; font-size: calc(17px * var(--op-text-scale)); line-height: 1.15; text-align: center;
+                   touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+        .ls-name { position: relative; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+        /* Press-and-hold to remove: the Ask Done pill's own fill (hooks/useHold), under the label and the badge. */
+        ${holdFillCss(".ls-fill", ".ls-tile.holding .ls-fill")}
+        .ls-badge { position: absolute; top: 0; right: 0; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border-radius: 0 0 0 8px;
+                    background: #c8973a; color: #2C1A0E; font-size: 12px; font-weight: 900; line-height: 20px; }
+        /* No staples yet: a centred block of three lines under the header rule. The title takes the header's own
+           colour at body + 2px; the two lines under it are muted. Text only. */
+        .ls-empty { margin: auto; max-width: 440px; padding: 0 16px 24px; text-align: center; text-wrap: balance; font-family: 'Lato', sans-serif; line-height: 1.45; }
+        .ls-empty-title { font-size: calc(17px * var(--op-text-scale)); font-weight: 700; color: #8A5F3A; margin-bottom: 8px; }
+        .ls-empty-body { font-size: calc(15px * var(--op-text-scale)); color: #8a7a60; margin-bottom: 10px; }
+        .ls-empty-how { font-size: calc(13px * var(--op-text-scale)); color: #8a7a60; }
+        .ls-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); pointer-events: none; white-space: nowrap;
+                   background: rgba(44,26,14,0.92); color: #FAF4EC; font-family: 'Lato', sans-serif; font-size: 14px; padding: 10px 22px; border-radius: 999px;
+                   box-shadow: 0 4px 20px rgba(0,0,0,0.35); animation: fadeIn 0.18s ease; }
+        .ls-hint.ls-error { pointer-events: auto; white-space: normal; max-width: 80vw; display: flex; align-items: center; gap: 14px; background: #2C1A0E; border-radius: 8px; padding: 10px 14px 10px 18px; }
+        .ls-dismiss { flex: none; min-height: 32px; background: none; border: 1px solid rgba(255,255,255,0.3); color: #FAF4EC; border-radius: 4px; padding: 3px 10px; cursor: pointer; font-size: 12px; }
         .item-row { display: flex; flex-direction: column; background: #F5EDE0; border: 1.5px solid #E8D5B7; border-radius: 8px; padding: 10px 12px; transition: border-color 0.2s, box-shadow 0.2s; gap: 8px; user-select: none; -webkit-tap-highlight-color: transparent; }
         @media (hover: hover) { .item-row:hover { border-color: #c8973a; box-shadow: 0 2px 8px rgba(200,151,58,0.15); } }
-        .item-row.has-qty { border-color: #c8973a; background: #FAF4EC; }
+        /* "On the list" — ONE rule for the portrait row and the landscape tile, so the two can't drift.
+           Dark brown stays reserved for active filters and tabs. */
+        .item-row.has-qty, .ls-tile.on { border-color: #c8973a; background: #FAF4EC; }
         .item-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
         .item-name { font-family: 'Lato', sans-serif; font-size: calc(0.88rem * var(--op-text-scale)); color: #2C1A0E; flex: 1; }
         .op-mic-btn { flex: none; align-self: flex-start; width: 44px; height: 44px; border-radius: 10px; background: #2C1A0E; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background .15s; }
@@ -9632,6 +10125,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .tray-body .list-item:last-child { border-bottom: none; }
         .tray-body .li-name { text-decoration: line-through; color: #a89878; font-size: calc(0.88rem * var(--op-text-scale)); }
         .tray-initial { width: 20px; height: 20px; border-radius: 50%; background: #E8D5B7; color: #2C1A0E; font-family: 'Lato', sans-serif; font-size: 0.6rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        /* Picker initials (A19, Ask Slice 2 C4): outlined in text teal, so a pick never reads as a partner's check. */
+        .tray-picked { display: flex; gap: 4px; flex-shrink: 0; }
+        .tray-initial-picked { background: transparent; border: 1.5px solid #0A776D; color: #0A776D; box-sizing: border-box; width: auto; min-width: 20px; padding: 0 4px; border-radius: 10px; }
         /* Rows animate INTO wherever they land — down into the tray, back up into an aisle — so the person sees where the item went. */
         @keyframes opRowIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
         @keyframes opRowInDown { from { opacity: 0; transform: translateY(6px); } to { opacity: 0.55; transform: none; } }
@@ -9768,7 +10264,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
         /* Add-item picker — same pill, wrapped and exhaustive. Never scrolls. */
         .cat-grid { display: flex; flex-wrap: wrap; gap: 9px; }
-        .cat-pill-new { background: transparent; border-style: dashed; }
+        /* "+ New shelf" / "+ New category" (Dan 2026-11-10): a solid clay border, the label and + one step
+           darker; same size and placement as any pill. */
+        .cat-pill-new { background: transparent; border: 1px solid #8A5F3A; color: #6E4A2A; }
         .picker-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 12px; }
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
@@ -9890,6 +10388,8 @@ function ProvisionsApp({ scrollRootRef }) {
           header keeps its solid espresso — Row 1 alone off Home. The layer spans
           the wrapper's flow height = the header (the modals in between are
           position:fixed and add no height). */}
+      {/* 8px of page cream above the header in the installed app, upright (--op-header-gap; 0 elsewhere). */}
+      <div className="header-gap" aria-hidden="true" />
       <div style={{ position: "relative" }}>
         {bannerHasPhoto && (
           <>
@@ -9908,7 +10408,7 @@ function ProvisionsApp({ scrollRootRef }) {
       <div className="safe-top" aria-hidden="true" />
       <div className="header" style={{ position: "relative", zIndex: bannerHasPhoto ? 1 : undefined, background: bannerHasPhoto ? "transparent" : undefined }}>
         {/* Row 1: Velayo bar — avatar left, three dots right, household centered */}
-        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px 10px", minHeight: "44px", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "#1a0e06" }}>
+        <div style={{ position: "relative", zIndex: 1, display: "flex", justifyContent: "space-between", alignItems: "center", padding: "calc(10px + var(--op-header-nudge)) 16px 10px", minHeight: "calc(44px + var(--op-header-nudge))", boxSizing: "border-box", background: bannerHasPhoto ? "transparent" : "var(--op-header-dark)" }}>
           {isSignedIn && household?.name && (
             <button
               onClick={() => setShowHouseholdModal(true)}
@@ -11161,6 +11661,49 @@ function ProvisionsApp({ scrollRootRef }) {
                   <span className="cat-em">{categoryGlyph("Staples")}</span>Staples
                 </button>
 
+                {/* + New shelf (SPEC_ask_slice2 C2) — the door to making an Ask. With no asks it sits
+                    right after Staples (discovery); with 1+ it moves to the very end (C4.2). Signed
+                    in with a place only: the shelf is the household's. */}
+                {askRail.newShelfAt === "afterStaples" && (
+                  <button className="cat-pill cat-pill-new" onClick={() => setNewShelfOpen(true)}>
+                    <span className="cat-em">+</span>New shelf
+                  </button>
+                )}
+
+                {/* Ask pills (C3, C4.2) — at most two, in the frozen order, toggling selectedAsks
+                    (K5). "Ask " is fixed copy; the name sits in .op-name (K3), so it leaves replay
+                    and click text in every environment. The key is the ask's id, never its label. */}
+                {askRail.pills.map(ask => {
+                  const isActive = selectedAsks.has(ask.id);
+                  return (
+                    <button
+                      key={ask.id}
+                      className={`cat-pill${isActive ? " on" : ""}`}
+                      data-active={isActive ? "1" : undefined}
+                      onClick={() => toggleAsk(ask.id)}
+                    >
+                      <span className="cat-em" aria-hidden="true">{ASK_GLYPH}</span>
+                      <span>Ask <span className="op-name">{ask.label}</span></span>
+                    </button>
+                  );
+                })}
+
+                {/* "+N more" (C4.2) — the rest of the asks in a small sheet. Shown "on" while one of
+                    them is selected, since its own pill isn't on the rail. */}
+                {askRail.more.length > 0 && (() => {
+                  const isActive = askRail.more.some(a => selectedAsks.has(a.id));
+                  return (
+                    <button
+                      className={`cat-pill cat-pill-more${isActive ? " on" : ""}`}
+                      data-active={isActive ? "1" : undefined}
+                      aria-haspopup="dialog"
+                      onClick={() => setMoreAsksOpen(true)}
+                    >
+                      <span className="cat-em" aria-hidden="true">{ASK_GLYPH}</span>+{askRail.more.length} more
+                    </button>
+                  );
+                })()}
+
                 {/* Category pills — toggle to filter */}
                 {categories.map(cat => {
                   const isActive = selectedCategories.has(cat.rawName);
@@ -11186,6 +11729,12 @@ function ProvisionsApp({ scrollRootRef }) {
                     </button>
                   );
                 })}
+
+                {askRail.newShelfAt === "end" && (
+                  <button className="cat-pill cat-pill-new" onClick={() => setNewShelfOpen(true)}>
+                    <span className="cat-em">+</span>New shelf
+                  </button>
+                )}
               </div>
             </div>
             )}
@@ -11208,12 +11757,12 @@ function ProvisionsApp({ scrollRootRef }) {
                     with no second clause. */}
                 Showing only{" "}
                 {browseFilterDescriptor.names.length === 1 ? (
-                  <b>{browseFilterDescriptor.names[0]}</b>
+                  <b>{filterNameNode(browseFilterDescriptor.names[0])}</b>
                 ) : browseFilterDescriptor.names.length === 2 ? (
-                  <><b>{browseFilterDescriptor.names[0]}</b> and <b>{browseFilterDescriptor.names[1]}</b></>
+                  <><b>{filterNameNode(browseFilterDescriptor.names[0])}</b> and <b>{filterNameNode(browseFilterDescriptor.names[1])}</b></>
                 ) : (
                   <>
-                    <b>{browseFilterDescriptor.names[0]}</b>, <b>{browseFilterDescriptor.names[1]}</b>
+                    <b>{filterNameNode(browseFilterDescriptor.names[0])}</b>, <b>{filterNameNode(browseFilterDescriptor.names[1])}</b>
                     {" "}and {browseFilterDescriptor.names.length - 2} more
                   </>
                 )}
@@ -11378,8 +11927,11 @@ function ProvisionsApp({ scrollRootRef }) {
               /* ── NORMAL BROWSE MODE ── */
               <>
                 {browsePhase === 2 ? (
-                  /* ── FLAT A–Z (declutter phase 2) ── */
+                  /* ── FLAT A–Z (declutter phase 2) ── an ask stays its own block above A–Z (D-b);
+                     with only asks selected there is no A–Z part at all. */
                   <>
+                    {askBlocksShown.map(renderAskBlock)}
+                    {(categoryBlocks.length > 0 || askBlocksShown.length === 0) && (<>
                     <FlatHeader count={browseFlatItems.length} showCount={!browseFilterDescriptor} />
                     <div className="items-grid">
                       {browseFlatItems.map((item) => {
@@ -11411,24 +11963,24 @@ function ProvisionsApp({ scrollRootRef }) {
                         );
                       })}
                     </div>
+                    </>)}
                   </>
                 ) : (
-                  displayCategories.map((cat) => (
+                  /* ── GROUPED ── the selected asks' blocks first (rail order), then the category
+                     part, which is empty when only asks are selected (D-b). */
+                  <>
+                  {askBlocksShown.map(renderAskBlock)}
+                  {categoryBlocks.map((cat) => (
                   <div className="category-block" key={cat.name}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
-                      <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>{cat.name}</div>
+                    <CategoryHeader title={cat.name}>
                       <button
                         onClick={() => {
                           setNewItemCategory(cat.rawName);
                           setShowAddModal(true);
                         }}
-                        style={{
-                          background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                          fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
-                          letterSpacing: "0.5px", padding: "0",
-                        }}
+                        style={CATEGORY_HEADER_ACTION}
                       >＋ New item</button>
-                    </div>
+                    </CategoryHeader>
                     <div className="items-grid">
                       {cat.items.map((item) => {
                         const qty = qtyFor(item);
@@ -11460,7 +12012,8 @@ function ProvisionsApp({ scrollRootRef }) {
                       })}
                     </div>
                   </div>
-                  ))
+                  ))}
+                  </>
                 )}
                 <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
                   <button
@@ -11470,7 +12023,7 @@ function ProvisionsApp({ scrollRootRef }) {
                       fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
                       letterSpacing: "1px", textDecoration: "underline",
                     }}
-                  >Manage Categories</button>
+                  >{ASK_ENABLED ? "Manage categories & asks" : "Manage categories"}</button>
                 </div>
               </>
             )}
@@ -11641,6 +12194,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   onToggle={() => setTrayOpen(o => !o)}
                   onUncheck={handleShopToggle}
                   initialFor={initialFor}
+                  pickPool={pickPool}
                 />
                 {showPrices && (
                 <div className={`list-total ${overBudget ? "over" : ""}`}>
@@ -11893,6 +12447,85 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       )}
 
+      {/* Running an Ask (SPEC_ask_slice2 C3b) — full screen over the app. onLand throws unless
+          land_ask_picks landed, so the wagon stays held for another That's it!. */}
+      {runAsk && runLive.length > 0 && (
+        <AskRun
+          key={runAsk.id}
+          ask={runAsk}
+          tiles={runTiles}
+          resume={runResume}
+          onLand={async (ids) => {
+            const landed = await landAskPicks(runAsk.id, ids);
+            if (landed == null) throw new Error("not landed");
+          }}
+          onExit={() => setRunAskId(null)}
+        />
+      )}
+
+      {/* "+N more" (C4.2): a row behaves exactly like its pill; the sheet then closes. */}
+      {ASK_ENABLED && moreAsksOpen && (
+        <div className="modal-overlay" onClick={() => setMoreAsksOpen(false)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="More shelves" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "88vh", overflowY: "auto" }}>
+            <MoreAsksSheet
+              asks={askRail.more}
+              selectedAsks={selectedAsks}
+              onToggle={(askId) => { toggleAsk(askId); setMoreAsksOpen(false); }}
+              onNewShelf={askRail.newShelfAt ? () => { setMoreAsksOpen(false); setNewShelfOpen(true); } : null}
+              closeButton={<SheetClose onClose={() => setMoreAsksOpen(false)} />}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* + New shelf (SPEC_ask_slice2 C2; 078 create_ask) */}
+      {ASK_ENABLED && newShelfOpen && (
+        <div className="modal-overlay" onClick={() => setNewShelfOpen(false)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="New shelf" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "88vh", overflowY: "auto" }}>
+            <NewShelfSheet
+              catalogItems={shelfCatalogItems}
+              asks={asks}
+              photoIds={itemPhotoIds}
+              photoUrl={itemPhotoUrl}
+              onPhoto={setItemPhoto}
+              onCreate={createAsk}
+              onClose={() => setNewShelfOpen(false)}
+              closeButton={<SheetClose onClose={() => setNewShelfOpen(false)} />}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Edit Ask {Label} (SPEC_ask_slice4 S4-2): the same sheet in edit mode. Save → update_ask (083). */}
+      {ASK_ENABLED && editAsk && (
+        <div className="modal-overlay" onClick={() => setEditAskId(null)}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Edit shelf" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "88vh", overflowY: "auto" }}>
+            <NewShelfSheet
+              catalogItems={shelfCatalogItems}
+              asks={asks}
+              photoIds={itemPhotoIds}
+              photoUrl={itemPhotoUrl}
+              onPhoto={setItemPhoto}
+              edit={editAsk}
+              onUpdate={async (draft) => {
+                // The growth moment (S4-6): the parent's own move, said once, to the parent. No span.
+                const outcome = saveOutcome(editAsk, draft);
+                const r = await updateAsk(editAsk.id, draft);
+                if (r?.ok) showToast(outcome === "grown"
+                  ? <><span className="op-name">{draft.label.trim()}</span>'s ready for more.</>
+                  : "Saved.");
+                return r;
+              }}
+              onClose={() => setEditAskId(null)}
+              closeButton={<SheetClose onClose={() => setEditAskId(null)} />}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Budget Goal Modal */}
       {showBudgetModal && (
         <div className="modal-overlay" onClick={() => setShowBudgetModal(false)}>
@@ -11932,7 +12565,7 @@ function ProvisionsApp({ scrollRootRef }) {
             <SheetClose onClose={() => setRemoveConfirmItem(null)} />
             <h2>Remove from list?</h2>
             <p className="modal-subtitle">
-              "{removeConfirmItem.name}" was added by {removeConfirmItem.addedByName}. Removing it takes it off the shared list for everyone.
+              "{removeConfirmItem.name}" was {removeConfirmItem.verb} by {removeConfirmItem.byName}. Removing it takes it off the shared list for everyone.
             </p>
             <div className="modal-actions">
               <button className="modal-cancel" onClick={() => setRemoveConfirmItem(null)}>Cancel</button>
@@ -12050,135 +12683,181 @@ function ProvisionsApp({ scrollRootRef }) {
       {/* Manage Categories Modal */}
       {showManageCategoriesModal && (
         <div className="modal-overlay" onClick={() => setShowManageCategoriesModal(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Manage categories" onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label={ASK_ENABLED ? "Manage categories and asks" : "Manage categories"} onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
             <SheetClose onClose={() => setShowManageCategoriesModal(false)} />
-            <h2>Manage Categories</h2>
+            <h2>{ASK_ENABLED ? "Manage categories & asks" : "Manage categories"}</h2>
 
-            {/* Create */}
-            <div className="modal-field">
-              <label className="modal-label">Create New Category</label>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <input
-                  className="modal-input"
-                  placeholder="e.g. Frozen Foods"
-                  value={newCategoryName}
-                  onChange={e => setNewCategoryName(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && createCategory(newCategoryName)}
-                  style={{ flex: 1 }}
-                />
-                <button
-                  className="modal-confirm"
-                  onClick={() => createCategory(newCategoryName)}
-                  style={{ opacity: newCategoryName.trim() ? 1 : 0.5, pointerEvents: newCategoryName.trim() ? "auto" : "none" }}
-                >Create</button>
-              </div>
-            </div>
-
-            {/* Rename */}
-            {isSignedIn && (
-              <div className="modal-field">
-                <label className="modal-label">Rename Category</label>
-                {/* CategorySelect: option values are indexes, never the household's category names (replay, 2026-10-19). */}
-                <CategorySelect
-                  categories={categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName))}
-                  value={renamingCategory || ""}
-                  onChange={rawName => { setRenamingCategory(rawName || null); setRenameValue(rawName); }}
-                  placeholder="— select category —"
-                  style={{ marginBottom: "8px" }}
-                />
-                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
-                  Standard categories (Produce, Dairy, etc.) can't be renamed — only categories you've created.
-                </p>
-                {renamingCategory && (
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <input
-                      className="modal-input"
-                      value={renameValue}
-                      onChange={e => setRenameValue(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && renameCategory(renamingCategory, renameValue)}
-                      style={{ flex: 1 }}
-                    />
-                    <button
-                      className="modal-confirm"
-                      onClick={() => renameCategory(renamingCategory, renameValue)}
-                      style={{ opacity: renameValue.trim() ? 1 : 0.5, pointerEvents: renameValue.trim() ? "auto" : "none" }}
-                    >Rename</button>
-                  </div>
+            {/* Asks (SPEC_ask_slice4 S4-1): one row per live ask — "Ask {Label}" (.op-name), the style
+                word, "pick {n}", the tile count or the grown-up's note (S4-5). A row opens the edit
+                sheet (Manage closes first). "+ New shelf" sits at the end. The rows are text, so the
+                replay rules apply; no label ever sits in an <option> or an aria-label. */}
+            {/* Breathing room under the heading (Dan 2026-11-10): the same gap the sections keep between them. */}
+            {ASK_ENABLED && isSignedIn && household?.id && (
+              <div className="modal-field" style={{ marginTop: "18px" }}>
+                <span className="modal-label" id="manage-asks">Asks</span>
+                {asks.length === 0 && (
+                  <p className="picker-sub" style={{ margin: "0 0 8px" }}>A shelf of things someone can pick for the list. They don't need an account.</p>
                 )}
-              </div>
-            )}
-
-            {/* Delete */}
-            {isSignedIn && (
-              <div className="modal-field">
-                <label className="modal-label">Delete Category</label>
-                <CategorySelect
-                  categories={categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName))}
-                  value={deletingCategory?.rawName || ""}
-                  onChange={rawName => {
-                    if (!rawName) { setDeletingCategory(null); return; }
-                    const itemCount = Object.values(catalogMap).filter(i => i.category === rawName).length;
-                    setDeletingCategory({ rawName, itemCount });
-                    // The move picker is required: preselected, no "delete all items" choice.
-                    setDeleteMoveTarget(itemCount > 0 ? defaultMoveTarget(categories, rawName, CATEGORY_ORDER) : "");
-                  }}
-                  placeholder="— select category —"
-                  style={{ marginBottom: "8px" }}
-                />
-                <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", color: "#8A5F3A", marginTop: "6px", fontStyle: "italic" }}>
-                  Standard categories can’t be deleted — only categories you’ve created.
-                </p>
-                {deletingCategory && (
-                  <>
-                    {deletingCategory.itemCount > 0 && (
-                      <>
-                        <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#8a7a60", marginBottom: "8px" }}>
-                          {deletingCategory.itemCount} item{deletingCategory.itemCount !== 1 ? "s" : ""} in this category. Move them to:
-                        </div>
-                        <CategorySelect
-                          categories={categories.filter(c => c.rawName !== deletingCategory.rawName)}
-                          value={deleteMoveTarget}
-                          onChange={rawName => setDeleteMoveTarget(rawName)}
-                          style={{ marginBottom: "8px" }}
-                        />
-                      </>
-                    )}
-                    <button
-                      className="modal-remove"
-                      disabled={deletingCategory.itemCount > 0 && !deleteMoveTarget}
-                      onClick={() => deleteCategory(deletingCategory.rawName, deleteMoveTarget || null)}
-                    >
-                      {deleteCategoryLabel(deletingCategory.itemCount)}
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-
-            {isSignedIn && (
-              <div style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
-                <div style={{ fontFamily: "'Lato', sans-serif", fontSize: "12.5px", letterSpacing: "2px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "8px" }}>Danger Zone</div>
-                {!showResetConfirm ? (
-                  <button
-                    onClick={() => setShowResetConfirm(true)}
-                    style={{ background: "none", border: "none", fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#c0392b", cursor: "pointer", padding: 0, textDecoration: "underline" }}
-                  >Restore default categories</button>
-                ) : (
-                  <div>
-                    <p style={{ fontFamily: "'Lato', sans-serif", fontSize: "12px", color: "#2C1A0E", marginBottom: "10px" }}>
-                      This will remove all custom categories and items you've created, and restore the original catalog. Items from the standard catalog on your current list will not be affected.
-                    </p>
-                    <div style={{ display: "flex", gap: "8px" }}>
-                      <button onClick={() => setShowResetConfirm(false)} className="modal-cancel" style={{ fontSize: "12px" }}>Cancel</button>
-                      <button onClick={handleResetCategories} style={{ background: "#c0392b", color: "white", border: "none", borderRadius: "4px", padding: "6px 12px", fontFamily: "'Lato', sans-serif", fontSize: "12px", cursor: "pointer" }}>Yes, restore defaults</button>
+                <div role="list" aria-labelledby="manage-asks">
+                  {asks.map(a => { const row = manageRow(a); return (
+                    <div key={row.id} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
+                      <button type="button" onClick={() => openEditAsk(row.id)} aria-label="Edit this ask"
+                        style={{
+                          flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
+                          padding: "10px 4px", border: "none", background: "transparent",
+                          fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer",
+                        }}>
+                        <span style={{ fontSize: "0.95rem", fontWeight: 700 }}>Ask <span className="op-name">{row.label}</span></span>
+                        <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>
+                          {row.style} · {row.pick} · {row.shelf}{row.short ? " · Edit" : ""}
+                        </span>
+                      </button>
+                      {/* The trash (Dan 2026-11-10): a 44 px target at the row's right end. */}
+                      <button type="button" aria-label="Delete this ask" onClick={() => { setDeleteAskFailed(false); setDeleteAskId(row.id); }}
+                        style={{ flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                        </svg>
+                      </button>
                     </div>
+                  ); })}
+                </div>
+                <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }}
+                  onClick={() => { setShowManageCategoriesModal(false); setNewShelfOpen(true); }}>
+                  <span className="cat-em">+</span>New shelf
+                </button>
+              </div>
+            )}
+
+            {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a tap on the
+                row turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
+                centred confirmation with the required move-items picker (Pantry preselected; never
+                deletes items). Standard categories are not listed, and nothing says so (Dan 2026-11-10).
+                "+ New category" at the end. The
+                rows are text: no category name in an <option> value or an aria-label (replay, 2026-10-19). */}
+            {isSignedIn && (
+              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+                <span className="modal-label" id="manage-categories">Categories</span>
+                {categoryError && (
+                  <div className="modal-error" role="alert" style={{ margin: "0 0 8px" }}>{categoryError}</div>
+                )}
+                <div role="list" aria-labelledby="manage-categories">
+                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => {
+                    const n = cat.items.length;
+                    const renaming = renamingCategory === cat.rawName;
+                    const iconButton = { flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" };
+                    return (
+                      <div key={cat.rawName} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
+                        {renaming ? (
+                          <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", gap: "6px", alignItems: "center", padding: "6px 0" }}>
+                            <input className="modal-input" aria-label="Category name" value={renameValue} autoFocus
+                              onChange={e => setRenameValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") renameCategory(cat.rawName, renameValue); if (e.key === "Escape") setRenamingCategory(null); }}
+                              style={{ flex: 1, minWidth: 0 }} />
+                            <button className="modal-confirm" onClick={() => renameCategory(cat.rawName, renameValue)}
+                              disabled={!renameValue.trim() || renameValue.trim() === cat.rawName}
+                              style={{ opacity: renameValue.trim() && renameValue.trim() !== cat.rawName ? 1 : 0.5 }}>Save</button>
+                            <button className="modal-cancel" onClick={() => setRenamingCategory(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          <>
+                            {/* The row itself opens the rename (Dan 2026-11-10): tap to edit, trash to delete, as the ask rows. */}
+                            <button type="button" aria-label="Rename this category" onClick={() => { setRenamingCategory(cat.rawName); setRenameValue(cat.rawName); }}
+                              style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
+                                padding: "10px 4px", border: "none", background: "transparent", fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer" }}>
+                              <span style={{ fontSize: "0.95rem", fontWeight: 700, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
+                              <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>{categoryCountText(n)}</span>
+                            </button>
+                            <button type="button" aria-label="Delete this category" style={iconButton}
+                              onClick={() => {
+                                setDeletingCategory({ rawName: cat.rawName, name: cat.name, itemCount: n });
+                                // The move picker is required: preselected, no "delete all items" choice.
+                                setDeleteMoveTarget(n > 0 ? defaultMoveTarget(categories, cat.rawName, CATEGORY_ORDER) : "");
+                              }}>
+                              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                              </svg>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {newCategoryOpen ? (
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "10px" }}>
+                    <input className="modal-input" aria-label="New category name" placeholder="e.g. Frozen Foods" value={newCategoryName} autoFocus
+                      onChange={e => setNewCategoryName(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && newCategoryName.trim()) { createCategory(newCategoryName); setNewCategoryOpen(false); } if (e.key === "Escape") { setNewCategoryOpen(false); setNewCategoryName(""); } }}
+                      style={{ flex: 1, minWidth: 0 }} />
+                    <button className="modal-confirm" disabled={!newCategoryName.trim()} style={{ opacity: newCategoryName.trim() ? 1 : 0.5 }}
+                      onClick={() => { createCategory(newCategoryName); setNewCategoryOpen(false); }}>Create</button>
+                    <button className="modal-cancel" onClick={() => { setNewCategoryOpen(false); setNewCategoryName(""); }}>Cancel</button>
                   </div>
+                ) : (
+                  <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={() => setNewCategoryOpen(true)}>
+                    <span className="cat-em">+</span>New category
+                  </button>
                 )}
               </div>
             )}
 
             <div className="modal-actions">
-              <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setShowResetConfirm(false); }}>Done</button>
+              <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setRenamingCategory(null); setNewCategoryOpen(false); }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Ask {Label} (S4-2): a centred confirmation over Manage. Rendered AFTER the Manage
+          modal in the tree AND one layer above it (z 110 over .modal-overlay's 100) — the first
+          build had it before Manage, same z, so it opened behind (Dan's walk, 2026-11-11). Short
+          enough to show whole without scrolling. */}
+      {ASK_ENABLED && deleteAskId && (() => { const a = asks.find(x => x.id === deleteAskId); return a ? (
+        <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => { if (!deleteAskBusy) setDeleteAskId(null); }}>
+          <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-ask-title" onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "360px", margin: "auto" }}>
+            <h2 id="delete-ask-title">Delete Ask <span className="op-name">{a.label}</span>?</h2>
+            <p className="modal-subtitle">Anything <span className="op-name">{a.label}</span> already picked stays on the list.</p>
+            {deleteAskFailed && (
+              <div className="modal-error" role="alert" style={{ margin: "0 0 10px" }}>Couldn't delete the shelf. Check your connection and try again.</div>
+            )}
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setDeleteAskId(null)} disabled={deleteAskBusy}>Keep it</button>
+              <button className="modal-remove" onClick={confirmDeleteAsk} disabled={deleteAskBusy}>{deleteAskBusy ? "Deleting…" : "Delete"}</button>
+            </div>
+          </div>
+        </div>
+      ) : null; })()}
+
+      {/* Delete a category (Dan, 2026-11-10): the centred confirmation over Manage, with the required
+          move-items picker (deleteCategory.js: never deletes items). After Manage in the tree and
+          one layer above it, like the ask's. */}
+      {deletingCategory && (
+        <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => setDeletingCategory(null)}>
+          <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title" onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: "360px", margin: "auto" }}>
+            <h2 id="delete-category-title">Delete {deletingCategory.name}?</h2>
+            {deletingCategory.itemCount > 0 ? (
+              <>
+                <p className="modal-subtitle">{categoryCountText(deletingCategory.itemCount)} in it. Move them to:</p>
+                {/* CategorySelect: option values are indexes, never the household's category names (replay, 2026-10-19). */}
+                <CategorySelect
+                  categories={categories.filter(c => c.rawName !== deletingCategory.rawName)}
+                  value={deleteMoveTarget}
+                  onChange={rawName => setDeleteMoveTarget(rawName)}
+                  style={{ marginBottom: "12px" }}
+                />
+              </>
+            ) : (
+              <p className="modal-subtitle">Nothing in it.</p>
+            )}
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setDeletingCategory(null)}>Keep it</button>
+              <button className="modal-remove" disabled={deletingCategory.itemCount > 0 && !deleteMoveTarget}
+                onClick={() => deleteCategory(deletingCategory.rawName, deleteMoveTarget || null)}>
+                {deleteCategoryLabel(deletingCategory.itemCount)}
+              </button>
             </div>
           </div>
         </div>
@@ -12394,7 +13073,7 @@ function ProvisionsApp({ scrollRootRef }) {
             {/* Sign out */}
             <div style={{ height: "0.5px", background: "#e8ddd0", margin: "0 20px" }} />
             <button
-              onClick={() => { markDeliberateSignOut(); signOut(() => setShowProfileSheet(false)); }}
+              onClick={() => { markDeliberateSignOut(); storeHeldAsk(null); signOut(() => setShowProfileSheet(false)); }}
               style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", width: "100%" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>

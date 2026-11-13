@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan — This Week · Meals switch</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Lato:wght@400;700&display=swap">
+<style>
+  :root{--cream:#FBF4EE;--espresso:#1C0F08;--ink:#2A170C;--brown:#6E5A47;--muted:#8C7660;--clay:#A0714A;--sand:#D9BD8C;--sandfill:#EFE6D6;--line:#EADCC6;--gold:#C9A877;--helm:#2E1E14}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#E9E1D8;font-family:Lato,sans-serif;color:var(--ink);padding:40px 24px}
+  h2.page{font-family:'Playfair Display',serif;font-size:28px;margin-bottom:6px}
+  p.lede{color:var(--brown);margin-bottom:28px;max-width:760px}
+  .row{display:flex;gap:40px;flex-wrap:wrap}
+  .cap{font-size:13px;color:var(--brown);margin:12px 4px 0;max-width:390px;line-height:1.45}
+  .cap b{color:var(--ink)}
+  .phone{width:390px;height:844px;position:relative;overflow:hidden;background:var(--cream);border-radius:28px;box-shadow:0 12px 40px rgba(28,15,8,.18)}
+  .banner{height:64px;background:var(--espresso);display:flex;align-items:center;justify-content:space-between;padding:0 16px}
+  .av{width:40px;height:40px;border-radius:20px;background:#12978A;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}
+  .hh{color:var(--gold);letter-spacing:.12em;font-size:15px}
+  .dots{color:var(--gold);font-size:22px}
+  .body{padding:30px 16px 0;display:flex;flex-direction:column;gap:18px}
+  /* THE CONTROL ROW — title switch + its add button. controlRowRef lives here. */
+  .ctl{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  .ctl .titles{display:flex;flex-direction:column;gap:8px}
+  .switch{display:flex;gap:18px;font-family:'Playfair Display',serif;font-size:26px;line-height:1.15}
+  .switch a{text-decoration:none;color:var(--muted);padding-bottom:2px;border-bottom:3px solid transparent}
+  .switch a[aria-current=page]{color:var(--ink);border-bottom-color:var(--clay)}
+  .sub{font-size:14px;color:var(--brown)}
+  .sub a{color:var(--ink);font-weight:700}
+  .btn-add{height:44px;padding:0 18px;border-radius:999px;background:var(--sand);color:var(--espresso);font-weight:700;font-size:15px;border:0;white-space:nowrap}
+  .btn-new{height:44px;padding:0 18px;border-radius:999px;background:var(--brown);color:#fff;font-weight:700;font-size:15px;border:0;white-space:nowrap}
+  .ctl.meals{margin-bottom:2px}
+  /* board */
+  .card{display:flex;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 3px rgba(42,23,12,.08)}
+  .num{width:64px;padding:10px;color:#FBF4EE}
+  .num b{display:block;font-family:'Playfair Display',serif;font-size:24px}
+  .num span{font-size:9px;letter-spacing:.12em}
+  .cbody{flex:1;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+  .name{font-family:'Playfair Display',serif;font-size:18px}
+  .meta{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--brown)}
+  .pill-o{height:44px;padding:0 14px;border-radius:999px;border:2px solid var(--brown);background:none;font-weight:700;font-size:14px;color:var(--ink)}
+  .held{display:flex;background:#F5ECE1;border:2px dashed var(--sand);border-radius:16px}
+  /* library */
+  .search{display:flex;gap:10px}
+  .search label{flex:1;height:48px;border-radius:14px;border:2px solid #E5D3B8;background:#F5ECE1;display:flex;align-items:center;padding:0 14px;color:var(--brown);font-size:15px}
+  .search button{width:48px;height:48px;border-radius:14px;border:2px solid #E5D3B8;background:#FFFBF6}
+  .rail{display:flex;gap:8px;overflow:hidden}
+  .rail button{height:44px;padding:0 18px;border-radius:999px;border:2px solid #E5D3B8;background:#FFFBF6;font-weight:700;font-size:15px;color:var(--ink)}
+  .rail button.on{background:var(--brown);border-color:var(--brown);color:#fff}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .lc{border:2px solid var(--line);border-radius:16px;overflow:hidden;background:#FFFBF6}
+  .lc .top{height:104px;padding:12px 14px}
+  .lc .occ{font-size:11px;letter-spacing:.14em;font-weight:700}
+  .lc .nm{font-family:'Playfair Display',serif;font-size:21px;margin-top:4px}
+  .lc .bot{padding:10px;display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--brown)}
+  .t-clay{background:var(--clay);color:var(--espresso)}
+  .t-brown{background:var(--brown);color:#fff}
+  .done{height:44px;padding:0 10px;border-radius:999px;border:0;background:var(--sandfill);font-weight:700;font-size:13px;color:var(--ink);white-space:nowrap}
+  .plan{height:44px;padding:0 16px;border-radius:999px;border:2px solid var(--brown);background:none;font-weight:700;font-size:14px;color:var(--ink)}
+  /* helm */
+  .fade{position:absolute;left:0;right:0;bottom:0;height:90px;background:linear-gradient(rgba(251,244,238,0),var(--cream))}
+  .helm{position:absolute;left:24px;right:24px;bottom:24px;height:56px;border-radius:28px;background:var(--helm);display:flex;align-items:center;justify-content:space-around;padding:0 6px}
+  .helm .d{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;letter-spacing:.12em;color:var(--gold);padding:6px 10px;border-radius:22px}
+  .helm .d.on{background:#43301F;color:#FBF4EE}
+  .helm.compact{left:52px;right:52px;height:44px;border-radius:22px;justify-content:flex-start;gap:0}
+  .helm.compact .d{flex:1;font-size:0;gap:0;padding:4px}
+  .helm .plus{display:none}
+  .helm.compact .plus{display:flex;align-items:center;gap:8px;padding-right:6px}
+  .helm.compact .plus i{width:1px;height:24px;background:var(--sand);opacity:.5}
+  .helm.compact .plus button{width:32px;height:32px;border-radius:16px;border:0;background:var(--cream);color:var(--espresso);font-size:20px;font-weight:700;line-height:1}
+  .tap{position:absolute;border:2px dashed #12978A;border-radius:12px;pointer-events:none}
+  .tag{position:absolute;background:#12978A;color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+</style>
+</head>
+<body>
+<h2 class="page">Plan — This Week · Meals</h2>
+<p class="lede">Mockup of record for <code>SPEC_plan_week_meals_switch.md</code>. Two views of one planning activity: the title row is the switch. Teal dashed outlines are annotations, not UI.</p>
+
+<div class="row">
+
+<!-- 1 · THIS WEEK, at rest -->
+<div>
+<div class="phone">
+  <div class="banner"><div class="av">DT</div><div class="hh">⚓ HOME WALK ⚓</div><div class="dots">•••</div></div>
+  <div class="body">
+    <div class="ctl">
+      <div class="titles">
+        <div class="switch" role="navigation" aria-label="Plan views"><a href="#" aria-current="page">This Week</a><a href="#">Meals</a></div>
+        <div class="sub">4 nights · 3 meals to <a href="#">add to Shop →</a></div>
+      </div>
+      <button class="btn-add" aria-label="Add a meal to this week">+ Add</button>
+    </div>
+    <div class="card"><div class="num" style="background:#6E5A47"><b>01</b><span>UP NEXT</span></div><div class="cbody"><div class="name">Ground Beef Tacos</div><div class="meta">Not on the list yet<button class="pill-o">Add to Shop</button></div></div></div>
+    <div class="held"><div class="num" style="color:#6E5A47;width:60px"><b>02</b><span>LEFTOVERS</span></div><div class="cbody"><div class="name">Leftovers</div><div class="meta">From Ground Beef Tacos</div></div></div>
+    <div class="card"><div class="num" style="background:#A0714A;color:#1C0F08"><b>03</b><span>THEN</span></div><div class="cbody"><div class="name">Quick Tomato Soup</div><div class="meta">Not on the list yet<button class="pill-o">Add to Shop</button></div></div></div>
+    <div class="card"><div class="num" style="background:#A0714A;color:#1C0F08"><b>04</b><span>LATER</span></div><div class="cbody"><div class="name">PB &amp; J</div><div class="meta">Not on the list yet<button class="pill-o">Add to Shop</button></div></div></div>
+  </div>
+  <div class="tap" style="left:10px;top:84px;width:370px;height:80px"></div>
+  <div class="tag" style="left:200px;top:70px">controlRowRef</div>
+  <div class="fade"></div>
+  <nav class="helm"><div class="d">⌂<span>HOME</span></div><div class="d on">☀<span>PLAN</span></div><div class="d">▦<span>BROWSE</span></div><div class="d">◡<span>SHOP</span></div></nav>
+</div>
+<p class="cap"><b>1 · This Week, at rest.</b> Plan opens here. Active title dark + 3px clay underline (word width); inactive muted <code>#8C7660</code>. Subtitle unchanged. <b>+ Add</b> (sand, <code>--op-add</code>) → switches to Meals. Hold a night stays below the board.</p>
+</div>
+
+<!-- 2 · MEALS, at rest -->
+<div>
+<div class="phone">
+  <div class="banner"><div class="av">DT</div><div class="hh">⚓ HOME WALK ⚓</div><div class="dots">•••</div></div>
+  <div class="body" style="gap:14px">
+    <div class="ctl meals">
+      <div class="titles">
+        <div class="switch" role="navigation" aria-label="Plan views"><a href="#">This Week</a><a href="#" aria-current="page">Meals</a></div>
+        <div class="sub">What sounds good? · 7 meals</div>
+      </div>
+      <button class="btn-new" aria-label="Create a new meal">+ New</button>
+    </div>
+    <div class="search"><label>Search your meals…</label><button aria-label="Filter">⏷</button></div>
+    <div class="rail"><button class="on">All</button><button>Dinner</button><button>Lunch</button><button>Snacks</button></div>
+    <div class="grid">
+      <div class="lc"><div class="top t-clay"><div class="occ">LUNCH</div><div class="nm">Quick Tomato Soup</div></div><div class="bot">8 ingr.<button class="done" disabled>✓ This week</button></div></div>
+      <div class="lc"><div class="top t-clay"><div class="occ">LUNCH</div><div class="nm">PB &amp; J</div></div><div class="bot">3 ingr.<button class="done" disabled>✓ This week</button></div></div>
+      <div class="lc"><div class="top t-brown"><div class="occ">DINNER</div><div class="nm">Ground Beef Tacos</div></div><div class="bot">11 ingr.<button class="done" disabled>✓ This week</button></div></div>
+      <div class="lc"><div class="top t-brown"><div class="occ">DESSERT</div><div class="nm">Apples Cut Up</div></div><div class="bot">1 ingr.<button class="plan">Plan</button></div></div>
+    </div>
+  </div>
+  <div class="tap" style="left:10px;top:84px;width:370px;height:80px"></div>
+  <div class="tag" style="left:200px;top:70px">controlRowRef</div>
+  <div class="fade"></div>
+  <nav class="helm"><div class="d">⌂<span>HOME</span></div><div class="d on">☀<span>PLAN</span></div><div class="d">▦<span>BROWSE</span></div><div class="d">◡<span>SHOP</span></div></nav>
+</div>
+<p class="cap"><b>2 · Meals, at rest.</b> "What sounds good?" moves into the subtitle with the library count. <b>+ New</b> → the New Meal sheet, unchanged. ~20px from subtitle to search. Planned cards read <b>✓ This week</b>; tapping <b>Plan</b> flips the card in place and <b>stays on Meals</b>.</p>
+</div>
+
+<!-- 3 · MEALS, scrolled: compact helm -->
+<div>
+<div class="phone">
+  <div class="body" style="padding-top:16px;gap:12px">
+    <div class="grid">
+      <div class="lc"><div class="top t-brown"><div class="occ">DESSERT</div><div class="nm">Apples Cut Up</div></div><div class="bot">1 ingr.<button class="done" disabled>✓ This week</button></div></div>
+      <div class="lc"><div class="top t-brown"><div class="occ">&nbsp;</div><div class="nm">Test Meal C</div></div><div class="bot">0 ingr.<button class="plan">Plan</button></div></div>
+      <div class="lc"><div class="top t-brown"><div class="occ">&nbsp;</div><div class="nm">Test Meal B</div></div><div class="bot">3 ingr.<button class="plan">Plan</button></div></div>
+      <div class="lc"><div class="top t-brown"><div class="occ">&nbsp;</div><div class="nm">Test Meal</div></div><div class="bot">0 ingr.<button class="plan">Plan</button></div></div>
+      <div class="lc"><div class="top t-clay"><div class="occ">LUNCH</div><div class="nm">Quick Tomato Soup</div></div><div class="bot">8 ingr.<button class="done" disabled>✓ This week</button></div></div>
+      <div class="lc"><div class="top t-clay"><div class="occ">LUNCH</div><div class="nm">PB &amp; J</div></div><div class="bot">3 ingr.<button class="done" disabled>✓ This week</button></div></div>
+      <div class="lc"><div class="top t-brown"><div class="occ">DINNER</div><div class="nm">Ground Beef Tacos</div></div><div class="bot">11 ingr.<button class="done" disabled>✓ This week</button></div></div>
+    </div>
+  </div>
+  <div class="fade"></div>
+  <nav class="helm compact"><div class="d">⌂<span>HOME</span></div><div class="d on">☀<span>PLAN</span></div><div class="d">▦<span>BROWSE</span></div><div class="d">◡<span>SHOP</span></div><div class="plus"><i></i><button aria-label="Create a new meal">+</button></div></nav>
+  <div class="tap" style="left:96px;top:774px;width:58px;height:50px"></div>
+  <div class="tag" style="left:66px;top:744px">tap → This Week</div>
+  <div class="tap" style="left:290px;top:774px;width:50px;height:50px"></div>
+  <div class="tag" style="left:236px;top:744px">doorAdd → New meal</div>
+</div>
+<p class="cap"><b>3 · Meals, scrolled.</b> Title row off-screen → Helm compacts (existing v2 rule) and shows the door's +. On Meals it runs <b>New meal</b>; on This Week it runs <b>Add</b> (→ Meals). Tapping <b>PLAN</b> while already on Plan returns to This Week at the top — the way back when the switch is out of reach.</p>
+</div>
+
+</div>
+</body>
+</html>

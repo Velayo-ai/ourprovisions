@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Phase A: gift preview card + give flow</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,600&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --espresso:#2C1A0E; --cream:#FAF4EC; --paper:#FBF7F0; --clay:#A0724A; --sand:#C9A97A;
+  --sand-row:#E8D5B7; --teal:#0D9488; --teal-deep:#0b7f76; --muted:#8a7a60; --ink-soft:#6f5a45;
+  --hairline:#E3D4BC; --warn:#9a4a1e;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#e8e2d8;font-family:Lato,sans-serif;color:var(--espresso);padding:28px 14px 70px;}
+h1{font-family:'Playfair Display',serif;font-size:24px;text-align:center;}
+.sub{text-align:center;font-size:13px;color:var(--ink-soft);margin:6px auto 0;max-width:640px;line-height:1.5;}
+.group{margin:40px auto 0;max-width:1500px;}
+.group-title{font-size:12px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--clay);text-align:center;margin-bottom:18px;}
+.row{display:flex;flex-wrap:wrap;justify-content:center;gap:30px;}
+.col{display:flex;flex-direction:column;align-items:center;gap:10px;width:320px;}
+.label{font-size:11px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--clay);}
+.note{font-size:12px;color:var(--ink-soft);line-height:1.55;text-align:left;width:300px;}
+.note b{color:var(--espresso);}
+.device{width:320px;background:linear-gradient(160deg,#2a2a2c,#0b0b0d 42%,#000);border-radius:44px;padding:11px;box-shadow:0 30px 60px -20px rgba(0,0,0,.55);}
+.phone{background:var(--paper);border-radius:33px;overflow:hidden;position:relative;height:640px;}
+
+/* ---- public page chrome ---- */
+.pbar{height:56px;background:var(--espresso);display:flex;align-items:center;justify-content:center;}
+.wordmark{font-family:'Playfair Display',serif;font-style:italic;color:var(--sand);font-size:18px;}
+.pbody{padding:20px 18px;}
+.eyebrow{font-size:10.5px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;color:var(--clay);margin:4px 2px 12px;}
+.card{background:#fff;border:1px solid var(--hairline);border-radius:16px;overflow:hidden;box-shadow:0 6px 18px -10px rgba(44,26,14,.25);}
+.photo{height:190px;position:relative;
+  background:
+   radial-gradient(60% 45% at 50% 55%, #f3c46b 0%, #d9973a 45%, transparent 70%),
+   radial-gradient(30% 20% at 72% 40%, #7a9a4a 0%, transparent 70%),
+   linear-gradient(160deg,#6b4a2e,#3a2414);}
+.photo .rb{position:absolute;right:8px;bottom:8px;font-size:9px;font-weight:700;letter-spacing:.08em;color:rgba(250,244,236,.8);
+  background:rgba(44,26,14,.45);padding:3px 6px;border-radius:6px;}
+.noph{height:84px;background:var(--sand-row);display:flex;align-items:center;justify-content:center;}
+.plate{width:46px;height:46px;border-radius:50%;border:2px solid var(--clay);display:flex;align-items:center;justify-content:center;}
+.plate::after{content:"";width:26px;height:26px;border-radius:50%;border:1.5px solid rgba(160,114,74,.55);}
+.cbody{padding:14px 16px 16px;}
+.title{font-family:'Playfair Display',serif;font-weight:700;font-size:21px;line-height:1.2;}
+.from{font-size:13px;color:var(--ink-soft);margin-top:6px;}
+.meta{display:inline-block;margin-top:10px;font-size:11px;font-weight:700;color:var(--clay);background:var(--cream);border:1px solid var(--hairline);padding:4px 9px;border-radius:12px;}
+.cta{display:block;width:100%;margin-top:18px;background:var(--teal);color:#fff;font-weight:900;font-size:15px;letter-spacing:.02em;
+  border:0;border-radius:12px;padding:14px;text-align:center;}
+.cta.dis{background:#9cc9c4;}
+.after{font-size:12px;color:var(--ink-soft);text-align:center;margin-top:9px;line-height:1.5;}
+.signin{font-size:12.5px;text-align:center;margin-top:14px;color:var(--ink-soft);}
+.signin a{color:var(--teal);font-weight:700;text-decoration:none;}
+.pfoot{position:absolute;left:0;right:0;bottom:0;padding:14px 22px 22px;border-top:1px solid var(--hairline);font-size:11.5px;color:var(--muted);text-align:center;line-height:1.5;background:var(--paper);}
+.pfoot b{color:var(--espresso);font-family:'Playfair Display',serif;font-style:italic;font-weight:600;}
+
+.dead{padding:70px 26px 0;text-align:center;}
+.dead .plate{margin:0 auto 22px;width:64px;height:64px;opacity:.6;}
+.dead .plate::after{width:36px;height:36px;}
+.dead h2{font-family:'Playfair Display',serif;font-size:22px;}
+.dead p{font-size:13.5px;color:var(--ink-soft);margin-top:8px;}
+.ghost{display:inline-block;margin-top:24px;font-size:13px;font-weight:700;color:var(--teal);border:1.5px solid var(--teal);border-radius:12px;padding:10px 18px;}
+
+/* ---- in-app behind + sheet ---- */
+.behind{position:absolute;inset:0;background:var(--paper);}
+.abar{height:56px;background:var(--espresso);display:flex;align-items:center;padding:0 18px;}
+.abar .wordmark{font-size:16px;}
+.tabs{display:flex;background:var(--espresso);border-bottom:3px solid #c8973a;}
+.tabs div{flex:1;text-align:center;font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:var(--sand);padding:7px 0 9px;}
+.tabs .on{color:var(--cream);}
+.ghostgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:16px;}
+.ghostgrid div{height:150px;border-radius:12px;background:#fff;border:1px solid var(--hairline);}
+.scrim{position:absolute;inset:0;background:rgba(20,12,6,.45);}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--paper);border-radius:20px 20px 0 0;padding:10px 18px 22px;box-shadow:0 -10px 30px rgba(0,0,0,.18);}
+.grab{width:38px;height:4px;border-radius:2px;background:var(--hairline);margin:0 auto 12px;}
+.shead{display:flex;justify-content:space-between;align-items:center;}
+.skicker{font-size:10.5px;font-weight:900;letter-spacing:.18em;text-transform:uppercase;color:var(--clay);}
+.x{font-size:20px;color:var(--muted);line-height:1;}
+.sname{font-family:'Playfair Display',serif;font-weight:700;font-size:20px;line-height:1.2;margin-top:6px;}
+.prow{display:flex;gap:12px;align-items:center;margin-top:14px;padding:10px;border:1px solid var(--hairline);border-radius:12px;background:#fff;}
+.thumb{width:54px;height:54px;border-radius:9px;flex:none;
+  background:radial-gradient(60% 45% at 50% 55%, #f3c46b 0%, #d9973a 45%, transparent 70%),linear-gradient(160deg,#6b4a2e,#3a2414);position:relative;}
+.thumb.empty{background:var(--cream);border:1.5px dashed var(--sand);}
+.thumb .sc{position:absolute;left:-4px;top:-6px;font-size:8.5px;font-weight:900;letter-spacing:.06em;background:var(--teal);color:#fff;padding:2px 5px;border-radius:6px;}
+.ptext{font-size:12.5px;line-height:1.45;color:var(--ink-soft);}
+.ptext b{display:block;color:var(--espresso);font-size:13px;margin-bottom:1px;}
+.ptext a{color:var(--teal);font-weight:700;text-decoration:none;}
+.flabel{font-size:12px;font-weight:700;margin:16px 2px 6px;}
+.flabel span{font-weight:400;color:var(--muted);}
+.ta{height:74px;border:1px solid var(--hairline);border-radius:10px;background:#fff;padding:10px 12px;font-family:'Playfair Display',serif;font-style:italic;font-size:14px;color:#b7a589;}
+.ta.filled{color:var(--espresso);}
+.count{text-align:right;font-size:10.5px;color:var(--muted);margin-top:4px;}
+.fine{font-size:11.5px;color:var(--muted);text-align:center;margin-top:10px;line-height:1.45;}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.5);border-top-color:#fff;border-radius:50%;vertical-align:-2px;margin-right:8px;}
+.steps{margin-top:14px;font-size:12.5px;color:var(--ink-soft);line-height:2;}
+.steps .ok{color:var(--teal);font-weight:900;margin-right:6px;}
+.steps .on{color:var(--espresso);font-weight:700;}
+.steps .dot{display:inline-block;width:12px;margin-right:6px;color:var(--sand);}
+.mini{display:flex;gap:11px;align-items:center;margin-top:14px;border:1px solid var(--hairline);border-radius:12px;background:#fff;padding:10px;}
+.mini .t{font-family:'Playfair Display',serif;font-weight:700;font-size:14.5px;line-height:1.2;}
+.mini .m{font-size:11.5px;color:var(--ink-soft);margin-top:3px;}
+.mini-cap{font-size:10.5px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-top:14px;}
+.warnline{margin-top:12px;font-size:12.5px;color:var(--warn);background:#fbeee3;border:1px solid #efd2bc;border-radius:10px;padding:9px 11px;}
+.link2{display:block;text-align:center;margin-top:12px;font-size:13px;font-weight:700;color:var(--teal);}
+</style>
+</head>
+<body>
+
+<h1>Phase A — the gift preview card and the give flow</h1>
+<p class="sub">Design chat 2026-10-29. Frames A1–A3: what a <b>signed-out</b> visitor sees at <code>/g/{CODE}</code> (S43). Frames B1–B5: the giver's sheet, from ⋯ → <b>Give this meal</b> through the photo copy (S34, S44) to the share sheet. A signed-in recipient skips A and lands straight in the prefilled New Meal form (10-07 frame 6, unchanged).</p>
+
+<!-- ================= A ================= -->
+<div class="group">
+<div class="group-title">A · The preview card (signed out)</div>
+<div class="row">
+
+<div class="col">
+  <div class="label">A1 · Live gift, with photo</div>
+  <div class="device"><div class="phone">
+    <div class="pbar"><span class="wordmark">OurProvisions</span></div>
+    <div class="pbody">
+      <div class="eyebrow">A meal, given to you</div>
+      <div class="card">
+        <div class="photo"><span class="rb">replay-blocked</span></div>
+        <div class="cbody">
+          <div class="title">Famous Grilled Cheese &amp; Pickle</div>
+          <div class="from">From Easton</div>
+          <span class="meta">7 ingredients</span>
+        </div>
+      </div>
+      <div class="cta">Add to our meals</div>
+      <div class="after">You'll make a free account, then it's your copy to change.</div>
+      <div class="signin">Already on OurProvisions? <a href="#">Sign in</a></div>
+    </div>
+    <div class="pfoot"><b>OurProvisions</b> keeps a household's meals and shopping list in one place.</div>
+  </div></div>
+  <div class="note"><b>Exactly the five S43 fields.</b> Title, From, count, photo. No giver name, no note, no steps or ingredient names. The recipe itself arrives in their kitchen.<br><br><b>From</b> = <code>attribution</code>, never possessive. If it's empty, the line is left out (it's never "From Andrew").<br><br>The photo is signed on the client from <code>gift-photos/{gift_id}/view.webp</code>. It uses <code>.op-photo</code> + <code>.op-replay-block</code>, and the title is masked.</div>
+</div>
+
+<div class="col">
+  <div class="label">A2 · Live gift, no photo</div>
+  <div class="device"><div class="phone">
+    <div class="pbar"><span class="wordmark">OurProvisions</span></div>
+    <div class="pbody">
+      <div class="eyebrow">A meal, given to you</div>
+      <div class="card">
+        <div class="noph"><div class="plate"></div></div>
+        <div class="cbody">
+          <div class="title">Grandma Phyllis's Molasses Cookies</div>
+          <span class="meta">12 ingredients</span>
+        </div>
+      </div>
+      <div class="cta">Add to our meals</div>
+      <div class="after">You'll make a free account, then it's your copy to change.</div>
+      <div class="signin">Already on OurProvisions? <a href="#">Sign in</a></div>
+    </div>
+    <div class="pfoot"><b>OurProvisions</b> keeps a household's meals and shopping list in one place.</div>
+  </div></div>
+  <div class="note"><b><code>has_photo = false</code></b>: a short sand band with the library's plate mark, not an empty 4:3 box (an empty box would read as broken). This example also has no <code>attribution</code>, so there's no From line. The name is the giver's own title, shown as written.</div>
+</div>
+
+<div class="col">
+  <div class="label">A3 · Unknown <i>or</i> revoked</div>
+  <div class="device"><div class="phone">
+    <div class="pbar"><span class="wordmark">OurProvisions</span></div>
+    <div class="dead">
+      <div class="plate"></div>
+      <h2>That link doesn't work.</h2>
+      <p>Ask whoever sent it for a new one.</p>
+      <div class="ghost">What is OurProvisions?</div>
+    </div>
+    <div class="pfoot"><b>OurProvisions</b> keeps a household's meals and shopping list in one place.</div>
+  </div></div>
+  <div class="note"><b>One screen for both.</b> The RPC returns the same empty result for unknown and revoked codes (S43), so the page can't tell them apart either. The 10-07 line "Andrew stopped giving this one" can't be shown here because the page doesn't know Andrew. It stays for signed-in recipients only.<br><br>This frame is the first check on V28's open half.</div>
+</div>
+
+</div></div>
+
+<!-- ================= B ================= -->
+<div class="group">
+<div class="group-title">B · Giving (in app)</div>
+<div class="row">
+
+<div class="col">
+  <div class="label">B1 · Give sheet, showcase photo ready</div>
+  <div class="device"><div class="phone">
+    <div class="behind"><div class="abar"><span class="wordmark">Madbury</span></div><div class="tabs"><div>Home</div><div>Shop</div><div class="on">Meals</div><div>List</div></div><div class="ghostgrid"><div></div><div></div><div></div><div></div></div></div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="shead"><span class="skicker">Give this meal</span><span class="x">×</span></div>
+      <div class="sname">Famous Grilled Cheese &amp; Pickle</div>
+      <div class="prow"><div class="thumb"><span class="sc">SHOWCASE</span></div>
+        <div class="ptext"><b>Your showcase photo goes with it</b>Your cook photos stay at home.</div></div>
+      <div class="flabel">Add a note <span>(optional)</span></div>
+      <div class="ta">Easton's favourite. Don't skip the pickle.</div>
+      <div class="count">0 / 280</div>
+      <div class="cta">Give</div>
+      <div class="fine">They get their own copy. Yours doesn't change.</div>
+    </div>
+  </div></div>
+  <div class="note">The server picks the photo (S12, S44). Your own latest showcase photo travels, and nothing else can, so the row describes what the server picked rather than offering a choice. The copy names the S10 guarantee in plain words: <i>your cook photos stay at home.</i></div>
+</div>
+
+<div class="col">
+  <div class="label">B2 · Give sheet, no showcase photo</div>
+  <div class="device"><div class="phone">
+    <div class="behind"><div class="abar"><span class="wordmark">Madbury</span></div><div class="tabs"><div>Home</div><div>Shop</div><div class="on">Meals</div><div>List</div></div><div class="ghostgrid"><div></div><div></div><div></div><div></div></div></div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="shead"><span class="skicker">Give this meal</span><span class="x">×</span></div>
+      <div class="sname">Famous Grilled Cheese &amp; Pickle</div>
+      <div class="prow"><div class="thumb empty"></div>
+        <div class="ptext"><b>No photo goes with it</b>Your cook photos stay at home. <a href="#">Add a showcase photo</a> to send one along.</div></div>
+      <div class="flabel">Add a note <span>(optional)</span></div>
+      <div class="ta">Easton's favourite. Don't skip the pickle.</div>
+      <div class="count">0 / 280</div>
+      <div class="cta">Give</div>
+      <div class="fine">They get their own copy. Yours doesn't change.</div>
+    </div>
+  </div></div>
+  <div class="note">This is also the right copy when the meal has cook photos but only <i>Elly</i> has a showcase photo (V9). The sheet never says why. <b>Add a showcase photo</b> opens the recipe view's existing add path with the S13 prompt, which is coaching inline, per the 10-03 standard.<br><br><b>Open:</b> the sheet can only know "no photo" before Give if the client checks for a showcase row first. Lean: yes, the client reads its own <code>meal_photos</code> rows, and the server's pick still decides.</div>
+</div>
+
+<div class="col">
+  <div class="label">B3 · Getting it ready</div>
+  <div class="device"><div class="phone">
+    <div class="behind"><div class="abar"><span class="wordmark">Madbury</span></div><div class="tabs"><div>Home</div><div>Shop</div><div class="on">Meals</div><div>List</div></div><div class="ghostgrid"><div></div><div></div><div></div><div></div></div></div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="shead"><span class="skicker">Give this meal</span><span class="x" style="opacity:.3">×</span></div>
+      <div class="sname">Famous Grilled Cheese &amp; Pickle</div>
+      <div class="steps">
+        <div><span class="ok">✓</span>Gift made</div>
+        <div class="on"><span class="dot">●</span>Attaching your photo…</div>
+      </div>
+      <div class="ta filled" style="margin-top:14px;height:56px">Easton's favourite. Don't skip the pickle.</div>
+      <div class="cta dis"><span class="spin"></span>Getting it ready…</div>
+      <div class="fine">A second or two.</div>
+    </div>
+  </div></div>
+  <div class="note">In order:<br>(1) <code>give_meal</code> returns <code>{code, gift_id, photo_path, photo_thumb_path}</code>.<br>(2) The client downloads both renditions and uploads them to <code>gift-photos/{gift_id}/view.webp</code> and <code>thumb.webp</code>, with <b>no <code>upsert</code></b> (S41).<br>(3) Only then does the next screen appear.<br><br>The link is in nobody's hands yet (S34). Closing the sheet is disabled while this runs.<br><br>With no photo, step 2 is skipped and B4 appears straight away.</div>
+</div>
+
+<div class="col">
+  <div class="label">B4 · Ready to give</div>
+  <div class="device"><div class="phone">
+    <div class="behind"><div class="abar"><span class="wordmark">Madbury</span></div><div class="tabs"><div>Home</div><div>Shop</div><div class="on">Meals</div><div>List</div></div><div class="ghostgrid"><div></div><div></div><div></div><div></div></div></div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="shead"><span class="skicker">Ready to give</span><span class="x">×</span></div>
+      <div class="sname">Famous Grilled Cheese &amp; Pickle</div>
+      <div class="mini-cap">What they'll see</div>
+      <div class="mini"><div class="thumb"></div><div><div class="t">Famous Grilled Cheese &amp; Pickle</div><div class="m">From Easton · 7 ingredients</div></div></div>
+      <div class="cta">Send it</div>
+      <div class="link2">Copy link</div>
+      <div class="fine">Anyone with the link can add it. You can stop giving it any time from the meal's ⋯.</div>
+    </div>
+  </div></div>
+  <div class="note"><b>Two taps, on purpose.</b> On iOS, <code>navigator.share</code> must be called directly from a tap, and the network calls in B3 use up that permission. <b>Send it</b> gives the share sheet a fresh tap to open from.<br><br>"What they'll see" mirrors A1/A2, so the giver previews the public card. The fine print states the bearer-link truth once. <b>Copy link</b> is always here, as the fallback when <code>navigator.share</code> is missing.</div>
+</div>
+
+<div class="col">
+  <div class="label">B5 · Photo didn't attach</div>
+  <div class="device"><div class="phone">
+    <div class="behind"><div class="abar"><span class="wordmark">Madbury</span></div><div class="tabs"><div>Home</div><div>Shop</div><div class="on">Meals</div><div>List</div></div><div class="ghostgrid"><div></div><div></div><div></div><div></div></div></div>
+    <div class="scrim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="shead"><span class="skicker">Ready to give</span><span class="x">×</span></div>
+      <div class="sname">Famous Grilled Cheese &amp; Pickle</div>
+      <div class="warnline">The photo didn't attach.</div>
+      <div class="mini"><div class="thumb empty"></div><div><div class="t">Famous Grilled Cheese &amp; Pickle</div><div class="m">From Easton · 7 ingredients</div></div></div>
+      <div class="cta">Send it</div>
+      <div class="link2">Copy link</div>
+      <div class="fine">Anyone with the link can add it. You can stop giving it any time from the meal's ⋯.</div>
+    </div>
+  </div></div>
+  <div class="note"><b>S34's one plain line</b>, shown <i>before</i> the link leaves. That's the second payoff of the two-tap flow. There's no retry button (per S34): the giver can send it photo-less, or close the sheet and use ⋯ → Stop giving, then give again.<br><br><b>Open:</b> if only <code>thumb.webp</code> uploaded and <code>view.webp</code> failed, the gift has half a photo. Lean: <code>has_photo</code> must mean both renditions exist, or the client treats any partial upload as a failure (see the chat).</div>
+</div>
+
+</div></div>
+
+</body>
+</html>

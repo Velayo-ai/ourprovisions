@@ -18,6 +18,11 @@ export function defaultMoveTarget(categories, deletingRawName, categoryOrder) {
   return pick ? pick.rawName : "";
 }
 
+// A custom category's row in Manage categories & asks (Dan, 2026-11-10): "{n} items".
+export function categoryCountText(itemCount) {
+  return itemCount === 1 ? "1 item" : `${itemCount} items`;
+}
+
 export function deleteCategoryLabel(itemCount) {
   return itemCount > 0 ? "Move & Delete Category" : "Delete Category";
 }

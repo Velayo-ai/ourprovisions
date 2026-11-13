@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — The Helm (nav): floating pill on phone, rail on wide</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60;
+    --hairline:#E3D4BC;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso);
+        padding:28px 16px 48px; }
+  h1{ font-family:'Playfair Display',serif; font-weight:400; font-size:1.5rem; margin:0 0 4px; text-align:center; }
+  .lede{ text-align:center; color:#5a4633; font-size:0.9rem; margin:0 auto 26px; max-width:640px; line-height:1.5; }
+  .stage{ display:flex; flex-wrap:wrap; gap:36px; justify-content:center; align-items:flex-start; }
+  .col{ display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .caption{ font-size:0.78rem; color:#5a4633; max-width:390px; text-align:center; line-height:1.45; }
+  .caption b{ color:var(--espresso); }
+
+  /* ---------- shared content bits ---------- */
+  .greeting{ font-family:'Playfair Display',serif; font-size:1.4rem; line-height:1.2; }
+  .greeting-sub{ font-size:0.82rem; color:var(--muted); margin-top:3px; margin-bottom:20px; }
+  .section-label{ font-size:0.68rem; font-weight:700; letter-spacing:2.5px; text-transform:uppercase;
+                  color:var(--clay); margin:22px 2px 12px; }
+  .tonight{ border-radius:14px; overflow:hidden; position:relative; height:150px;
+            background:linear-gradient(135deg,#6b4a2c,#2C1A0E 70%); color:var(--cream); }
+  .tonight-content{ position:absolute; left:16px; right:16px; bottom:14px; }
+  .tonight-eyebrow{ font-size:0.68rem; color:var(--sand); }
+  .tonight-title{ font-family:'Playfair Display',serif; font-size:1.3rem; margin:3px 0 8px; }
+  .tonight-row{ display:flex; justify-content:space-between; align-items:center; font-size:0.78rem; }
+  .tonight-cta{ background:var(--cream); color:var(--espresso); padding:6px 12px; border-radius:6px; font-weight:700; font-size:0.72rem; }
+  .act-row{ display:flex; gap:10px; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--hairline); }
+  .act-avatar{ width:28px; height:28px; border-radius:50%; flex-shrink:0; display:flex; align-items:center;
+               justify-content:center; font-family:'Playfair Display',serif; font-weight:700; font-size:0.78rem; color:var(--cream); }
+  .act-text{ font-size:0.84rem; line-height:1.4; flex:1; }
+  .act-time{ font-size:0.68rem; color:var(--muted); margin-top:2px; }
+
+  .row{ display:flex; align-items:center; gap:10px; padding:11px 0; border-bottom:1px solid var(--hairline); }
+  .r-name{ font-size:0.95rem; }
+  .r-sub{ font-size:0.72rem; color:var(--muted); margin-top:1px; }
+  .r-price{ font-family:'Playfair Display',serif; font-weight:700; }
+  .row.done .r-name{ color:var(--muted); text-decoration:line-through; }
+  .check{ width:22px; height:22px; border-radius:50%; border:1.5px solid var(--sand); flex-shrink:0; }
+  .row.done .check{ background:var(--teal); border-color:var(--teal); }
+
+  /* ---------- phone ---------- */
+  .phone{ width:390px; height:780px; background:var(--cream); border-radius:28px; overflow:hidden; position:relative;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .header{ background:var(--espresso); color:var(--cream); padding:18px 20px 16px; }
+  .place{ display:flex; align-items:center; gap:8px; }
+  .place-name{ font-family:'Playfair Display',serif; font-size:1.15rem; }
+  .place-chev{ color:var(--sand); font-size:0.8rem; }
+  .scroll{ position:absolute; top:60px; bottom:0; left:0; right:0; overflow:hidden; padding:18px 18px 110px; }
+  /* the last row deliberately sits under the pill to show the scroll-under */
+
+  /* ---------- the helm (floating pill) ---------- */
+  .helm{ position:absolute; left:16px; right:16px; bottom:18px; height:64px; border-radius:32px;
+         background:rgba(44,26,14,0.94); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+         display:flex; align-items:stretch; padding:0 6px;
+         box-shadow:0 10px 28px rgba(44,26,14,0.35), inset 0 0 0 1px rgba(201,169,122,0.18); }
+  .helm-tab{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px;
+             color:var(--sand); font-size:0.62rem; letter-spacing:1.2px; text-transform:uppercase; border-radius:26px; }
+  .helm-tab svg{ width:20px; height:20px; }
+  .helm-tab.active{ color:var(--cream); background:rgba(201,169,122,0.10); margin:6px 0; }
+  .helm-tab.active svg{ stroke:var(--cream); }
+  .fade{ position:absolute; left:0; right:0; bottom:0; height:110px; pointer-events:none;
+         background:linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, var(--cream)); }
+
+  /* Shop posture: pill slims to an icon strip, Wrap up rides on it */
+  .helm.slim{ height:48px; border-radius:24px; left:16px; right:16px; }
+  .helm.slim .helm-tab{ font-size:0; gap:0; }
+  .helm.slim .helm-tab.active{ margin:5px 0; }
+  .helm.slim .helm-tab svg{ width:18px; height:18px; }
+  .helm .divider{ flex:0 0 1px; align-self:center; height:22px; background:rgba(201,169,122,0.22); margin:0 4px 0 8px; }
+  .helm .plus{ flex:0 0 auto; align-self:center; width:36px; height:36px; border-radius:50%; background:var(--cream); color:var(--espresso);
+               display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:300; line-height:1; padding-bottom:2px; }
+  .wrapup.muted{ background:transparent; color:var(--sand); box-shadow:inset 0 0 0 1px var(--sand); }
+  .wrapup{ flex:0 0 auto; align-self:center; margin:0 4px 0 6px; background:var(--amber); color:var(--espresso);
+           font-weight:700; font-size:0.72rem; letter-spacing:1px; text-transform:uppercase; padding:9px 14px; border-radius:20px; }
+  .shop-meta{ display:flex; justify-content:space-between; font-size:0.78rem; color:var(--muted); margin-bottom:6px; }
+  .shop-meta b{ color:var(--espresso); font-family:'Playfair Display',serif; font-size:1.1rem; }
+
+  /* ---------- wide / rail ---------- */
+  .wide{ width:820px; max-width:100%; height:540px; background:var(--cream); border-radius:18px; overflow:hidden;
+         display:flex; box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .rail{ width:84px; background:var(--espresso); display:flex; flex-direction:column; align-items:center; padding:18px 0 16px; }
+  .rail .mark{ font-family:'Playfair Display',serif; color:var(--cream); font-size:1.4rem; margin-bottom:26px; }
+  .rail .helm-tab{ flex:0 0 auto; width:64px; height:60px; margin:4px 0; border-radius:14px; }
+  .rail .helm-tab.active{ margin:4px 0; }
+  .rail .spacer{ flex:1; }
+  .rail .avatar{ width:34px; height:34px; border-radius:50%; background:var(--clay); color:var(--cream);
+                 display:flex; align-items:center; justify-content:center; font-family:'Playfair Display',serif; font-weight:700; }
+  .wide-body{ flex:1; padding:22px 30px; overflow:hidden; }
+  .wide-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; }
+  .wide-head .place-name{ font-family:'Playfair Display',serif; font-size:1.4rem; }
+  .wide-head .place-chev{ color:var(--clay); margin-left:6px; font-size:0.9rem; }
+  .search{ border:1px solid var(--hairline); border-radius:10px; padding:10px 14px; font-size:0.9rem; color:var(--muted); background:#fff; margin-bottom:12px; }
+  .chips{ display:flex; gap:8px; margin-bottom:10px; }
+  .chip{ font-size:0.72rem; padding:6px 12px; border-radius:20px; border:1px solid var(--sand); color:var(--clay); }
+  .chip.active{ background:var(--espresso); color:var(--cream); border-color:var(--espresso); }
+  .two-col{ display:grid; grid-template-columns:1fr 1fr; column-gap:36px; }
+  .stepper{ display:flex; align-items:center; gap:8px; margin-left:auto; color:var(--clay); font-size:1rem; }
+  .step-val{ min-width:22px; text-align:center; font-family:'Playfair Display',serif; font-weight:700; color:var(--espresso); }
+  .zero .step-val, .zero{ color:var(--muted); }
+
+  .note{ width:100%; max-width:820px; margin:34px auto 0; font-size:0.82rem; color:#5a4633; background:#efe4d2;
+         border-radius:10px; padding:14px 18px; line-height:1.55; }
+  .note b{ color:var(--espresso); }
+</style>
+</head>
+<body>
+
+<h1>The Helm</h1>
+<p class="lede">One nav grammar, two postures. On a phone the four doors float in a pill at the thumb. Past ~700px the same four doors stand in a rail on the left. Same icons, same order, same names.</p>
+
+<div class="stage">
+
+  <!-- ===================== PHONE · HOME ===================== -->
+  <div class="col">
+    <div class="phone">
+      <div class="header">
+        <div class="place"><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div>
+      </div>
+      <div class="scroll">
+        <div class="greeting">Good evening, Elly</div>
+        <div class="greeting-sub">Friday, September 11</div>
+
+        <div class="section-label">Tonight</div>
+        <div class="tonight">
+          <div class="tonight-content">
+            <div class="tonight-eyebrow">From OurChef &middot; Elly's cookbook</div>
+            <div class="tonight-title">Sheet-Pan Salmon</div>
+            <div class="tonight-row">
+              <div>List is <b>ready</b> &middot; 25 min to cook</div>
+              <div class="tonight-cta">View recipe</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-label">This week in Madbury</div>
+        <div class="act-row"><div class="act-avatar" style="background:var(--teal)">D</div>
+          <div class="act-text"><b>Dan</b> added <b>Lemon pasta</b> to This Week<div class="act-time">2h ago</div></div></div>
+        <div class="act-row"><div class="act-avatar" style="background:var(--clay)">E</div>
+          <div class="act-text"><b>Elly</b> bought 9 items at Hannaford<div class="act-time">Yesterday</div></div></div>
+        <div class="act-row"><div class="act-avatar" style="background:var(--amber)">M</div>
+          <div class="act-text"><b>Mike</b> joined the household<div class="act-time">Tue</div></div></div>
+        <div class="act-row"><div class="act-avatar" style="background:var(--teal)">D</div>
+          <div class="act-text"><b>Dan</b> logged waste: half a bag of spinach<div class="act-time">Mon</div></div></div>
+        <div class="act-row"><div class="act-avatar" style="background:var(--clay)">E</div>
+          <div class="act-text"><b>Elly</b> set the budget to $180<div class="act-time">Sun</div></div></div>
+      </div>
+      <div class="fade"></div>
+
+      <nav class="helm">
+        <div class="helm-tab active">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+        <div class="helm-tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M12 4v1M17 6l-.7.7M7 6l.7.7M19 9h-1M6 9H5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+        <div class="helm-tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+        <div class="helm-tab">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+      </nav>
+    </div>
+    <div class="caption"><b>Phone · Home.</b> Espresso pill on cream, sand inactive, cream active. Labels stay — Home/Plan/Browse/Shop aren't universal glyphs. Content scrolls under; the cream fade keeps the last row legible.</div>
+  </div>
+
+  <!-- ===================== PHONE · SHOP ===================== -->
+  <div class="col">
+    <div class="phone">
+      <div class="header">
+        <div class="place"><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div>
+      </div>
+      <div class="scroll">
+        <div class="shop-meta"><span><b>6</b> of 14 in the cart</span><span><b>$47.20</b> of $180</span></div>
+        <div class="section-label">Produce</div>
+        <div class="row done"><div class="check"></div><div style="flex:1"><div class="r-name">Lemons</div><div class="r-sub">3 &middot; for Lemon pasta</div></div><div class="r-price">$2.10</div></div>
+        <div class="row done"><div class="check"></div><div style="flex:1"><div class="r-name">Spinach</div><div class="r-sub">1 bag</div></div><div class="r-price">$3.49</div></div>
+        <div class="row"><div class="check"></div><div style="flex:1"><div class="r-name">Garlic</div><div class="r-sub">1 head</div></div><div class="r-price">$0.89</div></div>
+        <div class="section-label">Seafood</div>
+        <div class="row"><div class="check"></div><div style="flex:1"><div class="r-name">Salmon fillet</div><div class="r-sub">1.5 lb &middot; for Sheet-Pan Salmon</div></div><div class="r-price">$18.75</div></div>
+        <div class="section-label">Pantry</div>
+        <div class="row done"><div class="check"></div><div style="flex:1"><div class="r-name">Spaghetti</div><div class="r-sub">1 box &middot; for Lemon pasta</div></div><div class="r-price">$1.99</div></div>
+        <div class="row"><div class="check"></div><div style="flex:1"><div class="r-name">Olive oil</div><div class="r-sub">500 ml</div></div><div class="r-price">$11.50</div></div>
+        <div class="row"><div class="check"></div><div style="flex:1"><div class="r-name">Parmesan</div><div class="r-sub">wedge</div></div><div class="r-price">$7.25</div></div>
+        <div class="row"><div class="check"></div><div style="flex:1"><div class="r-name">Sea salt</div><div class="r-sub">staple</div></div><div class="r-price">$3.40</div></div>
+        <div class="row"><div class="check"></div><div style="flex:1"><div class="r-name">Black pepper</div><div class="r-sub">staple</div></div><div class="r-price">$4.10</div></div>
+      </div>
+      <div class="fade"></div>
+
+      <nav class="helm slim">
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M12 4v1M17 6l-.7.7M7 6l.7.7M19 9h-1M6 9H5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+        <div class="helm-tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+        <div class="divider"></div>
+        <div class="plus">+</div>
+        <div class="wrapup">Wrap up</div>
+      </nav>
+    </div>
+    <div class="caption"><b>Phone · Shop.</b> Wrap up is outlined sand until the first item is in the cart, then fills amber (tappable in both states). On Shop the pill slims to icons and the trip's two actions ride on it — <b>+</b> (add from the aisle) and <b>Wrap up</b>. The floating + is retired; nothing floats over rows where swipe-to-buy happens. Wrap up appears only when the list has items.</div>
+  </div>
+
+  <!-- ===================== WIDE · BROWSE ===================== -->
+  <div class="col" style="flex-basis:100%;">
+    <div class="wide">
+      <aside class="rail">
+        <div class="mark">P</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M12 4v1M17 6l-.7.7M7 6l.7.7M19 9h-1M6 9H5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+        <div class="helm-tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+        <div class="spacer"></div>
+        <div class="avatar">E</div>
+      </aside>
+      <div class="wide-body">
+        <div class="wide-head">
+          <div><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div>
+          <div style="font-size:0.8rem;color:var(--muted)">14 on the list &middot; $47.20 planned</div>
+        </div>
+        <div class="search">Search your catalog…</div>
+        <div class="chips"><div class="chip active">All</div><div class="chip">From meals</div><div class="chip">Staples</div><div class="chip">Produce</div><div class="chip">Pantry</div></div>
+        <div class="two-col">
+          <div>
+            <div class="row"><div style="flex:1"><div class="r-name">Lemons</div><div class="r-sub">for Lemon pasta</div></div><div class="stepper"><span>&minus;</span><span class="step-val">3</span><span>+</span></div></div>
+            <div class="row"><div style="flex:1"><div class="r-name">Spinach</div><div class="r-sub">bag</div></div><div class="stepper"><span>&minus;</span><span class="step-val">1</span><span>+</span></div></div>
+            <div class="row"><div style="flex:1"><div class="r-name">Garlic</div><div class="r-sub">head</div></div><div class="stepper"><span>&minus;</span><span class="step-val">1</span><span>+</span></div></div>
+            <div class="row"><div style="flex:1"><div class="r-name">Avocado</div><div class="r-sub">staple</div></div><div class="stepper zero"><span>&minus;</span><span class="step-val">0</span><span>+</span></div></div>
+            <div class="row"><div style="flex:1"><div class="r-name">Bananas</div><div class="r-sub">bunch</div></div><div class="stepper zero"><span>&minus;</span><span class="step-val">0</span><span>+</span></div></div>
+          </div>
+          <div>
+            <div class="row"><div style="flex:1"><div class="r-name">Salmon fillet</div><div class="r-sub">for Sheet-Pan Salmon</div></div><div class="stepper"><span>&minus;</span><span class="step-val">1</span><span>+</span></div></div>
+            <div class="row"><div style="flex:1"><div class="r-name">Spaghetti</div><div class="r-sub">for Lemon pasta &middot; you have it</div></div><div class="stepper zero"><span>&minus;</span><span class="step-val">0</span><span>+</span></div></div>
+            <div class="row"><div style="flex:1"><div class="r-name">Olive oil</div><div class="r-sub">500 ml</div></div><div class="stepper"><span>&minus;</span><span class="step-val">1</span><span>+</span></div></div>
+            <div class="row"><div style="flex:1"><div class="r-name">Parmesan</div><div class="r-sub">wedge</div></div><div class="stepper"><span>&minus;</span><span class="step-val">1</span><span>+</span></div></div>
+            <div class="row"><div style="flex:1"><div class="r-name">Coffee beans</div><div class="r-sub">staple</div></div><div class="stepper zero"><span>&minus;</span><span class="step-val">0</span><span>+</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="caption"><b>Wide · Browse (galley iPad, laptop).</b> The same four doors stand in a left rail; width is cheap here and thumb reach doesn't apply. Household identity moves into the body header. Member avatar anchors the bottom of the rail.</div>
+  </div>
+
+</div>
+
+<div class="note">
+  <b>Build notes for Claude Code (when this is approved):</b> pill is <code>position:fixed</code> with <code>bottom: calc(18px + env(safe-area-inset-bottom))</code>; every scroll view gets <code>padding-bottom: 110px</code>; <code>backdrop-filter</code> with a solid-color fallback; rail kicks in at a <code>min-width:700px</code> media query and the pill unmounts. Icons and order are shared between both postures — one <code>NAV_DOORS</code> array, two renderers. Over an OurBanner photo the pill needs no change; it never overlaps the header.
+</div>
+
+</body>
+</html>

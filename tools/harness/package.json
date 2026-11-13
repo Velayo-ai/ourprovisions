@@ -1,0 +1,8 @@
+{
+  "name": "ourprovisions-harness",
+  "private": true,
+  "description": "Signed-in headless walks on dev as the test account (see README.md). Dev only.",
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}

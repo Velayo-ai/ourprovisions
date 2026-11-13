@@ -54,6 +54,9 @@
 --   Measured on dev across 12 wrapped sessions: 0 surviving contributor rows,
 --   every one. The action immediately preceding the read destroys the evidence.
 --   Do not "restore" it as the S1 source without first changing that delete.
+--   ADDENDUM 2026-11-07 (080): archive_trip_items now keeps the contributor rows
+--   of ROLLED items (p_keep_item_ids); every other row's are still deleted at
+--   wrap-up. The bought rows S1 would read still lose theirs, so this stands.
 --
 --   COVERAGE GAP, measured on dev 2026-10-01 (the spec asked for it explicitly):
 --   3 of 396 checked items (0.8%) carry an added_in_store event, across 3 of 84

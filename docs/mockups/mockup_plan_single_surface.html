@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — PLAN single surface: week canvas over the meal library</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Lato:wght@300;400;700&display=swap');
+
+  :root{
+    --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A;
+    --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60;
+    --hairline:#E3D4BC; --board:#F3E9D8;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso); padding:28px 16px 48px; }
+  h1{ font-family:'Playfair Display',serif; font-weight:400; font-size:1.5rem; margin:0 0 4px; text-align:center; }
+  .lede{ text-align:center; color:#5a4633; font-size:0.9rem; margin:0 auto 26px; max-width:680px; line-height:1.5; }
+  .stage{ display:flex; flex-wrap:wrap; gap:30px; justify-content:center; align-items:flex-start; }
+  .col{ display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .caption{ font-size:0.78rem; color:#5a4633; max-width:360px; text-align:center; line-height:1.45; }
+  .caption b{ color:var(--espresso); }
+
+  /* phone + chrome */
+  .phone{ width:360px; height:740px; background:var(--cream); border-radius:28px; overflow:hidden; position:relative;
+          box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .header{ background:var(--espresso); color:var(--cream); padding:16px 18px 14px; display:flex; justify-content:space-between; align-items:center; }
+  .place-name{ font-family:'Playfair Display',serif; font-size:1.1rem; }
+  .place-chev{ color:var(--sand); font-size:0.8rem; margin-left:6px; }
+  .hdr-meta{ font-size:0.72rem; color:var(--sand); }
+  .body{ position:absolute; top:56px; bottom:0; left:0; right:0; overflow:hidden; display:flex; flex-direction:column; }
+
+  /* lens (same grammar as Shop's Aisles | A–Z) */
+  .lensrow{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px 8px; }
+  .lens{ display:flex; background:var(--sand-row); border-radius:20px; padding:3px; }
+  .seg{ font-size:0.72rem; letter-spacing:1px; text-transform:uppercase; padding:6px 14px; border-radius:17px; color:var(--clay); }
+  .seg.active{ background:var(--espresso); color:var(--cream); }
+  .lens-meta{ font-size:0.74rem; color:var(--muted); }
+
+  /* the canvas */
+  .canvas{ margin:0 12px; background:var(--board); border-radius:14px; position:relative; flex-shrink:0; overflow:hidden; }
+  .canvas.strip{ height:52px; display:flex; align-items:center; justify-content:center; font-size:0.82rem; color:var(--muted); border:1.5px dashed var(--sand); background:transparent; }
+  .canvas.free{ height:270px; }
+  .canvas.week{ height:300px; padding:8px 10px 6px; display:flex; flex-direction:column; gap:4px; }
+  .canvas-label{ position:absolute; top:8px; left:12px; font-size:0.66rem; letter-spacing:1.5px; text-transform:uppercase; color:var(--clay); }
+
+  .card{ position:absolute; width:118px; background:#fff; border-radius:11px; padding:8px 10px 9px; box-shadow:0 3px 10px rgba(44,26,14,0.13); }
+  .card-title{ font-family:'Playfair Display',serif; font-size:0.86rem; font-weight:700; line-height:1.15; }
+  .card-sub{ font-size:0.64rem; color:var(--muted); margin-top:3px; }
+  .card-sub.ready{ color:var(--teal); }
+  .card .x{ position:absolute; top:5px; right:7px; font-size:0.7rem; color:var(--sand); }
+  .card.lifted{ transform:rotate(-3deg) scale(1.05); box-shadow:0 14px 26px rgba(44,26,14,0.3); z-index:3; border:1.5px solid var(--amber); }
+  .ghost{ position:absolute; width:118px; height:52px; border:1.5px dashed var(--amber); border-radius:11px; background:rgba(200,151,58,0.08); }
+
+  /* week grid */
+  .day{ display:flex; align-items:center; gap:8px; height:32px; }
+  .day-name{ width:30px; font-size:0.66rem; letter-spacing:1px; text-transform:uppercase; color:var(--clay); font-weight:700; flex-shrink:0; }
+  .day-slot{ flex:1; height:30px; border-bottom:1px solid var(--hairline); display:flex; align-items:center; gap:6px; }
+  .day.today .day-name{ color:var(--espresso); }
+  .day.today .day-slot{ border-bottom-color:var(--sand); }
+  .pill-meal{ background:#fff; border-radius:8px; padding:4px 9px; font-size:0.74rem; font-family:'Playfair Display',serif; font-weight:700; box-shadow:0 2px 6px rgba(44,26,14,0.12); white-space:nowrap; }
+  .pill-meal.ready{ border-left:3px solid var(--teal); }
+  .anyday{ margin-top:2px; padding-top:6px; border-top:1px dashed var(--sand); }
+  .anyday .day-name{ width:auto; margin-right:2px; }
+
+  /* library */
+  .lib{ flex:1; padding:14px 16px 100px; overflow:hidden; }
+  .lib-head{ display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+  .lib-title{ font-family:'Playfair Display',serif; font-size:1.05rem; }
+  .lib-new{ font-size:0.7rem; letter-spacing:1px; text-transform:uppercase; color:var(--clay); }
+  .meal{ display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--hairline); }
+  .meal-photo{ width:36px; height:36px; border-radius:9px; background:linear-gradient(135deg,#c9a97a,#a0724a); flex-shrink:0; }
+  .meal-name{ font-size:0.92rem; font-weight:700; }
+  .meal-sub{ font-size:0.7rem; color:var(--muted); margin-top:1px; }
+  .meal-add{ margin-left:auto; font-size:0.68rem; letter-spacing:1px; text-transform:uppercase; padding:6px 12px; border:1.5px solid var(--sand); border-radius:16px; color:var(--clay); }
+  .meal.active .meal-add{ border-color:var(--teal); color:var(--teal); }
+  .meal.active .meal-name::after{ content:" ●"; color:var(--teal); font-size:0.6rem; vertical-align:middle; }
+  .meal.lifting{ opacity:0.35; }
+
+  /* helm */
+  .helm{ position:absolute; left:14px; right:14px; bottom:16px; height:60px; border-radius:30px;
+         background:rgba(44,26,14,0.94); display:flex; padding:0 6px;
+         box-shadow:0 10px 28px rgba(44,26,14,0.35), inset 0 0 0 1px rgba(201,169,122,0.18); }
+  .helm-tab{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+             color:var(--sand); font-size:0.58rem; letter-spacing:1.2px; text-transform:uppercase; border-radius:24px; }
+  .helm-tab svg{ width:18px; height:18px; }
+  .helm-tab.active{ color:var(--cream); background:rgba(201,169,122,0.16); margin:6px 0; }
+  .fade{ position:absolute; left:0; right:0; bottom:0; height:100px; pointer-events:none;
+         background:linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, var(--cream)); }
+
+  .note{ width:100%; max-width:760px; margin:34px auto 0; font-size:0.82rem; color:#5a4633; background:#efe4d2; border-radius:10px; padding:14px 18px; line-height:1.55; }
+  .note b{ color:var(--espresso); }
+</style>
+</head>
+<body>
+
+<h1>PLAN — one surface</h1>
+<p class="lede">The week sits above the library and the library feeds it. Add a meal and it lands in the week because it's active — the model doesn't change, only the layout. Board | Days is the same lens grammar as Shop's Aisles | A–Z.</p>
+
+<div class="stage">
+
+  <!-- ============ 1. EMPTY STRIP ============ -->
+  <div class="col">
+    <div class="phone">
+      <div class="header"><div><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div><div class="hdr-meta">Nothing planned</div></div>
+      <div class="body">
+        <div class="lensrow">
+          <div class="lens"><div class="seg active">Board</div><div class="seg">Days</div></div>
+          <div class="lens-meta">0 meals this week</div>
+        </div>
+        <div class="canvas strip">Add a meal below to start the week</div>
+        <div class="lib">
+          <div class="lib-head"><div class="lib-title">Meals</div><div class="lib-new">+ New meal</div></div>
+          <div class="meal"><div class="meal-photo"></div><div><div class="meal-name">Sheet-Pan Salmon</div><div class="meal-sub">6 ingredients · 25 min</div></div><div class="meal-add">Add</div></div>
+          <div class="meal"><div class="meal-photo" style="background:linear-gradient(135deg,#e8d5b7,#c8973a)"></div><div><div class="meal-name">Lemon pasta</div><div class="meal-sub">5 ingredients · 20 min</div></div><div class="meal-add">Add</div></div>
+          <div class="meal"><div class="meal-photo" style="background:linear-gradient(135deg,#a0724a,#5a3a22)"></div><div><div class="meal-name">Taco Night</div><div class="meal-sub">8 ingredients · 35 min</div></div><div class="meal-add">Add</div></div>
+          <div class="meal"><div class="meal-photo" style="background:linear-gradient(135deg,#0D9488,#2C1A0E)"></div><div><div class="meal-name">Meatloaf</div><div class="meal-sub">7 ingredients · 70 min</div></div><div class="meal-add">Add</div></div>
+          <div class="meal"><div class="meal-photo" style="background:linear-gradient(135deg,#c9a97a,#e8d5b7)"></div><div><div class="meal-name">Greek salad</div><div class="meal-sub">6 ingredients · 15 min</div></div><div class="meal-add">Add</div></div>
+          <div class="meal"><div class="meal-photo" style="background:linear-gradient(135deg,#7a4a2c,#c8973a)"></div><div><div class="meal-name">Chili</div><div class="meal-sub">9 ingredients · 90 min</div></div><div class="meal-add">Add</div></div>
+          <div class="meal"><div class="meal-photo" style="background:linear-gradient(135deg,#2C1A0E,#a0724a)"></div><div><div class="meal-name">Pizza</div><div class="meal-sub">5 ingredients · 30 min</div></div><div class="meal-add">Add</div></div>
+        </div>
+        <div class="fade"></div>
+        <nav class="helm">
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+          <div class="helm-tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+        </nav>
+      </div>
+    </div>
+    <div class="caption"><b>1 · Empty.</b> The canvas is always present — a dashed strip that says what to do. No gesture needed to discover the week exists.</div>
+  </div>
+
+  <!-- ============ 2. FREE, populated ============ -->
+  <div class="col">
+    <div class="phone">
+      <div class="header"><div><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div><div class="hdr-meta">14 on the list</div></div>
+      <div class="body">
+        <div class="lensrow">
+          <div class="lens"><div class="seg active">Board</div><div class="seg">Days</div></div>
+          <div class="lens-meta">4 meals this week</div>
+        </div>
+        <div class="canvas free">
+          <div class="canvas-label">This week</div>
+          <div class="card" style="left:14px; top:34px;"><div class="x">&times;</div><div class="card-title">Sheet-Pan Salmon</div><div class="card-sub ready">Ready to cook</div></div>
+          <div class="card" style="left:150px; top:60px;"><div class="x">&times;</div><div class="card-title">Lemon pasta</div><div class="card-sub">3 to buy</div></div>
+          <div class="card" style="left:40px; top:130px;"><div class="x">&times;</div><div class="card-title">Taco Night</div><div class="card-sub">8 to buy</div></div>
+          <div class="card" style="left:190px; top:170px;"><div class="x">&times;</div><div class="card-title">Greek salad</div><div class="card-sub">2 to buy · Elly moved this</div></div>
+        </div>
+        <div class="lib">
+          <div class="lib-head"><div class="lib-title">Meals</div><div class="lib-new">+ New meal</div></div>
+          <div class="meal active"><div class="meal-photo"></div><div><div class="meal-name">Sheet-Pan Salmon</div><div class="meal-sub">On the list</div></div><div class="meal-add">Added</div></div>
+          <div class="meal active"><div class="meal-photo" style="background:linear-gradient(135deg,#e8d5b7,#c8973a)"></div><div><div class="meal-name">Lemon pasta</div><div class="meal-sub">On the list</div></div><div class="meal-add">Added</div></div>
+          <div class="meal active"><div class="meal-photo" style="background:linear-gradient(135deg,#a0724a,#5a3a22)"></div><div><div class="meal-name">Taco Night</div><div class="meal-sub">On the list</div></div><div class="meal-add">Added</div></div>
+          <div class="meal"><div class="meal-photo" style="background:linear-gradient(135deg,#0D9488,#2C1A0E)"></div><div><div class="meal-name">Meatloaf</div><div class="meal-sub">7 ingredients · 70 min</div></div><div class="meal-add">Add</div></div>
+          <div class="meal active"><div class="meal-photo" style="background:linear-gradient(135deg,#c9a97a,#e8d5b7)"></div><div><div class="meal-name">Greek salad</div><div class="meal-sub">On the list</div></div><div class="meal-add">Added</div></div>
+          <div class="meal"><div class="meal-photo" style="background:linear-gradient(135deg,#7a4a2c,#c8973a)"></div><div><div class="meal-name">Chili</div><div class="meal-sub">9 ingredients · 90 min</div></div><div class="meal-add">Add</div></div>
+        </div>
+        <div class="fade"></div>
+        <nav class="helm">
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+          <div class="helm-tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+        </nav>
+      </div>
+    </div>
+    <div class="caption"><b>2 · Board.</b> A board, fixed height, shared arrangement. Each card shows the one thing that matters: is it ready to cook, or how much is left to buy. × removes (zeroes unbought ingredients). Library rows show a teal dot + "Added" when active.</div>
+  </div>
+
+  <!-- ============ 3. WEEK ============ -->
+  <div class="col">
+    <div class="phone">
+      <div class="header"><div><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div><div class="hdr-meta">14 on the list</div></div>
+      <div class="body">
+        <div class="lensrow">
+          <div class="lens"><div class="seg">Board</div><div class="seg active">Days</div></div>
+          <div class="lens-meta">Sep 11 – 17</div>
+        </div>
+        <div class="canvas week">
+          <div class="day today"><div class="day-name">Fri</div><div class="day-slot"><div class="pill-meal ready">Sheet-Pan Salmon</div></div></div>
+          <div class="day"><div class="day-name">Sat</div><div class="day-slot"><div class="pill-meal">Taco Night</div></div></div>
+          <div class="day"><div class="day-name">Sun</div><div class="day-slot"></div></div>
+          <div class="day"><div class="day-name">Mon</div><div class="day-slot"><div class="pill-meal">Lemon pasta</div></div></div>
+          <div class="day"><div class="day-name">Tue</div><div class="day-slot"></div></div>
+          <div class="day"><div class="day-name">Wed</div><div class="day-slot"></div></div>
+          <div class="day"><div class="day-name">Thu</div><div class="day-slot"></div></div>
+          <div class="day anyday"><div class="day-name">Any day</div><div class="day-slot" style="border:none"><div class="pill-meal">Greek salad</div></div></div>
+        </div>
+        <div class="lib">
+          <div class="lib-head"><div class="lib-title">Meals</div><div class="lib-new">+ New meal</div></div>
+          <div class="meal active"><div class="meal-photo"></div><div><div class="meal-name">Sheet-Pan Salmon</div><div class="meal-sub">Fri</div></div><div class="meal-add">Added</div></div>
+          <div class="meal active"><div class="meal-photo" style="background:linear-gradient(135deg,#e8d5b7,#c8973a)"></div><div><div class="meal-name">Lemon pasta</div><div class="meal-sub">Mon</div></div><div class="meal-add">Added</div></div>
+          <div class="meal active"><div class="meal-photo" style="background:linear-gradient(135deg,#a0724a,#5a3a22)"></div><div><div class="meal-name">Taco Night</div><div class="meal-sub">Sat</div></div><div class="meal-add">Added</div></div>
+          <div class="meal"><div class="meal-photo" style="background:linear-gradient(135deg,#0D9488,#2C1A0E)"></div><div><div class="meal-name">Meatloaf</div><div class="meal-sub">7 ingredients · 70 min</div></div><div class="meal-add">Add</div></div>
+          <div class="meal active"><div class="meal-photo" style="background:linear-gradient(135deg,#c9a97a,#e8d5b7)"></div><div><div class="meal-name">Greek salad</div><div class="meal-sub">Any day</div></div><div class="meal-add">Added</div></div>
+        </div>
+        <div class="fade"></div>
+        <nav class="helm">
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+          <div class="helm-tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+        </nav>
+      </div>
+    </div>
+    <div class="caption"><b>3 · Days.</b> Same four meals, now on days. Today leads. "Any day" catches meals nobody has placed — a newly added meal lands there, so switching lenses never loses anything. Days are a <em>view</em> of the same active set.</div>
+  </div>
+
+  <!-- ============ 4. DRAG ============ -->
+  <div class="col">
+    <div class="phone">
+      <div class="header"><div><span class="place-name">Madbury</span><span class="place-chev">&#9662;</span></div><div class="hdr-meta">14 on the list</div></div>
+      <div class="body">
+        <div class="lensrow">
+          <div class="lens"><div class="seg active">Board</div><div class="seg">Days</div></div>
+          <div class="lens-meta">4 meals this week</div>
+        </div>
+        <div class="canvas free">
+          <div class="canvas-label">This week</div>
+          <div class="card" style="left:14px; top:34px;"><div class="x">&times;</div><div class="card-title">Sheet-Pan Salmon</div><div class="card-sub ready">Ready to cook</div></div>
+          <div class="card" style="left:150px; top:60px;"><div class="x">&times;</div><div class="card-title">Lemon pasta</div><div class="card-sub">3 to buy</div></div>
+          <div class="card" style="left:40px; top:130px;"><div class="x">&times;</div><div class="card-title">Taco Night</div><div class="card-sub">8 to buy</div></div>
+          <div class="card" style="left:190px; top:170px;"><div class="x">&times;</div><div class="card-title">Greek salad</div><div class="card-sub">2 to buy</div></div>
+          <div class="ghost" style="left:190px; top:34px;"></div>
+          <div class="card lifted" style="left:150px; top:215px;"><div class="card-title">Meatloaf</div><div class="card-sub">Drop to add</div></div>
+        </div>
+        <div class="lib">
+          <div class="lib-head"><div class="lib-title">Meals</div><div class="lib-new">+ New meal</div></div>
+          <div class="meal active"><div class="meal-photo"></div><div><div class="meal-name">Sheet-Pan Salmon</div><div class="meal-sub">On the list</div></div><div class="meal-add">Added</div></div>
+          <div class="meal active"><div class="meal-photo" style="background:linear-gradient(135deg,#e8d5b7,#c8973a)"></div><div><div class="meal-name">Lemon pasta</div><div class="meal-sub">On the list</div></div><div class="meal-add">Added</div></div>
+          <div class="meal active"><div class="meal-photo" style="background:linear-gradient(135deg,#a0724a,#5a3a22)"></div><div><div class="meal-name">Taco Night</div><div class="meal-sub">On the list</div></div><div class="meal-add">Added</div></div>
+          <div class="meal lifting"><div class="meal-photo" style="background:linear-gradient(135deg,#0D9488,#2C1A0E)"></div><div><div class="meal-name">Meatloaf</div><div class="meal-sub">7 ingredients · 70 min</div></div><div class="meal-add">Add</div></div>
+          <div class="meal active"><div class="meal-photo" style="background:linear-gradient(135deg,#c9a97a,#e8d5b7)"></div><div><div class="meal-name">Greek salad</div><div class="meal-sub">On the list</div></div><div class="meal-add">Added</div></div>
+        </div>
+        <div class="fade"></div>
+        <nav class="helm">
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+          <div class="helm-tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+          <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+        </nav>
+      </div>
+    </div>
+    <div class="caption"><b>4 · Drag.</b> Long-press a library row to pick it up (platform convention); a ghost slot shows where it'll land; drop = Add. The row ghosts in the library while lifted. Tapping "Add" does the identical thing without the gesture.</div>
+  </div>
+
+</div>
+
+<div class="note">
+  <b>What this changes in <code>SPEC_meal_planning_v1.md</code>:</b> the two sub-tabs (Meals | This Week) become one surface — canvas above, library below. The lens slot Board | Days is decided now. <b>Board ships in v1 with a fixed-height board</b>; <b>Days is the v2 days toggle already deferred</b>, but now it has a home and an "Any day" row so lens switching never loses a meal. The model is untouched: in-week is still derived from unbought ingredients, add = plan = shop, remove zeroes unbought only. Long-press-to-drag is additive — the Add button is always the accessible path. <b>New open question for the build:</b> Board needs x/y per card, Days needs a day per meal — one <code>meal_placements</code>-style row per (household, meal) holding both would serve both lenses and the "shared arrangement" requirement at once.
+</div>
+
+</body>
+</html>

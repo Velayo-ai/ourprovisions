@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Desktop: framing the phone column</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --espresso:#2C1A0E; --cream:#FAF4EC; --paper:#FBF7F0;
+  --clay:#A0724A; --sand:#C9A97A; --sand-row:#E8D5B7;
+  --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#d8ccb8;font-family:Lato,sans-serif;color:var(--espresso);padding:30px 16px 70px;}
+h1.page{font-family:'Playfair Display',serif;font-style:italic;font-weight:700;font-size:26px;text-align:center;margin-bottom:6px;}
+p.page-sub{text-align:center;color:#6f5a45;font-size:14px;margin-bottom:30px;}
+
+.stack{display:flex;flex-direction:column;align-items:center;gap:34px;}
+.panel{width:920px;max-width:100%;}
+.cap{font-size:11px;font-weight:900;letter-spacing:.15em;text-transform:uppercase;color:var(--clay);margin-bottom:9px;}
+.cap b{color:var(--espresso);}
+.cap .note{color:var(--muted);font-weight:700;letter-spacing:.06em;text-transform:none;font-size:12px;}
+
+/* desktop window chrome */
+.win{border-radius:10px;overflow:hidden;box-shadow:0 14px 34px -12px rgba(40,24,12,.45);background:#e9e2d6;}
+.winbar{height:26px;background:#dfd6c7;display:flex;align-items:center;gap:6px;padding:0 10px;border-bottom:1px solid #cfc3b0;}
+.dot{width:8px;height:8px;border-radius:50%;background:#c3b6a2;}
+.urlbar{flex:1;height:14px;border-radius:7px;background:#efe8db;margin-left:8px;}
+.stage{height:520px;position:relative;overflow:hidden;}
+
+/* the household photo standing in for the real one */
+.photo{position:absolute;inset:0;
+  background:
+    radial-gradient(60% 70% at 78% 24%, rgba(255,232,178,.85), transparent 62%),
+    radial-gradient(70% 60% at 22% 76%, rgba(120,150,120,.55), transparent 60%),
+    radial-gradient(90% 80% at 50% 40%, rgba(168,128,84,.75), transparent 70%),
+    linear-gradient(150deg,#6b4e30 0%,#8a6a45 38%,#4e5c48 72%,#2e2418 100%);
+  filter:saturate(.95);}
+.photo::after{content:"";position:absolute;inset:0;background:rgba(30,18,8,.30);}
+.photo-label{position:absolute;left:12px;bottom:10px;z-index:4;font-size:10px;letter-spacing:.12em;
+  text-transform:uppercase;color:rgba(255,255,255,.55);}
+
+/* ── TODAY: rail + wide content ─────────────────────────── */
+.today{position:absolute;inset:0;background:var(--cream);display:flex;}
+.rail{width:56px;background:var(--espresso);display:flex;flex-direction:column;align-items:center;
+  padding:12px 0;gap:20px;flex:0 0 auto;}
+.rail .mark{font-family:'Playfair Display',serif;color:var(--cream);font-size:15px;}
+.rail .door{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--sand);font-size:7px;
+  letter-spacing:.1em;}
+.rail .door.on{color:var(--cream);}
+.rail .glyph{width:15px;height:15px;border:1.4px solid currentColor;border-radius:3px;}
+.today .body{flex:1;display:flex;flex-direction:column;min-width:0;}
+.today .banner{height:88px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;}
+.today .banner .wm{position:relative;z-index:3;font-family:'Playfair Display',serif;font-style:italic;
+  font-weight:700;color:#fff;font-size:26px;text-shadow:0 2px 12px rgba(0,0,0,.4);}
+.today .content{flex:1;padding:16px 0;display:flex;justify-content:center;}
+.today .col{width:525px;}
+
+/* shared miniature app content */
+.srch{display:flex;gap:6px;margin-bottom:10px;}
+.srch .f{flex:1;height:26px;border-radius:8px;background:var(--paper);border:1px solid var(--sand-row);
+  display:flex;align-items:center;padding:0 9px;font-size:10px;color:#a4917a;}
+.srch .b{width:26px;height:26px;border-radius:8px;background:var(--paper);border:1px solid var(--sand-row);}
+.chips{display:flex;gap:5px;margin-bottom:11px;overflow:hidden;}
+.chip{font-size:9px;padding:4px 8px;border-radius:999px;background:var(--paper);
+  border:1px solid var(--sand-row);color:#6b4423;white-space:nowrap;}
+.seclabel{font-size:8px;font-weight:900;letter-spacing:.2em;text-transform:uppercase;color:var(--clay);
+  margin:0 0 6px;display:flex;justify-content:space-between;}
+.seclabel span{color:var(--sand);font-weight:700;letter-spacing:.06em;text-transform:none;font-size:9px;}
+.grid{display:grid;gap:6px;}
+.grid.two{grid-template-columns:1fr 1fr;}
+.row{background:var(--paper);border:1px solid var(--sand-row);border-radius:8px;
+  padding:8px 9px;display:flex;align-items:center;justify-content:space-between;font-size:10.5px;}
+.addb{font-size:9px;font-weight:700;color:var(--clay);border:1px solid var(--sand);
+  border-radius:999px;padding:3px 10px;}
+
+/* ── A: honest frame ────────────────────────────────────── */
+.floatcol{position:absolute;top:26px;bottom:26px;left:50%;transform:translateX(-50%);
+  width:300px;background:var(--cream);border-radius:20px;overflow:hidden;
+  box-shadow:0 26px 60px -14px rgba(20,10,4,.55), 0 0 0 1px rgba(255,255,255,.28);
+  display:flex;flex-direction:column;z-index:3;}
+.mini-banner{height:70px;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+.mini-banner .hh{position:absolute;top:7px;left:0;right:0;text-align:center;z-index:3;color:#fff;
+  font-size:8px;letter-spacing:.2em;opacity:.85;}
+.mini-banner .wm{position:relative;z-index:3;font-family:'Playfair Display',serif;font-style:italic;
+  font-weight:700;color:#fff;font-size:21px;text-shadow:0 2px 10px rgba(0,0,0,.45);}
+.mini-body{flex:1;padding:11px 12px 0;overflow:hidden;}
+.helm{position:absolute;left:50%;transform:translateX(-50%);bottom:10px;z-index:5;
+  background:var(--espresso);border-radius:999px;display:flex;align-items:center;gap:15px;
+  padding:7px 15px;box-shadow:0 6px 18px rgba(20,10,4,.4);}
+.helm .d{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--sand);font-size:6px;letter-spacing:.1em;}
+.helm .d.on{color:var(--cream);}
+.helm .g{width:12px;height:12px;border:1.3px solid currentColor;border-radius:3px;}
+
+/* ── B: literal device ──────────────────────────────────── */
+.device{position:absolute;top:18px;bottom:18px;left:50%;transform:translateX(-50%);
+  width:322px;background:linear-gradient(160deg,#2f2f31,#0c0c0e 44%,#000);
+  border-radius:38px;padding:9px;box-shadow:0 30px 64px -16px rgba(0,0,0,.7);z-index:3;}
+.device .screen{height:100%;background:var(--cream);border-radius:30px;overflow:hidden;
+  display:flex;flex-direction:column;position:relative;}
+.notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:86px;height:15px;
+  background:#000;border-radius:0 0 11px 11px;z-index:6;}
+
+/* ── notes ──────────────────────────────────────────────── */
+.notes{max-width:820px;margin:44px auto 0;background:var(--cream);
+  border:1px solid var(--hairline);border-radius:14px;padding:24px 26px;}
+.notes h3{font-family:'Playfair Display',serif;font-style:italic;font-weight:700;font-size:21px;margin-bottom:13px;}
+.notes h4{font-size:11px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:var(--clay);margin:19px 0 7px;}
+.notes p,.notes li{font-size:14.5px;line-height:1.62;color:#3f2f21;}
+.notes ul{padding-left:19px;margin-top:5px;}
+.notes li{margin-bottom:6px;}
+.notes b{color:var(--espresso);}
+.rec{border-left:3px solid var(--teal);background:#F2F8F7;padding:12px 15px;border-radius:0 9px 9px 0;margin-top:13px;}
+</style>
+</head>
+<body>
+
+<h1 class="page">Desktop — framing the phone column</h1>
+<p class="page-sub">Today, and two ways to make the phone shape look deliberate. The background stands in for the household photo.</p>
+
+<div class="stack">
+
+  <!-- ══════════ TODAY ══════════ -->
+  <div class="panel">
+    <div class="cap"><b>Today</b> &nbsp;·&nbsp; <span class="note">rail + content column, ~340px of empty cream either side</span></div>
+    <div class="win">
+      <div class="winbar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><div class="urlbar"></div></div>
+      <div class="stage">
+        <div class="today">
+          <div class="rail">
+            <div class="mark">P</div>
+            <div class="door"><div class="glyph"></div>HOME</div>
+            <div class="door"><div class="glyph"></div>PLAN</div>
+            <div class="door on"><div class="glyph"></div>BROWSE</div>
+            <div class="door"><div class="glyph"></div>SHOP</div>
+          </div>
+          <div class="body">
+            <div class="banner"><div class="photo"></div><div class="wm">OurProvisions</div></div>
+            <div class="content"><div class="col">
+              <div class="srch"><div class="f">Search your catalog…</div><div class="b"></div></div>
+              <div class="chips"><i class="chip">⭐ Staples</i><i class="chip">🥦 Produce</i><i class="chip">🥩 Meat &amp; Seafood</i><i class="chip">🥛 Dairy</i><i class="chip">🥫 Pantry</i></div>
+              <div class="seclabel">🥦 Produce <span>+ Add item</span></div>
+              <div class="grid two">
+                <div class="row">Apples<i class="addb">Add</i></div>
+                <div class="row">Bananas<i class="addb">Add</i></div>
+                <div class="row">Broccoli<i class="addb">Add</i></div>
+                <div class="row">Carrots<i class="addb">Add</i></div>
+                <div class="row">Garlic<i class="addb">Add</i></div>
+                <div class="row">Ginger<i class="addb">Add</i></div>
+                <div class="row">Lemons<i class="addb">Add</i></div>
+                <div class="row">Lettuce<i class="addb">Add</i></div>
+              </div>
+            </div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ A ══════════ -->
+  <div class="panel">
+    <div class="cap"><b>A — the honest frame</b> &nbsp;·&nbsp; <span class="note">soft-edged column floating on the household photo; helm inside; no rail</span></div>
+    <div class="win">
+      <div class="winbar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><div class="urlbar"></div></div>
+      <div class="stage">
+        <div class="photo"></div>
+        <div class="photo-label">household photo, full bleed</div>
+        <div class="floatcol">
+          <div class="mini-banner"><div class="photo"></div><div class="hh">⚓ MADBURY ⚓</div><div class="wm">OurProvisions</div></div>
+          <div class="mini-body">
+            <div class="srch"><div class="f">Search your catalog…</div><div class="b"></div></div>
+            <div class="chips"><i class="chip">⭐ Staples</i><i class="chip">🥦 Produce</i><i class="chip">🥩 Meat</i></div>
+            <div class="seclabel">🥦 Produce <span>+ Add</span></div>
+            <div class="grid">
+              <div class="row">Apples<i class="addb">Add</i></div>
+              <div class="row">Bananas<i class="addb">Add</i></div>
+              <div class="row">Broccoli<i class="addb">Add</i></div>
+              <div class="row">Carrots<i class="addb">Add</i></div>
+              <div class="row">Garlic<i class="addb">Add</i></div>
+            </div>
+          </div>
+          <div class="helm">
+            <div class="d"><div class="g"></div>HOME</div>
+            <div class="d"><div class="g"></div>PLAN</div>
+            <div class="d on"><div class="g"></div>BROWSE</div>
+            <div class="d"><div class="g"></div>SHOP</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ B ══════════ -->
+  <div class="panel">
+    <div class="cap"><b>B — the literal device</b> &nbsp;·&nbsp; <span class="note">same column, wearing a phone</span></div>
+    <div class="win">
+      <div class="winbar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><div class="urlbar"></div></div>
+      <div class="stage">
+        <div class="photo"></div>
+        <div class="photo-label">household photo, full bleed</div>
+        <div class="device"><div class="screen">
+          <div class="notch"></div>
+          <div class="mini-banner"><div class="photo"></div><div class="hh">⚓ MADBURY ⚓</div><div class="wm">OurProvisions</div></div>
+          <div class="mini-body">
+            <div class="srch"><div class="f">Search your catalog…</div><div class="b"></div></div>
+            <div class="chips"><i class="chip">⭐ Staples</i><i class="chip">🥦 Produce</i><i class="chip">🥩 Meat</i></div>
+            <div class="seclabel">🥦 Produce <span>+ Add</span></div>
+            <div class="grid">
+              <div class="row">Apples<i class="addb">Add</i></div>
+              <div class="row">Bananas<i class="addb">Add</i></div>
+              <div class="row">Broccoli<i class="addb">Add</i></div>
+              <div class="row">Carrots<i class="addb">Add</i></div>
+              <div class="row">Garlic<i class="addb">Add</i></div>
+            </div>
+          </div>
+          <div class="helm">
+            <div class="d"><div class="g"></div>HOME</div>
+            <div class="d"><div class="g"></div>PLAN</div>
+            <div class="d on"><div class="g"></div>BROWSE</div>
+            <div class="d"><div class="g"></div>SHOP</div>
+          </div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="notes">
+  <h3>What changes, and what it costs</h3>
+
+  <p>Today’s problem isn’t the rail — it’s that a phone-width column in a 1,400px window reads as
+  <b>unfinished</b> rather than intentional. Both options fix that the same way: stop apologising for the
+  shape and frame it.</p>
+
+  <h4>Both options retire the rail</h4>
+  <p>This is the consequence worth deciding on. Once the content sits in a framed column, a navigation rail
+  <i>outside</i> that frame is a second nav for the same four doors. The helm belongs inside. That collapses
+  <code>nav.js</code> to one renderer, deletes <code>&lt;Rail /&gt;</code> and the 700px media query, and
+  removes the “which nav am I looking at” question at every width. Less code than today, not more.</p>
+
+  <h4>A versus B</h4>
+  <ul>
+    <li><b>A</b> reads as a product that knows what it is. The shadow and the radius do all the work; nothing
+    is pretending. It survives being looked at every day, and it dates well because there’s nothing to date.</li>
+    <li><b>B</b> is more charming for exactly one audience — someone you are showing it to — and it says
+    “phone app” in half a second without a word. The risk is that a device chassis is the visual language of
+    <i>demos and emulators</i>, so a tester opening it on their laptop may read it as a prototype rather than
+    the real thing.</li>
+  </ul>
+
+  <div class="rec">
+    <p><b>Recommendation: A.</b> The margins are the actual opportunity — on the phone the household photo is
+    a cropped banner, and on desktop it can be the whole room. That’s the asset that makes OurProvisions feel
+    like <i>someone’s home</i>, and desktop is the one place there’s space to let it breathe. A device bezel
+    would cover that with plastic.</p>
+    <p style="margin-top:9px">If you want <b>B</b> for demos specifically, it’s a body class rather than a
+    layout — same column, different wrapper. Worth doing only if you find yourself wanting it twice.</p>
+  </div>
+
+  <h4>Cost</h4>
+  <p>A <code>max-width</code>, a radius, a shadow, a full-bleed background, and deleting the rail branch.
+  One commit, and it makes the codebase smaller.</p>
+</div>
+
+</body>
+</html>

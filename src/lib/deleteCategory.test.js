@@ -2,7 +2,7 @@
    the select's options are read as raw DOM (count, text, selected). */
 import { render } from "@testing-library/react";
 import { CategorySelect } from "../components/CategorySelect";
-import { defaultMoveTarget, deleteCategoryLabel, categoryDeletePlan, runCategoryDelete } from "./deleteCategory";
+import { defaultMoveTarget, deleteCategoryLabel, categoryCountText, categoryDeletePlan, runCategoryDelete } from "./deleteCategory";
 
 // Manage Categories → Delete never deletes items (2026-11-05). CATEGORY_ORDER is read from App.js
 // itself, so the preselect is tested against the list that ships.
@@ -71,6 +71,9 @@ describe("the button only moves and deletes", () => {
   test("labels", () => {
     expect(deleteCategoryLabel(2)).toBe("Move & Delete Category");
     expect(deleteCategoryLabel(0)).toBe("Delete Category");
+    expect(categoryCountText(0)).toBe("0 items");
+    expect(categoryCountText(1)).toBe("1 item");
+    expect(categoryCountText(12)).toBe("12 items");
   });
 
   test("plans: items need a target or nothing happens; no items deletes directly", () => {
@@ -122,8 +125,37 @@ describe("App wiring", () => {
     expect(body).not.toMatch(/await deleteItem\(/);
   });
 
-  test("the Delete copy no longer repeats Rename's", () => {
-    expect(APP).toContain("Standard categories can’t be deleted — only categories you’ve created.");
-    expect(APP.match(/can't be renamed — only categories you've created/g)).toHaveLength(1);
+  test("standard categories are not listed and nothing says so (Dan, 2026-11-10); nothing names a category in a form", () => {
+    expect(APP).not.toContain("Standard categories can't be renamed or deleted.");
+    expect(APP).not.toContain("can’t be deleted — only categories you’ve created");
+    expect(APP).not.toContain("can't be renamed — only categories you've created");
+    // The rows are text: a category name never sits in an aria-label or an <option> value.
+    expect(APP).toContain('aria-label="Rename this category"');   // the row itself: tap to edit (no pencil)
+    expect(APP).toContain('aria-label="Delete this category"');
+    expect(APP).not.toContain("M4 20h4l10.5-10.5");                // the pencil icon is gone
+  });
+
+  test("no factory reset under Categories (Dan, 2026-11-10): household factory reset belongs in its own designed flow", () => {
+    expect(APP).not.toContain("Restore default categories");
+    expect(APP).not.toContain("handleResetCategories");
+    expect(APP).not.toContain("Danger Zone");
+  });
+
+  test("both delete confirmations sit after the Manage modal in the tree and one layer above it (2026-11-11)", () => {
+    const manage = APP.indexOf("{showManageCategoriesModal && (");
+    const askConfirm = APP.indexOf("{ASK_ENABLED && deleteAskId && (() =>");
+    const catConfirm = APP.indexOf("{deletingCategory && (");
+    expect(manage).toBeGreaterThan(0);
+    expect(askConfirm).toBeGreaterThan(manage);
+    expect(catConfirm).toBeGreaterThan(askConfirm);
+    expect(APP.slice(askConfirm, catConfirm)).toContain('className="modal-overlay" style={{ zIndex: 110 }}');
+    expect(APP.slice(catConfirm, catConfirm + 400)).toContain('className="modal-overlay" style={{ zIndex: 110 }}');
+  });
+
+  test("empty created categories are let go when Manage opens, on open only", () => {
+    const body = APP.slice(APP.indexOf("const catalogForPruneRef"), APP.indexOf("}, [showManageCategoriesModal]);"));
+    expect(body).toContain("if (!showManageCategoriesModal) return;");
+    expect(body).toContain("items.some(i => i.category === c)");
+    expect(APP).not.toMatch(/aria-label=\{`(Rename|Delete) \$\{cat\./);
   });
 });

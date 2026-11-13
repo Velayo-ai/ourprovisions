@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mockup — New Meal, merged Galley (2026-10-12)</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Lato:wght@400;700&display=swap">
+<style>
+body{margin:0;background:#E9E1D4;font-family:Lato,sans-serif;color:#2C1A0E}
+header{padding:28px 32px 8px}
+h1.page{font-family:'Playfair Display',serif;margin:0 0 6px;font-size:28px}
+.row{display:flex;flex-wrap:wrap;gap:48px;align-items:flex-start;padding:24px 32px 48px}
+figure>div{box-shadow:0 10px 30px rgba(44,26,14,.18);border-radius:14px;overflow:hidden}
+a{color:#7A5230}
+
+#Main a{color:#7A5230}
+#Main a:hover{color:#2C1A0E}
+#Main .lbl{font-size:12.5px;letter-spacing:1.6px;text-transform:uppercase;color:#7D6D55;margin:0 0 8px;display:block}
+#Main .inp{box-sizing:border-box;width:100%;font:inherit;font-size:16px;color:#2C1A0E;background:#F5EDE0;border:1.5px solid #E8D5B7;border-radius:8px;padding:11px 14px}
+#Main .inp::placeholder{color:#9A8B74}
+#Main .chip{font:inherit;font-size:15px;font-weight:700;color:#5E4630;background:#FFFDF8;border:1.5px solid #E8D5B7;border-radius:999px;padding:9px 16px;cursor:pointer}
+#Main .starter{font:inherit;font-size:13.5px;color:#5E4630;background:#FFFDF8;border:1px solid #D9C4A4;border-radius:999px;padding:8px 12px;cursor:pointer;min-height:36px}
+
+#Invent a{color:#7A5230}
+#Invent a:hover{color:#2C1A0E}
+#ReadPhotos a{color:#7A5230}
+#ReadPhotos a:hover{color:#2C1A0E}
+#ReadPhotos .th{position:relative;width:62px;height:82px;border-radius:8px;background:#1E1A17;border:1px solid #3A322B;flex-shrink:0}
+#ReadPhotos .th i{display:block;height:3px;margin:8px 8px 0;background:#5B5149;border-radius:2px}
+#ReadPhotos .num{position:absolute;top:-8px;left:-8px;width:24px;height:24px;border-radius:50%;background:#2C1A0E;color:#FAF4EC;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+#ReadPhotos .x{position:absolute;top:-10px;right:-10px;width:28px;height:28px;border-radius:50%;border:1.5px solid #E2D0B4;background:#FFFDF8;color:#5E4630;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+
+#ReadPaste a{color:#7A5230}
+#ReadPaste a:hover{color:#2C1A0E}
+#Adapt a{color:#7A5230}
+#Adapt a:hover{color:#2C1A0E}
+#Adapt .th{position:relative;width:62px;height:82px;border-radius:8px;background:#F4ECDD;border:1px solid #D9C4A4;flex-shrink:0}
+#Adapt .th i{display:block;height:3px;margin:9px 8px 0;background:#B9A07C;border-radius:2px}
+#Adapt .num{position:absolute;top:-8px;left:-8px;width:24px;height:24px;border-radius:50%;background:#2C1A0E;color:#FAF4EC;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center}
+#Adapt .x{position:absolute;top:-10px;right:-10px;width:28px;height:28px;border-radius:50%;border:1.5px solid #E2D0B4;background:#FFFDF8;color:#5E4630;display:flex;align-items:center;justify-content:center;padding:0}
+
+</style></head><body>
+<header><h1 class="page">New Meal — merged Galley</h1>
+<p style="margin:0;max-width:760px;line-height:1.5">Mockup of record for <code>SPEC_galley_composer.md</code> (design chat 2026-10-12). Frames 1–4 are this build; frame 5 is chunk 3. Where a frame and the spec differ, the spec wins (frame 3's note box is hidden in chunk 2 — G7).</p></header>
+<div class="row">
+<figure id="Main" style="margin:0"><figcaption style="font:700 15px Lato,sans-serif;color:#2C1A0E;margin:0 0 12px">1 · New Meal — two ways: by hand, or with the Galley</figcaption>
+<div style="width: 390px; height: 1240px; box-sizing: border-box; background: #FAF4EC; font-family: 'Lato', sans-serif; color: #2C1A0E; padding: 28px 24px 0; display: flex; flex-direction: column; gap: 22px; position: relative">
+
+  <div style="display: flex; justify-content: space-between; align-items: center">
+    <h1 style="margin: 0; font-family: 'Playfair Display', serif; font-size: 28px">New Meal</h1>
+    <button aria-label="Close" style="width: 44px; height: 44px; border: none; background: transparent; color: #8a7a60; cursor: pointer; display: flex; align-items: center; justify-content: center">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 4l12 12M16 4L4 16"/></svg>
+    </button>
+  </div>
+
+  <div>
+    <label class="lbl" for="Main-mn">Meal name</label>
+    <input id="Main-mn" class="inp" placeholder="Taco Night">
+  </div>
+
+  <div>
+    <span class="lbl">Good for</span>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <button class="chip">Dinner</button><button class="chip">Breakfast</button><button class="chip">Lunch</button><button class="chip">Snack</button><button class="chip">Side</button><button class="chip">Appetizer</button><button class="chip">Dessert</button>
+    </div>
+  </div>
+
+  <div>
+    <label class="lbl" for="Main-ing">Ingredients</label>
+    <input id="Main-ing" class="inp" placeholder="Search your catalog…">
+  </div>
+
+  <div>
+    <span class="lbl">Steps</span>
+    <div style="border: 1.5px dashed #D9C08F; border-radius: 10px; padding: 18px; text-align: center; color: #6E5A4A; font-size: 15px">No steps yet — write them, or ask the Galley.</div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 14px; color: #8a7a60; font-size: 13px; letter-spacing: 2px">
+    <div style="flex: 1; height: 1px; background: #E2D3BC"></div>OR<div style="flex: 1; height: 1px; background: #E2D3BC"></div>
+  </div>
+
+  <section aria-labelledby="Main-gt" style="background: #F2E8DA; border: 1.5px solid #E4D2B8; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+    <div>
+      <h2 id="Main-gt" style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: #7A4E28">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.5l1.6 4.9L14.5 8l-4.9 1.6L8 14.5l-1.6-4.9L1.5 8l4.9-1.6z"/></svg>
+        Ask the Galley
+      </h2>
+      <p style="margin: 6px 0 0; font-size: 14.5px; color: #6E5A4A">Tell it what you're in the mood for, or bring a recipe you already have.</p>
+    </div>
+
+    <div style="background: #FFFDF9; border: 1.5px solid #E8D5B7; border-radius: 12px; padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 10px">
+      <label for="Main-ask" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Ask the Galley</label>
+      <textarea id="Main-ask" rows="3" placeholder="Something cozy with chicken… or paste a recipe" style="border: none; outline: none; resize: none; font: inherit; font-size: 16px; line-height: 1.45; color: #2C1A0E; background: transparent; min-height: 70px"></textarea>
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <button style="display: flex; align-items: center; gap: 8px; font: inherit; font-size: 15px; font-weight: 700; color: #3A2616; background: #FFFDF8; border: 1.5px solid #C9AE86; border-radius: 999px; padding: 9px 14px; cursor: pointer; min-height: 44px">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5h3l1.5-2h5l1.5 2h3v9.5H3z"/><circle cx="10" cy="11" r="3"/></svg>
+          Photo
+        </button>
+        <button aria-label="Speak instead" style="width: 44px; height: 44px; border: none; border-radius: 12px; background: #2C1A0E; color: #FAF4EC; display: flex; align-items: center; justify-content: center; cursor: pointer">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="7" y="2.5" width="6" height="10" rx="3"/><path d="M4.5 10a5.5 5.5 0 0011 0M10 15.5V18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 8px">
+      <span style="font-size: 13px; color: #6E5A4A">Try one:</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px">
+        <button class="starter">Something cozy with chicken</button>
+        <button class="starter">Read a recipe card</button>
+        <button class="starter">Use what's on hand</button>
+      </div>
+    </div>
+
+    <button disabled style="font: inherit; font-size: 17px; font-weight: 700; color: #7D6D55; background: #E6D6B8; border: none; border-radius: 12px; padding: 14px; min-height: 50px">Create a meal</button>
+    <p style="margin: 0; font-size: 13.5px; line-height: 1.5; color: #6E5A4A">You'll get one meal, filled into the fields above to check before you save.</p>
+  </section>
+
+  <div style="margin-top: auto; display: flex; justify-content: flex-end; gap: 12px; padding: 14px 0 28px; border-top: 1px solid #EADCC6">
+    <button style="font: inherit; font-size: 16px; color: #6E5A4A; background: transparent; border: 1.5px solid #C8B89A; border-radius: 6px; padding: 11px 22px; min-height: 46px">Cancel</button>
+    <button disabled style="font: inherit; font-size: 16px; color: #FAF4EC; background: #B9A184; border: none; border-radius: 6px; padding: 11px 22px; min-height: 46px">Save Meal</button>
+  </div>
+</div>
+</figure><figure id="Invent" style="margin:0"><figcaption style="font:700 15px Lato,sans-serif;color:#2C1A0E;margin:0 0 12px">2 · Words only → Create a meal</figcaption>
+<div style="width: 390px; height: 600px; box-sizing: border-box; background: #FAF4EC; font-family: 'Lato', sans-serif; color: #2C1A0E; padding: 24px">
+  <section aria-labelledby="Invent-gt" style="background: #F2E8DA; border: 1.5px solid #E4D2B8; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+    <h2 id="Invent-gt" style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: #7A4E28">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.5l1.6 4.9L14.5 8l-4.9 1.6L8 14.5l-1.6-4.9L1.5 8l4.9-1.6z"/></svg>
+      Ask the Galley
+    </h2>
+
+    <div style="background: #FFFDF9; border: 1.5px solid #C9A46A; border-radius: 12px; padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 10px">
+      <label for="Invent-ask" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Ask the Galley</label>
+      <textarea id="Invent-ask" rows="3" style="border: none; outline: none; resize: none; font: inherit; font-size: 16px; line-height: 1.45; color: #2C1A0E; background: transparent; min-height: 70px">Something cozy with chicken, ready in 30 minutes</textarea>
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <button style="display: flex; align-items: center; gap: 8px; font: inherit; font-size: 15px; font-weight: 700; color: #3A2616; background: #FFFDF8; border: 1.5px solid #C9AE86; border-radius: 999px; padding: 9px 14px; min-height: 44px">
+          <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5h3l1.5-2h5l1.5 2h3v9.5H3z"/><circle cx="10" cy="11" r="3"/></svg>
+          Photo
+        </button>
+        <button aria-label="Speak instead" style="width: 44px; height: 44px; border: none; border-radius: 12px; background: #2C1A0E; color: #FAF4EC; display: flex; align-items: center; justify-content: center">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="7" y="2.5" width="6" height="10" rx="3"/><path d="M4.5 10a5.5 5.5 0 0011 0M10 15.5V18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <p style="margin: 0; display: flex; gap: 8px; align-items: flex-start; font-size: 14.5px; line-height: 1.45; color: #4E3A28">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7A4E28" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M8 1.5l1.6 4.9L14.5 8l-4.9 1.6L8 14.5l-1.6-4.9L1.5 8l4.9-1.6z"/></svg>
+      The Galley will create a new meal for you.
+    </p>
+
+    <button style="font: inherit; font-size: 17px; font-weight: 700; color: #FAF4EC; background: #2C1A0E; border: none; border-radius: 12px; padding: 14px; min-height: 50px">Create a meal</button>
+    <p style="margin: 0; font-size: 13.5px; line-height: 1.5; color: #6E5A4A">You'll get one meal, filled into the fields above to check before you save.</p>
+  </section>
+</div>
+</figure><figure id="ReadPhotos" style="margin:0"><figcaption style="font:700 15px Lato,sans-serif;color:#2C1A0E;margin:0 0 12px">3 · Photos → Read these (chunk 2: note box hidden — G7)</figcaption>
+<div style="width: 390px; height: 600px; box-sizing: border-box; background: #FAF4EC; font-family: 'Lato', sans-serif; color: #2C1A0E; padding: 24px">
+  <section aria-labelledby="ReadPhotos-gt" style="background: #F2E8DA; border: 1.5px solid #E4D2B8; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+    <h2 id="ReadPhotos-gt" style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: #7A4E28">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.5l1.6 4.9L14.5 8l-4.9 1.6L8 14.5l-1.6-4.9L1.5 8l4.9-1.6z"/></svg>
+      Ask the Galley
+    </h2>
+
+    <div style="background: #FFFDF9; border: 1.5px solid #C9A46A; border-radius: 12px; padding: 18px 12px 10px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; gap: 14px; align-items: center; padding-left: 6px">
+        <div class="th"><span class="num">1</span><button class="x" aria-label="Remove photo 1"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2L2 8"/></svg></button><i></i><i></i><i style="width:60%"></i><i></i><i style="width:40%"></i></div>
+        <div class="th"><span class="num">2</span><button class="x" aria-label="Remove photo 2"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2L2 8"/></svg></button><i style="width:50%"></i><i></i><i></i><i style="width:70%"></i></div>
+        <div class="th"><span class="num">3</span><button class="x" aria-label="Remove photo 3"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2L2 8"/></svg></button><i></i><i style="width:55%"></i><i></i><i></i></div>
+        <button aria-label="Add another photo" style="width: 62px; height: 82px; border-radius: 8px; border: 1.5px dashed #C9AE86; background: transparent; color: #7A4E28; display: flex; align-items: center; justify-content: center; cursor: pointer">
+          <svg width="20" height="20" viewBox="0 0 20 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>
+        </button>
+      </div>
+      <label for="ReadPhotos-ask" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Add a note for the Galley</label>
+      <textarea id="ReadPhotos-ask" rows="2" placeholder="Anything to add? Or just read them." style="border: none; outline: none; resize: none; font: inherit; font-size: 16px; line-height: 1.45; color: #2C1A0E; background: transparent; min-height: 46px"></textarea>
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <button style="font: inherit; font-size: 15px; color: #7A5230; background: transparent; border: none; text-decoration: underline; text-underline-offset: 3px; padding: 10px 4px; min-height: 44px">Clear</button>
+        <button aria-label="Speak instead" style="width: 44px; height: 44px; border: none; border-radius: 12px; background: #2C1A0E; color: #FAF4EC; display: flex; align-items: center; justify-content: center">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="7" y="2.5" width="6" height="10" rx="3"/><path d="M4.5 10a5.5 5.5 0 0011 0M10 15.5V18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <p style="margin: 0; display: flex; gap: 8px; align-items: flex-start; font-size: 14.5px; line-height: 1.45; color: #4E3A28">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7A4E28" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M3 2.5h7l3 3v8H3z"/><path d="M5.5 8h5M5.5 10.5h3.5"/></svg>
+      Read as written — nothing changed. Up to 4, in any order.
+    </p>
+
+    <button style="font: inherit; font-size: 17px; font-weight: 700; color: #FAF4EC; background: #2C1A0E; border: none; border-radius: 12px; padding: 14px; min-height: 50px">Read these</button>
+  </section>
+</div>
+</figure><figure id="ReadPaste" style="margin:0"><figcaption style="font:700 15px Lato,sans-serif;color:#2C1A0E;margin:0 0 12px">4 · Pasted recipe → Read this recipe</figcaption>
+<div style="width: 390px; height: 600px; box-sizing: border-box; background: #FAF4EC; font-family: 'Lato', sans-serif; color: #2C1A0E; padding: 24px">
+  <section aria-labelledby="ReadPaste-gt" style="background: #F2E8DA; border: 1.5px solid #E4D2B8; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+    <h2 id="ReadPaste-gt" style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: #7A4E28">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.5l1.6 4.9L14.5 8l-4.9 1.6L8 14.5l-1.6-4.9L1.5 8l4.9-1.6z"/></svg>
+      Ask the Galley
+    </h2>
+
+    <div style="background: #FFFDF9; border: 1.5px solid #C9A46A; border-radius: 12px; padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 10px">
+      <label for="ReadPaste-ask" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Ask the Galley</label>
+      <textarea id="ReadPaste-ask" rows="7" style="border: none; outline: none; resize: none; font: inherit; font-size: 15px; line-height: 1.45; color: #2C1A0E; background: transparent; min-height: 150px">Tidewater shrimp &amp; grits — from @tidewatercooks
+Ingredients: 1 lb shrimp, 1 cup stone-ground grits, 4 cups water, a glug of olive oil, 2 cloves garlic, 1 lemon
+1. Simmer grits in the water 25 min, stirring.
+2. Toss shrimp with salt and the garlic.
+3. Sear in the olive oil 2 min a side…</textarea>
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <button style="font: inherit; font-size: 15px; color: #7A5230; background: transparent; border: none; text-decoration: underline; text-underline-offset: 3px; padding: 10px 4px; min-height: 44px">Clear</button>
+        <button aria-label="Speak instead" style="width: 44px; height: 44px; border: none; border-radius: 12px; background: #2C1A0E; color: #FAF4EC; display: flex; align-items: center; justify-content: center">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="7" y="2.5" width="6" height="10" rx="3"/><path d="M4.5 10a5.5 5.5 0 0011 0M10 15.5V18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <p style="margin: 0; display: flex; gap: 8px; align-items: flex-start; font-size: 14.5px; line-height: 1.45; color: #4E3A28">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7A4E28" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M3 2.5h7l3 3v8H3z"/><path d="M5.5 8h5M5.5 10.5h3.5"/></svg>
+        Looks like a recipe — it'll be copied as written.
+      </p>
+      <button style="align-self: flex-start; margin-left: 24px; font: inherit; font-size: 14.5px; color: #7A5230; background: transparent; border: none; text-decoration: underline; text-underline-offset: 3px; padding: 8px 0; min-height: 40px">Want ideas instead?</button>
+    </div>
+
+    <button style="font: inherit; font-size: 17px; font-weight: 700; color: #FAF4EC; background: #2C1A0E; border: none; border-radius: 12px; padding: 14px; min-height: 50px">Read this recipe</button>
+  </section>
+</div>
+</figure><figure id="Adapt" style="margin:0"><figcaption style="font:700 15px Lato,sans-serif;color:#2C1A0E;margin:0 0 12px">5 · Recipe + words → Adapt (LATER — chunk 3, not built)</figcaption>
+<div style="width: 390px; height: 600px; box-sizing: border-box; background: #FAF4EC; font-family: 'Lato', sans-serif; color: #2C1A0E; padding: 24px">
+  <section aria-labelledby="Adapt-gt" style="background: #F2E8DA; border: 1.5px solid #E4D2B8; border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <h2 id="Adapt-gt" style="margin: 0; display: flex; align-items: center; gap: 8px; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: #7A4E28">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.5l1.6 4.9L14.5 8l-4.9 1.6L8 14.5l-1.6-4.9L1.5 8l4.9-1.6z"/></svg>
+        Ask the Galley
+      </h2>
+      <span style="font-size: 11.5px; font-weight: 700; letter-spacing: 1.4px; color: #5A4A3A; background: #E4D6C0; border-radius: 999px; padding: 4px 10px">LATER</span>
+    </div>
+
+    <div style="background: #FFFDF9; border: 1.5px solid #C9A46A; border-radius: 12px; padding: 18px 12px 10px; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; gap: 14px; align-items: center; padding-left: 6px">
+        <div class="th"><span class="num">1</span><button class="x" aria-label="Remove photo 1"><svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M2 2l6 6M8 2L2 8"/></svg></button><i style="width:55%"></i><i></i><i></i><i style="width:70%"></i><i></i></div>
+        <span style="font-size: 13.5px; color: #6E5A4A; line-height: 1.4">Grandma's casserole card</span>
+      </div>
+      <label for="Adapt-ask" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">What should change?</label>
+      <textarea id="Adapt-ask" rows="2" style="border: none; outline: none; resize: none; font: inherit; font-size: 16px; line-height: 1.45; color: #2C1A0E; background: transparent; min-height: 46px">Make it gluten-free so everyone can have it</textarea>
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <button style="font: inherit; font-size: 15px; color: #7A5230; background: transparent; border: none; text-decoration: underline; text-underline-offset: 3px; padding: 10px 4px; min-height: 44px">Clear</button>
+        <button aria-label="Speak instead" style="width: 44px; height: 44px; border: none; border-radius: 12px; background: #2C1A0E; color: #FAF4EC; display: flex; align-items: center; justify-content: center">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="7" y="2.5" width="6" height="10" rx="3"/><path d="M4.5 10a5.5 5.5 0 0011 0M10 15.5V18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <p style="margin: 0; display: flex; gap: 8px; align-items: flex-start; font-size: 14.5px; line-height: 1.45; color: #4E3A28">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#7A4E28" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M2.5 5h9l-2.5-2.5M13.5 11h-9l2.5 2.5"/></svg>
+      Reads it as written, then adapts it. Saved as a new meal — the original stays untouched.
+    </p>
+
+    <button style="font: inherit; font-size: 17px; font-weight: 700; color: #FAF4EC; background: #2C1A0E; border: none; border-radius: 12px; padding: 14px; min-height: 50px">Adapt this recipe</button>
+  </section>
+</div>
+</figure>
+</div></body></html>

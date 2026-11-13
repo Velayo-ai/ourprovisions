@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockup — Helm v2: one pill, gets smaller when you scroll</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,700&family=Lato:wght@300;400;700;900&display=swap');
+  :root{ --cream:#FAF4EC; --espresso:#2C1A0E; --clay:#A0724A; --sand:#C9A97A; --sand-row:#E8D5B7; --teal:#0D9488; --amber:#c8973a; --muted:#8a7a60; --hairline:#E3D4BC; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#d8c9b0; font-family:'Lato',sans-serif; color:var(--espresso); padding:28px 16px 48px; }
+  h1{ font-family:'Playfair Display',serif; font-weight:400; font-size:1.5rem; margin:0 0 4px; text-align:center; }
+  .lede{ text-align:center; color:#5a4633; font-size:0.9rem; margin:0 auto 26px; max-width:680px; line-height:1.5; }
+  .stage{ display:flex; flex-wrap:wrap; gap:30px; justify-content:center; align-items:flex-start; }
+  .col{ display:flex; flex-direction:column; align-items:center; gap:10px; }
+  .caption{ font-size:0.78rem; color:#5a4633; max-width:370px; text-align:center; line-height:1.45; }
+  .caption b{ color:var(--espresso); }
+  .phone{ width:390px; height:760px; background:var(--cream); border-radius:28px; overflow:hidden; position:relative; box-shadow:0 12px 40px rgba(44,26,14,0.28); }
+  .header{ background:var(--espresso); color:var(--cream); padding:16px 20px 14px; display:flex; align-items:center; justify-content:center; gap:8px; }
+  .place-name{ font-size:0.8rem; letter-spacing:2px; text-transform:uppercase; font-weight:700; }
+  .anchor{ color:var(--sand); font-size:0.7rem; }
+  .body{ position:absolute; top:52px; bottom:0; left:0; right:0; overflow:hidden; padding:14px 18px 90px; }
+  .body.scrolled{ top:0; }
+  .shoprow{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .count{ font-size:0.72rem; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); flex:1; }
+  .lens{ display:flex; background:var(--sand-row); border-radius:20px; padding:3px; }
+  .seg{ font-size:0.68rem; letter-spacing:1px; text-transform:uppercase; padding:5px 11px; border-radius:17px; color:var(--clay); }
+  .seg.active{ background:var(--clay); color:var(--cream); }
+  .plus-hdr{ width:34px; height:34px; border-radius:50%; border:1.5px solid var(--sand); color:var(--clay); display:flex; align-items:center; justify-content:center; font-size:1.3rem; font-weight:300; line-height:1; padding-bottom:2px; }
+  .wrapup{ font-size:0.66rem; letter-spacing:1.2px; text-transform:uppercase; font-weight:900; padding:9px 12px; border-radius:18px; }
+  .wrapup.muted{ color:var(--clay); box-shadow:inset 0 0 0 1.5px var(--sand); }
+  .wrapup.full{ background:var(--amber); color:var(--espresso); }
+  .progress{ height:4px; background:var(--sand-row); border-radius:2px; margin:6px 0 14px; overflow:hidden; }
+  .progress i{ display:block; height:100%; background:var(--teal); }
+  .section-label{ font-size:0.66rem; font-weight:900; letter-spacing:2.5px; text-transform:uppercase; color:var(--clay); margin:16px 2px 8px; padding-bottom:6px; border-bottom:1px solid var(--sand-row); }
+  .row{ display:flex; align-items:center; gap:10px; padding:12px 0; border-bottom:1px solid var(--hairline); }
+  .check{ width:22px; height:22px; border-radius:50%; border:1.5px solid var(--sand); flex-shrink:0; }
+  .row.done .check{ background:var(--teal); border-color:var(--teal); }
+  .row.done .r-name{ color:var(--muted); text-decoration:line-through; }
+  .r-name{ font-size:0.98rem; flex:1; }
+  .r-sub{ font-size:0.7rem; color:var(--muted); margin-top:1px; }
+  .r-price{ font-family:'Playfair Display',serif; font-weight:700; font-size:0.95rem; }
+  .brow{ display:flex; align-items:center; gap:10px; padding:14px 14px; border:1px solid var(--sand-row); border-radius:12px; margin-bottom:8px; background:#fdf8f1; }
+  .brow.on{ border:1.5px solid var(--amber); }
+  .stepper{ margin-left:auto; display:flex; align-items:center; border:1.5px solid var(--sand); border-radius:20px; font-size:0.9rem; color:var(--clay); }
+  .stepper span{ padding:4px 12px; }
+  .stepper .v{ font-family:'Playfair Display',serif; font-weight:700; color:var(--espresso); border-left:1px solid var(--sand); border-right:1px solid var(--sand); }
+  .addb{ margin-left:auto; font-size:0.85rem; font-weight:700; color:var(--clay); border:1.5px solid var(--sand); border-radius:20px; padding:6px 20px; }
+  .fade{ position:absolute; left:0; right:0; bottom:0; height:90px; pointer-events:none; background:linear-gradient(to bottom, rgba(250,244,236,0), rgba(250,244,236,0.85) 55%, var(--cream)); }
+  .helm{ position:absolute; left:24px; right:24px; bottom:18px; height:56px; border-radius:28px; background:rgba(44,26,14,0.94);
+         display:flex; padding:0 6px; box-shadow:0 8px 24px rgba(44,26,14,0.32), inset 0 0 0 1px rgba(201,169,122,0.16); transition:all .2s; }
+  .helm-tab{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; color:var(--sand); font-size:0.58rem; letter-spacing:1.2px; text-transform:uppercase; border-radius:22px; position:relative; }
+  .helm-tab svg{ width:18px; height:18px; }
+  .helm-tab.active{ color:var(--cream); background:rgba(201,169,122,0.10); margin:5px 0; }
+  .badge{ position:absolute; top:4px; right:14px; background:var(--amber); color:var(--espresso); font-size:0.58rem; font-weight:900; min-width:16px; height:16px; border-radius:8px; display:flex; align-items:center; justify-content:center; padding:0 4px; }
+  .helm .plus, .helm .divider{ display:none; }
+  .helm.compact{ left:52px; right:52px; height:44px; border-radius:22px; bottom:14px; }
+  .helm.compact .helm-tab{ font-size:0; gap:0; }
+  .helm.compact .helm-tab.active{ margin:4px 0; }
+  .helm.compact .helm-tab svg{ width:17px; height:17px; }
+  .helm.compact .badge{ top:2px; right:8px; }
+  .helm.compact .divider{ display:block; flex:0 0 1px; align-self:center; height:18px; background:rgba(201,169,122,0.22); margin-left:4px; }
+  .helm.compact .plus{ display:flex; flex:0 0 auto; align-self:center; width:32px; height:32px; margin:0 2px 0 6px; border-radius:50%;
+                       background:var(--cream); color:var(--espresso); align-items:center; justify-content:center; font-size:1.35rem; font-weight:300; line-height:1; padding-bottom:2px; box-shadow:0 2px 8px rgba(0,0,0,.25); }
+  .note{ width:100%; max-width:820px; margin:34px auto 0; font-size:0.82rem; color:#5a4633; background:#efe4d2; border-radius:10px; padding:14px 18px; line-height:1.55; }
+  .note b{ color:var(--espresso); }
+</style>
+</head>
+<body>
+
+<h1>Helm v2 — one pill</h1>
+<p class="lede">The pill is smaller and never changes with the door you're on. It gets smaller only when <em>you</em> scroll into the content — and when it does, a <b>+</b> appears at its right end, doing the current door's add. Scroll up and the header controls return and the + folds away. Wrap up lives in the Shop header.</p>
+
+<div class="stage">
+  <div class="col">
+    <div class="phone">
+      <div class="header"><span class="anchor">&#9875;</span><span class="place-name">Madbury</span><span class="anchor">&#9875;</span></div>
+      <div class="body">
+        <div class="shoprow">
+          <div class="count">2 of 14 in cart</div>
+          <div class="lens"><div class="seg active">Aisles</div><div class="seg">A–Z</div></div>
+          <div class="plus-hdr">+</div>
+          <div class="wrapup full">Wrap up</div>
+        </div>
+        <div class="progress"><i style="width:14%"></i></div>
+        <div class="section-label">Produce</div>
+        <div class="row done"><div class="check"></div><div class="r-name">Lemons<div class="r-sub">3 · for Lemon pasta</div></div><div class="r-price">$2.10</div></div>
+        <div class="row done"><div class="check"></div><div class="r-name">Spinach<div class="r-sub">1 bag</div></div><div class="r-price">$3.49</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Garlic<div class="r-sub">1 head</div></div><div class="r-price">$0.89</div></div>
+        <div class="section-label">Seafood</div>
+        <div class="row"><div class="check"></div><div class="r-name">Salmon fillet<div class="r-sub">1.5 lb · for Sheet-Pan Salmon</div></div><div class="r-price">$18.75</div></div>
+        <div class="section-label">Pantry</div>
+        <div class="row"><div class="check"></div><div class="r-name">Spaghetti<div class="r-sub">1 box</div></div><div class="r-price">$1.99</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Olive oil<div class="r-sub">500 ml</div></div><div class="r-price">$11.50</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Parmesan<div class="r-sub">wedge</div></div><div class="r-price">$7.25</div></div>
+      </div>
+      <div class="fade"></div>
+      <nav class="helm">
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+        <div class="helm-tab active"><span class="badge">12</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+      </nav>
+    </div>
+    <div class="caption"><b>1 · Shop, at rest.</b> Pill at 56px with 24px margins. Header row: <b>[count] [Aisles | A–Z] [+] [Wrap up]</b>; Wrap up fills amber once something is in the cart. The pill is identical on every door and carries no +.</div>
+  </div>
+
+  <div class="col">
+    <div class="phone">
+      <div class="body scrolled">
+        <div class="section-label" style="margin-top:6px">Pantry</div>
+        <div class="row"><div class="check"></div><div class="r-name">Spaghetti<div class="r-sub">1 box</div></div><div class="r-price">$1.99</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Olive oil<div class="r-sub">500 ml</div></div><div class="r-price">$11.50</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Parmesan<div class="r-sub">wedge</div></div><div class="r-price">$7.25</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Sea salt<div class="r-sub">staple</div></div><div class="r-price">$3.40</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Black pepper<div class="r-sub">staple</div></div><div class="r-price">$4.10</div></div>
+        <div class="section-label">Dairy</div>
+        <div class="row"><div class="check"></div><div class="r-name">Milk<div class="r-sub">1 gal</div></div><div class="r-price">$4.29</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Butter<div class="r-sub">1 lb</div></div><div class="r-price">$5.49</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Eggs<div class="r-sub">dozen</div></div><div class="r-price">$4.79</div></div>
+        <div class="section-label">Household</div>
+        <div class="row"><div class="check"></div><div class="r-name">Paper towels<div class="r-sub">6 pack</div></div><div class="r-price">$12.99</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Dish soap<div class="r-sub">staple</div></div><div class="r-price">$3.99</div></div>
+        <div class="row"><div class="check"></div><div class="r-name">Sponges</div><div class="r-price">$2.49</div></div>
+      </div>
+      <div class="fade"></div>
+      <nav class="helm compact">
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+        <div class="helm-tab active"><span class="badge">12</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+        <div class="divider"></div><div class="plus">+</div>
+      </nav>
+    </div>
+    <div class="caption"><b>2 · Shop, scrolled down.</b> The header controls have scrolled away with the list; the pill compacts to 44px icons and a cream <b>+</b> appears at its right end — at the thumb, exactly when the header's + has gone. It opens the same Add sheet (add-from-the-aisle). Scroll up a little: header returns, + folds away.</div>
+  </div>
+
+  <div class="col">
+    <div class="phone">
+      <div class="body scrolled">
+        <div class="section-label" style="margin-top:6px">Pantry</div>
+        <div class="brow on"><span>Olive oil</span><div class="stepper"><span>&minus;</span><span class="v">1</span><span>+</span></div></div>
+        <div class="brow"><span>Rice</span><div class="addb">Add</div></div>
+        <div class="brow"><span>Flour</span><div class="addb">Add</div></div>
+        <div class="brow on"><span>Spaghetti</span><div class="stepper"><span>&minus;</span><span class="v">1</span><span>+</span></div></div>
+        <div class="brow"><span>Canned tomatoes</span><div class="addb">Add</div></div>
+        <div class="brow"><span>Peanut butter</span><div class="addb">Add</div></div>
+        <div class="section-label">Dairy</div>
+        <div class="brow"><span>Milk</span><div class="addb">Add</div></div>
+        <div class="brow"><span>Butter</span><div class="addb">Add</div></div>
+        <div class="brow"><span>Yogurt</span><div class="addb">Add</div></div>
+        <div class="brow"><span>Cheddar</span><div class="addb">Add</div></div>
+      </div>
+      <div class="fade"></div>
+      <nav class="helm compact">
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>Home</div>
+        <div class="helm-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="9" r="2.5"/><path d="M3 15q9-6 18 0"/><path d="M2 18h20" opacity=".5"/></svg>Plan</div>
+        <div class="helm-tab active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></svg>Browse</div>
+        <div class="helm-tab"><span class="badge">12</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h2l2.2 10h10L20 8H7"/><circle cx="9.5" cy="19" r="1.3"/><circle cx="17" cy="19" r="1.3"/></svg>Shop</div>
+        <div class="divider"></div><div class="plus">+</div>
+      </nav>
+    </div>
+    <div class="caption"><b>3 · Browse, scrolled.</b> Same compact pill, same +. <b>The + does the door's add</b>: add-from-the-aisle on Shop, the Add sheet on Browse, New meal on Plan later. Home has nothing to add, so no + there. One thing to learn, from your own thumb, on any door.</div>
+  </div>
+
+</div>
+
+<div class="note">
+  <b>What changes from what's built:</b> (1) Pill 56px, side margins 24px, active capsule 10%. (2) <b>No session posture.</b> The pill is identical on every door; the Shop header row is <b>[count] [Aisles | A–Z] [+] [Wrap up]</b> and scrolls away with the list — the trip's controls are part of the list, the pill is chrome. (3) <b>Compact on scroll:</b> binary, not continuous — scrolling down past ~40px adds <code>.compact</code> (44px, icons only, margins 52px, and a trailing cream <b>+</b> that calls the current door's add — Shop: <code>openAddSheet</code>; Browse: the same sheet; Plan: New meal when built; Home: no +). Scrolling up, or being within 40px of the top, removes it. 200ms transitions; <code>requestAnimationFrame</code>-throttled listener; ignore iOS overscroll. Rail: no compact state, no +. (4) Fade 90px. <b>Retires:</b> D3, D3a, D9's session slot, and the <code>activeSession</code> posture item in NEXT. <b>Survives:</b> D10's muted→amber Wrap up, now on the header chip.
+</div>
+
+</body>
+</html>

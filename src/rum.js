@@ -128,6 +128,22 @@ const REPLAY_BLOCK_RULES = [
   { rule: 'exclude', selector: '.op-replay-block' },
 ];
 
+// A person's name is excluded UNCONDITIONALLY, in BOTH environments and in BOTH
+// the recorder and click-text collection (SPEC_ask_slice2 K3, 2026-11-06). An
+// Ask's label names someone without an account — a child, often — so it gets
+// the Clerk / photo floor, not dev's unmasked body. Every element whose text
+// carries an ask label wears .op-name: the Browse pill's label, the section
+// header, the "Showing only …" name, Shop's "Picked by" line and the tray
+// initials. NEVER on CHROME_ALLOW_LIST. Listed LAST: the agent applies the last
+// rule that matches (rules run reversed), and a selector also matches every
+// descendant (`.op-name *`). Click text is built from the tapped element's text
+// nodes, each judged by its OWN ancestors, so a name inside .op-name drops out
+// of target_text wherever the tap lands — on the pill's padding, or a
+// container above it. Replay serializes the element as its size alone.
+const NAME_EXCLUDE_RULES = [
+  { rule: 'exclude', selector: '.op-name' },
+];
+
 // D5 (SPEC_auth_state_ui_gating §PII scrub 2) — the exporter hook. Every span
 // the agent sends carries location.href; documentLoad and resource spans carry
 // http.url and document.referrer. A pre-fill arrival put the visitor's email in
@@ -296,6 +312,7 @@ if (rumToken) {
       sensitivityRules: [
         ...(isProd ? CHROME_ALLOW_LIST.map((selector) => ({ rule: 'unmask', selector })) : []),
         ...CLERK_EXCLUDE_RULES,
+        ...NAME_EXCLUDE_RULES,
       ],
     },
     // D6: frustration signals in both envs. Dead click + error click are opt-in
@@ -324,6 +341,7 @@ if (rumToken) {
       ...(isProd ? [] : [{ rule: 'unmask', selector: 'body' }]),
       ...CLERK_EXCLUDE_RULES,
       ...REPLAY_BLOCK_RULES,
+      ...NAME_EXCLUDE_RULES,
     ],
   });
 } else {
