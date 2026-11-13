@@ -25,6 +25,31 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-11-13] — [OurProvisions] — iOS 27 top edge settled on device; all of dev promoted to prod with Ask behind a flag (handoff `292177b` merged)
+**Goal:** Settle the iOS 27 header blur on device, then promote Landscape = Staples to prod. Design chat 2026-11-12 13:15 → 2026-11-13 00:04 ET; Claude Code built in the same window, after the first SESSION END (`2fc93f0`).
+**Completed:**
+- Ran the iOS 27 status-bar question to ground on fresh installs (delete → restart → re-add): `black-translucent` twice (`a032acb`; `56b142e` with a dark canvas and a real fixed strip), `black` + an 11px colour-extension strip (`afe2577`), no tag (`7fc384c`), `default` + a new install identity (`1f22b48`). `black-translucent`, `black` and no tag each put the page BEHIND the bar under a grey blur no CSS closed; device reports elsewhere (vanyaOS, dsh-mobile-maxxing, simple-liturgy, hermes-webui) agree for `black-translucent`. Only prod's explicit `default` starts the page 62px below the bar.
+- Stopped experimenting (Dan's call): `561f97f` put `index.html` + `manifest.json` back to main byte for byte, removed the strip and the on-device probe, and kept the 12px header nudge plus an inset-following header padding as a safety net; `69f5714` added 8px of cream above the header in the installed app (upright only), so the top gap matches the gap under the Helm (~63pt). Both confirmed on a fresh launch. Proper fix deferred to the native Expo build, which paints behind the status bar.
+- Chose a feature flag over selective cherry-picks: `37cd30c` puts Ask behind `REACT_APP_FEATURE_ASK` (only the exact string `"on"` is on). With it off, the seven Ask reads/writes in `useProvisions` return before any request, and App.js has no "+ New shelf", Ask pill, run screen, Ask sheet, delete confirm, handover resume or Asks section ("Manage categories"). Marker `data-op-ask` = `"op-ask:" + value`: only a flag-on build contains the literal `op-ask:on`. Dan set the variable (Config, All Pre-Production Environments; no Production value).
+- Proved the flag-off build before any push: `tools/harness/local/ask-off.js` on a flag-off local build — no Ask on any tab, landscape intact, ZERO requests to Ask tables / RPCs / the item-photos bucket (10/10); the inverse on a flag-on build (6/6). Prod checked by object: none of the Ask schema (077 / 078 / 083 / 084) exists there.
+- Verified the push to main was safe: the only Action runs on schedule / dispatch, the build is plain `react-scripts build`, there is no `supabase/migrations`; Dan confirmed no Vercel integrations and no Supabase GitHub / Vercel integration. Guarded `meal-photo-sweep` (`ebc3420`, `9c0e7d1`): do-not-deploy header + CLAUDE.md watch-out, and the item pass skips itself on a missing RPC (not type-checked).
+- Promoted ALL of dev to prod: main `83e05e2`, a merge whose tree is dev `9c0e7d1` exactly (17 cherry-pick conflicts resolved to dev; two stale `specs/active` copies dropped), `main.f2c6efd6.js`, `dpl_72zqKWBc5TDzyCw2spmtg79caPWk`; rollback `dpl_5kLsoAxVqGYt9TE2AX1rwzj5z3wB` / `7fa4485`. Read back from the prod domain: no `op-ask:on`, landscape and top-edge code present, `index.html` and the manifest unchanged. Dev bundle carries `op-ask:on`. Dev and main now share one history.
+- Confirmed landscape on prod on device, after the installed app kept running the previous build (it rotated but showed no Staples) until the icon was deleted, the phone restarted and the icon re-added. No orientation lock anywhere (manifest never had `orientation`; no `screen.orientation.lock`); no service worker.
+**Unfinished:**
+- Elly's Shop test (landscape reads as "adding", not a second list view); the Shop opt-out is one line if it confuses.
+- Prod phone check partly unconfirmed: landscape is confirmed; not yet reported — Browse shows no Ask pills or "+ New shelf", Manage reads "Manage categories" with no Asks section, the Home spacing.
+- Stale installed apps after deploys: real users may keep running old code (NEXT: update awareness).
+- Helm-too-high after rotation stays in WATCH (unconfirmed).
+- `meal-photo-sweep`: main's source includes the item-photos pass (needs 084); the missing-RPC skip isn't type-checked. Must not be deployed to prod before Ask ships.
+- Test data: Cody Test House on dev still has 38 staples (deletes declined earlier).
+**Next session:**
+SESSION START
+Goal: Close out the landscape launch (Elly's Shop test and the remaining prod checks), then pick the next roadmap item (offline check-off was queued behind this).
+State: Prod `83e05e2` / `main.f2c6efd6.js` runs Landscape = Staples app-wide with Ask off (flag). Dev has Ask on. Dev and main share history, so promotions are plain merges. iOS 27 top: `default` chrome + 12px nudge + 8px gap, accepted. Ask migrations 077 / 078 / 083 / 084 dev-only; next migration 085.
+Done when: Elly has tried landscape in Shop and the Shop opt-out decision is made; the prod no-Ask checks are confirmed; the next goal is chosen and scoped.
+**Files updated:** `src/lib/featureFlags.js` (+test), `src/hooks/useProvisions.js`, `src/App.js`, `src/TopEdge.test.js`, `src/lib/deleteCategory.test.js`, `public/index.html` + `public/manifest.json` (trials, then back to main), `src/lib/insetProbe.js` (+test; added for the trials, removed), `supabase/functions/meal-photo-sweep/index.ts`, `CLAUDE.md`, `tools/harness/local/ask-off.js`, `tools/harness/README.md`, `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/specs/built/SPEC_landscape_staples.md` (moved from `active/`)
+**DB changes:** None (prod unchanged; Ask migrations 077, 078, 083, 084 remain dev-only)
+
 ### [2026-11-12] — [OurProvisions] — Landscape = Staples: designed, built and walked on device (dev); the iOS 27 top blur run down, header nudge on dev
 **Goal:** Turn rotating the phone into a one-gesture shortcut to Staples, and design it to device quality. Design chat 2026-11-11 14:00 → 2026-11-12 00:45 ET; Claude Code built in the same window on `feature/landscape-staples`, fast-forwarded to dev after each change. Design handoff `6de226f` on `origin/handoff`, merged here.
 **Completed:**
