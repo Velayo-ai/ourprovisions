@@ -9033,7 +9033,7 @@ function ProvisionsApp({ scrollRootRef }) {
            env(safe-area-inset-top) is the bar's height (~62px on Dan's phone). 0 in a browser tab, on desktop, sideways,
            and in an install whose icon predates the change (iOS keeps that icon's old chrome: page below the bar,
            env 0, and the measured --op-inset-top / cream .safe-top band still do their job there, untouched).
-           The dark strip behind the clock is body::before in index.html, there from first paint and above everything;
+           The dark strip behind the clock is #op-status-strip in index.html, there from first paint and above everything;
            everything else only has to keep its content out from under it: the header, Browse's sticky search, the
            top-anchored toast, and every full-height sheet / modal / viewer (their scrims pad their top by this). */
         :root { --op-under-bar: 0px; }
@@ -9059,8 +9059,8 @@ function ProvisionsApp({ scrollRootRef }) {
    layout viewport, at −inset…0 (Dan's phone, 2026-10-17: a fixed top:0 sits one bar-height BELOW the clock there).
    The 2026-11-12 dev trial that painted this band dark is undone: with the page below the bar iOS owns that strip
    and a dark band could not show — and on an old icon it would have put a black clock on a dark band.
-   New installs get the dark strip from body::before (index.html) instead; see --op-under-bar. Below every scrim. */
-.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: #FAF4EC; z-index: 950; pointer-events: none; }
+   New installs get the dark strip from #op-status-strip (index.html) instead; see --op-under-bar. Below every scrim. */
+.safe-top { position: fixed; top: calc(-1 * var(--op-inset-top)); left: 0; right: 0; height: var(--op-inset-top); background: var(--op-header-dark); z-index: 950; pointer-events: none; }   /* dark since the 2026-11-12 retest: the whole top edge is one colour */
 /* Top-edge probe (lib/insetProbe.js): the installed app on the dev host only. Four lines of numbers, tap to dismiss. */
 .inset-probe { position: fixed; left: 12px; right: 12px; top: calc(72px + var(--op-under-bar)); z-index: 2500; padding: 10px 12px; border-radius: 10px; background: rgba(13,148,136,0.96); color: #fff;
                font: 12px/1.5 ui-monospace, Menlo, monospace; white-space: pre-wrap; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
@@ -10437,6 +10437,9 @@ function ProvisionsApp({ scrollRootRef }) {
               backgroundRepeat: "no-repeat",
             }} />
             <div aria-hidden="true" style={{ position: "absolute", inset: 0, top: "var(--op-under-bar, 0px)", zIndex: 0, background: BANNER_DISSOLVE }} />
+            {/* The status strip meets the photo with a soft edge: the header's dark fading out over the photo's first
+                24px. 0 tall wherever the page is not under the bar (a tab, desktop, sideways). */}
+            <div className="banner-top-soft" aria-hidden="true" style={{ position: "absolute", left: 0, right: 0, top: "var(--op-under-bar, 0px)", height: "min(24px, var(--op-under-bar, 0px))", zIndex: 0, background: "linear-gradient(var(--op-header-dark), rgba(26,14,6,0))" }} />
           </>
         )}
       <div className="safe-top" aria-hidden="true" />

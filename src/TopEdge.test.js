@@ -19,13 +19,26 @@ describe("the top edge: the header's dark behind the status bar", () => {
     expect(APP).toMatch(/background: bannerHasPhoto \? "transparent" : "var\(--op-header-dark\)"/);
   });
 
-  test("the status bar's strip is the same dark, static in index.html: installed app only, sized by the real inset, above everything", () => {
-    const m = HTML.match(/@media \(display-mode: standalone\) \{\s*body::before \{([^}]*)\}/);
+  test("the status bar's strip is a REAL fixed element in index.html, the same dark: installed app only, sized by the real inset, above everything", () => {
+    expect(HTML).toMatch(/<div id="op-status-strip" aria-hidden="true"><\/div>\s*<div id="root">/);
+    expect(HTML).toMatch(/#op-status-strip \{ display: none; \}/);
+    const m = HTML.match(/@media \(display-mode: standalone\) \{[\s\S]*?#op-status-strip \{([^}]*)\}/);
     expect(m).not.toBeNull();
     const strip = m[1].replace(/\s+/g, " ");
     expect(strip).toMatch(/position: fixed; top: 0; left: 0; right: 0; height: env\(safe-area-inset-top, 0px\);/);
-    expect(strip.toLowerCase()).toContain(`background: ${token.toLowerCase()};`);
-    expect(strip).toMatch(/z-index: 5000; pointer-events: none;/);
+    expect(strip.toLowerCase()).toContain(`background-color: ${token.toLowerCase()};`);
+    expect(strip).toMatch(/z-index: 5000;/);
+    expect(strip).not.toMatch(/pointer-events/);
+    expect(HTML).not.toMatch(/body::before/);
+  });
+
+  test("the canvas behind the bar is the dark too: html, and body with its cream starting below the bar", () => {
+    expect(HTML.toLowerCase()).toContain(`html { background-color: ${token.toLowerCase()}; }`);
+    expect(HTML).toMatch(/html body \{ background: linear-gradient\(#FAF4EC, #FAF4EC\) 0 env\(safe-area-inset-top, 0px\) \/ 100% 100% no-repeat #1a0e06; \}/);
+  });
+
+  test("Home: the strip meets the photo with a soft edge, 0 tall where the page is not under the bar", () => {
+    expect(APP).toMatch(/className="banner-top-soft"[^>]*top: "var\(--op-under-bar, 0px\)", height: "min\(24px, var\(--op-under-bar, 0px\)\)"/);
   });
 
   test("--op-under-bar is the real inset in an installed app and 0 everywhere else", () => {
@@ -64,9 +77,9 @@ describe("the top edge: the header's dark behind the status bar", () => {
     expect(ASK).toMatch(/\.ask-run \{[^}]*padding: env\(safe-area-inset-top\)/);
   });
 
-  test("an install with the OLD icon is untouched: the legacy band is cream again, above the viewport, sized by the measured inset", () => {
+  test("the legacy band (old-icon installs) is the header's dark too, above the viewport, sized by the measured inset", () => {
     const band = APP.match(/^\.safe-top \{([^}]*)\}/m)[1];
-    expect(band).toMatch(/background: #FAF4EC;/);
+    expect(band).toMatch(/background: var\(--op-header-dark\);/);
     expect(band).toMatch(/top: calc\(-1 \* var\(--op-inset-top\)\);/);
     expect(band).toMatch(/height: var\(--op-inset-top\);/);
     expect(APP).toMatch(/<div className="safe-top" aria-hidden="true" \/>/);

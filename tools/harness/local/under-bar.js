@@ -19,7 +19,7 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   const insets = (top) => cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: { top, topMax: top } });
   const go = async (hash) => { await page.evaluate((h) => { window.location.hash = h; }, hash); await sleep(1500); };
   const top = () => page.evaluate(() => {
-    const strip = getComputedStyle(document.body, "::before");
+    const strip = getComputedStyle(document.getElementById("op-status-strip"));
     const rect = (sel) => { const el = document.querySelector(sel); return el ? el.getBoundingClientRect() : null; };
     const header = rect(".header"), row1 = document.querySelector(".header > div");
     const firstHeaderThing = row1 ? Math.min(...[...row1.querySelectorAll("button, span, svg, img")].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 0).map((r) => r.top)) : null;
@@ -104,7 +104,7 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
     // sideways: iOS hides the bar → inset 0 → no strip, Staples from the top edge
     await go("#/browse");
     await insets(0); await metrics(844, 390, true); await sleep(900);
-    const side = await page.evaluate(() => { const s = getComputedStyle(document.body, "::before"); const ls = document.querySelector(".ls-root"); const head = document.querySelector(".ls-head .cat-title"); return { stripH: parseFloat(s.height) || 0, lsShown: !!ls && getComputedStyle(ls).display !== "none", lsTop: ls ? Math.round(ls.getBoundingClientRect().top) : null, titleTop: head ? Math.round(head.getBoundingClientRect().top) : null }; });
+    const side = await page.evaluate(() => { const s = getComputedStyle(document.getElementById("op-status-strip")); const ls = document.querySelector(".ls-root"); const head = document.querySelector(".ls-head .cat-title"); return { stripH: parseFloat(s.height) || 0, lsShown: !!ls && getComputedStyle(ls).display !== "none", lsTop: ls ? Math.round(ls.getBoundingClientRect().top) : null, titleTop: head ? Math.round(head.getBoundingClientRect().top) : null }; });
     check("sideways (bar hidden, inset 0): no strip, no gap — Staples starts at the top edge with its own 18px of air", side.stripH === 0 && side.lsShown && side.lsTop === 0 && side.titleTop >= 18 && side.titleTop <= 22, JSON.stringify(side));
     await metrics(390, 844, false); await insets(BAR); await sleep(900);
     const back = await top();
