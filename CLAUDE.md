@@ -54,6 +54,13 @@ Vercel hosting, Anthropic Claude API.
 - **The shared list is sacred** — no per-user view preference (Hide, filter) ever
   suppresses what's on the shared list. Hide lives in the browse layer only.
 - **SHOP list renders from the RPC**, not from `catalogMap` (the `listRows` pattern).
+- **Ask is on prod's code but OFF** (since 2026-11-12): `REACT_APP_FEATURE_ASK=on` on Vercel
+  Preview + Development only (`src/lib/featureFlags.js`; only the exact string `"on"` is on).
+  Its schema — 077 / 078 / 083 / 084 — is dev-only. A prod bundle must not contain `op-ask:on`.
+- **Do NOT deploy `meal-photo-sweep` to prod** until 084 ships with Ask. main's source includes
+  the item-photos pass, which needs 084's RPCs; prod runs the meal-only version deployed from
+  dev `b0282a6`. (If deployed early, the item pass skips itself on a missing RPC — never tested
+  against prod.) Ship 077 → 084, then the flag, then this function, in that order.
 
 ---
 

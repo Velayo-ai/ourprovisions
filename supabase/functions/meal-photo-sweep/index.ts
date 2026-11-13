@@ -1,5 +1,10 @@
 // supabase/functions/meal-photo-sweep/index.ts
 //
+// !! main's source includes the item-photos pass needing migration 084; do not deploy to prod
+// !! until 084 ships with Ask. (2026-11-12: Ask went to prod behind REACT_APP_FEATURE_ASK, OFF;
+// !! 077 / 078 / 083 / 084 are dev-only. Prod runs the meal-only version deployed from dev b0282a6.
+// !! If it is deployed early anyway, the item pass skips itself: see MISSING_RPC below.)
+//
 // OurProvisions — the photo sweep. The project's THIRD Edge Function, and the first that
 // runs as service role. Spec: SPEC_photo_sweep.md (+ Amendment 2026-10-25); the item pass:
 // SPEC_ask_slice4.md S4-8.
@@ -47,7 +52,13 @@ type Counts = {
   orphans_found: number; orphans_removed: number;
   skipped_bad_path: number;                   // expired rows (either path bad) + orphan objects
   capped: boolean;                            // a pass hit its limit; "found" is a lower bound
+  skipped_missing_rpc: boolean;               // the pass's RPCs are not on this project (item pass before 084)
 };
+
+// "This RPC does not exist here": PostgREST's not-in-schema-cache code, and Postgres's own. A pass whose
+// expired read gets one of these is skipped whole (no orphan step, no error counted): the item pass on a
+// project without 084 is a no-op, not a failed run. Any other error is still an error.
+const MISSING_RPC = new Set(["PGRST202", "42883"]);
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -75,10 +86,14 @@ function errKind(stage: string, err: { name?: string; code?: string; status?: nu
 // deno-lint-ignore no-explicit-any
 async function sweep(db: any, pass: typeof PASSES[number], dryRun: boolean, errs: ReturnType<typeof errKind>[]): Promise<Counts> {
   const bucket = db.storage.from(pass.bucket);
-  const c: Counts = { expired_found: 0, expired_removed: 0, rows_deleted: 0, orphans_found: 0, orphans_removed: 0, skipped_bad_path: 0, capped: false };
+  const c: Counts = { expired_found: 0, expired_removed: 0, rows_deleted: 0, orphans_found: 0, orphans_removed: 0, skipped_bad_path: 0, capped: false, skipped_missing_rpc: false };
 
   // 1. Expired photos — storage first, then the row (D5).
   const exp = await db.rpc(pass.expired, { p_limit: MAX_EXPIRED });
+  if (exp.error && MISSING_RPC.has(exp.error.code)) {
+    c.skipped_missing_rpc = true;
+    return c;
+  }
   if (exp.error) {
     errs.push(errKind(pass.key + "expired_read", exp.error));
   } else {
