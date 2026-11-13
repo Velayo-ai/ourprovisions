@@ -11,11 +11,10 @@
     <!-- The header's dark (--op-header-dark in App.js; manifest.json theme_color is the same literal). Was CRA's
          #000000 default until 2026-11-12. -->
     <meta name="theme-color" content="#1a0e06" />
-    <!-- Standalone status bar: "black" (2026-11-12, dev trial 3) — an opaque bar with a WHITE clock that the page
-         lays out BELOW. "black-translucent" did take on a fresh iOS 27 install (inset 62px, page behind the bar),
-         but it is what triggers iOS's top blur, and no opaque strip closes that blur under it — two builds tried.
-         iOS reads this tag when the icon is added to the Home Screen. -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <!-- No status-bar-style meta tag (2026-11-12, dev trial 4): iOS's own default for a home-screen app, an
+         opaque bar the page lays out BELOW. On fresh iOS 27 installs both "black-translucent" and "black" put the
+         page BEHIND the bar, under iOS's top blur. Prod carried "default" (the same behaviour as no tag) when the
+         phone measured the page starting 62px below the bar. iOS reads this when the icon is added. -->
     <!-- Colour-extension strip (the div is the first thing in <body>): a fixed element at the very top of the page
          whose background-color iOS samples to tint the status bar's region, so the strip behind the clock is the
          header's dark (the same literal as theme-color above and --op-header-dark in App.js). background-clip:

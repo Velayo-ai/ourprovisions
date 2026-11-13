@@ -9039,6 +9039,11 @@ function ProvisionsApp({ scrollRootRef }) {
         body { background: #FAF4EC; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .header { background: #2C1A0E; color: #FAF4EC; position: relative; }
+        /* If the page ever runs BEHIND the status bar (an install whose icon carries a translucent bar style),
+           env(safe-area-inset-top) is the bar's height and the header pads by it, so its content can never sit
+           under the clock. 0 when the page starts below the bar - the measured state without a status-bar-style
+           tag - and 0 sideways. The 12px nudge is added inside the row, on top of this. */
+        @media (display-mode: standalone) { .header { padding-top: env(safe-area-inset-top, 0px); } }
 /* iOS standalone: the status bar overlays the page, so once the header scrolls away content passes under the clock. This
    fixed band is the status bar's own background — PAGE CREAM, because the clock on Dan's iPhone is BLACK (the 2026-10-16
    first cut assumed a white clock and painted it #1a0e06). Height follows the MEASURED inset (0 in a browser tab, so the

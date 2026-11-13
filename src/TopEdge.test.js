@@ -38,8 +38,9 @@ describe("the top edge", () => {
     expect(APP).toMatch(/position: "absolute", inset: 0, zIndex: 0,\s*backgroundColor: "#2C1A0E",/);
   });
 
-  test('trial 3: status-bar style "black", the page below the bar — no under-bar machinery; the band above the viewport is the dark', () => {
-    expect(meta("apple-mobile-web-app-status-bar-style")).toBe("black");
+  test("trial 4: NO status-bar-style tag (iOS's default: the page below the bar); if the page is ever behind the bar the header pads by the inset", () => {
+    expect(HTML).not.toMatch(/<meta name="apple-mobile-web-app-status-bar-style"/);
+    expect(APP).toMatch(/@media \(display-mode: standalone\) \{ \.header \{ padding-top: env\(safe-area-inset-top, 0px\); \} \}/);
     expect(HTML).not.toMatch(/body::before|op-status-strip/);
     const band = APP.match(/^\.safe-top \{([^}]*)\}/m)[1];
     expect(band).toMatch(/background: var\(--op-header-dark\);/);
