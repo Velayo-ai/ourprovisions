@@ -61,6 +61,7 @@ Vercel hosting, Anthropic Claude API.
   the item-photos pass, which needs 084's RPCs; prod runs the meal-only version deployed from
   dev `b0282a6`. (If deployed early, the item pass skips itself on a missing RPC — never tested
   against prod.) Ship 077 → 084, then the flag, then this function, in that order.
+  The missing-RPC skip is not type-checked; run `deno check` before any deploy.
 
 ---
 
