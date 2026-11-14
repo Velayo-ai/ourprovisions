@@ -1,4 +1,4 @@
-import { createRowWriteChain } from "./checkWrites";
+import { createRowWriteChain, mergePolledChecked } from "./checkWrites";
 
 // A send() the test resolves or rejects by hand, honouring abort like fetch does.
 function deferredSend(log, label) {
@@ -76,4 +76,28 @@ test("rows are independent: three fast checks run side by side", async () => {
   c.enqueue("a", true, a.send); c.enqueue("b", true, b.send); c.enqueue("d", true, d.send);
   await flush();
   expect(log).toEqual(["sent a", "sent b", "sent d"]);
+});
+
+// The poll vs. a just-settled write (2026-11-14, the burst walk's lost check).
+describe("mergePolledChecked", () => {
+  test("no writes anywhere: the snapshot wins", () => {
+    const polled = { a: true, b: false };
+    expect(mergePolledChecked({ a: false, b: false }, polled, new Set(), {}, 0)).toBe(polled);
+  });
+  test("a write in flight keeps its local value", () => {
+    expect(mergePolledChecked({ g: true }, { g: false }, new Set(["g"]), { g: 1 }, 1)).toEqual({ g: true });
+  });
+  test("THE RACE: poll requested at seq 4, Garlic's check starts at 5 and settles at 6 (guard cleared), the stale answer lands — Garlic stays checked", () => {
+    const lastTouch = { g: 6 };                                    // started 5, settled 6
+    expect(mergePolledChecked({ g: true, l: false }, { g: false, l: false }, new Set(), lastTouch, 4)).toEqual({ g: true, l: false });
+  });
+  test("the next poll, requested after the write settled, brings the server's value (even if someone else changed it)", () => {
+    expect(mergePolledChecked({ g: true }, { g: false }, new Set(), { g: 6 }, 6)).toEqual({ g: false });
+  });
+  test("other rows still follow the server in the same merge", () => {
+    expect(mergePolledChecked({ g: true, b: false }, { g: false, b: true }, new Set(), { g: 6 }, 4)).toEqual({ g: true, b: true });
+  });
+  test("a row that left the list isn't resurrected from the local map", () => {
+    expect(mergePolledChecked({ g: true }, {}, new Set(), { x: 9 }, 4)).toEqual({});
+  });
 });

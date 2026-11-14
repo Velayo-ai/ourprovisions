@@ -6,7 +6,7 @@ import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
-import { createRowWriteChain } from "../lib/checkWrites";
+import { createRowWriteChain, mergePolledChecked } from "../lib/checkWrites";
 import { rollbackQty } from "../lib/qtyRollback";
 import { inviteFailureNotice } from "../lib/inviteFailure";
 import { readHeld, clearHeld, heldStore, INVITE_KEY, REF_KEY, INVITE_MAX_AGE_MS, REF_MAX_AGE_MS } from "../lib/preRum";
@@ -180,6 +180,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // status (Bug 3: toggle bounces / takes ~3 taps to stick). Keyed by name,
   // matching `checked`.
   const pendingCheckRef = useRef(new Set());
+  // Each check write stamps its row when it starts and when it settles; the poll compares against the
+  // stamp it saw when it was requested (lib/checkWrites mergePolledChecked, 2026-11-14).
+  const checkSeqRef = useRef(0);
+  const checkTouchRef = useRef({});
+  const touchCheck = (id) => { checkTouchRef.current[id] = ++checkSeqRef.current; };
   // Per-row check writes, one at a time, newest intent wins (lib/checkWrites; 2026-11-08 Undo on tap).
   const checkChainRef = useRef(null);
   if (!checkChainRef.current) checkChainRef.current = createRowWriteChain();
@@ -316,6 +321,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }
 
   async function loadListItemsInner(db, householdId) {
+    // Where the check writes stood when this snapshot was requested: a row written after this keeps its
+    // local value when the answer lands (mergePolledChecked).
+    const checkSeqAtStart = checkSeqRef.current;
     const { data: items, error: listErr, status: listStatus } = await db
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
@@ -477,14 +485,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       });
       return merged;
     });
-    setChecked((prev) => {
-      if (pendingCheckRef.current.size === 0) return newChecked;
-      const merged = { ...newChecked };
-      pendingCheckRef.current.forEach((name) => {
-        if (name in prev) merged[name] = prev[name];
-      });
-      return merged;
-    });
+    setChecked((prev) => mergePolledChecked(prev, newChecked, pendingCheckRef.current, checkTouchRef.current, checkSeqAtStart));
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
     setContributorsMap(newContributors);
@@ -1576,6 +1577,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // snap the optimistic value back to the stale server status before the
     // update commits (Bug 3: toggle bounces / needs ~3 taps to stick).
     pendingCheckRef.current.add(listItemId);
+    touchCheck(listItemId);
     setChecked((prev) => ({ ...prev, [listItemId]: wantBought }));
 
     // One row's writes go one at a time (2026-11-08): a newer intent aborts the
@@ -1606,6 +1608,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (res.skipped) return null;
     // The poll may follow the server again once no newer write is pending.
     if (res.latest) pendingCheckRef.current.delete(listItemId);
+    touchCheck(listItemId);   // settled: a poll requested before now can't put the row back
 
     if (res.error) {
       // Superseded mid-flight (Undo): the newer write settles the row.
