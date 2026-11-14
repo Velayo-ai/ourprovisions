@@ -221,7 +221,7 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
           {top}
           <h1 className="ask-h1 ask-h1-left">{shelfTitlePrefix(target)}<Name>{ask.label}</Name>!</h1>
           <div className="ask-rule ask-rule-left" aria-hidden="true" />
-          <div className={`ask-tiles${simple ? " ask-tiles-simple" : ""}`} role="group" aria-label="The shelf">
+          <div className={`ask-tiles${simple ? " ask-tiles-simple" : ""}`} role="group" aria-label="The ask">
             {tiles.map((t) => {
               const on = picks.includes(t.id);
               const plain = tileFace(t) === "name";

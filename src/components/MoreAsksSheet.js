@@ -11,7 +11,7 @@ export function MoreAsksSheet({ asks, selectedAsks, onToggle, onNewShelf, closeB
   return (
     <div className="more-asks">
       {closeButton}
-      <h2>More shelves</h2>
+      <h2>More asks</h2>
       <div className="more-asks-list">
         {asks.map((ask) => {
           const on = selectedAsks.has(ask.id);

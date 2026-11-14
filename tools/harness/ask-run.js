@@ -31,7 +31,7 @@ const ITEMS = Number(process.argv[4] || 4);
     const picked = await page.evaluate((n) => { const rows = [...document.querySelectorAll("[data-testid=new-shelf-catalog] button")].slice(0, n); rows.forEach((b) => b.click()); return rows.map((b) => b.innerText.replace(/\s+/g, " ").trim()); }, ITEMS);
     log("items: " + JSON.stringify(picked));
     await sleep(500);
-    log("tap Save shelf: " + await clickText(page, /^save shelf$/i));
+    log("tap Save ask: " + await clickText(page, /^save ask$/i));
     await sleep(4000);
     await shot(page, "browse-after-save");
   }

@@ -45,7 +45,7 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   for (const [hash, name] of [["#/home", "Home"], ["#/plan", "Plan"], ["#/shop", "Shop"]]) {
     await p.goto(LOCAL_URL + hash, { waitUntil: "networkidle2" }); await sleep(1800);
     const t = await text();
-    if (!EXPECT_ON) check(`${name}: no Ask copy`, !/Hand it to|New shelf|\bAsk [A-Z][a-z]+\b(?<!Ask the)/.test(t.replace(/Ask the Galley/g, "").replace(/Ask for a fresh one/g, "")), "");
+    if (!EXPECT_ON) check(`${name}: no Ask copy`, !/Hand it to|New ask|\bAsk [A-Z][a-z]+\b(?<!Ask the)/.test(t.replace(/Ask the Galley/g, "").replace(/Ask for a fresh one/g, "")), "");
   }
 
   // Landscape on a sideways phone still shows Staples

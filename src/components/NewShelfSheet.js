@@ -220,12 +220,12 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 
       <div className="modal-field" ref={shelfField}>
         <span className="modal-label">
-          The shelf · {overBy > 0
+          The ask · {overBy > 0
             ? <span style={{ color: "#e05c5c" }}>{itemIds.length} of {ASK_SIMPLE_MAX}</span>
             : <>{itemIds.length} {itemIds.length === 1 ? "item" : "items"}</>}
         </span>
         {itemIds.length > 0 && (
-          <div className="shelf-tiles" role="list" aria-label="On the shelf">
+          <div className="shelf-tiles" role="list" aria-label="On the ask">
             {itemIds.map((id) => {
               const name = nameById.get(id) || "this item";
               const url = hasPhoto(id) && photoUrl ? photoUrl(id) : null;
@@ -245,7 +245,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
                   ) : (
                     <div className="shelf-tile-art shelf-tile-empty" aria-hidden="true"><span className="shelf-tile-camera">📷</span></div>
                   )}
-                  <button type="button" className="shelf-tile-remove" aria-label={`Take ${name} off the shelf`} onClick={() => toggle(id)}>
+                  <button type="button" className="shelf-tile-remove" aria-label={`Take ${name} off the ask`} onClick={() => toggle(id)}>
                     <span aria-hidden="true">×</span>
                   </button>
                   <span className="shelf-tile-name">{nameById.get(id) || "Item"}</span>
@@ -267,7 +267,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         )}
         {onPhoto && <input ref={photoInput} type="file" accept="image/*" hidden onChange={pickPhoto} />}
         <input className="modal-input" type="search" autoComplete="off" placeholder="Find an item"
-          aria-label="Find an item for the shelf" value={query} onChange={(e) => setQuery(e.target.value)} />
+          aria-label="Find an item for the ask" value={query} onChange={(e) => setQuery(e.target.value)} />
         <div data-testid="new-shelf-catalog" style={{ marginTop: "8px", borderTop: "1px solid #E8D5B7" }}>
           {results.length === 0 ? (
             <div className="picker-sub" style={{ margin: "10px 0" }}>Nothing in your catalog matches that.</div>
@@ -294,7 +294,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         {footer}
         <button className="modal-cancel" onClick={onClose} disabled={saving}>Cancel</button>
         <button className="modal-confirm" onClick={save} disabled={!!problem || !!dupName || saving}
-          style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save shelf"}</button>
+          style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save ask"}</button>
       </div>
     </>
   );

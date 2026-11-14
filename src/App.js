@@ -8490,7 +8490,7 @@ function ProvisionsApp({ scrollRootRef }) {
       )}
       <div className="items-grid">
         {block.items.length === 0 ? (
-          <div className="declutter-desc" style={{ margin: "4px 0 0" }}>Nothing on this shelf yet.</div>
+          <div className="declutter-desc" style={{ margin: "4px 0 0" }}>Nothing on this ask yet.</div>
         ) : block.items.map((item) => {
           const qty = qtyFor(item);
           const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
@@ -10264,7 +10264,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
         /* Add-item picker — same pill, wrapped and exhaustive. Never scrolls. */
         .cat-grid { display: flex; flex-wrap: wrap; gap: 9px; }
-        /* "+ New shelf" / "+ New category" (Dan 2026-11-10): a solid clay border, the label and + one step
+        /* "+ New ask" / "+ New category" (Dan 2026-11-10): a solid clay border, the label and + one step
            darker; same size and placement as any pill. */
         .cat-pill-new { background: transparent; border: 1px solid #8A5F3A; color: #6E4A2A; }
         .picker-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 12px; }
@@ -12466,7 +12466,7 @@ function ProvisionsApp({ scrollRootRef }) {
       {/* "+N more" (C4.2): a row behaves exactly like its pill; the sheet then closes. */}
       {ASK_ENABLED && moreAsksOpen && (
         <div className="modal-overlay" onClick={() => setMoreAsksOpen(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="More shelves" onClick={(e) => e.stopPropagation()}
+          <div className="modal" role="dialog" aria-modal="true" aria-label="More asks" onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "88vh", overflowY: "auto" }}>
             <MoreAsksSheet
               asks={askRail.more}
@@ -12820,7 +12820,7 @@ function ProvisionsApp({ scrollRootRef }) {
             <h2 id="delete-ask-title">Delete Ask <span className="op-name">{a.label}</span>?</h2>
             <p className="modal-subtitle">Anything <span className="op-name">{a.label}</span> already picked stays on the list.</p>
             {deleteAskFailed && (
-              <div className="modal-error" role="alert" style={{ margin: "0 0 10px" }}>Couldn't delete the shelf. Check your connection and try again.</div>
+              <div className="modal-error" role="alert" style={{ margin: "0 0 10px" }}>Couldn't delete the ask. Check your connection and try again.</div>
             )}
             <div className="modal-actions">
               <button className="modal-cancel" onClick={() => setDeleteAskId(null)} disabled={deleteAskBusy}>Keep it</button>

@@ -35,7 +35,7 @@ function setup({ onCreate = jest.fn(async () => ({ ok: true, id: "x" })), asks =
 }
 const nameInput = () => screen.getByLabelText("Who's picking?");
 const nounInput = () => screen.getByLabelText("What are they picking? (optional)");
-const save = () => screen.getByRole("button", { name: "Save shelf" });
+const save = () => screen.getByRole("button", { name: "Save ask" });
 // A catalog row's "+" / "✓" is aria-hidden, so its accessible name is the item's name alone.
 const pick = (name) => fireEvent.click(screen.getByRole("button", { name }));
 const pickTarget = (n) => fireEvent.click(screen.getByRole("radio", { name: String(n) }));
@@ -99,7 +99,7 @@ describe("every other message sits in the sticky footer (C2.1 item 2)", () => {
     setup();
     fireEvent.change(nameInput(), { target: { value: "Easton" } });
     pick("Goldfish"); pick("Apples");
-    const line = screen.getByText("To pick 3, the shelf needs at least 3 items.");
+    const line = screen.getByText("To pick 3, the ask needs at least 3 items.");
     expect(footerOf(line)).not.toBeNull();
     expect(save()).toBeDisabled();
   });
@@ -108,7 +108,7 @@ describe("every other message sits in the sticky footer (C2.1 item 2)", () => {
     readyDraft("Easton");
     fireEvent.click(save());
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Couldn't save the shelf.");
+    expect(alert).toHaveTextContent("Couldn't save the ask.");
     expect(footerOf(alert)).not.toBeNull();
     expect(alert).not.toHaveClass("op-name");
     expect(alert).not.toHaveTextContent("Easton");
@@ -120,7 +120,7 @@ describe("every other message sits in the sticky footer (C2.1 item 2)", () => {
     fireEvent.click(save());
     const alert = await screen.findByRole("alert");
     expect(footerOf(alert)).not.toBeNull();
-    expect(scrolled).toEqual([screen.getByText(/^The shelf/).closest(".modal-field")]);
+    expect(scrolled).toEqual([screen.getByText(/^The ask/).closest(".modal-field")]);
   });
 });
 
@@ -158,10 +158,10 @@ test("one scroller (C2.1 item 3): the catalog list is not a scroll box; search n
   expect(list.style.overflow).toBe("");
   expect(list.style.maxHeight).toBe("");
   pick("Yogurt"); pick("Apples");
-  expect(screen.getByText("The shelf · 2 items")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Take Yogurt off the shelf" }));
-  expect(screen.getByText("The shelf · 1 item")).toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("Find an item for the shelf"), { target: { value: "gold" } });
+  expect(screen.getByText("The ask · 2 items")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Take Yogurt off the ask" }));
+  expect(screen.getByText("The ask · 1 item")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Find an item for the ask"), { target: { value: "gold" } });
   expect(screen.getByRole("button", { name: "Goldfish" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Crackers" })).toBeNull();
 });
@@ -237,7 +237,7 @@ describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
   // counts down how many to remove. No copy in the footer; nothing is removed for you.
   const SIX = [...ITEMS, { id: "i-pears", name: "Pears" }, { id: "i-plums", name: "Plums" }];
   const capLine = () => screen.queryByText(/^Explorer shows 4 at most\./);
-  const shelfHeader = () => screen.getByText(/^The shelf ·/);
+  const shelfHeader = () => screen.getByText(/^The ask ·/);
   function sixSheet() {
     const onCreate = jest.fn(async () => ({ ok: true, id: "x" }));
     const onClose = jest.fn();
@@ -246,30 +246,30 @@ describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
     pickTarget(1);
     return { onCreate, onClose };
   }
-  const takeOff = (name) => fireEvent.click(screen.getByRole("button", { name: `Take ${name} off the shelf` }));
+  const takeOff = (name) => fireEvent.click(screen.getByRole("button", { name: `Take ${name} off the ask` }));
 
   test("six on Explorer: \"6 of 4\" in the error colour; \"Remove 2.\" under the chips counts down and goes at 4", async () => {
     const { onCreate, onClose } = sixSheet();
     fireEvent.click(style("Explorer"));
     SIX.forEach((i) => pick(i.name));
-    expect(shelfHeader()).toHaveTextContent("The shelf · 6 of 4");
+    expect(shelfHeader()).toHaveTextContent("The ask · 6 of 4");
     expect(screen.getByText("6 of 4").style.color).toBe("rgb(224, 92, 92)");   // #e05c5c, .modal-error's
     const line = capLine();
     expect(line).toHaveTextContent("Explorer shows 4 at most. Remove 2.");
     expect(line).toHaveClass("modal-error");
     expect(line).not.toHaveClass("picker-sub");
     // Directly under the chips, above the search; never in the footer.
-    expect(line.previousElementSibling.querySelector("[aria-label='Take Goldfish off the shelf']")).not.toBeNull();
-    expect(line.nextElementSibling).toBe(screen.getByLabelText("Find an item for the shelf"));
+    expect(line.previousElementSibling.querySelector("[aria-label='Take Goldfish off the ask']")).not.toBeNull();
+    expect(line.nextElementSibling).toBe(screen.getByLabelText("Find an item for the ask"));
     expect(footerOf(line)).toBeNull();
     expect(footerOf(save()).textContent).not.toMatch(/Explorer shows/);
     expect(save()).toBeDisabled();
     takeOff("Plums");
     expect(capLine()).toHaveTextContent("Explorer shows 4 at most. Remove 1.");
-    expect(shelfHeader()).toHaveTextContent("The shelf · 5 of 4");
+    expect(shelfHeader()).toHaveTextContent("The ask · 5 of 4");
     takeOff("Pears");
     expect(capLine()).toBeNull();
-    expect(shelfHeader()).toHaveTextContent("The shelf · 4 items");
+    expect(shelfHeader()).toHaveTextContent("The ask · 4 items");
     expect(save()).toBeEnabled();
     await saveAndClose(onClose);
     expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "simple", itemIds: ITEMS.map((i) => i.id) });
@@ -278,14 +278,14 @@ describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
     const { onCreate, onClose } = sixSheet();
     SIX.forEach((i) => pick(i.name));
     expect(capLine()).toBeNull();
-    expect(shelfHeader()).toHaveTextContent("The shelf · 6 items");
+    expect(shelfHeader()).toHaveTextContent("The ask · 6 items");
     fireEvent.click(style("Explorer"));
     expect(capLine()).toHaveTextContent("Explorer shows 4 at most. Remove 2.");
-    expect(shelfHeader()).toHaveTextContent("The shelf · 6 of 4");
-    expect(screen.getAllByRole("button", { name: /off the shelf$/ })).toHaveLength(6);
+    expect(shelfHeader()).toHaveTextContent("The ask · 6 of 4");
+    expect(screen.getAllByRole("button", { name: /off the ask$/ })).toHaveLength(6);
     fireEvent.click(style("Shopper"));
     expect(capLine()).toBeNull();
-    expect(shelfHeader()).toHaveTextContent("The shelf · 6 items");
+    expect(shelfHeader()).toHaveTextContent("The ask · 6 items");
     await saveAndClose(onClose);
     expect(onCreate.mock.calls[0][1]).toMatchObject({ style: "standard", itemIds: SIX.map((i) => i.id) });
   });
@@ -311,14 +311,14 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
     const h = screen.getByRole("heading", { level: 2 });
     expect(h).toHaveTextContent("Edit Ask Easton");
     expect(h.querySelector(".op-name")).toHaveTextContent(/^Easton$/);
-    expect(screen.queryByText("New shelf")).toBeNull();
+    expect(screen.queryByText("New ask")).toBeNull();
     expect(nameInput()).toHaveValue("Easton");
     expect(nounInput()).toHaveValue("snacks");
     expect(screen.getByRole("radio", { name: "2" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("radio", { name: /^Explorer/ })).toHaveAttribute("aria-checked", "true");
     expect(chips()).toEqual(["Yogurt", "Hidden thing", "Apples"]);
-    expect(screen.getByRole("list", { name: "On the shelf" })).toBeInTheDocument();
-    expect(screen.getByText("The shelf · 3 items")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "On the ask" })).toBeInTheDocument();
+    expect(screen.getByText("The ask · 3 items")).toBeInTheDocument();
     // Its own name is no duplicate; another ask's is.
     expect(screen.queryByRole("alert")).toBeNull();
     expect(save()).toBeEnabled();
@@ -329,7 +329,7 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
 
   test("Save sends the whole form to onUpdate, never onCreate, and closes", async () => {
     const { onUpdate, onCreate, onClose } = setupEdit();
-    fireEvent.click(screen.getByRole("button", { name: "Take Hidden thing off the shelf" }));
+    fireEvent.click(screen.getByRole("button", { name: "Take Hidden thing off the ask" }));
     pick("Goldfish");
     fireEvent.change(nounInput(), { target: { value: "" } });
     await saveAndClose(onClose);
@@ -349,12 +349,12 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
     fireEvent.click(save());
     alert = await screen.findByRole("alert");
     expect(footerOf(alert)).not.toBeNull();
-    expect(alert).toHaveTextContent("Something on the shelf isn't available any more.");
+    expect(alert).toHaveTextContent("Something on the ask isn't available any more.");
   });
 
   test("Explorer over 4 in edit behaves as in create: the countdown, nothing removed, Save waits", () => {
     setupEdit({ edit: { ...EDIT, screenStyle: "standard", pickTarget: 1, tiles: ITEMS.concat([{ id: "i-pears", name: "Pears" }]).map((i) => ({ id: i.id, name: i.name })) } });
-    expect(screen.getByText("The shelf · 5 items")).toBeInTheDocument();
+    expect(screen.getByText("The ask · 5 items")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: /^Explorer/ }));
     expect(screen.getByText(/^Explorer shows 4 at most\./)).toHaveTextContent("Remove 1.");
     expect(chips()).toHaveLength(5);
@@ -369,7 +369,7 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
 
   test("create mode is unchanged: the New shelf title, no Delete", () => {
     setup();
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("New shelf");
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("New ask");
     expect(screen.queryByRole("button", { name: /Delete/ })).toBeNull();
   });
 });
@@ -402,12 +402,12 @@ describe("the Explorer photo nudge (S4-7)", () => {
     // The other two are dashed camera boxes that open the photo flow — on Shopper as well.
     expect(cameras().map((b) => b.getAttribute("aria-label"))).toEqual(["Add a photo of Goldfish", "Add a photo of Yogurt"]);
     expect(cameras()[0]).toHaveClass("shelf-tile-empty");
-    expect(screen.getByRole("list", { name: "On the shelf" }).querySelectorAll(".cat-pill")).toHaveLength(0);   // no chips any more
+    expect(screen.getByRole("list", { name: "On the ask" }).querySelectorAll(".cat-pill")).toHaveLength(0);   // no chips any more
     expect(hint()).toBeNull();                                            // the hint is Explorer's
     // × in the corner removes.
-    fireEvent.click(screen.getByRole("button", { name: "Take Apples off the shelf" }));
+    fireEvent.click(screen.getByRole("button", { name: "Take Apples off the ask" }));
     expect(chips()).toEqual(["Goldfish", "Yogurt"]);
-    expect(screen.getByText("The shelf · 2 items")).toBeInTheDocument();
+    expect(screen.getByText("The ask · 2 items")).toBeInTheDocument();
     pick("Apples");
     fireEvent.click(style("Explorer"));
     const h = hint();
