@@ -40,10 +40,9 @@ export function AskScreen({ edit = null, closeButton, onClose, ...form }) {
 // Truly full screen (2026-11-13): fixed over everything at the run's z-index, edge to edge on every
 // axis (the dynamic viewport height, so a phone's browser chrome never leaves a strip of page showing),
 // the page cream behind everything, no inset and no width cap. The header is the same cream with the
-// accent line as its top border; no rule under it — spacing groups the sections. The body is a flex
-// column the form fills (NewShelfSheet's .ask-form-screen): the fields still, "The ask" stretching,
-// its list scrolling within itself, the footer pinned below. If the viewport is too short for the
-// fields alone, the body scrolls rather than squashing the list.
+// accent line as its top border; no rule under it — spacing groups the sections. The body is THE one
+// scroller (2026-11-14): the whole form scrolls as one page, the form's sticky footer pinned at its
+// bottom. The page lock (useScrollLock) touches only body and the app's scroll column, never this.
 const ASK_EDITOR_CSS = `
 .ask-editor { position: fixed; inset: 0; height: 100dvh; z-index: 2000; background: #FAF4EC; color: #2C1A0E; display: flex; flex-direction: column; overscroll-behavior: contain; }
 .ask-editor-head { position: relative; flex: none; background: #FAF4EC; color: #2C1A0E; border-top: 3px solid var(--people-strong);
@@ -54,8 +53,8 @@ const ASK_EDITOR_CSS = `
 .ask-editor-preview { display: inline-flex; margin-top: 14px; cursor: default; }
 /* The ghost: the Ask's place in the header before it has a name — dashed people border, half strength. */
 .ask-editor-ghost { background: transparent; border: 1px dashed var(--people-border); color: var(--people-ink); opacity: 0.5; }
-.ask-editor-body { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; -webkit-overflow-scrolling: touch;
-  width: 100%; box-sizing: border-box; padding: 0 24px; }
+.ask-editor-body { position: relative; flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  touch-action: pan-y; width: 100%; box-sizing: border-box; padding: 0 24px; }
 `;
 
 export default AskScreen;

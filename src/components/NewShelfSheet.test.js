@@ -389,7 +389,7 @@ describe("embedded in the Ask screen", () => {
     expect(save()).toBeDisabled();
     expect(footerOf(save()).querySelectorAll("button")).toHaveLength(1);
     expect(document.querySelector(".ask-form")).toHaveClass("ask-form-screen");
-    expect(screen.getByTestId("new-shelf-catalog")).toHaveClass("ask-form-catalog");
+    expect(screen.getByTestId("new-shelf-catalog")).toHaveClass("ask-form-catalog");   // laid out by the screen's one scroller, not its own
   });
   test("a save still closes through onClose, so the host's sheet closes with it", async () => {
     const onClose = jest.fn();

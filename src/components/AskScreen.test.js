@@ -2,6 +2,7 @@
    where the name sits (.op-name, never an attribute) is the rule under test, read as raw DOM. */
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AskScreen } from "./AskScreen";
+import { useScrollLock } from "../hooks/useScrollLock";
 import { ASK_LOOKS, askLook, ASK_TARGET_MAX } from "../lib/askCreate";
 
 // The full-screen New ask / Edit ask (2026-11-13): a turquoise header with the title, the close button and
@@ -90,5 +91,39 @@ describe("How many to pick follows the look's pickCap (config, not a literal)", 
   test("every look in the config is offered, with its own line", () => {
     setup();
     for (const l of ASK_LOOKS) expect(look(l.name)).toHaveTextContent(l.sub);
+  });
+});
+
+// One scroller (2026-11-14): with the page lock on, the screen's body still scrolls and nothing inside it
+// is a scroller of its own; the footer is pinned; nothing swallows a touchmove.
+describe("scrolling while the page lock is active", () => {
+  function Locked(props) {
+    useScrollLock(true, null);
+    return <AskScreen {...props} />;
+  }
+  test("the lock hides only the page; the Ask screen's body is the one scroller, the footer sticky", () => {
+    const onClose = jest.fn();
+    render(<Locked edit={EDIT} catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onUpdate={jest.fn()} onClose={onClose} closeButton={null} />);
+    expect(document.body.style.overflow).toBe("hidden");
+    const body = document.querySelector(".ask-editor-body");
+    expect(body.style.overflow).toBe("");                                   // the lock never touches it
+    expect(getComputedStyle(body).overflowY).toBe("auto");
+    // jsdom has no touch-action; read the screen's own rule instead.
+    expect([...document.querySelectorAll("style")].map((el) => el.textContent).join("")).toMatch(/\.ask-editor-body \{[^}]*touch-action: pan-y/);
+    expect(getComputedStyle(screen.getByTestId("new-shelf-catalog")).overflowY).not.toMatch(/auto|scroll/);
+    expect(getComputedStyle(document.querySelector(".ask-form-actions")).position).toBe("sticky");
+    const move = new Event("touchmove", { bubbles: true, cancelable: true });
+    screen.getByTestId("new-shelf-catalog").dispatchEvent(move);
+    expect(move.defaultPrevented).toBe(false);
+  });
+  test("Edit shows the 'Who's picking?' label above the name field and doesn't pop the keyboard; New still focuses it", () => {
+    const { unmount } = render(<AskScreen edit={EDIT} catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onUpdate={jest.fn()} onClose={jest.fn()} closeButton={null} />);
+    const input = screen.getByLabelText("Who's picking?");
+    const label = screen.getByText("Who's picking?");
+    expect(label.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.activeElement).not.toBe(input);
+    unmount();
+    render(<AskScreen catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} />);
+    expect(document.activeElement).toBe(screen.getByLabelText("Who's picking?"));
   });
 });

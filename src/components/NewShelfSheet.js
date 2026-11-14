@@ -167,11 +167,12 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
       ? <div className="picker-sub" style={{ flexBasis: "100%", margin: 0 }}>{problem}</div>
       : null;
 
-  // THE SCREEN'S LAYOUT (2026-11-13): the form is a flex column. The fields above sit still; "The ask"
-  // takes the height that is left and its catalog list scrolls within itself; the footer stays put
-  // below. Spacing does the grouping (no rules between sections): 32px between sections, 8px from a
-  // label to its field. The screen (AskScreen) sets the column's height; in a sheet the same markup
-  // simply flows.
+  // THE SCREEN'S LAYOUT (2026-11-14): one page, one scroller. The screen's body (AskScreen) scrolls the
+  // whole form; nothing inside it scrolls on its own. The footer is sticky at the bottom of that
+  // scroller, so Save stays on screen and the last catalog row ends above it. (The 2026-11-13 layout
+  // clamped the form to the viewport and gave the catalog its own scroller; on a phone the shrunken
+  // "The ask" section pushed that list under the footer and out of reach.) Spacing does the grouping
+  // (no rules between sections): 32px between sections, 8px from a label to its field.
   return (
     <div className={`ask-form${embedded ? " ask-form-screen" : ""}`}>
       {!embedded && closeButton}
@@ -181,7 +182,9 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 
       <div className="modal-field" ref={labelField}>
         <label className="modal-label" htmlFor="new-shelf-label">Who's picking?</label>
-        <input id="new-shelf-label" className="modal-input op-name" maxLength={ASK_LABEL_MAX} autoFocus autoComplete="off"
+        {/* autoFocus only for a new ask: in edit the keyboard opening on load let iOS scroll the field
+            into view and tuck "Who's picking?" under the header. */}
+        <input id="new-shelf-label" className="modal-input op-name" maxLength={ASK_LABEL_MAX} autoFocus={!editing} autoComplete="off"
           placeholder="A first name" value={label} onChange={(e) => onLabel(e.target.value)}
           aria-invalid={dupName ? true : undefined} aria-describedby={dupName ? "new-shelf-dup" : undefined} />
         {dupName && (
@@ -310,21 +313,19 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   );
 }
 
-// The form's own layout. In a sheet (.ask-form alone) it flows as any sheet body; on the screen
-// (.ask-form-screen) it is a flex column filling the body: fields still, "The ask" stretching, its
-// catalog list the one scroller (with a floor, so a short viewport scrolls the body instead of
-// squashing the list to nothing), the footer pinned under it. The footer's own rule is a shadow, not
-// a line. The catalog's row rules stay: they separate items, not sections.
+// The form's own layout. In a sheet (.ask-form alone) it flows as any sheet body. On the screen
+// (.ask-form-screen) it is plain flow inside the one scroller; the footer is sticky at the scroller's
+// bottom edge (full width over the 24px gutters, cream, a soft shadow rather than a rule), and the
+// space after the catalog lets the last row clear it. The catalog's row rules stay: they separate
+// items, not sections.
 const ASK_FORM_CSS = `
 .ask-form-actions { flex-direction: column; align-items: stretch; gap: 8px; }
 .ask-form-actions .modal-confirm { width: 100%; }
-.ask-form-screen { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .ask-form-screen .modal-field { margin: 0 0 32px; }
 .ask-form-screen .modal-label { margin-bottom: 8px; }
-.ask-form-screen .ask-form-shelf { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
-.ask-form-screen .ask-form-shelf > * { flex: none; }
-.ask-form-screen .ask-form-catalog { flex: 1 1 auto; min-height: 140px; overflow-y: auto; -webkit-overflow-scrolling: touch; margin-top: 8px; }
-.ask-form-screen .ask-form-actions { position: static; margin: 0 -24px; padding: 12px 24px calc(16px + env(safe-area-inset-bottom, 0px)); bottom: auto; }
+.ask-form-screen .ask-form-shelf { margin-bottom: 16px; }
+.ask-form-screen .ask-form-catalog { margin-top: 8px; }
+.ask-form-screen .ask-form-actions { position: sticky; bottom: 0; margin: 0 -24px; padding: 12px 24px calc(16px + env(safe-area-inset-bottom, 0px)); }
 `;
 
 // Three across on a phone (~96 px tiles in a ~330 px sheet), more on a wider screen. The art box
