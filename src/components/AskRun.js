@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { pickLine } from "../lib/askCreate";
 import { tapTile, takeOut, canConfirm, shelfTitlePrefix, effectiveTarget, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
 import { useHold, holdFillCss } from "../hooks/useHold";
 
-// Running an Ask (SPEC_ask amendment A13–A17, A24; SPEC_ask_slice2 C3b). Three screens, full
-// screen over the app: (1) "Your turn, {Label}!" — the hand-over, the wagon on the water at
-// sunrise, Let's pick; (2) the shelf — "Pick {n}, {Label}!", the tiles, the small wagon + dots,
-// That's it!; (3) "Great picks, {Label}!" — the wagon holding his picks, what landed, Back to
-// the list ("Great pick" / "I've added this" when exactly one landed, Dan 2026-11-09). The reference image governs the look, mockup_ask_cart.html the behaviour.
+// Running an Ask (SPEC_ask amendment A13–A17, A24; SPEC_ask_slice2 C3b; the wagon polish + the
+// hand-back, SPEC_ask_wagon_handback W1–W10). Invitation → Participation → Contribution, three
+// screens full screen over the app: (1) "Your turn, {Label}!" — the hand-over, the wagon on the sand
+// at sunrise, Let's pick; (2) the shelf — "Pick {n}, {Label}!", the tiles, the small wagon + dots,
+// That's it!; (3) "Great picks, {Label}!" — the wagon holding his picks, "Your picks are on our list!",
+// what landed, "Give it back to {Parent}" (W7, W8; singular when exactly one landed). The look is
+// docs/mockups/mockup_ask_wagon_polish.html (its final round).
 //
 // Picks stay on the phone (in the wagon) until That's it!, then land in ONE write (onLand →
 // land_ask_picks, A16 / A22). Done needs a press-and-hold of about a second (A17); before the
@@ -21,7 +23,7 @@ import { useHold, holdFillCss } from "../hooks/useHold";
 // experiences. Simple switches only three things: the tiles (2×2, big, never scrolling), the tile
 // names (off; a plain tile keeps its name, else it would be blank; aria-label carries it), and the
 // child's two buttons (Let's pick → ▶, That's it! → ✓; the words stay as aria-label). The
-// grown-up's controls (Done, Back to the list), the titles and Great picks stay words on both.
+// grown-up's controls (Close, Done, Give it back), the titles and Great picks stay words on both.
 //
 // A SHORT SHELF RUNS (SPEC_ask_slice4 S4-5): the target is the EFFECTIVE one, least(pick_target,
 // live tiles) — "Pick 2, Everett!" on a 2-tile shelf with target 3 — on Your turn, the title, the
@@ -34,58 +36,123 @@ import { useHold, holdFillCss } from "../hooks/useHold";
 // have landed. A failed land keeps it with the wagon. The caller clears it on every other way out
 // and hands a reloaded run its held screen and picks through `resume`.
 
-// The wagon (A15): cream body, a teal stripe, wooden wheels and handle. Picks sit inside, behind
-// the front panel; each is tappable to take it out while the shelf is open.
-function Wagon({ picks, onTakeOut, fresh, kick, className = "" }) {
-  const n = picks.length;
-  const slot = n === 0 ? 0 : Math.min(44, (156 - (n - 1) * 4) / n);
-  const x0 = 125 - (n * slot + Math.max(0, n - 1) * 4) / 2;
+// THE WAGON (W1–W4; A15 as polished): ONE drawing at three sizes — the turn (large), the shelf (small,
+// ~150px) and Great picks (large) — so it is the visual thread through all three screens. A beach
+// wagon seen from three-quarters (the back rim shows): a deep cream tub with a rolled lip, a teal
+// stripe on the body, four wooden wheels (the far pair dimmed; quiet grain, faint spokes, no inner
+// ring), a soft ground shadow. Drawn in three layers so the picks sit IN it: the back (shadow, far
+// wheels, the inside of the tub), then the pick cards, then the front (tub, stripe, lip, the fixed
+// undercarriage bracket and tongue, the near wheels, the handle).
+// THE HANDLE (W3) is a separate part in front of the tub: it pivots on a round wooden joint (hub
+// size) at the front lower-left corner; a short tongue links the pivot to a bracket fixed on the front
+// undercarriage, drawn BEHIND the front wheel (the wheel hides most of it). The shaft angles up-left
+// to a short dark grip. It never touches the tub wall or rim, and the tongue never touches a hub.
+// Only the wheels rotate (motion); the bracket and tongue stay still; the handle only swings on its
+// pivot on the turn screen.
+// PICKS ARE CARDS (W4): the tile's photo, else its glyph, else its name, on a cream card with a ~3px
+// border, slightly taller than wide, riding above the rim with a gentle tilt spread evenly for 1–4
+// picks, their bottoms behind the front panel. Tappable to take out while the shelf is open.
+const WAGON_W = 260, WAGON_H = 150;
+const RIM_CX = 144;                       // the tub's centre line
+// Card geometry for n picks, in wagon units: size, the spacing between centres, and the tilts.
+export function cardLayout(n) {
+  if (n <= 0) return [];
+  const w = n >= 4 ? 40 : 46, h = n >= 4 ? 44 : 50, gap = n >= 4 ? 41 : 44;
+  const tilts = { 1: [0], 2: [-5, 5], 3: [-8, 0, 8], 4: [-9, -3, 3, 9] }[Math.min(n, 4)];
+  return Array.from({ length: n }, (_, k) => {
+    const tilt = tilts[k] ?? 0;
+    const cx = RIM_CX + (k - (n - 1) / 2) * gap;
+    return { x: cx - w / 2, y: 13 + Math.abs(tilt) * 0.45, w, h, tilt };
+  });
+}
+
+function Wheel({ x, y, far, wood }) {
   return (
-    <svg className={`ask-wagon ${className}${kick ? ` ${kick.kind}` : ""}`} key={kick ? kick.n : 0}
-      viewBox="0 0 250 130" role={onTakeOut ? "group" : "img"} aria-label={n === 0 ? "The wagon, empty" : `The wagon, ${n} in it`}>
-      <path d="M44 44 H212 L198 94 H58 Z" fill="#EADBC2" />
-      {picks.map((t, k) => (
-        <g key={t.id} className={`ask-wagon-pick${t.id === fresh ? " fresh" : ""}`}
-          role={onTakeOut ? "button" : undefined} tabIndex={onTakeOut ? 0 : undefined}
-          aria-label={onTakeOut ? `Take out ${t.name}` : t.name}
-          onClick={onTakeOut ? () => onTakeOut(t.id) : undefined}
-          onKeyDown={onTakeOut ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTakeOut(t.id); } } : undefined}>
-          <TileArt tile={t} x={x0 + k * (slot + 4)} y={46 - slot * 0.8} size={slot} />
-        </g>
-      ))}
-      <g pointerEvents="none">
-        <path d="M44 44 H212 L198 94 H58 Z" fill="#FBF6EE" />
-        <path d="M50 70 H206" stroke="#0D9488" strokeWidth="7" />
-        <path d="M44 44 H212 L198 94 H58 Z" fill="none" stroke="#C9A97A" strokeWidth="2.5" strokeLinejoin="round" />
-        <path d="M38 44 H218" stroke="#C9A97A" strokeWidth="5" strokeLinecap="round" />
+    <g transform={`translate(${x} ${y})`} opacity={far ? 0.75 : undefined}>
+      <g className="ask-wheel-spin">
+        <circle r="17" fill={`url(#${wood})`} stroke="#6E4A2A" strokeWidth="3" />
+        <path d="M0 -15 V15 M-15 0 H15 M-10.6 -10.6 L10.6 10.6 M-10.6 10.6 L10.6 -10.6" stroke="#7F5532" strokeWidth="1.1" opacity=".3" />
+        <circle r="4.5" fill="#3B2A1C" />
       </g>
-      <path d="M8 22 Q22 18 28 28 L46 50" fill="none" stroke="#A0724A" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="80" cy="108" r="14" fill="#B5814B" stroke="#6E4A2A" strokeWidth="3" />
-      <circle cx="80" cy="108" r="4" fill="#F3E6CF" />
-      <circle cx="176" cy="108" r="14" fill="#B5814B" stroke="#6E4A2A" strokeWidth="3" />
-      <circle cx="176" cy="108" r="4" fill="#F3E6CF" />
-    </svg>
+    </g>
   );
 }
 
-// One tile's picture inside an SVG (tileFace): the household's photo, else the item's own glyph,
-// else its name in small type. Never the aisle's glyph (C3b.1).
-function TileArt({ tile, x, y, size }) {
-  const id = `ask-clip-${tile.id}-${Math.round(x)}`;
+// One pick on a card (W4). Position and tilt sit on the outer group (an attribute); the drop-in
+// motion runs on the inner one, so a CSS transform never overrides the placement.
+function PickCard({ tile, box, uid, fresh, onTakeOut }) {
+  const { x, y, w, h, tilt } = box;
   const face = tileFace(tile);
+  const clip = `${uid}-c-${String(tile.id).replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const ix = x + 3, iy = y + 3, iw = w - 6, ih = h - 6;
+  const words = String(tile.name).split(/\s+/);
+  const lines = words.length > 1 && tile.name.length > 9 ? [words.slice(0, Math.ceil(words.length / 2)).join(" "), words.slice(Math.ceil(words.length / 2)).join(" ")] : [tile.name];
   return (
-    <>
-      <defs><clipPath id={id}><rect x={x} y={y} width={size} height={size} rx={size * 0.18} /></clipPath></defs>
-      <rect x={x} y={y} width={size} height={size} rx={size * 0.18} fill="#F3E6CF" stroke="#E8D5B7" />
-      {face === "photo" ? (
-        <image className="op-replay-block" href={tile.photoUrl} x={x} y={y} width={size} height={size} preserveAspectRatio="xMidYMid slice" clipPath={`url(#${id})`} />
-      ) : face === "glyph" ? (
-        <text x={x + size / 2} y={y + size * 0.68} textAnchor="middle" fontSize={size * 0.55}>{tile.glyph}</text>
-      ) : (
-        <text x={x + size / 2} y={y + size * 0.58} textAnchor="middle" fontSize={Math.max(6, size * 0.2)} fontFamily="Lato, sans-serif"
-          fill="#2C1A0E" clipPath={`url(#${id})`}>{tile.name}</text>
-      )}
-    </>
+    <g transform={`rotate(${tilt} ${x + w / 2} ${y + h})`}
+      className="ask-wagon-pick" role={onTakeOut ? "button" : undefined} tabIndex={onTakeOut ? 0 : undefined}
+      aria-label={onTakeOut ? `Take out ${tile.name}` : tile.name}
+      onClick={onTakeOut ? () => onTakeOut(tile.id) : undefined}
+      onKeyDown={onTakeOut ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTakeOut(tile.id); } } : undefined}>
+      <g className={`ask-card${fresh ? " fresh" : ""}`}>
+        <defs><clipPath id={clip}><rect x={ix} y={iy} width={iw} height={ih} rx="4.5" /></clipPath></defs>
+        <rect x={x} y={y} width={w} height={h} rx="7" fill="#FFFDF9" stroke="#EADBC2" strokeWidth="1" />
+        <rect x={ix} y={iy} width={iw} height={ih} rx="4.5" fill="#F6EDDF" />
+        {face === "photo" ? (
+          <image className="op-replay-block" href={tile.photoUrl} x={ix} y={iy} width={iw} height={ih} preserveAspectRatio="xMidYMid slice" clipPath={`url(#${clip})`} />
+        ) : face === "glyph" ? (
+          <text x={x + w / 2} y={y + h * 0.64} textAnchor="middle" fontSize={w * 0.56}>{tile.glyph}</text>
+        ) : (
+          <text x={x + w / 2} y={y + h / 2 - (lines.length - 1) * 5 + 3} textAnchor="middle" fontSize="9" fontFamily="Lato, sans-serif" fontWeight="700"
+            fill="#2C1A0E" clipPath={`url(#${clip})`}>
+            {lines.map((ln, k) => <tspan key={k} x={x + w / 2} dy={k === 0 ? 0 : 10}>{ln}</tspan>)}
+          </text>
+        )}
+      </g>
+    </g>
+  );
+}
+
+function Wagon({ picks, onTakeOut, fresh, kick, className = "" }) {
+  const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
+  const n = picks.length;
+  const boxes = cardLayout(n);
+  // Gradient ids are per instance (two wagons can be on screen during a transition).
+  const ids = { BODY: `${uid}-body`, WOOD: `${uid}-wood` };
+  return (
+    <svg className={`ask-wagon ${className}${kick ? ` ${kick.kind}` : ""}`} key={kick ? kick.n : 0}
+      viewBox={`0 0 ${WAGON_W} ${WAGON_H}`} role={onTakeOut ? "group" : "img"} aria-label={n === 0 ? "The wagon, empty" : `The wagon, ${n} in it`}>
+      <defs>
+        <linearGradient id={ids.BODY} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#FFFDF8" /><stop offset="1" stopColor="#EFE4D1" /></linearGradient>
+        <linearGradient id={ids.WOOD} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#C99660" /><stop offset="1" stopColor="#9A6A3E" /></linearGradient>
+      </defs>
+        {/* back: ground shadow, the far wheels, the inside of the tub (back rim + inner wall) */}
+        <g pointerEvents="none">
+          <ellipse cx="134" cy="142" rx="104" ry="7" fill="#6E4A2A" opacity=".16" />
+          <Wheel x={96} y={122} far wood={ids.WOOD} />
+          <Wheel x={196} y={122} far wood={ids.WOOD} />
+          <path d="M58 50 Q58 42 66 42 H222 Q230 42 230 50 L226 58 H62 Z" fill="#E6D8C1" />
+        </g>
+        {/* the picks, on cards */}
+        {picks.map((t, k) => (
+          <PickCard key={t.id} tile={t} box={boxes[k]} uid={uid} fresh={t.id === fresh} onTakeOut={onTakeOut} />
+        ))}
+        {/* front: tub, stripe, rolled lip, the fixed bracket + tongue (behind the front wheel), the near wheels, the handle */}
+        <g pointerEvents="none">
+          <path d="M56 56 H232 L222 110 Q220 116 213 116 H75 Q68 116 66 110 Z" fill={`url(#${ids.BODY})`} stroke="#D2BC98" strokeWidth="1.5" />
+          <path d="M60 82 H228 L226 92 H62 Z" fill="#0D9488" />
+          <rect x="50" y="50" width="188" height="10" rx="5" fill="#FFFDF9" stroke="#D2BC98" strokeWidth="1.5" />
+          <rect className="ask-wagon-bracket" x="70" y="109" width="26" height="7" rx="2.5" fill="#8A5E37" />
+          <path className="ask-wagon-tongue" d="M74 113 L60 119" stroke="#8A5E37" strokeWidth="4.5" strokeLinecap="round" />
+          <Wheel x={86} y={126} wood={ids.WOOD} />
+          <Wheel x={204} y={126} wood={ids.WOOD} />
+          <g className="ask-wagon-handle">
+            <path d="M60 119 L35 52 Q33 46 28 43" fill="none" stroke={`url(#${ids.WOOD})`} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M29 43.5 L14 37" stroke="#3B2A1C" strokeWidth="8" strokeLinecap="round" />
+            <circle cx="60" cy="119" r="5" fill="#B5814B" stroke="#7F5532" strokeWidth="1.5" />
+            <circle cx="60" cy="119" r="1.8" fill="#3B2A1C" />
+          </g>
+        </g>
+    </svg>
   );
 }
 
@@ -97,9 +164,11 @@ function TileFace({ tile, glyphClass }) {
   return null;
 }
 
-// Done (A17): press and hold about a second. A short tap only says "Hold to finish".
-// The hold itself is hooks/useHold — shared with the landscape Staples tiles.
-function HoldDone({ onDone }) {
+// The top-right control (A17; W6): press and hold about a second; a short tap only says "Hold to …".
+// Quiet text — no pill, no border, ink at ~62%. "Close" on the turn screen (before he starts, nothing
+// is "done"), "Done" on the shelf; Great picks has none. The hold itself is hooks/useHold — shared
+// with the landscape Staples tiles.
+function HoldDone({ onDone, label = "Done", hold = "Hold to finish" }) {
   const [hint, setHint] = useState(false);
   const hintTimer = useRef(null);
   useEffect(() => () => { clearTimeout(hintTimer.current); }, []);
@@ -112,10 +181,10 @@ function HoldDone({ onDone }) {
     },
   });
   return (
-    <button type="button" className={`ask-done${holding ? " holding" : ""}`} aria-label="Hold to finish"
+    <button type="button" className={`ask-done${holding ? " holding" : ""}`} aria-label={hold}
       {...bind}>
       <span className="ask-done-fill" aria-hidden="true" />
-      <span className="ask-done-text">{hint ? "Hold to finish" : "Done"}</span>
+      <span className="ask-done-text">{hint ? hold : label}</span>
     </button>
   );
 }
@@ -127,7 +196,11 @@ const Name = ({ children }) => <span className="op-name">{children}</span>;
 // photoUrl }] in shelf order; glyph is the ITEM's own (null when the catalog has none), never the aisle's.
 // onLand(ids) resolves when the picks are on the list and throws when they are not.
 // resume: { screen, ids } from op_ask_held after a reload (heldAskRead has checked it), else null.
-export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
+// parentName (W8): the signed-in member's first name — the phone's owner — for "Give it back to
+// {Parent}"; null reads "Give it back". onHandBack({ count, ids }) (W8, W9): Great picks' one exit —
+// the caller closes the run, lands on Browse and shows "{Label} added {N} · See" once. Without it the
+// button just exits.
+export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName = null, onHandBack = null }) {
   const target = effectiveTarget(ask, tiles);
   const simple = ask.screenStyle === "simple";
   const [screen, setScreen] = useState(() => resume?.screen || "turn");     // turn | shelf | done
@@ -168,34 +241,50 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
     }
   };
 
+  // W6: "Close" on the turn screen, "Done" on the shelf, nothing on Great picks (the picks have landed;
+  // the bottom button is the one exit).
   const top = (
     <div className="ask-top">
       <span className="ask-eyebrow">Ask <Name>{ask.label}</Name></span>
-      {screen === "done"
-        ? <button type="button" className="ask-done" onClick={onExit}><span className="ask-done-text">Done</span></button>
-        : <HoldDone onDone={onExit} />}
+      {screen === "turn" && <HoldDone onDone={onExit} label="Close" hold="Hold to close" />}
+      {screen === "shelf" && <HoldDone onDone={onExit} label="Done" hold="Hold to finish" />}
     </div>
   );
+  // W8: the child hands the phone back. Once: the run closes on the first tap.
+  const [handedBack, setHandedBack] = useState(false);
+  const giveBack = () => {
+    if (handedBack) return;
+    setHandedBack(true);
+    if (onHandBack) onHandBack({ count: inWagon.length, ids: inWagon.map((t) => t.id) });
+    else onExit();
+  };
 
   return (
     <div className="ask-run op-replay-block" role="dialog" aria-modal="true" aria-label="Ask">
       <style>{ASK_RUN_CSS}</style>
       {screen === "turn" && (
         <div className="ask-screen ask-turn">
-          <svg className="ask-scene" viewBox="0 0 400 300" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+          {/* W5: the scene runs the full height — sky → water → sand. The horizon sits high, just under the
+              top bar, so the title, its rule and the pick line sit on calm water. One faint glow on the
+              sun, no glints; the far hills quiet (0.3). The wagon rests on the sand. No towel. */}
+          <svg className="ask-scene" viewBox="0 0 300 620" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
             <defs>
-              <linearGradient id="ask-sky" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stopColor="#E9EEF0" /><stop offset="0.55" stopColor="#F8E4C8" /><stop offset="1" stopColor="#FAF4EC" />
-              </linearGradient>
-              <linearGradient id="ask-water" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" stopColor="#C9D9DA" /><stop offset="1" stopColor="#FAF4EC" />
-              </linearGradient>
+              <linearGradient id="ask-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#E4ECEF" /><stop offset=".6" stopColor="#F6DFC0" /><stop offset="1" stopColor="#F9E9D2" /></linearGradient>
+              <linearGradient id="ask-water" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#B9CCD0" /><stop offset=".7" stopColor="#E9E3D6" /><stop offset="1" stopColor="#F3E7D4" /></linearGradient>
+              <linearGradient id="ask-sand" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#EEDFC6" /><stop offset="1" stopColor="#F6ECDC" /></linearGradient>
+              <radialGradient id="ask-glow" cx=".5" cy=".5" r=".5"><stop offset="0" stopColor="#FFF3D6" stopOpacity=".95" /><stop offset="1" stopColor="#FFF3D6" stopOpacity="0" /></radialGradient>
+              <linearGradient id="ask-veil" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#FAF4EC" stopOpacity="0" /><stop offset="1" stopColor="#FAF4EC" stopOpacity=".85" /></linearGradient>
             </defs>
-            <rect width="400" height="300" fill="url(#ask-sky)" />
-            <circle className="ask-sun" cx="150" cy="170" r="22" fill="#F7D9A4" />
-            <path d="M180 172 Q260 150 400 158 V176 H180 Z" fill="#9AA9B5" opacity="0.55" />
-            <rect y="172" width="400" height="128" fill="url(#ask-water)" />
-            <path d="M120 186 h60 M110 196 h80 M130 206 h40" stroke="#FBE7C2" strokeWidth="3" strokeLinecap="round" opacity="0.8" />
+            <rect width="300" height="620" fill="url(#ask-sky)" />
+            <g className="ask-sun">
+              <circle cx="82" cy="104" r="56" fill="url(#ask-glow)" />
+              <circle cx="82" cy="104" r="15" fill="#FBE2AE" />
+            </g>
+            <path d="M118 112 Q180 92 300 98 V114 H118 Z" fill="#8E9DAA" opacity=".3" />
+            <rect y="112" width="300" height="250" fill="url(#ask-water)" />
+            <path d="M0 350 Q80 340 150 346 T300 344 V620 H0 Z" fill="url(#ask-sand)" />
+            <path d="M0 350 Q80 340 150 346 T300 344" fill="none" stroke="#FFFFFF" strokeWidth="1.5" opacity=".5" />
+            <rect width="300" height="620" fill="url(#ask-veil)" opacity=".35" />
           </svg>
           {top}
           <div className="ask-turn-body">
@@ -203,7 +292,9 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
             <div className="ask-rule" aria-hidden="true" />
             <p className="ask-line">{pickLine(target, ask.shelfNoun)}</p>
           </div>
-          <div className="ask-turn-wagon"><Wagon picks={[]} /></div>
+          {/* Motion: after the sun, the wagon rolls in from the left (wheels turning), rocks once on the
+              stop, and the handle swings ~4° on its pivot and settles. */}
+          <div className="ask-turn-wagon"><div className="ask-roll ask-roll-turn"><Wagon picks={[]} className="ask-wagon-arrive" /></div></div>
           <div className="ask-foot">
             {simple ? (
               <button type="button" className="ask-primary ask-icon ask-go" aria-label="Let's pick" onClick={() => setScreen("shelf")}>
@@ -271,8 +362,9 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
           {top}
           <h1 className="ask-h1">{one ? "Great pick," : "Great picks,"}{" "}<br /><Name>{ask.label}</Name>!</h1>
           <div className="ask-rule" aria-hidden="true" />
-          <div className="ask-rollin"><Wagon picks={inWagon} /></div>
-          <p className="ask-line">{one ? "I've added this to our list." : "I've added these to our list."}</p>
+          <div className="ask-rollin ask-roll"><Wagon picks={inWagon} /></div>
+          {/* W7 (amends A14): the credit is his, and the list is "our" list. */}
+          <p className="ask-line">{one ? "Your pick is on our list!" : "Your picks are on our list!"}</p>
           <ul className="ask-landed">
             {inWagon.map((t) => (
               <li key={t.id}>
@@ -284,7 +376,10 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
             ))}
           </ul>
           <div className="ask-foot">
-            <button type="button" className="ask-primary" onClick={onExit}>Back to the list</button>
+            {/* W8: the hand-back. The parent's first name sits in .op-name like any name in the run. */}
+            <button type="button" className="ask-primary ask-give-back" onClick={giveBack} disabled={handedBack}>
+              {parentName ? <>Give it back to <Name>{parentName}</Name></> : "Give it back"}
+            </button>
           </div>
         </div>
       )}
@@ -293,16 +388,21 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null }) {
 }
 
 // Tokens: the app's cream / espresso / sand, brand teal on fills (the 10-07 ruling: teal text uses
-// #0A776D; brand #0D9488 on fills and large type only). Playfair for the three titles, Lato for
-// the rest. Motion per the mockup (drop + hop, shake, roll-in, sunrise), off under reduced motion.
+// #0A776D; brand #0D9488 on fills and large type only). W10: Playfair for the three titles, Lato for
+// everything else, the buttons included. Motion (the spec's motion section): sunrise, then the
+// wagon's roll-in with turning wheels, one rock on the stop and a ~4° handle swing on its pivot; on
+// the shelf, drop-in + hop with a quarter turn of the wheels; on Great picks, roll-in with turning
+// wheels. Only the wheels rotate. All of it off under reduced motion, where every element rests at
+// its final state.
 const ASK_RUN_CSS = `
 .ask-run { position: fixed; inset: 0; z-index: 2000; background: #FAF4EC; color: #2C1A0E; overflow: hidden;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 .ask-screen { position: relative; height: 100%; max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; }
 .ask-top { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; padding: 18px 20px 0; }
 .ask-eyebrow { font: 700 calc(12.5px * var(--op-text-scale, 1)) 'Lato', sans-serif; letter-spacing: 0.16em; text-transform: uppercase; color: #2C1A0E; }
-.ask-done { position: relative; overflow: hidden; border: 1px solid #E8D5B7; background: #FFFDF9; color: #2C1A0E; border-radius: 999px;
-  padding: 9px 16px; font: 700 14px 'Lato', sans-serif; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; min-height: 40px; }
+/* W6: quiet text — no pill, no border, ink at ~62%; a 44px target; the hold fill shows behind the word. */
+.ask-done { position: relative; overflow: hidden; border: 0; background: transparent; color: rgba(44,26,14,.62); border-radius: 999px;
+  padding: 9px 12px; margin-right: -12px; font: 700 14px 'Lato', sans-serif; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: none; min-height: 44px; }
 ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-done-text { position: relative; }
 .ask-h1 { position: relative; z-index: 1; font-family: 'Playfair Display', serif; font-weight: 700; font-size: 40px; line-height: 1.1; text-align: center; margin: 28px 20px 0; }
@@ -313,12 +413,30 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-primary { border: 0; background: #0D9488; color: #fff; font: 700 18px 'Lato', sans-serif; min-height: 54px; padding: 0 34px; border-radius: 999px; cursor: pointer; }
 .ask-foot { position: relative; z-index: 1; display: flex; justify-content: center; padding: 16px 20px 28px; }
 
-.ask-turn .ask-scene { position: absolute; left: 0; right: 0; top: 0; width: 100%; height: 62%; }
-.ask-turn-body { position: relative; padding-top: 18vh; }
-.ask-turn-wagon { flex: 1; display: flex; align-items: flex-end; justify-content: center; padding: 0 20px; }
-.ask-turn-wagon .ask-wagon { width: 78%; max-width: 320px; }
-.ask-sun { transform: translateY(18px); animation: ask-sunrise 1.6s cubic-bezier(.2,.8,.2,1) 0.2s forwards; }
+/* W5: the scene fills the screen; the title block sits on the water just under the horizon, the
+   wagon on the sand with room above the button (Explorer's 96px ▶ included). */
+.ask-turn { overflow: hidden; }
+.ask-turn .ask-scene { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ask-turn-body { position: absolute; left: 0; right: 0; top: 19%; }
+.ask-turn-body .ask-h1 { margin-top: 0; }
+.ask-turn-wagon { position: absolute; left: 0; right: 0; bottom: max(26.5%, 150px); display: flex; justify-content: center; pointer-events: none; }
+.ask-turn-wagon .ask-roll { width: 83%; max-width: 280px; }
+.ask-turn .ask-foot { position: absolute; left: 0; right: 0; bottom: 0; }
+.ask-sun { transform: translateY(14px); animation: ask-sunrise 1.6s cubic-bezier(.2,.8,.2,1) 0.2s forwards; }
 @keyframes ask-sunrise { to { transform: none; } }
+
+/* The wagon's motion. Wheels spin about their own centre; the handle swings about its pivot (60,119). */
+.ask-wheel-spin { transform-box: fill-box; transform-origin: center; }
+.ask-wagon-handle { transform-box: view-box; transform-origin: 60px 119px; }
+.ask-roll { display: block; }
+.ask-roll-turn { animation: ask-roll-in 0.9s cubic-bezier(.2,.9,.25,1.04) 1.05s both; }
+.ask-roll-turn .ask-wheel-spin { animation: ask-wheel-roll 0.9s cubic-bezier(.2,.9,.25,1) 1.05s both; }
+.ask-roll-turn .ask-wagon-arrive { animation: ask-rock 0.5s ease-out 1.9s both; transform-origin: 50% 95%; }
+.ask-roll-turn .ask-wagon-handle { animation: ask-swing 0.7s ease-out 1.88s both; }
+@keyframes ask-roll-in { from { transform: translateX(-125vw); } to { transform: none; } }
+@keyframes ask-wheel-roll { from { transform: rotate(-900deg); } to { transform: none; } }
+@keyframes ask-rock { 0% { transform: none; } 30% { transform: rotate(-1.6deg); } 65% { transform: rotate(0.8deg); } 100% { transform: none; } }
+@keyframes ask-swing { 0% { transform: none; } 30% { transform: rotate(4deg); } 62% { transform: rotate(-1.5deg); } 100% { transform: none; } }
 
 .ask-tiles { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: max-content; gap: 14px; padding: 20px 20px 12px; align-content: start; }
 .ask-tile { position: relative; display: flex; flex-direction: column; border: 2px solid #EFE3D0; border-radius: 18px; background: #FFFDF9; padding: 0;
@@ -355,9 +473,11 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-wagon { display: block; overflow: visible; }
 .ask-wagon-small { width: 150px; }
 .ask-wagon-pick { cursor: pointer; }
-.ask-wagon-pick.fresh { animation: ask-drop 0.38s cubic-bezier(.3,1.5,.5,1); transform-box: fill-box; transform-origin: center bottom; }
+.ask-card.fresh { animation: ask-drop 0.38s cubic-bezier(.3,1.5,.5,1); transform-box: fill-box; transform-origin: center bottom; }
 @keyframes ask-drop { from { transform: translateY(-22px) scale(0.7); opacity: 0; } to { transform: none; opacity: 1; } }
 .ask-wagon.hop { animation: ask-hop 0.45s ease; }
+.ask-wagon.hop .ask-wheel-spin { animation: ask-wheel-quarter 0.45s ease; }
+@keyframes ask-wheel-quarter { from { transform: none; } to { transform: rotate(90deg); } }
 @keyframes ask-hop { 0% { transform: none; } 35% { transform: translateY(-6px) rotate(-1.5deg); } 70% { transform: translateY(1px); } 100% { transform: none; } }
 .ask-wagon.shake { animation: ask-shake 0.4s ease; }
 @keyframes ask-shake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
@@ -371,8 +491,10 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 
 .ask-finale { align-items: stretch; overflow-y: auto; }
 .ask-rollin { display: flex; justify-content: center; margin-top: 18px; animation: ask-roll 1s cubic-bezier(.2,.9,.25,1.05); }
-.ask-rollin .ask-wagon { width: 78%; max-width: 320px; }
+.ask-rollin .ask-wagon { width: 83%; max-width: 280px; }
+.ask-rollin .ask-wheel-spin { animation: ask-wheel-roll 1s cubic-bezier(.2,.9,.25,1); }
 @keyframes ask-roll { from { transform: translateX(-120%); } to { transform: none; } }
+.ask-give-back:disabled { opacity: 1; }
 .ask-landed { list-style: none; margin: 14px 20px 0; padding: 6px 16px; border: 1px solid #EFE3D0; border-radius: 16px; background: #FFFDF9; }
 .ask-landed li { display: flex; align-items: center; gap: 14px; padding: 8px 0; font: 400 calc(16px * var(--op-text-scale, 1)) 'Lato', sans-serif; }
 .ask-landed-art { width: 52px; height: 40px; border-radius: 8px; overflow: hidden; background: #F3E6CF; display: grid; place-items: center; font-size: 24px; flex: 0 0 auto; }
