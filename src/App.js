@@ -6927,6 +6927,8 @@ function ProvisionsApp({ scrollRootRef }) {
   // confirmation over Manage; a yes is the plain soft delete, and the ask leaves the rail, Manage
   // and any selected pill.
   const [deleteAskId, setDeleteAskId] = useState(null);
+  // ONE confirmation at a time (2026-11-14): opening either delete confirm closes the other, so two
+  // trash taps can never stack two dialogs. Both open over View & organize (CONFIRM_Z, below).
   const [deleteAskBusy, setDeleteAskBusy] = useState(false);
   const [deleteAskFailed, setDeleteAskFailed] = useState(false);
   const confirmDeleteAsk = async () => {
@@ -12494,6 +12496,7 @@ function ProvisionsApp({ scrollRootRef }) {
                             </button>
                             <button type="button" aria-label="Delete this category" style={iconButton}
                               onClick={() => {
+                                setDeleteAskId(null);
                                 setDeletingCategory({ rawName: cat.rawName, name: cat.name, itemCount: n });
                                 // The move picker is required: preselected, no "delete all items" choice.
                                 setDeleteMoveTarget(n > 0 ? defaultMoveTarget(categories, cat.rawName, CATEGORY_ORDER) : "");
@@ -12554,7 +12557,7 @@ function ProvisionsApp({ scrollRootRef }) {
                         </span>
                       </button>
                       {/* The trash (Dan 2026-11-10): a 44 px target at the row's right end. */}
-                      <button type="button" aria-label="Delete this ask" onClick={() => { setDeleteAskFailed(false); setDeleteAskId(row.id); }}
+                      <button type="button" aria-label="Delete this ask" onClick={() => { setDeletingCategory(null); setDeleteAskFailed(false); setDeleteAskId(row.id); }}
                         style={{ flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" }}>
                         <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
@@ -12792,11 +12795,12 @@ function ProvisionsApp({ scrollRootRef }) {
       )}
 
       {/* Delete Ask {Label} (S4-2): a centred confirmation over View & organize. Rendered AFTER that
-          sheet in the tree AND one layer above it (z 110 over .modal-overlay's 100) — the first
+          sheet in the tree AND above its layer — the sheet is z 1000 since 2026-11-14 (over the header),
+          so the confirms are z 1010 (cffbbc3's "one layer above", re-applied; they sat at 110, under it) (z 110 over .modal-overlay's 100) — the first
           build had it before Manage, same z, so it opened behind (Dan's walk, 2026-11-11). Short
           enough to show whole without scrolling. */}
       {ASK_ENABLED && deleteAskId && (() => { const a = asks.find(x => x.id === deleteAskId); return a ? (
-        <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => { if (!deleteAskBusy) setDeleteAskId(null); }}>
+        <div className="modal-overlay" style={{ zIndex: 1010 }} onClick={() => { if (!deleteAskBusy) setDeleteAskId(null); }}>
           <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-ask-title" onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: "360px", margin: "auto" }}>
             <h2 id="delete-ask-title">Delete Ask <span className="op-name">{a.label}</span>?</h2>
@@ -12816,7 +12820,7 @@ function ProvisionsApp({ scrollRootRef }) {
           required move-items picker (deleteCategory.js: never deletes items). After that sheet in the
           tree and one layer above it, like the ask's. */}
       {deletingCategory && (
-        <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => setDeletingCategory(null)}>
+        <div className="modal-overlay" style={{ zIndex: 1010 }} onClick={() => setDeletingCategory(null)}>
           <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title" onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: "360px", margin: "auto" }}>
             <h2 id="delete-category-title">Delete {deletingCategory.name}?</h2>
