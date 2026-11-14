@@ -35,13 +35,8 @@ const ITEMS = Number(process.argv[4] || 4);
     await sleep(4000);
     await shot(page, "browse-after-save");
   }
-  log("tap pill: " + await page.evaluate((src) => { const r = new RegExp(src); const b = [...document.querySelectorAll("button.cat-pill")].find((b) => r.test(b.innerText.replace(/\s+/g, " ").trim())); if (b) { b.click(); return b.innerText.replace(/\s+/g, " ").trim(); } return null; }, pillRe.source));
-  await sleep(1500);
-  await shot(page, "ask-block");
-  log("block: " + await page.evaluate(() => (document.querySelector(".ask-block")?.innerText || "no .ask-block").replace(/\s+/g, " ").slice(0, 240)));
-  const hand = await page.$(".ask-handover");
-  if (!hand) throw new Error("no hand-over button (0 live tiles?)");
-  await hand.click();
+  log("tap pill: " + await page.evaluate((src) => { const r = new RegExp(src); const b = [...document.querySelectorAll("button.cat-pill.people-pill")].find((b) => r.test(b.innerText.replace(/\s+/g, " ").trim())); if (b) { b.click(); return b.innerText.replace(/\s+/g, " ").trim(); } return null; }, pillRe.source));
+  // The pill is the hand-over: the run opens at once.
   await page.waitForSelector(".ask-run", { visible: true, timeout: 15000 });
   await sleep(2500);   // the sunrise
   await shot(page, "ask-run");

@@ -68,42 +68,67 @@ describe("no re-sort while Browse is open", () => {
   });
 });
 
-describe("the cap and '+ New shelf'", () => {
-  test("at most two pills; the rest behind '+N more'", () => {
+describe("the cap", () => {
+  test("at most two pills; the rest behind '+N more'; nothing else on the layout", () => {
     expect(ASK_PILL_CAP).toBe(2);
-    const four = askRailLayout([NINA, EVERETT, BO, EASTON], true);
+    const four = askRailLayout([NINA, EVERETT, BO, EASTON]);
     expect(labels(four.pills)).toEqual(["nina", "Everett"]);
     expect(labels(four.more)).toEqual(["Bo", "Easton"]);                // same order, in the sheet
-    expect(askRailLayout([NINA, EVERETT, BO], true).more).toHaveLength(1);
-    const two = askRailLayout([NINA, EVERETT], true);
+    expect(askRailLayout([NINA, EVERETT, BO]).more).toHaveLength(1);
+    const two = askRailLayout([NINA, EVERETT]);
     expect(two.pills).toHaveLength(2);
     expect(two.more).toEqual([]);
-  });
-  test("'+ New shelf' right after Staples with 0 asks, at the very end with 1+, absent when it can't be made", () => {
-    expect(askRailLayout([], true).newShelfAt).toBe("afterStaples");
-    expect(askRailLayout([EASTON], true).newShelfAt).toBe("end");
-    expect(askRailLayout([EASTON, EVERETT, NINA], true).newShelfAt).toBe("end");
-    expect(askRailLayout([], false).newShelfAt).toBeNull();
+    // No "+ New shelf" on the rail (2026-11-13): the layout has no slot for one, with or without asks.
+    expect(Object.keys(askRailLayout([]))).toEqual(["pills", "more"]);
+    expect(Object.keys(askRailLayout([EASTON]))).toEqual(["pills", "more"]);
   });
 });
 
-// The rail in App.js draws from askRailLayout (source check: the rail is inline in a 12k-line file).
-test("the rail renders the layout: New shelf in both places, two pills, the '+N more' label", () => {
+// The rail in App.js draws from askRailLayout (source check: the rail is inline in a 13k-line file).
+test("the rail renders the layout: Staples, two people pills, '+N more', the ghost, a divider, categories; no New shelf chip", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
-  expect(app).toMatch(/askRail\.newShelfAt === "afterStaples" && \(/);
-  expect(app).toMatch(/askRail\.newShelfAt === "end" && \(/);
-  expect(app).toMatch(/\{askRail\.pills\.map\(ask => \{/);
-  expect(app).toMatch(/<span className="cat-em" aria-hidden="true">\{ASK_GLYPH\}<\/span>\+\{askRail\.more\.length\} more/);
-  // Order: Staples → (New shelf, 0 asks) → ask pills → +N more → categories → (New shelf, 1+ asks).
+  expect(app).toMatch(/\{askRail\.pills\.map\(ask => \(/);
+  expect(app).toMatch(/<span className="cat-em"><AskIcon \/><\/span>\+\{askRail\.more\.length\} more/);
+  expect(app).not.toMatch(/newShelfAt/);
+  expect(app).not.toMatch(/ASK_GLYPH/);                                       // no emoji on any Ask pill
+  // Order (C4.2, restored 2026-11-14): Staples → Ask pills → +N more → (ghost, with no asks) → divider →
+  // categories. The pills are people pills, never filters: no selectedAsks, no data-active, pressed
+  // only for the running / edited Ask.
   const at = (re) => app.search(re);
   const staples = at(/\{categoryGlyph\("Staples"\)\}<\/span>Staples/);
-  const early = at(/askRail\.newShelfAt === "afterStaples"/);
   const pills = at(/askRail\.pills\.map/);
   const more = at(/\+\{askRail\.more\.length\} more/);
-  const cats = app.indexOf("{categories.map(cat => {", more);
-  const late = at(/askRail\.newShelfAt === "end"/);
-  expect([staples < early, early < pills, pills < more, more < cats, cats < late]).toEqual([true, true, true, true, true]);
-  // A hand-over records its time; a pill tap does not.
-  expect(app).toMatch(/onClick=\{\(\) => \{ recordAskHandover\(household\?\.id, block\.id\); setRunAskId\(block\.id\); \}\}/);
+  const ghost = app.indexOf('className="cat-pill people-pill people-pill-ghost" onClick={openNewAsk}', more);
+  const divider = app.indexOf('{(askRail.pills.length > 0 || canMakeShelf) && <span className="cat-rail-divider" aria-hidden="true" />}', ghost);
+  const cats = app.indexOf("{categories.map(cat => {", divider);
+  expect(staples).toBeGreaterThan(0);
+  expect([staples < pills, pills < more, more < ghost, ghost < divider, divider < cats]).toEqual([true, true, true, true, true]);
+  // The ghost: only with zero asks, only where an ask can be made; "Ask someone…" is fixed copy.
+  const ghostBlock = app.slice(ghost - 120, divider);
+  expect(ghostBlock).toContain("{askRail.pills.length === 0 && canMakeShelf && (");
+  expect(ghostBlock).toContain("Ask someone…");
+  expect(app).toContain(".people-pill-ghost { background: transparent; border-style: dashed; }");
+  const railAsks = app.slice(pills, more);
+  // eslint-disable-next-line no-template-curly-in-string -- the source text under test
+  expect(railAsks).toContain('className={`cat-pill people-pill${activeAskId === ask.id ? " on" : ""}`}');
+  expect(railAsks).toContain("onClick={() => handoverAsk(ask.id)}");
+  expect(railAsks).not.toMatch(/selectedAsks|data-active|toggleAsk/);
+  expect(app).toContain('className="cat-pill people-pill cat-pill-more"');
+  expect(app).toContain("const activeAskId = runAskId || editAskId || null;");
+  // The rail itself carries no "+ New ask": its one home is View & organize's Asks section, which
+  // opens the full-screen New ask screen.
+  const rail = app.slice(staples, cats);
+  expect(rail).not.toMatch(/<\/span>New (shelf|ask)|>New (shelf|ask)</);   // rendered text; the comment may name the screen
+  expect(app).not.toMatch(/>New shelf</);                                      // rendered text; comments may still tell the history
+  expect(app.match(/<span className="cat-em">\+<\/span>New ask/g)).toHaveLength(1);
+  expect(app.match(/className="cat-pill cat-pill-new" style=\{\{ marginTop: "10px" \}\} onClick=\{openNewAsk\}/g)).toHaveLength(1);
+  // Every hand-over — a pill, a "+N more" row, a block's "Hand it to" — is the one handoverAsk, which
+  // records its time; nothing else does.
+  expect(app).toContain("const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); setRunAskId(askId); };");
+  expect(app).toContain("onClick={() => handoverAsk(block.id)}");
+  expect(app).toContain("onOpen={(askId) => { setMoreAsksOpen(false); handoverAsk(askId); }}");
   expect(app.match(/recordAskHandover\(/g)).toHaveLength(1);
+  // The tokens, once, with the rule beside them.
+  expect(app.match(/:root \{ --people-soft: #DFF3EF; --people-border: #A8DCD2; --people-strong: #0A776D; --people-ink: #13695B; \}/g)).toHaveLength(1);
+  expect(app).toContain("Turquoise means people");
 });

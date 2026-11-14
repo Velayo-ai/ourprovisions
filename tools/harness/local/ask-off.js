@@ -24,10 +24,11 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   const marker = await p.evaluate(() => document.querySelector(".app-root")?.getAttribute("data-op-ask"));
   check(`the build's marker reads ${EXPECT_ON ? "op-ask:on" : "op-ask:off"}`, marker === (EXPECT_ON ? "op-ask:on" : "op-ask:off"), String(marker));
 
-  const rail = await p.evaluate(() => [...document.querySelectorAll(".cat-pill")].map((e) => e.innerText.replace(/\s+/g, " ").trim()));
-  const askPills = rail.filter((t) => /^(🧺 )?Ask\b|New shelf|\bmore$/.test(t) || t.includes("New shelf"));
-  check(EXPECT_ON ? "Browse rail: + New shelf / Ask pills present" : "Browse rail: no + New shelf, no Ask pill, no +N more",
-    EXPECT_ON ? askPills.length > 0 : askPills.length === 0, JSON.stringify(EXPECT_ON ? askPills : askPills.length ? askPills : rail.slice(0, 6)));
+  const rail = await p.evaluate(() => [...document.querySelectorAll(".cat-rail .cat-pill")].map((e) => e.innerText.replace(/\s+/g, " ").trim()));
+  const askPills = rail.filter((t) => /^Ask\b|\bmore$/.test(t));   // "Ask {name}", "+N more" and the ghost "Ask someone…"
+  // The rail carries no "+ New ask" either way (2026-11-13); with the flag off it has no Ask pill.
+  check("Browse rail: no + New ask", !rail.some((t) => /New (shelf|ask)/.test(t)), JSON.stringify(rail.slice(0, 6)));
+  if (!EXPECT_ON) check("Browse rail: no Ask pill, no +N more", askPills.length === 0, JSON.stringify(askPills.length ? askPills : rail.slice(0, 6)));
   check("Browse rail still has Staples and the categories", rail.some((t) => t.endsWith("Staples")) && rail.length >= 3, `${rail.length} pills`);
   const browseText = await text();
   if (!EXPECT_ON) check("Browse shows no Ask block, no \"Hand it to\"", !/Hand it to/.test(browseText) && !/\bAsk [A-Z]/.test(browseText.replace(/Ask the Galley/g, "")));
