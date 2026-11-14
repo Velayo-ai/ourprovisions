@@ -25,6 +25,27 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-11-14] — [OurProvisions] — iPhone walk: two View & organize / Ask screen regressions fixed and confirmed; the Ask launch path laid out (handoff `6303d90` merged)
+**Goal:** Walk last night's View & organize / Ask work on a real iPhone, fix what it finds, and map what is left before Ask can launch. Design chat 2026-11-14 01:12 → 08:55 ET, after the `62da76b` SESSION END (`b0e3a2b`); Claude Code fixed on dev in the same window. Design handoff `6303d90` on `origin/handoff`, merged here.
+**Completed:**
+- **Fixed delete confirms opening beneath View & organize** (`3750c62`). Cause: the 2026-11-14 placement fix raised the sheet to z 1000 to clear the app header, while both confirms kept cffbbc3's z 110 ("one layer above Manage", which sat at 100). They rendered under the sheet; taps that went through to the sheet's other trash icons queued an ask confirm and a category confirm together. Fix: both confirms at z 1010 (above the sheet, below the Ask screen's 2000), and opening either closes the other. The move-items picker lives inside the category confirm; New / Edit ask close the sheet first, so neither had the problem.
+- **Fixed the Ask screen that couldn't scroll** (`314c7f0`). Cause: the 2026-11-13 layout clamped the form to the viewport, so "The ask" shrank and its catalog became its own 140px scroller that sat under the static footer, out of reach. Not the page lock (it only sets overflow on body and the app's scroll column) and not a touch handler (the one non-passive touchmove blocker arms only during a board card drag). Fix: the screen's body is the one scroller, the footer sticky at its bottom. "Who's picking?" was hidden in Edit because the name field's autoFocus opened the keyboard on load and iOS scrolled the field under the header; autoFocus is now for a new ask only.
+- **Added the tests the regressions called for:** each confirm's layer is above the sheet's and below the Ask screen's; the two confirm openers clear each other; with the page lock on, the Ask screen's body still scrolls, the catalog is not a scroller, the footer is sticky and a touchmove is not prevented; the label sits above the field in Edit. Jest 74 suites / 1000 tests; `CI=true` build compiles; served dev bundle `main.9bb694fd.js` read back.
+- **Dan confirmed both fixes on his iPhone** (installed app).
+- **Laid out the Ask launch path** (design chat; DECISIONS LOG 2026-11-14): flag-off check, hand-back toast, wagon polish, the `updateQty` lost update as a launch blocker, then one launch session.
+**Unfinished:**
+- **Ask launch blockers (NOW):** (1) flag-off verification of View & organize / Ask surfaces (`tools/harness/local/ask-off.js` on a flag-off build; prod needs categories manageable with Ask off, since "Manage categories" is gone); (2) the hand-back toast — the check is already answered: no approval step, and no "Easton added N · See" toast, so it needs building; (3) wagon polish (A14 / A15); (4) `updateQty`'s lost update, fixed with a server-side increment.
+- **Butter's shelf photo shows a lake** on Ask Nina (dev). Could be a test photo; if not, a photo is attached to the wrong item. Check.
+- Carried from `62da76b`: the Ask block in Browse has no door; the helm "+" sheet doesn't share the Browse no-results card; shelf-header "+ New item" keep / drop; first-run hint and filter-icon discoverability; custom category → aisle mapping (Phase 2); Elly's Shop landscape test; prod no-Ask checks; update awareness.
+- Pre-existing lint: NewShelfSheet test `no-container`; unused `bodyText` in `tools/harness/ask-run.js`.
+**Next session:**
+SESSION START
+Goal: Clear the Ask launch blockers on dev: flag-off verification of the new surfaces, build the hand-back toast, the wagon polish (A14 / A15), and the `updateQty` lost-update fix.
+State: Dev `314c7f0` (Ask on) / `main.9bb694fd.js`: View & organize (confirms above it, one at a time), turquoise Ask pills in C4.2 order, New / Edit ask (one scroller, Save pinned), search-first item creation in Browse — walked on Dan's iPhone. Jest 74 / 1000. Prod `83e05e2` unchanged, Ask off. Next migration 085.
+Done when: a flag-off build shows no Ask surfaces and categories are still manageable; after a run Paige's Browse shows "Easton added N · See" with no approval step; the wagon reads as a beach wagon in the sunrise scene; a manual +1 can't overwrite a concurrent pick. Then Ask is ready for its launch session.
+**Files updated:** `src/App.js`, `src/components/AskScreen.js` (+test), `src/components/NewShelfSheet.js` (+test), `src/lib/deleteCategory.test.js`, `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`
+**DB changes:** None
+
 ### [2026-11-14] — [OurProvisions] — One home for organizing the catalog: View & organize, Asks as people, search-first item creation (handoff `62da76b` merged)
 **Goal:** Pull shelf and category creation off the Browse rail into one quiet place, and settle what Asks look like and where they live. Design chat 2026-11-13 22:25 → 2026-11-14 01:09 ET; Claude Code built in the same window, six commits on dev `c227593` → `bb379c5`, pushed, not promoted. Design handoff `62da76b` on `origin/handoff`, merged here.
 **Completed:**
