@@ -8887,7 +8887,10 @@ function ProvisionsApp({ scrollRootRef }) {
       <div className="bottom-stack" style={{
         position: "fixed", left: "50%", transform: "translateX(-50%)",
         zIndex: 2000, display: "flex", flexDirection: "column", alignItems: "center",
-        gap: "10px", maxWidth: "90vw",
+        // width: max-content (2026-11-14): a fixed box at left 50% with no width shrinks to the space
+        // right of centre (50vw), which squeezed the folded "✓ n items in cart · Undo all" into an
+        // ellipsis on a phone. Its children each cap themselves at 90vw; so does the stack.
+        gap: "10px", width: "max-content", maxWidth: "90vw",
         // The stack itself must never eat taps meant for the app behind it;
         // children that need interaction opt back in individually.
         pointerEvents: "none",
