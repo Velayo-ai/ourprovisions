@@ -54,7 +54,8 @@ import { heldAskRead, loadHeldAsk, storeHeldAsk, liveTiles } from './lib/askRun'
 import { shelfCatalog } from './lib/askCreate';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
-import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
+import { CHECK_HOLD_MS, undoAllIds, undoSettling } from './lib/shopCheck';
+import { useCheckUndos } from './hooks/useCheckUndos';
 import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS } from './hooks/useLandscapePhone';
 import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
 import { LandscapeStaples } from './components/LandscapeStaples';
@@ -6858,24 +6859,11 @@ function ProvisionsApp({ scrollRootRef }) {
   // "✓ {item} checked · Undo" toasts (2026-11-07; on the tap since 11-08): one
   // per checked row, each with its own 5s timer, so Undo only ever reverts its
   // own row. Shown before the server answers; dropped if the write fails.
-  const [checkUndos, setCheckUndos] = useState([]);
-  const undoTimers = useRef({});
-  const undoKey = useRef(0);
-  useEffect(() => () => { Object.values(undoTimers.current).forEach(clearTimeout); }, []);
-  const dismissCheckUndo = useCallback((id) => {
-    clearTimeout(undoTimers.current[id]);
-    delete undoTimers.current[id];
-    setCheckUndos((l) => dropUndo(l, id));
-  }, []);
-  const offerCheckUndo = useCallback((id, name) => {
-    clearTimeout(undoTimers.current[id]);
-    const key = ++undoKey.current;
-    setCheckUndos((l) => pushUndo(l, { id, name, key }));
-    undoTimers.current[id] = setTimeout(() => {
-      delete undoTimers.current[id];
-      setCheckUndos((l) => dropUndo(l, id, key));
-    }, UNDO_MS);
-  }, []);
+  // THE FOLD (2026-11-14): at most 3 separate toasts; the 4th live check folds them into one
+  // "✓ {n} items in cart · Undo all" with ONE UNDO_MS timer that restarts on every new check, and the
+  // whole group drops when it runs out. The rules are pure (lib/shopCheck); the clocks live in
+  // hooks/useCheckUndos, which mirrors the stack in a ref so a burst of taps reads the latest one.
+  const { undos: checkUndos, offer: offerCheckUndo, dismiss: dismissCheckUndo, current: currentCheckUndos } = useCheckUndos();
   const [storePromptOpen, setStorePromptOpen] = useState(false);
   const [storePromptSkippedFor, setStorePromptSkippedFor] = useState(null);
   const [storeSaving, setStoreSaving] = useState(false);
@@ -8065,10 +8053,17 @@ function ProvisionsApp({ scrollRootRef }) {
     const item = shoppingList.flatMap(c => c.items).find(i => i.listItemId === id);
     if (item && checked[id]) handleShopToggle(item, "pending");
   };
+  // Undo all on the folded toast: the same per-row undo for every id in the group that is still checked
+  // (each row keeps its own write chain; no batch write). The group empties as each id leaves it.
+  const undoAllChecks = () => {
+    const ids = undoAllIds(currentCheckUndos(), (id) => !!checked[id]);
+    for (const u of currentCheckUndos().entries) if (!ids.includes(u.id)) dismissCheckUndo(u.id);
+    ids.forEach(undoCheck);
+  };
   // All done waits until the last check has finished its hold and its Undo
   // window (2026-11-08): the card never covers a toast that can still take the
   // check back, and a check undone in time never flashes "All done."
-  const shopCheckSettling = checkUndos.length > 0 || Object.values(rowMotion).some(m => m.dir === "out");
+  const shopCheckSettling = undoSettling(checkUndos) || Object.values(rowMotion).some(m => m.dir === "out");
   const rowMotionClass = (listItemId) => {
     const m = rowMotion[listItemId];
     if (!m) return "";
@@ -8961,15 +8956,22 @@ function ProvisionsApp({ scrollRootRef }) {
         )}
 
         {/* "✓ {item} checked · Undo" (2026-11-07) — one per checked row, newest at
-            the bottom, each with its own 5s timer. Shop only; the item name is
-            plain text, the Undo button opts into pointer events. */}
-        {view === "list" && checkUndos.map((u) => (
+            the bottom, each with its own 5s timer; at most 3, then one folded
+            "✓ {n} items in cart · Undo all" (2026-11-14). Shop only; the item name
+            is plain text, the Undo button opts into pointer events. */}
+        {view === "list" && (checkUndos.folded ? (
+          <div key="check-undo-group" className="check-undo check-undo-group" role="status">
+            <span className="check-undo-text">✓ {checkUndos.entries.length} {checkUndos.entries.length === 1 ? "item" : "items"} in cart</span>
+            <span className="check-undo-sep" aria-hidden="true">·</span>
+            <button type="button" className="check-undo-btn op-chrome" onClick={undoAllChecks}>Undo all</button>
+          </div>
+        ) : checkUndos.entries.map((u) => (
           <div key={u.key} className="check-undo" role="status">
             <span className="check-undo-text">✓ {u.name} checked</span>
             <span className="check-undo-sep" aria-hidden="true">·</span>
             <button type="button" className="check-undo-btn op-chrome" onClick={() => undoCheck(u.id)}>Undo</button>
           </div>
-        ))}
+        )))}
       </div>
 
       {/* The Helm — floating nav pill (SPEC_nav_helm.md). Fixed, outside the
