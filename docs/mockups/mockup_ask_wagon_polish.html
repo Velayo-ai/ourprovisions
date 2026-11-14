@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Ask — wagon polish (A14 / A15) · now vs proposed</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;background:#F3EADC;font-family:Lato,sans-serif;color:#2C1A0E}
+  .wrap{display:flex;gap:34px;justify-content:center;padding:28px 24px 40px;flex-wrap:wrap}
+  .col{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .tag{font:900 12px Lato;letter-spacing:.16em;text-transform:uppercase;color:#7A5A3A}
+  .tag b{color:#0A776D}
+  .phone{width:300px;height:620px;border-radius:40px;border:9px solid #1E140C;background:#FAF4EC;position:relative;overflow:hidden;box-shadow:0 18px 40px rgba(44,26,14,.25)}
+  .top{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:18px 18px 0;z-index:3}
+  .eye{font:700 11px Lato;letter-spacing:.16em}
+  .done{border:1px solid #E8D5B7;background:#FFFDF9;border-radius:999px;padding:7px 13px;font:700 12px Lato}
+  h1{font:700 33px/1.1 'Playfair Display',serif;text-align:center;margin:0;position:relative;z-index:2}
+  .rule{width:54px;height:3px;background:#0D9488;border-radius:2px;margin:13px auto 0;position:relative;z-index:2}
+  .line{text-align:center;font-size:15px;margin:14px 20px 0;position:relative;z-index:2}
+  .btn{position:absolute;left:50%;transform:translateX(-50%);bottom:26px;background:#0D9488;color:#fff;font:700 16px Lato;border-radius:999px;padding:15px 48px;white-space:nowrap;z-index:3}
+  .scene{position:absolute;inset:0;width:100%;height:100%}
+  .now .scene{height:62%}
+  .body{position:absolute;left:0;right:0;top:118px}
+  .wag{position:absolute;left:50%;transform:translateX(-50%);z-index:2}
+  .now .wag{bottom:96px;width:230px}
+  .new .wag{bottom:164px;width:250px}
+  .new .done, .fin .done{background:transparent;border-color:transparent;color:rgba(44,26,14,.62);font-weight:700}
+  .fin h1{margin-top:78px}
+  .fin .wag{position:relative;left:auto;transform:none;margin:20px auto 0;display:block;width:250px}
+  .fin .line{margin-top:12px}
+  .landed{margin:10px 18px 0;border:1px solid #EFE3D0;border-radius:14px;background:#FFFDF9;padding:4px 14px}
+  .landed div{display:flex;align-items:center;gap:12px;padding:6px 0;font-size:14px}
+  .landed span{width:40px;height:30px;border-radius:7px;background:#F3E6CF;display:grid;place-items:center;font-size:17px}
+  .notes{max-width:960px;margin:0 auto 40px;padding:0 24px;font-size:14px;line-height:1.55}
+  .notes h2{font:700 18px 'Playfair Display',serif;margin:0 0 6px}
+  .notes li{margin:3px 0}
+</style></head><body>
+
+<div class="wrap">
+
+<!-- NOW: turn -->
+<div class="col"><div class="tag">Now on dev · turn</div>
+<div class="phone now">
+  <svg class="scene" viewBox="0 0 400 300" preserveAspectRatio="xMidYMax slice">
+    <defs>
+      <linearGradient id="n-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E9EEF0"/><stop offset=".55" stop-color="#F8E4C8"/><stop offset="1" stop-color="#FAF4EC"/></linearGradient>
+      <linearGradient id="n-water" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9D9DA"/><stop offset="1" stop-color="#FAF4EC"/></linearGradient>
+    </defs>
+    <rect width="400" height="300" fill="url(#n-sky)"/>
+    <circle cx="150" cy="170" r="22" fill="#F7D9A4"/>
+    <path d="M180 172 Q260 150 400 158 V176 H180 Z" fill="#9AA9B5" opacity=".55"/>
+    <rect y="172" width="400" height="128" fill="url(#n-water)"/>
+    <path d="M120 186 h60 M110 196 h80 M130 206 h40" stroke="#FBE7C2" stroke-width="3" stroke-linecap="round" opacity=".8"/>
+  </svg>
+  <div class="top"><span class="eye">ASK EASTON</span><span class="done">Done</span></div>
+  <div class="body"><h1>Your turn,<br>Easton!</h1><div class="rule"></div><p class="line">Pick 3 snacks for our list.</p></div>
+  <svg class="wag" viewBox="0 0 250 130">
+    <path d="M44 44 H212 L198 94 H58 Z" fill="#FBF6EE"/>
+    <path d="M50 70 H206" stroke="#0D9488" stroke-width="7"/>
+    <path d="M44 44 H212 L198 94 H58 Z" fill="none" stroke="#C9A97A" stroke-width="2.5" stroke-linejoin="round"/>
+    <path d="M38 44 H218" stroke="#C9A97A" stroke-width="5" stroke-linecap="round"/>
+    <path d="M8 22 Q22 18 28 28 L46 50" fill="none" stroke="#A0724A" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="80" cy="108" r="14" fill="#B5814B" stroke="#6E4A2A" stroke-width="3"/><circle cx="80" cy="108" r="4" fill="#F3E6CF"/>
+    <circle cx="176" cy="108" r="14" fill="#B5814B" stroke="#6E4A2A" stroke-width="3"/><circle cx="176" cy="108" r="4" fill="#F3E6CF"/>
+  </svg>
+  <div class="btn">Let's pick</div>
+</div></div>
+
+<!-- PROPOSED: turn -->
+<div class="col"><div class="tag"><b>Proposed</b> · turn</div>
+<div class="phone new">
+  <svg class="scene" viewBox="0 0 300 620" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <linearGradient id="p-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E4ECEF"/><stop offset=".6" stop-color="#F6DFC0"/><stop offset="1" stop-color="#F9E9D2"/></linearGradient>
+      <linearGradient id="p-water" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#B9CCD0"/><stop offset=".7" stop-color="#E9E3D6"/><stop offset="1" stop-color="#F3E7D4"/></linearGradient>
+      <linearGradient id="p-sand" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EEDFC6"/><stop offset="1" stop-color="#F6ECDC"/></linearGradient>
+      <radialGradient id="p-glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#FFF3D6" stop-opacity=".95"/><stop offset="1" stop-color="#FFF3D6" stop-opacity="0"/></radialGradient>
+      <linearGradient id="p-veil" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FAF4EC" stop-opacity="0"/><stop offset="1" stop-color="#FAF4EC" stop-opacity=".85"/></linearGradient>
+    </defs>
+    <filter id="p-blur" x="-50%" y="-20%" width="200%" height="140%"><feGaussianBlur stdDeviation="5"/></filter>
+    <filter id="p-soft" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="1.2"/></filter>
+    <filter id="p-shadow" x="-20%" y="-40%" width="140%" height="180%"><feGaussianBlur stdDeviation="3"/></filter>
+    <linearGradient id="p-path" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF1CF" stop-opacity=".9"/><stop offset="1" stop-color="#FFF1CF" stop-opacity="0"/></linearGradient>
+    <!-- horizon high, like the reference: the title, its rule and the line sit on calm water -->
+    <rect width="300" height="620" fill="url(#p-sky)"/>
+    <circle cx="82" cy="104" r="56" fill="url(#p-glow)"/>
+    <circle cx="82" cy="104" r="15" fill="#FBE2AE"/>
+    <path d="M118 112 Q180 92 300 98 V114 H118 Z" fill="#8E9DAA" opacity=".3"/>
+    <rect y="112" width="300" height="250" fill="url(#p-water)"/>
+    <!-- sun's path on the water: one soft, tapering glow, no hard lines -->
+    <path d="M74 113 H90 L128 330 H36 Z" fill="url(#p-path)" filter="url(#p-blur)" opacity=".25"/>
+    <!-- shoreline: sand meets water with a soft wash line -->
+    <path d="M0 350 Q80 340 150 346 T300 344 V620 H0 Z" fill="url(#p-sand)"/>
+    <path d="M0 350 Q80 340 150 346 T300 344" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity=".5"/>
+    <rect width="300" height="620" fill="url(#p-veil)" opacity=".35"/>
+  </svg>
+  <div class="top"><span class="eye">ASK EASTON</span><span class="done">Close</span></div>
+  <div class="body"><h1>Your turn,<br>Easton!</h1><div class="rule"></div><p class="line">Pick 3 snacks for our list.</p></div>
+  <svg class="wag" viewBox="0 0 260 150"><use href="#wagon"/></svg>
+  <div class="btn">Let's pick</div>
+</div></div>
+
+<!-- PROPOSED: finale -->
+<div class="col"><div class="tag"><b>Proposed</b> · great picks</div>
+<div class="phone fin">
+  <div class="top"><span class="eye">ASK EASTON</span></div>
+  <h1>Great picks,<br>Easton!</h1><div class="rule"></div>
+  <svg class="wag" viewBox="0 0 260 150">
+    <!-- picks ride above the rim, tilted like the reference -->
+    <g transform="translate(66 18) rotate(-8)"><rect width="46" height="50" rx="7" fill="#FFFDF9" stroke="#EADBC2"/><text x="23" y="34" font-size="26" text-anchor="middle">🧀</text></g>
+    <g transform="translate(108 12)"><rect width="46" height="50" rx="7" fill="#FFFDF9" stroke="#EADBC2"/><text x="23" y="34" font-size="26" text-anchor="middle">🥨</text></g>
+    <g transform="translate(152 16) rotate(8)"><rect width="46" height="50" rx="7" fill="#FFFDF9" stroke="#EADBC2"/><text x="23" y="34" font-size="26" text-anchor="middle">🥛</text></g>
+    <use href="#wagon-front"/>
+  </svg>
+  <p class="line">Your picks are on our list!</p>
+  <div class="landed"><div><span>🧀</span>Goldfish</div><div><span>🥨</span>Pretzels</div><div><span>🥛</span>Yogurt</div></div>
+  <div class="btn">Back to the list</div>
+</div></div>
+
+</div>
+
+<!-- The proposed wagon, drawn once. 3/4 view: you see into the tub (back rim + inner wall),
+     a deep rounded tub with a rolled lip, the teal stripe following the body, a bent wooden
+     handle with a dark grip, four spoked wooden wheels (the far pair peeks out), and a soft
+     ground shadow so it SITS on the sand. -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="w-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFDF8"/><stop offset="1" stop-color="#EFE4D1"/></linearGradient>
+    <linearGradient id="w-wood" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C99660"/><stop offset="1" stop-color="#9A6A3E"/></linearGradient>
+    <g id="w-wheel">
+      <circle r="17" fill="url(#w-wood)" stroke="#6E4A2A" stroke-width="3"/>
+            <path d="M0 -15 V15 M-15 0 H15 M-10.6 -10.6 L10.6 10.6 M-10.6 10.6 L10.6 -10.6" stroke="#7F5532" stroke-width="1.1" opacity=".3"/>
+      <circle r="4.5" fill="#3B2A1C"/>
+    </g>
+    <g id="wagon-back">
+      <ellipse cx="134" cy="142" rx="104" ry="7" fill="#6E4A2A" opacity=".16"/>
+      <!-- far wheels -->
+      <use href="#w-wheel" x="96" y="122" opacity=".75"/><use href="#w-wheel" x="196" y="122" opacity=".75"/>
+      <!-- inside of the tub: back rim and inner wall -->
+      <path d="M58 50 Q58 42 66 42 H222 Q230 42 230 50 L226 58 H62 Z" fill="#E6D8C1"/>
+    </g>
+    <g id="wagon-front">
+      <!-- tub front: deep, rounded bottom corners, slight taper -->
+      <path d="M56 56 H232 L222 110 Q220 116 213 116 H75 Q68 116 66 110 Z" fill="url(#w-body)" stroke="#D2BC98" stroke-width="1.5"/>
+      <!-- teal stripe follows the body -->
+      <path d="M60 82 H228 L226 92 H62 Z" fill="#0D9488"/>
+      <!-- rolled lip -->
+      <rect x="50" y="50" width="188" height="10" rx="5" fill="#FFFDF9" stroke="#D2BC98" stroke-width="1.5"/>
+      <!-- front undercarriage: a fixed bracket under the tub, behind the front wheel (the wheel
+           hides most of it), and the tongue from it to the handle's pivot. The wheel turns free. -->
+      <rect x="70" y="109" width="26" height="7" rx="2.5" fill="#8A5E37"/>
+      <path d="M74 113 L60 119" stroke="#8A5E37" stroke-width="4.5" stroke-linecap="round"/>
+      <!-- near wheels -->
+      <use href="#w-wheel" x="86" y="126"/><use href="#w-wheel" x="204" y="126"/>
+      <!-- pull handle: a separate part, in front of the tub. It pivots on one round joint at the
+           front lower-left corner, linked by a short tongue to a fixed bracket on the front undercarriage, and angles up-left
+           to a dark rounded grip. Never touches the tub wall or rim. -->
+      <g id="w-handle">
+        <path d="M60 119 L35 52 Q33 46 28 43" fill="none" stroke="url(#w-wood)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M29 43.5 L14 37" stroke="#3B2A1C" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="60" cy="119" r="5" fill="#B5814B" stroke="#7F5532" stroke-width="1.5"/>
+        <circle cx="60" cy="119" r="1.8" fill="#3B2A1C"/>
+      </g>
+    </g>
+    <g id="wagon"><use href="#wagon-back"/><use href="#wagon-front"/></g>
+  </defs>
+</svg>
+<script>
+  // finale wagon draws its back layer before the picks
+  document.querySelectorAll('.fin .wag').forEach(s=>{const u=document.createElementNS('http://www.w3.org/2000/svg','use');u.setAttribute('href','#wagon-back');s.insertBefore(u,s.firstChild);});
+</script>
+
+<div class="notes">
+  <h2>What changes</h2>
+  <ul>
+    <li><b>The scene runs to the bottom.</b> Sky → water → a sand shoreline the wagon rests on, with a ground shadow (towel dropped: it fought the handle). Today the scene stops at 62% and the wagon floats on cream.</li>
+    <li><b>The wagon is a beach wagon, not a cart.</b> 3/4 view (you see into the tub), a deep rounded tub with a rolled lip, the stripe on the body, a handle that rises from the front axle to a dark grip, four spoked wooden wheels. Today's trapezoid with a handle reads as a supermarket cart.</li>
+    <li><b>Great picks:</b> the same wagon, picks riding above the rim and tilted, like the reference.</li>
+    <li><b>The shelf's small wagon</b> uses this same drawing at 150px (no change in size or behaviour).</li>
+  </ul>
+  <h2>Motion (motion is the product)</h2>
+  <ul>
+    <li><b>Turn:</b> sun rises (as today), then the wagon rolls in from the left and settles, wheels turning, a small rock on the stop. ~0.9s, after the sun.</li>
+    <li><b>Shelf:</b> pick drops in + hop (as today); wheels nudge a quarter turn on each hop.</li>
+    <li><b>Great picks:</b> roll-in (as today) with wheels turning.</li>
+    <li>All of it off under reduced motion.</li>
+  </ul>
+</div>
+</body></html>
