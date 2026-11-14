@@ -211,6 +211,11 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   const [failed, setFailed] = useState(false);
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const inWagon = picks.map((id) => byId.get(id)).filter(Boolean);
+  // Great picks shows the picks in the order they were made — the shelf wagon's order — fixed at the
+  // moment they land: the tiles as they were then, so a list refresh after the land (new tiles, a tile
+  // gone) can't reorder, drop or change a card. Never list order or land order.
+  const [landedTiles, setLandedTiles] = useState(null);
+  const shown = screen === "done" && landedTiles ? landedTiles : inWagon;
   const one = picks.length === 1;   // Great picks reads singular when exactly one landed
 
   useEffect(() => {
@@ -232,7 +237,9 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
     setLanding(true);
     setFailed(false);
     try {
+      const snapshot = inWagon;
       await onLand(picks);
+      setLandedTiles(snapshot);
       setScreen("done");
     } catch (_e) {
       setFailed(true);   // the wagon stays held; That's it! can be tapped again
@@ -255,7 +262,7 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   const giveBack = () => {
     if (handedBack) return;
     setHandedBack(true);
-    if (onHandBack) onHandBack({ count: inWagon.length, ids: inWagon.map((t) => t.id) });
+    if (onHandBack) onHandBack({ count: shown.length, ids: shown.map((t) => t.id) });
     else onExit();
   };
 
@@ -266,7 +273,8 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
         <div className="ask-screen ask-turn">
           {/* W5: the scene runs the full height — sky → water → sand. The horizon sits high, just under the
               top bar, so the title, its rule and the pick line sit on calm water. One faint glow on the
-              sun, no glints; the far hills quiet (0.3). The wagon rests on the sand. No towel. */}
+              sun and its faint blurred path on the water, no glints; the far hills quiet (0.3). The wagon
+              rests on the sand. No towel. */}
           <svg className="ask-scene" viewBox="0 0 300 620" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
             <defs>
               <linearGradient id="ask-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#E4ECEF" /><stop offset=".6" stopColor="#F6DFC0" /><stop offset="1" stopColor="#F9E9D2" /></linearGradient>
@@ -274,6 +282,8 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
               <linearGradient id="ask-sand" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#EEDFC6" /><stop offset="1" stopColor="#F6ECDC" /></linearGradient>
               <radialGradient id="ask-glow" cx=".5" cy=".5" r=".5"><stop offset="0" stopColor="#FFF3D6" stopOpacity=".95" /><stop offset="1" stopColor="#FFF3D6" stopOpacity="0" /></radialGradient>
               <linearGradient id="ask-veil" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#FAF4EC" stopOpacity="0" /><stop offset="1" stopColor="#FAF4EC" stopOpacity=".85" /></linearGradient>
+              <linearGradient id="ask-path" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#FFF1CF" stopOpacity=".9" /><stop offset="1" stopColor="#FFF1CF" stopOpacity="0" /></linearGradient>
+              <filter id="ask-blur" x="-50%" y="-20%" width="200%" height="140%"><feGaussianBlur stdDeviation="5" /></filter>
             </defs>
             <rect width="300" height="620" fill="url(#ask-sky)" />
             <g className="ask-sun">
@@ -282,6 +292,8 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
             </g>
             <path d="M118 112 Q180 92 300 98 V114 H118 Z" fill="#8E9DAA" opacity=".3" />
             <rect y="112" width="300" height="250" fill="url(#ask-water)" />
+            {/* The sun's path on the water (the mock's final round): one soft, blurred, tapering glow at 0.25 — no glints. */}
+            <path className="ask-sun-path" d="M74 113 H90 L128 330 H36 Z" fill="url(#ask-path)" filter="url(#ask-blur)" opacity=".25" />
             <path d="M0 350 Q80 340 150 346 T300 344 V620 H0 Z" fill="url(#ask-sand)" />
             <path d="M0 350 Q80 340 150 346 T300 344" fill="none" stroke="#FFFFFF" strokeWidth="1.5" opacity=".5" />
             <rect width="300" height="620" fill="url(#ask-veil)" opacity=".35" />
@@ -362,11 +374,11 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
           {top}
           <h1 className="ask-h1">{one ? "Great pick," : "Great picks,"}{" "}<br /><Name>{ask.label}</Name>!</h1>
           <div className="ask-rule" aria-hidden="true" />
-          <div className="ask-rollin ask-roll"><Wagon picks={inWagon} /></div>
+          <div className="ask-rollin ask-roll"><Wagon picks={shown} /></div>
           {/* W7 (amends A14): the credit is his, and the list is "our" list. */}
           <p className="ask-line">{one ? "Your pick is on our list!" : "Your picks are on our list!"}</p>
           <ul className="ask-landed">
-            {inWagon.map((t) => (
+            {shown.map((t) => (
               <li key={t.id}>
                 {tileFace(t) !== "name" && (
                   <span className="ask-landed-art" aria-hidden="true"><TileFace tile={t} /></span>

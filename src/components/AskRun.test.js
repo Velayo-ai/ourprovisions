@@ -404,3 +404,36 @@ describe("W10 and the motion section", () => {
     expect(c).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.ask-run \*, \.ask-run \*::before, \.ask-run \*::after \{ animation: none !important; transition: none !important; \}/);
   });
 });
+
+// Great picks keeps the order the picks were made (2026-11-14): the shelf wagon's order, fixed when they
+// land — not shelf / list order, not land order, and not changed by a refresh of the tiles after the land.
+test("Great picks: wagon cards and the landed list keep pick order, even when the tiles change after the land", async () => {
+  const onLand = jest.fn(async () => {});
+  const { container, rerender } = render(<AskRun ask={ASK} tiles={TILES} onLand={onLand} onExit={jest.fn()} />);
+  toShelf();
+  ["Yogurt", "Goldfish", "Cheese"].forEach((n) => fireEvent.click(tile(n)));            // shelf order is Goldfish, Apples, Cheese, Yogurt
+  fireEvent.click(screen.getByRole("button", { name: "Take out Goldfish" }));              // out, then back in last
+  fireEvent.click(tile("Goldfish"));
+  const shelfOrder = [...container.querySelectorAll(".ask-wagon .ask-wagon-pick")].map((g) => g.getAttribute("aria-label").replace("Take out ", ""));
+  expect(shelfOrder).toEqual(["Yogurt", "Cheese", "Goldfish"]);
+  fireEvent.click(thatsIt());
+  await screen.findByText("Your picks are on our list!");
+  expect(onLand).toHaveBeenCalledWith(["c-3", "c-2", "c-0"]);
+  const cards = () => [...container.querySelectorAll(".ask-finale .ask-wagon-pick")].map((g) => g.getAttribute("aria-label"));
+  const listed = () => screen.getAllByRole("listitem").map((li) => li.textContent.replace("🍎", ""));
+  expect(cards()).toEqual(["Yogurt", "Cheese", "Goldfish"]);
+  expect(listed()).toEqual(["Yogurt", "Cheese", "Goldfish"]);
+  // The land refreshes the list: the tiles come back reordered and one is gone. Great picks doesn't move.
+  rerender(<AskRun ask={ASK} tiles={[...TILES].reverse().filter((t) => t.name !== "Cheese")} onLand={onLand} onExit={jest.fn()} />);
+  expect(cards()).toEqual(["Yogurt", "Cheese", "Goldfish"]);
+  expect(listed()).toEqual(["Yogurt", "Cheese", "Goldfish"]);
+});
+
+test("the turn scene has the sun's faint blurred path on the water (0.25) and no glint lines", () => {
+  const { container } = setup();
+  const path = container.querySelector(".ask-scene .ask-sun-path");
+  expect(path).not.toBeNull();
+  expect(path.getAttribute("opacity")).toBe(".25");
+  expect(path.getAttribute("filter")).toMatch(/^url\(#ask-blur\)$/);
+  expect(container.querySelectorAll(".ask-scene path[stroke='#FBE7C2']")).toHaveLength(0);   // the old glint strokes
+});
