@@ -69,6 +69,71 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
   }
   if (free < 6) throw new Error("fewer than 6 unchecked rows — can't burst");
 
+  // ── REVERT MODE (OP_BURST_REVERTS=N): for code without the undo fold (prod). N bursts of 6 checks;
+  // every row's state is sampled every 50 ms for 6 s after each burst, and a checked row that turns
+  // unchecked with no tap of ours is a REVERT (the 2026-11-14 poll race). Each burst ends with all six
+  // rows checked, then they are unchecked from the tray before the next one.
+  const reverts = Number(process.env.OP_BURST_REVERTS || 0);
+  if (reverts > 0) {
+    let total = 0;
+    for (let n = 1; n <= reverts; n++) {
+      await page.evaluate(() => {
+        window.__hist = {};
+        window.__sampler = setInterval(() => {
+          for (const b of document.querySelectorAll('button.shop-check[role="checkbox"]')) {
+            const name = b.innerText.trim().split("\n").pop().trim(), v = b.getAttribute("aria-checked");   // a checked box also renders a ✓ line
+            const h = (window.__hist[name] = window.__hist[name] || []);
+            if (h[h.length - 1] !== v) h.push(v);
+          }
+        }, 50);
+      });
+      const hit = [];
+      for (let i = 0; i < 6; i++) { hit.push(await checkNth(page, 0)); await sleep(350); }
+      await sleep(6000);
+      const hist = await page.evaluate(() => { clearInterval(window.__sampler); return window.__hist; });
+      // Checked rows have moved to the In cart tray by now; open it so their checkboxes render.
+      await page.evaluate(() => { const h = document.querySelector("button.tray-head"); if (h && h.getAttribute("aria-expanded") !== "true") h.click(); });
+      await sleep(500);
+      const rows = [...new Set(hit)];                               // a reverted row can be clicked twice
+      const rev = rows.filter((name) => { const h = hist[name] || []; const i = h.indexOf("true"); return i >= 0 && h.slice(i).includes("false"); });
+      const stillChecked = await page.evaluate((names) => names.filter((nm) => [...document.querySelectorAll('button.shop-check[role="checkbox"][aria-checked="true"]')].some((b) => b.innerText.trim().split("\n").pop().trim() === nm)).length, rows);
+      total += rev.length;
+      check(`burst ${n}: 6 checks on ${rows.length} rows, ${rev.length} reverted, ${stillChecked}/${rows.length} still checked after 6s`, rev.length === 0 && rows.length === 6 && stillChecked === 6, rev.length ? `reverted: ${JSON.stringify(rev)} ${JSON.stringify(rev.map((r) => hist[r]))}` : "");
+      // reset: uncheck them from the tray, slowly, so the next burst starts from 7 unchecked
+      await page.evaluate(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const head = document.querySelector("button.tray-head");
+        if (head && head.getAttribute("aria-expanded") !== "true") { head.click(); await sleep(400); }
+        for (let k = 0; k < 12; k++) {
+          const b = [...document.querySelectorAll('button.shop-check[role="checkbox"][aria-checked="true"]')][0];
+          if (!b) break; b.scrollIntoView({ block: "center" }); b.click(); await sleep(700);
+        }
+      });
+      await sleep(4000);
+      if ((await unchecked(page)) < 6) { log("could not reset to 6 unchecked rows; stopping"); break; }
+    }
+    log(`REVERTS TOTAL: ${total}`);
+  }
+  if (reverts > 0) {
+    if (addedNames.length) {
+      await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
+      const removed = await page.evaluate(async (names) => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        let n = 0;
+        for (const name of names) {
+          const row = [...document.querySelectorAll(".item-row")].find((r) => (r.querySelector(".item-name") || r).innerText.split("\n")[0].trim() === name);
+          const minus = row && [...row.querySelectorAll("button.qty-btn")].find((b) => b.innerText.trim() === "−");
+          if (minus) { minus.click(); n++; await sleep(500); }
+        }
+        return n;
+      }, addedNames);
+      log(`tidied: set ${removed} of ${addedNames.length} added items back to 0`);
+    }
+    log(fails ? `${fails} FAILED` : "ALL PASS");
+    await browser.disconnect();
+    process.exit(fails ? 1 : 0);
+  }
+
   // ── Burst 1: 3, then the fold, then a tap during the hold, then 6, then Undo all ──
   const names = [];
   for (let i = 0; i < 3; i++) { names.push(await checkNth(page, 0)); await sleep(350); }
