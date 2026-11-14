@@ -66,11 +66,10 @@ describe("with the flag off the UI has no Ask door", () => {
   test("a held handover never resumes a run", () => {
     expect(APP).toContain("if (!ASK_ENABLED || !heldAskRef.current || !asksLoaded || !catalogLoaded || !landingDecided) return;");
   });
-  test('Manage has no Asks section, and its title and button say "Manage categories"', () => {
-    expect(APP).toContain('{ASK_ENABLED && isSignedIn && household?.id && (\n              <div className="modal-field" style={{ marginTop: "18px" }}>\n                <span className="modal-label" id="manage-asks">Asks</span>'.replace(/\n/g, APP.includes("\r\n") ? "\r\n" : "\n"));
-    expect(APP.match(/ASK_ENABLED \? "Manage categories & asks" : "Manage categories"/g)).toHaveLength(2);   // the heading and the button
-    expect(APP).toContain('aria-label={ASK_ENABLED ? "Manage categories and asks" : "Manage categories"}');
-    expect(APP).not.toMatch(/>Manage categories &amp; asks</);
+  test("View & organize has no Asks section (the old Manage sheet is folded into it, 2026-11-13)", () => {
+    expect(APP).toContain('{canMakeShelf && (\n              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>\n                <span className="modal-label" id="manage-asks">Asks</span>'.replace(/\n/g, APP.includes("\r\n") ? "\r\n" : "\n"));
+    expect(APP).not.toMatch(/>Manage categories|"Manage categories/);   // rendered text; comments may still tell the history
+    expect(APP).not.toContain("showManageCategoriesModal");
   });
   test("the build carries its flag as a marker on the app root", () => {
     expect(APP).toContain('<div className="app-root" data-op-ask={ASK_FLAG_MARKER}');

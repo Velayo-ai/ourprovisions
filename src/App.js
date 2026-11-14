@@ -845,7 +845,7 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 
 // ── Shop tab: lens, In cart tray, store prompt (SPEC_shop_lens_instore_capture.md) ──
 // D3: a control shows its STATE, never its next state — both words visible,
-// the active one filled. Replaces the tri-state CycleIcon on Shop only.
+// the active one filled. Replaces the old tri-state declutter cycle icon on Shop only.
 // ── The Helm (SPEC_nav_helm.md) ─────────────────────────────────────────────
 // Nav lives in a floating pill at the bottom edge (D1) — the thumb is at the
 // bottom, the header keeps one job (household identity). Doors come from
@@ -1307,17 +1307,19 @@ function CatalogItemRow({
   );
 }
 
-// ── Shared declutter cycle control ──
-// One 46×46 icon used identically on Browse and Shop. Encodes both axes:
-// background light→dark = filter off→on (phase 0 vs 1/2); line shape tapering
-// (funnel ∨) → equal = grouped → flat (phase 2). Each tap advances 0→1→2→0.
-function CycleIcon({ phase, onAdvance }) {
+// ── Browse's filter button ──
+// One 46×46 icon at the top right of Browse's search row. It opens the filter sheet (View and
+// Shelves, 2026-11-13; it used to cycle the declutter phases itself). The glyph still tells the
+// view — a funnel while grouped, three equal lines in A–Z — and the background goes dark while
+// anything in the sheet is off its default (a declutter phase, a shelf selected).
+function BrowseFilterButton({ phase, on, onOpen }) {
   return (
     <button
-      className={`cyc-ico ${phase !== 0 ? "on" : ""}`}
-      onClick={onAdvance}
-      aria-label="Declutter view"
-      title="Declutter view"
+      className={`cyc-ico ${on ? "on" : ""}`}
+      onClick={onOpen}
+      aria-label="Filters"
+      title="Filters"
+      aria-haspopup="dialog"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
         {phase === 2 ? (
@@ -6694,7 +6696,10 @@ function ProvisionsApp({ scrollRootRef }) {
   const [creating, setCreating] = useState(false);
   const [newHouseholdName, setNewHouseholdName] = useState("");
   const [creatingInFlight, setCreatingInFlight] = useState(false);
-  const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
+  // View & organize (2026-11-13): the sheet the funnel at the top right of Browse's search row opens.
+  // Organize items (the declutter phases), Your categories and Asks — the old Manage categories &
+  // asks sheet folded in, its sections as they were. Changes apply as they are made; Done closes.
+  const [browseFilterOpen, setBrowseFilterOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [renamingCategory, setRenamingCategory] = useState(null);
   const [renameValue, setRenameValue] = useState("");
@@ -6703,19 +6708,19 @@ function ProvisionsApp({ scrollRootRef }) {
   // Manage categories & asks (Dan, 2026-11-10): "+ New category" reveals the name field.
   const [newCategoryOpen, setNewCategoryOpen] = useState(false);
   const [householdCategories, setHouseholdCategories] = useState(new Set());
-  // A created-but-empty category lives only in householdCategories; when Manage opens, the ones
-  // that still have no item are let go, so they don't linger until a reload (Dan, 2026-11-10). The
-  // catalog is read through a ref: the prune is on open only, never on every catalog change.
+  // A created-but-empty category lives only in householdCategories; when View & organize opens, the
+  // ones that still have no item are let go, so they don't linger until a reload (Dan, 2026-11-10).
+  // The catalog is read through a ref: the prune is on open only, never on every catalog change.
   const catalogForPruneRef = useRef(catalogMap);
   catalogForPruneRef.current = catalogMap;
   useEffect(() => {
-    if (!showManageCategoriesModal) return;
+    if (!browseFilterOpen) return;
     const items = Object.values(catalogForPruneRef.current);
     setHouseholdCategories(prev => {
       const kept = new Set([...prev].filter(c => items.some(i => i.category === c)));
       return kept.size === prev.size ? prev : kept;
     });
-  }, [showManageCategoriesModal]);
+  }, [browseFilterOpen]);
   const [stapleFilter, setStapleFilter] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(new Set());
   const [searchQuery, setSearchQuery] = useState("");
@@ -6877,13 +6882,23 @@ function ProvisionsApp({ scrollRootRef }) {
   const addSheetInputRef = useRef(null);
   // Browse declutter cycle: 0 default (pills shown, grouped) · 1 tidied (pills hidden, grouped) · 2 flat (A–Z).
   const [browsePhase, setBrowsePhase] = useState(0);
+  // How View & organize reads the phase (2026-11-13): "Organize items" — By category (phase 0 or 1) or
+  // Alphabetically (phase 2) — and, under By category only, "Show category shortcuts" (the chip
+  // rail: phase 0 on, phase 1 off). Alphabetically always hides the rail. shortcutsPref remembers
+  // the toggle while Alphabetically is chosen, so coming back to By category restores it.
+  const browseOrganize = browsePhase === 2 ? "alpha" : "category";
+  const [shortcutsPref, setShortcutsPref] = useState(true);
+  const chooseOrganize = (key) => setBrowsePhase(key === "alpha" ? 2 : shortcutsPref ? 0 : 1);
+  const chooseShortcuts = (on) => { setShortcutsPref(on); setBrowsePhase(on ? 0 : 1); };
   // Declutter phase + Browse filters are per-view/per-household ephemeral state:
   // reset on tab or household switch so a stale filter can't shrink the new
   // household's list (phase 1 hides the pills that would otherwise explain it).
   useEffect(() => {
     setBrowsePhase(0);
+    setShortcutsPref(true);
     setSelectedCategories(new Set());
     setStapleFilter(false);
+    setBrowseFilterOpen(false);
   }, [view, activeHouseholdId]);
   // An Ask is the household's (SPEC_ask_slice2 C2), so View & organize's Asks section and the New ask
   // screen exist only signed in, with a place, with Ask on. Both the New item sheet and the Ask screen
@@ -6895,17 +6910,19 @@ function ProvisionsApp({ scrollRootRef }) {
   // closes first. Editing an existing Ask opens the same screen (editAskId, below).
   const [newAskOpen, setNewAskOpen] = useState(false);
   const openNewAsk = () => { if (!canMakeShelf) return; setBrowseFilterOpen(false); setNewAskOpen(true); };
+  // Closing View & organize ends any rename or new-category entry in progress with it.
+  const closeOrganize = () => { setBrowseFilterOpen(false); setRenamingCategory(null); setNewCategoryOpen(false); };
   // The two doors that open it on Item: a section header's "＋ New item" (the category known,
   // confirmed, not asked) and the search's "Add '<query>'" (the name known, the category asked).
   const openAddItem = ({ category, name = "", fromSearch = false }) => {
     setNewItemName(name); setNewItemPrice(""); setNewItemCategory(category); setAddError(""); setAddModalResetDone(false);
     setAddSheet({ fromSearch });
   };
-  // Edit Ask {Label} (SPEC_ask_slice4 S4-1, S4-2): opened from a Manage row or a Browse header's
-  // "· Edit". Manage closes first — the two share one overlay layer and Manage is drawn later, so
-  // the sheet would open under it (Step 0 #2). An ask that is gone (deleted elsewhere) closes it.
+  // Edit Ask {Label} (SPEC_ask_slice4 S4-1, S4-2): opened from an Asks row in View & organize or a
+  // Browse header's "· Edit". View & organize closes first — the two share one overlay layer (Step 0
+  // #2). An ask that is gone (deleted elsewhere) closes it.
   const [editAskId, setEditAskId] = useState(null);
-  const openEditAsk = (askId) => { setShowManageCategoriesModal(false); setEditAskId(askId); };
+  const openEditAsk = (askId) => { setBrowseFilterOpen(false); setEditAskId(askId); };
   // Delete Ask {Label} (S4-2; Dan 2026-11-10): the trash on the ask's Manage row opens a centred
   // confirmation over Manage; a yes is the plain soft delete, and the ask leaves the rail, Manage
   // and any selected pill.
@@ -7855,7 +7872,7 @@ function ProvisionsApp({ scrollRootRef }) {
     }
 
     await refreshCatalog();
-    setShowManageCategoriesModal(false);
+    setRenamingCategory(null);
   };
 
   // Never deletes items (2026-11-05, src/lib/deleteCategory.js): a category with items is
@@ -10298,6 +10315,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .ask-ico { display: block; }
         /* The rail's thin divider after the Ask pills, before the category pills: the asks are not filters. */
         .cat-rail-divider { flex: 0 0 1px; width: 1px; height: 24px; background: #E8D5B7; margin: 0 2px; scroll-snap-align: none; }
+        /* The filter sheet's rows (2026-11-13): a pill per view / per shelf, full width, stacked. */
+        .bf-list { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+        .bf-row { width: 100%; justify-content: flex-start; box-sizing: border-box; }
         .picker-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 12px; }
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
@@ -11669,7 +11689,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   onChange={setSearchQuery}
                   onClear={() => setSearchQuery("")}
                 />
-                <CycleIcon phase={browsePhase} onAdvance={() => setBrowsePhase((browsePhase + 1) % 3)} />
+                <BrowseFilterButton phase={browsePhase} on={browsePhase !== 0 || askBlocksShown.length > 0} onOpen={() => setBrowseFilterOpen(true)} />
               </div>
             </div>
 
@@ -11957,16 +11977,6 @@ function ProvisionsApp({ scrollRootRef }) {
                   ))}
                   </>
                 )}
-                <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
-                  <button
-                    onClick={() => setShowManageCategoriesModal(true)}
-                    style={{
-                      background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                      fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
-                      letterSpacing: "1px", textDecoration: "underline",
-                    }}
-                  >{ASK_ENABLED ? "Manage categories & asks" : "Manage categories"}</button>
-                </div>
               </>
             )}
             </>
@@ -12398,6 +12408,174 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       )}
 
+      {/* View & organize (2026-11-13), from the funnel at the top right of Browse's search row. ORGANIZE
+          ITEMS — By category / Alphabetically, with the category-shortcuts toggle (the three declutter
+          phases the funnel used to cycle through on its own). YOUR CATEGORIES and ASKS — the old
+          Manage categories & asks sheet's two sections, unchanged in behaviour: rename and delete a
+          custom category (a delete with items in it moves them first, never orphans them), "+ New
+          category"; an ask's row opens its edit sheet, its trash the delete confirmation, "+ New ask"
+          the Add sheet on Ask. Changes apply as they are made; Done closes. Each label is text in
+          .op-name (K3), never an attribute; rows key on ids. */}
+      {/* Where it sits (2026-11-14): over every piece of chrome (z 1000, the scrims' layer, above the
+          header and the status-bar strip), anchored at the top under the inset so the title is whole,
+          and never taller than the viewport, so the overlay has nothing to scroll: the sheet is the one
+          scroller, and the page behind it is locked (useScrollLock). */}
+      {browseFilterOpen && (
+        <div className="modal-overlay" onClick={closeOrganize} style={{ zIndex: 1000, paddingTop: "calc(20px + var(--op-inset-top, 0px))", overflowY: "hidden" }}>
+          <div className="modal op-anchor-top" role="dialog" aria-modal="true" aria-label="View and organize" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "calc(100dvh - 40px - var(--op-inset-top, 0px))", overflowY: "auto" }}>
+            <SheetClose onClose={closeOrganize} />
+            <h2>View &amp; organize</h2>
+            <div className="modal-field" style={{ marginTop: "18px" }}>
+              <span className="modal-label" id="browse-view">Organize items</span>
+              {/* The same radio cards as the shelf sheet's "How it looks" (name + a line under it). */}
+              <div role="radiogroup" aria-labelledby="browse-view" style={{ display: "flex", gap: "8px" }}>
+                {[
+                  { key: "category", name: "By category", sub: "Produce, dairy, pantry, and more" },
+                  { key: "alpha", name: "Alphabetically", sub: "All items from A to Z" },
+                ].map((o) => (
+                  <button key={o.key} type="button" role="radio" aria-checked={browseOrganize === o.key}
+                    className={`cat-pill${browseOrganize === o.key ? " on" : ""}`}
+                    style={{ flex: "1 1 0", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", padding: "10px 12px", textAlign: "left", borderRadius: "14px", whiteSpace: "normal" }}
+                    onClick={() => chooseOrganize(o.key)}>
+                    <span style={{ fontWeight: 700 }}>{o.name}</span>
+                    <span style={{ fontSize: "0.8rem", fontWeight: 400 }}>{o.sub}</span>
+                  </button>
+                ))}
+              </div>
+              {/* The Library filter sheet's switch (.lib-sw). By category only: Alphabetically has no rail. */}
+              {browseOrganize === "category" && (
+                <button type="button" role="switch" aria-checked={browsePhase === 0} className="lib-sw" style={{ marginTop: "10px", borderBottom: "none" }}
+                  onClick={() => chooseShortcuts(browsePhase !== 0)}>
+                  <span><span className="lib-sw-l">Show category shortcuts</span><span className="lib-sw-d">Quickly jump to staples, produce, and more</span></span>
+                  <span className="lib-track" aria-hidden="true" />
+                </button>
+              )}
+            </div>
+            {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a tap on the
+                row turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
+                centred confirmation with the required move-items picker (Pantry preselected; never
+                deletes items). Standard categories are not listed; the helper line says so (2026-11-13).
+                "+ New category" at the end. The
+                rows are text: no category name in an <option> value or an aria-label (replay, 2026-10-19). */}
+            {isSignedIn && (
+              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+                <span className="modal-label" id="manage-categories">Your categories</span>
+                <p className="picker-sub" style={{ margin: "0 0 8px" }}>Built-in categories like Produce and Dairy stay as they are.</p>
+                {categoryError && (
+                  <div className="modal-error" role="alert" style={{ margin: "0 0 8px" }}>{categoryError}</div>
+                )}
+                <div role="list" aria-labelledby="manage-categories">
+                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => {
+                    const n = cat.items.length;
+                    const renaming = renamingCategory === cat.rawName;
+                    const iconButton = { flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" };
+                    return (
+                      <div key={cat.rawName} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
+                        {renaming ? (
+                          <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", gap: "6px", alignItems: "center", padding: "6px 0" }}>
+                            <input className="modal-input" aria-label="Category name" value={renameValue} autoFocus
+                              onChange={e => setRenameValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") renameCategory(cat.rawName, renameValue); if (e.key === "Escape") setRenamingCategory(null); }}
+                              style={{ flex: 1, minWidth: 0 }} />
+                            <button className="modal-confirm" onClick={() => renameCategory(cat.rawName, renameValue)}
+                              disabled={!renameValue.trim() || renameValue.trim() === cat.rawName}
+                              style={{ opacity: renameValue.trim() && renameValue.trim() !== cat.rawName ? 1 : 0.5 }}>Save</button>
+                            <button className="modal-cancel" onClick={() => setRenamingCategory(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          <>
+                            {/* The row itself opens the rename (Dan 2026-11-10): tap to edit, trash to delete, as the ask rows. */}
+                            <button type="button" aria-label="Rename this category" onClick={() => { setRenamingCategory(cat.rawName); setRenameValue(cat.rawName); }}
+                              style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
+                                padding: "10px 4px", border: "none", background: "transparent", fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer" }}>
+                              <span style={{ fontSize: "0.95rem", fontWeight: 700, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
+                              <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>{categoryCountText(n)}</span>
+                            </button>
+                            <button type="button" aria-label="Delete this category" style={iconButton}
+                              onClick={() => {
+                                setDeletingCategory({ rawName: cat.rawName, name: cat.name, itemCount: n });
+                                // The move picker is required: preselected, no "delete all items" choice.
+                                setDeleteMoveTarget(n > 0 ? defaultMoveTarget(categories, cat.rawName, CATEGORY_ORDER) : "");
+                              }}>
+                              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                              </svg>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {newCategoryOpen ? (
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "10px" }}>
+                    <input className="modal-input" aria-label="New category name" placeholder="e.g. Frozen Foods" value={newCategoryName} autoFocus
+                      onChange={e => setNewCategoryName(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && newCategoryName.trim()) { createCategory(newCategoryName); setNewCategoryOpen(false); } if (e.key === "Escape") { setNewCategoryOpen(false); setNewCategoryName(""); } }}
+                      style={{ flex: 1, minWidth: 0 }} />
+                    <button className="modal-confirm" disabled={!newCategoryName.trim()} style={{ opacity: newCategoryName.trim() ? 1 : 0.5 }}
+                      onClick={() => { createCategory(newCategoryName); setNewCategoryOpen(false); }}>Create</button>
+                    <button className="modal-cancel" onClick={() => { setNewCategoryOpen(false); setNewCategoryName(""); }}>Cancel</button>
+                  </div>
+                ) : (
+                  <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={() => setNewCategoryOpen(true)}>
+                    <span className="cat-em">+</span>New category
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Asks (SPEC_ask_slice4 S4-1): one row per live ask — "Ask {Label}" (.op-name), the style
+                word, "pick {n}", the tile count or the grown-up's note (S4-5). A row opens the edit
+                sheet (this sheet closes first). "+ New ask" sits at the end. The rows are text, so the
+                replay rules apply; no label ever sits in an <option> or an aria-label. */}
+            {canMakeShelf && (
+              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+                <span className="modal-label" id="manage-asks">Asks</span>
+                <p className="picker-sub" style={{ margin: "0 0 8px" }}>Pick-lists for family and guests, like a kids’ snack shelf.</p>
+                <div role="list" aria-labelledby="manage-asks">
+                  {asks.map(a => { const row = manageRow(a); return (
+                    <div key={row.id} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
+                      {/* The Ask's pill (people pill, 2026-11-13) opens its edit sheet here; its facts sit beside it. */}
+                      <button type="button" onClick={() => openEditAsk(row.id)} aria-label="Edit this ask"
+                        style={{
+                          flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", gap: "10px", textAlign: "left",
+                          padding: "8px 0", border: "none", background: "transparent",
+                          fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer",
+                        }}>
+                        <span className={`cat-pill people-pill${activeAskId === row.id ? " on" : ""}`} style={{ flex: "0 0 auto" }}>
+                          <span className="cat-em"><AskIcon /></span>
+                          <span>Ask <span className="op-name">{row.label}</span></span>
+                        </span>
+                        <span style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12.5px", color: "#8A5F3A", minWidth: 0 }}>
+                          <span>{row.summary}</span>
+                          {row.needMore && <span>{row.needMore}</span>}
+                        </span>
+                      </button>
+                      {/* The trash (Dan 2026-11-10): a 44 px target at the row's right end. */}
+                      <button type="button" aria-label="Delete this ask" onClick={() => { setDeleteAskFailed(false); setDeleteAskId(row.id); }}
+                        style={{ flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                        </svg>
+                      </button>
+                    </div>
+                  ); })}
+                </div>
+                <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={openNewAsk}>
+                  <span className="cat-em">+</span>New ask
+                </button>
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button className="modal-confirm" onClick={closeOrganize}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Running an Ask (SPEC_ask_slice2 C3b) — full screen over the app. onLand throws unless
           land_ask_picks landed, so the wagon stays held for another That's it!. */}
       {runAsk && runLive.length > 0 && (
@@ -12613,137 +12791,8 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       )}
 
-      {/* Manage Categories Modal */}
-      {showManageCategoriesModal && (
-        <div className="modal-overlay" onClick={() => setShowManageCategoriesModal(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label={ASK_ENABLED ? "Manage categories and asks" : "Manage categories"} onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
-            <SheetClose onClose={() => setShowManageCategoriesModal(false)} />
-            <h2>{ASK_ENABLED ? "Manage categories & asks" : "Manage categories"}</h2>
-
-            {/* Asks (SPEC_ask_slice4 S4-1): one row per live ask — "Ask {Label}" (.op-name), the style
-                word, "pick {n}", the tile count or the grown-up's note (S4-5). A row opens the edit
-                sheet (Manage closes first). "+ New shelf" sits at the end. The rows are text, so the
-                replay rules apply; no label ever sits in an <option> or an aria-label. */}
-            {/* Breathing room under the heading (Dan 2026-11-10): the same gap the sections keep between them. */}
-            {ASK_ENABLED && isSignedIn && household?.id && (
-              <div className="modal-field" style={{ marginTop: "18px" }}>
-                <span className="modal-label" id="manage-asks">Asks</span>
-                {asks.length === 0 && (
-                  <p className="picker-sub" style={{ margin: "0 0 8px" }}>A shelf of things someone can pick for the list. They don't need an account.</p>
-                )}
-                <div role="list" aria-labelledby="manage-asks">
-                  {asks.map(a => { const row = manageRow(a); return (
-                    <div key={row.id} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
-                      <button type="button" onClick={() => openEditAsk(row.id)} aria-label="Edit this ask"
-                        style={{
-                          flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
-                          padding: "10px 4px", border: "none", background: "transparent",
-                          fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer",
-                        }}>
-                        <span style={{ fontSize: "0.95rem", fontWeight: 700 }}>Ask <span className="op-name">{row.label}</span></span>
-                        <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>
-                          {row.style} · {row.pick} · {row.shelf}{row.short ? " · Edit" : ""}
-                        </span>
-                      </button>
-                      {/* The trash (Dan 2026-11-10): a 44 px target at the row's right end. */}
-                      <button type="button" aria-label="Delete this ask" onClick={() => { setDeleteAskFailed(false); setDeleteAskId(row.id); }}
-                        style={{ flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" }}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-                        </svg>
-                      </button>
-                    </div>
-                  ); })}
-                </div>
-                <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }}
-                  onClick={() => { setShowManageCategoriesModal(false); setNewShelfOpen(true); }}>
-                  <span className="cat-em">+</span>New shelf
-                </button>
-              </div>
-            )}
-
-            {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a tap on the
-                row turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
-                centred confirmation with the required move-items picker (Pantry preselected; never
-                deletes items). Standard categories are not listed, and nothing says so (Dan 2026-11-10).
-                "+ New category" at the end. The
-                rows are text: no category name in an <option> value or an aria-label (replay, 2026-10-19). */}
-            {isSignedIn && (
-              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
-                <span className="modal-label" id="manage-categories">Categories</span>
-                {categoryError && (
-                  <div className="modal-error" role="alert" style={{ margin: "0 0 8px" }}>{categoryError}</div>
-                )}
-                <div role="list" aria-labelledby="manage-categories">
-                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => {
-                    const n = cat.items.length;
-                    const renaming = renamingCategory === cat.rawName;
-                    const iconButton = { flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" };
-                    return (
-                      <div key={cat.rawName} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
-                        {renaming ? (
-                          <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", gap: "6px", alignItems: "center", padding: "6px 0" }}>
-                            <input className="modal-input" aria-label="Category name" value={renameValue} autoFocus
-                              onChange={e => setRenameValue(e.target.value)}
-                              onKeyDown={e => { if (e.key === "Enter") renameCategory(cat.rawName, renameValue); if (e.key === "Escape") setRenamingCategory(null); }}
-                              style={{ flex: 1, minWidth: 0 }} />
-                            <button className="modal-confirm" onClick={() => renameCategory(cat.rawName, renameValue)}
-                              disabled={!renameValue.trim() || renameValue.trim() === cat.rawName}
-                              style={{ opacity: renameValue.trim() && renameValue.trim() !== cat.rawName ? 1 : 0.5 }}>Save</button>
-                            <button className="modal-cancel" onClick={() => setRenamingCategory(null)}>Cancel</button>
-                          </div>
-                        ) : (
-                          <>
-                            {/* The row itself opens the rename (Dan 2026-11-10): tap to edit, trash to delete, as the ask rows. */}
-                            <button type="button" aria-label="Rename this category" onClick={() => { setRenamingCategory(cat.rawName); setRenameValue(cat.rawName); }}
-                              style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
-                                padding: "10px 4px", border: "none", background: "transparent", fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer" }}>
-                              <span style={{ fontSize: "0.95rem", fontWeight: 700, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
-                              <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>{categoryCountText(n)}</span>
-                            </button>
-                            <button type="button" aria-label="Delete this category" style={iconButton}
-                              onClick={() => {
-                                setDeletingCategory({ rawName: cat.rawName, name: cat.name, itemCount: n });
-                                // The move picker is required: preselected, no "delete all items" choice.
-                                setDeleteMoveTarget(n > 0 ? defaultMoveTarget(categories, cat.rawName, CATEGORY_ORDER) : "");
-                              }}>
-                              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-                              </svg>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {newCategoryOpen ? (
-                  <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "10px" }}>
-                    <input className="modal-input" aria-label="New category name" placeholder="e.g. Frozen Foods" value={newCategoryName} autoFocus
-                      onChange={e => setNewCategoryName(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && newCategoryName.trim()) { createCategory(newCategoryName); setNewCategoryOpen(false); } if (e.key === "Escape") { setNewCategoryOpen(false); setNewCategoryName(""); } }}
-                      style={{ flex: 1, minWidth: 0 }} />
-                    <button className="modal-confirm" disabled={!newCategoryName.trim()} style={{ opacity: newCategoryName.trim() ? 1 : 0.5 }}
-                      onClick={() => { createCategory(newCategoryName); setNewCategoryOpen(false); }}>Create</button>
-                    <button className="modal-cancel" onClick={() => { setNewCategoryOpen(false); setNewCategoryName(""); }}>Cancel</button>
-                  </div>
-                ) : (
-                  <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={() => setNewCategoryOpen(true)}>
-                    <span className="cat-em">+</span>New category
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div className="modal-actions">
-              <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setRenamingCategory(null); setNewCategoryOpen(false); }}>Done</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Ask {Label} (S4-2): a centred confirmation over Manage. Rendered AFTER the Manage
-          modal in the tree AND one layer above it (z 110 over .modal-overlay's 100) — the first
+      {/* Delete Ask {Label} (S4-2): a centred confirmation over View & organize. Rendered AFTER that
+          sheet in the tree AND one layer above it (z 110 over .modal-overlay's 100) — the first
           build had it before Manage, same z, so it opened behind (Dan's walk, 2026-11-11). Short
           enough to show whole without scrolling. */}
       {ASK_ENABLED && deleteAskId && (() => { const a = asks.find(x => x.id === deleteAskId); return a ? (
@@ -12763,9 +12812,9 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       ) : null; })()}
 
-      {/* Delete a category (Dan, 2026-11-10): the centred confirmation over Manage, with the required
-          move-items picker (deleteCategory.js: never deletes items). After Manage in the tree and
-          one layer above it, like the ask's. */}
+      {/* Delete a category (Dan, 2026-11-10): the centred confirmation over View & organize, with the
+          required move-items picker (deleteCategory.js: never deletes items). After that sheet in the
+          tree and one layer above it, like the ask's. */}
       {deletingCategory && (
         <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => setDeletingCategory(null)}>
           <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title" onClick={(e) => e.stopPropagation()}
