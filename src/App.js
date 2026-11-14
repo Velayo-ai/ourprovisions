@@ -6660,7 +6660,10 @@ function ProvisionsApp({ scrollRootRef }) {
   const [editModalPrice, setEditModalPrice] = useState("");
   const [editModalCategory, setEditModalCategory] = useState("");
   const [editModalError, setEditModalError] = useState(null);
-  const [showAddModal, setShowAddModal] = useState(false);
+  // Browse's New item sheet (2026-11-13): null while closed; else { fromSearch }. fromSearch: opened
+  // from the search's "Add '<query>'" card, so a saved item clears the search and shows in its aisle.
+  // (Items only: making an Ask is the full-screen New ask screen, AskScreen, from View & organize.)
+  const [addSheet, setAddSheet] = useState(null);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
   const [newItemName, setNewItemName] = useState("");
@@ -6715,11 +6718,6 @@ function ProvisionsApp({ scrollRootRef }) {
   const [stapleFilter, setStapleFilter] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(new Set());
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchPickerOpen, setSearchPickerOpen] = useState(false);
-  // The `+ New category` tile reveals the name input, rather than the input
-  // sitting open as a second, competing answer to "where does this go?".
-  const [searchNewCatOpen, setSearchNewCatOpen] = useState(false);
-  const [newCategoryInput, setNewCategoryInput] = useState("");
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
   // Two pieces, deliberately separate:
@@ -6889,6 +6887,13 @@ function ProvisionsApp({ scrollRootRef }) {
   // + New shelf (SPEC_ask_slice2 C2): the sheet belongs to one place's Browse, so a tab or
   // household switch closes it (a half-made shelf never lands in the other household).
   const [newShelfOpen, setNewShelfOpen] = useState(false);
+  const closeAdd = () => setAddSheet(null);
+  // The two doors that open it on Item: a section header's "＋ New item" (the category known,
+  // confirmed, not asked) and the search's "Add '<query>'" (the name known, the category asked).
+  const openAddItem = ({ category, name = "", fromSearch = false }) => {
+    setNewItemName(name); setNewItemPrice(""); setNewItemCategory(category); setAddError(""); setAddModalResetDone(false);
+    setAddSheet({ fromSearch });
+  };
   // Edit Ask {Label} (SPEC_ask_slice4 S4-1, S4-2): opened from a Manage row or a Browse header's
   // "· Edit". Manage closes first — the two share one overlay layer and Manage is drawn later, so
   // the sheet would open under it (Step 0 #2). An ask that is gone (deleted elsewhere) closes it.
@@ -7325,9 +7330,6 @@ function ProvisionsApp({ scrollRootRef }) {
   const addSearchedItem = async (rawCategory) => {
     const typed = searchQuery.trim();
     setSearchQuery("");
-    setSearchPickerOpen(false);
-    setSearchNewCatOpen(false);
-    setNewCategoryInput("");
     if (!typed) return null;
     const norm = normalizeName(typed);
     const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
@@ -7785,13 +7787,16 @@ function ProvisionsApp({ scrollRootRef }) {
   const handleAddItem = () => {
     const name = newItemName.trim();
     if (!name) { setAddError("Please enter an item name."); return; }
+    if (!newItemCategory) { setAddError("Pick a category to file it under."); return; }
     const allItems = Object.keys(catalogMap).map(k => k.toLowerCase());
     if (allItems.includes(name.toLowerCase())) { setAddError("That item already exists."); return; }
     const price = parseFloat(centsToDisplay(newItemPrice)) || 0;
     if (price > 0) setLocalPrices(prev => ({ ...prev, [name]: price }));
     // updateQty with qty=1 will auto-create the catalog item in Supabase if it doesn't exist
     updateQty(name, 1, newItemCategory, price > 0 ? price : undefined);
-    setNewItemName(""); setNewItemPrice(""); setAddError(""); setShowAddModal(false);
+    // Opened from the search's "Add '<query>'": the search clears, so the new item shows in its aisle.
+    if (addSheet?.fromSearch) setSearchQuery("");
+    setNewItemName(""); setNewItemPrice(""); setAddError(""); setAddSheet(null);
   };
 
   const createCategory = (name) => {
@@ -8096,7 +8101,6 @@ function ProvisionsApp({ scrollRootRef }) {
 
   const openAddSheet = () => {
     setSearchQuery("");
-    setSearchPickerOpen(false);
     setAddSheetOpen(true);
   };
   const closeAddSheet = () => {
@@ -11635,8 +11639,8 @@ function ProvisionsApp({ scrollRootRef }) {
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <CatalogSearchBox
                   value={searchQuery}
-                  onChange={(v) => { setSearchQuery(v); setSearchPickerOpen(false); }}
-                  onClear={() => { setSearchQuery(""); setSearchPickerOpen(false); }}
+                  onChange={setSearchQuery}
+                  onClear={() => setSearchQuery("")}
                 />
                 <CycleIcon phase={browsePhase} onAdvance={() => setBrowsePhase((browsePhase + 1) % 3)} />
               </div>
@@ -11822,104 +11826,31 @@ function ProvisionsApp({ scrollRootRef }) {
                         );
                   }}
                   createSlot={
-                  /* ── CREATE on Browse: inline add with category picker ── */
-                  <>
-                    <div style={{
-                      borderRadius: "10px",
-                      border: "1.5px dashed #C9A97A",
-                      background: "rgba(201,169,122,0.06)",
-                      overflow: "hidden",
-                      marginBottom: "6px",
-                    }}>
-                      {!searchPickerOpen ? (
-                        <div
-                          onClick={() => setSearchPickerOpen(true)}
-                          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", cursor: "pointer" }}
-                        >
-                          {/* On the knob (pass 2): line = body 15, hint = meta 14 #8A5F3A, Add =
-                              button k .8 — the same roles the meal sheet's copy of this card uses. */}
-                          <div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
-                              Add <strong>"{searchQuery}"</strong> to your list
-                            </div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
-                              Tap to choose a category
-                            </div>
-                          </div>
-                          <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8) }}>Add</button>
-                        </div>
-                      ) : (
-                        <div>
-                          <div
-                            onClick={() => setSearchPickerOpen(false)}
-                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px 8px", cursor: "pointer" }}
-                          >
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
-                              Add <strong>"{searchQuery}"</strong> to your list
-                            </div>
-                            <span style={{ color: "#8A5F3A", fontSize: "18px" }}>−</span>
-                          </div>
-                          {/* Global entry — no section context, so nothing is
-                              pre-selected and the copy asks rather than confirms. */}
-                          <div className="picker-sub" style={{ padding: "0 14px", marginBottom: "10px" }}>
-                            Pick a category and we'll file it for next time.
-                          </div>
-                          <div style={{ padding: "0 14px 10px" }}>
-                            <CategoryPickerGrid
-                              categories={categories.filter(cat => cat.rawName !== "⭐ My Custom Items")}
-                              selected={null}
-                              onSelect={addSearchedItem}
-                              onNewCategory={() => setSearchNewCatOpen(true)}
-                            />
-                          </div>
-                          {/* ── New category inline input — revealed by the tile ── */}
-                          {searchNewCatOpen && (
-                          <div style={{ padding: "0 14px 14px" }}>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "7px" }}>
-                              Name the new category
-                            </div>
-                            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                              <input
-                                type="text"
-                                value={newCategoryInput}
-                                onChange={e => setNewCategoryInput(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === "Enter" && newCategoryInput.trim()) {
-                                    const newCat = newCategoryInput.trim();
-                                    setHouseholdCategories(prev => new Set([...prev, newCat]));
-                                    addSearchedItem(newCat);
-                                  }
-                                }}
-                                placeholder="e.g. Pet Supplies"
-                                style={{
-                                  flex: 1, border: "1.5px solid #E8D5B7", borderRadius: "20px",
-                                  padding: "6px 14px", fontFamily: "'Lato', sans-serif", fontSize: "12px",
-                                  color: "#2C1A0E", background: "#F5EDE0", outline: "none",
-                                }}
-                              />
-                              <button
-                                onClick={() => {
-                                  if (!newCategoryInput.trim()) return;
-                                  const newCat = newCategoryInput.trim();
-                                  setHouseholdCategories(prev => new Set([...prev, newCat]));
-                                  addSearchedItem(newCat);
-                                }}
-                                style={{
-                                  width: "30px", height: "30px", borderRadius: "50%",
-                                  background: newCategoryInput.trim() ? "#A0724A" : "#E8D5B7",
-                                  border: "none", color: "white",
-                                  fontSize: "18px", display: "flex", alignItems: "center", justifyContent: "center",
-                                  cursor: newCategoryInput.trim() ? "pointer" : "default",
-                                  flexShrink: 0, transition: "background 0.15s",
-                                }}
-                              >+</button>
-                            </div>
-                          </div>
-                          )}
-                        </div>
-                      )}
+                  /* ── CREATE on Browse (2026-11-13): one card, "Add '<query>'", opening the Add sheet on
+                     Item with the name filled in and the category asked (no section context, so nothing
+                     is pre-selected). The category picker that used to unfold here is the sheet's. ── */
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openAddItem({ category: null, name: searchQuery.trim(), fromSearch: true })}
+                    onKeyDown={(e) => { if (e.key === "Enter") openAddItem({ category: null, name: searchQuery.trim(), fromSearch: true }); }}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "12px 14px", marginBottom: "6px", cursor: "pointer",
+                      borderRadius: "10px", border: "1.5px dashed #C9A97A", background: "rgba(201,169,122,0.06)",
+                    }}
+                  >
+                    {/* On the knob (pass 2): line = body 15, hint = meta 14 #8A5F3A, Add = button k .8. */}
+                    <div>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
+                        Add <strong>"{searchQuery.trim()}"</strong>
+                      </div>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
+                        As a new item — you'll pick its category
+                      </div>
                     </div>
-                  </>
+                    <span className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8) }}>Add</span>
+                  </div>
                   }
                 />
               </div>
@@ -11974,10 +11905,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   <div className="category-block" key={cat.name}>
                     <CategoryHeader title={cat.name}>
                       <button
-                        onClick={() => {
-                          setNewItemCategory(cat.rawName);
-                          setShowAddModal(true);
-                        }}
+                        onClick={() => openAddItem({ category: cat.rawName })}
                         style={CATEGORY_HEADER_ACTION}
                       >＋ New item</button>
                     </CategoryHeader>
@@ -12377,72 +12305,81 @@ function ProvisionsApp({ scrollRootRef }) {
         />
       )}
 
-      {/* Add Item Modal */}
-      {showAddModal && (
-        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Add new item" onClick={(e) => e.stopPropagation()}>
-            <SheetClose onClose={() => setShowAddModal(false)} />
-            <h2>Add New Item</h2>
-            <div className="modal-field">
-              <label className="modal-label">Item Name</label>
-              <input className="modal-input" placeholder="e.g. Kombucha" value={newItemName} autoFocus
-                onChange={(e) => setNewItemName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
-            </div>
-            {showPrices && (
-            <div className="modal-field" style={{ opacity: newItemName.trim() ? 1 : 0.4, transition: "opacity 0.15s" }}>
-              <label className="modal-label">Price ($)</label>
-              <input className="modal-input" type="text" inputMode="numeric" placeholder="0.00" value={centsToDisplay(newItemPrice)}
-                onChange={(e) => newItemName.trim() && setNewItemPrice(e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "")} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
-            </div>
-            )}
-            <div className="modal-field">
-              {/* No "tap below to unhide" hint here (removed 2026-10-06): the "Unhide N hidden
-                  {category} items" link under the picker carries the action on its own. */}
-              <label className="modal-label">Category</label>
-              {/* This modal is only ever reached from a section header's
-                  "＋ New item", so the category is already known — the user
-                  answered by choosing where they tapped. The step is a
-                  confirmation, not a question. */}
-              <div className="picker-sub">
-                Filed under {categoryLabel(newItemCategory)}. Tap another to move it.
-              </div>
-              <CategoryPickerGrid
-                categories={categories}
-                selected={newItemCategory}
-                onSelect={(raw) => {
-                  setNewItemCategory(raw);
-                  setAddModalResetDone(false);
-                }}
-                onNewCategory={() => setShowManageCategoriesModal(true)}
-              />
-              {isSignedIn && !newItemName.trim() && (
-                addModalResetDone ? (
-                  <div style={{ fontSize: "12.5px", color: "#8A5F3A", fontStyle: "italic", marginTop: "6px" }}>
-                    ✓ {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} items unhidden
+      {/* The New item sheet (2026-11-13): items only — the Add New Item modal as it was, opened from a
+          section header's "＋ New item" (category known) or the search's "Add '<query>'" (name known,
+          category asked). Making an Ask is the full-screen New ask screen, not this sheet. */}
+      {addSheet && (
+        <div className="modal-overlay" onClick={closeAdd}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="New item" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "88vh", overflowY: "auto" }}>
+            <SheetClose onClose={closeAdd} />
+            <h2>New item</h2>
+            {(
+              <>
+                <div className="modal-field">
+                  <label className="modal-label">Item Name</label>
+                  <input className="modal-input" placeholder="e.g. Kombucha" value={newItemName} autoFocus
+                    onChange={(e) => setNewItemName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
+                </div>
+                {showPrices && (
+                <div className="modal-field" style={{ opacity: newItemName.trim() ? 1 : 0.4, transition: "opacity 0.15s" }}>
+                  <label className="modal-label">Price ($)</label>
+                  <input className="modal-input" type="text" inputMode="numeric" placeholder="0.00" value={centsToDisplay(newItemPrice)}
+                    onChange={(e) => newItemName.trim() && setNewItemPrice(e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "")} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
+                </div>
+                )}
+                <div className="modal-field">
+                  {/* No "tap below to unhide" hint here (removed 2026-10-06): the "Unhide N hidden
+                      {category} items" link under the picker carries the action on its own. */}
+                  <label className="modal-label">Category</label>
+                  {/* From a section header's "＋ New item" the category is already known — the user
+                      answered by choosing where they tapped — so the step is a confirmation, not a
+                      question. From the search's "Add '<query>'" there is no section context: nothing
+                      is pre-selected and the copy asks. */}
+                  <div className="picker-sub">
+                    {newItemCategory
+                      ? <>Filed under {categoryLabel(newItemCategory)}. Tap another to move it.</>
+                      : "Pick a category and we'll file it for next time."}
                   </div>
-                ) : hiddenCatalogItems.some(h => h.category === newItemCategory) ? (
-                  <button
-                    onClick={async () => {
-                      await restoreHiddenByCategory(newItemCategory);
-                      setAddModalResetDone(true);
-                      setTimeout(() => setAddModalResetDone(false), 2000);
+                  <CategoryPickerGrid
+                    categories={categories.filter(cat => cat.rawName !== "⭐ My Custom Items")}
+                    selected={newItemCategory}
+                    onSelect={(raw) => {
+                      setNewItemCategory(raw);
+                      setAddModalResetDone(false);
                     }}
-                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block", textAlign: "left" }}
-                  >
-                    Unhide {hiddenCatalogItems.filter(h => h.category === newItemCategory).length} hidden {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} {hiddenCatalogItems.filter(h => h.category === newItemCategory).length === 1 ? "item" : "items"}
-                  </button>
-                ) : null
-              )}
-            </div>
-            {addError && <div className="modal-error">{addError}</div>}
-            <div className="modal-actions">
-              <button className="modal-cancel" onClick={() => setShowAddModal(false)}>Cancel</button>
-              <button
-                className="modal-confirm"
-                onClick={newItemName.trim() ? handleAddItem : undefined}
-                style={{ opacity: newItemName.trim() ? 1 : 0.5, pointerEvents: newItemName.trim() ? "auto" : "none" }}
-              >Add to List</button>
-            </div>
+                    onNewCategory={() => { setNewCategoryOpen(true); setBrowseFilterOpen(true); }}
+                  />
+                  {isSignedIn && newItemCategory && !newItemName.trim() && (
+                    addModalResetDone ? (
+                      <div style={{ fontSize: "12.5px", color: "#8A5F3A", fontStyle: "italic", marginTop: "6px" }}>
+                        ✓ {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} items unhidden
+                      </div>
+                    ) : hiddenCatalogItems.some(h => h.category === newItemCategory) ? (
+                      <button
+                        onClick={async () => {
+                          await restoreHiddenByCategory(newItemCategory);
+                          setAddModalResetDone(true);
+                          setTimeout(() => setAddModalResetDone(false), 2000);
+                        }}
+                        style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block", textAlign: "left" }}
+                      >
+                        Unhide {hiddenCatalogItems.filter(h => h.category === newItemCategory).length} hidden {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} {hiddenCatalogItems.filter(h => h.category === newItemCategory).length === 1 ? "item" : "items"}
+                      </button>
+                    ) : null
+                  )}
+                </div>
+                {addError && <div className="modal-error">{addError}</div>}
+                <div className="modal-actions">
+                  <button className="modal-cancel" onClick={closeAdd}>Cancel</button>
+                  <button
+                    className="modal-confirm"
+                    onClick={newItemName.trim() && newItemCategory ? handleAddItem : undefined}
+                    style={{ opacity: newItemName.trim() && newItemCategory ? 1 : 0.5, pointerEvents: newItemName.trim() && newItemCategory ? "auto" : "none" }}
+                  >Add to List</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
