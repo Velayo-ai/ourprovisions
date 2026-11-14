@@ -2,7 +2,7 @@
    the select's options are read as raw DOM (count, text, selected). */
 import { render } from "@testing-library/react";
 import { CategorySelect } from "../components/CategorySelect";
-import { defaultMoveTarget, deleteCategoryLabel, categoryCountText, categoryDeletePlan, runCategoryDelete } from "./deleteCategory";
+import { defaultMoveTarget, deleteCategoryLabel, categoryCountText, categoryDeletePlan, runCategoryDelete, renameInSet } from "./deleteCategory";
 
 // Manage Categories → Delete never deletes items (2026-11-05). CATEGORY_ORDER is read from App.js
 // itself, so the preselect is tested against the list that ships.
@@ -169,5 +169,21 @@ describe("App wiring", () => {
     expect(body).toContain("if (!browseFilterOpen) return;");
     expect(body).toContain("items.some(i => i.category === c)");
     expect(APP).not.toMatch(/aria-label=\{`(Rename|Delete) \$\{cat\./);
+  });
+});
+
+// The flag-off walk (2026-11-14): renaming a created category left its old name in householdCategories,
+// a stale "0 items" row in View & organize until the next open's prune.
+describe("rename leaves no stale name", () => {
+  test("renameInSet swaps the old name for the new one; a set without it is returned as is", () => {
+    const s = new Set(["Snacks", "Flagoff Cat"]);
+    expect([...renameInSet(s, "Flagoff Cat", "Flagoff Renamed")]).toEqual(["Snacks", "Flagoff Renamed"]);
+    expect(s.has("Flagoff Cat")).toBe(true);                        // not mutated
+    expect(renameInSet(s, "Nope", "X")).toBe(s);
+  });
+  test("App's renameCategory renames the name in the created categories and the Browse filter", () => {
+    const body = APP.slice(APP.indexOf("const renameCategory = async"), APP.indexOf("const deleteCategory = async"));
+    expect(body).toContain("setHouseholdCategories(prev => renameInSet(prev, oldRawName, trimmed));");
+    expect(body).toContain("setSelectedCategories(prev => renameInSet(prev, oldRawName, trimmed));");
   });
 });

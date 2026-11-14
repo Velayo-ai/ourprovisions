@@ -13,7 +13,7 @@ import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { AddSheetPanel } from './components/AddSheetPanel';
 import { CategorySelect } from './components/CategorySelect';
-import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText } from './lib/deleteCategory';
+import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText, renameInSet } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
 import { AskScreen } from './components/AskScreen';
@@ -7862,6 +7862,9 @@ function ProvisionsApp({ scrollRootRef }) {
     }
 
     await refreshCatalog();
+    // The old name leaves every set that held it (renameInSet), so no stale "0 items" row is left behind.
+    setHouseholdCategories(prev => renameInSet(prev, oldRawName, trimmed));
+    setSelectedCategories(prev => renameInSet(prev, oldRawName, trimmed));
     setRenamingCategory(null);
   };
 
