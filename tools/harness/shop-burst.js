@@ -4,7 +4,10 @@
 // expires as one group after UNDO_MS from the last check; "All done" never shows while a toast is up.
 // Screenshots: out/burst-3.png, burst-4.png, burst-6.png, burst-undone.png. Needs ≥ 6 unchecked rows
 // on Cody Test House's list; with fewer, it adds staples from Browse first and says so.
-const { sleep, log, connect, firstPage, shot } = require("./lib");
+const lib = require("./lib");
+const { sleep, log, connect, firstPage, shot } = lib;
+// The target: dev by default, a local build when run with  node -r ./local/use-local.js shop-burst.js
+const BASE = lib.DEV_URL;
 
 const toasts = (page) => page.evaluate(() => [...document.querySelectorAll(".check-undo")].map((t) => ({
   group: t.classList.contains("check-undo-group"), text: t.innerText.replace(/\s+/g, " ").trim() })));
@@ -22,7 +25,20 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
 (async () => {
   const browser = await connect();
   const page = await firstPage(browser);
-  await page.goto("https://dev.ourprovisions.velayo.ai/#/shop", { waitUntil: "networkidle2" });
+  const t0 = Date.now();
+  const stampMs = () => ((Date.now() - t0) / 1000).toFixed(1) + "s";
+  if (process.env.OP_BURST_TRACE) {
+    page.on("response", async (r) => {
+      const u = r.url();
+      if (!/\/rest\/v1\/(list_items|rpc\/[a-z_]*list[a-z_]*)|\/rpc\/(toggle|check|set_list|upsert|get_list_items_for_household)/.test(u)) return;
+      const m = r.request().method();
+      if (m === "GET" && !/get_list_items/.test(u)) return;
+      let body = ""; try { body = (await r.text()).slice(0, 140); } catch (e) {}
+      log(`  [${stampMs()}] ${m} ${r.status()} ${u.replace(/^.*\/rest\/v1\//, "").replace(/\?.*/, "")} ${/get_list_items/.test(u) ? "" : body}`);
+    });
+    page.on("console", (c) => { if (c.type() === "error" || c.type() === "warning") log(`  [${stampMs()}] console.${c.type()}: ${c.text().slice(0, 160)}`); });
+  }
+  await page.goto(BASE + "#/shop", { waitUntil: "networkidle2" });
   await page.reload({ waitUntil: "networkidle2" });
   await page.waitForFunction(() => window.Clerk && window.Clerk.user, { timeout: 30000 });
   await sleep(3000);
@@ -33,7 +49,7 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
   log(`unchecked rows on Shop: ${free}`);
   if (free < 7) {
     // Top up from Browse: add staples (qty 0 → 1) until 7 rows are free.
-    await page.goto("https://dev.ourprovisions.velayo.ai/#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
+    await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
     addedNames = await page.evaluate(async (need) => {
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const rows = [...document.querySelectorAll("button.add-btn")].filter((b) => b.offsetParent && b.innerText.trim() === "Add");
@@ -47,7 +63,7 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
     }, 7 - free);
     log(`added ${addedNames.length} items from Browse to make room: ${JSON.stringify(addedNames)}`);
     await sleep(2500);
-    await page.goto("https://dev.ourprovisions.velayo.ai/#/shop", { waitUntil: "networkidle2" }); await sleep(3000);
+    await page.goto(BASE + "#/shop", { waitUntil: "networkidle2" }); await sleep(3000);
     free = await unchecked(page);
     log(`unchecked rows now: ${free}`);
   }
@@ -72,7 +88,11 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
   await sleep(400);
   t = await toasts(page);
   check("a tap during the hold lowers n to 3 and the group stays folded", t.length === 1 && t[0].group && /^✓ 3 items in cart/i.test(t[0].text), `tapped ${JSON.stringify(tapped)} → ${JSON.stringify(t.map((x) => x.text))}`);
-  for (let i = 0; i < 3; i++) { await checkNth(page, 0); await sleep(350); }
+  for (let i = 0; i < 3; i++) {
+    const hit = await checkNth(page, 0); await sleep(350);
+    const state = await page.evaluate(() => [...document.querySelectorAll('button.shop-check[role="checkbox"]')].map((b) => `${b.innerText.trim()}:${b.getAttribute("aria-checked")}`).join(" "));
+    log(`  check ${i + 1}: clicked ${JSON.stringify(hit)} → ${JSON.stringify((await toasts(page)).map((x) => x.text))} | ${state}`);
+  }
   t = await toasts(page);
   await shot(page, "burst-6");
   check("three more checks → n = 6", t.length === 1 && /^✓ 6 items in cart/i.test(t[0].text), JSON.stringify(t.map((x) => x.text)));
@@ -109,7 +129,7 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
   log(`tidied: unchecked ${restored} rows from burst 2`);
   if (addedNames.length) {
     // Put the list back as it was: the items this walk added go back to 0 from Browse.
-    await page.goto("https://dev.ourprovisions.velayo.ai/#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
+    await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
     const removed = await page.evaluate(async (names) => {
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       let n = 0;
