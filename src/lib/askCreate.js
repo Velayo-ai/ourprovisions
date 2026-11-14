@@ -15,6 +15,19 @@ export const ASK_STYLE_DEFAULT = "standard";   // asks.screen_style: standard | 
 // many to remove) instead of in the footer.
 export const ASK_SIMPLE_CAP_MESSAGE = `Explorer shows ${ASK_SIMPLE_MAX} at most.`;
 
+// THE LOOKS (SPEC_ask_slice3 S3-5; as config, 2026-11-13): each look's stored key, its name on screen,
+// how many tiles it can show (tileCap) and the most it can ask someone to pick (pickCap). The form's
+// count chips, its clamp on a look change and its "N of M" header all read these — never a literal —
+// so a look's capacity changes in one place. Explorer: 4 tiles, 2×2, so at most 4 picks; Shopper: the
+// shelf's 48, with the pick target's own ceiling of 6.
+export const ASK_LOOKS = [
+  { key: "simple", name: "Explorer", tileCap: ASK_SIMPLE_MAX, pickCap: ASK_SIMPLE_MAX, sub: `Big pictures, up to ${ASK_SIMPLE_MAX}` },
+  { key: "standard", name: "Shopper", tileCap: ASK_SHELF_MAX, pickCap: ASK_TARGET_MAX, sub: `Names and pictures, up to ${ASK_SHELF_MAX}` },
+];
+export function askLook(key) {
+  return ASK_LOOKS.find((l) => l.key === key) || ASK_LOOKS.find((l) => l.key === ASK_STYLE_DEFAULT);
+}
+
 // The shelf sheet's add-list (Dan, 2026-11-11): the household's whole live catalog, the editor's
 // hidden items included and shown plainly — a shelf is the household's (S4-9), so a tile this
 // person hid in Browse must still be addable. Putting one on a shelf changes nothing in Browse.

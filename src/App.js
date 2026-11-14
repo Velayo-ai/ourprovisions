@@ -16,7 +16,7 @@ import { CategorySelect } from './components/CategorySelect';
 import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
-import { NewShelfSheet } from './components/NewShelfSheet';
+import { AskScreen } from './components/AskScreen';
 import { AskRun } from './components/AskRun';
 import { ShelfPhotoStrip } from './components/ShelfPhotoStrip';
 import { manageRow, shelfNote, saveOutcome } from './lib/askManage';
@@ -6885,10 +6885,16 @@ function ProvisionsApp({ scrollRootRef }) {
     setSelectedCategories(new Set());
     setStapleFilter(false);
   }, [view, activeHouseholdId]);
-  // + New shelf (SPEC_ask_slice2 C2): the sheet belongs to one place's Browse, so a tab or
-  // household switch closes it (a half-made shelf never lands in the other household).
-  const [newShelfOpen, setNewShelfOpen] = useState(false);
+  // An Ask is the household's (SPEC_ask_slice2 C2), so View & organize's Asks section and the New ask
+  // screen exist only signed in, with a place, with Ask on. Both the New item sheet and the Ask screen
+  // belong to one place's Browse: a tab or household switch closes them (a half-made ask never lands
+  // in the other household).
+  const canMakeShelf = ASK_ENABLED && !!(isSignedIn && household?.id);
   const closeAdd = () => setAddSheet(null);
+  // The New ask screen (AskScreen, full screen): opened by "+ New ask" in View & organize, which
+  // closes first. Editing an existing Ask opens the same screen (editAskId, below).
+  const [newAskOpen, setNewAskOpen] = useState(false);
+  const openNewAsk = () => { if (!canMakeShelf) return; setBrowseFilterOpen(false); setNewAskOpen(true); };
   // The two doors that open it on Item: a section header's "＋ New item" (the category known,
   // confirmed, not asked) and the search's "Add '<query>'" (the name known, the category asked).
   const openAddItem = ({ category, name = "", fromSearch = false }) => {
@@ -6928,7 +6934,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const [runAskId, setRunAskId] = useState(null);
   // "+N more" (C4.2): the asks past the rail's two pills, in a small sheet.
   const [moreAsksOpen, setMoreAsksOpen] = useState(false);
-  useEffect(() => { setNewShelfOpen(false); setEditAskId(null); setDeleteAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
+  useEffect(() => { setAddSheet(null); setNewAskOpen(false); setEditAskId(null); setDeleteAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
   // A26 resume (SPEC_ask_slice3 S3-6). AskRun keeps op_ask_held current while it is up; any end of
   // the run (Done, Back to the list, a tab or household switch) clears it here. A reload with the
   // key held reopens the run ONCE, on its screen with its picks — after this place's asks and
@@ -6971,7 +6977,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); setRunAskId(askId); };
   // The Ask drawn pressed on its pills: the one whose run is open or whose edit sheet is up.
   const activeAskId = runAskId || editAskId || null;
-  useScrollLock(!!runAskId, scrollRootRef);
+  useScrollLock(!!runAskId || newAskOpen || !!editAskId || browseFilterOpen, scrollRootRef);   // the run and the Ask screen are full screen; View & organize is the one scroller while open
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -7161,13 +7167,13 @@ function ProvisionsApp({ scrollRootRef }) {
   const itemPhotoUrlCacheRef = useRef(null);
   if (!itemPhotoUrlCacheRef.current) itemPhotoUrlCacheRef.current = createSignedUrlCache({ bucket: "item-photos" });
   const [itemPhotoUrls, setItemPhotoUrls] = useState({});
-  // While a shelf sheet is open, every household item photo is wanted: the sheet's grid shows the
-  // shelf's thumbs, and the shelf is the sheet's own state (a few dozen paths at most).
+  // While the Ask screen is open, every household item photo is wanted: the form's grid shows the
+  // ask's thumbs, and the ask is the form's own state (a few dozen paths at most).
   const wantedItemPhotoPaths = useMemo(() => {
     const ids = new Set([...askBlocksShown.flatMap(b => b.items.map(i => i.id)), ...runLive.map(i => i.id),
-      ...((newShelfOpen || editAskId) ? Object.keys(itemPhotos) : [])]);
+      ...((newAskOpen || editAskId) ? Object.keys(itemPhotos) : [])]);
     return [...ids].map(id => itemPhotos[id]?.thumbPath).filter(Boolean);
-  }, [askBlocksShown, runLive, itemPhotos, newShelfOpen, editAskId]);
+  }, [askBlocksShown, runLive, itemPhotos, newAskOpen, editAskId]);
   useEffect(() => {
     if (wantedItemPhotoPaths.length === 0) return undefined;
     let cancelled = false;
@@ -9823,8 +9829,8 @@ function ProvisionsApp({ scrollRootRef }) {
            partly covered and hard to hit (iPhone, the 2026-10-11 walk). Hidden, not
            lowered: a lowered Helm would still read as reachable. SAME SIGNAL as the
            stack rule above, so the two cannot disagree. Restored on close. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .helm,
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .helm-fade { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .helm,
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .helm-fade { display: none; }
         /* …under EVERY bottom sheet, not only the modal overlay (Dan 2026-10-31): the thank-you sheet's Send / Skip and
            the arrival sheet's Open it sat under the pill. The same six surfaces as the Wrap Up bar's rule below. */
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
@@ -10081,7 +10087,7 @@ function ProvisionsApp({ scrollRootRef }) {
         /* While ANY sheet or modal is open the bar hides and returns on close (Dan 2026-10-30: at z 900 it
            floated over every sheet and partly covered the arrival form's Not for us / Add to our meals).
            Keyed off the document like the Helm rule above: every surface that owns a scrim or overlay. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .wrapbar { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .wrapbar { display: none; }
         .wrapbar.p0 { border-style: dashed; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
         /* No hard edge on the fill: its 2px right border was the line through the "W" of
@@ -12423,52 +12429,35 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       )}
 
-      {/* + New shelf (SPEC_ask_slice2 C2; 078 create_ask) */}
-      {ASK_ENABLED && newShelfOpen && (
-        <div className="modal-overlay" onClick={() => setNewShelfOpen(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="New shelf" onClick={(e) => e.stopPropagation()}
-            style={{ maxHeight: "88vh", overflowY: "auto" }}>
-            <NewShelfSheet
-              catalogItems={shelfCatalogItems}
-              asks={asks}
-              photoIds={itemPhotoIds}
-              photoUrl={itemPhotoUrl}
-              onPhoto={setItemPhoto}
-              onCreate={createAsk}
-              onClose={() => setNewShelfOpen(false)}
-              closeButton={<SheetClose onClose={() => setNewShelfOpen(false)} />}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Edit Ask {Label} (SPEC_ask_slice4 S4-2): the same sheet in edit mode. Save → update_ask (083). */}
-      {ASK_ENABLED && editAsk && (
-        <div className="modal-overlay" onClick={() => setEditAskId(null)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Edit shelf" onClick={(e) => e.stopPropagation()}
-            style={{ maxHeight: "88vh", overflowY: "auto" }}>
-            <NewShelfSheet
-              catalogItems={shelfCatalogItems}
-              asks={asks}
-              photoIds={itemPhotoIds}
-              photoUrl={itemPhotoUrl}
-              onPhoto={setItemPhoto}
-              edit={editAsk}
-              onUpdate={async (draft) => {
-                // The growth moment (S4-6): the parent's own move, said once, to the parent. No span.
-                const outcome = saveOutcome(editAsk, draft);
-                const r = await updateAsk(editAsk.id, draft);
-                if (r?.ok) showToast(outcome === "grown"
-                  ? <><span className="op-name">{draft.label.trim()}</span>'s ready for more.</>
-                  : "Saved.");
-                return r;
-              }}
-              onClose={() => setEditAskId(null)}
-              closeButton={<SheetClose onClose={() => setEditAskId(null)} />}
-            />
-          </div>
-        </div>
-      )}
+      {/* The Ask screen (2026-11-13): New ask, and Edit Ask {Label} (SPEC_ask_slice4 S4-2) on the same
+          screen — full screen over the app, like the run. Create → create_ask (078); Save → update_ask
+          (083). The form is NewShelfSheet as it was, inside AskScreen's turquoise header. */}
+      {ASK_ENABLED && (newAskOpen || editAsk) && (() => {
+        const close = () => { setNewAskOpen(false); setEditAskId(null); };
+        return (
+          <AskScreen
+            key={editAsk ? editAsk.id : "new"}
+            edit={editAsk}
+            catalogItems={shelfCatalogItems}
+            asks={asks}
+            photoIds={itemPhotoIds}
+            photoUrl={itemPhotoUrl}
+            onPhoto={setItemPhoto}
+            onCreate={createAsk}
+            onUpdate={editAsk ? async (draft) => {
+              // The growth moment (S4-6): the parent's own move, said once, to the parent. No span.
+              const outcome = saveOutcome(editAsk, draft);
+              const r = await updateAsk(editAsk.id, draft);
+              if (r?.ok) showToast(outcome === "grown"
+                ? <><span className="op-name">{draft.label.trim()}</span>'s ready for more.</>
+                : "Saved.");
+              return r;
+            } : undefined}
+            onClose={close}
+            closeButton={<SheetClose onClose={close} />}
+          />
+        );
+      })()}
 
       {/* Budget Goal Modal */}
       {showBudgetModal && (

@@ -374,6 +374,31 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
   });
 });
 
+// Inside the full-screen Ask screen (2026-11-13): the same form, with the host's heading, preview pill
+// and close button above it — so none of its own; the intro line and every field stay.
+describe("embedded in the Ask screen", () => {
+  test("no heading, helper line, close or Cancel of its own; the fields and the one full-width Save are there", () => {
+    const onClose = jest.fn();
+    render(<NewShelfSheet embedded catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={onClose}
+      closeButton={<button type="button" aria-label="Close">x</button>} />);
+    expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    expect(screen.queryByText(/Pick-lists for family and guests/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(nameInput()).toBeInTheDocument();
+    expect(save()).toBeDisabled();
+    expect(footerOf(save()).querySelectorAll("button")).toHaveLength(1);
+    expect(document.querySelector(".ask-form")).toHaveClass("ask-form-screen");
+    expect(screen.getByTestId("new-shelf-catalog")).toHaveClass("ask-form-catalog");
+  });
+  test("a save still closes through onClose, so the host's sheet closes with it", async () => {
+    const onClose = jest.fn();
+    render(<NewShelfSheet embedded catalogItems={ITEMS} asks={[]} onCreate={jest.fn(async () => ({ ok: true, id: "x" }))} onClose={onClose} closeButton={null} />);
+    readyDraft("Nina");
+    await saveAndClose(onClose);
+  });
+});
+
 // The Explorer photo nudge (SPEC_ask_slice4 S4-7): a camera on a photo-less chip, Explorer only;
 // a muted hint naming them; the tap runs the same photo flow as Browse; never a block.
 describe("the Explorer photo nudge (S4-7)", () => {

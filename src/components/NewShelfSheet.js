@@ -1,9 +1,9 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { photoNudge } from "../lib/askManage";
 import {
-  askDraftProblem, createAskFailure, findDuplicateAsk, pickLine, cleanAskLabel,
+  askDraftProblem, createAskFailure, findDuplicateAsk, pickLine, cleanAskLabel, askLook, ASK_LOOKS,
   ASK_LABEL_MAX, ASK_NOUN_MAX, ASK_TARGET_MIN, ASK_TARGET_MAX, ASK_SHELF_MAX, ASK_TARGET_DEFAULT,
-  ASK_SIMPLE_MAX, ASK_STYLE_DEFAULT, ASK_SIMPLE_CAP_MESSAGE,
+  ASK_STYLE_DEFAULT, ASK_SIMPLE_CAP_MESSAGE,
 } from "../lib/askCreate";
 
 // + New shelf (SPEC_ask_slice2 C2; 078 create_ask). The body of the sheet: who's picking, an
@@ -57,9 +57,13 @@ import {
 // (create_ask's message names the label).
 // edit: null for + New shelf, else { id, label, shelfNoun, pickTarget, screenStyle, tiles: [{ id, name }] }
 // (the live tiles, in shelf order). onUpdate(draft) resolves to { ok } or { ok: false, code }.
+// embedded (2026-11-13): the form inside the full-screen New ask / Edit ask screen (AskScreen) — the
+// host draws the heading, the preview pill and the close button, so this renders none of them; the
+// one-line intro stays, as the form's own lead. onDraftChange(draft), when given, hears every change
+// to the name, the noun, the count and the look, so the host's preview can follow the form.
 // photoIds: the catalog item ids with a live household photo; photoUrl(id) → the signed thumb, or null
 // while it is still being minted; onPhoto(itemId, file) → { ok, reason }.
-export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null }) {
+export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null, embedded = false, onDraftChange = null }) {
   const [label, setLabel] = useState(editing ? editing.label : "");
   const [noun, setNoun] = useState(editing ? editing.shelfNoun || "" : "");
   const [target, setTarget] = useState(editing ? editing.pickTarget : ASK_TARGET_DEFAULT);
@@ -96,12 +100,21 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   const q = query.trim().toLowerCase();
   const results = q ? sorted.filter((i) => i.name.toLowerCase().includes(q)) : sorted;
 
+  // THE LOOK'S CAPACITY (2026-11-13): read from the look's config (askLook), never a literal here. The
+  // count chips above pickCap are disabled; choosing a look whose pickCap is under the current count
+  // clamps the count down, and the "Pick N for our list." line follows. The "N of M" header and the
+  // "Remove k." line count against tileCap.
+  const look = askLook(style);
   const explorer = style === "simple";
-  const overBy = explorer ? Math.max(0, itemIds.length - ASK_SIMPLE_MAX) : 0;
+  const overBy = Math.max(0, itemIds.length - look.tileCap);
   const chooseStyle = (key) => {
     edit(setStyle)(key);
-    if (key === "simple" && target > ASK_SIMPLE_MAX) setTarget(ASK_SIMPLE_MAX);
+    const cap = askLook(key).pickCap;
+    if (target > cap) setTarget(cap);
   };
+  useEffect(() => {
+    if (onDraftChange) onDraftChange({ label: cleanLabel, noun: noun.trim(), target, style });
+  }, [onDraftChange, cleanLabel, noun, target, style]);
 
   const hasPhoto = (id) => !!(photoIds && photoIds.has(id));
   // The nudge (S4-7): Explorer only, with a photo flow to offer; the photo-less tiles in shelf order.
@@ -154,17 +167,17 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
       ? <div className="picker-sub" style={{ flexBasis: "100%", margin: 0 }}>{problem}</div>
       : null;
 
+  // THE SCREEN'S LAYOUT (2026-11-13): the form is a flex column. The fields above sit still; "The ask"
+  // takes the height that is left and its catalog list scrolls within itself; the footer stays put
+  // below. Spacing does the grouping (no rules between sections): 32px between sections, 8px from a
+  // label to its field. The screen (AskScreen) sets the column's height; in a sheet the same markup
+  // simply flows.
   return (
-    <>
-      {closeButton}
-      {editing ? (
-        <h2>Edit Ask <span className="op-name">{editing.label}</span></h2>
-      ) : (
-        <>
-          <h2>New shelf</h2>
-          <p className="modal-subtitle">A shelf of things someone can pick for the list. They don't need an account.</p>
-        </>
-      )}
+    <div className={`ask-form${embedded ? " ask-form-screen" : ""}`}>
+      {!embedded && closeButton}
+      {!embedded && (editing
+        ? <h2>Edit Ask <span className="op-name">{editing.label}</span></h2>
+        : <h2>New ask</h2>)}
 
       <div className="modal-field" ref={labelField}>
         <label className="modal-label" htmlFor="new-shelf-label">Who's picking?</label>
@@ -188,7 +201,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         <span className="modal-label" id="new-shelf-target">How many to pick</span>
         <div role="radiogroup" aria-labelledby="new-shelf-target" style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
           {targets.map((n) => {
-            const off = explorer && n > ASK_SIMPLE_MAX;
+            const off = n > look.pickCap;
             return (
               <button key={n} type="button" role="radio" aria-checked={target === n} disabled={off}
                 className={`cat-pill${target === n ? " on" : ""}`}
@@ -203,10 +216,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
       <div className="modal-field">
         <span className="modal-label" id="new-shelf-style">How it looks</span>
         <div role="radiogroup" aria-labelledby="new-shelf-style" style={{ display: "flex", gap: "8px" }}>
-          {[
-            { key: "simple", name: "Explorer", sub: `Big pictures, up to ${ASK_SIMPLE_MAX}` },
-            { key: "standard", name: "Shopper", sub: `Names and pictures, up to ${ASK_SHELF_MAX}` },
-          ].map((o) => (
+          {ASK_LOOKS.map((o) => (
             <button key={o.key} type="button" role="radio" aria-checked={style === o.key}
               className={`cat-pill${style === o.key ? " on" : ""}`}
               style={{ flex: "1 1 0", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", padding: "10px 12px", textAlign: "left", borderRadius: "14px" }}
@@ -218,10 +228,10 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         </div>
       </div>
 
-      <div className="modal-field" ref={shelfField}>
+      <div className="modal-field ask-form-shelf" ref={shelfField}>
         <span className="modal-label">
           The ask · {overBy > 0
-            ? <span style={{ color: "#e05c5c" }}>{itemIds.length} of {ASK_SIMPLE_MAX}</span>
+            ? <span style={{ color: "#e05c5c" }}>{itemIds.length} of {look.tileCap}</span>
             : <>{itemIds.length} {itemIds.length === 1 ? "item" : "items"}</>}
         </span>
         {itemIds.length > 0 && (
@@ -268,7 +278,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         {onPhoto && <input ref={photoInput} type="file" accept="image/*" hidden onChange={pickPhoto} />}
         <input className="modal-input" type="search" autoComplete="off" placeholder="Find an item"
           aria-label="Find an item for the ask" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <div data-testid="new-shelf-catalog" style={{ marginTop: "8px", borderTop: "1px solid #E8D5B7" }}>
+        <div data-testid="new-shelf-catalog" className="ask-form-catalog">
           {results.length === 0 ? (
             <div className="picker-sub" style={{ margin: "10px 0" }}>Nothing in your catalog matches that.</div>
           ) : results.map((item) => {
@@ -288,17 +298,34 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         </div>
       </div>
 
-      {/* The sticky footer (.modal-actions): its message line sits above the buttons, so it is
-          always on screen. */}
-      <div className="modal-actions" style={{ flexWrap: "wrap", rowGap: "8px" }}>
+      {/* The footer (.modal-actions): one full-width Save, the message line above it, always on screen.
+          No Cancel (2026-11-13): the ✕ closes. */}
+      <div className="modal-actions ask-form-actions">
         {footer}
-        <button className="modal-cancel" onClick={onClose} disabled={saving}>Cancel</button>
         <button className="modal-confirm" onClick={save} disabled={!!problem || !!dupName || saving}
           style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save ask"}</button>
       </div>
-    </>
+      <style>{ASK_FORM_CSS}</style>
+    </div>
   );
 }
+
+// The form's own layout. In a sheet (.ask-form alone) it flows as any sheet body; on the screen
+// (.ask-form-screen) it is a flex column filling the body: fields still, "The ask" stretching, its
+// catalog list the one scroller (with a floor, so a short viewport scrolls the body instead of
+// squashing the list to nothing), the footer pinned under it. The footer's own rule is a shadow, not
+// a line. The catalog's row rules stay: they separate items, not sections.
+const ASK_FORM_CSS = `
+.ask-form-actions { flex-direction: column; align-items: stretch; gap: 8px; }
+.ask-form-actions .modal-confirm { width: 100%; }
+.ask-form-screen { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.ask-form-screen .modal-field { margin: 0 0 32px; }
+.ask-form-screen .modal-label { margin-bottom: 8px; }
+.ask-form-screen .ask-form-shelf { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+.ask-form-screen .ask-form-shelf > * { flex: none; }
+.ask-form-screen .ask-form-catalog { flex: 1 1 auto; min-height: 140px; overflow-y: auto; -webkit-overflow-scrolling: touch; margin-top: 8px; }
+.ask-form-screen .ask-form-actions { position: static; margin: 0 -24px; padding: 12px 24px calc(16px + env(safe-area-inset-bottom, 0px)); bottom: auto; }
+`;
 
 // Three across on a phone (~96 px tiles in a ~330 px sheet), more on a wider screen. The art box
 // is square; a photo covers it, the dashed box carries a muted camera. The × is a 32 px target

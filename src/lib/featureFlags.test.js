@@ -50,12 +50,18 @@ describe("with the flag off nothing reaches the Ask schema", () => {
 });
 
 describe("with the flag off the UI has no Ask door", () => {
-  test("no + New shelf (the rail's only way to make an Ask), so no Ask pills either", () => {
-    expect(APP).toMatch(/askRailLayout\([^;]*, ASK_ENABLED && !!\(isSignedIn && household\?\.id\)\)/);
+  test("no Ask pills on the rail, and no Asks section or New ask screen (the two ways to make an Ask)", () => {
+    expect(APP).toContain("askRailLayout(ASK_ENABLED ? askOrder.ids.map(id => byId.get(id)).filter(Boolean) : [])");
+    // canMakeShelf gates View & organize's Asks section and the door to the New ask screen.
+    expect(APP).toContain("const canMakeShelf = ASK_ENABLED && !!(isSignedIn && household?.id);");
+    expect(APP.match(/\{canMakeShelf && \(/g)).toHaveLength(1);   // the Asks section
+    expect(APP).toContain("const openNewAsk = () => { if (!canMakeShelf) return; setBrowseFilterOpen(false); setNewAskOpen(true); };");
+    expect(APP.match(/<AskScreen/g)).toHaveLength(1);   // new and edit, one mount, nowhere else
+    expect(APP).not.toContain("<NewShelfSheet");        // the form lives inside AskScreen only
   });
-  test("the run screen, the sheets and the delete confirm cannot mount", () => {
+  test("the run screen, the sheets, the Ask screen and the delete confirm cannot mount", () => {
     expect(APP).toMatch(/const runAsk = ASK_ENABLED && runAskId \?/);
-    for (const g of ["{ASK_ENABLED && moreAsksOpen && (", "{ASK_ENABLED && newShelfOpen && (", "{ASK_ENABLED && editAsk && (", "{ASK_ENABLED && deleteAskId && (() =>"]) expect(APP).toContain(g);
+    for (const g of ["{ASK_ENABLED && moreAsksOpen && (", "{ASK_ENABLED && (newAskOpen || editAsk) && (() =>", "{ASK_ENABLED && deleteAskId && (() =>"]) expect(APP).toContain(g);
   });
   test("a held handover never resumes a run", () => {
     expect(APP).toContain("if (!ASK_ENABLED || !heldAskRef.current || !asksLoaded || !catalogLoaded || !landingDecided) return;");
