@@ -132,20 +132,26 @@ function PickCard({ tile, box, uid, fresh, onTakeOut, hidden = false }) {
   );
 }
 
-function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null, hiddenIds = null, svgRef = null }) {
+// EXPLORER'S PROGRESS (2026-11-15, Dan): no numbers, no dots, no words. Shopper is unchanged (its
+// numbered badges carry the count). The shelf wagon's tub fills
+// with turquoise from the bottom as picks go in — `fill` is picks / target, 0…1 — and when it is full the
+// screen bursts (Fireworks). Only the shelf wagon passes `fill`; the other two never show the tide.
+const TUB_D = "M56 56 H232 L222 110 Q220 116 213 116 H75 Q68 116 66 110 Z";
+function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null, hiddenIds = null, svgRef = null, fill = null }) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const n = picks.length;
   const boxes = cardLayout(n);
   // Paint order: the back tier (5–6 picks) first, then the front; pick order is the x order either way.
   const painted = picks.map((t, k) => ({ t, box: boxes[k] })).sort((a, b) => (a.box.back === b.box.back ? 0 : a.box.back ? -1 : 1));
   // Gradient ids are per instance (two wagons can be on screen during a transition).
-  const ids = { BODY: `${uid}-body`, WOOD: `${uid}-wood` };
+  const ids = { BODY: `${uid}-body`, WOOD: `${uid}-wood`, TUB: `${uid}-tub` };
   return (
     <svg ref={svgRef} className={`ask-wagon ${className}${kick ? ` ${kick.kind}` : ""}`} key={kick ? kick.n : 0}
       viewBox={`0 0 ${WAGON_W} ${WAGON_H}`} role={onTakeOut ? "group" : "img"} aria-label={label || (n === 0 ? "The wagon, empty" : `The wagon, ${n} in it`)}>
       <defs>
         <linearGradient id={ids.BODY} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#FFFDF8" /><stop offset="1" stopColor="#EFE4D1" /></linearGradient>
         <linearGradient id={ids.WOOD} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#C99660" /><stop offset="1" stopColor="#9A6A3E" /></linearGradient>
+        {fill !== null && <clipPath id={ids.TUB}><path d={TUB_D} /></clipPath>}
       </defs>
         {/* back: ground shadow, the far wheels, the inside of the tub (back rim + inner wall) */}
         <g pointerEvents="none">
@@ -160,7 +166,13 @@ function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null, hi
         ))}
         {/* front: tub, stripe, rolled lip, the fixed bracket + tongue (behind the front wheel), the near wheels, the handle */}
         <g pointerEvents="none">
-          <path d="M56 56 H232 L222 110 Q220 116 213 116 H75 Q68 116 66 110 Z" fill={`url(#${ids.BODY})`} stroke="#D2BC98" strokeWidth="1.5" />
+          <path d={TUB_D} fill={`url(#${ids.BODY})`} stroke="#D2BC98" strokeWidth="1.5" />
+          {fill !== null && (
+            <g clipPath={`url(#${ids.TUB})`}>
+              <rect className={`ask-tide${fill >= 1 ? " full" : ""}`} x="50" y="56" width="190" height="60" fill="#0D9488"
+                style={{ transform: `scaleY(${Math.max(0, Math.min(1, fill))})` }} data-fill={Math.round(Math.max(0, Math.min(1, fill)) * 100)} />
+            </g>
+          )}
           <path d="M60 82 H228 L226 92 H62 Z" fill="#0D9488" />
           <rect x="50" y="50" width="188" height="10" rx="5" fill="#FFFDF9" stroke="#D2BC98" strokeWidth="1.5" />
           <rect className="ask-wagon-bracket" x="70" y="109" width="26" height="7" rx="2.5" fill="#8A5E37" />
@@ -213,6 +225,29 @@ function FlyCard({ flight, onLand }) {
       {face === "photo" ? <img className="op-replay-block op-photo" src={t.photoUrl} alt="" draggable="false" />
         : face === "glyph" ? <span className="ask-fly-glyph">{t.glyph}</span>
         : <span className="ask-fly-name">{t.name}</span>}
+    </div>
+  );
+}
+
+// THE FINISH (2026-11-15): when the last pick lands the cart is full and the screen bursts — three
+// fireworks over the shelf, ~1.6s, then gone. Decoration only (aria-hidden, no pointer events). Never
+// under reduced motion; the full turquoise cart and That's it! say "done" on their own.
+const BURSTS = [{ x: 28, y: 26, d: 0 }, { x: 72, y: 20, d: 0.18 }, { x: 50, y: 44, d: 0.36 }];
+const SPARK_COLORS = ["#0D9488", "#F2B544", "#E8846B", "#14B8A6", "#FBE2AE"];
+function Fireworks() {
+  return (
+    <div className="ask-fireworks" aria-hidden="true">
+      {BURSTS.map((b, i) => (
+        <div key={i} className="ask-burst" style={{ left: `${b.x}%`, top: `${b.y}%`, animationDelay: `${b.d}s` }}>
+          <span className="ask-flash" style={{ animationDelay: `${b.d}s` }} />
+          {Array.from({ length: 14 }, (_, k) => {
+            const a = (k / 14) * Math.PI * 2 + i;
+            const r = 70 + (k % 3) * 18;
+            return <span key={k} className="ask-spark" style={{ "--dx": `${Math.cos(a) * r}px`, "--dy": `${Math.sin(a) * r}px`,
+              background: SPARK_COLORS[(k + i) % SPARK_COLORS.length], animationDelay: `${b.d}s` }} />;
+          })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -277,6 +312,8 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   const wagonEl = useRef(null);
   const [landing, setLanding] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [boom, setBoom] = useState(0);               // the finish: a key that restarts the fireworks
+  const wasFull = useRef(picks.length >= target);    // a resumed full wagon doesn't burst again
   const byId = new Map(tiles.map((t) => [t.id, t]));
   const inWagon = picks.map((id) => byId.get(id)).filter(Boolean);
   // Great picks shows the picks in the order they were made — the shelf wagon's order — fixed at the
@@ -291,6 +328,23 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   }, [ask.id, screen, picks]);
 
   const bump = (kind) => setKick((k) => ({ kind, n: (k ? k.n : 0) + 1 }));
+  // The finish fires when the wagon goes from not-full to full on the shelf, just after the last card
+  // lands (FLY_MS); an unpick in that moment cancels it. It clears itself after the show.
+  useEffect(() => {
+    const full = simple && screen === "shelf" && picks.length >= target && target > 0;
+    if (!full) { wasFull.current = false; return undefined; }   // Explorer only
+    if (wasFull.current) return undefined;
+    wasFull.current = true;
+    if (reducedMotion()) return undefined;
+    const t = setTimeout(() => setBoom((b) => b + 1), FLY_MS);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simple, screen, picks.length, target]);
+  useEffect(() => {
+    if (!boom) return undefined;
+    const t = setTimeout(() => setBoom(0), 2000);
+    return () => clearTimeout(t);
+  }, [boom]);
   const reducedMotion = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const tap = (id) => {
     if (landing) return;
@@ -460,18 +514,15 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
             })}
           </div>
           {flights.map((f) => <FlyCard key={f.key} flight={f} onLand={landFlight} />)}
+          {boom > 0 && <Fireworks key={boom} />}
           <div className={`ask-cartbar${inWagon.length >= 5 ? " ask-cartbar-tall" : ""}`}>
-            {/* The footer wagon (2026-11-14): ~185px, centred above where That's it! appears. Shopper has no
-                dots — the numbers on the cards carry the count; the count stays for screen readers. */}
+            {/* The footer wagon (2026-11-14): ~185px, centred above where That's it! appears. Neither style
+                has dots (Explorer's went 2026-11-15): Shopper's numbered cards carry the count; Explorer's
+                tub fills turquoise. The count stays for screen readers on both. */}
             <div className="ask-cartrow">
-              <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-small" hiddenIds={inFlight} svgRef={wagonEl} />
-              {simple ? (
-                <div className="ask-dots" aria-label={`${picks.length} of ${target} picked`}>
-                  {Array.from({ length: target }, (_, k) => <span key={k} className={`ask-dot${k < picks.length ? " on" : ""}`} />)}
-                </div>
-              ) : (
-                <span className="ask-sr" aria-live="polite" aria-label={`${picks.length} of ${target} picked`}>{picks.length} of {target} picked</span>
-              )}
+              <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-small" hiddenIds={inFlight} svgRef={wagonEl}
+                fill={simple ? (target > 0 ? picks.length / target : 0) : null} />
+              <span className="ask-sr" aria-live="polite" aria-label={`${picks.length} of ${target} picked`}>{picks.length} of {target} picked</span>
             </div>
             {failed && <div className="ask-failed" role="alert">That didn't reach the list. {simple ? "Tap ✓ again." : "Try That's it! again."}</div>}
             <div className="ask-actions">
@@ -644,9 +695,22 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 @keyframes ask-hop { 0% { transform: none; } 35% { transform: translateY(-6px) rotate(-1.5deg); } 70% { transform: translateY(1px); } 100% { transform: none; } }
 .ask-wagon.shake { animation: ask-shake 0.4s ease; }
 @keyframes ask-shake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(3px); } }
-.ask-dots { display: flex; gap: 8px; }
-.ask-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #C9A97A; transition: background 0.25s, border-color 0.25s; }
-.ask-dot.on { background: #0D9488; border-color: #0D9488; }
+/* Explorer's tide (2026-11-15): the tub fills turquoise from the bottom, one step per pick (scaleY = picks /
+   target), springing up as each card lands; full, it deepens and glows once. */
+.ask-tide { transform-box: fill-box; transform-origin: center bottom; opacity: .42; transition: transform 0.5s cubic-bezier(.3,1.4,.5,1) 0.35s, opacity 0.3s; }
+.ask-tide.full { opacity: .62; animation: ask-tide-glow 0.9s ease-out 0.6s; }
+@keyframes ask-tide-glow { 0%, 100% { opacity: .62; } 40% { opacity: .9; } }
+/* The finish: three bursts of sparks over the shelf, then gone (the overlay unmounts at 2s). */
+.ask-fireworks { position: fixed; inset: 0; z-index: 6; pointer-events: none; overflow: hidden; }
+.ask-burst { position: absolute; width: 0; height: 0; }
+.ask-flash { position: absolute; left: -40px; top: -40px; width: 80px; height: 80px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(251,226,174,.95) 0%, rgba(13,148,136,.35) 45%, rgba(13,148,136,0) 70%);
+  opacity: 0; transform: scale(.2); animation: ask-flash 0.7s ease-out both; }
+@keyframes ask-flash { 0% { opacity: 0; transform: scale(.2); } 25% { opacity: 1; } 100% { opacity: 0; transform: scale(2.2); } }
+.ask-spark { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; opacity: 0;
+  animation: ask-spark 1.3s cubic-bezier(.15,.7,.3,1) both; }
+@keyframes ask-spark { 0% { opacity: 1; transform: translate(0, 0) scale(1.2); } 70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx), calc(var(--dy) + 40px)) scale(.4); } }
 .ask-actions { display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 58px; margin-top: 6px; }
 .ask-thats-it { transform: scale(0); transition: transform 0.3s cubic-bezier(.3,1.6,.5,1); }
 .ask-thats-it.show { transform: scale(1); }

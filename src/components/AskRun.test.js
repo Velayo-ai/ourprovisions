@@ -135,7 +135,7 @@ test("after the confirm: no top-right control (W6); without onHandBack, 'Give it
 });
 
 // S4-5: a short shelf runs at the effective target, end to end; no grown-up screen for the child.
-test("a shelf with fewer tiles than the target runs at the tiles it has: Pick 2, two dots, two land", async () => {
+test("a shelf with fewer tiles than the target runs at the tiles it has: Pick 2, a two-step tide, two land", async () => {
   const { onLand } = setup({ tiles: TILES.slice(0, 2) });
   expect(screen.getByText("Pick 2 snacks for our list.")).toBeInTheDocument();
   expect(screen.queryByText(/fewer things/)).toBeNull();
@@ -492,15 +492,94 @@ describe("numbered picks (Shopper)", () => {
     expect(css).toMatch(/\.ask-wagon-small \{ width: 185px; \}/);
     expect(container.querySelector(".ask-cartrow .ask-wagon")).toHaveClass("ask-wagon-small");
   });
-  test("Explorer keeps its plain ✓ (no number) and its dots, at the same 185px wagon", () => {
-    const { container } = setup({ ask: { id: "a-k", label: "Kid", shelfNoun: null, pickTarget: 2, screenStyle: "simple" } });
+  test("Shopper's wagon has no tide and never bursts", () => {
+    jest.useFakeTimers();
+    try {
+      const { container } = setup({ ask: { ...ASK, pickTarget: 2 } });
+      toShelf();
+      ["Cheese", "Apples"].forEach((n) => fireEvent.click(tile(n)));
+      act(() => { jest.advanceTimersByTime(1000); });
+      expect(container.querySelector(".ask-tide")).toBeNull();
+      expect(document.querySelector(".ask-fireworks")).toBeNull();
+    } finally { jest.useRealTimers(); }
+  });
+});
+
+// Explorer's progress (2026-11-15, Dan): no numbers, no dots — the tub fills turquoise; full, it bursts.
+describe("Explorer's tide and finish", () => {
+  const KID = { id: "a-k", label: "Kid", shelfNoun: null, pickTarget: 2, screenStyle: "simple" };
+  const tide = (c) => c.querySelector(".ask-cartrow .ask-tide");
+  test("a plain ✓ (no number), no dots, the same 185px wagon; the tub fills one step per pick", () => {
+    const { container } = setup({ ask: KID });
     fireEvent.click(screen.getByRole("button", { name: "Let's pick" }));
+    expect(tide(container)).toHaveAttribute("data-fill", "0");
     fireEvent.click(screen.getByRole("button", { name: "Cheese" }));
     const picked = screen.getByRole("button", { name: "Cheese, pick 1 of 2" });
     expect(picked.querySelector(".ask-tile-check")).toHaveTextContent(/^✓$/);
     expect(picked.querySelector(".ask-order-num")).toBeNull();
-    expect(container.querySelector(".ask-dots")).not.toBeNull();
+    expect(container.querySelector(".ask-dots")).toBeNull();
+    expect(container.querySelector(".ask-dot")).toBeNull();
+    expect(screen.getByLabelText("1 of 2 picked")).toHaveClass("ask-sr");
     expect(container.querySelector(".ask-cartrow .ask-wagon")).toHaveClass("ask-wagon-small");
+    expect(tide(container)).toHaveAttribute("data-fill", "50");
+    expect(tide(container)).not.toHaveClass("full");
+    fireEvent.click(screen.getByRole("button", { name: "Apples" }));
+    expect(tide(container)).toHaveAttribute("data-fill", "100");
+    expect(tide(container)).toHaveClass("full");
+    fireEvent.click(screen.getByRole("button", { name: /^Apples, pick/ }));       // unpick: the tide drops back
+    expect(tide(container)).toHaveAttribute("data-fill", "50");
+  });
+  test("filling the cart bursts fireworks once, after the last card lands; they clear themselves", () => {
+    jest.useFakeTimers();
+    try {
+      setup({ ask: KID });
+      fireEvent.click(screen.getByRole("button", { name: "Let's pick" }));
+      fireEvent.click(screen.getByRole("button", { name: "Cheese" }));
+      act(() => { jest.advanceTimersByTime(1000); });
+      expect(document.querySelector(".ask-fireworks")).toBeNull();               // half full: no burst
+      fireEvent.click(screen.getByRole("button", { name: "Apples" }));
+      expect(document.querySelector(".ask-fireworks")).toBeNull();               // not before the card lands
+      act(() => { jest.advanceTimersByTime(600); });
+      const fw = document.querySelector(".ask-fireworks");
+      expect(fw).not.toBeNull();
+      expect(fw).toHaveAttribute("aria-hidden", "true");
+      expect(fw.querySelectorAll(".ask-burst")).toHaveLength(3);
+      act(() => { jest.advanceTimersByTime(2100); });
+      expect(document.querySelector(".ask-fireworks")).toBeNull();
+    } finally { jest.useRealTimers(); }
+  });
+  test("an unpick in the moment before the burst cancels it", () => {
+    jest.useFakeTimers();
+    try {
+      setup({ ask: KID });
+      fireEvent.click(screen.getByRole("button", { name: "Let's pick" }));
+      fireEvent.click(screen.getByRole("button", { name: "Cheese" }));
+      fireEvent.click(screen.getByRole("button", { name: "Apples" }));
+      fireEvent.click(screen.getByRole("button", { name: /^Apples, pick/ }));
+      act(() => { jest.advanceTimersByTime(3000); });
+      expect(document.querySelector(".ask-fireworks")).toBeNull();
+    } finally { jest.useRealTimers(); }
+  });
+  test("no burst under reduced motion; the full tide still shows", () => {
+    const mm = window.matchMedia;
+    window.matchMedia = (q) => ({ matches: /reduce/.test(q), media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
+    jest.useFakeTimers();
+    try {
+      const { container } = setup({ ask: KID });
+      fireEvent.click(screen.getByRole("button", { name: "Let's pick" }));
+      ["Cheese", "Apples"].forEach((n) => fireEvent.click(screen.getByRole("button", { name: n })));
+      act(() => { jest.advanceTimersByTime(3000); });
+      expect(document.querySelector(".ask-fireworks")).toBeNull();
+      expect(tide(container)).toHaveClass("full");
+    } finally { jest.useRealTimers(); window.matchMedia = mm; }
+  });
+  test("a resumed run that is already full doesn't burst again", () => {
+    jest.useFakeTimers();
+    try {
+      render(<AskRun ask={KID} tiles={TILES} onLand={jest.fn(async () => {})} onExit={jest.fn()} resume={{ screen: "shelf", ids: ["c-0", "c-1"] }} />);
+      act(() => { jest.advanceTimersByTime(3000); });
+      expect(document.querySelector(".ask-fireworks")).toBeNull();
+    } finally { jest.useRealTimers(); }
   });
 });
 
