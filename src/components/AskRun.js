@@ -229,8 +229,8 @@ function FlyCard({ flight, onLand }) {
   );
 }
 
-// THE FINISH (2026-11-15): when the last pick lands the cart is full and the screen bursts — three
-// fireworks over the shelf, ~1.6s, then gone. Decoration only (aria-hidden, no pointer events). Never
+// THE FINISH (2026-11-15; made bigger the same day): when the last pick lands the cart is full and the
+// screen bursts — three fireworks over the shelf, ~2s, then gone. Decoration only (aria-hidden, no pointer events). Never
 // under reduced motion; the full turquoise cart and That's it! say "done" on their own.
 const BURSTS = [{ x: 28, y: 26, d: 0 }, { x: 72, y: 20, d: 0.18 }, { x: 50, y: 44, d: 0.36 }];
 const SPARK_COLORS = ["#0D9488", "#F2B544", "#E8846B", "#14B8A6", "#FBE2AE"];
@@ -240,9 +240,9 @@ function Fireworks() {
       {BURSTS.map((b, i) => (
         <div key={i} className="ask-burst" style={{ left: `${b.x}%`, top: `${b.y}%`, animationDelay: `${b.d}s` }}>
           <span className="ask-flash" style={{ animationDelay: `${b.d}s` }} />
-          {Array.from({ length: 14 }, (_, k) => {
-            const a = (k / 14) * Math.PI * 2 + i;
-            const r = 70 + (k % 3) * 18;
+          {Array.from({ length: 20 }, (_, k) => {
+            const a = (k / 20) * Math.PI * 2 + i;
+            const r = 115 + (k % 3) * 30;
             return <span key={k} className="ask-spark" style={{ "--dx": `${Math.cos(a) * r}px`, "--dy": `${Math.sin(a) * r}px`,
               background: SPARK_COLORS[(k + i) % SPARK_COLORS.length], animationDelay: `${b.d}s` }} />;
           })}
@@ -342,7 +342,7 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   }, [simple, screen, picks.length, target]);
   useEffect(() => {
     if (!boom) return undefined;
-    const t = setTimeout(() => setBoom(0), 2000);
+    const t = setTimeout(() => setBoom(0), 2400);
     return () => clearTimeout(t);
   }, [boom]);
   const reducedMotion = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -700,17 +700,17 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-tide { transform-box: fill-box; transform-origin: center bottom; opacity: .42; transition: transform 0.5s cubic-bezier(.3,1.4,.5,1) 0.35s, opacity 0.3s; }
 .ask-tide.full { opacity: .62; animation: ask-tide-glow 0.9s ease-out 0.6s; }
 @keyframes ask-tide-glow { 0%, 100% { opacity: .62; } 40% { opacity: .9; } }
-/* The finish: three bursts of sparks over the shelf, then gone (the overlay unmounts at 2s). */
+/* The finish: three bursts of sparks over the shelf, then gone (the overlay unmounts at 2.4s). */
 .ask-fireworks { position: fixed; inset: 0; z-index: 6; pointer-events: none; overflow: hidden; }
 .ask-burst { position: absolute; width: 0; height: 0; }
-.ask-flash { position: absolute; left: -40px; top: -40px; width: 80px; height: 80px; border-radius: 50%;
+.ask-flash { position: absolute; left: -70px; top: -70px; width: 140px; height: 140px; border-radius: 50%;
   background: radial-gradient(circle, rgba(251,226,174,.95) 0%, rgba(13,148,136,.35) 45%, rgba(13,148,136,0) 70%);
   opacity: 0; transform: scale(.2); animation: ask-flash 0.7s ease-out both; }
-@keyframes ask-flash { 0% { opacity: 0; transform: scale(.2); } 25% { opacity: 1; } 100% { opacity: 0; transform: scale(2.2); } }
-.ask-spark { position: absolute; left: -5px; top: -5px; width: 10px; height: 10px; border-radius: 50%; opacity: 0;
-  animation: ask-spark 1.3s cubic-bezier(.15,.7,.3,1) both; }
+@keyframes ask-flash { 0% { opacity: 0; transform: scale(.2); } 25% { opacity: 1; } 100% { opacity: 0; transform: scale(2.6); } }
+.ask-spark { position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%; opacity: 0;
+  animation: ask-spark 1.6s cubic-bezier(.15,.7,.3,1) both; }
 @keyframes ask-spark { 0% { opacity: 1; transform: translate(0, 0) scale(1.2); } 70% { opacity: 1; }
-  100% { opacity: 0; transform: translate(var(--dx), calc(var(--dy) + 40px)) scale(.4); } }
+  100% { opacity: 0; transform: translate(var(--dx), calc(var(--dy) + 60px)) scale(.4); } }
 .ask-actions { display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 58px; margin-top: 6px; }
 .ask-thats-it { transform: scale(0); transition: transform 0.3s cubic-bezier(.3,1.6,.5,1); }
 .ask-thats-it.show { transform: scale(1); }

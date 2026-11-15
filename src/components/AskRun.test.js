@@ -544,7 +544,7 @@ describe("Explorer's tide and finish", () => {
       expect(fw).not.toBeNull();
       expect(fw).toHaveAttribute("aria-hidden", "true");
       expect(fw.querySelectorAll(".ask-burst")).toHaveLength(3);
-      act(() => { jest.advanceTimersByTime(2100); });
+      act(() => { jest.advanceTimersByTime(2500); });
       expect(document.querySelector(".ask-fireworks")).toBeNull();
     } finally { jest.useRealTimers(); }
   });
