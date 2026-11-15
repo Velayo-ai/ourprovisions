@@ -415,6 +415,10 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
           {top}
           <h1 className="ask-h1">{one ? "Great pick," : "Great picks,"}{" "}<br /><Name>{ask.label}</Name>!</h1>
           <div className="ask-rule" aria-hidden="true" />
+          {/* The title stays put; the wagon and its line sit lower (2026-11-15): a flexible space of ~7% of the
+              screen height, the only thing on this screen that shrinks, so on a short screen it gives way
+              before the room above the button does. */}
+          <div className="ask-finale-drop" aria-hidden="true" />
           {/* The wagon is the summary (2026-11-14): no list under it. As large as fits at 375×667 with the
               line and the button; a raised back tier (5–6 picks) gets its room above. Screen readers get
               the list from the wagon's label, in pick order. */}
@@ -549,10 +553,16 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-thats-it.show { transform: scale(1); }
 .ask-failed { text-align: center; font: 400 14px 'Lato', sans-serif; color: #B3412E; margin-top: 6px; }
 
-.ask-finale { align-items: stretch; overflow-y: auto; }
+.ask-finale { align-items: stretch; overflow-y: auto; overflow-x: hidden; }
+.ask-finale > * { flex-shrink: 0; }
+.ask-finale > .ask-finale-drop { flex: 0 1 7vh; flex-basis: 7dvh; min-height: 0; }
+.ask-finale .ask-line { margin-bottom: 24px; }
 .ask-rollin { display: flex; justify-content: center; margin-top: 18px; animation: ask-roll 1s cubic-bezier(.2,.9,.25,1.05); }
 /* The summary wagon: the full width less a 12px gutter each side, up to 380px. */
 .ask-rollin .ask-wagon { width: calc(100% - 24px); max-width: 380px; }
+/* Centred on its tub, not on the drawing: the tub's centre (x 144) sits 14 units right of the drawing's
+   (130) because the handle extends left, so the summary wagon shifts right by 14/260 of its width. */
+.ask-finale .ask-rollin .ask-wagon { transform: translateX(calc(100% * 14 / 260)); }
 /* A raised back tier (5–6 picks) stands BACK_RISE (34) wagon units above the drawing: room above it. */
 .ask-rollin.ask-rollin-tall { padding-top: calc(min(100vw - 24px, 380px) * 34 / 260); }
 .ask-cartbar.ask-cartbar-tall { padding-top: calc(8px + 185px * 34 / 260); }

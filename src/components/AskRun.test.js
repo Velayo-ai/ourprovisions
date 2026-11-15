@@ -561,3 +561,34 @@ describe("the summary wagon", () => {
     expect(css).toMatch(/\.ask-rollin \.ask-wagon \{ width: calc\(100% - 24px\); max-width: 380px; \}/);
   });
 });
+
+// Great picks: the wagon sits lower, on a space that gives way first; centred on its tub (2026-11-15).
+describe("Great picks layout", () => {
+  test("title, rule, then a flexible ~7% drop, then the wagon and its line; only the drop shrinks; room is kept above the button", async () => {
+    const { container } = setup({ ask: { ...ASK, pickTarget: 1 } });
+    toShelf();
+    fireEvent.click(tile("Cheese"));
+    fireEvent.click(thatsIt());
+    await screen.findByText("Your pick is on our list!");
+    const kids = [...container.querySelector(".ask-finale").children].map((el) => el.className || el.tagName);
+    const at = (re) => kids.findIndex((k) => re.test(k));
+    expect(at(/ask-rule/)).toBeGreaterThan(at(/^H1$|ask-h1/));
+    expect(at(/ask-finale-drop/)).toBe(at(/ask-rule/) + 1);
+    expect(at(/ask-rollin/)).toBe(at(/ask-finale-drop/) + 1);
+    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+    expect(css).toMatch(/\.ask-finale > \* \{ flex-shrink: 0; \}/);
+    expect(css).toMatch(/\.ask-finale > \.ask-finale-drop \{ flex: 0 1 7vh; flex-basis: 7dvh; min-height: 0; \}/);
+    expect(css).toMatch(/\.ask-finale \.ask-line \{ margin-bottom: 24px; \}/);
+  });
+  test("the summary wagon is centred on its tub: shifted right by (tub centre − drawing centre) / width = 14/260", () => {
+    setup();
+    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+    expect(css).toMatch(/\.ask-finale \.ask-rollin \.ask-wagon \{ transform: translateX\(calc\(100% \* 14 \/ 260\)\); \}/);
+    // 14 and 260 are the drawing's own numbers: the tub's centre line (rim 50..238 → 144) and its width.
+    const src = fs.readFileSync(path.join(__dirname, "AskRun.js"), "utf8");
+    expect(src).toMatch(/const WAGON_W = 260,/);
+    expect(src).toMatch(/const RIM_CX = 144;/);
+    expect(144 - 260 / 2).toBe(14);
+    expect(css).toMatch(/\.ask-finale \{[^}]*overflow-x: hidden;/);               // the shift never scrolls sideways
+  });
+});
