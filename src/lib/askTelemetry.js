@@ -1,15 +1,17 @@
-// Ask telemetry (A24 as amended 2026-11-15, Dan: "push to dev"). A24 allowed one span, ask_completed
+// Ask telemetry (A24 as amended 2026-11-15, Dan: "push to dev"; ask.style added the same day, Dan:
+// "how do we see explorer vs shopper"). A24 allowed one span, ask_completed
 // (the count). These add the funnel and the failures, under the same rule: counts, a screen name and a
-// database error CODE only. Never an ask id (a stable handle on one person), a label, item ids or names,
-// the screen style (Simple says something about who is picking) or an error MESSAGE (create_ask's name
-// the label). household_id rides every span as a global attribute (rum.js setHousehold).
+// database error CODE only, plus ask.style ("explorer" | "shopper"). Never an ask id (a stable handle on
+// one person), a label, item ids or names, or an error MESSAGE (create_ask's name the label).
+// household_id rides every span as a global attribute (rum.js setHousehold) — so ask.style does tell
+// Splunk that a household has an Explorer (a younger picker). Dan accepted that, to split the funnel.
 //
-//   ask_started       a run opened fresh (not a reload)                      —
-//   ask_resumed       a run reopened after a reload                          screen
-//   ask_abandoned     Close / Done held before the picks landed              screen, pick_count
-//   ask_land_failed   That's it! didn't reach the list (the wagon is kept)   error_code, pick_count
+//   ask_started       a run opened fresh (not a reload)                      ask.style
+//   ask_resumed       a run reopened after a reload                          screen, ask.style
+//   ask_abandoned     Close / Done held before the picks landed              screen, pick_count, ask.style
+//   ask_land_failed   That's it! didn't reach the list (the wagon is kept)   error_code, pick_count, ask.style
 //   ask_admin_failed  reading, making, editing or deleting an Ask failed     op, error_code
-//   ask_completed     (unchanged, lib/askPicks) the picks landed             pick_count
+//   ask_completed     (lib/askPicks) the picks landed                        pick_count, ask.style
 import { trace } from "@opentelemetry/api";
 
 const SCREENS = new Set(["turn", "shelf"]);
@@ -25,18 +27,23 @@ export function askErrorCode(err) {
   return "unknown";
 }
 
+// The Ask's screen style as Splunk sees it: Simple is Explorer, anything else is Shopper (the default).
+export function askStyle(screenStyle) {
+  return screenStyle === "simple" ? "explorer" : "shopper";
+}
+
 const count = (n) => (Number.isInteger(n) && n >= 0 ? n : 0);
 const screen = (s) => (SCREENS.has(s) ? s : "unknown");
 
 export const askEventAttributes = {
-  ask_started: () => ({}),
-  ask_resumed: (s) => ({ screen: screen(s) }),
-  ask_abandoned: (s, picks) => ({ screen: screen(s), pick_count: count(picks) }),
+  ask_started: (style) => ({ "ask.style": askStyle(style) }),
+  ask_resumed: (s, style) => ({ screen: screen(s), "ask.style": askStyle(style) }),
+  ask_abandoned: (s, picks, style) => ({ screen: screen(s), pick_count: count(picks), "ask.style": askStyle(style) }),
   // The two failures carry Splunk's error flag, so they count in Custom Workflow Error Rates (and can be
   // alerted on). error.message is the CODE again — Splunk groups errors by it — never the database's text.
-  ask_land_failed: (err, picks) => {
+  ask_land_failed: (err, picks, style) => {
     const code = askErrorCode(err);
-    return { error: true, "error.message": code, error_code: code, pick_count: count(picks) };
+    return { error: true, "error.message": code, error_code: code, pick_count: count(picks), "ask.style": askStyle(style) };
   },
   ask_admin_failed: (op, err) => {
     const code = askErrorCode(err);

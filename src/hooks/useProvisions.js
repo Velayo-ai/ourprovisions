@@ -1372,7 +1372,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // item_added_to_list. Resolves to the count landed; throws on failure so the Ask screen
   // keeps the wagon held and can offer the confirm again.
   // ─────────────────────────────────────────────────────────────
-  const landAskPicks = useCallback(async (askId, catalogItemIds) => {
+  const landAskPicks = useCallback(async (askId, catalogItemIds, screenStyle = null) => {
     if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -1381,7 +1381,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .rpc("land_ask_picks", landAskPicksArgs(hh.id, askId, catalogItemIds));
     if (landErr) throw landErr;
     try {
-      tracer.startSpan("ask_completed", { attributes: askCompletedAttributes(landed) }).end();
+      tracer.startSpan("ask_completed", { attributes: askCompletedAttributes(landed, screenStyle) }).end();
     } catch (e) {
       console.warn("[rum] ask_completed event failed:", e);
     }

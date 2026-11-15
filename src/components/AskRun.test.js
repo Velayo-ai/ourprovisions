@@ -792,13 +792,17 @@ describe("telemetry", () => {
   beforeEach(() => { emit = jest.spyOn(askTelemetry, "emitAskEvent").mockImplementation(() => {}); });
   afterEach(() => emit.mockRestore());
   const calls = () => emit.mock.calls;
-  test("a fresh run emits ask_started once", () => {
+  test("a fresh run emits ask_started once, with the Ask's screen style", () => {
     setup();
-    expect(calls()).toEqual([["ask_started"]]);
+    expect(calls()).toEqual([["ask_started", undefined]]);          // Shopper (no style set)
+  });
+  test("an Explorer run passes its style along", () => {
+    setup({ ask: { ...ASK, screenStyle: "simple" } });
+    expect(calls()).toEqual([["ask_started", "simple"]]);
   });
   test("a reloaded run emits ask_resumed with its screen, not ask_started", () => {
     render(<AskRun ask={ASK} tiles={TILES} onLand={jest.fn(async () => {})} onExit={jest.fn()} resume={{ screen: "shelf", ids: ["c-0"] }} />);
-    expect(calls()).toEqual([["ask_resumed", "shelf"]]);
+    expect(calls()).toEqual([["ask_resumed", "shelf", undefined]]);
   });
   test("holding Done on the shelf emits ask_abandoned with the screen and the count, then exits", () => {
     jest.useFakeTimers();
@@ -809,7 +813,7 @@ describe("telemetry", () => {
       const done = screen.getByRole("button", { name: "Hold to finish" });
       fireEvent.pointerDown(done);
       act(() => { jest.advanceTimersByTime(1500); });
-      expect(calls()).toContainEqual(["ask_abandoned", "shelf", 1]);
+      expect(calls()).toContainEqual(["ask_abandoned", "shelf", 1, undefined]);
       expect(onExit).toHaveBeenCalled();
     } finally { jest.useRealTimers(); }
   });
@@ -820,7 +824,7 @@ describe("telemetry", () => {
     ["Cheese", "Apples", "Yogurt"].forEach((n) => fireEvent.click(tile(n)));
     fireEvent.click(thatsIt());
     await screen.findByRole("alert");
-    expect(calls()).toContainEqual(["ask_land_failed", err, 3]);
+    expect(calls()).toContainEqual(["ask_land_failed", err, 3, undefined]);
   });
   test("a landed run emits no failure and no abandon", async () => {
     setup();

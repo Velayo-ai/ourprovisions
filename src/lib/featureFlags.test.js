@@ -22,7 +22,7 @@ describe("askFlagOn", () => {
 describe("with the flag off nothing reaches the Ask schema", () => {
   const GATE = "if (!ASK_ENABLED) return";
   test.each([
-    ["landAskPicks", "const landAskPicks = useCallback(async (askId, catalogItemIds) => {"],
+    ["landAskPicks", "const landAskPicks = useCallback(async (askId, catalogItemIds, screenStyle = null) => {"],
     ["fetchAsks", "const fetchAsks = useCallback(async () => {"],
     ["createAsk", "const createAsk = useCallback(async (askId, draft) => {"],
     ["updateAsk", "const updateAsk = useCallback(async (askId, draft) => {"],

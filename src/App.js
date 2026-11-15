@@ -12613,7 +12613,7 @@ function ProvisionsApp({ scrollRootRef }) {
           tiles={runTiles}
           resume={runResume}
           onLand={async (ids) => {
-            const landed = await landAskPicks(runAsk.id, ids);
+            const landed = await landAskPicks(runAsk.id, ids, runAsk.screenStyle);
             if (landed == null) throw new Error("not landed");
           }}
           onExit={() => setRunAskId(null)}

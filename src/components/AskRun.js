@@ -334,8 +334,8 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   useEffect(() => {
     if (opened.current) return;
     opened.current = true;
-    if (resume) emitAskEvent("ask_resumed", resume.screen);
-    else emitAskEvent("ask_started");
+    if (resume) emitAskEvent("ask_resumed", resume.screen, ask.screenStyle);
+    else emitAskEvent("ask_started", ask.screenStyle);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -403,7 +403,7 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
       setLandedTiles(snapshot);
       setScreen("done");
     } catch (e) {
-      emitAskEvent("ask_land_failed", e, picks.length);   // the code only, never the message
+      emitAskEvent("ask_land_failed", e, picks.length, ask.screenStyle);   // the code only, never the message
       setFailed(true);   // the wagon stays held; That's it! can be tapped again
     } finally {
       setLanding(false);
@@ -412,7 +412,7 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
 
   // Close / Done before the picks land: the run is abandoned (telemetry: where, and how many were held).
   const abandon = () => {
-    emitAskEvent("ask_abandoned", screen, picks.length);
+    emitAskEvent("ask_abandoned", screen, picks.length, ask.screenStyle);
     onExit();
   };
   // W6: "Close" on the turn screen, "Done" on the shelf, nothing on Great picks (the picks have landed;

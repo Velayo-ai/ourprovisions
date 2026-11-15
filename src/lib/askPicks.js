@@ -1,3 +1,4 @@
+import { askStyle } from "./askTelemetry";
 // Ask picks (SPEC_ask + 2026-11-03 amendment; 077). Pure helpers for the three places the
 // client touches a landed pick: the land request, its one span, and the swipe confirm.
 // Kept out of App.js / useProvisions so each rule has a test beside it.
@@ -14,10 +15,10 @@ export function landAskPicksArgs(householdId, askId, catalogItemIds) {
 // A24 / R5: exactly one attribute, the count. No ask id (a stable handle on one person), no
 // label, no item ids or names, no screen style. household_id rides every span as a global
 // attribute (rum.js setHousehold), so the event is household-scoped, not anonymous.
-export function askCompletedAttributes(count) {
+export function askCompletedAttributes(count, screenStyle) {
   const n = Number.isInteger(count) && count > 0 ? count : 0;
   // workflow.name makes it a Splunk Custom Event (Digital Experience → Custom Events), like the other Ask events.
-  return { "workflow.name": "ask_completed", pick_count: n };
+  return { "workflow.name": "ask_completed", pick_count: n, "ask.style": askStyle(screenStyle) };
 }
 
 // "Easton", "Easton & Everett", "Easton, Everett & Nina" — the provenance line's join.
