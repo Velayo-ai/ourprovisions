@@ -5,6 +5,7 @@ import { render, screen, fireEvent, act, waitFor } from "@testing-library/react"
 import fs from "fs";
 import path from "path";
 import { AskRun, cardLayout, flightFor } from "./AskRun";
+import * as askTelemetry from "../lib/askTelemetry";
 
 // Running an Ask (SPEC_ask amendment A14–A17, A24; SPEC_ask_slice2 C3b).
 const ASK = { id: "a-easton", label: "Easton", shelfNoun: "snacks", pickTarget: 3 };
@@ -781,5 +782,52 @@ describe("the pick celebration", () => {
     expect(f.from.y + 29 + f.dy).toBeCloseTo(520 + (box.y + box.h / 2) * k);
     expect(f.scale).toBeCloseTo((box.w * k) / 52);
     expect(f.tilt).toBe(8);
+  });
+});
+
+
+// Telemetry (lib/askTelemetry; A24 as amended 2026-11-15): the funnel and the failures, no names.
+describe("telemetry", () => {
+  let emit;
+  beforeEach(() => { emit = jest.spyOn(askTelemetry, "emitAskEvent").mockImplementation(() => {}); });
+  afterEach(() => emit.mockRestore());
+  const calls = () => emit.mock.calls;
+  test("a fresh run emits ask_started once", () => {
+    setup();
+    expect(calls()).toEqual([["ask_started"]]);
+  });
+  test("a reloaded run emits ask_resumed with its screen, not ask_started", () => {
+    render(<AskRun ask={ASK} tiles={TILES} onLand={jest.fn(async () => {})} onExit={jest.fn()} resume={{ screen: "shelf", ids: ["c-0"] }} />);
+    expect(calls()).toEqual([["ask_resumed", "shelf"]]);
+  });
+  test("holding Done on the shelf emits ask_abandoned with the screen and the count, then exits", () => {
+    jest.useFakeTimers();
+    try {
+      const { onExit } = setup();
+      toShelf();
+      fireEvent.click(tile("Cheese"));
+      const done = screen.getByRole("button", { name: "Hold to finish" });
+      fireEvent.pointerDown(done);
+      act(() => { jest.advanceTimersByTime(1500); });
+      expect(calls()).toContainEqual(["ask_abandoned", "shelf", 1]);
+      expect(onExit).toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+  test("a failed land emits ask_land_failed with the error and the count; the wagon stays", async () => {
+    const err = { code: "42501", message: "permission denied for Easton" };
+    setup({ onLand: jest.fn(async () => { throw err; }) });
+    toShelf();
+    ["Cheese", "Apples", "Yogurt"].forEach((n) => fireEvent.click(tile(n)));
+    fireEvent.click(thatsIt());
+    await screen.findByRole("alert");
+    expect(calls()).toContainEqual(["ask_land_failed", err, 3]);
+  });
+  test("a landed run emits no failure and no abandon", async () => {
+    setup();
+    toShelf();
+    ["Cheese", "Apples", "Yogurt"].forEach((n) => fireEvent.click(tile(n)));
+    fireEvent.click(thatsIt());
+    await screen.findByText("Your picks are on our list!");
+    expect(calls().map((c) => c[0])).toEqual(["ask_started"]);
   });
 });

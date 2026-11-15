@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { pickLine } from "../lib/askCreate";
 import { tapTile, takeOut, canConfirm, shelfTitlePrefix, effectiveTarget, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
 import { useHold, holdFillCss } from "../hooks/useHold";
+import { emitAskEvent } from "../lib/askTelemetry";
 
 // Running an Ask (SPEC_ask amendment A13–A17, A24; SPEC_ask_slice2 C3b; the wagon polish + the
 // hand-back, SPEC_ask_wagon_handback W1–W10). Invitation → Participation → Contribution, three
@@ -327,6 +328,17 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
     storeHeldAsk(screen === "done" ? null : heldAskWrite(ask.id, screen, picks));
   }, [ask.id, screen, picks]);
 
+  // Telemetry (lib/askTelemetry): one ask_started per fresh run, one ask_resumed per reload; the ref
+  // keeps a double-run effect (StrictMode in dev) from counting twice.
+  const opened = useRef(false);
+  useEffect(() => {
+    if (opened.current) return;
+    opened.current = true;
+    if (resume) emitAskEvent("ask_resumed", resume.screen);
+    else emitAskEvent("ask_started");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const bump = (kind) => setKick((k) => ({ kind, n: (k ? k.n : 0) + 1 }));
   // The finish fires when the wagon goes from not-full to full on the shelf, just after the last card
   // lands (FLY_MS); an unpick in that moment cancels it. It clears itself after the show.
@@ -390,20 +402,26 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
       await onLand(picks);
       setLandedTiles(snapshot);
       setScreen("done");
-    } catch (_e) {
+    } catch (e) {
+      emitAskEvent("ask_land_failed", e, picks.length);   // the code only, never the message
       setFailed(true);   // the wagon stays held; That's it! can be tapped again
     } finally {
       setLanding(false);
     }
   };
 
+  // Close / Done before the picks land: the run is abandoned (telemetry: where, and how many were held).
+  const abandon = () => {
+    emitAskEvent("ask_abandoned", screen, picks.length);
+    onExit();
+  };
   // W6: "Close" on the turn screen, "Done" on the shelf, nothing on Great picks (the picks have landed;
   // the bottom button is the one exit).
   const top = (
     <div className="ask-top">
       <span className="ask-eyebrow">Ask <Name>{ask.label}</Name></span>
-      {screen === "turn" && <HoldDone onDone={onExit} label="Close" hold="Hold to close" />}
-      {screen === "shelf" && <HoldDone onDone={onExit} label="Done" hold="Hold to finish" />}
+      {screen === "turn" && <HoldDone onDone={abandon} label="Close" hold="Hold to close" />}
+      {screen === "shelf" && <HoldDone onDone={abandon} label="Done" hold="Hold to finish" />}
     </div>
   );
   // W8: the child hands the phone back. Once: the run closes on the first tap.

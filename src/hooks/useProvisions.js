@@ -15,6 +15,7 @@ import { updateItemCategory, applyItemCategory } from "../lib/itemCategory";
 import { useConnectivity } from "../contexts/ConnectivityContext";
 import { normalizeHouseholdPhoto, renderMealPhoto, mealPhotoPaths } from "../lib/image";
 import { trace } from "@opentelemetry/api";
+import { emitAskEvent } from "../lib/askTelemetry";
 import { fetchLiveMealLinks, linksToRelease, releaseMealLinks, takeMealOffList, droppedIngredientIds } from "../lib/mealLinks";
 import { cooksFromRows, resolveCookId } from "../lib/cooks";
 import { setKindFailure } from "../lib/mealPhotos";
@@ -1413,7 +1414,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .eq("household_id", hhId)
       .is("deleted_at", null);
     if (householdRef.current?.id !== hhId) return null;   // switched mid-read: not this place's asks
-    if (err) { console.warn("[ask] asks read failed (non-fatal):", err.code); return null; }
+    if (err) { console.warn("[ask] asks read failed (non-fatal):", err.code); emitAskEvent("ask_admin_failed", "read", err); return null; }
     const shaped = shapeAsks(data);
     setAsks(shaped);
     setAsksLoadedFor(hhId);
@@ -1434,6 +1435,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const { data, error: err } = await db.rpc("create_ask", createAskArgs(askId, hh.id, draft));
     if (err) {
       console.warn("[ask] create_ask failed:", err.code);
+      emitAskEvent("ask_admin_failed", "create", err);
       // 23505: another member made this ask since our read. Re-read, so the sheet's own
       // duplicate check sees it and names it with the existing spelling.
       if (err.code === "23505") await fetchAsks();
@@ -1454,6 +1456,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const { error: err } = await db.rpc("update_ask", updateAskArgs(hh.id, askId, draft));
     if (err) {
       console.warn("[ask] update_ask failed:", err.code);
+      emitAskEvent("ask_admin_failed", "update", err);
       if (err.code === "23505") await fetchAsks();
       return { ok: false, code: err.code || null };
     }
@@ -1480,6 +1483,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .select("id");
     if (err || !data || data.length === 0) {
       console.warn("[ask] delete failed:", err ? err.code : "no live row");
+      emitAskEvent("ask_admin_failed", "delete", err || { code: "no_live_row" });
       await fetchAsks();
       return { ok: false, code: err ? err.code || null : null };
     }
