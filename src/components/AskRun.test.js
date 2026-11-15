@@ -580,10 +580,10 @@ describe("Great picks layout", () => {
     expect(css).toMatch(/\.ask-finale > \.ask-finale-drop \{ flex: 0 1 7vh; flex-basis: 7dvh; min-height: 0; \}/);
     expect(css).toMatch(/\.ask-finale \.ask-line \{ margin-bottom: 24px; \}/);
   });
-  test("the summary wagon is centred on its tub: shifted right by (tub centre − drawing centre) / width = 14/260", () => {
+  test("the summary wagon is centred on its tub: shifted LEFT by (tub centre − drawing centre) / width = 14/260", () => {
     setup();
     const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
-    expect(css).toMatch(/\.ask-finale \.ask-rollin \.ask-wagon \{ transform: translateX\(calc\(100% \* 14 \/ 260\)\); \}/);
+    expect(css).toMatch(/\.ask-finale \.ask-rollin \.ask-wagon \{ transform: translateX\(calc\(100% \* -14 \/ 260\)\); \}/);
     // 14 and 260 are the drawing's own numbers: the tub's centre line (rim 50..238 → 144) and its width.
     const src = fs.readFileSync(path.join(__dirname, "AskRun.js"), "utf8");
     expect(src).toMatch(/const WAGON_W = 260,/);

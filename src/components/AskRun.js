@@ -561,8 +561,9 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 /* The summary wagon: the full width less a 12px gutter each side, up to 380px. */
 .ask-rollin .ask-wagon { width: calc(100% - 24px); max-width: 380px; }
 /* Centred on its tub, not on the drawing: the tub's centre (x 144) sits 14 units right of the drawing's
-   (130) because the handle extends left, so the summary wagon shifts right by 14/260 of its width. */
-.ask-finale .ask-rollin .ask-wagon { transform: translateX(calc(100% * 14 / 260)); }
+   (130) because the handle extends left, so the summary wagon shifts LEFT by 14/260 of its width and the
+   handle takes the left margin. */
+.ask-finale .ask-rollin .ask-wagon { transform: translateX(calc(100% * -14 / 260)); }
 /* A raised back tier (5–6 picks) stands BACK_RISE (34) wagon units above the drawing: room above it. */
 .ask-rollin.ask-rollin-tall { padding-top: calc(min(100vw - 24px, 380px) * 34 / 260); }
 .ask-cartbar.ask-cartbar-tall { padding-top: calc(8px + 185px * 34 / 260); }
