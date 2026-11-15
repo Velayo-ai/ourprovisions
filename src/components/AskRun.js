@@ -326,11 +326,15 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
           <div className="ask-rule ask-rule-left" aria-hidden="true" />
           <div className={`ask-tiles${simple ? " ask-tiles-simple" : ""}`} role="group" aria-label="The ask">
             {tiles.map((t) => {
-              const on = picks.includes(t.id);
+              // The pick ORDER (2026-11-14): a picked card's number is its place in `picks` — the wagon's
+              // order and Great picks' order — so an unpick renumbers the rest at once (1,2,3,4 − 2 → 1,2,3).
+              const order = picks.indexOf(t.id) + 1;
+              const on = order > 0;
               const plain = tileFace(t) === "name";
+              const label = on ? `${t.name}, pick ${order} of ${target}` : (simple && !plain ? t.name : undefined);
               return (
                 <button key={t.id} type="button" className={`ask-tile${on ? " picked" : ""}${plain ? " plain" : ""}`} aria-pressed={on}
-                  aria-label={simple && !plain ? t.name : undefined} onClick={() => tap(t.id)}>
+                  aria-label={label} onClick={() => tap(t.id)}>
                   {/* A plain name tile: the name fills the face, once — no art box, no second label.
                       On Simple the picture alone carries any other tile (S3-2). */}
                   {plain ? (
@@ -341,17 +345,33 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
                       {!simple && <span className="ask-tile-name">{t.name}</span>}
                     </>
                   )}
-                  <span className="ask-tile-check" aria-hidden="true">✓</span>
+                  {/* Shopper: the badge says the pick's number — a white ✓ first, then (~350ms) the ✓
+                      crossfades with a slight scale into the number (~200ms), calm, no bounce. Explorer
+                      keeps its plain ✓. Reduced motion: the number at once (the resting state). */}
+                  {simple ? (
+                    <span className="ask-tile-check" aria-hidden="true">✓</span>
+                  ) : (
+                    <span className="ask-tile-check ask-tile-order" aria-hidden="true">
+                      <span className="ask-order-check">✓</span>
+                      <span className="ask-order-num">{on ? order : ""}</span>
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
           <div className="ask-cartbar">
+            {/* The footer wagon (2026-11-14): ~185px, centred above where That's it! appears. Shopper has no
+                dots — the numbers on the cards carry the count; the count stays for screen readers. */}
             <div className="ask-cartrow">
               <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-small" />
-              <div className="ask-dots" aria-label={`${picks.length} of ${target} picked`}>
-                {Array.from({ length: target }, (_, k) => <span key={k} className={`ask-dot${k < picks.length ? " on" : ""}`} />)}
-              </div>
+              {simple ? (
+                <div className="ask-dots" aria-label={`${picks.length} of ${target} picked`}>
+                  {Array.from({ length: target }, (_, k) => <span key={k} className={`ask-dot${k < picks.length ? " on" : ""}`} />)}
+                </div>
+              ) : (
+                <span className="ask-sr" aria-live="polite" aria-label={`${picks.length} of ${target} picked`}>{picks.length} of {target} picked</span>
+              )}
             </div>
             {failed && <div className="ask-failed" role="alert">That didn't reach the list. {simple ? "Tap ✓ again." : "Try That's it! again."}</div>}
             <div className="ask-actions">
@@ -464,6 +484,18 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-tile-check { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; background: #0D9488; color: #fff;
   display: grid; place-items: center; font-size: 15px; transform: scale(0); transition: transform 0.25s cubic-bezier(.3,1.6,.5,1); }
 .ask-tile.picked .ask-tile-check { transform: scale(1); }
+/* Shopper's numbered badge: calm in (no overshoot); the ✓ → number crossfade runs once when a card
+   becomes picked. The resting state is the number, so reduced motion (animations off) shows it at once,
+   and a renumber after an unpick just changes the digit. */
+.ask-tile-order { transition: transform 0.2s ease-out; font: 700 15px 'Lato', sans-serif; }
+.ask-order-check, .ask-order-num { grid-area: 1 / 1; }
+.ask-order-check { opacity: 0; }
+.ask-order-num { opacity: 1; }
+.ask-tile.picked .ask-order-check { animation: ask-order-out 0.2s ease 0.35s both; }
+.ask-tile.picked .ask-order-num { animation: ask-order-in 0.2s ease 0.35s both; }
+@keyframes ask-order-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.8); } }
+@keyframes ask-order-in { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: none; } }
+.ask-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Simple (S3-1): at most four tiles, two columns, rows that share the height left, so the grid
    shrinks to fit and never scrolls on a 375 px phone. The photo or glyph fills the tile and the
@@ -483,7 +515,7 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-cartbar { border-top: 1px solid #EFE3D0; padding: 8px 20px 18px; background: #FAF4EC; }
 .ask-cartrow { display: flex; align-items: center; justify-content: center; gap: 14px; }
 .ask-wagon { display: block; overflow: visible; }
-.ask-wagon-small { width: 150px; }
+.ask-wagon-small { width: 185px; }
 .ask-wagon-pick { cursor: pointer; }
 .ask-card.fresh { animation: ask-drop 0.38s cubic-bezier(.3,1.5,.5,1); transform-box: fill-box; transform-origin: center bottom; }
 @keyframes ask-drop { from { transform: translateY(-22px) scale(0.7); opacity: 0; } to { transform: none; opacity: 1; } }

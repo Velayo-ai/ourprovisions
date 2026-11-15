@@ -437,3 +437,74 @@ test("the turn scene has the sun's faint blurred path on the water (0.25) and no
   expect(path.getAttribute("filter")).toMatch(/^url\(#ask-blur\)$/);
   expect(container.querySelectorAll(".ask-scene path[stroke='#FBE7C2']")).toHaveLength(0);   // the old glint strokes
 });
+
+// Shopper picker polish (2026-11-14): numbered picks, no dots, a bigger footer wagon.
+describe("numbered picks (Shopper)", () => {
+  const ASK4 = { ...ASK, pickTarget: 4 };
+  const badge = (name) => tile(name).querySelector(".ask-order-num").textContent;
+  const wagonOrder = (c) => [...c.querySelectorAll(".ask-shelf .ask-wagon .ask-wagon-pick")].map((g) => g.getAttribute("aria-label").replace("Take out ", ""));
+  test("each selected card shows its pick number; its label reads '{name}, pick {n} of {N}'", () => {
+    setup({ ask: ASK4 });
+    toShelf();
+    ["Cheese", "Goldfish", "Yogurt"].forEach((n) => fireEvent.click(tile(n)));
+    expect([badge("Cheese"), badge("Goldfish"), badge("Yogurt")]).toEqual(["1", "2", "3"]);
+    expect(tile("Cheese")).toHaveAttribute("aria-label", "Cheese, pick 1 of 4");
+    expect(tile("Yogurt")).toHaveAttribute("aria-label", "Yogurt, pick 3 of 4");
+    expect(tile("Apples")).not.toHaveAttribute("aria-label");                       // unpicked: the name from its content
+    expect(tile("Apples").querySelector(".ask-order-num").textContent).toBe("");
+  });
+  test("an unpick renumbers the rest at once, keeping their order; the wagon closes up to match", () => {
+    const { container } = setup({ ask: ASK4 });
+    toShelf();
+    ["Cheese", "Goldfish", "Yogurt", "Apples"].forEach((n) => fireEvent.click(tile(n)));
+    expect(wagonOrder(container)).toEqual(["Cheese", "Goldfish", "Yogurt", "Apples"]);
+    fireEvent.click(tile("Goldfish"));                                              // 1,2,3,4 minus 2
+    expect([badge("Cheese"), badge("Yogurt"), badge("Apples")]).toEqual(["1", "2", "3"]);
+    expect(wagonOrder(container)).toEqual(["Cheese", "Yogurt", "Apples"]);
+    expect(tile("Apples")).toHaveAttribute("aria-label", "Apples, pick 3 of 4");
+  });
+  test("the wagon's order = the badge order = Great picks' order", async () => {
+    const { container } = setup({ ask: ASK4 });
+    toShelf();
+    ["Yogurt", "Cheese", "Apples", "Goldfish"].forEach((n) => fireEvent.click(tile(n)));
+    fireEvent.click(screen.getByRole("button", { name: "Take out Cheese" }));      // from the wagon this time
+    fireEvent.click(tile("Cheese"));                                                // back in, last
+    const byBadge = ["Yogurt", "Cheese", "Apples", "Goldfish"].sort((a, b) => Number(badge(a)) - Number(badge(b)));
+    expect(byBadge).toEqual(["Yogurt", "Apples", "Goldfish", "Cheese"]);
+    expect(wagonOrder(container)).toEqual(byBadge);
+    fireEvent.click(thatsIt());
+    await screen.findByText("Your picks are on our list!");
+    expect([...container.querySelectorAll(".ask-finale .ask-wagon-pick")].map((g) => g.getAttribute("aria-label"))).toEqual(byBadge);
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent.replace("🍎", ""))).toEqual(byBadge);
+  });
+  test("no progress dots on Shopper; the count stays for screen readers; the footer wagon is the 185px drawing", () => {
+    const { container } = setup({ ask: ASK4 });
+    toShelf();
+    fireEvent.click(tile("Cheese"));
+    expect(container.querySelector(".ask-dots")).toBeNull();
+    expect(screen.getByLabelText("1 of 4 picked")).toHaveClass("ask-sr");
+    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+    expect(css).toMatch(/\.ask-wagon-small \{ width: 185px; \}/);
+    expect(container.querySelector(".ask-cartrow .ask-wagon")).toHaveClass("ask-wagon-small");
+  });
+  test("Explorer keeps its plain ✓ (no number) and its dots, at the same 185px wagon", () => {
+    const { container } = setup({ ask: { id: "a-k", label: "Kid", shelfNoun: null, pickTarget: 2, screenStyle: "simple" } });
+    fireEvent.click(screen.getByRole("button", { name: "Let's pick" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cheese" }));
+    const picked = screen.getByRole("button", { name: "Cheese, pick 1 of 2" });
+    expect(picked.querySelector(".ask-tile-check")).toHaveTextContent(/^✓$/);
+    expect(picked.querySelector(".ask-order-num")).toBeNull();
+    expect(container.querySelector(".ask-dots")).not.toBeNull();
+    expect(container.querySelector(".ask-cartrow .ask-wagon")).toHaveClass("ask-wagon-small");
+  });
+  test("the ✓ → number crossfade: ~350ms, then ~200ms, calm; reduced motion rests on the number with no transition", () => {
+    setup();
+    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+    expect(css).toMatch(/\.ask-order-check \{ opacity: 0; \}/);                     // resting state: the number
+    expect(css).toMatch(/\.ask-order-num \{ opacity: 1; \}/);
+    expect(css).toMatch(/\.ask-tile\.picked \.ask-order-check \{ animation: ask-order-out 0\.2s ease 0\.35s both; \}/);
+    expect(css).toMatch(/\.ask-tile\.picked \.ask-order-num \{ animation: ask-order-in 0\.2s ease 0\.35s both; \}/);
+    expect(css).toMatch(/\.ask-tile-order \{ transition: transform 0\.2s ease-out;/);   // no overshoot
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.ask-run \*, \.ask-run \*::before, \.ask-run \*::after \{ animation: none !important; transition: none !important; \}/);
+  });
+});
