@@ -8461,9 +8461,9 @@ function ProvisionsApp({ scrollRootRef }) {
       items: groups[rawCat].sort((a, b) => a.name.localeCompare(b.name)),
     }));
   }, [listRows, prices, supabasePrices, localPrices, contributorsMap, user?.id]);
-  // "See" after an Ask (2026-11-15): the landed rows keep a soft teal tint and a slim pinned bar reads
-  // "{Label}'s {N} picks · Next ↓ · Done" until she says Done, leaves Shop, or checks the rows off (each
-  // check drops its own tint). The rules are in hooks/useLandedHighlight.
+  // "See" after an Ask (2026-11-15, revised): the landed rows get the soft teal tint; once the scroll to
+  // the first one settles it holds, then fades over the last ~1.2s of ~5.2s. Leaving Shop clears it; a
+  // check drops its own row. The rules are in hooks/useLandedHighlight.
   const checkedCatalogIds = useMemo(
     () => new Set(shoppingList.flatMap((c) => c.items).filter((i) => checked[i.listItemId]).map((i) => i.catalogItemId)),
     [shoppingList, checked]);
@@ -8991,17 +8991,6 @@ function ProvisionsApp({ scrollRootRef }) {
           </div>
         )))}
       </div>
-
-      {/* "See" after an Ask (2026-11-15): the slim bar pinned at the top of Shop while the landed rows are
-          tinted. Next walks them in list order (wrapping); Done clears the tint and the bar. The label sits
-          in .op-name. */}
-      {landed.hl && view === "list" && (
-        <div className="landed-bar" role="status">
-          <span className="landed-bar-text"><span className="op-name">{landed.hl.label}</span>'s {landed.hl.total} {landed.hl.total === 1 ? "pick" : "picks"}</span>
-          <button type="button" className="landed-bar-btn" onClick={landed.next}>Next <span aria-hidden="true">↓</span></button>
-          <button type="button" className="landed-bar-btn" onClick={landed.done}>Done</button>
-        </div>
-      )}
 
       {/* The Helm — floating nav pill (SPEC_nav_helm.md). Fixed, outside the
           scrolling content, z-index 900: over content, under sheets (1000) and
@@ -10357,18 +10346,11 @@ function ProvisionsApp({ scrollRootRef }) {
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
         .list-cat-title { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
         .list-item { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; -webkit-tap-highlight-color: transparent; }
-        /* The hand-back's See (W9): the rows an Ask just landed glow in the people tint, then fade. Reduced
-           motion: a steady tint for the same 2.6s (the state clears it). */
-        .list-item.ask-landed-hl { background: var(--people-soft); box-shadow: inset 3px 0 0 var(--people-strong); border-radius: 8px; transition: background 0.3s ease; }
-        .landed-bar { position: fixed; z-index: 905; top: calc(10px + var(--op-inset-top, 0px)); left: 50%; transform: translateX(-50%); width: min(calc(100% - 24px), 480px);
-          display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 16px; box-sizing: border-box; border-radius: 999px;
-          background: var(--people-soft); border: 1px solid var(--people-border); color: var(--people-ink); box-shadow: 0 4px 14px rgba(44,26,14,.12);
-          font: 700 14px 'Lato', sans-serif; }
-        .landed-bar-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .landed-bar-btn { flex: none; min-height: 40px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--people-ink);
-          font: 700 14px 'Lato', sans-serif; cursor: pointer; }
-        .landed-bar-btn:active { background: rgba(10,119,109,.1); }
-        body:has(.modal-overlay, .add-sheet-scrim) .landed-bar { display: none; }
+        /* The hand-back's See (W9; 2026-11-15 revised): the rows an Ask just landed hold the people tint
+           for ~4s after the scroll settles, then .fading eases it out over 1.2s (the state then drops the
+           class). A colour fade, not movement, so it stays under reduced motion. */
+        .list-item.ask-landed-hl { background: var(--people-soft); box-shadow: inset 3px 0 0 var(--people-strong); border-radius: 8px; }
+        .list-item.ask-landed-hl.fading { background: transparent; box-shadow: inset 3px 0 0 transparent; transition: background 1.2s ease-out, box-shadow 1.2s ease-out; }
         .list-item.done { opacity: 0.45; }
         .list-item.done .li-name { text-decoration: line-through; color: #a89878; }
         .checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
@@ -12140,7 +12122,7 @@ function ProvisionsApp({ scrollRootRef }) {
                       <div className="list-cat-title">{cat.category}</div>
                       {cat.items.map((item) => (
                         <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                          <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? " ask-landed-hl" : ""}`}>
+                          <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
                             <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
                             <div style={{ flex: 1 }}>
                               <div className="li-name">
@@ -12169,7 +12151,7 @@ function ProvisionsApp({ scrollRootRef }) {
                     {shopFlatItems.length > 0 && <div className="az-eyebrow">{shopFlatItems.length} to find</div>}
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                        <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? " ask-landed-hl" : ""}`}>
+                        <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
                           <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
                           <div className="li-name">
                             {item.name}

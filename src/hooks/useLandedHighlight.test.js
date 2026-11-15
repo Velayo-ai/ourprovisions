@@ -1,9 +1,9 @@
 /* eslint-disable testing-library/no-node-access -- the tinted rows are found on screen by selector, as the hook does. */
 import { renderHook, act } from "@testing-library/react";
-import { useLandedHighlight, nextLandedIndex, LANDED_ROW_SELECTOR } from "./useLandedHighlight";
+import { useLandedHighlight, LANDED_ROW_SELECTOR, HIGHLIGHT_MS, FADE_MS, SETTLE_QUIET_MS } from "./useLandedHighlight";
 
-// "See" after an Ask (2026-11-15): the tint and the bar wait for her; Next walks the landed rows in list
-// order and wraps; Done, leaving Shop and a check clear them.
+// "See" after an Ask (2026-11-15, revised): See scrolls to the first landed row; once that scroll settles
+// the tint holds, fades over the final ~1.2s, and is gone at ~5.2s. No bar, no controls.
 let scrolled;
 beforeEach(() => {
   jest.useFakeTimers();
@@ -13,74 +13,80 @@ beforeEach(() => {
 });
 afterEach(() => { jest.useRealTimers(); delete window.matchMedia; document.body.innerHTML = ""; });
 
-// Shop's rows on screen, in list order; the tinted ones carry the class (as App renders them).
 function rowsOnScreen(ids, tinted) {
   document.body.innerHTML = ids.map((id) => `<div class="list-item${tinted.has(id) ? " ask-landed-hl" : ""}" data-id="${id}"></div>`).join("");
 }
 const NONE = new Set();
+const SEE_DELAY = 60;   // the hook waits for Shop to render the rows
+const advance = (ms) => act(() => { jest.advanceTimersByTime(ms); });
+function see(ids = ["c", "a", "e"]) {
+  const view = renderHook((p) => useLandedHighlight(p), { initialProps: { view: "list", checkedIds: NONE } });
+  act(() => view.result.current.start("Five", ids));
+  rowsOnScreen(["a", "b", "c", "d", "e"], new Set(ids));
+  return view;
+}
 
-test("nextLandedIndex: from none to the first, then on, wrapping at the end", () => {
-  expect(nextLandedIndex(-1, 3)).toBe(0);
-  expect(nextLandedIndex(0, 3)).toBe(1);
-  expect(nextLandedIndex(2, 3)).toBe(0);                  // wraps
-  expect(nextLandedIndex(4, 3)).toBe(2);                  // a cursor past the end (rows dropped) still lands in range
-  expect(nextLandedIndex(0, 0)).toBe(-1);
+test("the timings: ~5.2s in all, the fade over the final ~1.2s", () => {
+  expect(HIGHLIGHT_MS).toBe(5200);
+  expect(FADE_MS).toBe(1200);
   expect(LANDED_ROW_SELECTOR).toBe(".list-item.ask-landed-hl");
 });
 
-test("See: the tint and the bar stay (no timed fade); the first landed row is brought into view", () => {
-  const { result, rerender } = renderHook((p) => useLandedHighlight(p), { initialProps: { view: "list", checkedIds: NONE } });
-  act(() => result.current.start("Five", ["c", "a", "e"]));
-  rowsOnScreen(["a", "b", "c", "d", "e"], new Set(["a", "c", "e"]));
-  act(() => { jest.advanceTimersByTime(100); });
-  expect(scrolled).toEqual([["a", "smooth"]]);                                     // first in LIST order
-  expect(result.current.hl).toMatchObject({ label: "Five", total: 3 });
-  act(() => { jest.advanceTimersByTime(60000); });                                  // a minute later: still there
-  rerender({ view: "list", checkedIds: NONE });
+test("See brings the first landed row (list order) into view, smoothly", () => {
+  see();
+  advance(SEE_DELAY);
+  expect(scrolled).toEqual([["a", "smooth"]]);
+});
+
+test("after the scroll settles: holds for ~4s, fades for the last ~1.2s, gone at ~5.2s", () => {
+  const { result } = see();
+  advance(SEE_DELAY + SETTLE_QUIET_MS);                                             // settled: the clock starts
+  expect(result.current.hl).toMatchObject({ label: "Five", fading: false });
+  advance(HIGHLIGHT_MS - FADE_MS - 1);
+  expect(result.current.hl.fading).toBe(false);
+  advance(1);                                                                        // 4.0s: the fade begins
+  expect(result.current.hl.fading).toBe(true);
+  expect(result.current.hl.ids.size).toBe(3);
+  advance(FADE_MS - 1);
   expect(result.current.hl).not.toBeNull();
-});
-
-test("Next goes through the landed rows in list order and wraps around", () => {
-  const { result } = renderHook((p) => useLandedHighlight(p), { initialProps: { view: "list", checkedIds: NONE } });
-  act(() => result.current.start("Five", ["e", "a", "c"]));
-  rowsOnScreen(["a", "b", "c", "d", "e"], new Set(["a", "c", "e"]));
-  act(() => { jest.advanceTimersByTime(100); });                                    // See: a
-  const order = [];
-  for (let k = 0; k < 4; k++) act(() => { order.push(result.current.next().dataset.id); });
-  expect(order).toEqual(["c", "e", "a", "c"]);                                      // c, e, wrap to a, c
-});
-
-test("Done clears the tint and the bar", () => {
-  const { result } = renderHook((p) => useLandedHighlight(p), { initialProps: { view: "list", checkedIds: NONE } });
-  act(() => result.current.start("Five", ["a"]));
-  act(() => result.current.done());
+  advance(1);                                                                        // 5.2s: gone
   expect(result.current.hl).toBeNull();
 });
 
-test("leaving Shop clears them", () => {
-  const { result, rerender } = renderHook((p) => useLandedHighlight(p), { initialProps: { view: "list", checkedIds: NONE } });
-  act(() => result.current.start("Five", ["a", "b"]));
-  expect(result.current.hl).not.toBeNull();
-  rerender({ view: "input", checkedIds: NONE });                                     // to Browse
+test("the clock waits for the scroll: while it is still moving nothing counts down", () => {
+  const { result } = see();
+  advance(SEE_DELAY);
+  for (let k = 0; k < 8; k++) { advance(100); act(() => { window.dispatchEvent(new Event("scroll")); }); }   // 800ms of scrolling
+  advance(SETTLE_QUIET_MS);                                                          // now settled
+  advance(HIGHLIGHT_MS - 1);
+  expect(result.current.hl).not.toBeNull();                                          // timed from the settle, not from See
+  advance(1);
   expect(result.current.hl).toBeNull();
 });
 
-test("a row checked off drops its own tint; the last one takes the bar with it", () => {
-  const { result, rerender } = renderHook((p) => useLandedHighlight(p), { initialProps: { view: "list", checkedIds: NONE } });
-  act(() => result.current.start("Five", ["a", "b", "c"]));
-  rerender({ view: "list", checkedIds: new Set(["b", "zz"]) });                      // b checked (zz: some other row)
+test("there is no bar API: start is the only control", () => {
+  const { result } = see();
+  expect(Object.keys(result.current).sort()).toEqual(["hl", "start"]);
+});
+
+test("leaving Shop clears it early", () => {
+  const { result, rerender } = see();
+  rerender({ view: "input", checkedIds: NONE });
+  expect(result.current.hl).toBeNull();
+});
+
+test("a row checked off drops its own tint; the clock carries on", () => {
+  const { result, rerender } = see(["a", "b", "c"]);
+  advance(SEE_DELAY + SETTLE_QUIET_MS + 1000);
+  rerender({ view: "list", checkedIds: new Set(["b"]) });
   expect([...result.current.hl.ids].sort()).toEqual(["a", "c"]);
-  expect(result.current.hl.total).toBe(3);                                           // "Five's 3 picks" still names what landed
-  rerender({ view: "list", checkedIds: new Set(["a", "b", "c"]) });
+  advance(HIGHLIGHT_MS - 1000);
   expect(result.current.hl).toBeNull();
 });
 
-test("reduced motion: See and Next jump without the scroll animation", () => {
+test("reduced motion: the scroll jumps", () => {
   window.matchMedia = (q) => ({ matches: /reduce/.test(q), addListener() {}, removeListener() {} });
-  const { result } = renderHook((p) => useLandedHighlight(p), { initialProps: { view: "list", checkedIds: NONE } });
-  act(() => result.current.start("Five", ["a", "c"]));
-  rowsOnScreen(["a", "b", "c"], new Set(["a", "c"]));
-  act(() => { jest.advanceTimersByTime(100); });
-  act(() => { result.current.next(); });
-  expect(scrolled).toEqual([["a", "auto"], ["c", "auto"]]);
+  see();
+  advance(SEE_DELAY);
+  expect(scrolled).toEqual([["a", "auto"]]);
 });

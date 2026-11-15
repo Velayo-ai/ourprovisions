@@ -385,6 +385,8 @@ describe("the hand-back (W7–W9)", () => {
     expect(mount).toContain('onClick: () => { setView("list"); landed.start(label, ids); },');
     expect(mount).toContain("}, { ms: 10000 });");                                        // the toast waits ~10s (2026-11-15)
     expect(app.match(/ask-landed-hl/g).length).toBeGreaterThanOrEqual(3);                   // both Shop lenses + the style
+    expect(app).toMatch(/\.list-item\.ask-landed-hl\.fading \{[^}]*transition: background 1\.2s ease-out/);   // the final ~1.2s fade
+    expect(app).not.toMatch(/landed-bar/);                                                  // no bar (2026-11-15 revised)
   });
 });
 
