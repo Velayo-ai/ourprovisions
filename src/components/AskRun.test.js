@@ -505,6 +505,12 @@ describe("numbered picks (Shopper)", () => {
   });
 });
 
+test("the titles use lining figures, so the 5 in \"Pick 5\" stands at cap height", () => {
+  setup();
+  const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+  expect(css).toMatch(/\.ask-h1 \{ font-variant-numeric: lining-nums; \}/);
+});
+
 // Explorer's progress (2026-11-15, Dan): no numbers, no dots — the tub fills turquoise; full, it bursts.
 describe("Explorer's tide and finish", () => {
   const KID = { id: "a-k", label: "Kid", shelfNoun: null, pickTarget: 2, screenStyle: "simple" };

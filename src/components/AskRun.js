@@ -589,6 +589,9 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-done-text { position: relative; }
 .ask-h1 { position: relative; z-index: 1; font-family: 'Playfair Display', serif; font-weight: 700; font-size: 40px; line-height: 1.1; text-align: center; margin: 28px 20px 0; }
 .ask-h1-left { text-align: left; font-size: 32px; margin-top: 20px; }
+/* "Pick 5, Danny!" (2026-11-15): Playfair's default old-style figures set the 5 at x-height, the weakest glyph on
+   the line; lining figures stand it at cap height with the P and the D. */
+.ask-h1 { font-variant-numeric: lining-nums; }
 .ask-rule { position: relative; z-index: 1; width: 64px; height: 3px; border-radius: 2px; background: #0D9488; margin: 16px auto 0; }
 .ask-rule-left { margin-left: 20px; }
 .ask-line { position: relative; z-index: 1; text-align: center; font: 400 calc(17px * var(--op-text-scale, 1)) 'Lato', sans-serif; margin: 18px 24px 0; }
