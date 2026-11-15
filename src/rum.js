@@ -296,7 +296,9 @@ if (rumToken) {
     rumAccessToken: rumToken,
     applicationName: 'OurProvisions',
     deploymentEnvironment: deployEnv,
-    version: '1.0.0',
+    // The build's commit (7 chars) so a defect ties to a deploy; .env.production maps Vercel's
+    // VERCEL_GIT_COMMIT_SHA in. A local build has none: '1.0.0', as before.
+    version: (process.env.REACT_APP_GIT_SHA || '').slice(0, 7) || '1.0.0',
     // D2: anonymous tracking, STATED — not inherited from a default that could
     // flip again (v2.0 flipped it once). A persistent anonymous id gives DXA
     // cross-session journeys without a Clerk id or email leaving the app.
