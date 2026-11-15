@@ -16,7 +16,8 @@ export function landAskPicksArgs(householdId, askId, catalogItemIds) {
 // attribute (rum.js setHousehold), so the event is household-scoped, not anonymous.
 export function askCompletedAttributes(count) {
   const n = Number.isInteger(count) && count > 0 ? count : 0;
-  return { pick_count: n };
+  // workflow.name makes it a Splunk Custom Event (Digital Experience → Custom Events), like the other Ask events.
+  return { "workflow.name": "ask_completed", pick_count: n };
 }
 
 // "Easton", "Easton & Everett", "Easton, Everett & Nina" — the provenance line's join.
