@@ -382,7 +382,8 @@ describe("the hand-back (W7–W9)", () => {
     expect(mount).toContain('showToast(<><span className="op-name">{label}</span> added {count}</>, {');
     expect(mount).toContain('label: "See",');
     expect(mount).toContain('setView("list");');
-    expect(mount).toContain("setLandedHighlight(new Set(ids));");
+    expect(mount).toContain('onClick: () => { setView("list"); landed.start(label, ids); },');
+    expect(mount).toContain("}, { ms: 10000 });");                                        // the toast waits ~10s (2026-11-15)
     expect(app.match(/ask-landed-hl/g).length).toBeGreaterThanOrEqual(3);                   // both Shop lenses + the style
   });
 });

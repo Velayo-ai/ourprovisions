@@ -56,6 +56,7 @@ import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
 import { CHECK_HOLD_MS, undoAllIds, undoSettling } from './lib/shopCheck';
 import { useCheckUndos } from './hooks/useCheckUndos';
+import { useLandedHighlight } from './hooks/useLandedHighlight';
 import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS } from './hooks/useLandscapePhone';
 import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
 import { LandscapeStaples } from './components/LandscapeStaples';
@@ -5920,7 +5921,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const showToast = useCallback((message, action = null, opts = {}) => {
     setToastMessage({ text: message, action, line: !!opts.line });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastMessage(null), action ? 4000 : 2500);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), opts.ms || (action ? 4000 : 2500));
   }, []);
   // SPEC_list_counts D4: "{Meal} added · N to get" / "N meals added · M to get", N/M = `open`
   // AFTER the add. The number is read from the hook's row ref, not from this render's
@@ -6941,20 +6942,8 @@ function ProvisionsApp({ scrollRootRef }) {
   const [runAskId, setRunAskId] = useState(null);
   // THE HAND-BACK (SPEC_ask_wagon_handback W8, W9): Great picks' "Give it back to {Parent}" closes the
   // run and lands on Browse with the app toast "{Label} added {N} · See" — once per run, and only
-  // after a successful land (a failed land never reaches Great picks). See opens the list with the
-  // landed rows briefly highlighted (their "Picked by" initials are already on them). No approval step.
-  const [landedHighlight, setLandedHighlight] = useState(null);   // Set of catalog item ids, or null
-  const landedHighlightTimer = useRef(null);
-  useEffect(() => () => clearTimeout(landedHighlightTimer.current), []);
-  // See brings the first highlighted row into view once Shop has rendered it.
-  useEffect(() => {
-    if (!landedHighlight || view !== "list") return undefined;
-    const t = setTimeout(() => {
-      const el = document.querySelector(".list-item.ask-landed-hl");
-      if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" });
-    }, 120);
-    return () => clearTimeout(t);
-  }, [landedHighlight, view]);
+  // after a successful land (a failed land never reaches Great picks). No approval step. What See does
+  // (2026-11-15: a highlight that waits for her) lives in useLandedHighlight, below the Shop list.
   // "+N more" (C4.2): the asks past the rail's two pills, in a small sheet.
   const [moreAsksOpen, setMoreAsksOpen] = useState(false);
   useEffect(() => { setAddSheet(null); setNewAskOpen(false); setEditAskId(null); setDeleteAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
@@ -8472,6 +8461,13 @@ function ProvisionsApp({ scrollRootRef }) {
       items: groups[rawCat].sort((a, b) => a.name.localeCompare(b.name)),
     }));
   }, [listRows, prices, supabasePrices, localPrices, contributorsMap, user?.id]);
+  // "See" after an Ask (2026-11-15): the landed rows keep a soft teal tint and a slim pinned bar reads
+  // "{Label}'s {N} picks · Next ↓ · Done" until she says Done, leaves Shop, or checks the rows off (each
+  // check drops its own tint). The rules are in hooks/useLandedHighlight.
+  const checkedCatalogIds = useMemo(
+    () => new Set(shoppingList.flatMap((c) => c.items).filter((i) => checked[i.listItemId]).map((i) => i.catalogItemId)),
+    [shoppingList, checked]);
+  const landed = useLandedHighlight({ view, checkedIds: checkedCatalogIds });
 
   // INVARIANT: list-row state (`quantities`, `checked`) is keyed by list_item.id;
   // the name is a label, never an identity. Browse rows are CATALOG items, so a
@@ -8995,6 +8991,17 @@ function ProvisionsApp({ scrollRootRef }) {
           </div>
         )))}
       </div>
+
+      {/* "See" after an Ask (2026-11-15): the slim bar pinned at the top of Shop while the landed rows are
+          tinted. Next walks them in list order (wrapping); Done clears the tint and the bar. The label sits
+          in .op-name. */}
+      {landed.hl && view === "list" && (
+        <div className="landed-bar" role="status">
+          <span className="landed-bar-text"><span className="op-name">{landed.hl.label}</span>'s {landed.hl.total} {landed.hl.total === 1 ? "pick" : "picks"}</span>
+          <button type="button" className="landed-bar-btn" onClick={landed.next}>Next <span aria-hidden="true">↓</span></button>
+          <button type="button" className="landed-bar-btn" onClick={landed.done}>Done</button>
+        </div>
+      )}
 
       {/* The Helm — floating nav pill (SPEC_nav_helm.md). Fixed, outside the
           scrolling content, z-index 900: over content, under sheets (1000) and
@@ -10352,9 +10359,16 @@ function ProvisionsApp({ scrollRootRef }) {
         .list-item { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; -webkit-tap-highlight-color: transparent; }
         /* The hand-back's See (W9): the rows an Ask just landed glow in the people tint, then fade. Reduced
            motion: a steady tint for the same 2.6s (the state clears it). */
-        .list-item.ask-landed-hl { animation: ask-landed-hl 2.6s ease-out both; border-radius: 8px; }
-        @keyframes ask-landed-hl { 0%, 55% { background: var(--people-soft); box-shadow: inset 3px 0 0 var(--people-strong); } 100% { background: transparent; box-shadow: none; } }
-        @media (prefers-reduced-motion: reduce) { .list-item.ask-landed-hl { animation: none; background: var(--people-soft); } }
+        .list-item.ask-landed-hl { background: var(--people-soft); box-shadow: inset 3px 0 0 var(--people-strong); border-radius: 8px; transition: background 0.3s ease; }
+        .landed-bar { position: fixed; z-index: 905; top: calc(10px + var(--op-inset-top, 0px)); left: 50%; transform: translateX(-50%); width: min(calc(100% - 24px), 480px);
+          display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 16px; box-sizing: border-box; border-radius: 999px;
+          background: var(--people-soft); border: 1px solid var(--people-border); color: var(--people-ink); box-shadow: 0 4px 14px rgba(44,26,14,.12);
+          font: 700 14px 'Lato', sans-serif; }
+        .landed-bar-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .landed-bar-btn { flex: none; min-height: 40px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--people-ink);
+          font: 700 14px 'Lato', sans-serif; cursor: pointer; }
+        .landed-bar-btn:active { background: rgba(10,119,109,.1); }
+        body:has(.modal-overlay, .add-sheet-scrim) .landed-bar { display: none; }
         .list-item.done { opacity: 0.45; }
         .list-item.done .li-name { text-decoration: line-through; color: #a89878; }
         .checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
@@ -12126,7 +12140,7 @@ function ProvisionsApp({ scrollRootRef }) {
                       <div className="list-cat-title">{cat.category}</div>
                       {cat.items.map((item) => (
                         <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                          <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}${landedHighlight?.has(item.catalogItemId) ? " ask-landed-hl" : ""}`}>
+                          <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? " ask-landed-hl" : ""}`}>
                             <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
                             <div style={{ flex: 1 }}>
                               <div className="li-name">
@@ -12155,7 +12169,7 @@ function ProvisionsApp({ scrollRootRef }) {
                     {shopFlatItems.length > 0 && <div className="az-eyebrow">{shopFlatItems.length} to find</div>}
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                        <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}${landedHighlight?.has(item.catalogItemId) ? " ask-landed-hl" : ""}`}>
+                        <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? " ask-landed-hl" : ""}`}>
                           <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
                           <div className="li-name">
                             {item.name}
@@ -12628,13 +12642,8 @@ function ProvisionsApp({ scrollRootRef }) {
             setView("input");                                   // Browse: where the run was handed over
             showToast(<><span className="op-name">{label}</span> added {count}</>, {
               label: "See",
-              onClick: () => {
-                setView("list");
-                clearTimeout(landedHighlightTimer.current);
-                setLandedHighlight(new Set(ids));
-                landedHighlightTimer.current = setTimeout(() => setLandedHighlight(null), 2600);
-              },
-            });
+              onClick: () => { setView("list"); landed.start(label, ids); },
+            }, { ms: 10000 });                                    // ~10s: time to notice it and tap See
           }}
         />
       )}
