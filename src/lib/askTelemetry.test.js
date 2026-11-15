@@ -37,6 +37,10 @@ describe("attributes: counts, a screen, an op and a code — nothing about the p
     expect(askStyle(undefined)).toBe("shopper");
     expect(askStyle("Easton")).toBe("shopper");
   });
+  test("ask_see_tapped: the count and the style", () => {
+    expect(askEventAttributes.ask_see_tapped(5, "standard")).toEqual({ pick_count: 5, "ask.style": "shopper" });
+    expect(askEventAttributes.ask_see_tapped("Easton", "simple")).toEqual({ pick_count: 0, "ask.style": "explorer" });
+  });
   test("only the two failures carry the error flag", () => {
     ["ask_started", "ask_resumed", "ask_abandoned"].forEach((n) => expect(askEventAttributes[n]("shelf", 1)).not.toHaveProperty("error"));
   });

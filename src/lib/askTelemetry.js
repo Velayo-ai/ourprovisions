@@ -12,6 +12,8 @@
 //   ask_land_failed   That's it! didn't reach the list (the wagon is kept)   error_code, pick_count, ask.style
 //   ask_admin_failed  reading, making, editing or deleting an Ask failed     op, error_code
 //   ask_completed     (lib/askPicks) the picks landed                        pick_count, ask.style
+//   ask_see_tapped    the parent tapped See on "{Label} added N · See"       pick_count, ask.style
+//                     (÷ ask_completed ≈ how often the hand-back toast gets used)
 import { trace } from "@opentelemetry/api";
 
 const SCREENS = new Set(["turn", "shelf"]);
@@ -41,6 +43,7 @@ export const askEventAttributes = {
   ask_abandoned: (s, picks, style) => ({ screen: screen(s), pick_count: count(picks), "ask.style": askStyle(style) }),
   // The two failures carry Splunk's error flag, so they count in Custom Workflow Error Rates (and can be
   // alerted on). error.message is the CODE again — Splunk groups errors by it — never the database's text.
+  ask_see_tapped: (picks, style) => ({ pick_count: count(picks), "ask.style": askStyle(style) }),
   ask_land_failed: (err, picks, style) => {
     const code = askErrorCode(err);
     return { error: true, "error.message": code, error_code: code, pick_count: count(picks), "ask.style": askStyle(style) };

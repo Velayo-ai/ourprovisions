@@ -66,6 +66,7 @@ import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { ASK_ENABLED, ASK_FLAG_MARKER } from './lib/featureFlags';
 import { trace } from '@opentelemetry/api';
+import { emitAskEvent } from './lib/askTelemetry';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
 // registers; a no-op provider stands in with no RUM token.
@@ -12620,11 +12621,12 @@ function ProvisionsApp({ scrollRootRef }) {
           parentName={user?.firstName?.trim() || null}
           onHandBack={({ count, ids }) => {
             const label = runAsk.label;
+            const style = runAsk.screenStyle;
             setRunAskId(null);
             setView("input");                                   // Browse: where the run was handed over
             showToast(<><span className="op-name">{label}</span> added {count}</>, {
               label: "See",
-              onClick: () => { setView("list"); landed.start(label, ids); },
+              onClick: () => { emitAskEvent("ask_see_tapped", count, style); setView("list"); landed.start(label, ids); },
             }, { ms: 10000 });                                    // ~10s: time to notice it and tap See
           }}
         />
