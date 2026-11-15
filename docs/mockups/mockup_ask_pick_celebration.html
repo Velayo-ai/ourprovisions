@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ask — the pick celebration</title>
+<style>
+  :root{--teal:#0D9488;--ink:#2C1A0E;--cream:#FAF4EC;--tile:#F3E6CF}
+  *{box-sizing:border-box}
+  body{margin:0;background:#E9DFD0;font-family:Lato,system-ui,sans-serif;color:var(--ink);display:flex;justify-content:center;padding:20px}
+  .phone{width:375px;height:740px;background:var(--cream);border-radius:36px;border:9px solid #1E140C;position:relative;overflow:hidden}
+  .top{display:flex;justify-content:space-between;padding:22px 22px 0;font:700 12px Lato,sans-serif;letter-spacing:.16em}
+  .top span:last-child{letter-spacing:0;font-size:14px;color:rgba(44,26,14,.62)}
+  h1{font:700 30px Georgia,'Playfair Display',serif;margin:14px 22px 0}
+  .rule{width:60px;height:3px;background:var(--teal);border-radius:2px;margin:10px 22px 14px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:0 20px}
+  .card{position:relative;aspect-ratio:1/1;border-radius:18px;background:var(--tile);border:3px solid transparent;display:grid;place-items:center;
+        font:700 19px Georgia,serif;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;transition:border-color .2s}
+  .card .em{font-size:44px;display:block;text-align:center;margin-bottom:4px}
+  .card.sel{border-color:var(--teal)}
+  /* 1. the card answers the thumb: a press, then a lift past rest and settle */
+  .card.press{animation:press .42s cubic-bezier(.3,1.6,.5,1)}
+  @keyframes press{0%{transform:scale(1)}30%{transform:scale(.94)}70%{transform:scale(1.05)}100%{transform:scale(1)}}
+  /* 2. the badge: big enough to read at arm's length */
+  .badge{position:absolute;top:-10px;right:-10px;width:44px;height:44px;border-radius:50%;background:var(--teal);color:#fff;
+         border:3px solid var(--cream);display:grid;place-items:center;font:900 22px Lato,system-ui,sans-serif;box-shadow:0 3px 8px rgba(13,148,136,.35);
+         transform:scale(0)}
+  .badge.in{animation:pop .45s cubic-bezier(.3,1.8,.5,1) forwards}
+  @keyframes pop{0%{transform:scale(0) rotate(-30deg)}100%{transform:scale(1) rotate(0)}}
+  .badge .g{position:absolute;transition:opacity .18s,transform .25s cubic-bezier(.3,1.6,.5,1)}
+  .badge .num{opacity:0;transform:scale(.4)}
+  .badge.n .chk{opacity:0;transform:scale(.4)}
+  .badge.n .num{opacity:1;transform:scale(1)}
+  /* 3. a ring of light from the badge, once */
+  .ring{position:absolute;top:-10px;right:-10px;width:44px;height:44px;border-radius:50%;border:3px solid var(--teal);opacity:0;pointer-events:none}
+  .ring.go{animation:ring .6s ease-out}
+  @keyframes ring{0%{opacity:.7;transform:scale(1)}100%{opacity:0;transform:scale(2.4)}}
+  /* 4. a copy of the card flies into the wagon */
+  .fly{position:absolute;z-index:9;width:52px;height:58px;border-radius:8px;background:#FFFDF9;border:3px solid #FFFDF9;box-shadow:0 6px 16px rgba(44,26,14,.25);
+       display:grid;place-items:center;font-size:26px;pointer-events:none;transition:transform .55s cubic-bezier(.5,0,.3,1),opacity .55s}
+  .foot{position:absolute;left:0;right:0;bottom:0;height:200px;background:var(--cream);border-top:1px solid #EADBC2;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .wagon{width:200px;position:relative}
+  .wagon.hop{animation:hop .4s cubic-bezier(.3,1.6,.5,1)}
+  @keyframes hop{0%,100%{transform:translateY(0)}40%{transform:translateY(-8px)}}
+  .cards{position:absolute;left:44px;top:4px;display:flex;gap:2px}
+  .mini{width:30px;height:34px;border-radius:5px;background:#FFFDF9;border:2px solid #EADBC2;display:grid;place-items:center;font-size:17px}
+  .hint{font-size:12px;color:#7A5A3A;margin-top:10px}
+  .ctl{position:absolute;bottom:14px;right:16px;font-size:12px}
+</style></head><body>
+<div class="phone" id="ph">
+  <div class="top"><span>ASK EASTON</span><span>Done</span></div>
+  <h1>Pick 4, Easton!</h1><div class="rule"></div>
+  <div class="grid" id="grid"></div>
+  <div class="foot">
+    <div class="wagon" id="wagon">
+      <div class="cards" id="cards"></div>
+      <svg viewBox="0 0 260 150" width="200"><ellipse cx="134" cy="142" rx="104" ry="7" fill="#6E4A2A" opacity=".16"/>
+        <path d="M58 50 Q58 42 66 42 H222 Q230 42 230 50 L226 58 H62 Z" fill="#E6D8C1"/>
+        <path d="M56 56 H232 L222 110 Q220 116 213 116 H75 Q68 116 66 110 Z" fill="#FBF6EE" stroke="#D2BC98" stroke-width="1.5"/>
+        <path d="M60 82 H228 L226 92 H62 Z" fill="#0D9488"/><rect x="50" y="50" width="188" height="10" rx="5" fill="#FFFDF9" stroke="#D2BC98" stroke-width="1.5"/>
+        <rect x="70" y="109" width="26" height="7" rx="2.5" fill="#8A5E37"/><path d="M74 113 L60 119" stroke="#8A5E37" stroke-width="4.5" stroke-linecap="round"/>
+        <circle cx="86" cy="126" r="17" fill="#B5814B" stroke="#6E4A2A" stroke-width="3"/><circle cx="86" cy="126" r="4.5" fill="#3B2A1C"/>
+        <circle cx="204" cy="126" r="17" fill="#B5814B" stroke="#6E4A2A" stroke-width="3"/><circle cx="204" cy="126" r="4.5" fill="#3B2A1C"/>
+        <path d="M60 119 L35 52 Q33 46 28 43" fill="none" stroke="#B5814B" stroke-width="5" stroke-linecap="round"/><path d="M29 43.5 L14 37" stroke="#3B2A1C" stroke-width="8" stroke-linecap="round"/>
+        <circle cx="60" cy="119" r="5" fill="#B5814B" stroke="#7F5532" stroke-width="1.5"/></svg>
+    </div>
+    <div class="hint">Tap to pick · tap again to take it out</div>
+  </div>
+</div>
+<script>
+const items=[["🍎","Apples"],["🍌","Bananas"],["🧀","Cheese"],["🥕","Carrots"]];
+const picks=[]; const grid=document.getElementById('grid'), ph=document.getElementById('ph');
+items.forEach(([e,n],i)=>{const c=document.createElement('div');c.className='card';
+  c.innerHTML=`<div><span class="em">${e}</span>${n}</div><div class="ring"></div><div class="badge"><span class="g chk">✓</span><span class="g num"></span></div>`;
+  c.onclick=()=>tap(i,c);grid.appendChild(c);});
+function renumber(){[...grid.children].forEach((c,i)=>{const k=picks.indexOf(i);const b=c.querySelector('.badge');if(k>=0)b.querySelector('.num').textContent=k+1;});
+  document.getElementById('cards').innerHTML=picks.map(i=>`<div class="mini">${items[i][0]}</div>`).join('');}
+function tap(i,c){const b=c.querySelector('.badge'),r=c.querySelector('.ring');const k=picks.indexOf(i);
+  if(k>=0){picks.splice(k,1);c.classList.remove('sel');b.classList.remove('in','n');b.style.transform='scale(0)';renumber();return;}
+  if(picks.length>=4)return; picks.push(i);
+  c.classList.add('sel');c.classList.remove('press');void c.offsetWidth;c.classList.add('press');
+  b.style.transform='';b.classList.remove('n');b.classList.remove('in');void b.offsetWidth;b.classList.add('in');
+  r.classList.remove('go');void r.offsetWidth;r.classList.add('go');
+  b.querySelector('.num').textContent=picks.length;
+  setTimeout(()=>b.classList.add('n'),380);
+  // fly a copy into the wagon
+  const pr=ph.getBoundingClientRect(),cr=c.getBoundingClientRect(),wr=document.getElementById('wagon').getBoundingClientRect();
+  const f=document.createElement('div');f.className='fly';f.textContent=items[i][0];
+  f.style.left=(cr.left-pr.left+cr.width/2-26)+'px';f.style.top=(cr.top-pr.top+cr.height/2-29)+'px';ph.appendChild(f);
+  const dx=(wr.left-pr.left+60+ (picks.length-1)*32)-(cr.left-pr.left+cr.width/2-26), dy=(wr.top-pr.top+4)-(cr.top-pr.top+cr.height/2-29);
+  requestAnimationFrame(()=>{f.style.transform=`translate(${dx}px,${dy}px) scale(.58) rotate(${picks.length%2?-8:8}deg)`;});
+  setTimeout(()=>{f.remove();renumber();const w=document.getElementById('wagon');w.classList.remove('hop');void w.offsetWidth;w.classList.add('hop');},560);
+}
+// static preview for screenshots: ?demo
+if(location.search.includes('demo')){[0,2].forEach(i=>{picks.push(i);const c=grid.children[i];c.classList.add('sel');const b=c.querySelector('.badge');b.style.transform='scale(1)';b.classList.add('n');});renumber();}
+</script>
+</body></html>

@@ -4,7 +4,7 @@
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import fs from "fs";
 import path from "path";
-import { AskRun, cardLayout } from "./AskRun";
+import { AskRun, cardLayout, flightFor } from "./AskRun";
 
 // Running an Ask (SPEC_ask amendment A14–A17, A24; SPEC_ask_slice2 C3b).
 const ASK = { id: "a-easton", label: "Easton", shelfNoun: "snacks", pickTarget: 3 };
@@ -499,16 +499,6 @@ describe("numbered picks (Shopper)", () => {
     expect(container.querySelector(".ask-dots")).not.toBeNull();
     expect(container.querySelector(".ask-cartrow .ask-wagon")).toHaveClass("ask-wagon-small");
   });
-  test("the ✓ → number crossfade: ~350ms, then ~200ms, calm; reduced motion rests on the number with no transition", () => {
-    setup();
-    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
-    expect(css).toMatch(/\.ask-order-check \{ opacity: 0; \}/);                     // resting state: the number
-    expect(css).toMatch(/\.ask-order-num \{ opacity: 1; \}/);
-    expect(css).toMatch(/\.ask-tile\.picked \.ask-order-check \{ animation: ask-order-out 0\.2s ease 0\.35s both; \}/);
-    expect(css).toMatch(/\.ask-tile\.picked \.ask-order-num \{ animation: ask-order-in 0\.2s ease 0\.35s both; \}/);
-    expect(css).toMatch(/\.ask-tile-order \{ transition: transform 0\.2s ease-out;/);   // no overshoot
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.ask-run \*, \.ask-run \*::before, \.ask-run \*::after \{ animation: none !important; transition: none !important; \}/);
-  });
 });
 
 // Great picks: the wagon is the summary (2026-11-14).
@@ -590,5 +580,118 @@ describe("Great picks layout", () => {
     expect(src).toMatch(/const RIM_CX = 144;/);
     expect(144 - 260 / 2).toBe(14);
     expect(css).toMatch(/\.ask-finale \{[^}]*overflow-x: hidden;/);               // the shift never scrolls sideways
+  });
+});
+
+// The pick celebration (2026-11-15; docs/mockups/mockup_ask_pick_celebration.html).
+describe("the pick celebration", () => {
+  const css = () => [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+  const PHOTOS = ["Apples", "Bananas", "Bread", "Cheese"].map((name, i) => ({ id: `ph-${i}`, name, glyph: null, photoUrl: `https://x/${name}.webp` }));
+  test("beats 1–3 in CSS: press 0.94 → 1.05 (~420ms spring); a 44px badge over the corner that pops with a −30° spin and springs to the number at 380ms; one 600ms ring to 2.4×", () => {
+    setup();
+    const c = css();
+    expect(c).toMatch(/\.ask-tile\.press \{ animation: ask-press 0\.42s cubic-bezier\(\.3,1\.6,\.5,1\); \}/);
+    expect(c).toMatch(/@keyframes ask-press \{ 0% \{ transform: scale\(1\); \} 30% \{ transform: scale\(\.94\); \} 70% \{ transform: scale\(1\.05\); \} 100% \{ transform: scale\(1\); \} \}/);
+    expect(c).toMatch(/\.ask-badge \{ position: absolute; top: -10px; right: -10px;[^}]*width: 44px; height: 44px;[^}]*border: 3px solid #FAF4EC;[^}]*box-shadow: 0 3px 8px rgba\(13,148,136,\.35\);[^}]*font: 900 22px 'Lato'/);
+    expect(c).toMatch(/@keyframes ask-badge-pop \{ 0% \{ transform: scale\(0\) rotate\(-30deg\); \} 100% \{ transform: scale\(1\) rotate\(0deg\); \} \}/);
+    expect(c).toMatch(/\.ask-tile\.picked \.ask-order-num \{ animation: ask-num-in 0\.25s cubic-bezier\(\.3,1\.6,\.5,1\) 0\.38s both; \}/);
+    expect(c).toMatch(/\.ask-tile\.press \.ask-ring \{ animation: ask-ring 0\.6s ease-out; \}/);
+    expect(c).toMatch(/@keyframes ask-ring \{ 0% \{ opacity: \.7; transform: scale\(1\); \} 100% \{ opacity: 0; transform: scale\(2\.4\); \} \}/);
+    // resting state = the number at full size: what reduced motion (animations off) shows, with no movement
+    expect(c).toMatch(/\.ask-tile\.picked \.ask-badge \{ transform: scale\(1\);/);
+    expect(c).toMatch(/\.ask-order-check \{ opacity: 0; transform: scale\(\.4\); \}/);
+    expect(c).toMatch(/\.ask-order-num \{ opacity: 1; transform: none; \}/);
+    expect(c).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.ask-run \*, \.ask-run \*::before, \.ask-run \*::after \{ animation: none !important; transition: none !important; \}/);
+  });
+  test("only the card just picked celebrates (press + ring); an unpick drops it and the badge shrinks away", () => {
+    setup({ ask: { ...ASK, pickTarget: 4 } });
+    toShelf();
+    fireEvent.click(tile("Cheese"));
+    expect(tile("Cheese")).toHaveClass("press");
+    fireEvent.click(tile("Apples"));
+    expect(tile("Apples")).toHaveClass("press");
+    expect(tile("Cheese")).not.toHaveClass("press");
+    expect(tile("Cheese").querySelector(".ask-badge")).not.toBeNull();
+    expect(tile("Cheese").querySelector(".ask-ring")).not.toBeNull();
+    fireEvent.click(tile("Apples"));                                                  // unpick
+    expect(tile("Apples")).not.toHaveClass("press");
+    expect(tile("Apples")).not.toHaveClass("picked");                                // the badge's scale(1) rule no longer applies
+    expect(css()).toMatch(/\.ask-badge \{[^}]*transform: scale\(0\); transition: transform 0\.2s ease-in; \}/);
+  });
+  test("Explorer keeps its ✓ but gets the press and the ring (beats 1 and 3)", () => {
+    setup({ ask: { id: "a-k", label: "Kid", shelfNoun: null, pickTarget: 2, screenStyle: "simple" } });
+    fireEvent.click(screen.getByRole("button", { name: "Let's pick" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cheese" }));
+    const t = screen.getByRole("button", { name: "Cheese, pick 1 of 2" });
+    expect(t).toHaveClass("press");
+    expect(t.querySelector(".ask-tile-check")).toHaveTextContent(/^✓$/);
+    expect(t.querySelector(".ask-badge")).toBeNull();
+    expect(t.querySelector(".ask-ring.ask-ring-simple")).not.toBeNull();
+  });
+  describe("beat 4: a copy flies into the wagon", () => {
+    let animations;
+    beforeEach(() => {
+      animations = [];
+      Element.prototype.animate = function animate(frames, opts) {
+        const a = { frames, opts, onfinish: null, cancel: jest.fn(), el: this };
+        animations.push(a);
+        return a;
+      };
+    });
+    afterEach(() => { delete Element.prototype.animate; delete window.matchMedia; });
+    test("a photo copy flies (~550ms, ease-in-out); the wagon card waits hidden until it lands, then the wagon hops", () => {
+      const { container } = setup({ ask: { ...ASK, pickTarget: 3 }, tiles: PHOTOS });
+      toShelf();
+      fireEvent.click(tile("Bananas"));
+      const fly = container.querySelector(".ask-fly");
+      expect(fly).not.toBeNull();
+      expect(fly.querySelector("img")).toHaveAttribute("src", "https://x/Bananas.webp");
+      const a = animations.find((x) => x.el === fly);
+      expect(a.opts).toMatchObject({ duration: 550, easing: "cubic-bezier(.5,0,.3,1)" });
+      expect(a.frames[1].transform).toMatch(/rotate\(0deg\)$/);                        // one pick: straight
+      const card = () => container.querySelector(".ask-shelf .ask-wagon .ask-wagon-pick");
+      expect(card()).toHaveAttribute("visibility", "hidden");
+      expect(container.querySelector(".ask-shelf .ask-wagon")).not.toHaveClass("hop");
+      act(() => { a.onfinish(); });
+      expect(container.querySelector(".ask-fly")).toBeNull();
+      expect(card()).not.toHaveAttribute("visibility");
+      expect(container.querySelector(".ask-shelf .ask-wagon")).toHaveClass("hop");
+    });
+    test("a later pick flies with its slot's tilt", () => {
+      const { container } = setup({ ask: { ...ASK, pickTarget: 3 }, tiles: PHOTOS });
+      toShelf();
+      fireEvent.click(tile("Apples")); act(() => { animations[animations.length - 1].onfinish(); });
+      fireEvent.click(tile("Bread"));
+      const a = animations.find((x) => x.el === container.querySelector(".ask-fly"));
+      expect(a.frames[1].transform).toMatch(/rotate\(5deg\)$/);                        // 2 picks: −5 / +5
+    });
+    test("unpicking while the copy is in the air takes the copy away too", () => {
+      const { container } = setup({ ask: { ...ASK, pickTarget: 3 }, tiles: PHOTOS });
+      toShelf();
+      fireEvent.click(tile("Bread"));
+      expect(container.querySelector(".ask-fly")).not.toBeNull();
+      fireEvent.click(tile("Bread"));
+      expect(container.querySelector(".ask-fly")).toBeNull();
+    });
+    test("reduced motion: no flight — the card is in the wagon at once", () => {
+      window.matchMedia = (q) => ({ matches: /reduce/.test(q), addListener() {}, removeListener() {} });
+      const { container } = setup({ ask: { ...ASK, pickTarget: 3 }, tiles: PHOTOS });
+      toShelf();
+      fireEvent.click(tile("Apples"));
+      expect(container.querySelector(".ask-fly")).toBeNull();
+      expect(container.querySelector(".ask-shelf .ask-wagon .ask-wagon-pick")).not.toHaveAttribute("visibility");
+    });
+  });
+  test("flightFor lands the copy on its slot's centre at the slot's size and tilt", () => {
+    const tileRect = { left: 20, top: 200, width: 160, height: 150 };
+    const wagonRect = { left: 95, top: 520, width: 185, height: 107 };
+    const box = cardLayout(3)[2];
+    const f = flightFor(tileRect, wagonRect, box);
+    const k = 185 / 260;
+    expect(f.from).toEqual({ x: 20 + 80 - 26, y: 200 + 75 - 29, w: 52, h: 58 });
+    expect(f.from.x + 26 + f.dx).toBeCloseTo(95 + (box.x + box.w / 2) * k);
+    expect(f.from.y + 29 + f.dy).toBeCloseTo(520 + (box.y + box.h / 2) * k);
+    expect(f.scale).toBeCloseTo((box.w * k) / 52);
+    expect(f.tilt).toBe(8);
   });
 });

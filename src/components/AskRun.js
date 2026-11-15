@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { pickLine } from "../lib/askCreate";
 import { tapTile, takeOut, canConfirm, shelfTitlePrefix, effectiveTarget, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
 import { useHold, holdFillCss } from "../hooks/useHold";
@@ -99,7 +99,7 @@ function Wheel({ x, y, far, wood }) {
 
 // One pick on a card (W4). Position and tilt sit on the outer group (an attribute); the drop-in
 // motion runs on the inner one, so a CSS transform never overrides the placement.
-function PickCard({ tile, box, uid, fresh, onTakeOut }) {
+function PickCard({ tile, box, uid, fresh, onTakeOut, hidden = false }) {
   const { x, y, w, h, tilt } = box;
   const face = tileFace(tile);
   const clip = `${uid}-c-${String(tile.id).replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -109,6 +109,7 @@ function PickCard({ tile, box, uid, fresh, onTakeOut }) {
   return (
     <g transform={`rotate(${tilt} ${x + w / 2} ${y + h})`}
       className="ask-wagon-pick" role={onTakeOut ? "button" : undefined} tabIndex={onTakeOut ? 0 : undefined}
+      visibility={hidden ? "hidden" : undefined}
       aria-label={onTakeOut ? `Take out ${tile.name}` : tile.name}
       onClick={onTakeOut ? () => onTakeOut(tile.id) : undefined}
       onKeyDown={onTakeOut ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onTakeOut(tile.id); } } : undefined}>
@@ -131,7 +132,7 @@ function PickCard({ tile, box, uid, fresh, onTakeOut }) {
   );
 }
 
-function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null }) {
+function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null, hiddenIds = null, svgRef = null }) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const n = picks.length;
   const boxes = cardLayout(n);
@@ -140,7 +141,7 @@ function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null }) 
   // Gradient ids are per instance (two wagons can be on screen during a transition).
   const ids = { BODY: `${uid}-body`, WOOD: `${uid}-wood` };
   return (
-    <svg className={`ask-wagon ${className}${kick ? ` ${kick.kind}` : ""}`} key={kick ? kick.n : 0}
+    <svg ref={svgRef} className={`ask-wagon ${className}${kick ? ` ${kick.kind}` : ""}`} key={kick ? kick.n : 0}
       viewBox={`0 0 ${WAGON_W} ${WAGON_H}`} role={onTakeOut ? "group" : "img"} aria-label={label || (n === 0 ? "The wagon, empty" : `The wagon, ${n} in it`)}>
       <defs>
         <linearGradient id={ids.BODY} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#FFFDF8" /><stop offset="1" stopColor="#EFE4D1" /></linearGradient>
@@ -155,7 +156,7 @@ function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null }) 
         </g>
         {/* the picks, on cards */}
         {painted.map(({ t, box }) => (
-          <PickCard key={t.id} tile={t} box={box} uid={uid} fresh={t.id === fresh} onTakeOut={onTakeOut} />
+          <PickCard key={t.id} tile={t} box={box} uid={uid} fresh={t.id === fresh} onTakeOut={onTakeOut} hidden={!!hiddenIds && hiddenIds.has(t.id)} />
         ))}
         {/* front: tub, stripe, rolled lip, the fixed bracket + tongue (behind the front wheel), the near wheels, the handle */}
         <g pointerEvents="none">
@@ -174,6 +175,45 @@ function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null }) 
           </g>
         </g>
     </svg>
+  );
+}
+
+// THE PICK CELEBRATION, beat 4 (2026-11-15; docs/mockups/mockup_ask_pick_celebration.html): a copy of
+// the card flies from the tile into its slot in the wagon (~550ms, ease-in-out, a slight tilt). It is a
+// fixed-position cream card driven by the Web Animations API; the wagon's own card stays hidden until it
+// lands, then the wagon hops. Not used under reduced motion, or where element.animate doesn't exist —
+// the card simply appears in the wagon.
+const FLY_MS = 550;
+export function flightFor(tileRect, wagonRect, box) {
+  const w0 = 52, h0 = 58;
+  const s = wagonRect.width / WAGON_W;
+  const from = { x: tileRect.left + tileRect.width / 2 - w0 / 2, y: tileRect.top + tileRect.height / 2 - h0 / 2, w: w0, h: h0 };
+  const cx = wagonRect.left + (box.x + box.w / 2) * s, cy = wagonRect.top + (box.y + box.h / 2) * s;
+  const scale = (box.w * s) / w0;
+  return { from, dx: cx - (from.x + w0 / 2), dy: cy - (from.y + h0 / 2), scale, tilt: box.tilt };
+}
+function FlyCard({ flight, onLand }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || typeof el.animate !== "function") { onLand(flight.key); return undefined; }
+    const a = el.animate([
+      { transform: "translate(0px, 0px) scale(1) rotate(0deg)" },
+      { transform: `translate(${flight.dx}px, ${flight.dy}px) scale(${flight.scale}) rotate(${flight.tilt}deg)` },
+    ], { duration: FLY_MS, easing: "cubic-bezier(.5,0,.3,1)", fill: "forwards" });
+    a.onfinish = () => onLand(flight.key);
+    return () => { a.onfinish = null; a.cancel(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const t = flight.tile;
+  const face = tileFace(t);
+  return (
+    <div ref={ref} className="ask-fly" aria-hidden="true"
+      style={{ left: flight.from.x, top: flight.from.y, width: flight.from.w, height: flight.from.h }}>
+      {face === "photo" ? <img className="op-replay-block op-photo" src={t.photoUrl} alt="" draggable="false" />
+        : face === "glyph" ? <span className="ask-fly-glyph">{t.glyph}</span>
+        : <span className="ask-fly-name">{t.name}</span>}
+    </div>
   );
 }
 
@@ -228,6 +268,13 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   const [picks, setPicks] = useState(() => resume?.ids || []);
   const [fresh, setFresh] = useState(null);
   const [kick, setKick] = useState(null);           // { kind: "hop" | "shake", n } — restarts the motion
+  // The pick celebration (2026-11-15): the card being celebrated (press + ring), the copies in flight to
+  // the wagon, and the wagon cards they keep hidden until they land.
+  const [celebrating, setCelebrating] = useState(null);
+  const [flights, setFlights] = useState([]);
+  const flightKey = useRef(0);
+  const tileEls = useRef({});
+  const wagonEl = useRef(null);
   const [landing, setLanding] = useState(false);
   const [failed, setFailed] = useState(false);
   const byId = new Map(tiles.map((t) => [t.id, t]));
@@ -244,15 +291,42 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   }, [ask.id, screen, picks]);
 
   const bump = (kind) => setKick((k) => ({ kind, n: (k ? k.n : 0) + 1 }));
+  const reducedMotion = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const tap = (id) => {
     if (landing) return;
     const r = tapTile(picks, id, target);
     if (r.effect === "full") { bump("shake"); return; }
     setPicks(r.picks);
     setFailed(false);
-    if (r.effect === "added") { setFresh(id); bump("hop"); }
+    if (r.effect === "added") {
+      setCelebrating(id);                                              // beats 1–3 (CSS)
+      const tileEl = tileEls.current[id], wagon = wagonEl.current;
+      const canFly = !reducedMotion() && tileEl && wagon && typeof tileEl.animate === "function";
+      if (canFly) {                                                    // beat 4: fly, then hop on landing
+        const box = cardLayout(r.picks.length)[r.picks.length - 1];
+        const f = flightFor(tileEl.getBoundingClientRect(), wagon.getBoundingClientRect(), box);
+        const tile = byId.get(id);
+        setFlights((fl) => [...fl, { key: ++flightKey.current, id, tile, ...f }]);
+      } else {
+        setFresh(id); bump("hop");
+      }
+    } else {
+      // An unpick: the badge shrinks away (CSS) and the rest renumber at once; a copy still flying goes.
+      if (celebrating === id) setCelebrating(null);
+      setFlights((fl) => fl.filter((x) => x.id !== id));
+    }
   };
-  const out = (id) => { if (!landing) { setPicks((p) => takeOut(p, id)); setFailed(false); } };
+  const landFlight = (key) => {
+    setFlights((fl) => fl.filter((x) => x.key !== key));
+    bump("hop");
+  };
+  const out = (id) => {
+    if (landing) return;
+    setPicks((p) => takeOut(p, id)); setFailed(false);
+    if (celebrating === id) setCelebrating(null);
+    setFlights((fl) => fl.filter((x) => x.id !== id));
+  };
+  const inFlight = new Set(flights.map((f) => f.id));
   const confirm = async () => {
     if (!canConfirm(picks, target) || landing) return;
     setLanding(true);
@@ -354,7 +428,8 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
               const plain = tileFace(t) === "name";
               const label = on ? `${t.name}, pick ${order} of ${target}` : (simple && !plain ? t.name : undefined);
               return (
-                <button key={t.id} type="button" className={`ask-tile${on ? " picked" : ""}${plain ? " plain" : ""}`} aria-pressed={on}
+                <button key={t.id} type="button" ref={(el) => { if (el) tileEls.current[t.id] = el; else delete tileEls.current[t.id]; }}
+                  className={`ask-tile${on ? " picked" : ""}${plain ? " plain" : ""}${on && celebrating === t.id ? " press" : ""}`} aria-pressed={on}
                   aria-label={label} onClick={() => tap(t.id)}>
                   {/* A plain name tile: the name fills the face, once — no art box, no second label.
                       On Simple the picture alone carries any other tile (S3-2). */}
@@ -366,26 +441,30 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
                       {!simple && <span className="ask-tile-name">{t.name}</span>}
                     </>
                   )}
-                  {/* Shopper: the badge says the pick's number — a white ✓ first, then (~350ms) the ✓
-                      crossfades with a slight scale into the number (~200ms), calm, no bounce. Explorer
-                      keeps its plain ✓. Reduced motion: the number at once (the resting state). */}
+                  {/* THE PICK CELEBRATION (2026-11-15), beats 2 and 3. Shopper: a 44px badge over the
+                      top-right corner pops in from scale 0 with a −30° spin and overshoot showing ✓, and at
+                      ~380ms springs to the pick's number; a teal ring pulses out from it once. Explorer keeps
+                      its ✓ (and gets the ring). Reduced motion: the number at once, no movement (the resting
+                      state). An unpick shrinks the badge away. */}
                   {simple ? (
                     <span className="ask-tile-check" aria-hidden="true">✓</span>
                   ) : (
-                    <span className="ask-tile-check ask-tile-order" aria-hidden="true">
+                    <span className="ask-badge" aria-hidden="true">
                       <span className="ask-order-check">✓</span>
                       <span className="ask-order-num">{on ? order : ""}</span>
                     </span>
                   )}
+                  <span className={`ask-ring${simple ? " ask-ring-simple" : ""}`} aria-hidden="true" />
                 </button>
               );
             })}
           </div>
+          {flights.map((f) => <FlyCard key={f.key} flight={f} onLand={landFlight} />)}
           <div className={`ask-cartbar${inWagon.length >= 5 ? " ask-cartbar-tall" : ""}`}>
             {/* The footer wagon (2026-11-14): ~185px, centred above where That's it! appears. Shopper has no
                 dots — the numbers on the cards carry the count; the count stays for screen readers. */}
             <div className="ask-cartrow">
-              <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-small" />
+              <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-small" hiddenIds={inFlight} svgRef={wagonEl} />
               {simple ? (
                 <div className="ask-dots" aria-label={`${picks.length} of ${target} picked`}>
                   {Array.from({ length: target }, (_, k) => <span key={k} className={`ask-dot${k < picks.length ? " on" : ""}`} />)}
@@ -492,10 +571,10 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 
 .ask-tiles { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: max-content; gap: 14px; padding: 20px 20px 12px; align-content: start; }
 .ask-tile { position: relative; display: flex; flex-direction: column; border: 2px solid #EFE3D0; border-radius: 18px; background: #FFFDF9; padding: 0;
-  overflow: hidden; cursor: pointer; transition: transform 0.15s ease, border-color 0.2s; -webkit-tap-highlight-color: transparent; }
+  cursor: pointer; transition: transform 0.15s ease, border-color 0.2s; -webkit-tap-highlight-color: transparent; }
 .ask-tile:active { transform: scale(0.97); }
 .ask-tile.picked { border-color: #0D9488; box-shadow: 0 0 0 1px #0D9488; }
-.ask-tile-art { display: block; width: 100%; height: 112px; flex: 0 0 auto; background: #F3E6CF; }
+.ask-tile-art { display: block; width: 100%; height: 112px; flex: 0 0 auto; background: #F3E6CF; border-radius: 16px 16px 0 0; overflow: hidden; }
 .ask-tile-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ask-tile-glyph { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 46px; }
 .ask-tile.plain { min-height: 150px; justify-content: center; background: #F3E6CF; }
@@ -504,17 +583,37 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-tile-check { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; background: #0D9488; color: #fff;
   display: grid; place-items: center; font-size: 15px; transform: scale(0); transition: transform 0.25s cubic-bezier(.3,1.6,.5,1); }
 .ask-tile.picked .ask-tile-check { transform: scale(1); }
-/* Shopper's numbered badge: calm in (no overshoot); the ✓ → number crossfade runs once when a card
-   becomes picked. The resting state is the number, so reduced motion (animations off) shows it at once,
-   and a renumber after an unpick just changes the digit. */
-.ask-tile-order { transition: transform 0.2s ease-out; font: 700 15px 'Lato', sans-serif; }
+/* THE PICK CELEBRATION (2026-11-15; mockup_ask_pick_celebration.html).
+   1. The card answers the thumb: presses to 0.94, lifts to 1.05 and settles (~420ms, spring).
+   2. Shopper's badge: 44px over the top-right corner (−10px), a cream 3px ring, a soft teal shadow, Lato 900
+      at 22px; pops in from scale 0 with a −30° spin and overshoot showing ✓, and at ~380ms springs to the
+      number. Resting state = the number at full size, so reduced motion shows it with no movement; an
+      unpick shrinks it away.
+   3. A teal ring pulses out from the badge once (scale 2.4, fading, 600ms).
+   4. The copy's flight (.ask-fly) — see FlyCard. */
+.ask-tile.press { animation: ask-press 0.42s cubic-bezier(.3,1.6,.5,1); }
+@keyframes ask-press { 0% { transform: scale(1); } 30% { transform: scale(.94); } 70% { transform: scale(1.05); } 100% { transform: scale(1); } }
+.ask-badge { position: absolute; top: -10px; right: -10px; z-index: 2; width: 44px; height: 44px; border-radius: 50%; background: #0D9488; color: #fff;
+  border: 3px solid #FAF4EC; box-shadow: 0 3px 8px rgba(13,148,136,.35); display: grid; place-items: center; font: 900 22px 'Lato', sans-serif;
+  transform: scale(0); transition: transform 0.2s ease-in; }
+.ask-tile.picked .ask-badge { transform: scale(1); animation: ask-badge-pop 0.45s cubic-bezier(.3,1.8,.5,1); }
+@keyframes ask-badge-pop { 0% { transform: scale(0) rotate(-30deg); } 100% { transform: scale(1) rotate(0deg); } }
 .ask-order-check, .ask-order-num { grid-area: 1 / 1; }
-.ask-order-check { opacity: 0; }
-.ask-order-num { opacity: 1; }
-.ask-tile.picked .ask-order-check { animation: ask-order-out 0.2s ease 0.35s both; }
-.ask-tile.picked .ask-order-num { animation: ask-order-in 0.2s ease 0.35s both; }
-@keyframes ask-order-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(0.8); } }
-@keyframes ask-order-in { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: none; } }
+.ask-order-check { opacity: 0; transform: scale(.4); }
+.ask-order-num { opacity: 1; transform: none; }
+.ask-tile.picked .ask-order-check { animation: ask-chk-out 0.25s cubic-bezier(.3,1.6,.5,1) 0.38s both; }
+.ask-tile.picked .ask-order-num { animation: ask-num-in 0.25s cubic-bezier(.3,1.6,.5,1) 0.38s both; }
+@keyframes ask-chk-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.4); } }
+@keyframes ask-num-in { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+.ask-ring { position: absolute; top: -10px; right: -10px; z-index: 1; width: 44px; height: 44px; border-radius: 50%; border: 3px solid #0D9488; opacity: 0; pointer-events: none; }
+.ask-ring.ask-ring-simple { top: 10px; right: 10px; width: 36px; height: 36px; }
+.ask-tile.press .ask-ring { animation: ask-ring 0.6s ease-out; }
+@keyframes ask-ring { 0% { opacity: .7; transform: scale(1); } 100% { opacity: 0; transform: scale(2.4); } }
+.ask-fly { position: fixed; z-index: 5; border-radius: 8px; background: #FFFDF9; border: 3px solid #FFFDF9; box-shadow: 0 6px 16px rgba(44,26,14,.25);
+  display: grid; place-items: center; overflow: hidden; pointer-events: none; transform-origin: center; }
+.ask-fly img { width: 100%; height: 100%; object-fit: cover; border-radius: 5px; display: block; }
+.ask-fly-glyph { font-size: 26px; line-height: 1; }
+.ask-fly-name { font: 700 9px 'Lato', sans-serif; color: #2C1A0E; text-align: center; padding: 0 2px; line-height: 1.15; }
 .ask-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Simple (S3-1): at most four tiles, two columns, rows that share the height left, so the grid
@@ -522,7 +621,7 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
    glyph scales with it (container units; a fixed size where they are unsupported). */
 .ask-tiles.ask-tiles-simple { overflow: hidden; grid-template-rows: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); align-content: stretch; }
 .ask-tiles-simple .ask-tile { min-height: 0; container-type: size; }
-.ask-tiles-simple .ask-tile-art { flex: 1 1 auto; height: auto; min-height: 0; }
+.ask-tiles-simple .ask-tile-art { flex: 1 1 auto; height: auto; min-height: 0; border-radius: 16px; }
 .ask-tiles-simple .ask-tile-glyph { font-size: 64px; font-size: 52cqmin; }
 .ask-tiles-simple .ask-tile.plain { min-height: 0; }
 .ask-tiles-simple .ask-tile-name.ask-tile-name-only { font-size: calc(24px * (1 + (var(--op-text-scale, 1) - 1) * 0.5)); }

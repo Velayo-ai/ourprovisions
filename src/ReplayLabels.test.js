@@ -353,7 +353,8 @@ describe("photo surfaces carry .op-replay-block", () => {
     //   (SPEC_ask_slice2 C3b.1; signed item-photos URLs) (components/AskRun.js), and the shelf-photo
     //   slot in Browse (C3b.2) (components/ShelfPhotoStrip.js), and the shelf sheet's tile grid (SPEC_ask_slice4,
 //   Dan 2026-11-10) (components/NewShelfSheet.js)
-    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "components/AskRun.js", "components/GiftCard.js", "components/LibraryCards.js", "components/NewShelfSheet.js", "components/ShelfPhotoStrip.js"]);
+    // + the pick celebration's flying copy of a photo card (2026-11-15) (components/AskRun.js)
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "components/AskRun.js", "components/AskRun.js", "components/GiftCard.js", "components/LibraryCards.js", "components/NewShelfSheet.js", "components/ShelfPhotoStrip.js"]);
   });
 
   // S30 / R6 (2026-10-26): every photo <img> people put in the app also carries .op-photo
@@ -381,7 +382,8 @@ describe("photo surfaces carry .op-replay-block", () => {
     //   (components/AskRun.js)
     // + the shelf-photo slot in Browse (C3b.2) (components/ShelfPhotoStrip.js) + the shelf sheet's tile grid
 //   (components/NewShelfSheet.js)
-    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js:avatar", "components/AskRun.js", "components/GiftCard.js", "components/LibraryCards.js", "components/NewShelfSheet.js", "components/ShelfPhotoStrip.js"]);
+    // + the pick celebration's flying copy of a photo card (2026-11-15) (components/AskRun.js)
+    expect(hits.sort()).toEqual(["App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js", "App.js:avatar", "components/AskRun.js", "components/AskRun.js", "components/GiftCard.js", "components/LibraryCards.js", "components/NewShelfSheet.js", "components/ShelfPhotoStrip.js"]);
     const app = SOURCES.find(([f]) => f === "App.js")[1];
     expect(app).toMatch(/\.op-photo \{ -webkit-user-drag: none; -webkit-touch-callout: none; \}/);
     expect(app).not.toMatch(/\.rv-(photo|viewer)-img \{[^}]*-webkit-user-drag/);   // folded into .op-photo
