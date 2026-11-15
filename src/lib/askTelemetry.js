@@ -32,8 +32,16 @@ export const askEventAttributes = {
   ask_started: () => ({}),
   ask_resumed: (s) => ({ screen: screen(s) }),
   ask_abandoned: (s, picks) => ({ screen: screen(s), pick_count: count(picks) }),
-  ask_land_failed: (err, picks) => ({ error_code: askErrorCode(err), pick_count: count(picks) }),
-  ask_admin_failed: (op, err) => ({ op: OPS.has(op) ? op : "unknown", error_code: askErrorCode(err) }),
+  // The two failures carry Splunk's error flag, so they count in Custom Workflow Error Rates (and can be
+  // alerted on). error.message is the CODE again — Splunk groups errors by it — never the database's text.
+  ask_land_failed: (err, picks) => {
+    const code = askErrorCode(err);
+    return { error: true, "error.message": code, error_code: code, pick_count: count(picks) };
+  },
+  ask_admin_failed: (op, err) => {
+    const code = askErrorCode(err);
+    return { error: true, "error.message": code, op: OPS.has(op) ? op : "unknown", error_code: code };
+  },
 };
 
 // Emit one span. Telemetry never breaks the run: a failure here is a console warning, nothing more.

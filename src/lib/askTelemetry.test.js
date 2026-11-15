@@ -26,13 +26,18 @@ describe("attributes: counts, a screen, an op and a code — nothing about the p
     expect(askEventAttributes.ask_started()).toEqual({});
     expect(askEventAttributes.ask_resumed("shelf")).toEqual({ screen: "shelf" });
     expect(askEventAttributes.ask_abandoned("turn", 0)).toEqual({ screen: "turn", pick_count: 0 });
-    expect(askEventAttributes.ask_land_failed({ code: "42501", message: "Easton" }, 3)).toEqual({ error_code: "42501", pick_count: 3 });
-    expect(askEventAttributes.ask_admin_failed("create", { code: "23505" })).toEqual({ op: "create", error_code: "23505" });
+    expect(askEventAttributes.ask_land_failed({ code: "42501", message: "Easton" }, 3))
+      .toEqual({ error: true, "error.message": "42501", error_code: "42501", pick_count: 3 });
+    expect(askEventAttributes.ask_admin_failed("create", { code: "23505", message: "label Easton taken" }))
+      .toEqual({ error: true, "error.message": "23505", op: "create", error_code: "23505" });
+  });
+  test("only the two failures carry the error flag", () => {
+    ["ask_started", "ask_resumed", "ask_abandoned"].forEach((n) => expect(askEventAttributes[n]("shelf", 1)).not.toHaveProperty("error"));
   });
   test("unexpected values are flattened, never passed through", () => {
     expect(askEventAttributes.ask_resumed("Easton")).toEqual({ screen: "unknown" });
     expect(askEventAttributes.ask_abandoned("done", -2)).toEqual({ screen: "unknown", pick_count: 0 });
-    expect(askEventAttributes.ask_admin_failed("rename Easton", {})).toEqual({ op: "unknown", error_code: "unknown" });
+    expect(askEventAttributes.ask_admin_failed("rename Easton", {})).toEqual({ error: true, "error.message": "unknown", op: "unknown", error_code: "unknown" });
   });
 });
 
