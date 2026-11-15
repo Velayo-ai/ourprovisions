@@ -14,9 +14,20 @@
 //   ask_completed     (lib/askPicks) the picks landed                        pick_count, ask.style
 //   ask_see_tapped    the parent tapped See on "{Label} added N · See"       pick_count, ask.style
 //                     (÷ ask_completed ≈ how often the hand-back toast gets used)
+//
+// Making an Ask (2026-11-15, Dan: "the workflow that created the Ask from Browse"):
+//   ask_create_opened     the New ask screen opened                          entry
+//   ask_created           create_ask succeeded — a TIMED span: its duration   ask.style, pick_target, shelf_size
+//                         is open → created, so Custom Workflow Duration
+//                         reads "how long it takes a parent to make an Ask"
+//   ask_create_abandoned  the New ask screen closed without an Ask            —
+//   (a failed save is ask_admin_failed {op: create}, above)
+//   entry: "rail" (Browse's "Ask someone…", shown when there are no Asks yet) |
+//          "organize" (View & organize → "+ New ask")
 import { trace } from "@opentelemetry/api";
 
 const SCREENS = new Set(["turn", "shelf"]);
+const ENTRIES = new Set(["rail", "organize"]);
 const OPS = new Set(["read", "create", "update", "delete"]);
 
 // A Postgres SQLSTATE (5 chars, e.g. 23505, P0001, 42501) or a PostgREST code (PGRST116) passes as
@@ -43,6 +54,13 @@ export const askEventAttributes = {
   ask_abandoned: (s, picks, style) => ({ screen: screen(s), pick_count: count(picks), "ask.style": askStyle(style) }),
   // The two failures carry Splunk's error flag, so they count in Custom Workflow Error Rates (and can be
   // alerted on). error.message is the CODE again — Splunk groups errors by it — never the database's text.
+  ask_create_opened: (entry) => ({ entry: ENTRIES.has(entry) ? entry : "unknown" }),
+  ask_created: (draft) => ({
+    "ask.style": askStyle(draft && draft.style),
+    pick_target: count(draft && draft.target),
+    shelf_size: count(draft && draft.itemIds ? [...draft.itemIds].length : 0),
+  }),
+  ask_create_abandoned: () => ({}),
   ask_see_tapped: (picks, style) => ({ pick_count: count(picks), "ask.style": askStyle(style) }),
   ask_land_failed: (err, picks, style) => {
     const code = askErrorCode(err);
@@ -56,10 +74,22 @@ export const askEventAttributes = {
 
 // Emit one span. Telemetry never breaks the run: a failure here is a console warning, nothing more.
 export function emitAskEvent(name, ...args) {
+  emitTimed(name, null, args);
+}
+
+// The same, timed from startMs (Date.now() when the step began) to now, so Splunk's Custom Workflow
+// Duration measures the step. A missing or future start falls back to an instant span.
+export function emitAskTimedEvent(name, startMs, ...args) {
+  emitTimed(name, Number.isFinite(startMs) && startMs <= Date.now() ? startMs : null, args);
+}
+
+function emitTimed(name, startMs, args) {
   const build = askEventAttributes[name];
   if (!build) return;
   try {
-    trace.getTracer("ourprovisions-app").startSpan(name, { attributes: { "workflow.name": name, ...build(...args) } }).end();
+    const opts = { attributes: { "workflow.name": name, ...build(...args) } };
+    if (startMs !== null) opts.startTime = startMs;
+    trace.getTracer("ourprovisions-app").startSpan(name, opts).end();
   } catch (e) {
     console.warn(`[rum] ${name} event failed:`, e);
   }

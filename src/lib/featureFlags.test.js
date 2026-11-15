@@ -55,7 +55,8 @@ describe("with the flag off the UI has no Ask door", () => {
     // canMakeShelf gates View & organize's Asks section and the door to the New ask screen.
     expect(APP).toContain("const canMakeShelf = ASK_ENABLED && !!(isSignedIn && household?.id);");
     expect(APP.match(/\{canMakeShelf && \(/g)).toHaveLength(1);   // the Asks section
-    expect(APP).toContain("const openNewAsk = () => { if (!canMakeShelf) return; setBrowseFilterOpen(false); setNewAskOpen(true); };");
+    // The gate is openNewAsk's first line, so with the flag off it returns before ask_create_opened.
+    expect(APP).toContain("const openNewAsk = (entry) => {\n    if (!canMakeShelf) return;\n    setBrowseFilterOpen(false);\n    setNewAskOpen(true);");
     expect(APP.match(/<AskScreen/g)).toHaveLength(1);   // new and edit, one mount, nowhere else
     expect(APP).not.toContain("<NewShelfSheet");        // the form lives inside AskScreen only
   });

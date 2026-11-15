@@ -66,7 +66,7 @@ import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { ASK_ENABLED, ASK_FLAG_MARKER } from './lib/featureFlags';
 import { trace } from '@opentelemetry/api';
-import { emitAskEvent } from './lib/askTelemetry';
+import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
 // registers; a no-op provider stands in with no RUM token.
@@ -6899,7 +6899,16 @@ function ProvisionsApp({ scrollRootRef }) {
   // The New ask screen (AskScreen, full screen): opened by "+ New ask" in View & organize, which
   // closes first. Editing an existing Ask opens the same screen (editAskId, below).
   const [newAskOpen, setNewAskOpen] = useState(false);
-  const openNewAsk = () => { if (!canMakeShelf) return; setBrowseFilterOpen(false); setNewAskOpen(true); };
+  // Telemetry (lib/askTelemetry): when the New ask screen opened, and whether it made an Ask, so
+  // ask_created is timed open → created and a close without one is ask_create_abandoned.
+  const newAskRef = useRef({ openedAt: null, created: false });
+  const openNewAsk = (entry) => {
+    if (!canMakeShelf) return;
+    setBrowseFilterOpen(false);
+    setNewAskOpen(true);
+    newAskRef.current = { openedAt: Date.now(), created: false };
+    emitAskEvent("ask_create_opened", entry);
+  };
   // Closing View & organize ends any rename or new-category entry in progress with it.
   const closeOrganize = () => { setBrowseFilterOpen(false); setRenamingCategory(null); setNewCategoryOpen(false); };
   // The two doors that open it on Item: a section header's "＋ New item" (the category known,
@@ -11770,7 +11779,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   </button>
                 )}
                 {askRail.pills.length === 0 && canMakeShelf && (
-                  <button className="cat-pill people-pill people-pill-ghost" onClick={openNewAsk}>
+                  <button className="cat-pill people-pill people-pill-ghost" onClick={() => openNewAsk("rail")}>
                     <span className="cat-em"><AskIcon /></span>Ask someone…
                   </button>
                 )}
@@ -12592,7 +12601,7 @@ function ProvisionsApp({ scrollRootRef }) {
                     </div>
                   ); })}
                 </div>
-                <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={openNewAsk}>
+                <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={() => openNewAsk("organize")}>
                   <span className="cat-em">+</span>New ask
                 </button>
               </div>
@@ -12651,7 +12660,13 @@ function ProvisionsApp({ scrollRootRef }) {
           screen — full screen over the app, like the run. Create → create_ask (078); Save → update_ask
           (083). The form is NewShelfSheet as it was, inside AskScreen's turquoise header. */}
       {ASK_ENABLED && (newAskOpen || editAsk) && (() => {
-        const close = () => { setNewAskOpen(false); setEditAskId(null); };
+        const close = () => {
+          if (newAskOpen && !editAsk && newAskRef.current.openedAt !== null && !newAskRef.current.created) {
+            emitAskEvent("ask_create_abandoned");
+          }
+          newAskRef.current = { openedAt: null, created: false };
+          setNewAskOpen(false); setEditAskId(null);
+        };
         return (
           <AskScreen
             key={editAsk ? editAsk.id : "new"}
@@ -12661,7 +12676,14 @@ function ProvisionsApp({ scrollRootRef }) {
             photoIds={itemPhotoIds}
             photoUrl={itemPhotoUrl}
             onPhoto={setItemPhoto}
-            onCreate={createAsk}
+            onCreate={async (askId, draft) => {
+              const r = await createAsk(askId, draft);
+              if (r?.ok) {
+                newAskRef.current.created = true;
+                emitAskTimedEvent("ask_created", newAskRef.current.openedAt, draft);
+              }
+              return r;
+            }}
             onUpdate={editAsk ? async (draft) => {
               // The growth moment (S4-6): the parent's own move, said once, to the parent. No span.
               const outcome = saveOutcome(editAsk, draft);

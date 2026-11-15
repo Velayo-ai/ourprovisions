@@ -98,7 +98,7 @@ test("the rail renders the layout: Staples, two people pills, '+N more', the gho
   const staples = at(/\{categoryGlyph\("Staples"\)\}<\/span>Staples/);
   const pills = at(/askRail\.pills\.map/);
   const more = at(/\+\{askRail\.more\.length\} more/);
-  const ghost = app.indexOf('className="cat-pill people-pill people-pill-ghost" onClick={openNewAsk}', more);
+  const ghost = app.indexOf('className="cat-pill people-pill people-pill-ghost" onClick={() => openNewAsk("rail")}', more);
   const divider = app.indexOf('{(askRail.pills.length > 0 || canMakeShelf) && <span className="cat-rail-divider" aria-hidden="true" />}', ghost);
   const cats = app.indexOf("{categories.map(cat => {", divider);
   expect(staples).toBeGreaterThan(0);
@@ -121,7 +121,7 @@ test("the rail renders the layout: Staples, two people pills, '+N more', the gho
   expect(rail).not.toMatch(/<\/span>New (shelf|ask)|>New (shelf|ask)</);   // rendered text; the comment may name the screen
   expect(app).not.toMatch(/>New shelf</);                                      // rendered text; comments may still tell the history
   expect(app.match(/<span className="cat-em">\+<\/span>New ask/g)).toHaveLength(1);
-  expect(app.match(/className="cat-pill cat-pill-new" style=\{\{ marginTop: "10px" \}\} onClick=\{openNewAsk\}/g)).toHaveLength(1);
+  expect(app.match(/className="cat-pill cat-pill-new" style=\{\{ marginTop: "10px" \}\} onClick=\{\(\) => openNewAsk\("organize"\)\}/g)).toHaveLength(1);
   // Every hand-over — a pill, a "+N more" row, a block's "Hand it to" — is the one handoverAsk, which
   // records its time; nothing else does.
   expect(app).toContain("const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); setRunAskId(askId); };");

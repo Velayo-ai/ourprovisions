@@ -1,5 +1,5 @@
 import { trace } from "@opentelemetry/api";
-import { askErrorCode, askEventAttributes, askStyle, emitAskEvent } from "./askTelemetry";
+import { askErrorCode, askEventAttributes, askStyle, emitAskEvent, emitAskTimedEvent } from "./askTelemetry";
 
 describe("askErrorCode: the code only, never the message", () => {
   test("Postgres and PostgREST codes pass as they are", () => {
@@ -67,5 +67,40 @@ describe("emitAskEvent", () => {
     jest.spyOn(trace, "getTracer").mockReturnValue({ startSpan: () => { throw new Error("boom"); } });
     expect(() => emitAskEvent("ask_started")).not.toThrow();
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+
+// Making an Ask (2026-11-15): opened (and from where), created (timed), abandoned.
+describe("the create flow", () => {
+  afterEach(() => jest.restoreAllMocks());
+  test("attributes: the entry, the style and two counts — never the label or the item ids", () => {
+    expect(askEventAttributes.ask_create_opened("rail")).toEqual({ entry: "rail" });
+    expect(askEventAttributes.ask_create_opened("organize")).toEqual({ entry: "organize" });
+    expect(askEventAttributes.ask_create_opened("Easton")).toEqual({ entry: "unknown" });
+    const draft = { label: "Easton", noun: "snacks", target: 5, itemIds: new Set(["c1", "c2", "c3"]), style: "simple" };
+    expect(askEventAttributes.ask_created(draft)).toEqual({ "ask.style": "explorer", pick_target: 5, shelf_size: 3 });
+    expect(JSON.stringify(askEventAttributes.ask_created(draft))).not.toMatch(/Easton|snacks|c1/);
+    expect(askEventAttributes.ask_created(null)).toEqual({ "ask.style": "shopper", pick_target: 0, shelf_size: 0 });
+    expect(askEventAttributes.ask_create_abandoned()).toEqual({});
+  });
+  test("ask_created is timed from when the screen opened", () => {
+    const end = jest.fn();
+    const startSpan = jest.fn(() => ({ end }));
+    jest.spyOn(trace, "getTracer").mockReturnValue({ startSpan });
+    const openedAt = Date.now() - 42000;
+    emitAskTimedEvent("ask_created", openedAt, { target: 2, itemIds: ["a", "b", "c", "d"], style: "standard" });
+    expect(startSpan).toHaveBeenCalledWith("ask_created", {
+      startTime: openedAt,
+      attributes: { "workflow.name": "ask_created", "ask.style": "shopper", pick_target: 2, shelf_size: 4 },
+    });
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+  test("a missing or future start falls back to an instant span", () => {
+    const startSpan = jest.fn(() => ({ end() {} }));
+    jest.spyOn(trace, "getTracer").mockReturnValue({ startSpan });
+    emitAskTimedEvent("ask_created", null, {});
+    emitAskTimedEvent("ask_created", Date.now() + 60000, {});
+    startSpan.mock.calls.forEach(([, opts]) => expect(opts).not.toHaveProperty("startTime"));
   });
 });
