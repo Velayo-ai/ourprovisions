@@ -1,8 +1,8 @@
-// see-walk.js — "See" after an Ask (2026-11-15), on a long list, signed in as the dev test account.
-//   node see-walk.js     (dev)     ·     node -r ./local/use-local.js see-walk.js     (a local build)
-// Fills Cody Test House's list from Browse (~22 items), runs the 5-pick "Five" ask twice and checks: the
-// toast still up at ~8.5s; See → Shop, the first landed row in view, 5 tinted rows, the bar; Next walks the
-// tinted rows in list order and wraps; a check drops one row's tint; Done clears; leaving Shop clears.
+// see-walk.js — "See" after an Ask (2026-11-15, revised: more time, no bar), on a long list, signed in as the
+// dev test account.   node see-walk.js (dev)  ·  node -r ./local/use-local.js see-walk.js (a local build)
+// Fills Cody Test House's list from Browse (~22 items), runs the 5-pick "Five" ask twice and checks: the toast
+// still up at ~8.5s; See → Shop, the first landed row in view, 5 tinted rows, no bar; timed in the page from
+// when the scroll settles: the fade starts at ~4.0s and the tint is gone at ~5.2s; leaving Shop clears early.
 // Screenshots to out/see-*.png; the list is set back to empty at the end.
 const lib = require("./lib");
 const { sleep, log, connect, firstPage, shot } = lib;
@@ -50,52 +50,47 @@ const tapSee = (p) => p.evaluate(() => { const b = [...document.querySelectorAll
   log(`list filled: ${added.length} items`);
   await sleep(2000);
 
-  // ── run 1: the toast waits; See; Next wraps; a check drops one; Done ──
+  let st;
+  // ── run 1: the toast waits; See; the tint is timed from the settle ──
   const t0 = await runFive(p);
   await sleep(Math.max(0, 8500 - (Date.now() - t0)));
   const toastAt = await p.evaluate(() => ({ see: [...document.querySelectorAll("button")].some((x) => x.textContent.trim() === "See"), text: document.body.textContent.match(/Five added \d+/)?.[0] || null }));
   check("the toast is still up ~8.5s after the hand-back", toastAt.see && toastAt.text === "Five added 5", JSON.stringify(toastAt));
+  // a 50ms sampler in the page: scrollY, how many rows are tinted, how many are fading
+  await p.evaluate(() => { window.__see = []; const t0 = performance.now(); window.__seeT = setInterval(() => {
+    const rows = [...document.querySelectorAll(".list-item.ask-landed-hl")].filter((r) => !r.closest(".tray-body"));
+    window.__see.push({ t: Math.round(performance.now() - t0), y: Math.round(scrollY), n: rows.length, f: rows.filter((r) => r.classList.contains("fading")).length });
+  }, 50); });
   check("See tapped", await tapSee(p));
-  await sleep(1200);
-  let st = await state(p);
-  await shot(p, "see-1-after-see");
-  check("See → Shop, 5 tinted rows on a long list, the bar reads 'Five's 5 picks · Next ↓ · Done'", /shop/.test(st.hash) && st.tinted.length === 5 && st.rows >= 20 && st.bar === "Five's 5 picks Next ↓ Done", JSON.stringify({ rows: st.rows, tinted: st.tinted, bar: st.bar }));
-  check("…and the first landed row (list order) is fully in view, clear of the bar and the Helm", st.clearTinted.includes(st.tinted[0]), JSON.stringify({ first: st.tinted[0], clear: st.clearTinted, scrollY: st.scrollY }));
-  // Next: each press lands on the next tinted row in list order, wrapping — that row must be fully in view
-  // (a row near the list's top or end can't be centred, so "in view" is the test, not "in the middle").
-  const visits = [];
-  for (let k = 0; k < 5; k++) {
-    await p.evaluate(() => [...document.querySelectorAll(".landed-bar-btn")].find((b) => b.innerText.startsWith("Next")).click());
-    await sleep(1100);
-    const s2 = await state(p); const want = st.tinted[(k + 1) % st.tinted.length];
-    visits.push({ want, inView: s2.clearTinted.includes(want), scrollY: s2.scrollY });
-    if (k === 1) await shot(p, "see-2-after-next");
-    if (k === 3) await shot(p, "see-2b-next-near-end");
-  }
-  check("Next walks the tinted rows in list order and wraps to the first, each fully in view", visits.every((v) => v.inView) && visits[4].want === st.tinted[0], JSON.stringify(visits));
-  await sleep(2500);
-  check("a minute's wait is not needed: after ~10s of Next-ing the tint is all still there", (await state(p)).tinted.length === 5);
-  // a check drops one row's tint
-  const checkedName = st.tinted[2];
-  await p.evaluate((n) => { const row = [...document.querySelectorAll(".list-item")].find((r) => r.querySelector(".li-name")?.innerText.split("\n")[0].trim() === n && !r.closest(".tray-body")); row.querySelector('button.shop-check[role="checkbox"]').click(); }, checkedName);
-  await sleep(4500);   // the 3s hold, then into the tray
+  await sleep(1300);
   st = await state(p);
-  await shot(p, "see-3-after-check");
-  check(`checking "${checkedName}" drops its tint only; the bar stays`, st.tinted.length === 4 && !st.tinted.includes(checkedName) && !!st.bar, JSON.stringify({ tinted: st.tinted, bar: st.bar }));
-  await p.evaluate(() => [...document.querySelectorAll(".landed-bar-btn")].find((b) => b.innerText === "Done").click()); await sleep(600);
+  await shot(p, "see-1-tinted");
+  check("See → Shop, 5 tinted rows on a long list, no bar", /shop/.test(st.hash) && st.tinted.length === 5 && st.rows >= 20 && !st.bar && !(await p.$(".landed-bar")), JSON.stringify({ rows: st.rows, tinted: st.tinted, bar: st.bar }));
+  check("…and the first landed row (list order) is fully in view, clear of the Helm", st.clearTinted.includes(st.tinted[0]), JSON.stringify({ first: st.tinted[0], clear: st.clearTinted, scrollY: st.scrollY }));
+  await sleep(3400); await shot(p, "see-2-fading");
+  await sleep(2600); await shot(p, "see-3-gone");
+  const samples = await p.evaluate(() => { clearInterval(window.__seeT); return window.__see; });
+  const firstTint = samples.find((x) => x.n > 0)?.t;
+  let lastMove = firstTint; for (let i = 1; i < samples.length; i++) if (samples[i].y !== samples[i - 1].y) lastMove = samples[i].t;
+  const fadeAt = samples.find((x) => x.f > 0)?.t; const goneAt = samples.find((x) => x.t > firstTint && x.n === 0)?.t;
+  const timing = { scrollFrom: samples[0].y, scrollTo: samples[samples.length - 1].y, settledAt: lastMove, fadeAfterSettle: fadeAt - lastMove, goneAfterSettle: goneAt - lastMove, fullHold: fadeAt - firstTint };
+  log("timing " + JSON.stringify(timing));
+  check("the fade starts ~4.0s after the scroll settles", Math.abs(timing.fadeAfterSettle - 4000) <= 350, String(timing.fadeAfterSettle));
+  check("the tint is gone ~5.2s after the scroll settles (fade over the final ~1.2s)", Math.abs(timing.goneAfterSettle - 5200) <= 350, String(timing.goneAfterSettle));
   st = await state(p);
-  await shot(p, "see-4-after-done");
-  check("Done clears the tint and the bar", st.tinted.length === 0 && !st.bar, JSON.stringify({ tinted: st.tinted, bar: st.bar }));
+  check("after it ends: no tint, no bar, still on Shop", /shop/.test(st.hash) && st.tinted.length === 0 && !st.bar);
+  const picked = await p.evaluate(() => [...document.querySelectorAll(".list-item")].filter((r) => /Picked by Five/.test(r.textContent)).length);
+  check("\"Picked by\" still on the landed rows after the tint", picked >= 5, String(picked));
 
-  // ── run 2: leaving Shop clears it ──
+  // ── run 2: leaving Shop clears it early ──
   await runFive(p); await sleep(1500);
   await tapSee(p); await sleep(1200);
   st = await state(p);
-  check("run 2: See shows the tint and the bar again", st.tinted.length >= 4 && !!st.bar, JSON.stringify({ tinted: st.tinted.length, bar: st.bar }));
-  await p.evaluate(() => [...document.querySelectorAll("button, a")].find((x) => x.innerText.trim() === "BROWSE" || x.innerText.trim() === "Browse").click()); await sleep(1200);
-  await p.evaluate(() => [...document.querySelectorAll("button, a")].find((x) => /^SHOP/i.test(x.innerText.trim())).click()); await sleep(1500);
+  check("run 2: See shows the tint again", st.tinted.length >= 4, JSON.stringify({ tinted: st.tinted.length }));
+  await p.evaluate(() => [...document.querySelectorAll("button, a")].find((x) => x.innerText.trim() === "BROWSE" || x.innerText.trim() === "Browse").click()); await sleep(800);
+  await p.evaluate(() => [...document.querySelectorAll("button, a")].find((x) => /^SHOP/i.test(x.innerText.trim())).click()); await sleep(1000);
   st = await state(p);
-  check("leaving Shop (to Browse and back) clears the tint and the bar", /shop/.test(st.hash) && st.tinted.length === 0 && !st.bar, JSON.stringify({ hash: st.hash, tinted: st.tinted, bar: st.bar }));
+  check("leaving Shop (to Browse and back, inside the 5.2s) clears the tint", /shop/.test(st.hash) && st.tinted.length === 0, JSON.stringify({ hash: st.hash, tinted: st.tinted }));
 
   // tidy: the whole list back to 0
   await p.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
