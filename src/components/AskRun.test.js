@@ -18,6 +18,8 @@ function setup({ onLand = jest.fn(async () => {}), tiles = TILES, ask = ASK } = 
 const tile = (name) => screen.getByRole("button", { name: new RegExp(`^${name}`) });
 const thatsIt = () => screen.getByRole("button", { name: /That's it!|Adding…/ });
 function toShelf() { fireEvent.click(screen.getByRole("button", { name: "Let's pick" })); }
+// Great picks: the wagon is the summary; its label lists the picks in order ("Your picks: A, B, C").
+const summary = () => screen.getByRole("img", { name: /^Your picks?: / }).getAttribute("aria-label");
 
 test("the run is excluded from replay, and every copy of the name wears .op-name", () => {
   const { container } = setup();
@@ -48,7 +50,8 @@ test("Your turn → the shelf; picks fill the wagon in order; That's it! only wh
   expect(onLand).toHaveBeenCalledTimes(1);
   expect(onLand).toHaveBeenCalledWith(["c-2", "c-0", "c-3"]);
   expect(screen.getByRole("heading")).toHaveTextContent("Great picks, Easton!");
-  expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["🍎Cheese", "🍎Goldfish", "🍎Yogurt"]);
+  expect(summary()).toBe("Your picks: Cheese, Goldfish, Yogurt");
+  expect(screen.queryAllByRole("listitem")).toHaveLength(0);                           // no list under the wagon
 });
 
 test("changing his mind: the tile again or the item in the wagon; a full wagon takes nothing new; no ↶", () => {
@@ -166,8 +169,7 @@ test("no photo and no item glyph → plain name tiles everywhere, no glyph or ar
   expect([...container.querySelectorAll(".ask-wagon text")][2].querySelectorAll("tspan")).toHaveLength(2);
   fireEvent.click(thatsIt());
   await screen.findByText("Your picks are on our list!");
-  expect(container.querySelectorAll(".ask-landed-art")).toHaveLength(0);
-  expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Apples", "Bananas", "Greek yogurt"]);
+  expect(summary()).toBe("Your picks: Apples, Bananas, Greek yogurt");
   expect(container.textContent).not.toMatch(/[🥦🥫🥛🍞📦]/u);
 });
 
@@ -220,7 +222,7 @@ describe("Simple", () => {
     await screen.findByText("Your pick is on our list!");
     expect(onLand).toHaveBeenCalledWith(["s-0"]);
     expect(screen.getByRole("heading")).toHaveTextContent("Great pick, Everett!");
-    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["🍎Apples"]);
+    expect(summary()).toBe("Your pick: Apples");
     expect(screen.getByRole("button", { name: "Give it back" })).toHaveTextContent("Give it back");
   });
   test("a failed land on Simple keeps the wagon and points at ✓", async () => {
@@ -420,7 +422,7 @@ test("Great picks: wagon cards and the landed list keep pick order, even when th
   await screen.findByText("Your picks are on our list!");
   expect(onLand).toHaveBeenCalledWith(["c-3", "c-2", "c-0"]);
   const cards = () => [...container.querySelectorAll(".ask-finale .ask-wagon-pick")].map((g) => g.getAttribute("aria-label"));
-  const listed = () => screen.getAllByRole("listitem").map((li) => li.textContent.replace("🍎", ""));
+  const listed = () => summary().replace(/^Your picks?: /, "").split(", ");
   expect(cards()).toEqual(["Yogurt", "Cheese", "Goldfish"]);
   expect(listed()).toEqual(["Yogurt", "Cheese", "Goldfish"]);
   // The land refreshes the list: the tiles come back reordered and one is gone. Great picks doesn't move.
@@ -475,7 +477,7 @@ describe("numbered picks (Shopper)", () => {
     fireEvent.click(thatsIt());
     await screen.findByText("Your picks are on our list!");
     expect([...container.querySelectorAll(".ask-finale .ask-wagon-pick")].map((g) => g.getAttribute("aria-label"))).toEqual(byBadge);
-    expect(screen.getAllByRole("listitem").map((li) => li.textContent.replace("🍎", ""))).toEqual(byBadge);
+    expect(summary()).toBe(`Your picks: ${byBadge.join(", ")}`);
   });
   test("no progress dots on Shopper; the count stays for screen readers; the footer wagon is the 185px drawing", () => {
     const { container } = setup({ ask: ASK4 });
@@ -506,5 +508,56 @@ describe("numbered picks (Shopper)", () => {
     expect(css).toMatch(/\.ask-tile\.picked \.ask-order-num \{ animation: ask-order-in 0\.2s ease 0\.35s both; \}/);
     expect(css).toMatch(/\.ask-tile-order \{ transition: transform 0\.2s ease-out;/);   // no overshoot
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.ask-run \*, \.ask-run \*::before, \.ask-run \*::after \{ animation: none !important; transition: none !important; \}/);
+  });
+});
+
+// Great picks: the wagon is the summary (2026-11-14).
+describe("the summary wagon", () => {
+  const SIX = ["Apples", "Bananas", "Carrots", "Cheddar cheese", "Hummus", "Greek yogurt"].map((name, i) => ({ id: `s-${i}`, name, glyph: null, photoUrl: null }));
+  async function land(n) {
+    const view = render(<AskRun ask={{ ...ASK, pickTarget: n }} tiles={SIX} onLand={jest.fn(async () => {})} onExit={jest.fn()} />);
+    toShelf();
+    SIX.slice(0, n).forEach((t) => fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${t.name}`) })));
+    fireEvent.click(thatsIt());
+    await screen.findByText(n === 1 ? "Your pick is on our list!" : "Your picks are on our list!");
+    return view.container;
+  }
+  test("no landed list; the wagon's label is the list, in pick order — 'Your picks: Apples, Bananas, Carrots, Cheddar cheese, Hummus'", async () => {
+    const container = await land(5);
+    expect(container.querySelector("ul")).toBeNull();
+    expect(summary()).toBe("Your picks: Apples, Bananas, Carrots, Cheddar cheese, Hummus");
+    expect(container.querySelector(".ask-rollin")).toHaveClass("ask-rollin-tall");     // room for the raised back tier
+  });
+  test("one pick: 'Your pick: Apples', no raised tier", async () => {
+    const container = await land(1);
+    expect(summary()).toBe("Your pick: Apples");
+    expect(container.querySelector(".ask-rollin")).not.toHaveClass("ask-rollin-tall");
+  });
+  test("5–6 picks pile in two tiers: left to right is pick order, front/back alternate, the back tier stands higher and is painted first", () => {
+    for (const n of [5, 6]) {
+      const boxes = cardLayout(n);
+      expect(boxes).toHaveLength(n);
+      const xs = boxes.map((b) => b.x + b.w / 2);
+      xs.slice(1).forEach((x, k) => expect(x).toBeGreaterThan(xs[k]));               // left → right = pick order
+      boxes.forEach((b, k) => expect(b.back).toBe(k % 2 === 1));
+      boxes.filter((b) => b.back).forEach((b) => expect(b.y).toBeLessThan(0));        // raised above the drawing's top
+      boxes.forEach((b) => { expect(b.x).toBeGreaterThan(44); expect(b.x + b.w).toBeLessThan(244); });   // over the rim (a hair of overhang at 6)
+      boxes.forEach((b) => expect(b.w).toBeGreaterThanOrEqual(46));                  // room for a two-word name
+      boxes.filter((b) => !b.back).forEach((b) => expect(b.y + b.h).toBeGreaterThan(56));   // front bottoms behind the panel
+    }
+    expect(cardLayout(4).every((b) => !b.back)).toBe(true);
+  });
+  test("a two-word name on a 5-pick card wraps to two lines on a card at least 46 units wide; back cards are painted before front cards", async () => {
+    const container = await land(5);
+    const cards = [...container.querySelectorAll(".ask-finale .ask-wagon-pick")];
+    expect(cards.map((g) => g.getAttribute("aria-label"))).toEqual(["Bananas", "Cheddar cheese", "Apples", "Carrots", "Hummus"]);   // paint order: back (2nd, 4th) first
+    const cheddar = cards[1];
+    expect([...cheddar.querySelectorAll("tspan")].map((t) => t.textContent)).toEqual(["Cheddar", "cheese"]);
+    expect(Number(cheddar.querySelector(".ask-card > rect").getAttribute("width"))).toBeGreaterThanOrEqual(46);   // the card itself, not its clip
+  });
+  test("the summary wagon is as large as fits: the full width less a 12px gutter, up to 380px", () => {
+    setup();
+    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+    expect(css).toMatch(/\.ask-rollin \.ask-wagon \{ width: calc\(100% - 24px\); max-width: 380px; \}/);
   });
 });

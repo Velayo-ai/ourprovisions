@@ -52,17 +52,36 @@ import { useHold, holdFillCss } from "../hooks/useHold";
 // PICKS ARE CARDS (W4): the tile's photo, else its glyph, else its name, on a cream card with a ~3px
 // border, slightly taller than wide, riding above the rim with a gentle tilt spread evenly for 1–4
 // picks, their bottoms behind the front panel. Tappable to take out while the shelf is open.
+// 5–6 PICKS (2026-11-14): one row across the rim would leave ~37 units a card, too narrow for a
+// two-word name. So they pile in two tiers, like a full wagon: left to right in pick order, zig-zagging
+// front, back, front…; the back tier stands higher (its names in the part that shows above the front
+// tier) and is drawn first, so the front tier sits in front of it. Left-to-right is still pick order.
 const WAGON_W = 260, WAGON_H = 150;
 const RIM_CX = 144;                       // the tub's centre line
 // Card geometry for n picks, in wagon units: size, the spacing between centres, and the tilts.
+export const BACK_RISE = 34;               // how much higher the back tier stands (5–6 picks)
 export function cardLayout(n) {
   if (n <= 0) return [];
+  if (n >= 5) {
+    const m = Math.min(n, 6);
+    const w = m === 5 ? 50 : 46, h = m === 5 ? 56 : 52, d = m === 5 ? 34 : 29;
+    const tilts = m === 5 ? [-6, -4, 0, 4, 6] : [-7, -5, -2, 2, 5, 7];
+    return Array.from({ length: m }, (_, k) => {
+      const back = k % 2 === 1;
+      const tilt = tilts[k];
+      const cx = RIM_CX + (k - (m - 1) / 2) * d;
+      const y = 10 + Math.abs(tilt) * 0.4 - (back ? BACK_RISE : 0);
+      // a back card's face is centred in the part that shows above the front tier
+      return { x: cx - w / 2, y, w, h, tilt, back, faceCy: back ? y + (BACK_RISE + 8) / 2 : y + h * 0.46 };
+    });
+  }
   const w = n >= 4 ? 40 : 46, h = n >= 4 ? 44 : 50, gap = n >= 4 ? 41 : 44;
-  const tilts = { 1: [0], 2: [-5, 5], 3: [-8, 0, 8], 4: [-9, -3, 3, 9] }[Math.min(n, 4)];
+  const tilts = { 1: [0], 2: [-5, 5], 3: [-8, 0, 8], 4: [-9, -3, 3, 9] }[n];
   return Array.from({ length: n }, (_, k) => {
     const tilt = tilts[k] ?? 0;
     const cx = RIM_CX + (k - (n - 1) / 2) * gap;
-    return { x: cx - w / 2, y: 13 + Math.abs(tilt) * 0.45, w, h, tilt };
+    const y = 13 + Math.abs(tilt) * 0.45;
+    return { x: cx - w / 2, y, w, h, tilt, back: false, faceCy: y + h * 0.5 };
   });
 }
 
@@ -100,9 +119,9 @@ function PickCard({ tile, box, uid, fresh, onTakeOut }) {
         {face === "photo" ? (
           <image className="op-replay-block" href={tile.photoUrl} x={ix} y={iy} width={iw} height={ih} preserveAspectRatio="xMidYMid slice" clipPath={`url(#${clip})`} />
         ) : face === "glyph" ? (
-          <text x={x + w / 2} y={y + h * 0.64} textAnchor="middle" fontSize={w * 0.56}>{tile.glyph}</text>
+          <text x={x + w / 2} y={box.faceCy + w * 0.2} textAnchor="middle" fontSize={w * 0.56}>{tile.glyph}</text>
         ) : (
-          <text x={x + w / 2} y={y + h / 2 - (lines.length - 1) * 5 + 3} textAnchor="middle" fontSize="9" fontFamily="Lato, sans-serif" fontWeight="700"
+          <text x={x + w / 2} y={box.faceCy - (lines.length - 1) * 5 + 3} textAnchor="middle" fontSize="9" fontFamily="Lato, sans-serif" fontWeight="700"
             fill="#2C1A0E" clipPath={`url(#${clip})`}>
             {lines.map((ln, k) => <tspan key={k} x={x + w / 2} dy={k === 0 ? 0 : 10}>{ln}</tspan>)}
           </text>
@@ -112,15 +131,17 @@ function PickCard({ tile, box, uid, fresh, onTakeOut }) {
   );
 }
 
-function Wagon({ picks, onTakeOut, fresh, kick, className = "" }) {
+function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null }) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const n = picks.length;
   const boxes = cardLayout(n);
+  // Paint order: the back tier (5–6 picks) first, then the front; pick order is the x order either way.
+  const painted = picks.map((t, k) => ({ t, box: boxes[k] })).sort((a, b) => (a.box.back === b.box.back ? 0 : a.box.back ? -1 : 1));
   // Gradient ids are per instance (two wagons can be on screen during a transition).
   const ids = { BODY: `${uid}-body`, WOOD: `${uid}-wood` };
   return (
     <svg className={`ask-wagon ${className}${kick ? ` ${kick.kind}` : ""}`} key={kick ? kick.n : 0}
-      viewBox={`0 0 ${WAGON_W} ${WAGON_H}`} role={onTakeOut ? "group" : "img"} aria-label={n === 0 ? "The wagon, empty" : `The wagon, ${n} in it`}>
+      viewBox={`0 0 ${WAGON_W} ${WAGON_H}`} role={onTakeOut ? "group" : "img"} aria-label={label || (n === 0 ? "The wagon, empty" : `The wagon, ${n} in it`)}>
       <defs>
         <linearGradient id={ids.BODY} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#FFFDF8" /><stop offset="1" stopColor="#EFE4D1" /></linearGradient>
         <linearGradient id={ids.WOOD} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#C99660" /><stop offset="1" stopColor="#9A6A3E" /></linearGradient>
@@ -133,8 +154,8 @@ function Wagon({ picks, onTakeOut, fresh, kick, className = "" }) {
           <path d="M58 50 Q58 42 66 42 H222 Q230 42 230 50 L226 58 H62 Z" fill="#E6D8C1" />
         </g>
         {/* the picks, on cards */}
-        {picks.map((t, k) => (
-          <PickCard key={t.id} tile={t} box={boxes[k]} uid={uid} fresh={t.id === fresh} onTakeOut={onTakeOut} />
+        {painted.map(({ t, box }) => (
+          <PickCard key={t.id} tile={t} box={box} uid={uid} fresh={t.id === fresh} onTakeOut={onTakeOut} />
         ))}
         {/* front: tub, stripe, rolled lip, the fixed bracket + tongue (behind the front wheel), the near wheels, the handle */}
         <g pointerEvents="none">
@@ -360,7 +381,7 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
               );
             })}
           </div>
-          <div className="ask-cartbar">
+          <div className={`ask-cartbar${inWagon.length >= 5 ? " ask-cartbar-tall" : ""}`}>
             {/* The footer wagon (2026-11-14): ~185px, centred above where That's it! appears. Shopper has no
                 dots — the numbers on the cards carry the count; the count stays for screen readers. */}
             <div className="ask-cartrow">
@@ -394,19 +415,14 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
           {top}
           <h1 className="ask-h1">{one ? "Great pick," : "Great picks,"}{" "}<br /><Name>{ask.label}</Name>!</h1>
           <div className="ask-rule" aria-hidden="true" />
-          <div className="ask-rollin ask-roll"><Wagon picks={shown} /></div>
+          {/* The wagon is the summary (2026-11-14): no list under it. As large as fits at 375×667 with the
+              line and the button; a raised back tier (5–6 picks) gets its room above. Screen readers get
+              the list from the wagon's label, in pick order. */}
+          <div className={`ask-rollin ask-roll${shown.length >= 5 ? " ask-rollin-tall" : ""}`}>
+            <Wagon picks={shown} label={`${one ? "Your pick" : "Your picks"}: ${shown.map((t) => t.name).join(", ")}`} />
+          </div>
           {/* W7 (amends A14): the credit is his, and the list is "our" list. */}
           <p className="ask-line">{one ? "Your pick is on our list!" : "Your picks are on our list!"}</p>
-          <ul className="ask-landed">
-            {shown.map((t) => (
-              <li key={t.id}>
-                {tileFace(t) !== "name" && (
-                  <span className="ask-landed-art" aria-hidden="true"><TileFace tile={t} /></span>
-                )}
-                {t.name}
-              </li>
-            ))}
-          </ul>
           <div className="ask-foot">
             {/* W8: the hand-back. The parent's first name sits in .op-name like any name in the run. */}
             <button type="button" className="ask-primary ask-give-back" onClick={giveBack} disabled={handedBack}>
@@ -535,14 +551,14 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 
 .ask-finale { align-items: stretch; overflow-y: auto; }
 .ask-rollin { display: flex; justify-content: center; margin-top: 18px; animation: ask-roll 1s cubic-bezier(.2,.9,.25,1.05); }
-.ask-rollin .ask-wagon { width: 83%; max-width: 280px; }
+/* The summary wagon: the full width less a 12px gutter each side, up to 380px. */
+.ask-rollin .ask-wagon { width: calc(100% - 24px); max-width: 380px; }
+/* A raised back tier (5–6 picks) stands BACK_RISE (34) wagon units above the drawing: room above it. */
+.ask-rollin.ask-rollin-tall { padding-top: calc(min(100vw - 24px, 380px) * 34 / 260); }
+.ask-cartbar.ask-cartbar-tall { padding-top: calc(8px + 185px * 34 / 260); }
 .ask-rollin .ask-wheel-spin { animation: ask-wheel-roll 1s cubic-bezier(.2,.9,.25,1); }
 @keyframes ask-roll { from { transform: translateX(-120%); } to { transform: none; } }
 .ask-give-back:disabled { opacity: 1; }
-.ask-landed { list-style: none; margin: 14px 20px 0; padding: 6px 16px; border: 1px solid #EFE3D0; border-radius: 16px; background: #FFFDF9; }
-.ask-landed li { display: flex; align-items: center; gap: 14px; padding: 8px 0; font: 400 calc(16px * var(--op-text-scale, 1)) 'Lato', sans-serif; }
-.ask-landed-art { width: 52px; height: 40px; border-radius: 8px; overflow: hidden; background: #F3E6CF; display: grid; place-items: center; font-size: 24px; flex: 0 0 auto; }
-.ask-landed-art img { width: 100%; height: 100%; object-fit: cover; }
 .ask-finale .ask-foot { margin-top: auto; }
 
 @media (prefers-reduced-motion: reduce) {
