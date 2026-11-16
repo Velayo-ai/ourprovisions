@@ -6,7 +6,8 @@ import { createSupabaseClient } from "../lib/supabaseClient";
 import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchError";
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
-import { createRowWriteChain, mergePolledChecked } from "../lib/checkWrites";
+import { createRowWriteChain, mergePolledById } from "../lib/checkWrites";
+import { createQtyQueue, applyOptimisticDelta, adoptQtyResult, isListEntry } from "../lib/qtyWrites";
 import { rollbackQty } from "../lib/qtyRollback";
 import { inviteFailureNotice } from "../lib/inviteFailure";
 import { readHeld, clearHeld, heldStore, INVITE_KEY, REF_KEY, INVITE_MAX_AGE_MS, REF_MAX_AGE_MS } from "../lib/preRum";
@@ -172,10 +173,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const getTokenRef = useRef(getToken);
   getTokenRef.current = getToken;
   const wrappingUpRef = useRef(false);
-  // Items with an in-flight local quantity write. The 2s poll must not
-  // overwrite these from the DB until the write confirms, or it'll briefly
-  // snap the optimistic value back to the stale server value (5→4→5 flicker).
-  const pendingQtyRef = useRef(new Set());
+  // Quantity display keys (row id or pre:<catalog id>) with a change in flight or queued, and
+  // each key's newest send / settle stamp. The 2s poll keeps the local number for a key that is
+  // busy or was stamped after the poll was requested (lib/checkWrites mergePolledById), so a
+  // stale snapshot can't put an old quantity back (SPEC_qty_increment §6.3; fe03670's gap).
+  const qtyBusyRef = useRef(new Set());
+  const qtySeqRef = useRef(0);
+  const qtyTouchRef = useRef({});
+  const touchQty = (key) => { if (key) qtyTouchRef.current[key] = ++qtySeqRef.current; };
   // Same guard for optimistic check state: while a toggle write is in flight,
   // the 2s poll must not overwrite the optimistic value with the stale server
   // status (Bug 3: toggle bounces / takes ~3 taps to stick). Keyed by name,
@@ -325,6 +330,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // Where the check writes stood when this snapshot was requested: a row written after this keeps its
     // local value when the answer lands (mergePolledChecked).
     const checkSeqAtStart = checkSeqRef.current;
+    const qtySeqAtStart = qtySeqRef.current;
     const { data: items, error: listErr, status: listStatus } = await db
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
@@ -478,15 +484,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // Preserve optimistic values for items with an in-flight write; commit the
     // rest from the server. Prevents the poll from clobbering a not-yet-
     // committed local edit.
-    setQuantities((prev) => {
-      if (pendingQtyRef.current.size === 0) return newQty;
-      const merged = { ...newQty };
-      pendingQtyRef.current.forEach((name) => {
-        if (name in prev) merged[name] = prev[name];
-      });
-      return merged;
-    });
-    setChecked((prev) => mergePolledChecked(prev, newChecked, pendingCheckRef.current, checkTouchRef.current, checkSeqAtStart));
+    setQuantities((prev) => mergePolledById(prev, newQty, qtyBusyRef.current, qtyTouchRef.current, qtySeqAtStart));
+    setChecked((prev) => mergePolledById(prev, newChecked, pendingCheckRef.current, checkTouchRef.current, checkSeqAtStart));
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
     setContributorsMap(newContributors);
@@ -1177,42 +1176,107 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   }, [activeHouseholdId, userId, clerkId, bootstrapped, sessionLive, householdAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────────
-  // updateQty: handles both global catalog items AND custom items.
-  // If the item isn't in the catalog yet, it's inserted first as
-  // a household-specific item, then the list_items row is written.
+  // QUANTITY CHANGES ARE DELTAS (SPEC_qty_increment §6; 085 adjust_list_item_quantity).
+  // The phone sends +n / −n; the server applies it to the CURRENT value under the household
+  // lock, so a concurrent Ask pick or another phone's tap is never overwritten (blocker 4).
+  // There is no "set to N" path any more — updateQty is gone so nothing can quietly write a
+  // total. adjustQty(name, delta, category, price) resolves or creates the catalog item exactly
+  // as updateQty did, moves the shown number by delta at once, and queues the delta
+  // (lib/qtyWrites: one request in flight per item, taps meanwhile summed). removeItem(name)
+  // is the explicit remove ("off the list", not "one fewer"): remove_list_item, unchanged.
   // ─────────────────────────────────────────────────────────────
-  const updateQty = useCallback(async (itemName, qty, categoryName, price) => {
+  // Per queued item: the household it belongs to, its catalog item, the display keys it has
+  // touched (the row id and/or pre:<catalog id>), and a price for the first add (new-item form).
+  const qtyCtxRef = useRef(new Map());
+  const emitItemAdded = (ctx) => {
+    // One emitter for every manual entry onto the list (Q10: the RPC's inserted / revived, never
+    // a bump). source: 'browse' covers Browse's Add, search quick-add, the new-item form, the
+    // Shop in-store Add sheet and landscape. Telemetry never throws into, or blocks, the add.
+    try {
+      tracer.startSpan("item_added_to_list", {
+        attributes: {
+          catalog_item_id: ctx.cid,
+          category: ctx.categoryName || ctx.catalogItem.category || null,
+          is_custom: !ctx.catalogItem.is_global,
+          household_id: ctx.hhId,
+          source: "browse",
+        },
+      }).end();
+    } catch (e) {
+      console.warn("[rum] item_added_to_list event failed:", e);
+    }
+  };
+  const qtyQueueRef = useRef(null);
+  if (!qtyQueueRef.current) {
+    qtyQueueRef.current = createQtyQueue({
+      send: async (key, delta) => {
+        const ctx = qtyCtxRef.current.get(key);
+        const price = delta > 0 && ctx.price > 0 ? ctx.price : null;
+        ctx.price = null;   // the price rides the first add only
+        const { data, error: adjErr } = await supabaseRef.current.rpc("adjust_list_item_quantity", {
+          p_household_id: ctx.hhId,
+          p_catalog_item_id: ctx.cid,
+          p_delta: delta,
+          p_price_per_unit: price,
+        });
+        if (adjErr) throw adjErr;
+        return data;
+      },
+      // Stamped when a request is sent and when it settles (§6.3): a poll requested before
+      // either can't put the old number back (lib/checkWrites mergePolledById).
+      onSend: (key) => {
+        const ctx = qtyCtxRef.current.get(key);
+        ctx.keys.forEach((k) => { qtyBusyRef.current.add(k); touchQty(k); });
+      },
+      onDone: (key, { ok, result, error: err, drained }) => {
+        const ctx = qtyCtxRef.current.get(key);
+        if (!ctx) return;
+        if (ok && result?.list_item_id) ctx.keys.add(result.list_item_id);
+        ctx.keys.forEach(touchQty);
+        const here = householdRef.current?.id === ctx.hhId;   // a switch mid-burst: leave the new place alone
+        if (ok) {
+          if (isListEntry(result)) emitItemAdded(ctx);
+          if (!drained) return;   // a later answer will report; adopt only the last
+          if (here) setQuantities((prev) => adoptQtyResult(prev, { result, optKey: ctx.optKey, preKey: preKey(ctx.cid) }));
+          reportSuccess();
+        } else {
+          console.error("adjustQty error:", err?.message, err);
+          // The change didn't take, whatever the cause: back to the server's last value
+          // (lib/qtyRollback). Nothing retries a delta (Q9) — the next poll shows it if it
+          // actually committed. Transient: the pill, no toast.
+          if (here) setQuantities((prev) => [...ctx.keys].reduce((p, k) => rollbackQty(p, k, listRowsRef.current), prev));
+          if (classifyFetchError(err) === 'transient') reportTransientFailure();
+          else setError(`Could not update quantity: ${err?.message}`);
+        }
+        ctx.keys.forEach((k) => qtyBusyRef.current.delete(k));
+        qtyCtxRef.current.delete(key);
+      },
+    });
+  }
+
+  const adjustQty = useCallback(async (itemName, delta, categoryName, price) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
-    if (!hh || !db) return;
+    if (!hh || !db || !Number.isInteger(delta) || delta === 0) return null;
 
-    // Resolved ids of the row this write touched — returned so an in-store add
-    // can record its `added_in_store` event after the write commits (D12).
-    // Null for removals and on failure.
-    let touched = null;
-    // Optimistic key: the live row's id when one exists, else pre:<catalog id>
-    // until the insert lands. A brand-new NAME has no catalog id yet, so it
-    // gets no optimistic value — nothing renders it before catalogMap updates.
+    // Optimistic key: the live row's id when one exists, else pre:<catalog id> until the insert
+    // lands. A brand-new NAME has no catalog id yet, so it gets no optimistic value — nothing
+    // renders it before catalogMap updates.
     let optKey = null;
-    const setOpt = (key, value) => {
-      if (!key) return;
-      pendingQtyRef.current.add(key);
-      setQuantities((prev) => ({ ...prev, [key]: Math.max(0, value) }));
+    const show = (ci) => {
+      optKey = liveRowIdFor(ci.id) || preKey(ci.id);
+      qtyBusyRef.current.add(optKey);
+      setQuantities((prev) => applyOptimisticDelta(prev, optKey, delta));
     };
-    const clearPending = () => { if (optKey) pendingQtyRef.current.delete(optKey); };
 
+    let catalogItem = catalogRef.current[itemName];
     try {
-      // Look up in current catalogRef (includes custom items added this session)
-      let catalogItem = catalogRef.current[itemName];
-      if (catalogItem) { optKey = liveRowIdFor(catalogItem.id) || preKey(catalogItem.id); setOpt(optKey, qty); }
-
-      // If not found, this is a brand-new custom item — insert it into catalog_items
-      if (!catalogItem) {
-        // Resolver hardening (F1b Layer 2): a HIDDEN item is evicted from catalogRef,
-        // so it looks "new" here. Before inserting a fork, resolve an exact-normalized
-        // name match against the hidden set to the EXISTING catalog row. (F0's DB index
-        // uq_live_list_item would reject a duplicate live row anyway; this keeps the
-        // path a clean reuse rather than surfacing as an error.)
+      if (catalogItem) show(catalogItem);
+      else {
+        if (delta < 0) return null;   // nothing to take one off
+        // Resolver hardening (F1b Layer 2): a HIDDEN item is evicted from catalogRef, so it looks
+        // "new" here. Before inserting a fork, resolve an exact-normalized name match against the
+        // hidden set to the EXISTING catalog row.
         const norm = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
         const hiddenMatch = hiddenCatalogItemsRef.current.find(it => norm(it.name) === norm(itemName));
         if (hiddenMatch) {
@@ -1229,138 +1293,72 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
             });
           if (insertErr) throw insertErr;
           catalogItem = { id: insertedId, name: itemName, category: category, is_global: false, household_id: hh.id };
-          // Keep catalogRef and catalogMap in sync
           catalogRef.current = { ...catalogRef.current, [itemName]: catalogItem };
           setCatalogMap((prev) => ({ ...prev, [itemName]: catalogItem }));
         }
+        show(catalogItem);
       }
-      if (!optKey) { optKey = liveRowIdFor(catalogItem.id) || preKey(catalogItem.id); setOpt(optKey, qty); }
-
-      if (qty <= 0) {
-        // Atomic remove: soft-delete the list_items row AND clear its
-        // contributor badges in one transaction (migration 009). Replaces the
-        // old client-side soft-delete that left contributors behind and caused
-        // badge-resurrection on re-add (008 upsert revives the same row).
-        const { error: delErr } = await db.rpc("remove_list_item", {
-          p_household_id: hh.id,
-          p_catalog_item_id: catalogItem.id,
-        });
-        if (delErr) throw delErr;
-        // The row is gone: drop its entry (and any pre-row placeholder) now rather
-        // than waiting for the poll.
-        setQuantities((prev) => { const n = { ...prev }; delete n[optKey]; delete n[preKey(catalogItem.id)]; return n; });
-      } else {
-        // DXA: was this catalog item LIVE on the list before this write? The
-        // UPDATE below has no deleted_at filter (it revives tombstones), so a
-        // matched row is either a live-row bump (silent) or a tombstone revive
-        // (an add — the item re-enters the list). Read from listRowsRef, which
-        // is server state, not the optimistic map. Edge: a row inserted this
-        // session and bumped before the 2s poll delivers it reads as not-live
-        // and emits twice.
-        const hadLiveRow = !!liveRowIdFor(catalogItem.id);
-        // One emitter for both add branches. source: 'browse' covers every
-        // manual add — Browse's Add, search quick-add, the new-item form and
-        // the Shop in-store Add sheet all funnel through updateQty. Telemetry
-        // never throws into, or blocks, the add.
-        const emitItemAdded = () => {
-          try {
-            tracer.startSpan("item_added_to_list", {
-              attributes: {
-                catalog_item_id: catalogItem.id,
-                category: categoryName || catalogItem.category || null,
-                is_custom: !catalogItem.is_global,
-                household_id: hh.id,
-                source: "browse",
-              },
-            }).end();
-          } catch (e) {
-            console.warn("[rum] item_added_to_list event failed:", e);
-          }
-        };
-        const { data: updateData, error: updateErr } = await db
-          .from("list_items")
-          .update({ quantity: qty, status: "pending", deleted_at: null })
-          .eq("household_id", hh.id)
-          .eq("catalog_item_id", catalogItem.id)
-          .select();
-        if (updateErr) throw updateErr;
-
-        if (!updateData || updateData.length === 0) {
-          // Truly no row exists — insert fresh
-          // Auto-open a planned cycle if none is active yet (adopts on a lost race)
-          if (!activeCycleRef.current) await ensureOpenCycle("planned");
-
-          const { data: newItemId, error: insertErr } = await db
-            .rpc("insert_list_item", {
-              p_household_id: hh.id,
-              p_catalog_item_id: catalogItem.id,
-              p_quantity: qty,
-              p_status: "pending",
-              p_added_by: internalUserIdRef.current,
-              p_cycle_id: activeCycleRef.current?.id || null,
-              p_price_per_unit: (price != null && price > 0) ? price : null,
-            });
-          if (insertErr) throw insertErr;
-          const newItem = { id: newItemId };
-          touched = { listItemId: newItemId, catalogItemId: catalogItem.id };
-          // DXA event: a NEW row on the list. household_id is also stamped
-          // globally (rum.js setHousehold); repeated so the event stands alone
-          // in a DXA funnel.
-          emitItemAdded();
-          // Real row now exists: mirror the value under its id. The pre:<cid>
-          // placeholder stays until the poll delivers the row (the reader falls
-          // back to it meanwhile), then the rebuild drops it.
-          setQuantities((prev) => ({ ...prev, [newItemId]: qty }));
-
-          // Record this user as the first contributor
-          if (newItem && internalUserIdRef.current) {
-            await db
-              .from("list_item_contributors")
-              .upsert({
-                list_item_id: newItem.id,
-                user_id: internalUserIdRef.current,
-                quantity_added: qty,
-              }, { onConflict: "list_item_id,user_id" });
-          }
-        } else {
-          // Row already exists — update this user's contributor quantity
-          touched = { listItemId: updateData[0].id, catalogItemId: catalogItem.id };
-          // DXA event: the UPDATE matched a TOMBSTONE and revived it — the item
-          // re-entered the list, which is an add. A bump of a live row is not.
-          // (Found 2026-09-20: without this, an item that had ever been on the
-          // list never fired again — most adds in a household with history.)
-          if (!hadLiveRow) emitItemAdded();
-          setQuantities((prev) => ({ ...prev, [updateData[0].id]: qty }));
-          if (internalUserIdRef.current && updateData?.[0]?.id) {
-            await db
-              .from("list_item_contributors")
-              .upsert({
-                list_item_id: updateData[0].id,
-                user_id: internalUserIdRef.current,
-                quantity_added: Math.max(1, qty),
-              }, { onConflict: "list_item_id,user_id" });
-          }
-        }
-
-      }
-      clearPending();
-      reportSuccess();
-      return touched;
+      // No live row and no open cycle: open one here so activeCycle state stays current (the RPC
+      // also opens one if needed; this adopts on a lost race).
+      if (delta > 0 && !liveRowIdFor(catalogItem.id) && !activeCycleRef.current) await ensureOpenCycle("planned");
     } catch (err) {
-      clearPending();
-      console.error("updateQty error:", err.message, err);
-      console.error("Item:", itemName, "Qty:", qty, "Catalog item:", catalogRef.current[itemName]);
-      // The value didn't take, whatever the cause: put the stepper back to the
-      // server's last value (lib/qtyRollback). Offline used to keep the new
-      // number, but nothing retries it, so it was a save that never happened
-      // (2026-11-08, SPEC_offline_retry §4). Transient: the pill, no toast.
-      setQuantities((prev) => rollbackQty(prev, optKey, listRowsRef.current));
-      if (classifyFetchError(err) === 'transient') {
-        reportTransientFailure();
-      } else {
-        setError(`Could not update quantity: ${err.message}`);
+      console.error("adjustQty error (before the change was sent):", err.message, err);
+      if (optKey) {
+        if (!qtyQueueRef.current.busy(`${hh.id}:${catalogItem?.id}`)) qtyBusyRef.current.delete(optKey);
+        setQuantities((prev) => rollbackQty(prev, optKey, listRowsRef.current));
       }
+      if (classifyFetchError(err) === 'transient') reportTransientFailure();
+      else setError(`Could not update quantity: ${err.message}`);
       return null;
+    }
+
+    const key = `${hh.id}:${catalogItem.id}`;
+    let ctx = qtyCtxRef.current.get(key);
+    if (!ctx) {
+      ctx = { hhId: hh.id, cid: catalogItem.id, catalogItem, categoryName, keys: new Set(), price: null, optKey };
+      qtyCtxRef.current.set(key, ctx);
+    }
+    ctx.keys.add(optKey);
+    ctx.optKey = optKey;
+    if (delta > 0 && price != null && price > 0) ctx.price = price;
+
+    const res = await qtyQueueRef.current.tap(key, delta);
+    const r = res.ok ? res.result : null;
+    // Resolved ids of the row this change touched — an in-store add records its `added_in_store`
+    // event from them after the change commits (D12). Null for a removal, a no-op or a failure.
+    if (!r || !r.list_item_id || r.outcome === "removed" || r.outcome === "absent") return null;
+    return { listItemId: r.list_item_id, catalogItemId: catalogItem.id };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);  // empty deps — uses refs, never stale
+
+  const removeItem = useCallback(async (itemName) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!hh || !db) return;
+    const catalogItem = catalogRef.current[itemName];
+    if (!catalogItem) return;
+    const optKey = liveRowIdFor(catalogItem.id) || preKey(catalogItem.id);
+    qtyBusyRef.current.add(optKey);
+    touchQty(optKey);
+    setQuantities((prev) => (optKey in prev ? { ...prev, [optKey]: 0 } : prev));
+    try {
+      // Atomic remove: soft-delete the row AND clear its contributor badges in one transaction
+      // (remove_list_item, 009 / 077).
+      const { error: delErr } = await db.rpc("remove_list_item", {
+        p_household_id: hh.id,
+        p_catalog_item_id: catalogItem.id,
+      });
+      if (delErr) throw delErr;
+      setQuantities((prev) => { const n = { ...prev }; delete n[optKey]; delete n[preKey(catalogItem.id)]; return n; });
+      reportSuccess();
+    } catch (err) {
+      console.error("removeItem error:", err.message, err);
+      setQuantities((prev) => rollbackQty(prev, optKey, listRowsRef.current));
+      if (classifyFetchError(err) === 'transient') reportTransientFailure();
+      else setError(`Could not update quantity: ${err.message}`);
+    } finally {
+      touchQty(optKey);
+      if (!qtyQueueRef.current.busy(`${hh.id}:${catalogItem.id}`)) qtyBusyRef.current.delete(optKey);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
@@ -4407,7 +4405,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     cooksLoaded: !!household?.id && cooksLoadedFor === household.id,
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     asksLoaded: !!household?.id && asksLoadedFor === household.id,
-    updateQty, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
+    adjustQty, removeItem, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
     landAskPicks, asks, fetchAsks, createAsk, updateAsk, deleteAsk, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,

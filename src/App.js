@@ -1271,19 +1271,19 @@ function StorePrompt({ chips, onPick, onSkip, busy }) {
 // Rendered from both Browse and Search so the two can't drift apart.
 function CatalogItemRow({
   item, qty, rawCategory, showPrices, price, isEditing, priceInput,
-  centsToDisplay, onUpdateQty, onPriceInput, onCommitPrice, onCancelEditPrice,
+  centsToDisplay, onAdjustQty, onPriceInput, onCommitPrice, onCancelEditPrice,
 }) {
   return (
     <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
       <div className="item-top">
         <span className="item-name">{item.name}</span>
         {qty === 0 ? (
-          <button className="add-btn" onClick={(e) => { onUpdateQty(item.name, 1, rawCategory); e.currentTarget.blur(); }}>Add</button>
+          <button className="add-btn" onClick={(e) => { onAdjustQty(item.name, 1, rawCategory); e.currentTarget.blur(); }}>Add</button>
         ) : (
           <div className="qty-controls">
-            <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty - 1, rawCategory)}>−</button>
+            <button className="qty-btn" onClick={() => onAdjustQty(item.name, -1, rawCategory)}>−</button>
             <span className="qty-display">{qty}</span>
-            <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty + 1, rawCategory)}>+</button>
+            <button className="qty-btn" onClick={() => onAdjustQty(item.name, 1, rawCategory)}>+</button>
           </div>
         )}
       </div>
@@ -5290,7 +5290,8 @@ function ProvisionsApp({ scrollRootRef }) {
     catalogLoaded,
     error,
     dismissError,
-    updateQty,
+    adjustQty,
+    removeItem,
     updatePrice,
     toggleChecked,
     updateBudgetGoal,
@@ -7355,7 +7356,7 @@ function ProvisionsApp({ scrollRootRef }) {
   // Search "add to your list" handler (F1b Layer 1 — the floor). Re-adding a HIDDEN
   // item must never write quantity across the person boundary: hide is a lens, not an
   // edit. Resolve the typed name against the hidden set first.
-  // Resolves to updateQty's `{ listItemId, catalogItemId }` when a quantity was
+  // Resolves to adjustQty's `{ listItemId, catalogItemId }` when a quantity was
   // written, null otherwise (reveal-only, or nothing typed) — the Shop Add sheet
   // records its added_in_store event from that. Browse ignores the value.
   const addSearchedItem = async (rawCategory) => {
@@ -7373,10 +7374,10 @@ function ProvisionsApp({ scrollRootRef }) {
       }
       // Hidden while at qty 0 (not on the list) → un-hide, then add at typed qty.
       unhideItem(hidden.id);
-      return updateQty(typed, 1, rawCategory);
+      return adjustQty(typed, 1, rawCategory);
     }
-    // No hidden match → today's behavior: add as a (possibly new) item.
-    return updateQty(typed, 1, rawCategory);
+    // No hidden match → today's behavior: add as a (possibly new) item (+1 through adjustQty).
+    return adjustQty(typed, 1, rawCategory);
   };
 
   // Show the join banner once the lens has landed on the joined household.
@@ -7823,8 +7824,8 @@ function ProvisionsApp({ scrollRootRef }) {
     if (allItems.includes(name.toLowerCase())) { setAddError("That item already exists."); return; }
     const price = parseFloat(centsToDisplay(newItemPrice)) || 0;
     if (price > 0) setLocalPrices(prev => ({ ...prev, [name]: price }));
-    // updateQty with qty=1 will auto-create the catalog item in Supabase if it doesn't exist
-    updateQty(name, 1, newItemCategory, price > 0 ? price : undefined);
+    // adjustQty(+1) auto-creates the catalog item in Supabase if it doesn't exist; the price rides the insert
+    adjustQty(name, 1, newItemCategory, price > 0 ? price : undefined);
     // Opened from the search's "Add '<query>'": the search clears, so the new item shows in its aisle.
     if (addSheet?.fromSearch) setSearchQuery("");
     setNewItemName(""); setNewItemPrice(""); setAddError(""); setAddSheet(null);
@@ -8171,11 +8172,11 @@ function ProvisionsApp({ scrollRootRef }) {
     setAddedHereIds(prev => { const n = new Set(prev); n.add(res.catalogItemId); return n; });
     recordListEvent("added_in_store", res);
   };
-  // A catalog hit — the same write Browse's row makes (+1 through updateQty,
-  // which sets status back to pending: D6, adds land unchecked).
+  // A catalog hit — the same change Browse's row makes: +1 through adjustQty. Adds land unchecked
+  // (D6); on a row already in the cart the server makes it a NEW need of 1, never old + 1 (085 Q4).
   const handleShopAddResult = async (item) => {
     closeAddSheet();
-    const res = await updateQty(item.name, qtyFor(item) + 1, item.rawCategory);
+    const res = await adjustQty(item.name, 1, item.rawCategory);
     noteAddedHere(res);
   };
   // Create / reveal-add — Browse's addSearchedItem, unchanged, with the category
@@ -8563,7 +8564,7 @@ function ProvisionsApp({ scrollRootRef }) {
                 isEditing={isEditing}
                 priceInput={priceInput}
                 centsToDisplay={centsToDisplay}
-                onUpdateQty={updateQty}
+                onAdjustQty={adjustQty}
                 onPriceInput={handlePriceInput}
                 onCommitPrice={commitPrice}
                 onCancelEditPrice={() => setEditingPrice(null)}
@@ -8637,9 +8638,10 @@ function ProvisionsApp({ scrollRootRef }) {
     if (landscapePhone && landscapeMounted && textFocused && document.activeElement && document.activeElement.blur) document.activeElement.blur();
   }, [landscapePhone, landscapeMounted, textFocused]);
   // Names added during THIS landscape visit; a tile removed again leaves the set, so its size
-  // is the visit's NET adds. Adds and removes go through updateQty — the Add button's own
-  // path (realtime, optimistic, offline). A tap only ever takes off what this visit put on
-  // (the set is how the view knows); anything else comes off by press-and-hold.
+  // is the visit's NET adds. A tap-add is +1 through adjustQty — the Add button's own path — and a
+  // tap-undo is −1 ("undo MY add", 085 Q7), so a pick that landed in between survives it. A tap
+  // only ever takes off what this visit put on (the set is how the view knows); anything else
+  // comes off by press-and-hold, which is the explicit remove (removeItem).
   // Every rotation INTO landscape starts a fresh set: flushLandscapeAdds runs when a visit
   // ends, and again the moment the display flips sideways (the query itself, no debounce).
   const landscapeAddedRef = useRef(new Set());
@@ -8658,12 +8660,16 @@ function ProvisionsApp({ scrollRootRef }) {
   }, [flushLandscapeAdds]);
   const landscapeAdd = useCallback((item) => {
     landscapeAddedRef.current.add(item.name);
-    updateQty(item.name, 1, item.rawCategory);
-  }, [updateQty]);
+    adjustQty(item.name, 1, item.rawCategory);
+  }, [adjustQty]);
+  const landscapeUndo = useCallback((item) => {
+    landscapeAddedRef.current.delete(item.name);
+    adjustQty(item.name, -1, item.rawCategory);
+  }, [adjustQty]);
   const landscapeRemove = useCallback((item) => {
     landscapeAddedRef.current.delete(item.name);
-    updateQty(item.name, 0, item.rawCategory);
-  }, [updateQty]);
+    removeItem(item.name);
+  }, [removeItem]);
   // The first-run subtitle (lib/landscapeHint): the first three landscape visits on this
   // device. The state is what the NEXT visit shows, so the hidden view is already right when
   // the phone turns; a visit is counted when it starts and the state re-read when it ends.
@@ -9016,7 +9022,7 @@ function ProvisionsApp({ scrollRootRef }) {
           included — the grid gets the room); the portrait Browse stays mounted below.
           The error toast above is underneath it, so the view shows the same `error` in its own slot. */}
       {landscapeMounted && (
-        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} showHint={landscapeHintOn} error={error} onDismissError={dismissError} />
+        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onUndo={landscapeUndo} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} showHint={landscapeHintOn} error={error} onDismissError={dismissError} />
       )}
 
       {!(signedOutWelcome && pendingGiftCode) && <Helm
@@ -11888,7 +11894,7 @@ function ProvisionsApp({ scrollRootRef }) {
                               isEditing={isEditing}
                               priceInput={priceInput}
                               centsToDisplay={centsToDisplay}
-                              onUpdateQty={updateQty}
+                              onAdjustQty={adjustQty}
                               onPriceInput={handlePriceInput}
                               onCommitPrice={commitPrice}
                               onCancelEditPrice={() => setEditingPrice(null)}
@@ -11956,7 +11962,7 @@ function ProvisionsApp({ scrollRootRef }) {
                               isEditing={isEditing}
                               priceInput={priceInput}
                               centsToDisplay={centsToDisplay}
-                              onUpdateQty={updateQty}
+                              onAdjustQty={adjustQty}
                               onPriceInput={handlePriceInput}
                               onCommitPrice={commitPrice}
                               onCancelEditPrice={() => setEditingPrice(null)}
@@ -12001,7 +12007,7 @@ function ProvisionsApp({ scrollRootRef }) {
                               isEditing={isEditing}
                               priceInput={priceInput}
                               centsToDisplay={centsToDisplay}
-                              onUpdateQty={updateQty}
+                              onAdjustQty={adjustQty}
                               onPriceInput={handlePriceInput}
                               onCommitPrice={commitPrice}
                               onCancelEditPrice={() => setEditingPrice(null)}

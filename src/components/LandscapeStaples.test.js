@@ -14,9 +14,10 @@ const items = [
 // `qty` = what is on the list; `visit` = names added during this landscape visit.
 const setup = (qty = {}, visit = []) => {
   const onAdd = jest.fn();
+  const onUndo = jest.fn();
   const onRemove = jest.fn();
-  render(<LandscapeStaples items={items} qtyOf={(i) => qty[i.name] || 0} addedThisVisit={(i) => visit.includes(i.name)} onAdd={onAdd} onRemove={onRemove} />);
-  return { onAdd, onRemove };
+  render(<LandscapeStaples items={items} qtyOf={(i) => qty[i.name] || 0} addedThisVisit={(i) => visit.includes(i.name)} onAdd={onAdd} onUndo={onUndo} onRemove={onRemove} />);
+  return { onAdd, onUndo, onRemove };
 };
 
 describe("LandscapeStaples", () => {
@@ -46,10 +47,11 @@ describe("LandscapeStaples", () => {
     expect(screen.getByRole("button", { name: "Eggs" })).not.toHaveClass("on");
   });
 
-  test("tap a tile added during THIS visit → take it back off", () => {
-    const { onAdd, onRemove } = setup({ Milk: 1 }, ["Milk"]);
+  test("tap a tile added during THIS visit → take it back off through onUndo (−1), not the explicit remove", () => {
+    const { onAdd, onUndo, onRemove } = setup({ Milk: 1 }, ["Milk"]);
     fireEvent.click(screen.getByRole("button", { name: /Milk/ }));
-    expect(onRemove).toHaveBeenCalledWith(items[1]);
+    expect(onUndo).toHaveBeenCalledWith(items[1]);
+    expect(onRemove).not.toHaveBeenCalled();
     expect(onAdd).not.toHaveBeenCalled();
     expect(screen.queryByText(HOLD_HINT)).toBeNull();
   });
@@ -394,9 +396,9 @@ describe("landscape never touches portrait filter state", () => {
     expect(block).toMatch(/landscapeItems\(categories, catalogMap\)/);
   });
 
-  test("the element is handed items, the visit's add-set test, the two list writes and the error to mirror, nothing else", () => {
+  test("the element is handed items, the visit's add-set test, the three list writes (add, undo, remove) and the error to mirror, nothing else", () => {
     const m = APP.match(/<LandscapeStaples ([^>]*)\/>/);
     expect(m).not.toBeNull();
-    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph(\"Staples\")} showHint={landscapeHintOn} error={error} onDismissError={dismissError}");
+    expect(m[1].trim()).toBe("items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onUndo={landscapeUndo} onRemove={landscapeRemove} glyph={categoryGlyph(\"Staples\")} showHint={landscapeHintOn} error={error} onDismissError={dismissError}");
   });
 });
