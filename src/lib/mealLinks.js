@@ -113,23 +113,17 @@ export async function takeMealOffList(db, { householdId, mealId, catalogItemIds 
     // so there is no recorded basis to subtract. Drop the provenance link
     // and leave the quantity untouched.
     if (contributed > 0) {
-      const remaining = Number(li.quantity) - contributed;
-      if (remaining > 0) {
-        const { error: qErr } = await db
-          .from("list_items")
-          .update({ quantity: remaining, updated_at: new Date().toISOString() })
-          .eq("id", li.id)
-          .eq("household_id", householdId);
-        if (qErr) throw qErr;
-      } else {
-        // Fully spent. Same removal path updateQty's qty<=0 branch uses,
-        // so the list keeps ONE removal implementation.
-        const { error: rErr } = await db.rpc("remove_list_item", {
-          p_household_id: householdId,
-          p_catalog_item_id: li.catalog_item_id,
-        });
-        if (rErr) throw rErr;
-      }
+      // ONE change, −contributed, applied by the server to the CURRENT quantity under the household
+      // lock (085 adjust_list_item_quantity, SPEC_qty_increment §6.5). It removes the row itself at
+      // <= 0 (Q3), through remove_list_item, so the list keeps ONE removal implementation. The
+      // quantity read above is no longer used for arithmetic: a pick or a tap that landed since is
+      // never overwritten. 085 caps |delta| at 99; a meal's share is never near that.
+      const { error: aErr } = await db.rpc("adjust_list_item_quantity", {
+        p_household_id: householdId,
+        p_catalog_item_id: li.catalog_item_id,
+        p_delta: -contributed,
+      });
+      if (aErr) throw aErr;
     }
 
     const { error: uErr } = await db

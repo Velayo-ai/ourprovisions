@@ -5,6 +5,7 @@ const path = require("path");
 
 const app = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
 const hook = fs.readFileSync(path.join(__dirname, "..", "hooks", "useProvisions.js"), "utf8");
+const meal = fs.readFileSync(path.join(__dirname, "mealLinks.js"), "utf8");
 
 const code = (s) => s.replace(/\/\/[^\n]*/g, "");   // comments may still name the old function
 
@@ -14,7 +15,7 @@ describe("§6.1 the hook: deltas only", () => {
     expect(code(app)).not.toMatch(/\bupdateQty\b|\bonUpdateQty\b/);
   });
   test("no client write of list_items.quantity: no .update({ quantity …}) and no insert_list_item", () => {
-    for (const src of [hook]) {   // mealLinks joins in §6.5
+    for (const src of [hook, meal]) {
       expect(code(src)).not.toMatch(/\.update\(\{\s*quantity\b/);
     }
     expect(code(hook)).not.toMatch(/rpc\("insert_list_item"/);
