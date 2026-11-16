@@ -61,7 +61,12 @@
 --   back', fn_count 0, fixture_rows 0. A canary copy wanting 26 failed "085 fixture: 25 checks
 --   passed, want 26" (all probes, Ask probes included, ran). Expected body md5 e1efdee7808c6765d76eb5b16af6cc74
 --   (this file's text between the $function$ quotes). 085_rollback.sql parse-checked the same way.
---   Read-back after: no adjust_list_item_quantity, no 085 ledger row, 0 fixture users. NOT APPLIED.
+--   Read-back after: no adjust_list_item_quantity, no 085 ledger row, 0 fixture users.
+-- APPLIED on dev 2026-11-16 by Dan (pasted into the SQL editor): committed, fn_count 1, secdef true,
+--   search_path_empty true, grantees authenticated=EXECUTE, fixture_rows 0. Ledger 20261116023100
+--   085_adjust_list_item_quantity. Body md5 as stored e5fb61d2f08940e38948cb706dc796ba (CRLF, from
+--   the paste); md5(replace(prosrc, E'\r', '')) = e1efdee7808c6765d76eb5b16af6cc74 = this file (LF).
+--   Read back with \r stripped. NOT ON PROD.
 
 begin;
 
