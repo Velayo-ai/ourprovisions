@@ -1,4 +1,4 @@
-import { createRowWriteChain, mergePolledChecked } from "./checkWrites";
+import { createRowWriteChain, mergePolledChecked, mergePolledById } from "./checkWrites";
 
 // A send() the test resolves or rejects by hand, honouring abort like fetch does.
 function deferredSend(log, label) {
@@ -99,5 +99,33 @@ describe("mergePolledChecked", () => {
   });
   test("a row that left the list isn't resurrected from the local map", () => {
     expect(mergePolledChecked({ g: true }, {}, new Set(), { x: 9 }, 4)).toEqual({});
+  });
+});
+
+// SPEC_qty_increment §6.3: the same rule for quantities, through the one generic merge.
+describe("mergePolledById (quantities)", () => {
+  test("is the same function as mergePolledChecked", () => {
+    expect(mergePolledChecked).toBe(mergePolledById);
+  });
+  test("a poll requested before a + and answered after it settles keeps the local quantity", () => {
+    // requested at seq 4; the write stamped 5 (send) and 6 (settle); nothing in flight now.
+    const prev = { r1: 3, r2: 1 };
+    const polled = { r1: 2, r2: 1 };
+    expect(mergePolledById(prev, polled, new Set(), { r1: 6 }, 4)).toEqual({ r1: 3, r2: 1 });
+  });
+  test("the next poll, requested after the write settled, takes the server's quantity", () => {
+    expect(mergePolledById({ r1: 3 }, { r1: 4 }, new Set(), { r1: 6 }, 6)).toEqual({ r1: 4 });
+  });
+  test("a row with a request in flight or queued keeps its local quantity", () => {
+    expect(mergePolledById({ r1: 5 }, { r1: 2 }, new Set(["r1"]), {}, 9)).toEqual({ r1: 5 });
+  });
+  test("a pre:<catalog id> placeholder touched after the request survives one poll, then drops", () => {
+    const prev = { "pre:c1": 1 };
+    const polled = { r9: 1 };
+    expect(mergePolledById(prev, polled, new Set(), { "pre:c1": 7 }, 5)).toEqual({ r9: 1, "pre:c1": 1 });
+    expect(mergePolledById(prev, polled, new Set(), { "pre:c1": 7 }, 7)).toEqual({ r9: 1 });
+  });
+  test("other rows follow the server; a row with nothing local isn't invented", () => {
+    expect(mergePolledById({ r1: 3 }, { r1: 2, r2: 8 }, new Set(), { r1: 6, r3: 6 }, 4)).toEqual({ r1: 3, r2: 8 });
   });
 });
