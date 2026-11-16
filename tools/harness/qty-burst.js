@@ -43,6 +43,11 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
   await page.reload({ waitUntil: "networkidle2" });
   await page.waitForFunction(() => window.Clerk && window.Clerk.user, { timeout: 30000 });
   await sleep(3500);
+  // With an empty list the app lands on Home whatever the hash says: tap the BROWSE tab (see-walk.js).
+  if (!(await page.evaluate(() => document.querySelector(".item-row")))) {
+    await page.evaluate(() => { const t = [...document.querySelectorAll("button, a")].find((x) => /^browse$/i.test(x.innerText.trim())); if (t) t.click(); });
+    await sleep(2000);
+  }
   const bundle = await page.evaluate(() => [...document.scripts].map((s) => s.src).find((s) => /main\.[a-z0-9]+\.js/.test(s)) || "");
   log("bundle " + bundle.replace(/.*\//, ""));
 
