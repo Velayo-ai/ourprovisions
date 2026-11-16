@@ -91,6 +91,12 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
     await page.evaluate(() => window.__sample());
     for (let i = 0; i < TAPS; i++) { await page.evaluate((s) => window.__tap(s), sign); await sleep(90); }
   };
+  // The samples in order, runs collapsed: [1,1,2,2,3,2,3] → "1×2 2×2 3 2 3".
+  const seq = (xs) => xs.filter((x) => x != null).reduce((runs, x) => {
+    const last = runs[runs.length - 1];
+    if (last && last[0] === x) last[1]++; else runs.push([x, 1]);
+    return runs;
+  }, []).map(([x, n]) => (n > 1 ? `${x}×${n}` : `${x}`)).join(" ");
   const monotone = (xs, sign) => xs.filter((x) => x != null).every((x, i, a) => i === 0 || (sign > 0 ? x >= a[i - 1] : x <= a[i - 1]));
 
   let start = await page.evaluate(() => window.__qty());
@@ -99,12 +105,12 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
     let end = await settle(start + TAPS);
     let samples = await page.evaluate(() => window.__stop());
     check(`burst ${b} up: ${start} → ${start + TAPS}`, monotone(samples, +1) && end.shown === start + TAPS && end.srv === start + TAPS,
-      `shown ${end.shown} · server ${end.srv} · ${monotone(samples, +1) ? "never went down" : "WENT DOWN: " + JSON.stringify([...new Set(samples)])}`);
+      `shown ${end.shown} · server ${end.srv} · ${monotone(samples, +1) ? "never went down" : "WENT DOWN: " + seq(samples)}`);
     await burst(-1);
     end = await settle(start);
     samples = await page.evaluate(() => window.__stop());
     check(`burst ${b} down: ${start + TAPS} → ${start}`, monotone(samples, -1) && end.shown === start && end.srv === start,
-      `shown ${end.shown} · server ${end.srv} · ${monotone(samples, -1) ? "never went up" : "WENT UP: " + JSON.stringify([...new Set(samples)])}`);
+      `shown ${end.shown} · server ${end.srv} · ${monotone(samples, -1) ? "never went up" : "WENT UP: " + seq(samples)}`);
     start = end.shown;
   }
 

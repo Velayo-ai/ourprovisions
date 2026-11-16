@@ -1,4 +1,5 @@
-import { createQtyQueue, applyOptimisticDelta, adoptQtyResult, isListEntry, MAX_DELTA } from "./qtyWrites";
+import { createQtyQueue, applyOptimisticDelta, adoptQtyResult, seedRowKey, isListEntry, MAX_DELTA } from "./qtyWrites";
+import { mergePolledById } from "./checkWrites";
 
 // A send() whose answers the test releases by hand, in any order.
 function manualSend() {
@@ -136,15 +137,40 @@ describe("adoptQtyResult", () => {
     expect(adoptQtyResult({ "pre:c1": 1 }, { result: { list_item_id: "r9", quantity: 1, outcome: "inserted" }, optKey: "pre:c1", preKey: "pre:c1" }))
       .toEqual({ "pre:c1": 1, r9: 1 });
   });
-  test("removed / absent: the row's entries go", () => {
-    expect(adoptQtyResult({ r1: 0, "pre:c1": 0, r2: 4 }, { result: { list_item_id: "r1", quantity: 0, outcome: "removed" }, optKey: "r1", preKey: "pre:c1" }))
-      .toEqual({ r2: 4 });
-    expect(adoptQtyResult({ "pre:c1": 0 }, { result: { list_item_id: null, quantity: null, outcome: "absent" }, optKey: "pre:c1", preKey: "pre:c1" }))
-      .toEqual({});
+  test("removed / absent: the row's entries read 0 — kept, not deleted, so the merge can hold them", () => {
+    expect(adoptQtyResult({ r1: 1, "pre:c1": 1, r2: 4 }, { result: { list_item_id: "r1", quantity: 0, outcome: "removed" }, optKey: "r1", preKey: "pre:c1" }))
+      .toEqual({ r1: 0, "pre:c1": 0, r2: 4 });
+    expect(adoptQtyResult({ "pre:c1": 1 }, { result: { list_item_id: null, quantity: null, outcome: "absent" }, optKey: "pre:c1", preKey: "pre:c1" }))
+      .toEqual({ "pre:c1": 0 });
+  });
+  test("V5 regression: after a removal, a poll requested before it and answered after can't put the old number back", () => {
+    // 5 → 0 by − taps; the removal settled at seq 9; a poll requested at seq 6 still carries the row at 4.
+    const afterRemove = adoptQtyResult({ r1: 0 }, { result: { list_item_id: "r1", quantity: 0, outcome: "removed" }, optKey: "r1" });
+    expect(mergePolledById(afterRemove, { r1: 4 }, new Set(), { r1: 9 }, 6)).toEqual({ r1: 0 });
+    // The next poll (requested after) no longer has the row: the entry goes.
+    expect(mergePolledById(afterRemove, {}, new Set(), { r1: 9 }, 9)).toEqual({});
   });
   test("no result (a net-zero tap) changes nothing", () => {
     const prev = { r1: 2 };
     expect(adoptQtyResult(prev, { result: null, optKey: "r1" })).toBe(prev);
+  });
+});
+
+describe("seedRowKey", () => {
+  test("a row id revealed mid-burst takes the number on screen", () => {
+    expect(seedRowKey({ "pre:c1": 3 }, { rowId: "r9", optKey: "pre:c1" })).toEqual({ "pre:c1": 3, r9: 3 });
+  });
+  test("never overwrites a row id already shown, and needs an optimistic value to copy", () => {
+    const prev = { "pre:c1": 3, r9: 2 };
+    expect(seedRowKey(prev, { rowId: "r9", optKey: "pre:c1" })).toBe(prev);
+    const p2 = { a: 1 };
+    expect(seedRowKey(p2, { rowId: "r9", optKey: "pre:c1" })).toBe(p2);
+    expect(seedRowKey(p2, { rowId: null, optKey: "a" })).toBe(p2);
+  });
+  test("V5 regression: the seeded, busy row id keeps its number when a poll delivers the new row mid-burst", () => {
+    // pre:c1 shown 3 while the server has 1 (one request landed); the row id r9 is seeded and busy.
+    const seeded = seedRowKey({ "pre:c1": 3 }, { rowId: "r9", optKey: "pre:c1" });
+    expect(mergePolledById(seeded, { r9: 1 }, new Set(["r9", "pre:c1"]), {}, 0)).toEqual({ r9: 3, "pre:c1": 3 });
   });
 });
 

@@ -7,7 +7,7 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { createRowWriteChain, mergePolledById } from "../lib/checkWrites";
-import { createQtyQueue, applyOptimisticDelta, adoptQtyResult, isListEntry } from "../lib/qtyWrites";
+import { createQtyQueue, applyOptimisticDelta, adoptQtyResult, seedRowKey, isListEntry } from "../lib/qtyWrites";
 import { rollbackQty } from "../lib/qtyRollback";
 import { inviteFailureNotice } from "../lib/inviteFailure";
 import { readHeld, clearHeld, heldStore, INVITE_KEY, REF_KEY, INVITE_MAX_AGE_MS, REF_MAX_AGE_MS } from "../lib/preRum";
@@ -1231,9 +1231,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       onDone: (key, { ok, result, error: err, drained }) => {
         const ctx = qtyCtxRef.current.get(key);
         if (!ctx) return;
-        if (ok && result?.list_item_id) ctx.keys.add(result.list_item_id);
-        ctx.keys.forEach(touchQty);
         const here = householdRef.current?.id === ctx.hhId;   // a switch mid-burst: leave the new place alone
+        const rowId = ok ? result?.list_item_id : null;
+        if (rowId && !ctx.keys.has(rowId)) {
+          // The row's id, revealed mid-burst: busy from now, seeded with the number on screen, so
+          // the poll merge has a key to keep (lib/qtyWrites seedRowKey).
+          ctx.keys.add(rowId);
+          qtyBusyRef.current.add(rowId);
+          if (here && result.outcome !== "removed" && result.outcome !== "absent") {
+            setQuantities((prev) => seedRowKey(prev, { rowId, optKey: ctx.optKey }));
+          }
+        }
+        ctx.keys.forEach(touchQty);
         if (ok) {
           if (isListEntry(result)) emitItemAdded(ctx);
           if (!drained) return;   // a later answer will report; adopt only the last
@@ -1266,7 +1275,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const show = (ci) => {
       optKey = liveRowIdFor(ci.id) || preKey(ci.id);
       qtyBusyRef.current.add(optKey);
-      setQuantities((prev) => applyOptimisticDelta(prev, optKey, delta));
+      // Every display key this item already has in a burst (pre:<catalog id> and its row id) moves
+      // together, so neither falls behind when the reader switches from one to the other.
+      const others = [...(qtyCtxRef.current.get(`${hh.id}:${ci.id}`)?.keys || [])].filter((k) => k !== optKey);
+      setQuantities((prev) => others.reduce(
+        (p, k) => (k in p ? applyOptimisticDelta(p, k, delta) : p),
+        applyOptimisticDelta(prev, optKey, delta)));
     };
 
     let catalogItem = catalogRef.current[itemName];
@@ -1349,7 +1363,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         p_catalog_item_id: catalogItem.id,
       });
       if (delErr) throw delErr;
-      setQuantities((prev) => { const n = { ...prev }; delete n[optKey]; delete n[preKey(catalogItem.id)]; return n; });
+      // 0, not deleted: the poll merge keeps a key that exists, so a snapshot requested before the
+      // removal can't put the old number back; the next poll drops the row (lib/qtyWrites adoptQtyResult).
+      setQuantities((prev) => adoptQtyResult(prev, { result: { outcome: "removed", list_item_id: null }, optKey, preKey: preKey(catalogItem.id) }));
       reportSuccess();
     } catch (err) {
       console.error("removeItem error:", err.message, err);
