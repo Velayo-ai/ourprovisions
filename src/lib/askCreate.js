@@ -15,6 +15,19 @@ export const ASK_STYLE_DEFAULT = "standard";   // asks.screen_style: standard | 
 // many to remove) instead of in the footer.
 export const ASK_SIMPLE_CAP_MESSAGE = `Explorer shows ${ASK_SIMPLE_MAX} at most.`;
 
+// THE LOOKS (SPEC_ask_slice3 S3-5; as config, 2026-11-13): each look's stored key, its name on screen,
+// how many tiles it can show (tileCap) and the most it can ask someone to pick (pickCap). The form's
+// count chips, its clamp on a look change and its "N of M" header all read these — never a literal —
+// so a look's capacity changes in one place. Explorer: 4 tiles, 2×2, so at most 4 picks; Shopper: the
+// shelf's 48, with the pick target's own ceiling of 6.
+export const ASK_LOOKS = [
+  { key: "simple", name: "Explorer", tileCap: ASK_SIMPLE_MAX, pickCap: ASK_SIMPLE_MAX, sub: `Big pictures, up to ${ASK_SIMPLE_MAX}` },
+  { key: "standard", name: "Shopper", tileCap: ASK_SHELF_MAX, pickCap: ASK_TARGET_MAX, sub: `Names and pictures, up to ${ASK_SHELF_MAX}` },
+];
+export function askLook(key) {
+  return ASK_LOOKS.find((l) => l.key === key) || ASK_LOOKS.find((l) => l.key === ASK_STYLE_DEFAULT);
+}
+
 // The shelf sheet's add-list (Dan, 2026-11-11): the household's whole live catalog, the editor's
 // hidden items included and shown plainly — a shelf is the household's (S4-9), so a tile this
 // person hid in Browse must still be addable. Putting one on a shelf changes nothing in Browse.
@@ -47,8 +60,8 @@ export function cleanAskLabel(raw) {
 // sheet's own check and create_ask's 22023.
 export function targetTilesMessage(target) {
   return target === 1
-    ? "The shelf needs at least one item."
-    : `To pick ${target}, the shelf needs at least ${target} items.`;
+    ? "The ask needs at least one item."
+    : `To pick ${target}, the ask needs at least ${target} items.`;
 }
 
 // null when the draft can be saved, else the first problem, in the order the sheet reads.
@@ -60,8 +73,8 @@ export function askDraftProblem({ label, noun, target, itemIds, style }) {
   if (l.length > ASK_LABEL_MAX) return `A name is ${ASK_LABEL_MAX} characters at most.`;
   if (n.length > ASK_NOUN_MAX) return `"What they're picking" is ${ASK_NOUN_MAX} characters at most.`;
   if (!Number.isInteger(target) || target < ASK_TARGET_MIN || target > ASK_TARGET_MAX) return "Choose how many to pick.";
-  if (count === 0) return "Put at least one item on the shelf.";
-  if (count > ASK_SHELF_MAX) return `A shelf holds ${ASK_SHELF_MAX} items at most.`;
+  if (count === 0) return "Put at least one item on the ask.";
+  if (count > ASK_SHELF_MAX) return `An ask holds ${ASK_SHELF_MAX} items at most.`;
   if (style === "simple" && count > ASK_SIMPLE_MAX) return ASK_SIMPLE_CAP_MESSAGE;
   if (target > count) return targetTilesMessage(target);
   return null;
@@ -113,10 +126,10 @@ export function createAskFailure(code, { label, target, itemIds }) {
   if (code === "23505") return { message: `You already have Ask ${l}.`, hasName: true, field: "label" };
   if (code === "22023") {
     if (target > (itemIds || []).length) return { message: targetTilesMessage(target), hasName: false, field: "shelf" };
-    return { message: "Something on the shelf isn't available any more. Check the items and try again.", hasName: false, field: "shelf" };
+    return { message: "Something on the ask isn't available any more. Check the items and try again.", hasName: false, field: "shelf" };
   }
-  if (code === "42501") return { message: "Only members of this place can make a shelf.", hasName: false, field: null };
-  return { message: "Couldn't save the shelf. Check your connection and try again.", hasName: false, field: null };
+  if (code === "42501") return { message: "Only members of this place can make an ask.", hasName: false, field: null };
+  return { message: "Couldn't save the ask. Check your connection and try again.", hasName: false, field: null };
 }
 
 // The asks read (asks + embedded ask_shelf_items, each with its catalog item) → [{ id, householdId,

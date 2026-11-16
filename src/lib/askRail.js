@@ -69,14 +69,14 @@ export function freezeAskOrder(prevIds, asks, handovers) {
   return same ? prevIds : next;
 }
 
-// What the rail draws, given the asks in their frozen order. newShelfAt: "afterStaples" with no
-// asks, "end" with 1+, null when this person can't make a shelf (signed out, no place).
-export function askRailLayout(orderedAsks, canCreate, cap = ASK_PILL_CAP) {
+// What the rail draws, given the asks in their frozen order: at most `cap` pills, the rest behind
+// "+N more". The rail carries no "+ New shelf" (2026-11-13): making a shelf lives in the filter
+// sheet's Shelves section and the Add sheet's Shelf pane.
+export function askRailLayout(orderedAsks, cap = ASK_PILL_CAP) {
   const list = orderedAsks || [];
   const over = list.length > cap;
   return {
     pills: over ? list.slice(0, cap) : list,
     more: over ? list.slice(cap) : [],
-    newShelfAt: !canCreate ? null : list.length === 0 ? "afterStaples" : "end",
   };
 }

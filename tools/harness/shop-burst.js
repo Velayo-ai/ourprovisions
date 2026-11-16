@@ -1,0 +1,213 @@
+// shop-burst.js — signed in already (signin.js): Shop → a 6-item check burst → the undo fold.
+// Checks, in order: 3 separate toasts; the 4th check folds into "✓ 4 items in cart · Undo all"; a tap
+// on a held row lowers n; 6 checks → n; Undo all puts the still-checked rows back; a second burst
+// expires as one group after UNDO_MS from the last check; "All done" never shows while a toast is up.
+// Screenshots: out/burst-3.png, burst-4.png, burst-6.png, burst-undone.png. Needs ≥ 6 unchecked rows
+// on Cody Test House's list; with fewer, it adds staples from Browse first and says so.
+const lib = require("./lib");
+const { sleep, log, connect, firstPage, shot } = lib;
+// The target: dev by default, a local build when run with  node -r ./local/use-local.js shop-burst.js
+const BASE = lib.DEV_URL;
+
+const toasts = (page) => page.evaluate(() => [...document.querySelectorAll(".check-undo")].map((t) => ({
+  group: t.classList.contains("check-undo-group"), text: t.innerText.replace(/\s+/g, " ").trim() })));
+const unchecked = (page) => page.evaluate(() => [...document.querySelectorAll('button.shop-check[role="checkbox"][aria-checked="false"]')].length);
+const checkNth = (page, n) => page.evaluate((n) => {
+  const b = [...document.querySelectorAll('button.shop-check[role="checkbox"][aria-checked="false"]')][n];
+  if (!b) return null; b.scrollIntoView({ block: "center" }); b.click(); return b.innerText.trim();
+}, n);
+const allDone = (page) => page.evaluate(() => /All done/i.test(document.body.innerText));
+
+let fails = 0;
+let addedNames = [];
+const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? "  " + detail : ""}`); if (!ok) fails++; };
+
+(async () => {
+  const browser = await connect();
+  const page = await firstPage(browser);
+  const t0 = Date.now();
+  const stampMs = () => ((Date.now() - t0) / 1000).toFixed(1) + "s";
+  if (process.env.OP_BURST_TRACE) {
+    page.on("response", async (r) => {
+      const u = r.url();
+      if (!/\/rest\/v1\/(list_items|rpc\/[a-z_]*list[a-z_]*)|\/rpc\/(toggle|check|set_list|upsert|get_list_items_for_household)/.test(u)) return;
+      const m = r.request().method();
+      if (m === "GET" && !/get_list_items/.test(u)) return;
+      let body = ""; try { body = (await r.text()).slice(0, 140); } catch (e) {}
+      log(`  [${stampMs()}] ${m} ${r.status()} ${u.replace(/^.*\/rest\/v1\//, "").replace(/\?.*/, "")} ${/get_list_items/.test(u) ? "" : body}`);
+    });
+    page.on("console", (c) => { if (c.type() === "error" || c.type() === "warning") log(`  [${stampMs()}] console.${c.type()}: ${c.text().slice(0, 160)}`); });
+  }
+  await page.goto(BASE + "#/shop", { waitUntil: "networkidle2" });
+  await page.reload({ waitUntil: "networkidle2" });
+  await page.waitForFunction(() => window.Clerk && window.Clerk.user, { timeout: 30000 });
+  await sleep(3000);
+  const bundle = await page.evaluate(() => [...document.scripts].map((s) => s.src).find((s) => /main\.[a-z0-9]+\.js/.test(s)) || "");
+  log("bundle " + bundle.replace(/.*\//, ""));
+
+  let free = await unchecked(page);
+  log(`unchecked rows on Shop: ${free}`);
+  if (free < 7) {
+    // Top up from Browse: add staples (qty 0 → 1) until 7 rows are free.
+    await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
+    addedNames = await page.evaluate(async (need) => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const rows = [...document.querySelectorAll("button.add-btn")].filter((b) => b.offsetParent && b.innerText.trim() === "Add");
+      const names = [];
+      for (const b of rows.slice(0, need)) {
+        const row = b.closest(".item-row") || b.parentElement.parentElement;
+        names.push((row.querySelector(".item-name") || row).innerText.split("\n")[0].trim());
+        b.click(); await sleep(400);
+      }
+      return names;
+    }, 7 - free);
+    log(`added ${addedNames.length} items from Browse to make room: ${JSON.stringify(addedNames)}`);
+    await sleep(2500);
+    await page.goto(BASE + "#/shop", { waitUntil: "networkidle2" }); await sleep(3000);
+    free = await unchecked(page);
+    log(`unchecked rows now: ${free}`);
+  }
+  if (free < 6) throw new Error("fewer than 6 unchecked rows — can't burst");
+
+  // ── REVERT MODE (OP_BURST_REVERTS=N): for code without the undo fold (prod). N bursts of 6 checks;
+  // every row's state is sampled every 50 ms for 6 s after each burst, and a checked row that turns
+  // unchecked with no tap of ours is a REVERT (the 2026-11-14 poll race). Each burst ends with all six
+  // rows checked, then they are unchecked from the tray before the next one.
+  const reverts = Number(process.env.OP_BURST_REVERTS || 0);
+  if (reverts > 0) {
+    let total = 0;
+    for (let n = 1; n <= reverts; n++) {
+      await page.evaluate(() => {
+        window.__hist = {};
+        window.__sampler = setInterval(() => {
+          for (const b of document.querySelectorAll('button.shop-check[role="checkbox"]')) {
+            const name = b.innerText.trim().split("\n").pop().trim(), v = b.getAttribute("aria-checked");   // a checked box also renders a ✓ line
+            const h = (window.__hist[name] = window.__hist[name] || []);
+            if (h[h.length - 1] !== v) h.push(v);
+          }
+        }, 50);
+      });
+      const hit = [];
+      for (let i = 0; i < 6; i++) { hit.push(await checkNth(page, 0)); await sleep(350); }
+      await sleep(6000);
+      const hist = await page.evaluate(() => { clearInterval(window.__sampler); return window.__hist; });
+      // Checked rows have moved to the In cart tray by now; open it so their checkboxes render.
+      await page.evaluate(() => { const h = document.querySelector("button.tray-head"); if (h && h.getAttribute("aria-expanded") !== "true") h.click(); });
+      await sleep(500);
+      const rows = [...new Set(hit)];                               // a reverted row can be clicked twice
+      const rev = rows.filter((name) => { const h = hist[name] || []; const i = h.indexOf("true"); return i >= 0 && h.slice(i).includes("false"); });
+      const stillChecked = await page.evaluate((names) => names.filter((nm) => [...document.querySelectorAll('button.shop-check[role="checkbox"][aria-checked="true"]')].some((b) => b.innerText.trim().split("\n").pop().trim() === nm)).length, rows);
+      total += rev.length;
+      check(`burst ${n}: 6 checks on ${rows.length} rows, ${rev.length} reverted, ${stillChecked}/${rows.length} still checked after 6s`, rev.length === 0 && rows.length === 6 && stillChecked === 6, rev.length ? `reverted: ${JSON.stringify(rev)} ${JSON.stringify(rev.map((r) => hist[r]))}` : "");
+      // reset: uncheck them from the tray, slowly, so the next burst starts from 7 unchecked
+      await page.evaluate(async () => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const head = document.querySelector("button.tray-head");
+        if (head && head.getAttribute("aria-expanded") !== "true") { head.click(); await sleep(400); }
+        for (let k = 0; k < 12; k++) {
+          const b = [...document.querySelectorAll('button.shop-check[role="checkbox"][aria-checked="true"]')][0];
+          if (!b) break; b.scrollIntoView({ block: "center" }); b.click(); await sleep(700);
+        }
+      });
+      await sleep(4000);
+      if ((await unchecked(page)) < 6) { log("could not reset to 6 unchecked rows; stopping"); break; }
+    }
+    log(`REVERTS TOTAL: ${total}`);
+  }
+  if (reverts > 0) {
+    if (addedNames.length) {
+      await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
+      const removed = await page.evaluate(async (names) => {
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        let n = 0;
+        for (const name of names) {
+          const row = [...document.querySelectorAll(".item-row")].find((r) => (r.querySelector(".item-name") || r).innerText.split("\n")[0].trim() === name);
+          const minus = row && [...row.querySelectorAll("button.qty-btn")].find((b) => b.innerText.trim() === "−");
+          if (minus) { minus.click(); n++; await sleep(500); }
+        }
+        return n;
+      }, addedNames);
+      log(`tidied: set ${removed} of ${addedNames.length} added items back to 0`);
+    }
+    log(fails ? `${fails} FAILED` : "ALL PASS");
+    await browser.disconnect();
+    process.exit(fails ? 1 : 0);
+  }
+
+  // ── Burst 1: 3, then the fold, then a tap during the hold, then 6, then Undo all ──
+  const names = [];
+  for (let i = 0; i < 3; i++) { names.push(await checkNth(page, 0)); await sleep(350); }
+  let t = await toasts(page);
+  await shot(page, "burst-3");
+  check("3 checks → 3 separate toasts", t.length === 3 && t.every((x) => !x.group && /checked · Undo$/i.test(x.text)), JSON.stringify(t.map((x) => x.text)));
+  names.push(await checkNth(page, 0)); await sleep(350);
+  t = await toasts(page);
+  await shot(page, "burst-4");
+  check("the 4th check folds into one group, n = 4", t.length === 1 && t[0].group && /^✓ 4 items in cart · Undo all$/i.test(t[0].text), JSON.stringify(t.map((x) => x.text)));
+  check("All done waits while the group is up", !(await allDone(page)));
+  // A tap on a row still in its hold (the newest, still struck through in its aisle) takes it out.
+  const tapped = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('button.shop-check[role="checkbox"][aria-checked="true"]')].pop();
+    if (!b) return null; b.click(); return b.innerText.trim();
+  });
+  await sleep(400);
+  t = await toasts(page);
+  check("a tap during the hold lowers n to 3 and the group stays folded", t.length === 1 && t[0].group && /^✓ 3 items in cart/i.test(t[0].text), `tapped ${JSON.stringify(tapped)} → ${JSON.stringify(t.map((x) => x.text))}`);
+  for (let i = 0; i < 3; i++) {
+    const hit = await checkNth(page, 0); await sleep(350);
+    const state = await page.evaluate(() => [...document.querySelectorAll('button.shop-check[role="checkbox"]')].map((b) => `${b.innerText.trim()}:${b.getAttribute("aria-checked")}`).join(" "));
+    log(`  check ${i + 1}: clicked ${JSON.stringify(hit)} → ${JSON.stringify((await toasts(page)).map((x) => x.text))} | ${state}`);
+  }
+  t = await toasts(page);
+  await shot(page, "burst-6");
+  check("three more checks → n = 6", t.length === 1 && /^✓ 6 items in cart/i.test(t[0].text), JSON.stringify(t.map((x) => x.text)));
+  const clipped = await page.evaluate(() => { const el = document.querySelector(".check-undo-group .check-undo-text"); return el ? el.scrollWidth > el.clientWidth : null; });
+  check("the group's text is not cut off on a phone-width screen", clipped === false, `clipped=${clipped}`);
+  const before = await unchecked(page);
+  await page.evaluate(() => [...document.querySelectorAll(".check-undo-group .check-undo-btn")][0].click());
+  await sleep(2500);
+  const after = await unchecked(page);
+  t = await toasts(page);
+  await shot(page, "burst-undone");
+  check("Undo all puts all 6 back and the group goes", after - before === 6 && t.length === 0, `unchecked ${before} → ${after}; toasts ${t.length}`);
+
+  // ── Burst 2: the group expires as one, UNDO_MS after the LAST check (5s) ──
+  for (let i = 0; i < 4; i++) { await checkNth(page, 0); await sleep(300); }
+  await sleep(3500);
+  await checkNth(page, 0);                                 // restarts the group's clock
+  await sleep(3500);                                       // 7s after the 4th check, 3.5s after the 5th
+  t = await toasts(page);
+  check("the group's timer restarted on the 5th check (still up 7s after the 4th)", t.length === 1 && /^✓ 5 items in cart/i.test(t[0].text), JSON.stringify(t.map((x) => x.text)));
+  await sleep(2200);
+  t = await toasts(page);
+  check("…and the whole group drops UNDO_MS after the last check", t.length === 0, JSON.stringify(t.map((x) => x.text)));
+  // Tidy: uncheck what burst 2 left checked, so the test list is as it was.
+  const restored = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    let n = 0;
+    for (let k = 0; k < 5; k++) {
+      const tray = [...document.querySelectorAll('button.shop-check[role="checkbox"][aria-checked="true"]')];
+      if (!tray.length) break; tray[0].click(); n++; await sleep(700);
+    }
+    return n;
+  });
+  log(`tidied: unchecked ${restored} rows from burst 2`);
+  if (addedNames.length) {
+    // Put the list back as it was: the items this walk added go back to 0 from Browse.
+    await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
+    const removed = await page.evaluate(async (names) => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      let n = 0;
+      for (const name of names) {
+        const row = [...document.querySelectorAll(".item-row")].find((r) => (r.querySelector(".item-name") || r).innerText.split("\n")[0].trim() === name);
+        const minus = row && [...row.querySelectorAll("button.qty-btn")].find((b) => b.innerText.trim() === "−");
+        if (minus) { minus.click(); n++; await sleep(500); }
+      }
+      return n;
+    }, addedNames);
+    log(`tidied: set ${removed} of ${addedNames.length} added items back to 0`);
+  }
+  log(fails ? `${fails} FAILED` : "ALL PASS");
+  await browser.disconnect();
+  process.exit(fails ? 1 : 0);
+})().catch((e) => { console.log("SHOP-BURST ERROR:", e.message.split("\n")[0]); process.exit(1); });

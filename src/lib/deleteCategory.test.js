@@ -2,7 +2,7 @@
    the select's options are read as raw DOM (count, text, selected). */
 import { render } from "@testing-library/react";
 import { CategorySelect } from "../components/CategorySelect";
-import { defaultMoveTarget, deleteCategoryLabel, categoryCountText, categoryDeletePlan, runCategoryDelete } from "./deleteCategory";
+import { defaultMoveTarget, deleteCategoryLabel, categoryCountText, categoryDeletePlan, runCategoryDelete, renameInSet } from "./deleteCategory";
 
 // Manage Categories → Delete never deletes items (2026-11-05). CATEGORY_ORDER is read from App.js
 // itself, so the preselect is tested against the list that ships.
@@ -141,21 +141,49 @@ describe("App wiring", () => {
     expect(APP).not.toContain("Danger Zone");
   });
 
-  test("both delete confirmations sit after the Manage modal in the tree and one layer above it (2026-11-11)", () => {
-    const manage = APP.indexOf("{showManageCategoriesModal && (");
+  test("both delete confirmations sit after the View & organize sheet in the tree and one layer above it (2026-11-11)", () => {
+    const manage = APP.indexOf("{browseFilterOpen && (");
     const askConfirm = APP.indexOf("{ASK_ENABLED && deleteAskId && (() =>");
     const catConfirm = APP.indexOf("{deletingCategory && (");
     expect(manage).toBeGreaterThan(0);
     expect(askConfirm).toBeGreaterThan(manage);
     expect(catConfirm).toBeGreaterThan(askConfirm);
-    expect(APP.slice(askConfirm, catConfirm)).toContain('className="modal-overlay" style={{ zIndex: 110 }}');
-    expect(APP.slice(catConfirm, catConfirm + 400)).toContain('className="modal-overlay" style={{ zIndex: 110 }}');
+    // Topmost (2026-11-14): above the sheet's own layer, whatever that is, and below the full-screen Ask screen.
+    const sheetZ = Number(APP.slice(manage).match(/className="modal-overlay" onClick=\{closeOrganize\} style=\{\{ zIndex: (\d+)/)[1]);
+    const zOf = (from) => Number(APP.slice(from, from + 400).match(/className="modal-overlay" style=\{\{ zIndex: (\d+) \}\}/)[1]);
+    expect(zOf(askConfirm)).toBeGreaterThan(sheetZ);
+    expect(zOf(catConfirm)).toBeGreaterThan(sheetZ);
+    expect(zOf(askConfirm)).toBeLessThan(2000);            // .ask-editor's z-index
   });
 
-  test("empty created categories are let go when Manage opens, on open only", () => {
-    const body = APP.slice(APP.indexOf("const catalogForPruneRef"), APP.indexOf("}, [showManageCategoriesModal]);"));
-    expect(body).toContain("if (!showManageCategoriesModal) return;");
+  test("one confirmation at a time: opening either delete confirm closes the other (2026-11-14)", () => {
+    expect(APP).toContain("setDeleteAskId(null);\n                                setDeletingCategory({ rawName: cat.rawName, name: cat.name, itemCount: n });".replace(/\n/g, APP.includes("\r\n") ? "\r\n" : "\n"));
+    expect(APP).toContain("onClick={() => { setDeletingCategory(null); setDeleteAskFailed(false); setDeleteAskId(row.id); }}");
+    // Each confirm is one piece of state (an id / one object), so a second tap of the same kind replaces, never stacks.
+    expect(APP.match(/\{ASK_ENABLED && deleteAskId && \(\(\) =>/g)).toHaveLength(1);
+    expect(APP.match(/\{deletingCategory && \(/g)).toHaveLength(1);
+  });
+
+  test("empty created categories are let go when View & organize opens, on open only", () => {
+    const body = APP.slice(APP.indexOf("const catalogForPruneRef"), APP.indexOf("}, [browseFilterOpen]);"));
+    expect(body).toContain("if (!browseFilterOpen) return;");
     expect(body).toContain("items.some(i => i.category === c)");
     expect(APP).not.toMatch(/aria-label=\{`(Rename|Delete) \$\{cat\./);
+  });
+});
+
+// The flag-off walk (2026-11-14): renaming a created category left its old name in householdCategories,
+// a stale "0 items" row in View & organize until the next open's prune.
+describe("rename leaves no stale name", () => {
+  test("renameInSet swaps the old name for the new one; a set without it is returned as is", () => {
+    const s = new Set(["Snacks", "Flagoff Cat"]);
+    expect([...renameInSet(s, "Flagoff Cat", "Flagoff Renamed")]).toEqual(["Snacks", "Flagoff Renamed"]);
+    expect(s.has("Flagoff Cat")).toBe(true);                        // not mutated
+    expect(renameInSet(s, "Nope", "X")).toBe(s);
+  });
+  test("App's renameCategory renames the name in the created categories and the Browse filter", () => {
+    const body = APP.slice(APP.indexOf("const renameCategory = async"), APP.indexOf("const deleteCategory = async"));
+    expect(body).toContain("setHouseholdCategories(prev => renameInSet(prev, oldRawName, trimmed));");
+    expect(body).toContain("setSelectedCategories(prev => renameInSet(prev, oldRawName, trimmed));");
   });
 });

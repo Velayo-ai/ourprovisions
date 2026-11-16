@@ -22,7 +22,7 @@ describe("askFlagOn", () => {
 describe("with the flag off nothing reaches the Ask schema", () => {
   const GATE = "if (!ASK_ENABLED) return";
   test.each([
-    ["landAskPicks", "const landAskPicks = useCallback(async (askId, catalogItemIds) => {"],
+    ["landAskPicks", "const landAskPicks = useCallback(async (askId, catalogItemIds, screenStyle = null) => {"],
     ["fetchAsks", "const fetchAsks = useCallback(async () => {"],
     ["createAsk", "const createAsk = useCallback(async (askId, draft) => {"],
     ["updateAsk", "const updateAsk = useCallback(async (askId, draft) => {"],
@@ -50,21 +50,27 @@ describe("with the flag off nothing reaches the Ask schema", () => {
 });
 
 describe("with the flag off the UI has no Ask door", () => {
-  test("no + New shelf (the rail's only way to make an Ask), so no Ask pills either", () => {
-    expect(APP).toMatch(/askRailLayout\([^;]*, ASK_ENABLED && !!\(isSignedIn && household\?\.id\)\)/);
+  test("no Ask pills on the rail, and no Asks section or New ask screen (the two ways to make an Ask)", () => {
+    expect(APP).toContain("askRailLayout(ASK_ENABLED ? askOrder.ids.map(id => byId.get(id)).filter(Boolean) : [])");
+    // canMakeShelf gates View & organize's Asks section and the door to the New ask screen.
+    expect(APP).toContain("const canMakeShelf = ASK_ENABLED && !!(isSignedIn && household?.id);");
+    expect(APP.match(/\{canMakeShelf && \(/g)).toHaveLength(1);   // the Asks section
+    // The gate is openNewAsk's first line, so with the flag off it returns before ask_create_opened.
+    expect(APP).toContain("const openNewAsk = (entry) => {\n    if (!canMakeShelf) return;\n    setBrowseFilterOpen(false);\n    setNewAskOpen(true);");
+    expect(APP.match(/<AskScreen/g)).toHaveLength(1);   // new and edit, one mount, nowhere else
+    expect(APP).not.toContain("<NewShelfSheet");        // the form lives inside AskScreen only
   });
-  test("the run screen, the sheets and the delete confirm cannot mount", () => {
+  test("the run screen, the sheets, the Ask screen and the delete confirm cannot mount", () => {
     expect(APP).toMatch(/const runAsk = ASK_ENABLED && runAskId \?/);
-    for (const g of ["{ASK_ENABLED && moreAsksOpen && (", "{ASK_ENABLED && newShelfOpen && (", "{ASK_ENABLED && editAsk && (", "{ASK_ENABLED && deleteAskId && (() =>"]) expect(APP).toContain(g);
+    for (const g of ["{ASK_ENABLED && moreAsksOpen && (", "{ASK_ENABLED && (newAskOpen || editAsk) && (() =>", "{ASK_ENABLED && deleteAskId && (() =>"]) expect(APP).toContain(g);
   });
   test("a held handover never resumes a run", () => {
     expect(APP).toContain("if (!ASK_ENABLED || !heldAskRef.current || !asksLoaded || !catalogLoaded || !landingDecided) return;");
   });
-  test('Manage has no Asks section, and its title and button say "Manage categories"', () => {
-    expect(APP).toContain('{ASK_ENABLED && isSignedIn && household?.id && (\n              <div className="modal-field" style={{ marginTop: "18px" }}>\n                <span className="modal-label" id="manage-asks">Asks</span>'.replace(/\n/g, APP.includes("\r\n") ? "\r\n" : "\n"));
-    expect(APP.match(/ASK_ENABLED \? "Manage categories & asks" : "Manage categories"/g)).toHaveLength(2);   // the heading and the button
-    expect(APP).toContain('aria-label={ASK_ENABLED ? "Manage categories and asks" : "Manage categories"}');
-    expect(APP).not.toMatch(/>Manage categories &amp; asks</);
+  test("View & organize has no Asks section (the old Manage sheet is folded into it, 2026-11-13)", () => {
+    expect(APP).toContain('{canMakeShelf && (\n              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>\n                <span className="modal-label" id="manage-asks">Asks</span>'.replace(/\n/g, APP.includes("\r\n") ? "\r\n" : "\n"));
+    expect(APP).not.toMatch(/>Manage categories|"Manage categories/);   // rendered text; comments may still tell the history
+    expect(APP).not.toContain("showManageCategoriesModal");
   });
   test("the build carries its flag as a marker on the app root", () => {
     expect(APP).toContain('<div className="app-root" data-op-ask={ASK_FLAG_MARKER}');

@@ -24,28 +24,28 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   const marker = await p.evaluate(() => document.querySelector(".app-root")?.getAttribute("data-op-ask"));
   check(`the build's marker reads ${EXPECT_ON ? "op-ask:on" : "op-ask:off"}`, marker === (EXPECT_ON ? "op-ask:on" : "op-ask:off"), String(marker));
 
-  const rail = await p.evaluate(() => [...document.querySelectorAll(".cat-pill")].map((e) => e.innerText.replace(/\s+/g, " ").trim()));
-  const askPills = rail.filter((t) => /^(🧺 )?Ask\b|New shelf|\bmore$/.test(t) || t.includes("New shelf"));
-  check(EXPECT_ON ? "Browse rail: + New shelf / Ask pills present" : "Browse rail: no + New shelf, no Ask pill, no +N more",
-    EXPECT_ON ? askPills.length > 0 : askPills.length === 0, JSON.stringify(EXPECT_ON ? askPills : askPills.length ? askPills : rail.slice(0, 6)));
+  const rail = await p.evaluate(() => [...document.querySelectorAll(".cat-rail .cat-pill")].map((e) => e.innerText.replace(/\s+/g, " ").trim()));
+  const askPills = rail.filter((t) => /^Ask\b|\bmore$/.test(t));   // "Ask {name}", "+N more" and the ghost "Ask someone…"
+  // The rail carries no "+ New ask" either way (2026-11-13); with the flag off it has no Ask pill.
+  check("Browse rail: no + New ask", !rail.some((t) => /New (shelf|ask)/.test(t)), JSON.stringify(rail.slice(0, 6)));
+  if (!EXPECT_ON) check("Browse rail: no Ask pill, no +N more", askPills.length === 0, JSON.stringify(askPills.length ? askPills : rail.slice(0, 6)));
   check("Browse rail still has Staples and the categories", rail.some((t) => t.endsWith("Staples")) && rail.length >= 3, `${rail.length} pills`);
+  // View & organize (the old Manage sheet folded in): Organize items and Your categories always; an
+  // Asks section with "+ New ask" only with the flag on. No "Manage categories" button anywhere.
+  check("Browse: no Manage categories entry", !(await text()).includes("Manage categories"), "");
+  await p.click('button[aria-label="Filters"]'); await sleep(600);
+  const organize = await p.evaluate(() => { const d = document.querySelector('[role="dialog"][aria-label="View and organize"]'); return d ? { h2: d.querySelector("h2")?.innerText, view: !!d.querySelector("#browse-view"), cats: !!d.querySelector("#manage-categories"), asks: !!d.querySelector("#manage-asks"), newAsk: /New ask/.test(d.innerText), newCat: /New category/.test(d.innerText) } : null; });
+  check(EXPECT_ON ? "View & organize: Organize items, Your categories, Asks with + New ask" : "View & organize: Organize items and Your categories only; no Asks, no + New ask",
+    !!organize && organize.h2 === "View & organize" && organize.view && organize.cats && organize.newCat && organize.asks === EXPECT_ON && organize.newAsk === EXPECT_ON, JSON.stringify(organize));
+  await p.keyboard.press("Escape"); await p.evaluate(() => document.querySelector(".modal-overlay")?.click()); await sleep(400);
   const browseText = await text();
   if (!EXPECT_ON) check("Browse shows no Ask block, no \"Hand it to\"", !/Hand it to/.test(browseText) && !/\bAsk [A-Z]/.test(browseText.replace(/Ask the Galley/g, "")));
-
-  // Manage categories
-  const opened = await p.evaluate(() => { const b = [...document.querySelectorAll("button")].find((e) => /^Manage categories/.test(e.innerText.trim())); if (!b) return null; const t = b.innerText.trim(); b.click(); return t; });
-  await sleep(800);
-  const manage = await p.evaluate(() => { const d = document.querySelector('[role="dialog"][aria-label^="Manage categories"]'); return d ? { label: d.getAttribute("aria-label"), h2: d.querySelector("h2")?.innerText, asks: !!d.querySelector("#manage-asks"), newShelf: /New shelf/.test(d.innerText), newCat: /New category/.test(d.innerText) } : null; });
-  if (EXPECT_ON) check("Manage: titled with asks, Asks section present", !!manage && manage.asks && /asks/.test(manage.h2), JSON.stringify({ opened, manage }));
-  else check('Manage: button, heading and dialog say "Manage categories"; no Asks section, no New shelf; category create still there',
-    opened === "Manage categories" && !!manage && manage.h2 === "Manage categories" && manage.label === "Manage categories" && !manage.asks && !manage.newShelf && manage.newCat, JSON.stringify({ opened, manage }));
-  await p.keyboard.press("Escape"); await p.evaluate(() => document.querySelector(".modal-overlay")?.click()); await sleep(400);
 
   // Home, Plan, Shop
   for (const [hash, name] of [["#/home", "Home"], ["#/plan", "Plan"], ["#/shop", "Shop"]]) {
     await p.goto(LOCAL_URL + hash, { waitUntil: "networkidle2" }); await sleep(1800);
     const t = await text();
-    if (!EXPECT_ON) check(`${name}: no Ask copy`, !/Hand it to|New shelf|\bAsk [A-Z][a-z]+\b(?<!Ask the)/.test(t.replace(/Ask the Galley/g, "").replace(/Ask for a fresh one/g, "")), "");
+    if (!EXPECT_ON) check(`${name}: no Ask copy`, !/Hand it to|New ask|\bAsk [A-Z][a-z]+\b(?<!Ask the)/.test(t.replace(/Ask the Galley/g, "").replace(/Ask for a fresh one/g, "")), "");
   }
 
   // Landscape on a sideways phone still shows Staples

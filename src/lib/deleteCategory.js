@@ -48,3 +48,16 @@ export async function runCategoryDelete(db, householdId, rawName, moveTo, itemCo
     .is("deleted_at", null);
   return { plan, error: error || null };
 }
+
+// A category's name, renamed wherever a set of names holds it (2026-11-14). The household's created
+// categories and the Browse filter both keep names; a rename that moved the items but left the old
+// name in either showed a stale "0 items" row in View & organize (found in the flag-off walk: the old
+// Manage sheet closed on rename and its open-time prune hid it). Returns the same set when the old
+// name isn't in it, so a state setter can bail out.
+export function renameInSet(set, oldName, newName) {
+  if (!set.has(oldName)) return set;
+  const next = new Set(set);
+  next.delete(oldName);
+  next.add(newName);
+  return next;
+}

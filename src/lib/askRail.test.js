@@ -68,42 +68,110 @@ describe("no re-sort while Browse is open", () => {
   });
 });
 
-describe("the cap and '+ New shelf'", () => {
-  test("at most two pills; the rest behind '+N more'", () => {
+describe("the cap", () => {
+  test("at most two pills; the rest behind '+N more'; nothing else on the layout", () => {
     expect(ASK_PILL_CAP).toBe(2);
-    const four = askRailLayout([NINA, EVERETT, BO, EASTON], true);
+    const four = askRailLayout([NINA, EVERETT, BO, EASTON]);
     expect(labels(four.pills)).toEqual(["nina", "Everett"]);
     expect(labels(four.more)).toEqual(["Bo", "Easton"]);                // same order, in the sheet
-    expect(askRailLayout([NINA, EVERETT, BO], true).more).toHaveLength(1);
-    const two = askRailLayout([NINA, EVERETT], true);
+    expect(askRailLayout([NINA, EVERETT, BO]).more).toHaveLength(1);
+    const two = askRailLayout([NINA, EVERETT]);
     expect(two.pills).toHaveLength(2);
     expect(two.more).toEqual([]);
-  });
-  test("'+ New shelf' right after Staples with 0 asks, at the very end with 1+, absent when it can't be made", () => {
-    expect(askRailLayout([], true).newShelfAt).toBe("afterStaples");
-    expect(askRailLayout([EASTON], true).newShelfAt).toBe("end");
-    expect(askRailLayout([EASTON, EVERETT, NINA], true).newShelfAt).toBe("end");
-    expect(askRailLayout([], false).newShelfAt).toBeNull();
+    // No "+ New shelf" on the rail (2026-11-13): the layout has no slot for one, with or without asks.
+    expect(Object.keys(askRailLayout([]))).toEqual(["pills", "more"]);
+    expect(Object.keys(askRailLayout([EASTON]))).toEqual(["pills", "more"]);
   });
 });
 
-// The rail in App.js draws from askRailLayout (source check: the rail is inline in a 12k-line file).
-test("the rail renders the layout: New shelf in both places, two pills, the '+N more' label", () => {
+// The rail in App.js draws from askRailLayout (source check: the rail is inline in a 13k-line file).
+test("the rail renders the layout: Staples, two people pills, '+N more', the ghost, a divider, categories; no New shelf chip", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
-  expect(app).toMatch(/askRail\.newShelfAt === "afterStaples" && \(/);
-  expect(app).toMatch(/askRail\.newShelfAt === "end" && \(/);
-  expect(app).toMatch(/\{askRail\.pills\.map\(ask => \{/);
-  expect(app).toMatch(/<span className="cat-em" aria-hidden="true">\{ASK_GLYPH\}<\/span>\+\{askRail\.more\.length\} more/);
-  // Order: Staples → (New shelf, 0 asks) → ask pills → +N more → categories → (New shelf, 1+ asks).
+  expect(app).toMatch(/\{askRail\.pills\.map\(ask => \(/);
+  expect(app).toMatch(/<span className="cat-em"><AskIcon \/><\/span>\+\{askRail\.more\.length\} more/);
+  expect(app).not.toMatch(/newShelfAt/);
+  expect(app).not.toMatch(/ASK_GLYPH/);                                       // no emoji on any Ask pill
+  // Order (C4.2, restored 2026-11-14): Staples → Ask pills → +N more → (ghost, with no asks) → divider →
+  // categories. The pills are people pills, never filters: no selectedAsks, no data-active, pressed
+  // only for the running / edited Ask.
   const at = (re) => app.search(re);
   const staples = at(/\{categoryGlyph\("Staples"\)\}<\/span>Staples/);
-  const early = at(/askRail\.newShelfAt === "afterStaples"/);
   const pills = at(/askRail\.pills\.map/);
   const more = at(/\+\{askRail\.more\.length\} more/);
-  const cats = app.indexOf("{categories.map(cat => {", more);
-  const late = at(/askRail\.newShelfAt === "end"/);
-  expect([staples < early, early < pills, pills < more, more < cats, cats < late]).toEqual([true, true, true, true, true]);
-  // A hand-over records its time; a pill tap does not.
-  expect(app).toMatch(/onClick=\{\(\) => \{ recordAskHandover\(household\?\.id, block\.id\); setRunAskId\(block\.id\); \}\}/);
+  const ghost = app.indexOf('className="cat-pill people-pill people-pill-ghost" onClick={() => openNewAsk("rail")}', more);
+  const divider = app.indexOf('{(askRail.pills.length > 0 || canMakeShelf) && <span className="cat-rail-divider" aria-hidden="true" />}', ghost);
+  const cats = app.indexOf("{categories.map(cat => {", divider);
+  expect(staples).toBeGreaterThan(0);
+  expect([staples < pills, pills < more, more < ghost, ghost < divider, divider < cats]).toEqual([true, true, true, true, true]);
+  // The ghost: only with zero asks, only where an ask can be made; "Ask someone…" is fixed copy.
+  const ghostBlock = app.slice(ghost - 120, divider);
+  expect(ghostBlock).toContain("{askRail.pills.length === 0 && canMakeShelf && (");
+  expect(ghostBlock).toContain("Ask someone…");
+  expect(app).toContain(".people-pill-ghost { background: transparent; border-style: dashed; }");
+  const railAsks = app.slice(pills, more);
+  // eslint-disable-next-line no-template-curly-in-string -- the source text under test
+  expect(railAsks).toContain('className={`cat-pill people-pill${activeAskId === ask.id ? " on" : ""}`}');
+  expect(railAsks).toContain("onClick={() => handoverAsk(ask.id)}");
+  expect(railAsks).not.toMatch(/selectedAsks|data-active|toggleAsk/);
+  expect(app).toContain('className="cat-pill people-pill cat-pill-more"');
+  expect(app).toContain("const activeAskId = runAskId || editAskId || null;");
+  // The rail itself carries no "+ New ask": its one home is View & organize's Asks section, which
+  // opens the full-screen New ask screen.
+  const rail = app.slice(staples, cats);
+  expect(rail).not.toMatch(/<\/span>New (shelf|ask)|>New (shelf|ask)</);   // rendered text; the comment may name the screen
+  expect(app).not.toMatch(/>New shelf</);                                      // rendered text; comments may still tell the history
+  expect(app.match(/<span className="cat-em">\+<\/span>New ask/g)).toHaveLength(1);
+  expect(app.match(/className="cat-pill cat-pill-new" style=\{\{ marginTop: "10px" \}\} onClick=\{\(\) => openNewAsk\("organize"\)\}/g)).toHaveLength(1);
+  // Every hand-over — a pill, a "+N more" row, a block's "Hand it to" — is the one handoverAsk, which
+  // records its time; nothing else does.
+  expect(app).toContain("const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); setRunAskId(askId); };");
+  expect(app).toContain("onClick={() => handoverAsk(block.id)}");
+  expect(app).toContain("onOpen={(askId) => { setMoreAsksOpen(false); handoverAsk(askId); }}");
   expect(app.match(/recordAskHandover\(/g)).toHaveLength(1);
+  // The tokens, once, with the rule beside them.
+  expect(app.match(/:root \{ --people-soft: #DFF3EF; --people-border: #A8DCD2; --people-strong: #0A776D; --people-ink: #13695B; \}/g)).toHaveLength(1);
+  expect(app).toContain("Turquoise means people");
+});
+
+// View & organize (2026-11-13): the funnel opens it; Organize items, then Your categories, then Asks —
+// the old Manage sheet's two sections, with their managers; no other entry point.
+test("the funnel opens View & organize: Organize items, Your categories, Asks, in that order, with the managers", () => {
+  const app = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+  expect(app).toContain('<BrowseFilterButton phase={browsePhase} on={browsePhase !== 0 || askBlocksShown.length > 0} onOpen={() => setBrowseFilterOpen(true)} />');
+  const sheet = app.slice(app.indexOf("{browseFilterOpen && ("), app.indexOf("{/* \"+N more\" (C4.2): a row behaves"));
+  expect(sheet).toContain('aria-label="View and organize"');
+  expect(sheet).toContain("<h2>View &amp; organize</h2>");
+  const organize = sheet.indexOf('<span className="modal-label" id="browse-view">Organize items</span>');
+  const cats = sheet.indexOf('<span className="modal-label" id="manage-categories">Your categories</span>');
+  const asks = sheet.indexOf('<span className="modal-label" id="manage-asks">Asks</span>');
+  expect(organize).toBeGreaterThan(0);
+  expect(cats).toBeGreaterThan(organize);
+  expect(asks).toBeGreaterThan(cats);
+  expect(sheet).toContain("Built-in categories like Produce and Dairy stay as they are.");
+  // Where it sits (2026-11-14): above the chrome, top-anchored under the inset, the one scroller; the page locked.
+  expect(sheet).toContain('style={{ zIndex: 1000, paddingTop: "calc(20px + var(--op-inset-top, 0px))", overflowY: "hidden" }}');
+  expect(sheet).toContain('className="modal op-anchor-top" role="dialog" aria-modal="true" aria-label="View and organize"');
+  expect(sheet).toContain('maxHeight: "calc(100dvh - 40px - var(--op-inset-top, 0px))", overflowY: "auto"');
+  expect(app).toContain("useScrollLock(!!runAskId || newAskOpen || !!editAskId || browseFilterOpen, scrollRootRef);");
+  expect(sheet).toContain("Pick-lists for family and guests, like a kids’ snack shelf.");
+  // The managers, reused: rename + delete (with the move picker) per custom category, + New category;
+  // edit + delete per ask, + New ask.
+  expect(sheet).toContain('aria-label="Rename this category"');
+  expect(sheet).toContain('aria-label="Delete this category"');
+  expect(sheet).toContain("setDeleteMoveTarget(n > 0 ? defaultMoveTarget(categories, cat.rawName, CATEGORY_ORDER) : \"\");");
+  expect(sheet).toContain('<span className="cat-em">+</span>New category');
+  expect(sheet).toContain('aria-label="Edit this ask"');
+  expect(sheet).toContain("<span>{row.summary}</span>");                           // "Pick {n} of {count} · {look}" (askManage.manageRow)
+  expect(sheet).toContain("{row.needMore && <span>{row.needMore}</span>}");        // "Add {k} more item(s) so they can finish", short asks only
+  // eslint-disable-next-line no-template-curly-in-string -- the source text under test
+  expect(sheet).toContain('<span className={`cat-pill people-pill${activeAskId === row.id ? " on" : ""}`} style={{ flex: "0 0 auto" }}>');   // the Ask's pill, under the Asks header
+  expect(sheet).toContain('aria-label="Delete this ask"');
+  expect(sheet).toContain('<span className="cat-em">+</span>New ask');
+  expect(sheet.indexOf('<span className="cat-em">+</span>New category')).toBeLessThan(asks);
+  expect(sheet.indexOf('<span className="cat-em">+</span>New ask')).toBeGreaterThan(asks);
+  // No label in an attribute (K3); the old sheet and its Browse entry are gone (rendered text — the
+  // comments still tell the history).
+  expect(sheet).not.toMatch(/aria-label=\{[^}]*label/);
+  expect(app).not.toMatch(/>Manage categories|"Manage categories/);
+  expect(app).not.toContain("showManageCategoriesModal");
 });

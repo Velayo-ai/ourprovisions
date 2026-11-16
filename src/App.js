@@ -13,10 +13,10 @@ import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { AddSheetPanel } from './components/AddSheetPanel';
 import { CategorySelect } from './components/CategorySelect';
-import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText } from './lib/deleteCategory';
+import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText, renameInSet } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
-import { NewShelfSheet } from './components/NewShelfSheet';
+import { AskScreen } from './components/AskScreen';
 import { AskRun } from './components/AskRun';
 import { ShelfPhotoStrip } from './components/ShelfPhotoStrip';
 import { manageRow, shelfNote, saveOutcome } from './lib/askManage';
@@ -48,12 +48,15 @@ import { ingredientTag, ingredientSummary, boughtForThisMeal, wasAddedThisPlan, 
 import { resolveLibraryView, otherView, TOGGLE_LABEL, readStoredView, writeStoredView } from './lib/libraryView';
 import { nextInsetTop } from './lib/standaloneInset';
 import { swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool, joinPickLabels } from './lib/askPicks';
-import { ASK_GLYPH, readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
+import { readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
+import { AskIcon } from './components/AskIcon';
 import { heldAskRead, loadHeldAsk, storeHeldAsk, liveTiles } from './lib/askRun';
 import { shelfCatalog } from './lib/askCreate';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
-import { CHECK_HOLD_MS, UNDO_MS, pushUndo, dropUndo } from './lib/shopCheck';
+import { CHECK_HOLD_MS, undoAllIds, undoSettling } from './lib/shopCheck';
+import { useCheckUndos } from './hooks/useCheckUndos';
+import { useLandedHighlight } from './hooks/useLandedHighlight';
 import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS } from './hooks/useLandscapePhone';
 import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
 import { LandscapeStaples } from './components/LandscapeStaples';
@@ -63,6 +66,7 @@ import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { ASK_ENABLED, ASK_FLAG_MARKER } from './lib/featureFlags';
 import { trace } from '@opentelemetry/api';
+import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
 // registers; a no-op provider stands in with no RUM token.
@@ -844,7 +848,7 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 
 // ── Shop tab: lens, In cart tray, store prompt (SPEC_shop_lens_instore_capture.md) ──
 // D3: a control shows its STATE, never its next state — both words visible,
-// the active one filled. Replaces the tri-state CycleIcon on Shop only.
+// the active one filled. Replaces the old tri-state declutter cycle icon on Shop only.
 // ── The Helm (SPEC_nav_helm.md) ─────────────────────────────────────────────
 // Nav lives in a floating pill at the bottom edge (D1) — the thumb is at the
 // bottom, the header keeps one job (household identity). Doors come from
@@ -1267,19 +1271,19 @@ function StorePrompt({ chips, onPick, onSkip, busy }) {
 // Rendered from both Browse and Search so the two can't drift apart.
 function CatalogItemRow({
   item, qty, rawCategory, showPrices, price, isEditing, priceInput,
-  centsToDisplay, onUpdateQty, onPriceInput, onCommitPrice, onCancelEditPrice,
+  centsToDisplay, onAdjustQty, onPriceInput, onCommitPrice, onCancelEditPrice,
 }) {
   return (
     <div className={`item-row ${qty > 0 ? "has-qty" : ""}`}>
       <div className="item-top">
         <span className="item-name">{item.name}</span>
         {qty === 0 ? (
-          <button className="add-btn" onClick={(e) => { onUpdateQty(item.name, 1, rawCategory); e.currentTarget.blur(); }}>Add</button>
+          <button className="add-btn" onClick={(e) => { onAdjustQty(item.name, 1, rawCategory); e.currentTarget.blur(); }}>Add</button>
         ) : (
           <div className="qty-controls">
-            <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty - 1, rawCategory)}>−</button>
+            <button className="qty-btn" onClick={() => onAdjustQty(item.name, -1, rawCategory)}>−</button>
             <span className="qty-display">{qty}</span>
-            <button className="qty-btn" onClick={() => onUpdateQty(item.name, qty + 1, rawCategory)}>+</button>
+            <button className="qty-btn" onClick={() => onAdjustQty(item.name, 1, rawCategory)}>+</button>
           </div>
         )}
       </div>
@@ -1306,17 +1310,19 @@ function CatalogItemRow({
   );
 }
 
-// ── Shared declutter cycle control ──
-// One 46×46 icon used identically on Browse and Shop. Encodes both axes:
-// background light→dark = filter off→on (phase 0 vs 1/2); line shape tapering
-// (funnel ∨) → equal = grouped → flat (phase 2). Each tap advances 0→1→2→0.
-function CycleIcon({ phase, onAdvance }) {
+// ── Browse's filter button ──
+// One 46×46 icon at the top right of Browse's search row. It opens the filter sheet (View and
+// Shelves, 2026-11-13; it used to cycle the declutter phases itself). The glyph still tells the
+// view — a funnel while grouped, three equal lines in A–Z — and the background goes dark while
+// anything in the sheet is off its default (a declutter phase, a shelf selected).
+function BrowseFilterButton({ phase, on, onOpen }) {
   return (
     <button
-      className={`cyc-ico ${phase !== 0 ? "on" : ""}`}
-      onClick={onAdvance}
-      aria-label="Declutter view"
-      title="Declutter view"
+      className={`cyc-ico ${on ? "on" : ""}`}
+      onClick={onOpen}
+      aria-label="Filters"
+      title="Filters"
+      aria-haspopup="dialog"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
         {phase === 2 ? (
@@ -5284,7 +5290,8 @@ function ProvisionsApp({ scrollRootRef }) {
     catalogLoaded,
     error,
     dismissError,
-    updateQty,
+    adjustQty,
+    removeItem,
     updatePrice,
     toggleChecked,
     updateBudgetGoal,
@@ -5916,7 +5923,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const showToast = useCallback((message, action = null, opts = {}) => {
     setToastMessage({ text: message, action, line: !!opts.line });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = setTimeout(() => setToastMessage(null), action ? 4000 : 2500);
+    toastTimerRef.current = setTimeout(() => setToastMessage(null), opts.ms || (action ? 4000 : 2500));
   }, []);
   // SPEC_list_counts D4: "{Meal} added · N to get" / "N meals added · M to get", N/M = `open`
   // AFTER the add. The number is read from the hook's row ref, not from this render's
@@ -6660,7 +6667,10 @@ function ProvisionsApp({ scrollRootRef }) {
   const [editModalPrice, setEditModalPrice] = useState("");
   const [editModalCategory, setEditModalCategory] = useState("");
   const [editModalError, setEditModalError] = useState(null);
-  const [showAddModal, setShowAddModal] = useState(false);
+  // Browse's New item sheet (2026-11-13): null while closed; else { fromSearch }. fromSearch: opened
+  // from the search's "Add '<query>'" card, so a saved item clears the search and shows in its aisle.
+  // (Items only: making an Ask is the full-screen New ask screen, AskScreen, from View & organize.)
+  const [addSheet, setAddSheet] = useState(null);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [budgetInput, setBudgetInput] = useState("");
   const [newItemName, setNewItemName] = useState("");
@@ -6690,7 +6700,10 @@ function ProvisionsApp({ scrollRootRef }) {
   const [creating, setCreating] = useState(false);
   const [newHouseholdName, setNewHouseholdName] = useState("");
   const [creatingInFlight, setCreatingInFlight] = useState(false);
-  const [showManageCategoriesModal, setShowManageCategoriesModal] = useState(false);
+  // View & organize (2026-11-13): the sheet the funnel at the top right of Browse's search row opens.
+  // Organize items (the declutter phases), Your categories and Asks — the old Manage categories &
+  // asks sheet folded in, its sections as they were. Changes apply as they are made; Done closes.
+  const [browseFilterOpen, setBrowseFilterOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [renamingCategory, setRenamingCategory] = useState(null);
   const [renameValue, setRenameValue] = useState("");
@@ -6699,27 +6712,22 @@ function ProvisionsApp({ scrollRootRef }) {
   // Manage categories & asks (Dan, 2026-11-10): "+ New category" reveals the name field.
   const [newCategoryOpen, setNewCategoryOpen] = useState(false);
   const [householdCategories, setHouseholdCategories] = useState(new Set());
-  // A created-but-empty category lives only in householdCategories; when Manage opens, the ones
-  // that still have no item are let go, so they don't linger until a reload (Dan, 2026-11-10). The
-  // catalog is read through a ref: the prune is on open only, never on every catalog change.
+  // A created-but-empty category lives only in householdCategories; when View & organize opens, the
+  // ones that still have no item are let go, so they don't linger until a reload (Dan, 2026-11-10).
+  // The catalog is read through a ref: the prune is on open only, never on every catalog change.
   const catalogForPruneRef = useRef(catalogMap);
   catalogForPruneRef.current = catalogMap;
   useEffect(() => {
-    if (!showManageCategoriesModal) return;
+    if (!browseFilterOpen) return;
     const items = Object.values(catalogForPruneRef.current);
     setHouseholdCategories(prev => {
       const kept = new Set([...prev].filter(c => items.some(i => i.category === c)));
       return kept.size === prev.size ? prev : kept;
     });
-  }, [showManageCategoriesModal]);
+  }, [browseFilterOpen]);
   const [stapleFilter, setStapleFilter] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState(new Set());
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchPickerOpen, setSearchPickerOpen] = useState(false);
-  // The `+ New category` tile reveals the name input, rather than the input
-  // sitting open as a second, competing answer to "where does this go?".
-  const [searchNewCatOpen, setSearchNewCatOpen] = useState(false);
-  const [newCategoryInput, setNewCategoryInput] = useState("");
   const [showWrapUpModal, setShowWrapUpModal] = useState(false);
   const [wrapUpRollItems, setWrapUpRollItems] = useState(new Set()); // item names to roll forward
   // Two pieces, deliberately separate:
@@ -6854,50 +6862,73 @@ function ProvisionsApp({ scrollRootRef }) {
   // "✓ {item} checked · Undo" toasts (2026-11-07; on the tap since 11-08): one
   // per checked row, each with its own 5s timer, so Undo only ever reverts its
   // own row. Shown before the server answers; dropped if the write fails.
-  const [checkUndos, setCheckUndos] = useState([]);
-  const undoTimers = useRef({});
-  const undoKey = useRef(0);
-  useEffect(() => () => { Object.values(undoTimers.current).forEach(clearTimeout); }, []);
-  const dismissCheckUndo = useCallback((id) => {
-    clearTimeout(undoTimers.current[id]);
-    delete undoTimers.current[id];
-    setCheckUndos((l) => dropUndo(l, id));
-  }, []);
-  const offerCheckUndo = useCallback((id, name) => {
-    clearTimeout(undoTimers.current[id]);
-    const key = ++undoKey.current;
-    setCheckUndos((l) => pushUndo(l, { id, name, key }));
-    undoTimers.current[id] = setTimeout(() => {
-      delete undoTimers.current[id];
-      setCheckUndos((l) => dropUndo(l, id, key));
-    }, UNDO_MS);
-  }, []);
+  // THE FOLD (2026-11-14): at most 3 separate toasts; the 4th live check folds them into one
+  // "✓ {n} items in cart · Undo all" with ONE UNDO_MS timer that restarts on every new check, and the
+  // whole group drops when it runs out. The rules are pure (lib/shopCheck); the clocks live in
+  // hooks/useCheckUndos, which mirrors the stack in a ref so a burst of taps reads the latest one.
+  const { undos: checkUndos, offer: offerCheckUndo, dismiss: dismissCheckUndo, current: currentCheckUndos } = useCheckUndos();
   const [storePromptOpen, setStorePromptOpen] = useState(false);
   const [storePromptSkippedFor, setStorePromptSkippedFor] = useState(null);
   const [storeSaving, setStoreSaving] = useState(false);
   const addSheetInputRef = useRef(null);
   // Browse declutter cycle: 0 default (pills shown, grouped) · 1 tidied (pills hidden, grouped) · 2 flat (A–Z).
   const [browsePhase, setBrowsePhase] = useState(0);
+  // How View & organize reads the phase (2026-11-13): "Organize items" — By category (phase 0 or 1) or
+  // Alphabetically (phase 2) — and, under By category only, "Show category shortcuts" (the chip
+  // rail: phase 0 on, phase 1 off). Alphabetically always hides the rail. shortcutsPref remembers
+  // the toggle while Alphabetically is chosen, so coming back to By category restores it.
+  const browseOrganize = browsePhase === 2 ? "alpha" : "category";
+  const [shortcutsPref, setShortcutsPref] = useState(true);
+  const chooseOrganize = (key) => setBrowsePhase(key === "alpha" ? 2 : shortcutsPref ? 0 : 1);
+  const chooseShortcuts = (on) => { setShortcutsPref(on); setBrowsePhase(on ? 0 : 1); };
   // Declutter phase + Browse filters are per-view/per-household ephemeral state:
   // reset on tab or household switch so a stale filter can't shrink the new
   // household's list (phase 1 hides the pills that would otherwise explain it).
   useEffect(() => {
     setBrowsePhase(0);
+    setShortcutsPref(true);
     setSelectedCategories(new Set());
     setStapleFilter(false);
+    setBrowseFilterOpen(false);
   }, [view, activeHouseholdId]);
-  // + New shelf (SPEC_ask_slice2 C2): the sheet belongs to one place's Browse, so a tab or
-  // household switch closes it (a half-made shelf never lands in the other household).
-  const [newShelfOpen, setNewShelfOpen] = useState(false);
-  // Edit Ask {Label} (SPEC_ask_slice4 S4-1, S4-2): opened from a Manage row or a Browse header's
-  // "· Edit". Manage closes first — the two share one overlay layer and Manage is drawn later, so
-  // the sheet would open under it (Step 0 #2). An ask that is gone (deleted elsewhere) closes it.
+  // An Ask is the household's (SPEC_ask_slice2 C2), so View & organize's Asks section and the New ask
+  // screen exist only signed in, with a place, with Ask on. Both the New item sheet and the Ask screen
+  // belong to one place's Browse: a tab or household switch closes them (a half-made ask never lands
+  // in the other household).
+  const canMakeShelf = ASK_ENABLED && !!(isSignedIn && household?.id);
+  const closeAdd = () => setAddSheet(null);
+  // The New ask screen (AskScreen, full screen): opened by "+ New ask" in View & organize, which
+  // closes first. Editing an existing Ask opens the same screen (editAskId, below).
+  const [newAskOpen, setNewAskOpen] = useState(false);
+  // Telemetry (lib/askTelemetry): when the New ask screen opened, and whether it made an Ask, so
+  // ask_created is timed open → created and a close without one is ask_create_abandoned.
+  const newAskRef = useRef({ openedAt: null, created: false });
+  const openNewAsk = (entry) => {
+    if (!canMakeShelf) return;
+    setBrowseFilterOpen(false);
+    setNewAskOpen(true);
+    newAskRef.current = { openedAt: Date.now(), created: false };
+    emitAskEvent("ask_create_opened", entry);
+  };
+  // Closing View & organize ends any rename or new-category entry in progress with it.
+  const closeOrganize = () => { setBrowseFilterOpen(false); setRenamingCategory(null); setNewCategoryOpen(false); };
+  // The two doors that open it on Item: a section header's "＋ New item" (the category known,
+  // confirmed, not asked) and the search's "Add '<query>'" (the name known, the category asked).
+  const openAddItem = ({ category, name = "", fromSearch = false }) => {
+    setNewItemName(name); setNewItemPrice(""); setNewItemCategory(category); setAddError(""); setAddModalResetDone(false);
+    setAddSheet({ fromSearch });
+  };
+  // Edit Ask {Label} (SPEC_ask_slice4 S4-1, S4-2): opened from an Asks row in View & organize or a
+  // Browse header's "· Edit". View & organize closes first — the two share one overlay layer (Step 0
+  // #2). An ask that is gone (deleted elsewhere) closes it.
   const [editAskId, setEditAskId] = useState(null);
-  const openEditAsk = (askId) => { setShowManageCategoriesModal(false); setEditAskId(askId); };
+  const openEditAsk = (askId) => { setBrowseFilterOpen(false); setEditAskId(askId); };
   // Delete Ask {Label} (S4-2; Dan 2026-11-10): the trash on the ask's Manage row opens a centred
   // confirmation over Manage; a yes is the plain soft delete, and the ask leaves the rail, Manage
   // and any selected pill.
   const [deleteAskId, setDeleteAskId] = useState(null);
+  // ONE confirmation at a time (2026-11-14): opening either delete confirm closes the other, so two
+  // trash taps can never stack two dialogs. Both open over View & organize (CONFIRM_Z, below).
   const [deleteAskBusy, setDeleteAskBusy] = useState(false);
   const [deleteAskFailed, setDeleteAskFailed] = useState(false);
   const confirmDeleteAsk = async () => {
@@ -6920,9 +6951,13 @@ function ProvisionsApp({ scrollRootRef }) {
   // The ask being run, full screen (C3b). A tab or household switch ends it, picks discarded
   // (nothing lands before That's it!, A16).
   const [runAskId, setRunAskId] = useState(null);
+  // THE HAND-BACK (SPEC_ask_wagon_handback W8, W9): Great picks' "Give it back to {Parent}" closes the
+  // run and lands on Browse with the app toast "{Label} added {N} · See" — once per run, and only
+  // after a successful land (a failed land never reaches Great picks). No approval step. What See does
+  // (2026-11-15: a highlight that waits for her) lives in useLandedHighlight, below the Shop list.
   // "+N more" (C4.2): the asks past the rail's two pills, in a small sheet.
   const [moreAsksOpen, setMoreAsksOpen] = useState(false);
-  useEffect(() => { setNewShelfOpen(false); setEditAskId(null); setDeleteAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
+  useEffect(() => { setAddSheet(null); setNewAskOpen(false); setEditAskId(null); setDeleteAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
   // A26 resume (SPEC_ask_slice3 S3-6). AskRun keeps op_ask_held current while it is up; any end of
   // the run (Done, Back to the list, a tab or household switch) clears it here. A reload with the
   // key held reopens the run ONCE, on its screen with its picks — after this place's asks and
@@ -6958,12 +6993,14 @@ function ProvisionsApp({ scrollRootRef }) {
       return prev.key === key && ids === prev.ids ? prev : { key, ids };
     });
   }, [asks, view, household?.id]);
-  const toggleAsk = (askId) => setSelectedAsks(prev => {
-    const next = new Set(prev);
-    if (next.has(askId)) next.delete(askId); else next.add(askId);
-    return next;
-  });
-  useScrollLock(!!runAskId, scrollRootRef);
+  // THE HAND-OVER (C3b; 2026-11-13): an Ask pill opens that Ask's run — the rail's pills, the "+N
+  // more" rows and a Browse block's "Hand it to" all come here. Only a hand-over writes "Picked by"
+  // (11-04 ruling) and records its time for the rail's order. An Ask pill is never a filter (the
+  // pill-as-filter of C3 is retired): selectedAsks is no longer set by anything on screen.
+  const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); setRunAskId(askId); };
+  // The Ask drawn pressed on its pills: the one whose run is open or whose edit sheet is up.
+  const activeAskId = runAskId || editAskId || null;
+  useScrollLock(!!runAskId || newAskOpen || !!editAskId || browseFilterOpen, scrollRootRef);   // the run and the Ask screen are full screen; View & organize is the one scroller while open
   // eslint-disable-next-line no-unused-vars
   const [categoryError, setCategoryError] = useState(null);
 
@@ -7121,11 +7158,11 @@ function ProvisionsApp({ scrollRootRef }) {
   // asks' sections, oldest ask first, each shelf in its own order, each tile priced from the aisle
   // it is filed under in Browse (D-c). An ask is not a category (K5): selectedAsks is its own set.
   // What the rail draws (C4.2): at most two ask pills in the frozen order, the rest behind "+N
-  // more"; "+ New shelf" after Staples with no asks, at the very end with 1+.
+  // more". No "+ New shelf" on the rail (2026-11-13): that is the filter sheet's Shelves section.
   const askRail = useMemo(() => {
     const byId = new Map(asks.map(a => [a.id, a]));
-    return askRailLayout(askOrder.ids.map(id => byId.get(id)).filter(Boolean), ASK_ENABLED && !!(isSignedIn && household?.id));   // Ask off: no "+ New shelf"
-  }, [asks, askOrder, isSignedIn, household?.id]);
+    return askRailLayout(ASK_ENABLED ? askOrder.ids.map(id => byId.get(id)).filter(Boolean) : []);   // Ask off: no Ask pills
+  }, [asks, askOrder]);
   // The household's picker names for the tray's initials (C4.3): live asks' labels ∪ every
   // picked_by_labels on the loaded rows. Display only; recomputed as asks or rows change.
   const pickPool = useMemo(() => pickLabelPool(asks.map(a => a.label), listRows), [asks, listRows]);
@@ -7153,13 +7190,13 @@ function ProvisionsApp({ scrollRootRef }) {
   const itemPhotoUrlCacheRef = useRef(null);
   if (!itemPhotoUrlCacheRef.current) itemPhotoUrlCacheRef.current = createSignedUrlCache({ bucket: "item-photos" });
   const [itemPhotoUrls, setItemPhotoUrls] = useState({});
-  // While a shelf sheet is open, every household item photo is wanted: the sheet's grid shows the
-  // shelf's thumbs, and the shelf is the sheet's own state (a few dozen paths at most).
+  // While the Ask screen is open, every household item photo is wanted: the form's grid shows the
+  // ask's thumbs, and the ask is the form's own state (a few dozen paths at most).
   const wantedItemPhotoPaths = useMemo(() => {
     const ids = new Set([...askBlocksShown.flatMap(b => b.items.map(i => i.id)), ...runLive.map(i => i.id),
-      ...((newShelfOpen || editAskId) ? Object.keys(itemPhotos) : [])]);
+      ...((newAskOpen || editAskId) ? Object.keys(itemPhotos) : [])]);
     return [...ids].map(id => itemPhotos[id]?.thumbPath).filter(Boolean);
-  }, [askBlocksShown, runLive, itemPhotos, newShelfOpen, editAskId]);
+  }, [askBlocksShown, runLive, itemPhotos, newAskOpen, editAskId]);
   useEffect(() => {
     if (wantedItemPhotoPaths.length === 0) return undefined;
     let cancelled = false;
@@ -7319,15 +7356,12 @@ function ProvisionsApp({ scrollRootRef }) {
   // Search "add to your list" handler (F1b Layer 1 — the floor). Re-adding a HIDDEN
   // item must never write quantity across the person boundary: hide is a lens, not an
   // edit. Resolve the typed name against the hidden set first.
-  // Resolves to updateQty's `{ listItemId, catalogItemId }` when a quantity was
+  // Resolves to adjustQty's `{ listItemId, catalogItemId }` when a quantity was
   // written, null otherwise (reveal-only, or nothing typed) — the Shop Add sheet
   // records its added_in_store event from that. Browse ignores the value.
   const addSearchedItem = async (rawCategory) => {
     const typed = searchQuery.trim();
     setSearchQuery("");
-    setSearchPickerOpen(false);
-    setSearchNewCatOpen(false);
-    setNewCategoryInput("");
     if (!typed) return null;
     const norm = normalizeName(typed);
     const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
@@ -7340,10 +7374,10 @@ function ProvisionsApp({ scrollRootRef }) {
       }
       // Hidden while at qty 0 (not on the list) → un-hide, then add at typed qty.
       unhideItem(hidden.id);
-      return updateQty(typed, 1, rawCategory);
+      return adjustQty(typed, 1, rawCategory);
     }
-    // No hidden match → today's behavior: add as a (possibly new) item.
-    return updateQty(typed, 1, rawCategory);
+    // No hidden match → today's behavior: add as a (possibly new) item (+1 through adjustQty).
+    return adjustQty(typed, 1, rawCategory);
   };
 
   // Show the join banner once the lens has landed on the joined household.
@@ -7785,13 +7819,16 @@ function ProvisionsApp({ scrollRootRef }) {
   const handleAddItem = () => {
     const name = newItemName.trim();
     if (!name) { setAddError("Please enter an item name."); return; }
+    if (!newItemCategory) { setAddError("Pick a category to file it under."); return; }
     const allItems = Object.keys(catalogMap).map(k => k.toLowerCase());
     if (allItems.includes(name.toLowerCase())) { setAddError("That item already exists."); return; }
     const price = parseFloat(centsToDisplay(newItemPrice)) || 0;
     if (price > 0) setLocalPrices(prev => ({ ...prev, [name]: price }));
-    // updateQty with qty=1 will auto-create the catalog item in Supabase if it doesn't exist
-    updateQty(name, 1, newItemCategory, price > 0 ? price : undefined);
-    setNewItemName(""); setNewItemPrice(""); setAddError(""); setShowAddModal(false);
+    // adjustQty(+1) auto-creates the catalog item in Supabase if it doesn't exist; the price rides the insert
+    adjustQty(name, 1, newItemCategory, price > 0 ? price : undefined);
+    // Opened from the search's "Add '<query>'": the search clears, so the new item shows in its aisle.
+    if (addSheet?.fromSearch) setSearchQuery("");
+    setNewItemName(""); setNewItemPrice(""); setAddError(""); setAddSheet(null);
   };
 
   const createCategory = (name) => {
@@ -7841,7 +7878,10 @@ function ProvisionsApp({ scrollRootRef }) {
     }
 
     await refreshCatalog();
-    setShowManageCategoriesModal(false);
+    // The old name leaves every set that held it (renameInSet), so no stale "0 items" row is left behind.
+    setHouseholdCategories(prev => renameInSet(prev, oldRawName, trimmed));
+    setSelectedCategories(prev => renameInSet(prev, oldRawName, trimmed));
+    setRenamingCategory(null);
   };
 
   // Never deletes items (2026-11-05, src/lib/deleteCategory.js): a category with items is
@@ -8032,10 +8072,17 @@ function ProvisionsApp({ scrollRootRef }) {
     const item = shoppingList.flatMap(c => c.items).find(i => i.listItemId === id);
     if (item && checked[id]) handleShopToggle(item, "pending");
   };
+  // Undo all on the folded toast: the same per-row undo for every id in the group that is still checked
+  // (each row keeps its own write chain; no batch write). The group empties as each id leaves it.
+  const undoAllChecks = () => {
+    const ids = undoAllIds(currentCheckUndos(), (id) => !!checked[id]);
+    for (const u of currentCheckUndos().entries) if (!ids.includes(u.id)) dismissCheckUndo(u.id);
+    ids.forEach(undoCheck);
+  };
   // All done waits until the last check has finished its hold and its Undo
   // window (2026-11-08): the card never covers a toast that can still take the
   // check back, and a check undone in time never flashes "All done."
-  const shopCheckSettling = checkUndos.length > 0 || Object.values(rowMotion).some(m => m.dir === "out");
+  const shopCheckSettling = undoSettling(checkUndos) || Object.values(rowMotion).some(m => m.dir === "out");
   const rowMotionClass = (listItemId) => {
     const m = rowMotion[listItemId];
     if (!m) return "";
@@ -8096,7 +8143,6 @@ function ProvisionsApp({ scrollRootRef }) {
 
   const openAddSheet = () => {
     setSearchQuery("");
-    setSearchPickerOpen(false);
     setAddSheetOpen(true);
   };
   const closeAddSheet = () => {
@@ -8126,11 +8172,11 @@ function ProvisionsApp({ scrollRootRef }) {
     setAddedHereIds(prev => { const n = new Set(prev); n.add(res.catalogItemId); return n; });
     recordListEvent("added_in_store", res);
   };
-  // A catalog hit — the same write Browse's row makes (+1 through updateQty,
-  // which sets status back to pending: D6, adds land unchecked).
+  // A catalog hit — the same change Browse's row makes: +1 through adjustQty. Adds land unchecked
+  // (D6); on a row already in the cart the server makes it a NEW need of 1, never old + 1 (085 Q4).
   const handleShopAddResult = async (item) => {
     closeAddSheet();
-    const res = await updateQty(item.name, qtyFor(item) + 1, item.rawCategory);
+    const res = await adjustQty(item.name, 1, item.rawCategory);
     noteAddedHere(res);
   };
   // Create / reveal-add — Browse's addSearchedItem, unchanged, with the category
@@ -8426,6 +8472,13 @@ function ProvisionsApp({ scrollRootRef }) {
       items: groups[rawCat].sort((a, b) => a.name.localeCompare(b.name)),
     }));
   }, [listRows, prices, supabasePrices, localPrices, contributorsMap, user?.id]);
+  // "See" after an Ask (2026-11-15, revised): the landed rows get the soft teal tint; once the scroll to
+  // the first one settles it holds, then fades over the last ~1.2s of ~5.2s. Leaving Shop clears it; a
+  // check drops its own row. The rules are in hooks/useLandedHighlight.
+  const checkedCatalogIds = useMemo(
+    () => new Set(shoppingList.flatMap((c) => c.items).filter((i) => checked[i.listItemId]).map((i) => i.catalogItemId)),
+    [shoppingList, checked]);
+  const landed = useLandedHighlight({ view, checkedIds: checkedCatalogIds });
 
   // INVARIANT: list-row state (`quantities`, `checked`) is keyed by list_item.id;
   // the name is a label, never an identity. Browse rows are CATALOG items, so a
@@ -8451,7 +8504,7 @@ function ProvisionsApp({ scrollRootRef }) {
     <div className="category-block ask-block" key={`ask:${block.id}`}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #E8D5B7", paddingBottom: "8px", marginBottom: "12px" }}>
         <div className="cat-title" style={{ border: "none", padding: 0, margin: 0 }}>
-          <span aria-hidden="true">{ASK_GLYPH}</span> Ask <span className="op-name">{block.label}</span>
+          <span className="cat-em" style={{ display: "inline-block", verticalAlign: "-2px", color: "var(--people-ink)" }}><AskIcon /></span> Ask <span className="op-name">{block.label}</span>
         </div>
         {/* The hand-over (C3b): opens the run on "Your turn, {Label}!". Only a hand-over writes
             "Picked by" (11-04 ruling). A shelf with no live tile can't run (S4-5), so the grown-up's
@@ -8461,7 +8514,7 @@ function ProvisionsApp({ scrollRootRef }) {
           {block.items.length > 0 && (
             <button
               className="ask-handover"
-              onClick={() => { recordAskHandover(household?.id, block.id); setRunAskId(block.id); }}
+              onClick={() => handoverAsk(block.id)}
               style={{
                 background: "none", border: "none", fontFamily: "'Lato', sans-serif",
                 fontSize: "12.5px", color: "#0A776D", fontWeight: 700, cursor: "pointer",
@@ -8490,7 +8543,7 @@ function ProvisionsApp({ scrollRootRef }) {
       )}
       <div className="items-grid">
         {block.items.length === 0 ? (
-          <div className="declutter-desc" style={{ margin: "4px 0 0" }}>Nothing on this shelf yet.</div>
+          <div className="declutter-desc" style={{ margin: "4px 0 0" }}>Nothing on this ask yet.</div>
         ) : block.items.map((item) => {
           const qty = qtyFor(item);
           const rawFallback = categoryAvgPrices[item.rawCategory] || 3.00;
@@ -8511,7 +8564,7 @@ function ProvisionsApp({ scrollRootRef }) {
                 isEditing={isEditing}
                 priceInput={priceInput}
                 centsToDisplay={centsToDisplay}
-                onUpdateQty={updateQty}
+                onAdjustQty={adjustQty}
                 onPriceInput={handlePriceInput}
                 onCommitPrice={commitPrice}
                 onCancelEditPrice={() => setEditingPrice(null)}
@@ -8585,9 +8638,10 @@ function ProvisionsApp({ scrollRootRef }) {
     if (landscapePhone && landscapeMounted && textFocused && document.activeElement && document.activeElement.blur) document.activeElement.blur();
   }, [landscapePhone, landscapeMounted, textFocused]);
   // Names added during THIS landscape visit; a tile removed again leaves the set, so its size
-  // is the visit's NET adds. Adds and removes go through updateQty — the Add button's own
-  // path (realtime, optimistic, offline). A tap only ever takes off what this visit put on
-  // (the set is how the view knows); anything else comes off by press-and-hold.
+  // is the visit's NET adds. A tap-add is +1 through adjustQty — the Add button's own path — and a
+  // tap-undo is −1 ("undo MY add", 085 Q7), so a pick that landed in between survives it. A tap
+  // only ever takes off what this visit put on (the set is how the view knows); anything else
+  // comes off by press-and-hold, which is the explicit remove (removeItem).
   // Every rotation INTO landscape starts a fresh set: flushLandscapeAdds runs when a visit
   // ends, and again the moment the display flips sideways (the query itself, no debounce).
   const landscapeAddedRef = useRef(new Set());
@@ -8606,12 +8660,16 @@ function ProvisionsApp({ scrollRootRef }) {
   }, [flushLandscapeAdds]);
   const landscapeAdd = useCallback((item) => {
     landscapeAddedRef.current.add(item.name);
-    updateQty(item.name, 1, item.rawCategory);
-  }, [updateQty]);
+    adjustQty(item.name, 1, item.rawCategory);
+  }, [adjustQty]);
+  const landscapeUndo = useCallback((item) => {
+    landscapeAddedRef.current.delete(item.name);
+    adjustQty(item.name, -1, item.rawCategory);
+  }, [adjustQty]);
   const landscapeRemove = useCallback((item) => {
     landscapeAddedRef.current.delete(item.name);
-    updateQty(item.name, 0, item.rawCategory);
-  }, [updateQty]);
+    removeItem(item.name);
+  }, [removeItem]);
   // The first-run subtitle (lib/landscapeHint): the first three landscape visits on this
   // device. The state is what the NEXT visit shows, so the hidden view is already right when
   // the phone turns; a visit is counted when it starts and the state re-read when it ends.
@@ -8860,7 +8918,10 @@ function ProvisionsApp({ scrollRootRef }) {
       <div className="bottom-stack" style={{
         position: "fixed", left: "50%", transform: "translateX(-50%)",
         zIndex: 2000, display: "flex", flexDirection: "column", alignItems: "center",
-        gap: "10px", maxWidth: "90vw",
+        // width: max-content (2026-11-14): a fixed box at left 50% with no width shrinks to the space
+        // right of centre (50vw), which squeezed the folded "✓ n items in cart · Undo all" into an
+        // ellipsis on a phone. Its children each cap themselves at 90vw; so does the stack.
+        gap: "10px", width: "max-content", maxWidth: "90vw",
         // The stack itself must never eat taps meant for the app behind it;
         // children that need interaction opt back in individually.
         pointerEvents: "none",
@@ -8929,15 +8990,22 @@ function ProvisionsApp({ scrollRootRef }) {
         )}
 
         {/* "✓ {item} checked · Undo" (2026-11-07) — one per checked row, newest at
-            the bottom, each with its own 5s timer. Shop only; the item name is
-            plain text, the Undo button opts into pointer events. */}
-        {view === "list" && checkUndos.map((u) => (
+            the bottom, each with its own 5s timer; at most 3, then one folded
+            "✓ {n} items in cart · Undo all" (2026-11-14). Shop only; the item name
+            is plain text, the Undo button opts into pointer events. */}
+        {view === "list" && (checkUndos.folded ? (
+          <div key="check-undo-group" className="check-undo check-undo-group" role="status">
+            <span className="check-undo-text">✓ {checkUndos.entries.length} {checkUndos.entries.length === 1 ? "item" : "items"} in cart</span>
+            <span className="check-undo-sep" aria-hidden="true">·</span>
+            <button type="button" className="check-undo-btn op-chrome" onClick={undoAllChecks}>Undo all</button>
+          </div>
+        ) : checkUndos.entries.map((u) => (
           <div key={u.key} className="check-undo" role="status">
             <span className="check-undo-text">✓ {u.name} checked</span>
             <span className="check-undo-sep" aria-hidden="true">·</span>
             <button type="button" className="check-undo-btn op-chrome" onClick={() => undoCheck(u.id)}>Undo</button>
           </div>
-        ))}
+        )))}
       </div>
 
       {/* The Helm — floating nav pill (SPEC_nav_helm.md). Fixed, outside the
@@ -8954,7 +9022,7 @@ function ProvisionsApp({ scrollRootRef }) {
           included — the grid gets the room); the portrait Browse stays mounted below.
           The error toast above is underneath it, so the view shows the same `error` in its own slot. */}
       {landscapeMounted && (
-        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} showHint={landscapeHintOn} error={error} onDismissError={dismissError} />
+        <LandscapeStaples items={landscapeTiles} qtyOf={qtyFor} addedThisVisit={landscapeAddedThisVisit} onAdd={landscapeAdd} onUndo={landscapeUndo} onRemove={landscapeRemove} glyph={categoryGlyph("Staples")} showHint={landscapeHintOn} error={error} onDismissError={dismissError} />
       )}
 
       {!(signedOutWelcome && pendingGiftCode) && <Helm
@@ -9816,8 +9884,8 @@ function ProvisionsApp({ scrollRootRef }) {
            partly covered and hard to hit (iPhone, the 2026-10-11 walk). Hidden, not
            lowered: a lowered Helm would still read as reachable. SAME SIGNAL as the
            stack rule above, so the two cannot disagree. Restored on close. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .helm,
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .helm-fade { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .helm,
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .helm-fade { display: none; }
         /* …under EVERY bottom sheet, not only the modal overlay (Dan 2026-10-31): the thank-you sheet's Send / Skip and
            the arrival sheet's Open it sat under the pill. The same six surfaces as the Wrap Up bar's rule below. */
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
@@ -10074,7 +10142,7 @@ function ProvisionsApp({ scrollRootRef }) {
         /* While ANY sheet or modal is open the bar hides and returns on close (Dan 2026-10-30: at z 900 it
            floated over every sheet and partly covered the arrival form's Not for us / Add to our meals).
            Keyed off the document like the Helm rule above: every surface that owns a scrim or overlay. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop) .wrapbar { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .wrapbar { display: none; }
         .wrapbar.p0 { border-style: dashed; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
         /* No hard edge on the fill: its 2px right border was the line through the "W" of
@@ -10264,15 +10332,41 @@ function ProvisionsApp({ scrollRootRef }) {
         .cat-pill.on { background: #2C1A0E; border-color: #2C1A0E; color: #FAF4EC; font-weight: 700; }
         /* Add-item picker — same pill, wrapped and exhaustive. Never scrolls. */
         .cat-grid { display: flex; flex-wrap: wrap; gap: 9px; }
-        /* "+ New shelf" / "+ New category" (Dan 2026-11-10): a solid clay border, the label and + one step
+        /* "+ New ask" / "+ New category" (Dan 2026-11-10): a solid clay border, the label and + one step
            darker; same size and placement as any pill. */
         .cat-pill-new { background: transparent; border: 1px solid #8A5F3A; color: #6E4A2A; }
+        /* PEOPLE TOKENS (2026-11-13). Turquoise means people: invitations to participate (the Ask pills)
+           plus person avatars. Don't use these tokens for success states, links, badges, or anything
+           else. Every Ask uses the same turquoise; no per-person colours. One family with the header's
+           monogram (brand teal #0D9488): --people-strong is the app's AA-safe text teal of that brand
+           colour (ruling 2026-10-07) — white on it reads 5.4:1, where white on #0D9488 reads 3.7:1 —
+           and --people-ink on --people-soft reads 5.7:1 (WCAG AA is 4.5:1). */
+        :root { --people-soft: #DFF3EF; --people-border: #A8DCD2; --people-strong: #0A776D; --people-ink: #13695B; }
+        /* The Ask pill: the category pill's shape, height and padding; only the colours differ. Default =
+           soft fill, 1px border, ink text and icon. Pressed (.on, while that Ask's run is open or it is
+           being edited) = strong fill, white text. Never a filter, so never the category pill's dark. */
+        .people-pill { background: var(--people-soft); border-color: var(--people-border); color: var(--people-ink); }
+        .people-pill.on { background: var(--people-strong); border-color: var(--people-strong); color: #fff; font-weight: 700; }
+        /* The ghost (2026-11-14): the Asks' place on the rail before there is one — dashed people border, no fill. */
+        .people-pill-ghost { background: transparent; border-style: dashed; }
+        .people-pill .cat-em { display: flex; align-items: center; justify-content: center; }
+        .ask-ico { display: block; }
+        /* The rail's thin divider after the Ask pills, before the category pills: the asks are not filters. */
+        .cat-rail-divider { flex: 0 0 1px; width: 1px; height: 24px; background: #E8D5B7; margin: 0 2px; scroll-snap-align: none; }
+        /* The filter sheet's rows (2026-11-13): a pill per view / per shelf, full width, stacked. */
+        .bf-list { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+        .bf-row { width: 100%; justify-content: flex-start; box-sizing: border-box; }
         .picker-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 12px; }
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
         .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
         .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
         .list-cat-title { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
         .list-item { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; -webkit-tap-highlight-color: transparent; }
+        /* The hand-back's See (W9; 2026-11-15 revised): the rows an Ask just landed hold the people tint
+           for ~4s after the scroll settles, then .fading eases it out over 1.2s (the state then drops the
+           class). A colour fade, not movement, so it stays under reduced motion. */
+        .list-item.ask-landed-hl { background: var(--people-soft); box-shadow: inset 3px 0 0 var(--people-strong); border-radius: 8px; }
+        .list-item.ask-landed-hl.fading { background: transparent; box-shadow: inset 3px 0 0 transparent; transition: background 1.2s ease-out, box-shadow 1.2s ease-out; }
         .list-item.done { opacity: 0.45; }
         .list-item.done .li-name { text-decoration: line-through; color: #a89878; }
         .checkbox { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #c8b89a; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.15s; cursor: pointer; }
@@ -11635,10 +11729,10 @@ function ProvisionsApp({ scrollRootRef }) {
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <CatalogSearchBox
                   value={searchQuery}
-                  onChange={(v) => { setSearchQuery(v); setSearchPickerOpen(false); }}
-                  onClear={() => { setSearchQuery(""); setSearchPickerOpen(false); }}
+                  onChange={setSearchQuery}
+                  onClear={() => setSearchQuery("")}
                 />
-                <CycleIcon phase={browsePhase} onAdvance={() => setBrowsePhase((browsePhase + 1) % 3)} />
+                <BrowseFilterButton phase={browsePhase} on={browsePhase !== 0 || askBlocksShown.length > 0} onOpen={() => setBrowseFilterOpen(true)} />
               </div>
             </div>
 
@@ -11661,48 +11755,41 @@ function ProvisionsApp({ scrollRootRef }) {
                   <span className="cat-em">{categoryGlyph("Staples")}</span>Staples
                 </button>
 
-                {/* + New shelf (SPEC_ask_slice2 C2) — the door to making an Ask. With no asks it sits
-                    right after Staples (discovery); with 1+ it moves to the very end (C4.2). Signed
-                    in with a place only: the shelf is the household's. */}
-                {askRail.newShelfAt === "afterStaples" && (
-                  <button className="cat-pill cat-pill-new" onClick={() => setNewShelfOpen(true)}>
-                    <span className="cat-em">+</span>New shelf
+                {/* Ask pills (SPEC_ask_slice2 C4.2; Dan's rail ruling 2026-11-07; people pills 2026-11-13):
+                    right after Staples — last hand-over first, never-handed-over after, A–Z; the order set
+                    when Browse opens or the household switches, never re-sorted mid-session (askRail.js:
+                    freezeAskOrder; the time is this device's localStorage, A–Z when it can't be read). At
+                    most two, then "+N more" for the rest; a tap opens that Ask's run (handoverAsk); the one
+                    whose run or edit is open draws pressed. They are not filters. "Ask " is fixed copy; the
+                    name sits in .op-name (K3), so it leaves replay and click text in every environment. The
+                    key is the ask's id, never its label. With no ask at all, a ghost — "Ask someone…", dashed
+                    people border — holds the place and opens the New ask screen (where a shelf can be made);
+                    it goes once any ask exists. A thin divider closes the group before the categories. */}
+                {askRail.pills.map(ask => (
+                  <button
+                    key={ask.id}
+                    className={`cat-pill people-pill${activeAskId === ask.id ? " on" : ""}`}
+                    onClick={() => handoverAsk(ask.id)}
+                  >
+                    <span className="cat-em"><AskIcon /></span>
+                    <span>Ask <span className="op-name">{ask.label}</span></span>
+                  </button>
+                ))}
+                {askRail.more.length > 0 && (
+                  <button
+                    className="cat-pill people-pill cat-pill-more"
+                    aria-haspopup="dialog"
+                    onClick={() => setMoreAsksOpen(true)}
+                  >
+                    <span className="cat-em"><AskIcon /></span>+{askRail.more.length} more
                   </button>
                 )}
-
-                {/* Ask pills (C3, C4.2) — at most two, in the frozen order, toggling selectedAsks
-                    (K5). "Ask " is fixed copy; the name sits in .op-name (K3), so it leaves replay
-                    and click text in every environment. The key is the ask's id, never its label. */}
-                {askRail.pills.map(ask => {
-                  const isActive = selectedAsks.has(ask.id);
-                  return (
-                    <button
-                      key={ask.id}
-                      className={`cat-pill${isActive ? " on" : ""}`}
-                      data-active={isActive ? "1" : undefined}
-                      onClick={() => toggleAsk(ask.id)}
-                    >
-                      <span className="cat-em" aria-hidden="true">{ASK_GLYPH}</span>
-                      <span>Ask <span className="op-name">{ask.label}</span></span>
-                    </button>
-                  );
-                })}
-
-                {/* "+N more" (C4.2) — the rest of the asks in a small sheet. Shown "on" while one of
-                    them is selected, since its own pill isn't on the rail. */}
-                {askRail.more.length > 0 && (() => {
-                  const isActive = askRail.more.some(a => selectedAsks.has(a.id));
-                  return (
-                    <button
-                      className={`cat-pill cat-pill-more${isActive ? " on" : ""}`}
-                      data-active={isActive ? "1" : undefined}
-                      aria-haspopup="dialog"
-                      onClick={() => setMoreAsksOpen(true)}
-                    >
-                      <span className="cat-em" aria-hidden="true">{ASK_GLYPH}</span>+{askRail.more.length} more
-                    </button>
-                  );
-                })()}
+                {askRail.pills.length === 0 && canMakeShelf && (
+                  <button className="cat-pill people-pill people-pill-ghost" onClick={() => openNewAsk("rail")}>
+                    <span className="cat-em"><AskIcon /></span>Ask someone…
+                  </button>
+                )}
+                {(askRail.pills.length > 0 || canMakeShelf) && <span className="cat-rail-divider" aria-hidden="true" />}
 
                 {/* Category pills — toggle to filter */}
                 {categories.map(cat => {
@@ -11729,12 +11816,6 @@ function ProvisionsApp({ scrollRootRef }) {
                     </button>
                   );
                 })}
-
-                {askRail.newShelfAt === "end" && (
-                  <button className="cat-pill cat-pill-new" onClick={() => setNewShelfOpen(true)}>
-                    <span className="cat-em">+</span>New shelf
-                  </button>
-                )}
               </div>
             </div>
             )}
@@ -11813,7 +11894,7 @@ function ProvisionsApp({ scrollRootRef }) {
                               isEditing={isEditing}
                               priceInput={priceInput}
                               centsToDisplay={centsToDisplay}
-                              onUpdateQty={updateQty}
+                              onAdjustQty={adjustQty}
                               onPriceInput={handlePriceInput}
                               onCommitPrice={commitPrice}
                               onCancelEditPrice={() => setEditingPrice(null)}
@@ -11822,104 +11903,31 @@ function ProvisionsApp({ scrollRootRef }) {
                         );
                   }}
                   createSlot={
-                  /* ── CREATE on Browse: inline add with category picker ── */
-                  <>
-                    <div style={{
-                      borderRadius: "10px",
-                      border: "1.5px dashed #C9A97A",
-                      background: "rgba(201,169,122,0.06)",
-                      overflow: "hidden",
-                      marginBottom: "6px",
-                    }}>
-                      {!searchPickerOpen ? (
-                        <div
-                          onClick={() => setSearchPickerOpen(true)}
-                          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", cursor: "pointer" }}
-                        >
-                          {/* On the knob (pass 2): line = body 15, hint = meta 14 #8A5F3A, Add =
-                              button k .8 — the same roles the meal sheet's copy of this card uses. */}
-                          <div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
-                              Add <strong>"{searchQuery}"</strong> to your list
-                            </div>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
-                              Tap to choose a category
-                            </div>
-                          </div>
-                          <button className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8) }}>Add</button>
-                        </div>
-                      ) : (
-                        <div>
-                          <div
-                            onClick={() => setSearchPickerOpen(false)}
-                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px 8px", cursor: "pointer" }}
-                          >
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
-                              Add <strong>"{searchQuery}"</strong> to your list
-                            </div>
-                            <span style={{ color: "#8A5F3A", fontSize: "18px" }}>−</span>
-                          </div>
-                          {/* Global entry — no section context, so nothing is
-                              pre-selected and the copy asks rather than confirms. */}
-                          <div className="picker-sub" style={{ padding: "0 14px", marginBottom: "10px" }}>
-                            Pick a category and we'll file it for next time.
-                          </div>
-                          <div style={{ padding: "0 14px 10px" }}>
-                            <CategoryPickerGrid
-                              categories={categories.filter(cat => cat.rawName !== "⭐ My Custom Items")}
-                              selected={null}
-                              onSelect={addSearchedItem}
-                              onNewCategory={() => setSearchNewCatOpen(true)}
-                            />
-                          </div>
-                          {/* ── New category inline input — revealed by the tile ── */}
-                          {searchNewCatOpen && (
-                          <div style={{ padding: "0 14px 14px" }}>
-                            <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(12.5), letterSpacing: "1.5px", textTransform: "uppercase", color: "#8A5F3A", marginBottom: "7px" }}>
-                              Name the new category
-                            </div>
-                            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                              <input
-                                type="text"
-                                value={newCategoryInput}
-                                onChange={e => setNewCategoryInput(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === "Enter" && newCategoryInput.trim()) {
-                                    const newCat = newCategoryInput.trim();
-                                    setHouseholdCategories(prev => new Set([...prev, newCat]));
-                                    addSearchedItem(newCat);
-                                  }
-                                }}
-                                placeholder="e.g. Pet Supplies"
-                                style={{
-                                  flex: 1, border: "1.5px solid #E8D5B7", borderRadius: "20px",
-                                  padding: "6px 14px", fontFamily: "'Lato', sans-serif", fontSize: "12px",
-                                  color: "#2C1A0E", background: "#F5EDE0", outline: "none",
-                                }}
-                              />
-                              <button
-                                onClick={() => {
-                                  if (!newCategoryInput.trim()) return;
-                                  const newCat = newCategoryInput.trim();
-                                  setHouseholdCategories(prev => new Set([...prev, newCat]));
-                                  addSearchedItem(newCat);
-                                }}
-                                style={{
-                                  width: "30px", height: "30px", borderRadius: "50%",
-                                  background: newCategoryInput.trim() ? "#A0724A" : "#E8D5B7",
-                                  border: "none", color: "white",
-                                  fontSize: "18px", display: "flex", alignItems: "center", justifyContent: "center",
-                                  cursor: newCategoryInput.trim() ? "pointer" : "default",
-                                  flexShrink: 0, transition: "background 0.15s",
-                                }}
-                              >+</button>
-                            </div>
-                          </div>
-                          )}
-                        </div>
-                      )}
+                  /* ── CREATE on Browse (2026-11-13): one card, "Add '<query>'", opening the Add sheet on
+                     Item with the name filled in and the category asked (no section context, so nothing
+                     is pre-selected). The category picker that used to unfold here is the sheet's. ── */
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openAddItem({ category: null, name: searchQuery.trim(), fromSearch: true })}
+                    onKeyDown={(e) => { if (e.key === "Enter") openAddItem({ category: null, name: searchQuery.trim(), fromSearch: true }); }}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "12px 14px", marginBottom: "6px", cursor: "pointer",
+                      borderRadius: "10px", border: "1.5px dashed #C9A97A", background: "rgba(201,169,122,0.06)",
+                    }}
+                  >
+                    {/* On the knob (pass 2): line = body 15, hint = meta 14 #8A5F3A, Add = button k .8. */}
+                    <div>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(15), color: "#8A5F3A" }}>
+                        Add <strong>"{searchQuery.trim()}"</strong>
+                      </div>
+                      <div style={{ fontFamily: "'Lato', sans-serif", fontSize: ts(14), color: "#8A5F3A", marginTop: "2px" }}>
+                        As a new item — you'll pick its category
+                      </div>
                     </div>
-                  </>
+                    <span className="add-btn" style={{ flexShrink: 0, fontSize: ts(14, 0.8) }}>Add</span>
+                  </div>
                   }
                 />
               </div>
@@ -11954,7 +11962,7 @@ function ProvisionsApp({ scrollRootRef }) {
                               isEditing={isEditing}
                               priceInput={priceInput}
                               centsToDisplay={centsToDisplay}
-                              onUpdateQty={updateQty}
+                              onAdjustQty={adjustQty}
                               onPriceInput={handlePriceInput}
                               onCommitPrice={commitPrice}
                               onCancelEditPrice={() => setEditingPrice(null)}
@@ -11974,10 +11982,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   <div className="category-block" key={cat.name}>
                     <CategoryHeader title={cat.name}>
                       <button
-                        onClick={() => {
-                          setNewItemCategory(cat.rawName);
-                          setShowAddModal(true);
-                        }}
+                        onClick={() => openAddItem({ category: cat.rawName })}
                         style={CATEGORY_HEADER_ACTION}
                       >＋ New item</button>
                     </CategoryHeader>
@@ -12002,7 +12007,7 @@ function ProvisionsApp({ scrollRootRef }) {
                               isEditing={isEditing}
                               priceInput={priceInput}
                               centsToDisplay={centsToDisplay}
-                              onUpdateQty={updateQty}
+                              onAdjustQty={adjustQty}
                               onPriceInput={handlePriceInput}
                               onCommitPrice={commitPrice}
                               onCancelEditPrice={() => setEditingPrice(null)}
@@ -12015,16 +12020,6 @@ function ProvisionsApp({ scrollRootRef }) {
                   ))}
                   </>
                 )}
-                <div style={{ textAlign: "center", padding: "32px 0 16px" }}>
-                  <button
-                    onClick={() => setShowManageCategoriesModal(true)}
-                    style={{
-                      background: "none", border: "none", fontFamily: "'Lato', sans-serif",
-                      fontSize: "12.5px", color: "#8A5F3A", cursor: "pointer",
-                      letterSpacing: "1px", textDecoration: "underline",
-                    }}
-                  >{ASK_ENABLED ? "Manage categories & asks" : "Manage categories"}</button>
-                </div>
               </>
             )}
             </>
@@ -12143,7 +12138,7 @@ function ProvisionsApp({ scrollRootRef }) {
                       <div className="list-cat-title">{cat.category}</div>
                       {cat.items.map((item) => (
                         <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                          <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}`}>
+                          <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
                             <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
                             <div style={{ flex: 1 }}>
                               <div className="li-name">
@@ -12172,7 +12167,7 @@ function ProvisionsApp({ scrollRootRef }) {
                     {shopFlatItems.length > 0 && <div className="az-eyebrow">{shopFlatItems.length} to find</div>}
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                        <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}`}>
+                        <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
                           <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
                           <div className="li-name">
                             {item.name}
@@ -12377,71 +12372,249 @@ function ProvisionsApp({ scrollRootRef }) {
         />
       )}
 
-      {/* Add Item Modal */}
-      {showAddModal && (
-        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Add new item" onClick={(e) => e.stopPropagation()}>
-            <SheetClose onClose={() => setShowAddModal(false)} />
-            <h2>Add New Item</h2>
-            <div className="modal-field">
-              <label className="modal-label">Item Name</label>
-              <input className="modal-input" placeholder="e.g. Kombucha" value={newItemName} autoFocus
-                onChange={(e) => setNewItemName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
-            </div>
-            {showPrices && (
-            <div className="modal-field" style={{ opacity: newItemName.trim() ? 1 : 0.4, transition: "opacity 0.15s" }}>
-              <label className="modal-label">Price ($)</label>
-              <input className="modal-input" type="text" inputMode="numeric" placeholder="0.00" value={centsToDisplay(newItemPrice)}
-                onChange={(e) => newItemName.trim() && setNewItemPrice(e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "")} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
-            </div>
-            )}
-            <div className="modal-field">
-              {/* No "tap below to unhide" hint here (removed 2026-10-06): the "Unhide N hidden
-                  {category} items" link under the picker carries the action on its own. */}
-              <label className="modal-label">Category</label>
-              {/* This modal is only ever reached from a section header's
-                  "＋ New item", so the category is already known — the user
-                  answered by choosing where they tapped. The step is a
-                  confirmation, not a question. */}
-              <div className="picker-sub">
-                Filed under {categoryLabel(newItemCategory)}. Tap another to move it.
-              </div>
-              <CategoryPickerGrid
-                categories={categories}
-                selected={newItemCategory}
-                onSelect={(raw) => {
-                  setNewItemCategory(raw);
-                  setAddModalResetDone(false);
-                }}
-                onNewCategory={() => setShowManageCategoriesModal(true)}
-              />
-              {isSignedIn && !newItemName.trim() && (
-                addModalResetDone ? (
-                  <div style={{ fontSize: "12.5px", color: "#8A5F3A", fontStyle: "italic", marginTop: "6px" }}>
-                    ✓ {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} items unhidden
+      {/* The New item sheet (2026-11-13): items only — the Add New Item modal as it was, opened from a
+          section header's "＋ New item" (category known) or the search's "Add '<query>'" (name known,
+          category asked). Making an Ask is the full-screen New ask screen, not this sheet. */}
+      {addSheet && (
+        <div className="modal-overlay" onClick={closeAdd}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="New item" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "88vh", overflowY: "auto" }}>
+            <SheetClose onClose={closeAdd} />
+            <h2>New item</h2>
+            {(
+              <>
+                <div className="modal-field">
+                  <label className="modal-label">Item Name</label>
+                  <input className="modal-input" placeholder="e.g. Kombucha" value={newItemName} autoFocus
+                    onChange={(e) => setNewItemName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
+                </div>
+                {showPrices && (
+                <div className="modal-field" style={{ opacity: newItemName.trim() ? 1 : 0.4, transition: "opacity 0.15s" }}>
+                  <label className="modal-label">Price ($)</label>
+                  <input className="modal-input" type="text" inputMode="numeric" placeholder="0.00" value={centsToDisplay(newItemPrice)}
+                    onChange={(e) => newItemName.trim() && setNewItemPrice(e.target.value.replace(/\D/g, "").replace(/^0+/, "") || "")} onKeyDown={(e) => e.key === "Enter" && handleAddItem()} />
+                </div>
+                )}
+                <div className="modal-field">
+                  {/* No "tap below to unhide" hint here (removed 2026-10-06): the "Unhide N hidden
+                      {category} items" link under the picker carries the action on its own. */}
+                  <label className="modal-label">Category</label>
+                  {/* From a section header's "＋ New item" the category is already known — the user
+                      answered by choosing where they tapped — so the step is a confirmation, not a
+                      question. From the search's "Add '<query>'" there is no section context: nothing
+                      is pre-selected and the copy asks. */}
+                  <div className="picker-sub">
+                    {newItemCategory
+                      ? <>Filed under {categoryLabel(newItemCategory)}. Tap another to move it.</>
+                      : "Pick a category and we'll file it for next time."}
                   </div>
-                ) : hiddenCatalogItems.some(h => h.category === newItemCategory) ? (
-                  <button
-                    onClick={async () => {
-                      await restoreHiddenByCategory(newItemCategory);
-                      setAddModalResetDone(true);
-                      setTimeout(() => setAddModalResetDone(false), 2000);
+                  <CategoryPickerGrid
+                    categories={categories.filter(cat => cat.rawName !== "⭐ My Custom Items")}
+                    selected={newItemCategory}
+                    onSelect={(raw) => {
+                      setNewItemCategory(raw);
+                      setAddModalResetDone(false);
                     }}
-                    style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block", textAlign: "left" }}
-                  >
-                    Unhide {hiddenCatalogItems.filter(h => h.category === newItemCategory).length} hidden {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} {hiddenCatalogItems.filter(h => h.category === newItemCategory).length === 1 ? "item" : "items"}
+                    onNewCategory={() => { setNewCategoryOpen(true); setBrowseFilterOpen(true); }}
+                  />
+                  {isSignedIn && newItemCategory && !newItemName.trim() && (
+                    addModalResetDone ? (
+                      <div style={{ fontSize: "12.5px", color: "#8A5F3A", fontStyle: "italic", marginTop: "6px" }}>
+                        ✓ {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} items unhidden
+                      </div>
+                    ) : hiddenCatalogItems.some(h => h.category === newItemCategory) ? (
+                      <button
+                        onClick={async () => {
+                          await restoreHiddenByCategory(newItemCategory);
+                          setAddModalResetDone(true);
+                          setTimeout(() => setAddModalResetDone(false), 2000);
+                        }}
+                        style={{ background: "none", border: "none", borderBottom: "1px solid #C9A97A", color: "#8A5F3A", fontFamily: "'Lato', sans-serif", fontSize: ts(14, 0.8), padding: "0", marginTop: "6px", cursor: "pointer", display: "inline-block", textAlign: "left" }}
+                      >
+                        Unhide {hiddenCatalogItems.filter(h => h.category === newItemCategory).length} hidden {CATEGORY_DISPLAY[newItemCategory] || newItemCategory} {hiddenCatalogItems.filter(h => h.category === newItemCategory).length === 1 ? "item" : "items"}
+                      </button>
+                    ) : null
+                  )}
+                </div>
+                {addError && <div className="modal-error">{addError}</div>}
+                <div className="modal-actions">
+                  <button className="modal-cancel" onClick={closeAdd}>Cancel</button>
+                  <button
+                    className="modal-confirm"
+                    onClick={newItemName.trim() && newItemCategory ? handleAddItem : undefined}
+                    style={{ opacity: newItemName.trim() && newItemCategory ? 1 : 0.5, pointerEvents: newItemName.trim() && newItemCategory ? "auto" : "none" }}
+                  >Add to List</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* View & organize (2026-11-13), from the funnel at the top right of Browse's search row. ORGANIZE
+          ITEMS — By category / Alphabetically, with the category-shortcuts toggle (the three declutter
+          phases the funnel used to cycle through on its own). YOUR CATEGORIES and ASKS — the old
+          Manage categories & asks sheet's two sections, unchanged in behaviour: rename and delete a
+          custom category (a delete with items in it moves them first, never orphans them), "+ New
+          category"; an ask's row opens its edit sheet, its trash the delete confirmation, "+ New ask"
+          the Add sheet on Ask. Changes apply as they are made; Done closes. Each label is text in
+          .op-name (K3), never an attribute; rows key on ids. */}
+      {/* Where it sits (2026-11-14): over every piece of chrome (z 1000, the scrims' layer, above the
+          header and the status-bar strip), anchored at the top under the inset so the title is whole,
+          and never taller than the viewport, so the overlay has nothing to scroll: the sheet is the one
+          scroller, and the page behind it is locked (useScrollLock). */}
+      {browseFilterOpen && (
+        <div className="modal-overlay" onClick={closeOrganize} style={{ zIndex: 1000, paddingTop: "calc(20px + var(--op-inset-top, 0px))", overflowY: "hidden" }}>
+          <div className="modal op-anchor-top" role="dialog" aria-modal="true" aria-label="View and organize" onClick={(e) => e.stopPropagation()}
+            style={{ maxHeight: "calc(100dvh - 40px - var(--op-inset-top, 0px))", overflowY: "auto" }}>
+            <SheetClose onClose={closeOrganize} />
+            <h2>View &amp; organize</h2>
+            <div className="modal-field" style={{ marginTop: "18px" }}>
+              <span className="modal-label" id="browse-view">Organize items</span>
+              {/* The same radio cards as the shelf sheet's "How it looks" (name + a line under it). */}
+              <div role="radiogroup" aria-labelledby="browse-view" style={{ display: "flex", gap: "8px" }}>
+                {[
+                  { key: "category", name: "By category", sub: "Produce, dairy, pantry, and more" },
+                  { key: "alpha", name: "Alphabetically", sub: "All items from A to Z" },
+                ].map((o) => (
+                  <button key={o.key} type="button" role="radio" aria-checked={browseOrganize === o.key}
+                    className={`cat-pill${browseOrganize === o.key ? " on" : ""}`}
+                    style={{ flex: "1 1 0", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", padding: "10px 12px", textAlign: "left", borderRadius: "14px", whiteSpace: "normal" }}
+                    onClick={() => chooseOrganize(o.key)}>
+                    <span style={{ fontWeight: 700 }}>{o.name}</span>
+                    <span style={{ fontSize: "0.8rem", fontWeight: 400 }}>{o.sub}</span>
                   </button>
-                ) : null
+                ))}
+              </div>
+              {/* The Library filter sheet's switch (.lib-sw). By category only: Alphabetically has no rail. */}
+              {browseOrganize === "category" && (
+                <button type="button" role="switch" aria-checked={browsePhase === 0} className="lib-sw" style={{ marginTop: "10px", borderBottom: "none" }}
+                  onClick={() => chooseShortcuts(browsePhase !== 0)}>
+                  <span><span className="lib-sw-l">Show category shortcuts</span><span className="lib-sw-d">Quickly jump to staples, produce, and more</span></span>
+                  <span className="lib-track" aria-hidden="true" />
+                </button>
               )}
             </div>
-            {addError && <div className="modal-error">{addError}</div>}
+            {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a tap on the
+                row turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
+                centred confirmation with the required move-items picker (Pantry preselected; never
+                deletes items). Standard categories are not listed; the helper line says so (2026-11-13).
+                "+ New category" at the end. The
+                rows are text: no category name in an <option> value or an aria-label (replay, 2026-10-19). */}
+            {isSignedIn && (
+              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+                <span className="modal-label" id="manage-categories">Your categories</span>
+                <p className="picker-sub" style={{ margin: "0 0 8px" }}>Built-in categories like Produce and Dairy stay as they are.</p>
+                {categoryError && (
+                  <div className="modal-error" role="alert" style={{ margin: "0 0 8px" }}>{categoryError}</div>
+                )}
+                <div role="list" aria-labelledby="manage-categories">
+                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => {
+                    const n = cat.items.length;
+                    const renaming = renamingCategory === cat.rawName;
+                    const iconButton = { flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" };
+                    return (
+                      <div key={cat.rawName} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
+                        {renaming ? (
+                          <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", gap: "6px", alignItems: "center", padding: "6px 0" }}>
+                            <input className="modal-input" aria-label="Category name" value={renameValue} autoFocus
+                              onChange={e => setRenameValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter") renameCategory(cat.rawName, renameValue); if (e.key === "Escape") setRenamingCategory(null); }}
+                              style={{ flex: 1, minWidth: 0 }} />
+                            <button className="modal-confirm" onClick={() => renameCategory(cat.rawName, renameValue)}
+                              disabled={!renameValue.trim() || renameValue.trim() === cat.rawName}
+                              style={{ opacity: renameValue.trim() && renameValue.trim() !== cat.rawName ? 1 : 0.5 }}>Save</button>
+                            <button className="modal-cancel" onClick={() => setRenamingCategory(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          <>
+                            {/* The row itself opens the rename (Dan 2026-11-10): tap to edit, trash to delete, as the ask rows. */}
+                            <button type="button" aria-label="Rename this category" onClick={() => { setRenamingCategory(cat.rawName); setRenameValue(cat.rawName); }}
+                              style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
+                                padding: "10px 4px", border: "none", background: "transparent", fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer" }}>
+                              <span style={{ fontSize: "0.95rem", fontWeight: 700, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
+                              <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>{categoryCountText(n)}</span>
+                            </button>
+                            <button type="button" aria-label="Delete this category" style={iconButton}
+                              onClick={() => {
+                                setDeleteAskId(null);
+                                setDeletingCategory({ rawName: cat.rawName, name: cat.name, itemCount: n });
+                                // The move picker is required: preselected, no "delete all items" choice.
+                                setDeleteMoveTarget(n > 0 ? defaultMoveTarget(categories, cat.rawName, CATEGORY_ORDER) : "");
+                              }}>
+                              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                              </svg>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {newCategoryOpen ? (
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "10px" }}>
+                    <input className="modal-input" aria-label="New category name" placeholder="e.g. Frozen Foods" value={newCategoryName} autoFocus
+                      onChange={e => setNewCategoryName(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && newCategoryName.trim()) { createCategory(newCategoryName); setNewCategoryOpen(false); } if (e.key === "Escape") { setNewCategoryOpen(false); setNewCategoryName(""); } }}
+                      style={{ flex: 1, minWidth: 0 }} />
+                    <button className="modal-confirm" disabled={!newCategoryName.trim()} style={{ opacity: newCategoryName.trim() ? 1 : 0.5 }}
+                      onClick={() => { createCategory(newCategoryName); setNewCategoryOpen(false); }}>Create</button>
+                    <button className="modal-cancel" onClick={() => { setNewCategoryOpen(false); setNewCategoryName(""); }}>Cancel</button>
+                  </div>
+                ) : (
+                  <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={() => setNewCategoryOpen(true)}>
+                    <span className="cat-em">+</span>New category
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Asks (SPEC_ask_slice4 S4-1): one row per live ask — "Ask {Label}" (.op-name), the style
+                word, "pick {n}", the tile count or the grown-up's note (S4-5). A row opens the edit
+                sheet (this sheet closes first). "+ New ask" sits at the end. The rows are text, so the
+                replay rules apply; no label ever sits in an <option> or an aria-label. */}
+            {canMakeShelf && (
+              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+                <span className="modal-label" id="manage-asks">Asks</span>
+                <p className="picker-sub" style={{ margin: "0 0 8px" }}>Pick-lists for family and guests, like a kids’ snack shelf.</p>
+                <div role="list" aria-labelledby="manage-asks">
+                  {asks.map(a => { const row = manageRow(a); return (
+                    <div key={row.id} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
+                      {/* The Ask's pill (people pill, 2026-11-13) opens its edit sheet here; its facts sit beside it. */}
+                      <button type="button" onClick={() => openEditAsk(row.id)} aria-label="Edit this ask"
+                        style={{
+                          flex: "1 1 auto", minWidth: 0, display: "flex", alignItems: "center", gap: "10px", textAlign: "left",
+                          padding: "8px 0", border: "none", background: "transparent",
+                          fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer",
+                        }}>
+                        <span className={`cat-pill people-pill${activeAskId === row.id ? " on" : ""}`} style={{ flex: "0 0 auto" }}>
+                          <span className="cat-em"><AskIcon /></span>
+                          <span>Ask <span className="op-name">{row.label}</span></span>
+                        </span>
+                        <span style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12.5px", color: "#8A5F3A", minWidth: 0 }}>
+                          <span>{row.summary}</span>
+                          {row.needMore && <span>{row.needMore}</span>}
+                        </span>
+                      </button>
+                      {/* The trash (Dan 2026-11-10): a 44 px target at the row's right end. */}
+                      <button type="button" aria-label="Delete this ask" onClick={() => { setDeletingCategory(null); setDeleteAskFailed(false); setDeleteAskId(row.id); }}
+                        style={{ flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                        </svg>
+                      </button>
+                    </div>
+                  ); })}
+                </div>
+                <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={() => openNewAsk("organize")}>
+                  <span className="cat-em">+</span>New ask
+                </button>
+              </div>
+            )}
+
             <div className="modal-actions">
-              <button className="modal-cancel" onClick={() => setShowAddModal(false)}>Cancel</button>
-              <button
-                className="modal-confirm"
-                onClick={newItemName.trim() ? handleAddItem : undefined}
-                style={{ opacity: newItemName.trim() ? 1 : 0.5, pointerEvents: newItemName.trim() ? "auto" : "none" }}
-              >Add to List</button>
+              <button className="modal-confirm" onClick={closeOrganize}>Done</button>
             </div>
           </div>
         </div>
@@ -12456,75 +12629,81 @@ function ProvisionsApp({ scrollRootRef }) {
           tiles={runTiles}
           resume={runResume}
           onLand={async (ids) => {
-            const landed = await landAskPicks(runAsk.id, ids);
+            const landed = await landAskPicks(runAsk.id, ids, runAsk.screenStyle);
             if (landed == null) throw new Error("not landed");
           }}
           onExit={() => setRunAskId(null)}
+          parentName={user?.firstName?.trim() || null}
+          onHandBack={({ count, ids }) => {
+            const label = runAsk.label;
+            const style = runAsk.screenStyle;
+            setRunAskId(null);
+            setView("input");                                   // Browse: where the run was handed over
+            showToast(<><span className="op-name">{label}</span> added {count}</>, {
+              label: "See",
+              onClick: () => { emitAskEvent("ask_see_tapped", count, style); setView("list"); landed.start(label, ids); },
+            }, { ms: 10000 });                                    // ~10s: time to notice it and tap See
+          }}
         />
       )}
 
-      {/* "+N more" (C4.2): a row behaves exactly like its pill; the sheet then closes. */}
+      {/* "+N more" (C4.2): a row behaves exactly like its pill — it opens the run; the sheet then closes. */}
       {ASK_ENABLED && moreAsksOpen && (
         <div className="modal-overlay" onClick={() => setMoreAsksOpen(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="More shelves" onClick={(e) => e.stopPropagation()}
+          <div className="modal" role="dialog" aria-modal="true" aria-label="More asks" onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "88vh", overflowY: "auto" }}>
             <MoreAsksSheet
               asks={askRail.more}
-              selectedAsks={selectedAsks}
-              onToggle={(askId) => { toggleAsk(askId); setMoreAsksOpen(false); }}
-              onNewShelf={askRail.newShelfAt ? () => { setMoreAsksOpen(false); setNewShelfOpen(true); } : null}
+              activeAskId={activeAskId}
+              onOpen={(askId) => { setMoreAsksOpen(false); handoverAsk(askId); }}
               closeButton={<SheetClose onClose={() => setMoreAsksOpen(false)} />}
             />
           </div>
         </div>
       )}
 
-      {/* + New shelf (SPEC_ask_slice2 C2; 078 create_ask) */}
-      {ASK_ENABLED && newShelfOpen && (
-        <div className="modal-overlay" onClick={() => setNewShelfOpen(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="New shelf" onClick={(e) => e.stopPropagation()}
-            style={{ maxHeight: "88vh", overflowY: "auto" }}>
-            <NewShelfSheet
-              catalogItems={shelfCatalogItems}
-              asks={asks}
-              photoIds={itemPhotoIds}
-              photoUrl={itemPhotoUrl}
-              onPhoto={setItemPhoto}
-              onCreate={createAsk}
-              onClose={() => setNewShelfOpen(false)}
-              closeButton={<SheetClose onClose={() => setNewShelfOpen(false)} />}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Edit Ask {Label} (SPEC_ask_slice4 S4-2): the same sheet in edit mode. Save → update_ask (083). */}
-      {ASK_ENABLED && editAsk && (
-        <div className="modal-overlay" onClick={() => setEditAskId(null)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Edit shelf" onClick={(e) => e.stopPropagation()}
-            style={{ maxHeight: "88vh", overflowY: "auto" }}>
-            <NewShelfSheet
-              catalogItems={shelfCatalogItems}
-              asks={asks}
-              photoIds={itemPhotoIds}
-              photoUrl={itemPhotoUrl}
-              onPhoto={setItemPhoto}
-              edit={editAsk}
-              onUpdate={async (draft) => {
-                // The growth moment (S4-6): the parent's own move, said once, to the parent. No span.
-                const outcome = saveOutcome(editAsk, draft);
-                const r = await updateAsk(editAsk.id, draft);
-                if (r?.ok) showToast(outcome === "grown"
-                  ? <><span className="op-name">{draft.label.trim()}</span>'s ready for more.</>
-                  : "Saved.");
-                return r;
-              }}
-              onClose={() => setEditAskId(null)}
-              closeButton={<SheetClose onClose={() => setEditAskId(null)} />}
-            />
-          </div>
-        </div>
-      )}
+      {/* The Ask screen (2026-11-13): New ask, and Edit Ask {Label} (SPEC_ask_slice4 S4-2) on the same
+          screen — full screen over the app, like the run. Create → create_ask (078); Save → update_ask
+          (083). The form is NewShelfSheet as it was, inside AskScreen's turquoise header. */}
+      {ASK_ENABLED && (newAskOpen || editAsk) && (() => {
+        const close = () => {
+          if (newAskOpen && !editAsk && newAskRef.current.openedAt !== null && !newAskRef.current.created) {
+            emitAskEvent("ask_create_abandoned");
+          }
+          newAskRef.current = { openedAt: null, created: false };
+          setNewAskOpen(false); setEditAskId(null);
+        };
+        return (
+          <AskScreen
+            key={editAsk ? editAsk.id : "new"}
+            edit={editAsk}
+            catalogItems={shelfCatalogItems}
+            asks={asks}
+            photoIds={itemPhotoIds}
+            photoUrl={itemPhotoUrl}
+            onPhoto={setItemPhoto}
+            onCreate={async (askId, draft) => {
+              const r = await createAsk(askId, draft);
+              if (r?.ok) {
+                newAskRef.current.created = true;
+                emitAskTimedEvent("ask_created", newAskRef.current.openedAt, draft);
+              }
+              return r;
+            }}
+            onUpdate={editAsk ? async (draft) => {
+              // The growth moment (S4-6): the parent's own move, said once, to the parent. No span.
+              const outcome = saveOutcome(editAsk, draft);
+              const r = await updateAsk(editAsk.id, draft);
+              if (r?.ok) showToast(outcome === "grown"
+                ? <><span className="op-name">{draft.label.trim()}</span>'s ready for more.</>
+                : "Saved.");
+              return r;
+            } : undefined}
+            onClose={close}
+            closeButton={<SheetClose onClose={close} />}
+          />
+        );
+      })()}
 
       {/* Budget Goal Modal */}
       {showBudgetModal && (
@@ -12680,147 +12859,19 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       )}
 
-      {/* Manage Categories Modal */}
-      {showManageCategoriesModal && (
-        <div className="modal-overlay" onClick={() => setShowManageCategoriesModal(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label={ASK_ENABLED ? "Manage categories and asks" : "Manage categories"} onClick={e => e.stopPropagation()} style={{ maxHeight: "80vh", overflowY: "auto" }}>
-            <SheetClose onClose={() => setShowManageCategoriesModal(false)} />
-            <h2>{ASK_ENABLED ? "Manage categories & asks" : "Manage categories"}</h2>
-
-            {/* Asks (SPEC_ask_slice4 S4-1): one row per live ask — "Ask {Label}" (.op-name), the style
-                word, "pick {n}", the tile count or the grown-up's note (S4-5). A row opens the edit
-                sheet (Manage closes first). "+ New shelf" sits at the end. The rows are text, so the
-                replay rules apply; no label ever sits in an <option> or an aria-label. */}
-            {/* Breathing room under the heading (Dan 2026-11-10): the same gap the sections keep between them. */}
-            {ASK_ENABLED && isSignedIn && household?.id && (
-              <div className="modal-field" style={{ marginTop: "18px" }}>
-                <span className="modal-label" id="manage-asks">Asks</span>
-                {asks.length === 0 && (
-                  <p className="picker-sub" style={{ margin: "0 0 8px" }}>A shelf of things someone can pick for the list. They don't need an account.</p>
-                )}
-                <div role="list" aria-labelledby="manage-asks">
-                  {asks.map(a => { const row = manageRow(a); return (
-                    <div key={row.id} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
-                      <button type="button" onClick={() => openEditAsk(row.id)} aria-label="Edit this ask"
-                        style={{
-                          flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
-                          padding: "10px 4px", border: "none", background: "transparent",
-                          fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer",
-                        }}>
-                        <span style={{ fontSize: "0.95rem", fontWeight: 700 }}>Ask <span className="op-name">{row.label}</span></span>
-                        <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>
-                          {row.style} · {row.pick} · {row.shelf}{row.short ? " · Edit" : ""}
-                        </span>
-                      </button>
-                      {/* The trash (Dan 2026-11-10): a 44 px target at the row's right end. */}
-                      <button type="button" aria-label="Delete this ask" onClick={() => { setDeleteAskFailed(false); setDeleteAskId(row.id); }}
-                        style={{ flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" }}>
-                        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-                        </svg>
-                      </button>
-                    </div>
-                  ); })}
-                </div>
-                <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }}
-                  onClick={() => { setShowManageCategoriesModal(false); setNewShelfOpen(true); }}>
-                  <span className="cat-em">+</span>New shelf
-                </button>
-              </div>
-            )}
-
-            {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a tap on the
-                row turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
-                centred confirmation with the required move-items picker (Pantry preselected; never
-                deletes items). Standard categories are not listed, and nothing says so (Dan 2026-11-10).
-                "+ New category" at the end. The
-                rows are text: no category name in an <option> value or an aria-label (replay, 2026-10-19). */}
-            {isSignedIn && (
-              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
-                <span className="modal-label" id="manage-categories">Categories</span>
-                {categoryError && (
-                  <div className="modal-error" role="alert" style={{ margin: "0 0 8px" }}>{categoryError}</div>
-                )}
-                <div role="list" aria-labelledby="manage-categories">
-                  {categories.filter(cat => !CATEGORY_ORDER.includes(cat.rawName)).map(cat => {
-                    const n = cat.items.length;
-                    const renaming = renamingCategory === cat.rawName;
-                    const iconButton = { flex: "0 0 44px", minHeight: "44px", border: "none", background: "transparent", color: "#8A5F3A", cursor: "pointer", display: "grid", placeItems: "center" };
-                    return (
-                      <div key={cat.rawName} role="listitem" style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #F0E4D2" }}>
-                        {renaming ? (
-                          <div style={{ flex: "1 1 auto", minWidth: 0, display: "flex", gap: "6px", alignItems: "center", padding: "6px 0" }}>
-                            <input className="modal-input" aria-label="Category name" value={renameValue} autoFocus
-                              onChange={e => setRenameValue(e.target.value)}
-                              onKeyDown={e => { if (e.key === "Enter") renameCategory(cat.rawName, renameValue); if (e.key === "Escape") setRenamingCategory(null); }}
-                              style={{ flex: 1, minWidth: 0 }} />
-                            <button className="modal-confirm" onClick={() => renameCategory(cat.rawName, renameValue)}
-                              disabled={!renameValue.trim() || renameValue.trim() === cat.rawName}
-                              style={{ opacity: renameValue.trim() && renameValue.trim() !== cat.rawName ? 1 : 0.5 }}>Save</button>
-                            <button className="modal-cancel" onClick={() => setRenamingCategory(null)}>Cancel</button>
-                          </div>
-                        ) : (
-                          <>
-                            {/* The row itself opens the rename (Dan 2026-11-10): tap to edit, trash to delete, as the ask rows. */}
-                            <button type="button" aria-label="Rename this category" onClick={() => { setRenamingCategory(cat.rawName); setRenameValue(cat.rawName); }}
-                              style={{ flex: "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", textAlign: "left",
-                                padding: "10px 4px", border: "none", background: "transparent", fontFamily: "'Lato', sans-serif", color: "#2C1A0E", cursor: "pointer" }}>
-                              <span style={{ fontSize: "0.95rem", fontWeight: 700, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.name}</span>
-                              <span style={{ fontSize: "12.5px", color: "#8A5F3A" }}>{categoryCountText(n)}</span>
-                            </button>
-                            <button type="button" aria-label="Delete this category" style={iconButton}
-                              onClick={() => {
-                                setDeletingCategory({ rawName: cat.rawName, name: cat.name, itemCount: n });
-                                // The move picker is required: preselected, no "delete all items" choice.
-                                setDeleteMoveTarget(n > 0 ? defaultMoveTarget(categories, cat.rawName, CATEGORY_ORDER) : "");
-                              }}>
-                              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
-                              </svg>
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-                {newCategoryOpen ? (
-                  <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "10px" }}>
-                    <input className="modal-input" aria-label="New category name" placeholder="e.g. Frozen Foods" value={newCategoryName} autoFocus
-                      onChange={e => setNewCategoryName(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && newCategoryName.trim()) { createCategory(newCategoryName); setNewCategoryOpen(false); } if (e.key === "Escape") { setNewCategoryOpen(false); setNewCategoryName(""); } }}
-                      style={{ flex: 1, minWidth: 0 }} />
-                    <button className="modal-confirm" disabled={!newCategoryName.trim()} style={{ opacity: newCategoryName.trim() ? 1 : 0.5 }}
-                      onClick={() => { createCategory(newCategoryName); setNewCategoryOpen(false); }}>Create</button>
-                    <button className="modal-cancel" onClick={() => { setNewCategoryOpen(false); setNewCategoryName(""); }}>Cancel</button>
-                  </div>
-                ) : (
-                  <button className="cat-pill cat-pill-new" style={{ marginTop: "10px" }} onClick={() => setNewCategoryOpen(true)}>
-                    <span className="cat-em">+</span>New category
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div className="modal-actions">
-              <button className="modal-confirm" onClick={() => { setShowManageCategoriesModal(false); setRenamingCategory(null); setNewCategoryOpen(false); }}>Done</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Ask {Label} (S4-2): a centred confirmation over Manage. Rendered AFTER the Manage
-          modal in the tree AND one layer above it (z 110 over .modal-overlay's 100) — the first
+      {/* Delete Ask {Label} (S4-2): a centred confirmation over View & organize. Rendered AFTER that
+          sheet in the tree AND above its layer — the sheet is z 1000 since 2026-11-14 (over the header),
+          so the confirms are z 1010 (cffbbc3's "one layer above", re-applied; they sat at 110, under it) (z 110 over .modal-overlay's 100) — the first
           build had it before Manage, same z, so it opened behind (Dan's walk, 2026-11-11). Short
           enough to show whole without scrolling. */}
       {ASK_ENABLED && deleteAskId && (() => { const a = asks.find(x => x.id === deleteAskId); return a ? (
-        <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => { if (!deleteAskBusy) setDeleteAskId(null); }}>
+        <div className="modal-overlay" style={{ zIndex: 1010 }} onClick={() => { if (!deleteAskBusy) setDeleteAskId(null); }}>
           <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-ask-title" onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: "360px", margin: "auto" }}>
             <h2 id="delete-ask-title">Delete Ask <span className="op-name">{a.label}</span>?</h2>
             <p className="modal-subtitle">Anything <span className="op-name">{a.label}</span> already picked stays on the list.</p>
             {deleteAskFailed && (
-              <div className="modal-error" role="alert" style={{ margin: "0 0 10px" }}>Couldn't delete the shelf. Check your connection and try again.</div>
+              <div className="modal-error" role="alert" style={{ margin: "0 0 10px" }}>Couldn't delete the ask. Check your connection and try again.</div>
             )}
             <div className="modal-actions">
               <button className="modal-cancel" onClick={() => setDeleteAskId(null)} disabled={deleteAskBusy}>Keep it</button>
@@ -12830,11 +12881,11 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       ) : null; })()}
 
-      {/* Delete a category (Dan, 2026-11-10): the centred confirmation over Manage, with the required
-          move-items picker (deleteCategory.js: never deletes items). After Manage in the tree and
-          one layer above it, like the ask's. */}
+      {/* Delete a category (Dan, 2026-11-10): the centred confirmation over View & organize, with the
+          required move-items picker (deleteCategory.js: never deletes items). After that sheet in the
+          tree and one layer above it, like the ask's. */}
       {deletingCategory && (
-        <div className="modal-overlay" style={{ zIndex: 110 }} onClick={() => setDeletingCategory(null)}>
+        <div className="modal-overlay" style={{ zIndex: 1010 }} onClick={() => setDeletingCategory(null)}>
           <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title" onClick={(e) => e.stopPropagation()}
             style={{ maxWidth: "360px", margin: "auto" }}>
             <h2 id="delete-category-title">Delete {deletingCategory.name}?</h2>

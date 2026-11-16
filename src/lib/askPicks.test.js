@@ -20,17 +20,18 @@ describe("landAskPicksArgs (A22: ids only, never the label)", () => {
   });
 });
 
-describe("askCompletedAttributes (A24 / R5: the count only)", () => {
-  test("one attribute, pick_count", () => {
-    expect(askCompletedAttributes(3)).toEqual({ pick_count: 3 });
-    expect(Object.keys(askCompletedAttributes(1))).toEqual(["pick_count"]);
+describe("askCompletedAttributes (A24 / R5: the count only, named as a Custom Event)", () => {
+  test("the workflow name, pick_count and ask.style, nothing else", () => {
+    expect(askCompletedAttributes(3, "simple")).toEqual({ "workflow.name": "ask_completed", pick_count: 3, "ask.style": "explorer" });
+    expect(askCompletedAttributes(3, "standard")).toEqual({ "workflow.name": "ask_completed", pick_count: 3, "ask.style": "shopper" });
+    expect(Object.keys(askCompletedAttributes(1))).toEqual(["workflow.name", "pick_count", "ask.style"]);
   });
 
   test("anything that isn't a positive integer reads 0, never a passed-through value", () => {
-    expect(askCompletedAttributes(null)).toEqual({ pick_count: 0 });
-    expect(askCompletedAttributes("Easton")).toEqual({ pick_count: 0 });
-    expect(askCompletedAttributes(2.5)).toEqual({ pick_count: 0 });
-    expect(askCompletedAttributes(-1)).toEqual({ pick_count: 0 });
+    expect(askCompletedAttributes(null)).toEqual({ "workflow.name": "ask_completed", pick_count: 0, "ask.style": "shopper" });
+    expect(askCompletedAttributes("Easton")).toEqual({ "workflow.name": "ask_completed", pick_count: 0, "ask.style": "shopper" });
+    expect(askCompletedAttributes(2.5)).toEqual({ "workflow.name": "ask_completed", pick_count: 0, "ask.style": "shopper" });
+    expect(askCompletedAttributes(-1)).toEqual({ "workflow.name": "ask_completed", pick_count: 0, "ask.style": "shopper" });
   });
 });
 

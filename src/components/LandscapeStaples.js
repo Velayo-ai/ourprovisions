@@ -18,7 +18,7 @@ import { CategoryHeader, CATEGORY_HEADER_ACTION } from "./CategoryHeader";
 // The hold is the Ask run's Done pill's (useHold): same second, same fill.
 //
 // An ADD PALETTE, on every tab: its whole interface is items and their quantities in,
-// onAdd / onRemove out. It is handed no portrait state and no setter for any — it CAN'T touch
+// onAdd / onUndo / onRemove out (a tap-undo is "one fewer", −1; press-and-hold is "off the list"). It is handed no portrait state and no setter for any — it CAN'T touch
 // the Staples pill, the category pills, search or scroll — and no list state beyond quantity:
 // it never knows, so never shows, what is checked off or in the cart
 // (LandscapeStaples.test.js holds both lines on the source too).
@@ -51,7 +51,7 @@ function StapleTile({ item, qty, onTap, onHoldRemove }) {
   );
 }
 
-export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onRemove, glyph = null, showHint = false, error = null, onDismissError }) {
+export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onUndo, onRemove, glyph = null, showHint = false, error = null, onDismissError }) {
   const [hint, setHint] = useState(false);
   // The grid has moved off its top: the header's fade comes on (.ls-root.scrolled, App.js's style block).
   const [scrolled, setScrolled] = useState(false);
@@ -61,7 +61,7 @@ export function LandscapeStaples({ items, qtyOf, addedThisVisit, onAdd, onRemove
   const tap = (item) => {
     const action = tileTap({ qty: qtyOf(item), addedThisVisit: !!(addedThisVisit && addedThisVisit(item)) });
     if (action === "add") onAdd(item);
-    else if (action === "remove") onRemove(item);
+    else if (action === "remove") (onUndo || onRemove)(item);   // undo this visit's own add
     else {
       setHint(true);
       if (hintTimer.current) clearTimeout(hintTimer.current);

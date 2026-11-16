@@ -15,23 +15,32 @@ export function styleWord(screenStyle) {
 // a missing tile is the grown-up's business, not a fault.
 export function shelfNote(ask) {
   const k = liveTiles(ask).length;
-  if (k === 0) return "Nothing on this shelf yet";
-  if (k < (ask.pickTarget || 0)) return `${k} of ${ask.pickTarget} on the shelf`;
+  if (k === 0) return "Nothing on this ask yet";
+  if (k < (ask.pickTarget || 0)) return `${k} of ${ask.pickTarget} on the ask`;
   return null;
 }
 
-// One Manage row: "Ask {Label}" (the caller puts the label in .op-name), then the parts after it.
-// A whole shelf reads "{k} on the shelf"; a short or empty one reads its note instead.
+// One row under Asks in View & organize: "Ask {Label}" (the caller puts the label in .op-name), then
+// its summary line (2026-11-14): "Pick {n} of {count} · {look}" — n the pick target, count the live
+// tiles — or, with no live tile, "No items yet · {look}". Under it, only when the ask has items but
+// fewer than its pick count, a second muted line says what would let the run finish: "Add {k} more
+// item(s) so they can finish", k = pick count − live tiles. Exact or over, and empty, have no second
+// line (empty is the summary's own message). The parts are kept beside them for callers that want them.
 export function manageRow(ask) {
   const k = liveTiles(ask).length;
   const note = shelfNote(ask);
+  const style = styleWord(ask.screenStyle);
+  const target = ask.pickTarget || 0;
+  const missing = target - k;
   return {
     id: ask.id,
     label: ask.label,
-    style: styleWord(ask.screenStyle),
+    style,
     pick: `pick ${ask.pickTarget}`,
-    shelf: note || `${k} on the shelf`,
+    shelf: note || `${k} on the ask`,
     short: note !== null,
+    summary: k === 0 ? `No items yet · ${style}` : `Pick ${ask.pickTarget} of ${k} · ${style}`,
+    needMore: k > 0 && missing > 0 ? `Add ${missing} more ${missing === 1 ? "item" : "items"} so they can finish` : null,
   };
 }
 

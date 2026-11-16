@@ -62,6 +62,9 @@ Vercel hosting, Anthropic Claude API.
   dev `b0282a6`. (If deployed early, the item pass skips itself on a missing RPC — never tested
   against prod.) Ship 077 → 084, then the flag, then this function, in that order.
   The missing-RPC skip is not type-checked; run `deno check` before any deploy.
+- **A migration pasted into the SQL editor arrives with CRLF line endings,** so `md5(prosrc)`
+  differs from the file. Read back with `md5(replace(prosrc, E'\r', ''))`, or apply through the
+  CLI (`supabase db query --linked -f`). (085 on dev, 2026-11-16: `e5fb61d2…` stored, `e1efdee7…` file.)
 
 ---
 

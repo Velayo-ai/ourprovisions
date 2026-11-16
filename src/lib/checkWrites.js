@@ -57,12 +57,14 @@ export function createRowWriteChain() {
 // walk). So every check write stamps its row with a sequence number when it starts and when it settles,
 // and the poll remembers the sequence number when it was REQUESTED: a row stamped after that keeps its
 // local value; the next poll, requested after the write, brings the server's.
-//   prev      — the rendered { id: bought } map
+// The same rule holds for quantities (SPEC_qty_increment §6.3), so it is one generic merge over any
+// id-keyed map, called for both:
+//   prev      — the rendered map ({ id: bought } or { id: quantity })
 //   polled    — the snapshot's map
-//   pending   — ids with a write in flight
+//   pending   — ids with a write in flight (or queued)
 //   lastTouch — { id: seq } of each row's newest write start / settle
 //   seqAtStart — the sequence number when the poll was requested
-export function mergePolledChecked(prev, polled, pending, lastTouch, seqAtStart) {
+export function mergePolledById(prev, polled, pending, lastTouch, seqAtStart) {
   let merged = null;
   const keep = (id) => {
     if (!(id in prev)) return;
@@ -73,3 +75,6 @@ export function mergePolledChecked(prev, polled, pending, lastTouch, seqAtStart)
   Object.keys(lastTouch).forEach((id) => { if (lastTouch[id] > seqAtStart) keep(id); });
   return merged || polled;
 }
+
+// The check-off name for the same merge (2026-11-14); its callers and tests are unchanged.
+export const mergePolledChecked = mergePolledById;

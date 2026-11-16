@@ -41,10 +41,18 @@ function fakeDb(tables) {
     };
     return chain;
   };
-  // remove_list_item: soft-delete the household's live row for the catalog item (its links stay; readers filter deleted_at)
+  // remove_list_item: soft-delete the household's live row for the catalog item (its links stay; readers filter deleted_at).
+  // adjust_list_item_quantity (085), the pending-row cells: quantity + delta, removed at <= 0 (Q3).
   const rpc = async (name, args) => {
-    writes.push({ table: "rpc", op: name });
+    writes.push({ table: "rpc", op: name, args });
     const li = tables.list_items.find((r) => r.household_id === args.p_household_id && r.catalog_item_id === args.p_catalog_item_id && r.deleted_at == null);
+    if (name === "adjust_list_item_quantity") {
+      if (!li) return { data: { outcome: "absent" }, error: null };
+      const next = li.quantity + args.p_delta;
+      if (next <= 0) { li.deleted_at = "2026-10-19T23:59:00Z"; return { data: { list_item_id: li.id, quantity: 0, outcome: "removed" }, error: null }; }
+      li.quantity = next;
+      return { data: { list_item_id: li.id, quantity: next, outcome: "lowered" }, error: null };
+    }
     if (li) li.deleted_at = "2026-10-19T23:59:00Z";
     return { data: { removed: !!li }, error: null };
   };
@@ -139,6 +147,40 @@ describe("an edit that drops ingredients takes them off Shop by Remove's rule", 
     expect(db.tables.list_item_meals.filter((l) => l.meal_id === MEAL)).toEqual([]);
     expect(row(db, "li-salt").deleted_at).not.toBeNull();
     expect(row(db, "li-cheese").deleted_at).toBeNull();
+  });
+  test("§6.5: each pending link is ONE adjust_list_item_quantity(−contributed); no list_items update, no separate remove", async () => {
+    const db = fakeDb(seed());
+    await takeMealOffList(db, { householdId: HH, mealId: MEAL });
+    const calls = db.writes.filter((w) => w.table === "rpc");
+    expect(calls.map((w) => [w.op, w.args.p_catalog_item_id, w.args.p_delta])).toEqual([
+      ["adjust_list_item_quantity", "c-tom", -2],
+      ["adjust_list_item_quantity", "c-onion", -1],
+      ["adjust_list_item_quantity", "c-salt", -1],
+    ]);
+    calls.forEach((w) => expect(w.args.p_household_id).toBe(HH));
+    expect(db.writes.some((w) => w.table === "list_items")).toBe(false);
+  });
+  test("§6.5: a pick that landed after the read survives — the server subtracts from the current quantity", async () => {
+    const db = fakeDb(seed());
+    const realFrom = db.from;
+    // The read sees onion at 3; a pick lands (+1 → 4) before the change is sent. Once: the link
+    // delete goes through list_item_meals too.
+    let landed = false;
+    db.from = (table) => {
+      const chain = realFrom(table);
+      if (table !== "list_item_meals" || landed) return chain;
+      landed = true;
+      const then = chain.then;
+      chain.then = (res, rej) => then((out) => { db.tables.list_items.find((r) => r.id === "li-onion").quantity += 1; return res(out); }, rej);
+      return chain;
+    };
+    await takeMealOffList(db, { householdId: HH, mealId: MEAL, catalogItemIds: ["c-onion"] });
+    expect(row(db, "li-onion").quantity).toBe(3);   // 3 + the pick − this meal's 1; a phone-computed total would say 2
+  });
+  test("a legacy link (contributed 0) sends nothing and leaves the quantity", async () => {
+    const db = fakeDb(seed());
+    await takeMealOffList(db, { householdId: HH, mealId: MEAL, catalogItemIds: ["c-cheese"] });
+    expect(db.writes.some((w) => w.table === "rpc")).toBe(false);
   });
   test("an empty scope is a no-op (no read, no write)", async () => {
     const db = fakeDb(seed());
