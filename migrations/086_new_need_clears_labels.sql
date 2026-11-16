@@ -10,12 +10,11 @@
 --
 -- WHAT
 --   create or replace public.adjust_list_item_quantity — 085's body BYTE FOR BYTE plus ONE
---   assignment on the new-need branch's update: `picked_by_labels = null`. Nothing else changes:
+--   assignment on the new-need branch's update: `picked_by_labels = null`, and that branch's
+--   comment now says it clears the labels (a two-line body diff, ruled 2026-11-16). Nothing else changes:
 --   revive already gets null from trg_list_items_resurrect; bumped / lowered keep their labels.
 --   Same signature, security definer, search_path '', grants restated (authenticated = EXECUTE).
---   Replaces 085's body md5 e1efdee7808c6765d76eb5b16af6cc74 (LF; \r-stripped on dev). 086's body md5: 2bb1b707a756ee1b3a3daf54346c36c1 (LF).
---   The comment two lines above the changed line still reads "labels are left as they are" — kept
---   byte-for-byte so the body diff is exactly one line (SPEC §3); this header supersedes it.
+--   Replaces 085's body md5 e1efdee7808c6765d76eb5b16af6cc74 (LF; \r-stripped on dev). 086's body md5: 511418033b7a5284aadd5257af06ee33 (LF).
 --
 -- FIXTURE: 085's 25 probes, unchanged (they still hold), plus (26) a labelled bought row + 1 →
 --   renewed, 1, pending, labels null; (27) a labelled pending row + 1 → bumped, labels kept;
@@ -28,8 +27,9 @@
 --   through the CLI (SPEC §6). Idempotent. Run as postgres.
 -- ROLLBACK: 086_rollback.sql — restores 085's body exactly (its \r-stripped md5 reads
 --   e1efdee7… after). The client change (F2) doesn't depend on 086; no client revert needed.
--- DRAFTED 2026-11-16 (ET) by Claude Code. Parse check on dev (`supabase db query --linked -f`, the file
---   with `commit;` → `rollback;`): ran to the end; closing row copy 'rolled back (085)', body_md5_stripped
+-- DRAFTED 2026-11-16 (ET) by Claude Code; regenerated the same day with the branch comment fixed
+--   (two-line body diff). Parse check on dev (`supabase db query --linked -f`, the file with
+--   `commit;` → `rollback;`): ran to the end; closing row copy 'rolled back (085)', body_md5_stripped
 --   e1efdee7…, fn_count 1, authenticated=EXECUTE, fixture_rows 0. A canary wanting 29 failed "086
 --   fixture: 28 checks passed, want 29" (all probes ran, Ask probes included). 086_rollback.sql
 --   parse-checked the same way. Read-back after: 085's body (e1efdee7…), no 086 ledger row, 0 fixture
@@ -61,7 +61,7 @@ begin
   end if;
   if (select md5(replace(prosrc, E'\r', '')) from pg_proc
        where oid = to_regprocedure('public.adjust_list_item_quantity(uuid, uuid, integer, numeric)'))
-       not in ('e1efdee7808c6765d76eb5b16af6cc74', '2bb1b707a756ee1b3a3daf54346c36c1') then
+       not in ('e1efdee7808c6765d76eb5b16af6cc74', '511418033b7a5284aadd5257af06ee33') then
     raise exception '086: adjust_list_item_quantity is neither 085''s body (e1efdee7…) nor 086''s — read it before replacing it';
   end if;
   if not exists (select 1 from pg_trigger where tgname = 'trg_list_items_resurrect'
@@ -190,7 +190,7 @@ begin
   end if;
 
   -- Live, not pending (bought; skipped / deferred alike): the NEW NEED (R1, 048/049), never
-  -- old + new. land_ask_picks' branch without the label: labels are left as they are.
+  -- old + new. land_ask_picks' branch without a new label: 086 (F1) clears the old labels.
   update public.list_items
      set quantity = p_delta, status = 'pending', checked_by = null, cycle_id = v_cycle, picked_by_labels = null, updated_at = now()
    where id = v_id;
@@ -236,7 +236,7 @@ begin
   v_checked := v_checked + 1;
   raise warning '086 VERIFY: % checked, % mismatches%', v_checked, cardinality(v_bad),
     case when cardinality(v_bad) > 0 then ' — ' || array_to_string(v_bad, '; ') else '' end;
-  if md5(replace(v_p.prosrc, E'\r', '')) <> '2bb1b707a756ee1b3a3daf54346c36c1' then v_bad := v_bad || ('body ' || md5(replace(v_p.prosrc, E'\r', ''))); end if;
+  if md5(replace(v_p.prosrc, E'\r', '')) <> '511418033b7a5284aadd5257af06ee33' then v_bad := v_bad || ('body ' || md5(replace(v_p.prosrc, E'\r', ''))); end if;
   v_checked := v_checked + 1;
   raise warning '086 body: adjust_list_item_quantity % (\r stripped: %)', md5(v_p.prosrc), md5(replace(v_p.prosrc, E'\r', ''));
   if cardinality(v_bad) > 0 then raise exception '086 VERIFY failed'; end if;
@@ -550,7 +550,7 @@ commit;
 do $which$
 begin
   if (select md5(replace(prosrc, E'\r', '')) from pg_proc
-       where oid = to_regprocedure('public.adjust_list_item_quantity(uuid, uuid, integer, numeric)')) = '2bb1b707a756ee1b3a3daf54346c36c1' then
+       where oid = to_regprocedure('public.adjust_list_item_quantity(uuid, uuid, integer, numeric)')) = '511418033b7a5284aadd5257af06ee33' then
     raise warning '086 COMMITTED — adjust_list_item_quantity is 086''s body on %', (select system_identifier from pg_control_system());
   else
     raise warning '086 ROLLED BACK — parse check, 085''s body still in place on %', (select system_identifier from pg_control_system());
@@ -560,14 +560,14 @@ $which$;
 
 -- ═══ CLOSING VERIFY — one row (read-only; right after the commit) ═════════════════════════
 -- Expected (dev): which_db 7642734024280108049 · copy 'committed (086)' · fn_count 1 · secdef true ·
---   search_path_empty true · grantees 'authenticated=EXECUTE' · body_md5_stripped 2bb1b707a756ee1b3a3daf54346c36c1 ·
+--   search_path_empty true · grantees 'authenticated=EXECUTE' · body_md5_stripped 511418033b7a5284aadd5257af06ee33 ·
 --   fixture_rows 0. body_md5 (raw) differs from it only if the file arrived with CRLF (a paste).
 --   Prod: identical except which_db 7606130613603586966.
 -- After the parse-check copy: copy 'rolled back (085)' · body_md5_stripped e1efdee7808c6765d76eb5b16af6cc74 · fixture_rows 0.
 select
   (select system_identifier from pg_control_system())::text                              as which_db,
   case md5(replace(p.prosrc, E'\r', ''))
-    when '2bb1b707a756ee1b3a3daf54346c36c1' then 'committed (086)'
+    when '511418033b7a5284aadd5257af06ee33' then 'committed (086)'
     when 'e1efdee7808c6765d76eb5b16af6cc74' then 'rolled back (085)'
     else 'UNKNOWN BODY' end                                                              as copy,
   (select count(*) from pg_proc where proname = 'adjust_list_item_quantity'
