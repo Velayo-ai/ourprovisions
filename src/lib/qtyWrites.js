@@ -129,3 +129,28 @@ export function seedRowKey(prev, { rowId, optKey }) {
 export function isListEntry(result) {
   return !!result && (result.outcome === "inserted" || result.outcome === "revived");
 }
+
+// THE INSTANT GUESS FOLLOWS THE SERVER'S RULES (SPEC_qty_followup_086 F2, 2026-11-16). 085's Q4 makes a
+// + on a row that isn't pending (bought; skipped / deferred alike) a FRESH need at the amount added,
+// never old + n — so the phone's guess must do the same, or the number flashes 3 → 1 and the row
+// lingers In cart until the answer. serverStatus is the row's status as the SERVER last said it
+// (the poll's listRows, or a newer RPC answer), never the optimistic checked map: a row checked a
+// moment ago (still in its undo hold) is guessed the way the server will decide it.
+//   renewing — a fresh need is already on its way for this item in this burst: later taps add to it.
+// Returns { qty, uncheck }: the number to show, and whether the row leaves the cart at once.
+export function guessChange({ shown, delta, serverStatus, renewing = false }) {
+  if (delta > 0 && serverStatus && serverStatus !== "pending" && !renewing) {
+    return { qty: delta, uncheck: true };
+  }
+  return { qty: Math.max(0, (Number(shown) || 0) + delta), uncheck: false };
+}
+
+// The checked state the server's answer implies, adopted on drain beside the quantity: renewed → back
+// on the list (unchecked); any other live row → its returned status. removed / absent change nothing
+// (the row's entry goes with the poll). A wrong guess is corrected here, as the quantity is.
+export function adoptCheckedResult(prev, result) {
+  if (!result || !result.list_item_id || result.outcome === "removed" || result.outcome === "absent") return prev;
+  const want = result.outcome === "renewed" ? false : result.status === "bought";
+  if (prev[result.list_item_id] === want) return prev;
+  return { ...prev, [result.list_item_id]: want };
+}

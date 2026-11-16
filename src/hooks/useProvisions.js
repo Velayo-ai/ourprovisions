@@ -7,7 +7,7 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { createRowWriteChain, mergePolledById } from "../lib/checkWrites";
-import { createQtyQueue, applyOptimisticDelta, adoptQtyResult, seedRowKey, isListEntry } from "../lib/qtyWrites";
+import { createQtyQueue, adoptQtyResult, seedRowKey, isListEntry, guessChange, adoptCheckedResult } from "../lib/qtyWrites";
 import { rollbackQty } from "../lib/qtyRollback";
 import { inviteFailureNotice } from "../lib/inviteFailure";
 import { readHeld, clearHeld, heldStore, INVITE_KEY, REF_KEY, INVITE_MAX_AGE_MS, REF_MAX_AGE_MS } from "../lib/preRum";
@@ -181,6 +181,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const qtySeqRef = useRef(0);
   const qtyTouchRef = useRef({});
   const touchQty = (key) => { if (key) qtyTouchRef.current[key] = ++qtySeqRef.current; };
+  // A row's status as the server last said it in an adjust answer, newer than the poll's listRows
+  // until a poll requested after that answer arrives ({ status, seq }). The instant guess reads it
+  // (SPEC_qty_followup_086 F2): once a fresh need has landed, the next tap is a bump, not another one.
+  const qtyStatusRef = useRef(new Map());
   // Same guard for optimistic check state: while a toggle write is in flight,
   // the 2s poll must not overwrite the optimistic value with the stale server
   // status (Bug 3: toggle bounces / takes ~3 taps to stick). Keyed by name,
@@ -460,6 +464,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     });
     Object.assign(mergedPrices, newPrices);
     listRowsRef.current = newListRows;
+    // A poll requested after an adjust answer carries at least what it said: the answer's status retires.
+    qtyStatusRef.current.forEach((v, id) => { if (v.seq <= qtySeqAtStart) qtyStatusRef.current.delete(id); });
     setListRows(newListRows);
     // The household's list has ARRIVED — and only here, in the same synchronous
     // block as setListRows so the two batch into one render. Setting the flag
@@ -1243,10 +1249,25 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           }
         }
         ctx.keys.forEach(touchQty);
+        if (rowId) qtyStatusRef.current.set(rowId, { status: result.outcome === "removed" ? null : result.status, seq: qtySeqRef.current });
+        // The checks this burst's guess took off (a fresh need): released once nothing is left to send.
+        const releaseChecks = () => ctx.uncheckedIds.forEach((id) => {
+          if (!checkChainRef.current.pending(id)) pendingCheckRef.current.delete(id);
+          touchCheck(id);
+        });
         if (ok) {
           if (isListEntry(result)) emitItemAdded(ctx);
           if (!drained) return;   // a later answer will report; adopt only the last
-          if (here) setQuantities((prev) => adoptQtyResult(prev, { result, optKey: ctx.optKey, preKey: preKey(ctx.cid) }));
+          if (here) {
+            setQuantities((prev) => adoptQtyResult(prev, { result, optKey: ctx.optKey, preKey: preKey(ctx.cid) }));
+            // The status, too (F2): a wrong guess is corrected here. A row with a check write of its own
+            // in flight is the check path's to settle.
+            if (rowId && !checkChainRef.current.pending(rowId)) {
+              setChecked((prev) => adoptCheckedResult(prev, result));
+              touchCheck(rowId);
+            }
+          }
+          releaseChecks();
           reportSuccess();
         } else {
           console.error("adjustQty error:", err?.message, err);
@@ -1254,6 +1275,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           // (lib/qtyRollback). Nothing retries a delta (Q9) — the next poll shows it if it
           // actually committed. Transient: the pill, no toast.
           if (here) setQuantities((prev) => [...ctx.keys].reduce((p, k) => rollbackQty(p, k, listRowsRef.current), prev));
+          // A row the guess took out of the cart goes back to what the server last said.
+          if (here && ctx.uncheckedIds.size) {
+            setChecked((prev) => {
+              const n = { ...prev };
+              ctx.uncheckedIds.forEach((id) => {
+                const row = listRowsRef.current.find((r) => r.id === id);
+                if (row && !checkChainRef.current.pending(id)) n[id] = row.status === "bought";
+              });
+              return n;
+            });
+          }
+          releaseChecks();
           if (classifyFetchError(err) === 'transient') reportTransientFailure();
           else setError(`Could not update quantity: ${err?.message}`);
         }
@@ -1272,15 +1305,31 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // lands. A brand-new NAME has no catalog id yet, so it gets no optimistic value — nothing
     // renders it before catalogMap updates.
     let optKey = null;
+    let renewRowId = null;   // a fresh need guessed for this live row (F2)
     const show = (ci) => {
       optKey = liveRowIdFor(ci.id) || preKey(ci.id);
       qtyBusyRef.current.add(optKey);
+      const ctx0 = qtyCtxRef.current.get(`${hh.id}:${ci.id}`);
+      // The guess follows the server's rules (lib/qtyWrites guessChange, SPEC_qty_followup_086 F2): a +
+      // on a row the SERVER has as not pending is a fresh need at delta, shown unchecked at once.
+      const srv = listRowsRef.current.find((r) => r.catalogItemId === ci.id);
+      const serverStatus = srv ? (qtyStatusRef.current.has(srv.id) ? qtyStatusRef.current.get(srv.id).status : srv.status) : null;
+      const renewing = !!(ctx0 && ctx0.renewing);
       // Every display key this item already has in a burst (pre:<catalog id> and its row id) moves
       // together, so neither falls behind when the reader switches from one to the other.
-      const others = [...(qtyCtxRef.current.get(`${hh.id}:${ci.id}`)?.keys || [])].filter((k) => k !== optKey);
-      setQuantities((prev) => others.reduce(
-        (p, k) => (k in p ? applyOptimisticDelta(p, k, delta) : p),
-        applyOptimisticDelta(prev, optKey, delta)));
+      const keys = [optKey, ...[...(ctx0?.keys || [])].filter((k) => k !== optKey)];
+      setQuantities((prev) => keys.reduce((p, k) => {
+        if (k !== optKey && !(k in p)) return p;
+        return { ...p, [k]: guessChange({ shown: p[k], delta, serverStatus, renewing }).qty };
+      }, prev));
+      if (srv && guessChange({ shown: 0, delta, serverStatus, renewing }).uncheck) {
+        // Out of the cart at once, through the check path's own guard: pending while the change is
+        // queued and stamped, so a poll requested before it can't put the row back (mergePolledById).
+        renewRowId = srv.id;
+        pendingCheckRef.current.add(srv.id);
+        touchCheck(srv.id);
+        setChecked((prev) => (prev[srv.id] === false ? prev : { ...prev, [srv.id]: false }));
+      }
     };
 
     let catalogItem = catalogRef.current[itemName];
@@ -1329,9 +1378,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const key = `${hh.id}:${catalogItem.id}`;
     let ctx = qtyCtxRef.current.get(key);
     if (!ctx) {
-      ctx = { hhId: hh.id, cid: catalogItem.id, catalogItem, categoryName, keys: new Set(), price: null, optKey };
+      ctx = { hhId: hh.id, cid: catalogItem.id, catalogItem, categoryName, keys: new Set(), price: null, optKey, renewing: false, uncheckedIds: new Set() };
       qtyCtxRef.current.set(key, ctx);
     }
+    if (renewRowId) { ctx.renewing = true; ctx.uncheckedIds.add(renewRowId); }
     ctx.keys.add(optKey);
     ctx.optKey = optKey;
     if (delta > 0 && price != null && price > 0) ctx.price = price;

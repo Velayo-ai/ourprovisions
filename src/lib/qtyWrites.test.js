@@ -1,4 +1,4 @@
-import { createQtyQueue, applyOptimisticDelta, adoptQtyResult, seedRowKey, isListEntry, MAX_DELTA } from "./qtyWrites";
+import { createQtyQueue, applyOptimisticDelta, adoptQtyResult, seedRowKey, isListEntry, guessChange, adoptCheckedResult, MAX_DELTA } from "./qtyWrites";
 import { mergePolledById } from "./checkWrites";
 
 // A send() whose answers the test releases by hand, in any order.
@@ -178,4 +178,61 @@ test("isListEntry: inserted and revived only (Q10)", () => {
   expect(["inserted", "revived", "bumped", "renewed", "lowered", "removed", "absent"].filter((o) => isListEntry({ outcome: o })))
     .toEqual(["inserted", "revived"]);
   expect(isListEntry(null)).toBe(false);
+});
+
+// SPEC_qty_followup_086 F2: the instant guess follows the server's rules.
+describe("guessChange + adoptCheckedResult (F2)", () => {
+  // What the hook's show() does to the displayed map with the guess (pure, no side effects).
+  const render = (prev, key, args) => ({ ...prev, [key]: guessChange({ shown: prev[key], ...args }).qty });
+
+  test("a bought row at 2, +1: the first render shows 1 and unchecked — never 3", () => {
+    const g = guessChange({ shown: 2, delta: 1, serverStatus: "bought" });
+    expect(g).toEqual({ qty: 1, uncheck: true });
+    expect(render({ r1: 2 }, "r1", { delta: 1, serverStatus: "bought" })).toEqual({ r1: 1 });
+  });
+  test("skipped / deferred are not pending either: a fresh need", () => {
+    expect(guessChange({ shown: 3, delta: 2, serverStatus: "skipped" })).toEqual({ qty: 2, uncheck: true });
+    expect(guessChange({ shown: 3, delta: 1, serverStatus: "deferred" })).toEqual({ qty: 1, uncheck: true });
+  });
+  test("later taps in the same burst add to the fresh need (renewing): 1 → 2 → 3", () => {
+    let m = render({ r1: 2 }, "r1", { delta: 1, serverStatus: "bought" });
+    m = render(m, "r1", { delta: 1, serverStatus: "bought", renewing: true });
+    m = render(m, "r1", { delta: 1, serverStatus: "bought", renewing: true });
+    expect(m).toEqual({ r1: 3 });
+    expect(guessChange({ shown: 1, delta: 1, serverStatus: "bought", renewing: true }).uncheck).toBe(false);
+  });
+  test("a bought row at 2, −1: shows 1, still checked", () => {
+    expect(guessChange({ shown: 2, delta: -1, serverStatus: "bought" })).toEqual({ qty: 1, uncheck: false });
+    expect(guessChange({ shown: 1, delta: -3, serverStatus: "bought" })).toEqual({ qty: 0, uncheck: false });
+  });
+  test("a pending row, or no row, is unchanged from today: old ± delta", () => {
+    expect(guessChange({ shown: 2, delta: 1, serverStatus: "pending" })).toEqual({ qty: 3, uncheck: false });
+    expect(guessChange({ shown: 2, delta: -1, serverStatus: "pending" })).toEqual({ qty: 1, uncheck: false });
+    expect(guessChange({ shown: undefined, delta: 1, serverStatus: null })).toEqual({ qty: 1, uncheck: false });
+  });
+  test("a poll requested before the change and answered after doesn't put the row back in the cart", () => {
+    // The guess unchecked r1 (pending + stamped at 7); a snapshot requested at 5 still says bought.
+    expect(mergePolledById({ r1: false }, { r1: true }, new Set(["r1"]), { r1: 7 }, 5)).toEqual({ r1: false });
+    // Released and stamped at drain (9); a poll requested at 6 still can't; one requested at 9 can.
+    expect(mergePolledById({ r1: false }, { r1: true }, new Set(), { r1: 9 }, 6)).toEqual({ r1: false });
+    expect(mergePolledById({ r1: false }, { r1: false }, new Set(), { r1: 9 }, 9)).toEqual({ r1: false });
+  });
+  test("adoptCheckedResult: renewed → unchecked; others follow the returned status; removed / absent change nothing", () => {
+    expect(adoptCheckedResult({ r1: true }, { list_item_id: "r1", outcome: "renewed", status: "pending", quantity: 1 })).toEqual({ r1: false });
+    expect(adoptCheckedResult({ r1: false }, { list_item_id: "r1", outcome: "lowered", status: "bought", quantity: 1 })).toEqual({ r1: true });
+    expect(adoptCheckedResult({ r1: true }, { list_item_id: "r1", outcome: "bumped", status: "pending", quantity: 3 })).toEqual({ r1: false });
+    const prev = { r1: true };
+    expect(adoptCheckedResult(prev, { list_item_id: "r1", outcome: "removed", status: "bought", quantity: 0 })).toBe(prev);
+    expect(adoptCheckedResult(prev, { list_item_id: null, outcome: "absent" })).toBe(prev);
+    expect(adoptCheckedResult(prev, { list_item_id: "r1", outcome: "lowered", status: "bought" })).toBe(prev);
+  });
+  test("a wrong guess is corrected on drain: guessed a fresh need, but the row was already pending on the server", () => {
+    // Shown 1 + unchecked by the guess; the server bumped it to 4 and it is pending.
+    const result = { list_item_id: "r1", outcome: "bumped", status: "pending", quantity: 4 };
+    expect(adoptQtyResult({ r1: 1 }, { result, optKey: "r1" })).toEqual({ r1: 4 });
+    expect(adoptCheckedResult({ r1: false }, result)).toEqual({ r1: false });
+    // Guessed "still bought" after a −, but the server says it left the cart (someone unchecked it): adopt.
+    const r2 = { list_item_id: "r2", outcome: "lowered", status: "pending", quantity: 1 };
+    expect(adoptCheckedResult({ r2: true }, r2)).toEqual({ r2: false });
+  });
 });

@@ -70,3 +70,23 @@ describe("§6.4 the callers", () => {
     expect(app).toMatch(/onAdd=\{landscapeAdd\} onUndo=\{landscapeUndo\} onRemove=\{landscapeRemove\}/);
   });
 });
+
+describe("SPEC_qty_followup_086 §4: the hook's guess and adoption", () => {
+  test("show() guesses from the SERVER's status (listRows or a newer RPC answer), never the optimistic map", () => {
+    const i = hook.indexOf("const show = (ci) => {");
+    const fn = hook.slice(i, hook.indexOf("\n    };\n", i));
+    expect(fn).toMatch(/const srv = listRowsRef\.current\.find\(\(r\) => r\.catalogItemId === ci\.id\);/);
+    expect(fn).toMatch(/qtyStatusRef\.current\.get\(srv\.id\)\.status : srv\.status/);
+    expect(fn).toMatch(/guessChange\(\{ shown: p\[k\], delta, serverStatus, renewing \}\)\.qty/);
+    expect(fn).not.toMatch(/checked\[/);
+  });
+  test("a fresh need leaves the cart through the check path's guard: pending + touchCheck, then unchecked", () => {
+    const i = hook.indexOf("const show = (ci) => {");
+    const fn = hook.slice(i, hook.indexOf("\n    };\n", i));
+    expect(fn).toMatch(/pendingCheckRef\.current\.add\(srv\.id\);\s*touchCheck\(srv\.id\);\s*setChecked/);
+  });
+  test("on drain the RPC's status is adopted beside the quantity, unless the row's own check write is in flight", () => {
+    expect(hook).toMatch(/if \(rowId && !checkChainRef\.current\.pending\(rowId\)\) \{\s*setChecked\(\(prev\) => adoptCheckedResult\(prev, result\)\);\s*touchCheck\(rowId\);/);
+    expect(hook).toMatch(/releaseChecks\(\);\s*reportSuccess\(\);/);
+  });
+});
