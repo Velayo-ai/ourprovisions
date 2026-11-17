@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync, createPortal } from "react-dom";
 import { photoNudge } from "../lib/askManage";
+import { AskSearchDebug, ASK_SEARCH_DEBUG } from "./AskSearchDebug";
 import {
   askDraftProblem, createAskFailure, findDuplicateAsk, pickLine, cleanAskLabel, askLook, ASK_LOOKS,
   ASK_LABEL_MAX, ASK_NOUN_MAX, ASK_TARGET_MIN, ASK_TARGET_MAX, ASK_SHELF_MAX, ASK_TARGET_DEFAULT,
@@ -491,6 +492,8 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           })}
         </div>
       </div>, document.body)}
+      {/* Dev / preview only (folds away in a production build): the on-phone readout, off until a 1 s hold on the count line. */}
+      {ASK_SEARCH_DEBUG && <AskSearchDebug viewRef={searchView} open={searchOpen} />}
       <style>{ASK_FORM_CSS}</style>
     </div>
   );
