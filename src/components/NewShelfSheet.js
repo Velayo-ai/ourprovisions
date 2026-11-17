@@ -144,7 +144,8 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   // footer back and let go of the catalog's min-height, the page shrank, the scroller clamped and the
   // row moved out from under the pointer. So when a press is what blurred it, the release waits until
   // that press's click has run (or 1 s); a blur with no press (tap out, the keyboard's ✓) releases at
-  // once. A refocus in the meantime keeps it.
+  // once. A refocus in the meantime keeps it. Result rows no longer blur at all (they keep the focus);
+  // this stays for every other press that takes it away.
   const onSearchBlur = () => {
     const release = () => { if (document.activeElement !== searchField.current) setSearchFocus(false); };
     if (!pressing.current) { release(); return; }
@@ -419,7 +420,12 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           ) : results.map((item) => {
             const on = itemIds.includes(item.id);
             return (
+              // A result tap keeps the focus in "Find an item" (F2 polish, Dan's iPhone walk): no blur, so the
+              // keyboard stays up, Save stays hidden and the catalog's hold stays, and several items go on in
+              // a row. mousedown's default is what moves focus (iOS fires it for a tap too); the click still
+              // runs. Tapping out and the keyboard's ✓ blur as before (onSearchBlur).
               <button key={item.id} type="button" aria-pressed={on} onClick={() => toggle(item.id)}
+                onMouseDown={(e) => e.preventDefault()}
                 style={{
                   display: "flex", alignItems: "center", gap: "10px", width: "100%", textAlign: "left",
                   padding: "10px 4px", border: "none", borderBottom: "1px solid #F0E4D2", background: "transparent",

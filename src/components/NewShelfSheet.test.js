@@ -607,6 +607,18 @@ describe("the search field rises above the keyboard (F2)", () => {
     expect(saveBtn()).not.toBeNull();                              // then the footer returns and the hold lets go
     expect(catalog().style.minHeight).toBe("");
   });
+  test("a result tap keeps the focus in the field: its mousedown is prevented, the click still adds, Save stays hidden", () => {
+    window.matchMedia = jest.fn(() => ({ matches: false }));
+    setup();
+    fireEvent.focus(search());
+    for (const name of ["Goldfish", "Apples"]) {
+      const row = screen.getByRole("button", { name });
+      expect(fireEvent.mouseDown(row)).toBe(false);   // default prevented: focus doesn't move
+      fireEvent.click(row);
+    }
+    expect(screen.getByText("The ask · 2 items")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save ask" })).toBeNull();
+  });
   test("reduced motion lifts without the smooth scroll", () => {
     window.matchMedia = jest.fn((q) => ({ matches: /reduce/.test(q) }));
     setup();
