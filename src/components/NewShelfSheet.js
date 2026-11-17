@@ -65,7 +65,10 @@ import {
 // to the name, the noun, the count and the look, so the host's preview can follow the form.
 // photoIds: the catalog item ids with a live household photo; photoUrl(id) → the signed thumb, or null
 // while it is still being minted; onPhoto(itemId, file) → { ok, reason }.
-export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null, embedded = false, onDraftChange = null }) {
+// onCreateItem(name, rawCategory) → the catalog row ({ id, name, … }) or null on a failure;
+// createCategories: [{ rawName, label, glyph }] for its aisle pills. Without onCreateItem a search with
+// no match says "Nothing in your catalog matches that." as before.
+export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null, embedded = false, onDraftChange = null, onCreateItem = null, createCategories = [] }) {
   const [label, setLabel] = useState(editing ? editing.label : "");
   const [noun, setNoun] = useState(editing ? editing.shelfNoun || "" : "");
   const [target, setTarget] = useState(editing ? editing.pickTarget : ASK_TARGET_DEFAULT);
@@ -78,6 +81,9 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   const [photoFor, setPhotoFor] = useState(null);       // the tile the chooser is open for
   const [photoBusy, setPhotoBusy] = useState(null);
   const [photoFailed, setPhotoFailed] = useState(null);  // "decode" | "upload" | "save"
+  const [creating, setCreating] = useState(false);       // F3: a create in flight
+  const [createFailed, setCreateFailed] = useState(false);
+  const [createdNames, setCreatedNames] = useState(() => new Map());   // id → name for items made here
   const photoInput = useRef(null);
   const attemptId = useRef(null);
   const labelField = useRef(null);
@@ -130,7 +136,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     [catalogItems]);
   // Names for the chips: the shelf's own rows first (a tile hidden from this Browse has no catalog
   // row here), then the catalog.
-  const nameById = useMemo(() => new Map([...(editing ? editing.tiles : []), ...sorted].map((i) => [i.id, i.name])), [editing, sorted]);
+  const nameById = useMemo(() => new Map([...createdNames, ...[...(editing ? editing.tiles : []), ...sorted].map((i) => [i.id, i.name])]), [editing, sorted, createdNames]);
   const q = query.trim().toLowerCase();
   const results = q ? sorted.filter((i) => i.name.toLowerCase().includes(q)) : sorted;
 
@@ -171,6 +177,27 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 
   const toggle = (id) => edit(setItemIds)((prev) =>
     prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= ASK_SHELF_MAX ? prev : [...prev, id]);
+
+  // CREATE WITHOUT LEAVING THE ASK (SPEC_ask_setup_polish F3, Dan 2026-11-16: save right away). A
+  // search with no match offers the typed name and the aisle pills; a tap writes the catalog row at
+  // once (onCreateItem → createCatalogItemNow: match-first, catalog only, never the list), appends it
+  // to the shelf like a tapped row (ASK_SHELF_MAX holds: a full shelf greys the pills), and clears the
+  // search, so the new tile can be photographed straight away. Cancelling the ask leaves the item in
+  // Browse as a normal custom item. A failure keeps the typed name and says so under the card.
+  const shelfFull = itemIds.length >= ASK_SHELF_MAX;
+  const createItem = async (rawCategory) => {
+    const name = query.trim();
+    if (creating || !name || shelfFull) return;
+    setCreating(true);
+    setCreateFailed(false);
+    const item = await onCreateItem(name, rawCategory);
+    setCreating(false);
+    if (!item || !item.id) { setCreateFailed(true); return; }
+    setCreatedNames((prev) => new Map(prev).set(item.id, item.name));
+    edit(setItemIds)((prev) => (prev.includes(item.id) || prev.length >= ASK_SHELF_MAX ? prev : [...prev, item.id]));
+    setQuery("");
+  };
+  const onQuery = (value) => { setCreateFailed(false); setQuery(value); };
 
   const bringIntoView = (field) => {
     const el = field === "label" ? labelField.current : field === "shelf" ? shelfField.current : null;
@@ -324,10 +351,29 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         )}
         {onPhoto && <input ref={photoInput} type="file" accept="image/*" hidden onChange={pickPhoto} />}
         <input ref={searchField} className="modal-input ask-form-search" type="search" autoComplete="off" placeholder="Find an item"
-          aria-label="Find an item for the ask" value={query} onChange={(e) => setQuery(e.target.value)}
+          aria-label="Find an item for the ask" value={query} onChange={(e) => onQuery(e.target.value)}
           onFocus={() => setSearchFocus(true)} onBlur={() => setSearchFocus(false)} />
         <div data-testid="new-shelf-catalog" className="ask-form-catalog" style={searchFocus && liftMin ? { minHeight: `${liftMin}px` } : undefined}>
-          {results.length === 0 ? (
+          {results.length === 0 && q && onCreateItem ? (
+            // F3's card, in Browse's create-card look (dashed card, "Add "<name>"", a hint), with the New
+            // item sheet's aisle pills inside it. Browse's own card is a launcher for that sheet, which puts
+            // the item on the list, so it is matched in look here rather than shared.
+            <div className="ask-create-card">
+              <div className="ask-create-line">Add <strong>"{query.trim()}"</strong></div>
+              <div className="ask-create-sub">
+                {shelfFull ? `The ask holds ${ASK_SHELF_MAX}. Take one off to add this.` : "As a new item. Tap its category to add it to the ask."}
+              </div>
+              <div className="cat-grid" role="group" aria-label="Category for the new item">
+                {createCategories.map((cat) => (
+                  <button key={cat.rawName} type="button" className="cat-pill" disabled={creating || shelfFull}
+                    onClick={() => createItem(cat.rawName)}>
+                    <span className="cat-em">{cat.glyph}</span>{cat.label}
+                  </button>
+                ))}
+              </div>
+              {createFailed && <div className="modal-error" role="alert" style={{ margin: "10px 0 0" }}>Couldn't add that item. Try again.</div>}
+            </div>
+          ) : results.length === 0 ? (
             <div className="picker-sub" style={{ margin: "10px 0" }}>Nothing in your catalog matches that.</div>
           ) : results.map((item) => {
             const on = itemIds.includes(item.id);
@@ -371,6 +417,10 @@ const ASK_FORM_CSS = `
 .ask-form-screen .ask-form-shelf { margin-bottom: 16px; }
 .ask-form-screen .ask-form-catalog { margin-top: 8px; }
 .ask-form-search { scroll-margin-top: 8px; }
+.ask-create-card { margin: 10px 0 6px; padding: 12px 14px; border-radius: 10px; border: 1.5px dashed #C9A97A; background: rgba(201,169,122,0.06); }
+.ask-create-line { font: 400 calc(15px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; }
+.ask-create-sub { font: 400 calc(14px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; margin: 2px 0 10px; }
+.ask-create-card button:disabled { opacity: 0.5; cursor: default; }
 .ask-form-screen .ask-form-actions { position: sticky; bottom: 0; margin: 0 -24px; padding: 12px 24px calc(16px + env(safe-area-inset-bottom, 0px)); }
 `;
 

@@ -3771,6 +3771,44 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return resolved;
   }, [findCatalogMatch, reportSuccess]);
 
+  // createCatalogItemNow: the Ask form's create (SPEC_ask_setup_polish F3). Writes the catalog row the
+  // moment a category is tapped, so the new tile can take a photo at once (a photo needs a real
+  // catalog_items id). This deliberately differs from the meal builder's deferred write
+  // (SPEC_defer_catalog_write): there an orphan was a stray tap; here the person typed the name and
+  // chose an aisle on purpose. Match-first (findCatalogMatch: a live or HIDDEN match returns that row,
+  // never a duplicate; a hidden one stays out of Browse), else insert_custom_catalog_item (051:
+  // membership enforced, dedups by name), exactly as materializePendingIngredients does. Writes NO
+  // list_items row: a shelf is a set of choices, not the shopping list. Returns the row, or null on a
+  // failure (the caller says so; no global error banner over the Ask screen).
+  const createCatalogItemNow = useCallback(async (name, categoryName) => {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    const trimmed = (name || "").trim();
+    if (!db || !hh || !trimmed) return null;
+    const match = findCatalogMatch(trimmed);
+    if (match) return match;
+    const category = categoryName || "Household";
+    try {
+      const { data: insertedId, error: insertErr } = await db
+        .rpc("insert_custom_catalog_item", {
+          p_name: trimmed,
+          p_category: category,
+          p_household_id: hh.id,
+          p_created_by: internalUserIdRef.current,
+        });
+      if (insertErr) throw insertErr;
+      if (!insertedId) throw new Error("no id returned");
+      const item = { id: insertedId, name: trimmed, category, is_global: false, household_id: hh.id };
+      catalogRef.current = { ...catalogRef.current, [trimmed]: item };
+      setCatalogMap((prev) => ({ ...prev, [trimmed]: item }));
+      reportSuccess();
+      return item;
+    } catch (err) {
+      console.error("createCatalogItemNow error:", err.message);
+      return null;
+    }
+  }, [findCatalogMatch, reportSuccess]);
+
   // requestMealSuggestion: ask the meal-suggestion Edge Function for ONE meal draft.
   // Returns { name, baseServings, instructions, ingredients:[{name, quantity, unit}] }
   // or null, surfacing failure through the same setError path as everything else here.
@@ -4476,7 +4514,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, addMealToList, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, createCatalogItemNow, addMealToList, fetchMealProvenance, onListChangedRef,
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,

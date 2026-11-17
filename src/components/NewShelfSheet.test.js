@@ -585,3 +585,61 @@ describe("the search field rises above the keyboard (F2)", () => {
     expect(scrollSpy).toHaveBeenCalledWith({ block: "start", behavior: "auto" });
   });
 });
+
+// SPEC_ask_setup_polish F3: a search with no match creates the item without leaving the ask.
+describe("create an item from the ask (F3)", () => {
+  const CATS = [{ rawName: "Snacks", label: "Snacks", glyph: "🍿" }, { rawName: "Pantry", label: "Pantry", glyph: "🥫" }];
+  const search = () => screen.getByRole("searchbox", { name: "Find an item for the ask" });
+  const tileNames = () => screen.queryAllByRole("listitem").map((li) => li.querySelector(".shelf-tile-name").textContent);
+  const aisle = (name) => screen.getByRole("button", { name: new RegExp(`${name}$`) });
+  function setupCreate(onCreateItem) {
+    render(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null}
+      onCreateItem={onCreateItem} createCategories={CATS} />);
+  }
+  test("no match: the card shows the typed name and the aisles; a tap creates it, puts it on the shelf and clears the search", async () => {
+    const onCreateItem = jest.fn(async (name) => ({ id: "i-new", name }));
+    setupCreate(onCreateItem);
+    fireEvent.change(search(), { target: { value: "  Fia's crackers " } });
+    expect(screen.queryByText("Nothing in your catalog matches that.")).toBeNull();
+    expect(screen.getByText(/^Add/).closest(".ask-create-card")).toHaveTextContent(`Add "Fia's crackers"`);
+    expect(screen.getByRole("group", { name: "Category for the new item" }).querySelectorAll(".cat-pill")).toHaveLength(2);
+    fireEvent.click(aisle("Snacks"));
+    await waitFor(() => expect(tileNames()).toEqual(["Fia's crackers"]));
+    expect(onCreateItem).toHaveBeenCalledWith("Fia's crackers", "Snacks");
+    expect(search()).toHaveValue("");
+    expect(screen.getByText("The ask · 1 item")).toBeInTheDocument();
+  });
+  test("the aisles are disabled while it saves; a failure keeps the name and says so under the card", async () => {
+    let finish;
+    const onCreateItem = jest.fn(() => new Promise((r) => { finish = r; }));
+    setupCreate(onCreateItem);
+    fireEvent.change(search(), { target: { value: "Fia's crackers" } });
+    fireEvent.click(aisle("Snacks"));
+    expect(aisle("Snacks")).toBeDisabled();
+    expect(aisle("Pantry")).toBeDisabled();
+    fireEvent.click(aisle("Pantry"));
+    expect(onCreateItem).toHaveBeenCalledTimes(1);
+    await act(async () => finish(null));
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't add that item. Try again.");
+    expect(search()).toHaveValue("Fia's crackers");
+    expect(tileNames()).toEqual([]);
+    expect(aisle("Snacks")).toBeEnabled();
+    fireEvent.change(search(), { target: { value: "Fia's crackers!" } });   // typing again clears the message
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+  test("a returned existing row (a hidden match) joins the shelf once, never twice", async () => {
+    const onCreateItem = jest.fn(async () => ({ id: "i-goldfish", name: "Goldfish" }));
+    setupCreate(onCreateItem);
+    pick("Goldfish");
+    fireEvent.change(search(), { target: { value: "gold fish" } });
+    fireEvent.click(aisle("Snacks"));
+    await waitFor(() => expect(search()).toHaveValue(""));
+    expect(tileNames()).toEqual(["Goldfish"]);
+  });
+  test("without onCreateItem the old line stays", () => {
+    setup();
+    fireEvent.change(search(), { target: { value: "Fia's crackers" } });
+    expect(screen.getByText("Nothing in your catalog matches that.")).toBeInTheDocument();
+    expect(document.querySelector(".ask-create-card")).toBeNull();
+  });
+});

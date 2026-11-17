@@ -5316,6 +5316,7 @@ function ProvisionsApp({ scrollRootRef }) {
     onListChangedRef,
     createCatalogItem,
     materializePendingIngredients,
+    createCatalogItemNow,
     addMealToList,
     fetchMealProvenance,
     placements,
@@ -12682,6 +12683,12 @@ function ProvisionsApp({ scrollRootRef }) {
             photoIds={itemPhotoIds}
             photoUrl={itemPhotoUrl}
             onPhoto={setItemPhoto}
+            // SPEC_ask_setup_polish F3: a search with no match creates the item here, written at once
+            // (createCatalogItemNow: catalog only, never the list). The aisles are the New item sheet's
+            // own set, labels and glyphs resolved here so the form needs no App helpers.
+            onCreateItem={createCatalogItemNow}
+            createCategories={categories.filter((cat) => cat.rawName !== "⭐ My Custom Items")
+              .map((cat) => ({ rawName: cat.rawName, label: categoryLabel(cat.rawName), glyph: categoryGlyph(cat.rawName) }))}
             onCreate={async (askId, draft) => {
               const r = await createAsk(askId, draft);
               if (r?.ok) {
