@@ -438,11 +438,19 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         style={searchOpen && viewHeight ? { height: `${viewHeight}px`, bottom: "auto" } : undefined}
         aria-hidden={searchOpen ? undefined : true} onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}>
         <div className="ask-search-head">
-          {/* name / enterKeyHint: a non-name-like name so iOS doesn't offer "AutoFill Contact" (Dan's IMG_6884). */}
-          <input ref={searchField} className="modal-input ask-form-search" type="search" autoComplete="off" placeholder="Find or add an item"
-            name="ask-item-search" enterKeyHint="search" autoCorrect="off" tabIndex={searchOpen ? 0 : -1}
-            aria-label="Find an item for the ask" value={query} onChange={(e) => onQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} />
+          {/* name / enterKeyHint: a non-name-like name so iOS doesn't offer "AutoFill Contact" (Dan's IMG_6884).
+              NO placeholder ATTRIBUTE (IMG_6900): iOS still offered "AutoFill Contact" with the name fixed, and the
+              placeholder ("…add…") is what's left that Safari's field guesser reads. The same words are drawn as a
+              span over the empty field instead: it looks identical, but it isn't part of the input, so the guesser
+              never sees it. */}
+          <span className="ask-search-field">
+            <input ref={searchField} className="modal-input ask-form-search" type="search" autoComplete="off"
+              name="ask-item-search" enterKeyHint="search" inputMode="search" autoCorrect="off" autoCapitalize="none" spellCheck={false}
+              tabIndex={searchOpen ? 0 : -1}
+              aria-label="Find an item for the ask" value={query} onChange={(e) => onQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} />
+            {!query && <span className="ask-search-hint" aria-hidden="true">Find or add an item</span>}
+          </span>
           <button type="button" className="ask-search-done" onClick={closeSearch} tabIndex={searchOpen ? 0 : -1}>Done</button>
         </div>
         <div className="ask-search-count">
@@ -524,7 +532,11 @@ const ASK_FORM_CSS = `
 .ask-search::after { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 100vh; background: #FAF4EC; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .ask-search, .ask-search.open { transition: none; transform: none; } }
 .ask-search-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 16px 8px; }
-.ask-search-head .ask-form-search { flex: 1 1 auto; min-width: 0; margin: 0; }
+.ask-search-head .ask-search-field { position: relative; flex: 1 1 auto; min-width: 0; display: block; }
+.ask-search-head .ask-form-search { display: block; width: 100%; margin: 0; box-sizing: border-box; }
+/* The drawn placeholder: over the field's text box (1.5px border + 12px padding), placeholder colour, taps fall through. */
+.ask-search-hint { position: absolute; left: 13.5px; right: 13.5px; top: 50%; transform: translateY(-50%); pointer-events: none;
+  font-family: 'Lato', sans-serif; font-size: calc(0.95rem * var(--op-text-scale, 1)); color: #A08A70; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ask-search-done { flex: none; border: none; background: none; padding: 10px 4px; font: 700 calc(16px * (1 + (var(--op-text-scale, 1) - 1) * 0.8)) 'Lato', sans-serif; color: #A0724A; cursor: pointer; }
 .ask-search-count { flex: none; padding: 0 16px 8px; font: 400 calc(13px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; }
 .ask-search-total { font-weight: 700; letter-spacing: 0.3px; }
