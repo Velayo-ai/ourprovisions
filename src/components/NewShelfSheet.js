@@ -96,17 +96,22 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   // "Find an item" sat low and only ~2 results showed. On focus, wait for the keyboard (the first
   // visualViewport resize, else 350 ms), then bring the field to the top of the screen's one scroller
   // (scroll-margin-top 8px under the header); the results fill the space down to the keyboard. While it
-  // has focus the catalog keeps a min-height of the visible height less the field, so a narrowed list
+  // has focus the catalog keeps a min-height of the scroller's height less the field, so a narrowed list
   // can't shrink the page and drop the field back down; blur releases it. The field moves; the results
   // never get a scroll box of their own (the 11-14 one-scroller rule). Reduced motion: no smooth scroll.
+  // On the screen (AskScreen) the editor itself follows visualViewport, so the scroller IS the visible
+  // area under the header: the min-height is measured from it, a frame after the editor resizes, and the
+  // sticky Save footer is hidden while the field has focus (iPhone walk, IMG_6884/6885). Outside the
+  // screen it falls back to the visible height.
   useEffect(() => {
     if (!searchFocus) return undefined;
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     const field = searchField.current;
-    const measure = () => {
-      const visible = vv ? vv.height : window.innerHeight;
+    const measure = () => requestAnimationFrame(() => {
+      const scroller = field?.closest?.(".ask-editor-body");
+      const visible = scroller && scroller.clientHeight ? scroller.clientHeight : vv ? vv.height : window.innerHeight;
       setLiftMin(Math.max(0, Math.round(visible - (field ? field.offsetHeight : 0))));
-    };
+    });
     const reduced = !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let lifted = false;
     const lift = () => {
@@ -350,7 +355,9 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           </div>
         )}
         {onPhoto && <input ref={photoInput} type="file" accept="image/*" hidden onChange={pickPhoto} />}
+        {/* name / enterKeyHint: a non-name-like name so iOS doesn't offer "AutoFill Contact" (Dan's IMG_6884). */}
         <input ref={searchField} className="modal-input ask-form-search" type="search" autoComplete="off" placeholder="Find an item"
+          name="ask-item-search" enterKeyHint="search" autoCorrect="off"
           aria-label="Find an item for the ask" value={query} onChange={(e) => onQuery(e.target.value)}
           onFocus={() => setSearchFocus(true)} onBlur={() => setSearchFocus(false)} />
         <div data-testid="new-shelf-catalog" className="ask-form-catalog" style={searchFocus && liftMin ? { minHeight: `${liftMin}px` } : undefined}>
@@ -394,11 +401,11 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 
       {/* The footer (.modal-actions): one full-width Save, the message line above it, always on screen.
           No Cancel (2026-11-13): the ✕ closes. */}
-      <div className="modal-actions ask-form-actions">
+      {!searchFocus && <div className="modal-actions ask-form-actions">
         {footer}
         <button className="modal-confirm" onClick={save} disabled={!!problem || !!dupName || saving}
           style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save ask"}</button>
-      </div>
+      </div>}
       <style>{ASK_FORM_CSS}</style>
     </div>
   );

@@ -577,6 +577,19 @@ describe("the search field rises above the keyboard (F2)", () => {
     fireEvent.blur(search());
     expect(listeners.resize).toBeUndefined();
   });
+  test("the sticky Save footer hides while the field has focus and comes back on blur; the field asks iOS not to autofill a contact", () => {
+    window.matchMedia = jest.fn(() => ({ matches: false }));
+    setup();
+    const saveBtn = () => screen.queryByRole("button", { name: "Save ask" });
+    expect(saveBtn()).not.toBeNull();
+    expect(search()).toHaveAttribute("name", "ask-item-search");
+    expect(search()).toHaveAttribute("enterkeyhint", "search");
+    expect(search()).toHaveAttribute("autocomplete", "off");
+    fireEvent.focus(search());
+    expect(saveBtn()).toBeNull();
+    fireEvent.blur(search());
+    expect(saveBtn()).not.toBeNull();
+  });
   test("reduced motion lifts without the smooth scroll", () => {
     window.matchMedia = jest.fn((q) => ({ matches: /reduce/.test(q) }));
     setup();
