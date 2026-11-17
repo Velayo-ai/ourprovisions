@@ -727,35 +727,93 @@ describe("the search view (F2 revised)", () => {
     expect(css).toMatch(/\.ask-search-count \{ flex: none;/);
     expect(css).toMatch(/\.ask-search-list \{ flex: 1 1 auto; min-height: 0; overflow-y: auto;[^}]*overscroll-behavior: contain;/);
   });
-  test("sized to the visible area: open, the view's height follows visualViewport.height (once per frame, top untouched); whole again or closed, it is released", () => {
-    const frames = [];
-    const rafSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { frames.push(cb); return frames.length; });
-    const sets = { resize: new Set() };
-    window.visualViewport = { height: window.innerHeight, offsetTop: 0,
-      addEventListener: (ty, f) => sets[ty] && sets[ty].add(f), removeEventListener: (ty, f) => sets[ty] && sets[ty].delete(f) };
-    const fire = () => [...sets.resize].forEach((f) => f());
-    try {
+  describe("the view follows the visible area (IMG_6907)", () => {
+    let frames, rafSpy, sets, scrollSpy;
+    const fire = (type) => [...sets[type]].forEach((f) => f());
+    const runFrames = () => act(() => { frames.splice(0).forEach((cb) => cb(0)); });
+    beforeEach(() => {
+      frames = [];
+      rafSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { frames.push(cb); return frames.length; });
+      sets = { resize: new Set(), scroll: new Set() };
+      window.visualViewport = { height: window.innerHeight, offsetTop: 0,
+        addEventListener: (ty, f) => sets[ty].add(f), removeEventListener: (ty, f) => sets[ty].delete(f) };
+      scrollSpy = jest.spyOn(window, "scrollTo").mockImplementation(() => {});
+    });
+    afterEach(() => { rafSpy.mockRestore(); scrollSpy.mockRestore(); delete window.visualViewport; });
+    test("the whole screen: no inline box; nothing listens while closed", () => {
       setup();
-      expect(sets.resize.size).toBe(0);                              // nothing listens while closed
+      expect(sets.resize.size + sets.scroll.size).toBe(0);
       fireEvent.click(findButton());
-      expect(view().style.height).toBe("");
-      window.visualViewport.height = 500; fire();
-      window.visualViewport.height = 464; fire();                    // two events, one frame
+      runFrames();
+      expect(view().getAttribute("style")).toBeNull();
+      expect(scrollSpy).not.toHaveBeenCalled();
+    });
+    test("the keyboard already up and the viewport panned at open: the view is on the visible area synchronously, in the tap", () => {
+      setup();
+      window.visualViewport.height = 506;
+      window.visualViewport.offsetTop = 198.3;                       // Dan's readout
+      fireEvent.click(findButton());
+      expect(view().style.top).toBe("198.3px");                      // before any frame
+      expect(view().style.height).toBe("506px");
+      expect(document.activeElement).toBe(input());
+    });
+    test("resize and scroll both move it, at most once per frame; height = visible height, top = offsetTop", () => {
+      setup();
+      fireEvent.click(findButton());
+      runFrames();
+      window.visualViewport.height = 500; fire("resize");
+      window.visualViewport.height = 464; fire("resize");
+      window.visualViewport.offsetTop = 120; fire("scroll");         // three events, one frame
       expect(frames).toHaveLength(1);
       expect(view().style.height).toBe("");
-      act(() => { frames.splice(0).forEach((cb) => cb(0)); });
+      runFrames();
       expect(view().style.height).toBe("464px");
-      expect(view().style.top).toBe("");                             // top stays 0 (the stylesheet's)
+      expect(view().style.top).toBe("120px");
       expect(screen.getByTestId("new-shelf-catalog").style.paddingBottom).toBe("");
-      window.visualViewport.height = window.innerHeight; fire();
-      act(() => { frames.splice(0).forEach((cb) => cb(0)); });
+    });
+    test("then the window comes home: scrollTo(0, 0) on the next frame while offsetTop > 0; back at 0 the view is at top 0", () => {
+      setup();
+      fireEvent.click(findButton());
+      runFrames();
+      window.visualViewport.height = 506; window.visualViewport.offsetTop = 198.3; fire("scroll");
+      runFrames();                                                   // the follow
+      expect(view().style.top).toBe("198.3px");
+      expect(scrollSpy).not.toHaveBeenCalled();
+      runFrames();                                                   // the next frame: home
+      expect(scrollSpy).toHaveBeenCalledWith(0, 0);
+      window.visualViewport.offsetTop = 0; fire("scroll");           // iOS obeyed
+      runFrames(); runFrames();
+      expect(view().style.top).toBe("0px");
+      expect(view().style.height).toBe("506px");
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+    });
+    test("a browser that refuses is not fought: three tries per pan, and the view stays on the visible area", () => {
+      setup();
+      fireEvent.click(findButton());
+      runFrames();
+      window.visualViewport.height = 506; window.visualViewport.offsetTop = 198;
+      for (let k = 0; k < 6; k++) { fire("scroll"); runFrames(); runFrames(); }
+      expect(scrollSpy).toHaveBeenCalledTimes(3);
+      expect(view().style.top).toBe("198px");
+    });
+    test("whole again or closed, the box is released and the listeners go", () => {
+      setup();
+      fireEvent.click(findButton());
+      window.visualViewport.height = 464; fire("resize"); runFrames();
+      expect(view().style.height).toBe("464px");
+      window.visualViewport.height = window.innerHeight; fire("resize"); runFrames();
       expect(view().style.height).toBe("");
-      window.visualViewport.height = 464; fire();
-      act(() => { frames.splice(0).forEach((cb) => cb(0)); });
+      window.visualViewport.height = 464; fire("resize"); runFrames();
       fireEvent.click(screen.getByRole("button", { name: "Done" }));
       expect(view().style.height).toBe("");
-      expect(sets.resize.size).toBe(0);
-    } finally { rafSpy.mockRestore(); delete window.visualViewport; }
+      expect(view().style.top).toBe("");
+      expect(sets.resize.size + sets.scroll.size).toBe(0);
+    });
+    test("the cream backfill hangs off the view's bottom edge, so it follows the view", () => {
+      setup();
+      const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+      expect(css).toMatch(/\.ask-search::after \{ content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 100vh; background: #FAF4EC;/);
+    });
   });
   describe("no drag leaks out of the view", () => {
     const touch = (type, target, y, n = 1) => {

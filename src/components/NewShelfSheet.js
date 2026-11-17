@@ -65,9 +65,9 @@ import {
 // in an effect or a timeout. Result rows and the create card's aisles keep the focus (mousedown
 // prevented), so items go on one after another with the keyboard up; return / ✓ only drops the keyboard
 // and you stay; Done blurs and closes, and the form is exactly where it was (it never scrolled). Nothing
-// repositions anything: the view is fixed at the top with the input first, already above any keyboard.
-// visualViewport is read only to SIZE the view to the visible height (top stays 0), so the list ends at
-// the keyboard; and a touchmove guard keeps a drag from chaining out of the list (IMG_6891). The scroll
+// repositions anything ELSE: the view alone follows the visible area (top = visualViewport.offsetTop,
+// height = visualViewport.height; IMG_6907), so its input row is at the top of what is on screen and its
+// list ends at the keyboard; the window is brought home with scrollTo(0, 0); and a touchmove guard keeps a drag from chaining out of the list (IMG_6891). The scroll
 // machinery of F2's first round (field lift, min-height, pin, viewport-driven moves, settle) is gone
 // (rolled back in 39ccf22).
 //
@@ -190,11 +190,20 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 
   // The search view (F2 revised; see the header). Mounted with the form, shown on the button's tap.
   const [searchOpen, setSearchOpen] = useState(false);
-  const [viewHeight, setViewHeight] = useState(null);   // the visible height while a keyboard covers part of the screen
+  const [viewBox, setViewBox] = useState(null);   // { top, height }: the visible area, while it isn't the whole screen
   const searchView = useRef(null);
+  // The visible area as the view's box, or null when it is the whole screen at the top.
+  const visibleBox = () => {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv) return null;
+    const top = Math.max(0, Math.round(vv.offsetTop * 10) / 10);
+    return top > 0.5 || window.innerHeight - vv.height > 1 ? { top, height: Math.round(vv.height) } : null;
+  };
+  const sameBox = (a, b) => a === b || (!!a && !!b && a.top === b.top && a.height === b.height);
   const openSearch = () => {
     flushSync(() => setSearchOpen(true));              // visible now, in this tap …
     searchField.current?.focus({ preventScroll: true });  // … so this focus raises the keyboard on the first tap
+    flushSync(() => setViewBox(visibleBox()));         // … and the view is on the visible area before this tap paints
   };
   const closeSearch = () => {
     searchField.current?.blur();
@@ -202,29 +211,50 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     setQuery("");
     setCreateFailed(false);
   };
-  // SIZED TO THE VISIBLE AREA (Dan's iPhone, IMG_6891; amends F2 item 7: sizing the view is allowed,
-  // moving or scrolling anything is still not). With the keyboard up the list ran on behind it, so a drag
-  // stopped short of the last rows ("Dill Pickles") and iOS panned the visual viewport instead: the input
-  // row slid off the top and the app showed under the keyboard's bar. While open, the view's height is
-  // visualViewport.height (top stays 0), updated on resize at most once per frame, so the list ends at
-  // the keyboard's top and scrolls to its last row; no bottom padding any more.
+  // THE VIEW FOLLOWS THE VISIBLE AREA (Dan's iPhone, IMG_6907, measured with the debug readout; amends F2
+  // item 7: the view may track the visible area, nothing else moves). With the keyboard already up (a
+  // name typed in "Who's picking?"), the focus hand-off to the search input panned the visual viewport:
+  // vv.offsetTop 198, window.scrollY 198, and the fixed view (top 0) sat 198px above what was on screen.
+  // No drag; the body's overflow lock doesn't stop it. So while open, on visualViewport resize AND scroll,
+  // at most once per frame, the view's top is visualViewport.offsetTop and its height
+  // visualViewport.height (also applied synchronously on open, in openSearch). The list still ends at the
+  // keyboard's top (IMG_6891), and the cream backfill hangs off the view's bottom edge, so it moves with it.
+  // THEN THE WINDOW COMES HOME: after open and after any pan, on the next frame, window.scrollTo(0, 0) if
+  // offsetTop is still > 0 (three tries per pan, so a browser that refuses can't be fought in a loop);
+  // following the visible area is the guarantee either way.
   useEffect(() => {
     if (!searchOpen) return undefined;
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     if (!vv) return undefined;
-    const size = () => setViewHeight(window.innerHeight - vv.height > 1 ? Math.round(vv.height) : null);
     let frame = null;
-    const onResize = () => {
-      if (frame !== null) return;
-      frame = requestAnimationFrame(() => { frame = null; size(); });
+    let homeFrame = null;
+    let tries = 0;
+    const home = () => {
+      homeFrame = null;
+      if (vv.offsetTop <= 0.5) { tries = 0; return; }
+      if (tries >= 3) return;
+      tries += 1;
+      window.scrollTo(0, 0);
     };
-    size();
-    vv.addEventListener("resize", onResize);
+    const apply = () => {
+      frame = null;
+      const next = visibleBox();
+      setViewBox((prev) => (sameBox(prev, next) ? prev : next));
+      if (vv.offsetTop <= 0.5) tries = 0;
+      else if (homeFrame === null) homeFrame = requestAnimationFrame(home);
+    };
+    const onChange = () => { if (frame === null) frame = requestAnimationFrame(apply); };
+    onChange();   // after open: follow, then bring the window home
+    vv.addEventListener("resize", onChange);
+    vv.addEventListener("scroll", onChange);
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
-      vv.removeEventListener("resize", onResize);
-      setViewHeight(null);
+      if (homeFrame !== null) cancelAnimationFrame(homeFrame);
+      vv.removeEventListener("resize", onChange);
+      vv.removeEventListener("scroll", onChange);
+      setViewBox(null);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchOpen]);
   // NO DRAG LEAKS OUT OF THE VIEW (same walk). While open, a non-passive touchmove listener on the view
   // prevents the default unless the touch started inside the list AND the list can scroll in the drag's
@@ -435,7 +465,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           same-tap flushSync + focus() works through the portal. */}
       {typeof document !== "undefined" && createPortal(
       <div ref={searchView} className={`ask-search${searchOpen ? " open" : ""}`} role="dialog" aria-modal="true" aria-label="Find or add an item"
-        style={searchOpen && viewHeight ? { height: `${viewHeight}px`, bottom: "auto" } : undefined}
+        style={searchOpen && viewBox ? { top: `${viewBox.top}px`, height: `${viewBox.height}px`, bottom: "auto" } : undefined}
         aria-hidden={searchOpen ? undefined : true} onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}>
         <div className="ask-search-head">
           {/* name / enterKeyHint: a non-name-like name so iOS doesn't offer "AutoFill Contact" (Dan's IMG_6884). */}
@@ -519,7 +549,8 @@ const ASK_FORM_CSS = `
 /* THE BACKFILL (Dan's iPhone, IMG_6895). Sized to visualViewport.height, the view ends above the keyboard, but
    iOS 26's keyboard bar is translucent and floats with a gap, so the Ask form showed through below the list.
    A cream skirt hangs off the view's bottom edge, a screen tall: whatever the keyboard leaves see-through, or
-   any strip a pan uncovers, shows the view's own cream. Sizing only, nothing moves (F2 item 7 holds); it is
+   any strip a pan uncovers, shows the view's own cream. It hangs off the view's bottom edge (top: 100%), so
+   it is measured from wherever the view is now that the view follows the visible area (IMG_6907); it is
    part of the view, so the no-leak touchmove guard covers drags on it too. */
 .ask-search::after { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 100vh; background: #FAF4EC; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .ask-search, .ask-search.open { transition: none; transform: none; } }
