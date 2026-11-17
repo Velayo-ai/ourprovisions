@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { flushSync } from "react-dom";
 import { NewShelfSheet } from "./NewShelfSheet";
 import { AskIcon } from "./AskIcon";
 
@@ -23,19 +24,33 @@ export function AskScreen({ edit = null, closeButton, onClose, ...form }) {
   // While the editor is open it follows visualViewport (resize + scroll): with part of the screen covered
   // its top is offsetTop and its height the visible height, so iOS has nothing to pan; uncovered, it is
   // back to 100dvh / top 0. Listeners go with the screen.
+  // ONE UPDATE PER FRAME (W5): the viewport's events are coalesced to at most one per animation frame,
+  // committed with flushSync inside that frame so the editor's new box, and the form's re-measured hold
+  // (it gets the box as `viewport`), paint together, never a frame apart.
   const [visible, setVisible] = useState(null);   // { top, height } while a keyboard covers part of the screen
   useEffect(() => {
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     if (!vv) return undefined;
-    const follow = () => {
+    const apply = () => {
       const covered = vv.offsetTop > 1 || window.innerHeight - vv.height - vv.offsetTop > 1;
       const next = covered ? { top: Math.round(vv.offsetTop), height: Math.round(vv.height) } : null;
       setVisible((prev) => (prev === next || (prev && next && prev.top === next.top && prev.height === next.height) ? prev : next));
     };
-    follow();
+    let pending = false;
+    let frame = null;
+    const follow = () => {
+      if (pending) return;
+      pending = true;
+      frame = requestAnimationFrame(() => { pending = false; frame = null; flushSync(apply); });
+    };
+    apply();
     vv.addEventListener("resize", follow);
     vv.addEventListener("scroll", follow);
-    return () => { vv.removeEventListener("resize", follow); vv.removeEventListener("scroll", follow); };
+    return () => {
+      if (pending && frame !== null) cancelAnimationFrame(frame);
+      vv.removeEventListener("resize", follow);
+      vv.removeEventListener("scroll", follow);
+    };
   }, []);
   return (
     <div className="ask-editor" role="dialog" aria-modal="true" aria-label={edit ? "Edit ask" : "New ask"}
@@ -51,7 +66,7 @@ export function AskScreen({ edit = null, closeButton, onClose, ...form }) {
         </span>
       </header>
       <div className="ask-editor-body">
-        <NewShelfSheet {...form} edit={edit} onClose={onClose} closeButton={null} embedded onDraftChange={onDraftChange} />
+        <NewShelfSheet {...form} edit={edit} onClose={onClose} closeButton={null} embedded onDraftChange={onDraftChange} viewport={visible} />
       </div>
       <style>{ASK_EDITOR_CSS}</style>
     </div>

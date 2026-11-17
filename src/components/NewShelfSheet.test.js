@@ -543,7 +543,7 @@ describe("the search field rises above the keyboard (F2)", () => {
     window.matchMedia = origMatchMedia;
     delete window.visualViewport;
   });
-  test("with no keyboard event, the field lifts to the top after 350 ms, smoothly; the catalog holds the visible height while focused; blur releases it", () => {
+  test("with no keyboard event, the field lifts to the top after 350 ms, smoothly; the catalog holds the visible height while focused; after blur it rests until the query changes", () => {
     window.matchMedia = jest.fn(() => ({ matches: false }));
     setup();
     fireEvent.focus(search());
@@ -557,6 +557,10 @@ describe("the search field rises above the keyboard (F2)", () => {
     fireEvent.change(search(), { target: { value: "gold" } });   // typing keeps the hold
     expect(catalog().style.minHeight).toBe(`${window.innerHeight}px`);
     fireEvent.blur(search());
+    // W5: with nothing covering the screen the blur releases at once, and the min-height RESTS (a short
+    // list can't pull the field down) until the query changes.
+    expect(catalog().style.minHeight).toBe(`${window.innerHeight}px`);
+    fireEvent.change(search(), { target: { value: "" } });
     expect(catalog().style.minHeight).toBe("");
     jest.advanceTimersByTime(1000);
     expect(scrollSpy).toHaveBeenCalledTimes(1);
@@ -604,8 +608,9 @@ describe("the search field rises above the keyboard (F2)", () => {
     fireEvent.click(row);                                          // the click lands on the row it was aimed at
     expect(screen.getByText("The ask · 1 item")).toBeInTheDocument();
     act(() => { jest.advanceTimersByTime(0); });
-    expect(saveBtn()).not.toBeNull();                              // then the footer returns and the hold lets go
-    expect(catalog().style.minHeight).toBe("");
+    expect(saveBtn()).not.toBeNull();                              // then the footer returns; the hold rests (W5)
+    fireEvent.change(search(), { target: { value: "" } });
+    expect(catalog().style.minHeight).toBe("");                    // until the query changes
   });
   test("a result tap keeps the focus in the field: its mousedown is prevented, the click still adds, Save stays hidden", () => {
     window.matchMedia = jest.fn(() => ({ matches: false }));
@@ -737,5 +742,88 @@ describe("the field holds still while tiles come and go (F2 polish)", () => {
     const tiles = screen.getAllByRole("listitem");
     expect(tiles[0]).not.toHaveClass("shelf-tile-new");   // Apples, prefilled
     expect(tiles[1]).toHaveClass("shelf-tile-new");       // Goldfish, just added
+  });
+});
+
+
+// W5 (Dan's iPhone: scroll → tap "Find an item" → ✓ flashed): a blur while the keyboard covers the screen
+// settles first, then Save, the min-height and the field's place change in ONE commit.
+describe("the keyboard close settles, then changes once (W5)", () => {
+  const search = () => screen.getByRole("searchbox", { name: "Find an item for the ask" });
+  const catalog = () => screen.getByTestId("new-shelf-catalog");
+  const saveBtn = () => screen.queryByRole("button", { name: "Save ask" });
+  let rafSpy;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    Element.prototype.scrollIntoView = jest.fn();
+    rafSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { cb(0); return 0; });
+    window.matchMedia = jest.fn(() => ({ matches: false }));
+  });
+  afterEach(() => { jest.useRealTimers(); rafSpy.mockRestore(); delete Element.prototype.scrollIntoView; delete window.visualViewport; });
+  const KB = { top: 0, height: 420 };
+  function mount(viewport) {
+    const props = { catalogItems: ITEMS, asks: [], onCreate: jest.fn(), onClose: jest.fn(), closeButton: null, embedded: true };
+    const tree = (vp) => <div className="ask-editor"><div className="ask-editor-body"><NewShelfSheet {...props} viewport={vp} /></div></div>;
+    const view = render(tree(viewport));
+    const rerender = (vp) => view.rerender(tree(vp));
+    return { view, rerender };
+  }
+  test("✓ with the keyboard up: Save stays hidden and the hold stays while it slides; the screen whole again brings Save back and rests the hold in the same render", () => {
+    const { rerender } = mount(KB);
+    fireEvent.focus(search());
+    fireEvent.change(search(), { target: { value: "gold" } });
+    const held = catalog().style.minHeight;
+    expect(held).not.toBe("");
+    expect(saveBtn()).toBeNull();
+    fireEvent.blur(search());                                      // the keyboard's ✓
+    expect(saveBtn()).toBeNull();                                  // closing: nothing changes yet
+    expect(catalog().style.minHeight).not.toBe("");
+    rerender({ top: 0, height: 600 });                             // mid-slide (the editor grows)
+    expect(saveBtn()).toBeNull();
+    expect(catalog().style.minHeight).not.toBe("");
+    rerender(null);                                                // the screen is whole again
+    expect(saveBtn()).not.toBeNull();                              // Save back …
+    expect(catalog().style.minHeight).not.toBe("");                // … with the hold resting, in one render
+    fireEvent.change(search(), { target: { value: "" } });
+    expect(catalog().style.minHeight).toBe("");
+  });
+  test("if the visible area never comes back whole, 120 ms without a viewport change settles it", () => {
+    const sets = { resize: new Set(), scroll: new Set() };
+    window.visualViewport = { height: 420, offsetTop: 0, addEventListener: (t, f) => sets[t].add(f), removeEventListener: (t, f) => sets[t].delete(f) };
+    const listeners = { resize: () => [...sets.resize].forEach((f) => f()) };
+    mount(KB);
+    fireEvent.focus(search());
+    fireEvent.blur(search());
+    act(() => { jest.advanceTimersByTime(100); });
+    act(() => { listeners.resize(); });                            // still moving: the quiet restarts
+    act(() => { jest.advanceTimersByTime(100); });
+    expect(saveBtn()).toBeNull();
+    act(() => { jest.advanceTimersByTime(30); });
+    expect(saveBtn()).not.toBeNull();
+    expect(sets.resize.size + sets.scroll.size).toBe(0);           // listeners gone with the close
+  });
+  test("a refocus while closing just carries on: Save stays hidden", () => {
+    const { rerender } = mount(KB);
+    fireEvent.focus(search());
+    fireEvent.blur(search());
+    fireEvent.focus(search());
+    rerender(null);
+    act(() => { jest.advanceTimersByTime(2000); });
+    expect(saveBtn()).toBeNull();
+  });
+  test("the release keeps the field where it is on screen (scrollTop corrected, clamped to the new max)", () => {
+    const { view, rerender } = mount(KB);
+    const body = view.container.querySelector(".ask-editor-body");
+    let scrollTop = 300;
+    Object.defineProperty(body, "scrollTop", { configurable: true, get: () => scrollTop, set: (v) => { scrollTop = v; } });
+    Object.defineProperty(body, "scrollHeight", { configurable: true, get: () => 2000 });
+    Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 700 });
+    // The release's own render moves the field 40px (stands in for any layout change it makes).
+    search().getBoundingClientRect = () => ({ top: 131 + (saveBtn() ? 40 : 0) - (scrollTop - 300), height: 38 });
+    fireEvent.focus(search());
+    fireEvent.blur(search());
+    rerender(null);
+    expect(search().getBoundingClientRect().top).toBe(131);        // corrected back
+    expect(scrollTop).toBe(340);
   });
 });

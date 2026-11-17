@@ -132,7 +132,9 @@ describe("scrolling while the page lock is active", () => {
 // SPEC_ask_setup_polish F2 (iPhone walk IMG_6884/6885): the editor is always exactly the visible area, so
 // iOS has nothing to pan when the keyboard opens.
 describe("the editor follows visualViewport", () => {
-  afterEach(() => { delete window.visualViewport; });
+  let rafSpy;
+  beforeEach(() => { rafSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { cb(0); return 1; }); });
+  afterEach(() => { rafSpy.mockRestore(); delete window.visualViewport; });
   function fakeViewport(height, offsetTop = 0) {
     const listeners = {};
     window.visualViewport = { height, offsetTop,
@@ -158,5 +160,29 @@ describe("the editor follows visualViewport", () => {
     view.unmount();
     expect(listeners.resize).toBeUndefined();
     expect(listeners.scroll).toBeUndefined();
+  });
+});
+
+
+describe("viewport updates are coalesced to one per frame (W5)", () => {
+  afterEach(() => { delete window.visualViewport; });
+  test("several viewport events before a frame make one update, with the latest values", () => {
+    const frames = [];
+    const rafSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { frames.push(cb); return frames.length; });
+    const listeners = {};
+    window.visualViewport = { height: window.innerHeight, offsetTop: 0,
+      addEventListener: (t, f) => { listeners[t] = f; }, removeEventListener: (t) => { delete listeners[t]; } };
+    render(<AskScreen catalogItems={[]} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} />);
+    const editor = () => screen.getByRole("dialog", { name: "New ask" });
+    window.visualViewport.height = 600; listeners.resize();
+    window.visualViewport.height = 500; listeners.resize();
+    window.visualViewport.offsetTop = 80; listeners.scroll();
+    const ours = frames.length;
+    expect(ours).toBeGreaterThanOrEqual(1);
+    expect(editor().style.height).toBe("");                        // nothing until the frame
+    act(() => { frames.splice(0).forEach((cb) => cb(0)); });
+    expect(editor().style.height).toBe("500px");
+    expect(editor().style.top).toBe("80px");
+    rafSpy.mockRestore();
   });
 });
