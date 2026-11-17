@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { photoNudge } from "../lib/askManage";
 import {
   askDraftProblem, createAskFailure, findDuplicateAsk, pickLine, cleanAskLabel, askLook, ASK_LOOKS,
@@ -51,8 +52,22 @@ import {
 // Every other message sits in the sticky footer, above Cancel / Save shelf, so it is on screen
 // whatever the scroll; a server failure also brings the field it is about into view.
 //
-// ONE SCROLLER (the 11-05 Add-sheet rule): the sheet scrolls; the catalog list flows inside it and
-// search narrows it. It is never a scroll box of its own.
+// ONE SCROLLER PER SCREEN (the 11-05 Add-sheet rule): the form scrolls as one page. Search is not on it.
+//
+// SEARCH HAS ITS OWN VIEW (SPEC_ask_setup_polish F2, revised 2026-11-16 22:52, Dan). On the form "Find or
+// add an item" is a BUTTON styled like the field (not an input, so iOS has nothing to focus or scroll on
+// the form). It opens a full-screen layer over the Ask screen: the search input at the top with Done
+// beside it, the count line ("The ask · N items" / "N of M", plus "Added: …"), and the results, which are
+// this view's one scroller. The keyboard must rise on the FIRST tap, and iOS only opens it when focus()
+// runs synchronously inside the tap: so the view stays mounted while the form is (hidden with visibility),
+// and the button's own click handler shows it with flushSync and focuses the input right there; never
+// in an effect or a timeout. Result rows and the create card's aisles keep the focus (mousedown
+// prevented), so items go on one after another with the keyboard up; return / ✓ only drops the keyboard
+// and you stay; Done blurs and closes, and the form is exactly where it was (it never scrolled). Nothing
+// repositions anything: the view is fixed at inset 0 with the input at the top, already above any
+// keyboard; visualViewport is read only to pad the list's end so its last row can scroll clear of the
+// keyboard. The scroll machinery of F2's first round (field lift, min-height, pin, viewport-driven
+// resizing, settle) is gone (rolled back in 39ccf22).
 //
 // The name is a person's (K3): its input and the name inside any message carry .op-name, which
 // both RUM pipelines exclude in every environment. The failure copy is ours, never the server's
@@ -170,6 +185,33 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     setQuery("");
   };
   const onQuery = (value) => { setCreateFailed(false); setQuery(value); };
+
+  // The search view (F2 revised; see the header). Mounted with the form, shown on the button's tap.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [keyboardPad, setKeyboardPad] = useState(0);   // the list's bottom padding for the keyboard, nothing else
+  const openSearch = () => {
+    flushSync(() => setSearchOpen(true));              // visible now, in this tap …
+    searchField.current?.focus({ preventScroll: true });  // … so this focus raises the keyboard on the first tap
+  };
+  const closeSearch = () => {
+    searchField.current?.blur();
+    setSearchOpen(false);
+    setQuery("");
+    setCreateFailed(false);
+  };
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv) return undefined;
+    const pad = () => setKeyboardPad(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)));
+    pad();
+    vv.addEventListener("resize", pad);
+    return () => vv.removeEventListener("resize", pad);
+  }, [searchOpen]);
+  // Rows and aisles keep the focus in the input: mousedown's default is what moves focus (iOS fires it for
+  // a tap too); the click still runs.
+  const keepFocus = (e) => e.preventDefault();
+  const addedNames = itemIds.map((id) => nameById.get(id) || "Item");
 
   const bringIntoView = (field) => {
     const el = field === "label" ? labelField.current : field === "shelf" ? shelfField.current : null;
@@ -322,15 +364,44 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           </div>
         )}
         {onPhoto && <input ref={photoInput} type="file" accept="image/*" hidden onChange={pickPhoto} />}
-        {/* name / enterKeyHint: a non-name-like name so iOS doesn't offer "AutoFill Contact" (Dan's IMG_6884). */}
-        <input ref={searchField} className="modal-input ask-form-search" type="search" autoComplete="off" placeholder="Find an item"
-          name="ask-item-search" enterKeyHint="search" autoCorrect="off"
-          aria-label="Find an item for the ask" value={query} onChange={(e) => onQuery(e.target.value)} />
-        <div data-testid="new-shelf-catalog" className="ask-form-catalog">
+        <button type="button" className="modal-input ask-find" onClick={openSearch} aria-haspopup="dialog">
+          <span className="ask-find-glass" aria-hidden="true">🔍</span>Find or add an item
+        </button>
+      </div>
+
+      {/* The footer (.modal-actions): one full-width Save, the message line above it, always on screen.
+          No Cancel (2026-11-13): the ✕ closes. */}
+      <div className="modal-actions ask-form-actions">
+        {footer}
+        <button className="modal-confirm" onClick={save} disabled={!!problem || !!dupName || saving}
+          style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save ask"}</button>
+      </div>
+
+      {/* THE SEARCH VIEW (F2 revised). Always mounted; .open shows it. */}
+      <div className={`ask-search${searchOpen ? " open" : ""}`} role="dialog" aria-modal="true" aria-label="Find or add an item"
+        aria-hidden={searchOpen ? undefined : true} onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}>
+        <div className="ask-search-head">
+          {/* name / enterKeyHint: a non-name-like name so iOS doesn't offer "AutoFill Contact" (Dan's IMG_6884). */}
+          <input ref={searchField} className="modal-input ask-form-search" type="search" autoComplete="off" placeholder="Find or add an item"
+            name="ask-item-search" enterKeyHint="search" autoCorrect="off" tabIndex={searchOpen ? 0 : -1}
+            aria-label="Find an item for the ask" value={query} onChange={(e) => onQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} />
+          <button type="button" className="ask-search-done" onClick={closeSearch} tabIndex={searchOpen ? 0 : -1}>Done</button>
+        </div>
+        <div className="ask-search-count">
+          <div className="ask-search-total">
+            The ask · {overBy > 0
+              ? <span style={{ color: "#e05c5c" }}>{itemIds.length} of {look.tileCap}</span>
+              : <>{itemIds.length} {itemIds.length === 1 ? "item" : "items"}</>}
+          </div>
+          {addedNames.length > 0 && <div className="ask-search-added">Added: {addedNames.join(", ")}</div>}
+        </div>
+        <div data-testid="new-shelf-catalog" className="ask-search-list" style={keyboardPad ? { paddingBottom: `${keyboardPad + 16}px` } : undefined}>
           {results.length === 0 && q && onCreateItem ? (
             // F3's card, in Browse's create-card look (dashed card, "Add "<name>"", a hint), with the New
             // item sheet's aisle pills inside it. Browse's own card is a launcher for that sheet, which puts
-            // the item on the list, so it is matched in look here rather than shared.
+            // the item on the list, so it is matched in look here rather than shared. The aisles keep the
+            // focus, so after a create the next name can be typed straight away.
             <div className="ask-create-card">
               <div className="ask-create-line">Add <strong>"{query.trim()}"</strong></div>
               <div className="ask-create-sub">
@@ -339,7 +410,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
               <div className="cat-grid" role="group" aria-label="Category for the new item">
                 {createCategories.map((cat) => (
                   <button key={cat.rawName} type="button" className="cat-pill" disabled={creating || shelfFull}
-                    onClick={() => createItem(cat.rawName)}>
+                    onMouseDown={keepFocus} onClick={() => createItem(cat.rawName)}>
                     <span className="cat-em">{cat.glyph}</span>{cat.label}
                   </button>
                 ))}
@@ -351,12 +422,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           ) : results.map((item) => {
             const on = itemIds.includes(item.id);
             return (
-              // A result tap keeps the focus in "Find an item" (F2 polish, Dan's iPhone walk): no blur, so the
-              // keyboard stays up, Save stays hidden and the catalog's hold stays, and several items go on in
-              // a row. mousedown's default is what moves focus (iOS fires it for a tap too); the click still
-              // runs. Tapping out and the keyboard's ✓ blur as usual.
-              <button key={item.id} type="button" aria-pressed={on} onClick={() => toggle(item.id)}
-                onMouseDown={(e) => e.preventDefault()}
+              <button key={item.id} type="button" aria-pressed={on} onClick={() => toggle(item.id)} onMouseDown={keepFocus}
                 style={{
                   display: "flex", alignItems: "center", gap: "10px", width: "100%", textAlign: "left",
                   padding: "10px 4px", border: "none", borderBottom: "1px solid #F0E4D2", background: "transparent",
@@ -369,14 +435,6 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           })}
         </div>
       </div>
-
-      {/* The footer (.modal-actions): one full-width Save, the message line above it, always on screen.
-          No Cancel (2026-11-13): the ✕ closes. */}
-      <div className="modal-actions ask-form-actions">
-        {footer}
-        <button className="modal-confirm" onClick={save} disabled={!!problem || !!dupName || saving}
-          style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save ask"}</button>
-      </div>
       <style>{ASK_FORM_CSS}</style>
     </div>
   );
@@ -385,7 +443,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 // The form's own layout. In a sheet (.ask-form alone) it flows as any sheet body. On the screen
 // (.ask-form-screen) it is plain flow inside the one scroller; the footer is sticky at the scroller's
 // bottom edge (full width over the 24px gutters, cream, a soft shadow rather than a rule), and the
-// space after the catalog lets the last row clear it. The catalog's row rules stay: they separate
+// search view (below) is its own screen with its own scroller. The result rows' rules stay: they separate
 // items, not sections.
 const ASK_FORM_CSS = `
 .ask-form-actions { flex-direction: column; align-items: stretch; gap: 8px; }
@@ -393,7 +451,20 @@ const ASK_FORM_CSS = `
 .ask-form-screen .modal-field { margin: 0 0 32px; }
 .ask-form-screen .modal-label { margin-bottom: 8px; }
 .ask-form-screen .ask-form-shelf { margin-bottom: 16px; }
-.ask-form-screen .ask-form-catalog { margin-top: 8px; }
+.ask-find { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; color: #A08A70; cursor: text; font-family: 'Lato', sans-serif; }
+.ask-find-glass { font-size: 15px; opacity: 0.7; }
+.ask-search { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: #FAF4EC; color: #2C1A0E;
+  padding-top: env(safe-area-inset-top, 0px); visibility: hidden; opacity: 0; transform: translateY(12px);
+  transition: opacity 160ms ease-out, transform 160ms ease-out, visibility 0s linear 160ms; }
+.ask-search.open { visibility: visible; opacity: 1; transform: none; transition: opacity 160ms ease-out, transform 160ms ease-out, visibility 0s; }
+@media (prefers-reduced-motion: reduce) { .ask-search, .ask-search.open { transition: none; transform: none; } }
+.ask-search-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 16px 8px; }
+.ask-search-head .ask-form-search { flex: 1 1 auto; min-width: 0; margin: 0; }
+.ask-search-done { flex: none; border: none; background: none; padding: 10px 4px; font: 700 calc(16px * (1 + (var(--op-text-scale, 1) - 1) * 0.8)) 'Lato', sans-serif; color: #A0724A; cursor: pointer; }
+.ask-search-count { flex: none; padding: 0 16px 8px; font: 400 calc(13px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; }
+.ask-search-total { font-weight: 700; letter-spacing: 0.3px; }
+.ask-search-added { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.ask-search-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 0 16px 24px; }
 .ask-create-card { margin: 10px 0 6px; padding: 12px 14px; border-radius: 10px; border: 1.5px dashed #C9A97A; background: rgba(201,169,122,0.06); }
 .ask-create-line { font: 400 calc(15px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; }
 .ask-create-sub { font: 400 calc(14px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; margin: 2px 0 10px; }

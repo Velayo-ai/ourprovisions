@@ -1,7 +1,7 @@
 /* eslint-disable testing-library/no-node-access --
    where a message sits (under the name field, inside the sticky .modal-actions footer) and the
    catalog list's own style are the rules under test, read as raw DOM. */
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { NewShelfSheet } from "./NewShelfSheet";
 
 // + New shelf (SPEC_ask_slice2 C2 + C2.1): one id per draft (K1); a name already in use is caught
@@ -37,7 +37,14 @@ const nameInput = () => screen.getByLabelText("Who's picking?");
 const nounInput = () => screen.getByLabelText("What are they picking? (optional)");
 const save = () => screen.getByRole("button", { name: "Save ask" });
 // A catalog row's "+" / "✓" is aria-hidden, so its accessible name is the item's name alone.
-const pick = (name) => fireEvent.click(screen.getByRole("button", { name }));
+// The catalog lives in the search view (F2 revised): open it from the form's "Find or add an item" first.
+const openSearch = () => {
+  if (document.querySelector(".ask-search.open")) return;
+  fireEvent.click(screen.getByRole("button", { name: /Find or add an item/ }));
+};
+const pick = (name) => { openSearch(); fireEvent.click(screen.getByRole("button", { name })); };
+// The form's own "The ask · …" header (the search view's count line repeats it, by design).
+const formText = (m) => within(document.querySelector(".ask-form-shelf")).getByText(m);
 const pickTarget = (n) => fireEvent.click(screen.getByRole("radio", { name: String(n) }));
 const footerOf = (el) => el.closest(".modal-actions");
 const fieldOf = (el) => el.closest(".modal-field");
@@ -120,7 +127,7 @@ describe("every other message sits in the sticky footer (C2.1 item 2)", () => {
     fireEvent.click(save());
     const alert = await screen.findByRole("alert");
     expect(footerOf(alert)).not.toBeNull();
-    expect(scrolled).toEqual([screen.getByText(/^The ask/).closest(".modal-field")]);
+    expect(scrolled).toEqual([formText(/^The ask/).closest(".modal-field")]);
   });
 });
 
@@ -151,16 +158,16 @@ test("Save sends the draft once a name and as many items as the target (3) are i
   expect(onCreate).toHaveBeenCalledWith("ask-1", { label: "Easton", noun: "", target: 3, itemIds: ["i-goldfish", "i-apples", "i-yogurt"], style: "standard" });
 });
 
-test("one scroller (C2.1 item 3): the catalog list is not a scroll box; search narrows it", () => {
+test("one scroller per screen (F2 revised): the catalog is the search view's list, not on the form; search narrows it", () => {
   setup();
   const list = screen.getByTestId("new-shelf-catalog");
-  expect(list.style.overflowY).toBe("");
-  expect(list.style.overflow).toBe("");
-  expect(list.style.maxHeight).toBe("");
+  expect(document.querySelector(".ask-form-shelf").contains(list)).toBe(false);   // not on the form
+  expect(list).toHaveClass("ask-search-list");
+  expect(list.closest(".ask-search")).not.toBeNull();
   pick("Yogurt"); pick("Apples");
-  expect(screen.getByText("The ask · 2 items")).toBeInTheDocument();
+  expect(formText("The ask · 2 items")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Take Yogurt off the ask" }));
-  expect(screen.getByText("The ask · 1 item")).toBeInTheDocument();
+  expect(formText("The ask · 1 item")).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Find an item for the ask"), { target: { value: "gold" } });
   expect(screen.getByRole("button", { name: "Goldfish" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Crackers" })).toBeNull();
@@ -237,7 +244,7 @@ describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
   // counts down how many to remove. No copy in the footer; nothing is removed for you.
   const SIX = [...ITEMS, { id: "i-pears", name: "Pears" }, { id: "i-plums", name: "Plums" }];
   const capLine = () => screen.queryByText(/^Explorer shows 4 at most\./);
-  const shelfHeader = () => screen.getByText(/^The ask ·/);
+  const shelfHeader = () => formText(/^The ask ·/);
   function sixSheet() {
     const onCreate = jest.fn(async () => ({ ok: true, id: "x" }));
     const onClose = jest.fn();
@@ -253,14 +260,14 @@ describe("the style (SPEC_ask_slice3 S3-1, S3-5)", () => {
     fireEvent.click(style("Explorer"));
     SIX.forEach((i) => pick(i.name));
     expect(shelfHeader()).toHaveTextContent("The ask · 6 of 4");
-    expect(screen.getByText("6 of 4").style.color).toBe("rgb(224, 92, 92)");   // #e05c5c, .modal-error's
+    expect(formText("6 of 4").style.color).toBe("rgb(224, 92, 92)");   // #e05c5c, .modal-error's
     const line = capLine();
     expect(line).toHaveTextContent("Explorer shows 4 at most. Remove 2.");
     expect(line).toHaveClass("modal-error");
     expect(line).not.toHaveClass("picker-sub");
     // Directly under the chips, above the search; never in the footer.
     expect(line.previousElementSibling.querySelector("[aria-label='Take Goldfish off the ask']")).not.toBeNull();
-    expect(line.nextElementSibling).toBe(screen.getByLabelText("Find an item for the ask"));
+    expect(line.nextElementSibling).toBe(document.querySelector("button.ask-find"));
     expect(footerOf(line)).toBeNull();
     expect(footerOf(save()).textContent).not.toMatch(/Explorer shows/);
     expect(save()).toBeDisabled();
@@ -318,7 +325,7 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
     expect(screen.getByRole("radio", { name: /^Explorer/ })).toHaveAttribute("aria-checked", "true");
     expect(chips()).toEqual(["Yogurt", "Hidden thing", "Apples"]);
     expect(screen.getByRole("list", { name: "On the ask" })).toBeInTheDocument();
-    expect(screen.getByText("The ask · 3 items")).toBeInTheDocument();
+    expect(formText("The ask · 3 items")).toBeInTheDocument();
     // Its own name is no duplicate; another ask's is.
     expect(screen.queryByRole("alert")).toBeNull();
     expect(save()).toBeEnabled();
@@ -354,7 +361,7 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
 
   test("Explorer over 4 in edit behaves as in create: the countdown, nothing removed, Save waits", () => {
     setupEdit({ edit: { ...EDIT, screenStyle: "standard", pickTarget: 1, tiles: ITEMS.concat([{ id: "i-pears", name: "Pears" }]).map((i) => ({ id: i.id, name: i.name })) } });
-    expect(screen.getByText("The ask · 5 items")).toBeInTheDocument();
+    expect(formText("The ask · 5 items")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: /^Explorer/ }));
     expect(screen.getByText(/^Explorer shows 4 at most\./)).toHaveTextContent("Remove 1.");
     expect(chips()).toHaveLength(5);
@@ -389,7 +396,7 @@ describe("embedded in the Ask screen", () => {
     expect(save()).toBeDisabled();
     expect(footerOf(save()).querySelectorAll("button")).toHaveLength(1);
     expect(document.querySelector(".ask-form")).toHaveClass("ask-form-screen");
-    expect(screen.getByTestId("new-shelf-catalog")).toHaveClass("ask-form-catalog");   // laid out by the screen's one scroller, not its own
+    expect(screen.getByTestId("new-shelf-catalog")).toHaveClass("ask-search-list");   // the search view's own scroller (F2 revised)
   });
   test("a save still closes through onClose, so the host's sheet closes with it", async () => {
     const onClose = jest.fn();
@@ -432,7 +439,7 @@ describe("the Explorer photo nudge (S4-7)", () => {
     // × in the corner removes.
     fireEvent.click(screen.getByRole("button", { name: "Take Apples off the ask" }));
     expect(chips()).toEqual(["Goldfish", "Yogurt"]);
-    expect(screen.getByText("The ask · 2 items")).toBeInTheDocument();
+    expect(formText("The ask · 2 items")).toBeInTheDocument();
     pick("Apples");
     fireEvent.click(style("Explorer"));
     const h = hint();
@@ -525,7 +532,7 @@ describe("the label guard", () => {
 // What stays of F2's first round (SPEC_ask_setup_polish, F2 revised): the search input's attributes and
 // result rows that keep the focus in it.
 describe("the search input (F2 keepers)", () => {
-  const search = () => screen.getByRole("searchbox", { name: "Find an item for the ask" });
+  const search = () => { openSearch(); return screen.getByRole("searchbox", { name: "Find an item for the ask" }); };
   test("asks iOS not to autofill a contact", () => {
     setup();
     expect(search()).toHaveAttribute("name", "ask-item-search");
@@ -535,19 +542,20 @@ describe("the search input (F2 keepers)", () => {
   });
   test("a result tap keeps the focus in the field: its mousedown is prevented, the click still adds", () => {
     setup();
+    openSearch();
     for (const name of ["Goldfish", "Apples"]) {
       const row = screen.getByRole("button", { name });
       expect(fireEvent.mouseDown(row)).toBe(false);
       fireEvent.click(row);
     }
-    expect(screen.getByText("The ask · 2 items")).toBeInTheDocument();
+    expect(formText("The ask · 2 items")).toBeInTheDocument();
   });
 });
 
 // SPEC_ask_setup_polish F3: a search with no match creates the item without leaving the ask.
 describe("create an item from the ask (F3)", () => {
   const CATS = [{ rawName: "Snacks", label: "Snacks", glyph: "🍿" }, { rawName: "Pantry", label: "Pantry", glyph: "🥫" }];
-  const search = () => screen.getByRole("searchbox", { name: "Find an item for the ask" });
+  const search = () => { openSearch(); return screen.getByRole("searchbox", { name: "Find an item for the ask" }); };
   const tileNames = () => screen.queryAllByRole("listitem").map((li) => li.querySelector(".shelf-tile-name").textContent);
   const aisle = (name) => screen.getByRole("button", { name: new RegExp(`${name}$`) });
   function setupCreate(onCreateItem) {
@@ -565,7 +573,7 @@ describe("create an item from the ask (F3)", () => {
     await waitFor(() => expect(tileNames()).toEqual(["Fia's crackers"]));
     expect(onCreateItem).toHaveBeenCalledWith("Fia's crackers", "Snacks");
     expect(search()).toHaveValue("");
-    expect(screen.getByText("The ask · 1 item")).toBeInTheDocument();
+    expect(formText("The ask · 1 item")).toBeInTheDocument();
   });
   test("the aisles are disabled while it saves; a failure keeps the name and says so under the card", async () => {
     let finish;
@@ -607,9 +615,102 @@ describe("tile fade-in", () => {
   test("only a tile added after the form opened fades in", () => {
     render(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null}
       edit={{ id: "a1", label: "Easton", shelfNoun: "", pickTarget: 3, screenStyle: "standard", tiles: [{ id: "i-apples", name: "Apples" }] }} onUpdate={jest.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Goldfish" }));
+    pick("Goldfish");
     const tiles = screen.getAllByRole("listitem");
     expect(tiles[0]).not.toHaveClass("shelf-tile-new");   // Apples, prefilled
     expect(tiles[1]).toHaveClass("shelf-tile-new");       // Goldfish, just added
+  });
+});
+
+// SPEC_ask_setup_polish F2 (revised 2026-11-16 22:52): search gets its own view; nothing moves the form.
+describe("the search view (F2 revised)", () => {
+  const findButton = () => screen.getByRole("button", { name: /Find or add an item/ });
+  const view = () => document.querySelector(".ask-search");
+  const input = () => document.querySelector(".ask-search input[type=search]");
+  test("on the form, 'Find or add an item' is a button styled like the field, not an input", () => {
+    setup();
+    expect(findButton().tagName).toBe("BUTTON");
+    expect(findButton()).toHaveClass("modal-input");
+    expect(document.querySelector(".ask-form-shelf input[type=search]")).toBeNull();
+  });
+  test("closed, the view is hidden from assistive tech and its controls are out of the tab order", () => {
+    setup();
+    expect(view()).not.toHaveClass("open");
+    expect(view()).toHaveAttribute("aria-hidden", "true");
+    expect(input()).toHaveAttribute("tabindex", "-1");
+    expect(screen.queryByRole("searchbox")).toBeNull();
+  });
+  test("ONE tap opens it with the focus already in the input — synchronously, in the same handler (no timers)", () => {
+    jest.useFakeTimers();
+    try {
+      setup();
+      fireEvent.click(findButton());
+      expect(view()).toHaveClass("open");
+      expect(document.activeElement).toBe(input());   // before any timer or effect could run
+      expect(view()).not.toHaveAttribute("aria-hidden");
+    } finally { jest.useRealTimers(); }
+  });
+  test("the count line: 'The ask · N', then 'Added:' with the names in shelf order; a second tap takes one off", () => {
+    setup();
+    pick("Goldfish"); pick("Apples");
+    const count = document.querySelector(".ask-search-count");
+    expect(count).toHaveTextContent("The ask · 2 items");
+    expect(count).toHaveTextContent("Added: Goldfish, Apples");
+    pick("Apples");                                                   // a second tap takes it off
+    expect(count).toHaveTextContent("The ask · 1 item");
+    expect(count).toHaveTextContent("Added: Goldfish");
+  });
+  test("return only drops the keyboard (blur); the view stays open", () => {
+    setup();
+    fireEvent.click(findButton());
+    expect(document.activeElement).toBe(input());
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(document.activeElement).not.toBe(input());
+    expect(view()).toHaveClass("open");
+  });
+  test("Done blurs, closes and clears the query; the form's scroll is untouched; Escape closes too", () => {
+    const { container } = render(<div className="ask-editor-body"><NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} embedded /></div>);
+    const body = container.querySelector(".ask-editor-body");
+    let scrollTop = 420;
+    const writes = [];
+    Object.defineProperty(body, "scrollTop", { configurable: true, get: () => scrollTop, set: (v) => { writes.push(v); scrollTop = v; } });
+    fireEvent.click(findButton());
+    fireEvent.change(input(), { target: { value: "gold" } });
+    fireEvent.click(screen.getByRole("button", { name: "Goldfish" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(view()).not.toHaveClass("open");
+    expect(document.activeElement).not.toBe(input());
+    expect(input()).toHaveValue("");
+    expect(writes).toEqual([]);                                      // nothing ever moved the form
+    expect(scrollTop).toBe(420);
+    expect(within(document.querySelector(".ask-form-shelf")).getByText("The ask · 1 item")).toBeInTheDocument();
+    fireEvent.click(findButton());
+    fireEvent.keyDown(input(), { key: "Escape" });
+    expect(view()).not.toHaveClass("open");
+  });
+  test("a create keeps the focus: the aisle's mousedown is prevented; the query clears for the next name", async () => {
+    render(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null}
+      onCreateItem={jest.fn(async (name) => ({ id: "i-new", name }))} createCategories={[{ rawName: "Snacks", label: "Snacks", glyph: "🍿" }]} />);
+    fireEvent.click(findButton());
+    fireEvent.change(input(), { target: { value: "Fia's crackers" } });
+    const aisle = screen.getByRole("button", { name: /Snacks$/ });
+    expect(fireEvent.mouseDown(aisle)).toBe(false);
+    fireEvent.click(aisle);
+    await waitFor(() => expect(input()).toHaveValue(""));
+    expect(document.activeElement).toBe(input());
+    expect(document.querySelector(".ask-search-count")).toHaveTextContent("Added: Fia's crackers");
+  });
+  test("Edit Ask uses the same view; 'Added:' names a tile hidden from this Browse from its row", () => {
+    render(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onUpdate={jest.fn()} onClose={jest.fn()} closeButton={null}
+      edit={{ id: "a1", label: "Easton", shelfNoun: "", pickTarget: 3, screenStyle: "standard", tiles: [{ id: "i-hidden", name: "Licorice" }, { id: "i-apples", name: "Apples" }] }} />);
+    fireEvent.click(findButton());
+    expect(document.querySelector(".ask-search-count")).toHaveTextContent("Added: Licorice, Apples");
+  });
+  test("held on the source: the open handler shows the view with flushSync and focuses in the same call; no focus from an effect or a timeout", () => {
+    const src = require("fs").readFileSync(require("path").join(__dirname, "NewShelfSheet.js"), "utf8");
+    const open = src.slice(src.indexOf("const openSearch = () => {"), src.indexOf("const closeSearch = () => {"));
+    expect(open).toMatch(/flushSync\(\(\) => setSearchOpen\(true\)\);\s*(\/\/[^\n]*\n\s*)?searchField\.current\?\.focus\(/);
+    expect(open).not.toMatch(/setTimeout|requestAnimationFrame|useEffect/);
+    expect(src).not.toMatch(/useEffect\([^)]*\{[^}]*\.focus\(/);
   });
 });
