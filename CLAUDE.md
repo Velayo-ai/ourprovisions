@@ -54,14 +54,16 @@ Vercel hosting, Anthropic Claude API.
 - **The shared list is sacred** — no per-user view preference (Hide, filter) ever
   suppresses what's on the shared list. Hide lives in the browse layer only.
 - **SHOP list renders from the RPC**, not from `catalogMap` (the `listRows` pattern).
-- **Ask is on prod's code but OFF** (since 2026-11-12): `REACT_APP_FEATURE_ASK=on` on Vercel
-  Preview + Development only (`src/lib/featureFlags.js`; only the exact string `"on"` is on).
-  Its schema — 077 / 078 / 083 / 084 — is dev-only. A prod bundle must not contain `op-ask:on`.
-- **Do NOT deploy `meal-photo-sweep` to prod** until 084 ships with Ask. main's source includes
-  the item-photos pass, which needs 084's RPCs; prod runs the meal-only version deployed from
-  dev `b0282a6`. (If deployed early, the item pass skips itself on a missing RPC — never tested
-  against prod.) Ship 077 → 084, then the flag, then this function, in that order.
-  The missing-RPC skip is not type-checked; run `deno check` before any deploy.
+- **Ask is LIVE ON PROD** (since 2026-11-16, main `085c9d2`): `REACT_APP_FEATURE_ASK=on` has ONE
+  Vercel entry per environment — Production `DUS4ySH83Bcu1r4L`, Development + Preview
+  `g47gI8SKGQMJlQ6c` (`src/lib/featureFlags.js`; only the exact string `"on"` is on). Toggle an
+  environment by editing its own entry; never merge them. 077 → 086 are on both databases.
+- **Prod rollback is Vercel Instant Rollback to an existing deployment, never a redeploy of an
+  old commit** — a redeploy rebuilds with today's env (the flag would come back on).
+- **`meal-photo-sweep` runs the item-photos pass on prod** (v2 from `085c9d2`, 2026-11-16) but stays
+  a dry run while prod's `SWEEP_LIVE` is unset — turning it live is Dan's call. Run `deno check`
+  before any deploy (the missing-RPC skip is not type-checked); in this repo:
+  `npx -y deno@2 check --node-modules-dir=none index.ts` from the function's folder.
 - **A migration pasted into the SQL editor arrives with CRLF line endings,** so `md5(prosrc)`
   differs from the file. Read back with `md5(replace(prosrc, E'\r', ''))`, or apply through the
   CLI (`supabase db query --linked -f`). (085 on dev, 2026-11-16: `e5fb61d2…` stored, `e1efdee7…` file.)
