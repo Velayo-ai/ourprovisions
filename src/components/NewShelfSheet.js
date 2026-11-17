@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
+import { flushSync, createPortal } from "react-dom";
 import { photoNudge } from "../lib/askManage";
 import {
   askDraftProblem, createAskFailure, findDuplicateAsk, pickLine, cleanAskLabel, askLook, ASK_LOOKS,
@@ -377,7 +377,12 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save ask"}</button>
       </div>
 
-      {/* THE SEARCH VIEW (F2 revised). Always mounted; .open shows it. */}
+      {/* THE SEARCH VIEW (F2 revised). Always mounted; .open shows it. PORTALED TO document.body (Dan's
+          iPhone, IMG_6888): inside .ask-editor-body, an iOS overflow-scrolling container, its fixed box was
+          clipped / out-stacked and the Ask header showed over the input row. As a sibling of .ask-editor
+          with a z-index above it (2100 > 2000) nothing can cover it. Still mounted-but-hidden, so the
+          same-tap flushSync + focus() works through the portal. */}
+      {typeof document !== "undefined" && createPortal(
       <div className={`ask-search${searchOpen ? " open" : ""}`} role="dialog" aria-modal="true" aria-label="Find or add an item"
         aria-hidden={searchOpen ? undefined : true} onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}>
         <div className="ask-search-head">
@@ -434,7 +439,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
             );
           })}
         </div>
-      </div>
+      </div>, document.body)}
       <style>{ASK_FORM_CSS}</style>
     </div>
   );
@@ -453,7 +458,7 @@ const ASK_FORM_CSS = `
 .ask-form-screen .ask-form-shelf { margin-bottom: 16px; }
 .ask-find { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; color: #A08A70; cursor: text; font-family: 'Lato', sans-serif; }
 .ask-find-glass { font-size: 15px; opacity: 0.7; }
-.ask-search { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; background: #FAF4EC; color: #2C1A0E;
+.ask-search { position: fixed; inset: 0; z-index: 2100; touch-action: pan-y; display: flex; flex-direction: column; background: #FAF4EC; color: #2C1A0E;
   padding-top: env(safe-area-inset-top, 0px); visibility: hidden; opacity: 0; transform: translateY(12px);
   transition: opacity 160ms ease-out, transform 160ms ease-out, visibility 0s linear 160ms; }
 .ask-search.open { visibility: visible; opacity: 1; transform: none; transition: opacity 160ms ease-out, transform 160ms ease-out, visibility 0s; }

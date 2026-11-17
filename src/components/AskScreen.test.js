@@ -111,7 +111,9 @@ describe("scrolling while the page lock is active", () => {
     // jsdom has no touch-action; read the screen's own rule instead.
     expect([...document.querySelectorAll("style")].map((el) => el.textContent).join("")).toMatch(/\.ask-editor-body \{[^}]*touch-action: pan-y/);
     // The catalog isn't on the form any more: it is the search view's own list (F2 revised), one scroller there.
-    expect(body.contains(screen.getByTestId("new-shelf-catalog").closest(".ask-search"))).toBe(true);
+    // … portaled to document.body, a sibling of .ask-editor (iOS clips fixed boxes inside a scroller).
+    expect(screen.getByTestId("new-shelf-catalog").closest(".ask-search").parentElement).toBe(document.body);
+    expect(document.querySelector(".ask-editor").contains(document.querySelector(".ask-search"))).toBe(false);
     expect(getComputedStyle(screen.getByTestId("new-shelf-catalog")).overflowY).toBe("auto");
     expect(getComputedStyle(document.querySelector(".ask-form-actions")).position).toBe("sticky");
     const move = new Event("touchmove", { bubbles: true, cancelable: true });

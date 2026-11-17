@@ -633,6 +633,15 @@ describe("the search view (F2 revised)", () => {
     expect(findButton()).toHaveClass("modal-input");
     expect(document.querySelector(".ask-form-shelf input[type=search]")).toBeNull();
   });
+  test("the view is portaled to document.body with a z-index above the Ask screen's, and goes with the form", () => {
+    const r = render(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} />);
+    expect(view().parentElement).toBe(document.body);
+    expect(document.querySelector(".ask-form").contains(view())).toBe(false);
+    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+    expect(css).toMatch(/\.ask-search \{ position: fixed; inset: 0; z-index: 2100;/);
+    r.unmount();
+    expect(view()).toBeNull();                                       // nothing left behind on the body
+  });
   test("closed, the view is hidden from assistive tech and its controls are out of the tab order", () => {
     setup();
     expect(view()).not.toHaveClass("open");
