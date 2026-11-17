@@ -277,6 +277,8 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
               const name = nameById.get(id) || "this item";
               const url = hasPhoto(id) && photoUrl ? photoUrl(id) : null;
               const busy = photoBusy === id;
+              // The thumb (nothing while the signed URL is still coming), one element for both photo tiles.
+              const thumb = url ? <img className="op-replay-block op-photo" src={url} alt="" draggable="false" /> : null;
               return (
                 <div key={id} className="shelf-tile" role="listitem">
                   {hasPhoto(id) && onPhoto ? (
@@ -284,13 +286,13 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
                     // Manage's strip's rule; the old thumb stays under a dimmed "…" while the new one uploads.
                     <button type="button" className="shelf-tile-art shelf-tile-photo" disabled={!!photoBusy}
                       aria-label={`Change the photo of ${name}`} onClick={() => openPhoto(id)}>
-                      {url && <img className="op-replay-block op-photo" src={url} alt="" draggable="false" />}
+                      {thumb}
                       {busy && <span className="shelf-tile-busy" aria-hidden="true">…</span>}
                     </button>
                   ) : hasPhoto(id) ? (
                     // A photo tile without a photo flow: the thumb (an empty box while the signed URL is still coming).
                     <div className="shelf-tile-art shelf-tile-photo" aria-hidden="true">
-                      {url && <img className="op-replay-block op-photo" src={url} alt="" draggable="false" />}
+                      {thumb}
                     </div>
                   ) : onPhoto ? (
                     <button type="button" className="shelf-tile-art shelf-tile-empty" disabled={!!photoBusy}
