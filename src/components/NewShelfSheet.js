@@ -64,10 +64,11 @@ import {
 // in an effect or a timeout. Result rows and the create card's aisles keep the focus (mousedown
 // prevented), so items go on one after another with the keyboard up; return / ✓ only drops the keyboard
 // and you stay; Done blurs and closes, and the form is exactly where it was (it never scrolled). Nothing
-// repositions anything: the view is fixed at inset 0 with the input at the top, already above any
-// keyboard; visualViewport is read only to pad the list's end so its last row can scroll clear of the
-// keyboard. The scroll machinery of F2's first round (field lift, min-height, pin, viewport-driven
-// resizing, settle) is gone (rolled back in 39ccf22).
+// repositions anything: the view is fixed at the top with the input first, already above any keyboard.
+// visualViewport is read only to SIZE the view to the visible height (top stays 0), so the list ends at
+// the keyboard; and a touchmove guard keeps a drag from chaining out of the list (IMG_6891). The scroll
+// machinery of F2's first round (field lift, min-height, pin, viewport-driven moves, settle) is gone
+// (rolled back in 39ccf22).
 //
 // The name is a person's (K3): its input and the name inside any message carry .op-name, which
 // both RUM pipelines exclude in every environment. The failure copy is ours, never the server's
@@ -188,7 +189,8 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 
   // The search view (F2 revised; see the header). Mounted with the form, shown on the button's tap.
   const [searchOpen, setSearchOpen] = useState(false);
-  const [keyboardPad, setKeyboardPad] = useState(0);   // the list's bottom padding for the keyboard, nothing else
+  const [viewHeight, setViewHeight] = useState(null);   // the visible height while a keyboard covers part of the screen
+  const searchView = useRef(null);
   const openSearch = () => {
     flushSync(() => setSearchOpen(true));              // visible now, in this tap …
     searchField.current?.focus({ preventScroll: true });  // … so this focus raises the keyboard on the first tap
@@ -199,14 +201,62 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     setQuery("");
     setCreateFailed(false);
   };
+  // SIZED TO THE VISIBLE AREA (Dan's iPhone, IMG_6891; amends F2 item 7: sizing the view is allowed,
+  // moving or scrolling anything is still not). With the keyboard up the list ran on behind it, so a drag
+  // stopped short of the last rows ("Dill Pickles") and iOS panned the visual viewport instead: the input
+  // row slid off the top and the app showed under the keyboard's bar. While open, the view's height is
+  // visualViewport.height (top stays 0), updated on resize at most once per frame, so the list ends at
+  // the keyboard's top and scrolls to its last row; no bottom padding any more.
   useEffect(() => {
     if (!searchOpen) return undefined;
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     if (!vv) return undefined;
-    const pad = () => setKeyboardPad(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)));
-    pad();
-    vv.addEventListener("resize", pad);
-    return () => vv.removeEventListener("resize", pad);
+    const size = () => setViewHeight(window.innerHeight - vv.height > 1 ? Math.round(vv.height) : null);
+    let frame = null;
+    const onResize = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => { frame = null; size(); });
+    };
+    size();
+    vv.addEventListener("resize", onResize);
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      vv.removeEventListener("resize", onResize);
+      setViewHeight(null);
+    };
+  }, [searchOpen]);
+  // NO DRAG LEAKS OUT OF THE VIEW (same walk). While open, a non-passive touchmove listener on the view
+  // prevents the default unless the touch started inside the list AND the list can scroll in the drag's
+  // direction. So a drag on the input row or the count line, or one that reaches the list's top or end,
+  // has nowhere to chain to: iOS can't pan the viewport with it. Taps are untouched (no touchmove).
+  useEffect(() => {
+    const view = searchView.current;
+    if (!searchOpen || !view) return undefined;
+    let list = null;
+    let lastY = 0;
+    const onStart = (e) => {
+      const t = e.touches && e.touches[0];
+      const inList = e.target && e.target.closest ? e.target.closest(".ask-search-list") : null;
+      list = inList && view.contains(inList) ? inList : null;
+      lastY = t ? t.clientY : 0;
+    };
+    const onMove = (e) => {
+      const t = e.touches && e.touches[0];
+      const y = t ? t.clientY : lastY;
+      const dy = y - lastY;
+      lastY = y;
+      let allowed = false;
+      if (list && e.touches.length === 1) {
+        const max = list.scrollHeight - list.clientHeight;
+        if (dy > 0) allowed = list.scrollTop > 0;                 // finger down: towards the list's top
+        else if (dy < 0) allowed = list.scrollTop < max - 1;      // finger up: towards its end
+        else allowed = max > 1;
+      }
+      if (!allowed && e.cancelable) e.preventDefault();
+    };
+    view.addEventListener("touchstart", onStart, { passive: true });
+    view.addEventListener("touchmove", onMove, { passive: false });
+    return () => { view.removeEventListener("touchstart", onStart); view.removeEventListener("touchmove", onMove); };
   }, [searchOpen]);
   // Rows and aisles keep the focus in the input: mousedown's default is what moves focus (iOS fires it for
   // a tap too); the click still runs.
@@ -383,7 +433,8 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           with a z-index above it (2100 > 2000) nothing can cover it. Still mounted-but-hidden, so the
           same-tap flushSync + focus() works through the portal. */}
       {typeof document !== "undefined" && createPortal(
-      <div className={`ask-search${searchOpen ? " open" : ""}`} role="dialog" aria-modal="true" aria-label="Find or add an item"
+      <div ref={searchView} className={`ask-search${searchOpen ? " open" : ""}`} role="dialog" aria-modal="true" aria-label="Find or add an item"
+        style={searchOpen && viewHeight ? { height: `${viewHeight}px`, bottom: "auto" } : undefined}
         aria-hidden={searchOpen ? undefined : true} onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}>
         <div className="ask-search-head">
           {/* name / enterKeyHint: a non-name-like name so iOS doesn't offer "AutoFill Contact" (Dan's IMG_6884). */}
@@ -401,7 +452,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           </div>
           {addedNames.length > 0 && <div className="ask-search-added">Added: {addedNames.join(", ")}</div>}
         </div>
-        <div data-testid="new-shelf-catalog" className="ask-search-list" style={keyboardPad ? { paddingBottom: `${keyboardPad + 16}px` } : undefined}>
+        <div data-testid="new-shelf-catalog" className="ask-search-list">
           {results.length === 0 && q && onCreateItem ? (
             // F3's card, in Browse's create-card look (dashed card, "Add "<name>"", a hint), with the New
             // item sheet's aisle pills inside it. Browse's own card is a launcher for that sheet, which puts
@@ -469,7 +520,7 @@ const ASK_FORM_CSS = `
 .ask-search-count { flex: none; padding: 0 16px 8px; font: 400 calc(13px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; }
 .ask-search-total { font-weight: 700; letter-spacing: 0.3px; }
 .ask-search-added { margin-top: 2px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-.ask-search-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 0 16px 24px; }
+.ask-search-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 0 16px 8px; }
 .ask-create-card { margin: 10px 0 6px; padding: 12px 14px; border-radius: 10px; border: 1.5px dashed #C9A97A; background: rgba(201,169,122,0.06); }
 .ask-create-line { font: 400 calc(15px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; }
 .ask-create-sub { font: 400 calc(14px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; margin: 2px 0 10px; }

@@ -715,6 +715,100 @@ describe("the search view (F2 revised)", () => {
     fireEvent.click(findButton());
     expect(document.querySelector(".ask-search-count")).toHaveTextContent("Added: Licorice, Apples");
   });
+  test("layout: the input row and the count line are outside the scroller; only the list scrolls and contains its overscroll", () => {
+    setup();
+    const list = screen.getByTestId("new-shelf-catalog");
+    expect(list.contains(input())).toBe(false);
+    expect(list.contains(document.querySelector(".ask-search-count"))).toBe(false);
+    expect([...view().children].map((c) => c.className)).toEqual(["ask-search-head", "ask-search-count", "ask-search-list"]);
+    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+    expect(css).toMatch(/\.ask-search \{[^}]*display: flex; flex-direction: column;[^}]*background: #FAF4EC/);
+    expect(css).toMatch(/\.ask-search-head \{ flex: none;/);
+    expect(css).toMatch(/\.ask-search-count \{ flex: none;/);
+    expect(css).toMatch(/\.ask-search-list \{ flex: 1 1 auto; min-height: 0; overflow-y: auto;[^}]*overscroll-behavior: contain;/);
+  });
+  test("sized to the visible area: open, the view's height follows visualViewport.height (once per frame, top untouched); whole again or closed, it is released", () => {
+    const frames = [];
+    const rafSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { frames.push(cb); return frames.length; });
+    const sets = { resize: new Set() };
+    window.visualViewport = { height: window.innerHeight, offsetTop: 0,
+      addEventListener: (ty, f) => sets[ty] && sets[ty].add(f), removeEventListener: (ty, f) => sets[ty] && sets[ty].delete(f) };
+    const fire = () => [...sets.resize].forEach((f) => f());
+    try {
+      setup();
+      expect(sets.resize.size).toBe(0);                              // nothing listens while closed
+      fireEvent.click(findButton());
+      expect(view().style.height).toBe("");
+      window.visualViewport.height = 500; fire();
+      window.visualViewport.height = 464; fire();                    // two events, one frame
+      expect(frames).toHaveLength(1);
+      expect(view().style.height).toBe("");
+      act(() => { frames.splice(0).forEach((cb) => cb(0)); });
+      expect(view().style.height).toBe("464px");
+      expect(view().style.top).toBe("");                             // top stays 0 (the stylesheet's)
+      expect(screen.getByTestId("new-shelf-catalog").style.paddingBottom).toBe("");
+      window.visualViewport.height = window.innerHeight; fire();
+      act(() => { frames.splice(0).forEach((cb) => cb(0)); });
+      expect(view().style.height).toBe("");
+      window.visualViewport.height = 464; fire();
+      act(() => { frames.splice(0).forEach((cb) => cb(0)); });
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      expect(view().style.height).toBe("");
+      expect(sets.resize.size).toBe(0);
+    } finally { rafSpy.mockRestore(); delete window.visualViewport; }
+  });
+  describe("no drag leaks out of the view", () => {
+    const touch = (type, target, y, n = 1) => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      e.touches = Array.from({ length: n }, () => ({ clientY: y }));
+      target.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    function openWithList({ scrollTop, scrollHeight = 1000, clientHeight = 300 }) {
+      setup();
+      fireEvent.click(findButton());
+      const list = screen.getByTestId("new-shelf-catalog");
+      Object.defineProperty(list, "scrollTop", { configurable: true, value: scrollTop });
+      Object.defineProperty(list, "scrollHeight", { configurable: true, value: scrollHeight });
+      Object.defineProperty(list, "clientHeight", { configurable: true, value: clientHeight });
+      return { list, row: screen.getByRole("button", { name: "Goldfish" }) };
+    }
+    test("a drag that starts on the input row or the count line is prevented", () => {
+      openWithList({ scrollTop: 100 });
+      touch("touchstart", input(), 100);
+      expect(touch("touchmove", input(), 80)).toBe(true);
+      touch("touchstart", document.querySelector(".ask-search-count"), 100);
+      expect(touch("touchmove", document.querySelector(".ask-search-count"), 140)).toBe(true);
+    });
+    test("mid-list, a drag either way scrolls the list (not prevented)", () => {
+      const { row } = openWithList({ scrollTop: 100 });
+      touch("touchstart", row, 300);
+      expect(touch("touchmove", row, 280)).toBe(false);              // finger up: towards the end
+      expect(touch("touchmove", row, 320)).toBe(false);              // finger down: towards the top
+    });
+    test("at the end, a drag further down the list is prevented; back up is not", () => {
+      const end = openWithList({ scrollTop: 700 });                  // 1000 − 300
+      touch("touchstart", end.row, 300);
+      expect(touch("touchmove", end.row, 280)).toBe(true);           // nothing left below: would pan the viewport
+      expect(touch("touchmove", end.row, 320)).toBe(false);
+    });
+    test("at the top, a drag down is prevented; the other way is not; a second finger is prevented", () => {
+      const top = openWithList({ scrollTop: 0 });
+      touch("touchstart", top.row, 300);
+      expect(touch("touchmove", top.row, 340)).toBe(true);
+      expect(touch("touchmove", top.row, 300)).toBe(false);          // back up the other way
+      expect(touch("touchmove", top.row, 280, 2)).toBe(true);        // pinch
+    });
+    test("a short list never scrolls, so every drag on it is prevented; closed, the guard is gone", () => {
+      const { row } = openWithList({ scrollTop: 0, scrollHeight: 300, clientHeight: 300 });
+      touch("touchstart", row, 300);
+      expect(touch("touchmove", row, 280)).toBe(true);
+      expect(touch("touchmove", row, 320)).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      touch("touchstart", row, 300);
+      expect(touch("touchmove", row, 280)).toBe(false);
+    });
+  });
   test("held on the source: the open handler shows the view with flushSync and focuses in the same call; no focus from an effect or a timeout", () => {
     const src = require("fs").readFileSync(require("path").join(__dirname, "NewShelfSheet.js"), "utf8");
     const open = src.slice(src.indexOf("const openSearch = () => {"), src.indexOf("const closeSearch = () => {"));
