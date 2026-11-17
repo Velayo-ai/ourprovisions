@@ -590,6 +590,23 @@ describe("the search field rises above the keyboard (F2)", () => {
     fireEvent.blur(search());
     expect(saveBtn()).not.toBeNull();
   });
+  test("a press that blurs the field: the footer and the hold wait for that press's click, so the tap lands where it was aimed", () => {
+    window.matchMedia = jest.fn(() => ({ matches: false }));
+    setup();
+    const saveBtn = () => screen.queryByRole("button", { name: "Save ask" });
+    fireEvent.focus(search());
+    fireEvent.change(search(), { target: { value: "gold" } });
+    const row = screen.getByRole("button", { name: "Goldfish" });
+    fireEvent.pointerDown(row);
+    fireEvent.blur(search());
+    expect(saveBtn()).toBeNull();                                  // not yet: the press hasn't clicked
+    expect(catalog().style.minHeight).not.toBe("");
+    fireEvent.click(row);                                          // the click lands on the row it was aimed at
+    expect(screen.getByText("The ask · 1 item")).toBeInTheDocument();
+    act(() => { jest.advanceTimersByTime(0); });
+    expect(saveBtn()).not.toBeNull();                              // then the footer returns and the hold lets go
+    expect(catalog().style.minHeight).toBe("");
+  });
   test("reduced motion lifts without the smooth scroll", () => {
     window.matchMedia = jest.fn((q) => ({ matches: /reduce/.test(q) }));
     setup();

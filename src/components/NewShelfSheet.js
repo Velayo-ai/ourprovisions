@@ -89,6 +89,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   const labelField = useRef(null);
   const shelfField = useRef(null);
   const searchField = useRef(null);
+  const pressing = useRef(false);   // a press is in progress (see onSearchBlur)
   const [searchFocus, setSearchFocus] = useState(false);
   const [liftMin, setLiftMin] = useState(0);   // the catalog's min-height while the search field has focus
 
@@ -123,8 +124,41 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     measure();
     const timer = setTimeout(lift, 350);
     if (vv) vv.addEventListener("resize", onResize);
-    return () => { clearTimeout(timer); if (vv) vv.removeEventListener("resize", onResize); };
+    // A press in progress (pointerdown until just after its click): see onSearchBlur.
+    const down = () => { pressing.current = true; };
+    const done = () => { setTimeout(() => { pressing.current = false; }, 0); };
+    document.addEventListener("pointerdown", down, true);
+    document.addEventListener("click", done, true);
+    document.addEventListener("pointercancel", done, true);
+    return () => {
+      clearTimeout(timer);
+      if (vv) vv.removeEventListener("resize", onResize);
+      document.removeEventListener("pointerdown", down, true);
+      document.removeEventListener("click", done, true);
+      document.removeEventListener("pointercancel", done, true);
+    };
   }, [searchFocus]);
+
+  // THE BLUR WAITS FOR THE TAP THAT CAUSED IT (found on dev 2026-11-17: a real click on a result in a
+  // narrowed list missed). A press blurs the field before its click; releasing at once brought the
+  // footer back and let go of the catalog's min-height, the page shrank, the scroller clamped and the
+  // row moved out from under the pointer. So when a press is what blurred it, the release waits until
+  // that press's click has run (or 1 s); a blur with no press (tap out, the keyboard's ✓) releases at
+  // once. A refocus in the meantime keeps it.
+  const onSearchBlur = () => {
+    const release = () => { if (document.activeElement !== searchField.current) setSearchFocus(false); };
+    if (!pressing.current) { release(); return; }
+    let guard = null;
+    const after = () => {
+      window.removeEventListener("click", after, true);
+      window.removeEventListener("pointercancel", after, true);
+      clearTimeout(guard);
+      setTimeout(release, 0);
+    };
+    window.addEventListener("click", after, true);
+    window.addEventListener("pointercancel", after, true);
+    guard = setTimeout(after, 1000);
+  };
 
   const edit = (set) => (value) => { attemptId.current = null; setFailure(null); set(value); };
   const onLabel = (value) => { setServerDup(null); edit(setLabel)(value); };
@@ -359,7 +393,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         <input ref={searchField} className="modal-input ask-form-search" type="search" autoComplete="off" placeholder="Find an item"
           name="ask-item-search" enterKeyHint="search" autoCorrect="off"
           aria-label="Find an item for the ask" value={query} onChange={(e) => onQuery(e.target.value)}
-          onFocus={() => setSearchFocus(true)} onBlur={() => setSearchFocus(false)} />
+          onFocus={() => setSearchFocus(true)} onBlur={onSearchBlur} />
         <div data-testid="new-shelf-catalog" className="ask-form-catalog" style={searchFocus && liftMin ? { minHeight: `${liftMin}px` } : undefined}>
           {results.length === 0 && q && onCreateItem ? (
             // F3's card, in Browse's create-card look (dashed card, "Add "<name>"", a hint), with the New
