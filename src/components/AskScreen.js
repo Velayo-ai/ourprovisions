@@ -1,5 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
-import { flushSync } from "react-dom";
+import { useState, useCallback } from "react";
 import { NewShelfSheet } from "./NewShelfSheet";
 import { AskIcon } from "./AskIcon";
 
@@ -18,43 +17,8 @@ import { AskIcon } from "./AskIcon";
 export function AskScreen({ edit = null, closeButton, onClose, ...form }) {
   const [draft, setDraft] = useState({ label: edit ? edit.label : "", noun: edit ? edit.shelfNoun || "" : "" });
   const onDraftChange = useCallback((d) => setDraft({ label: d.label, noun: d.noun }), []);
-  // THE SCREEN IS THE VISIBLE AREA (SPEC_ask_setup_polish F2, Dan's iPhone walk IMG_6884/6885): with the
-  // keyboard up, iOS panned the whole fixed 100dvh editor by visualViewport.offsetTop on top of our own
-  // scroll, so the header and the search field went off the top and the sticky Save sat on the keyboard.
-  // While the editor is open it follows visualViewport (resize + scroll): with part of the screen covered
-  // its top is offsetTop and its height the visible height, so iOS has nothing to pan; uncovered, it is
-  // back to 100dvh / top 0. Listeners go with the screen.
-  // ONE UPDATE PER FRAME (W5): the viewport's events are coalesced to at most one per animation frame,
-  // committed with flushSync inside that frame so the editor's new box, and the form's re-measured hold
-  // (it gets the box as `viewport`), paint together, never a frame apart.
-  const [visible, setVisible] = useState(null);   // { top, height } while a keyboard covers part of the screen
-  useEffect(() => {
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    if (!vv) return undefined;
-    const apply = () => {
-      const covered = vv.offsetTop > 1 || window.innerHeight - vv.height - vv.offsetTop > 1;
-      const next = covered ? { top: Math.round(vv.offsetTop), height: Math.round(vv.height) } : null;
-      setVisible((prev) => (prev === next || (prev && next && prev.top === next.top && prev.height === next.height) ? prev : next));
-    };
-    let pending = false;
-    let frame = null;
-    const follow = () => {
-      if (pending) return;
-      pending = true;
-      frame = requestAnimationFrame(() => { pending = false; frame = null; flushSync(apply); });
-    };
-    apply();
-    vv.addEventListener("resize", follow);
-    vv.addEventListener("scroll", follow);
-    return () => {
-      if (pending && frame !== null) cancelAnimationFrame(frame);
-      vv.removeEventListener("resize", follow);
-      vv.removeEventListener("scroll", follow);
-    };
-  }, []);
   return (
-    <div className="ask-editor" role="dialog" aria-modal="true" aria-label={edit ? "Edit ask" : "New ask"}
-      style={visible ? { top: `${visible.top}px`, height: `${visible.height}px`, bottom: "auto" } : undefined}>
+    <div className="ask-editor" role="dialog" aria-modal="true" aria-label={edit ? "Edit ask" : "New ask"}>
       <header className="ask-editor-head">
         {closeButton}
         <h2>{edit ? <>Edit Ask <span className="op-name">{edit.label}</span></> : "New ask"}</h2>
@@ -66,7 +30,7 @@ export function AskScreen({ edit = null, closeButton, onClose, ...form }) {
         </span>
       </header>
       <div className="ask-editor-body">
-        <NewShelfSheet {...form} edit={edit} onClose={onClose} closeButton={null} embedded onDraftChange={onDraftChange} viewport={visible} />
+        <NewShelfSheet {...form} edit={edit} onClose={onClose} closeButton={null} embedded onDraftChange={onDraftChange} />
       </div>
       <style>{ASK_EDITOR_CSS}</style>
     </div>

@@ -1,5 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { photoNudge } from "../lib/askManage";
 import {
   askDraftProblem, createAskFailure, findDuplicateAsk, pickLine, cleanAskLabel, askLook, ASK_LOOKS,
@@ -69,7 +68,7 @@ import {
 // onCreateItem(name, rawCategory) → the catalog row ({ id, name, … }) or null on a failure;
 // createCategories: [{ rawName, label, glyph }] for its aisle pills. Without onCreateItem a search with
 // no match says "Nothing in your catalog matches that." as before.
-export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null, embedded = false, onDraftChange = null, onCreateItem = null, createCategories = [], viewport }) {
+export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null, embedded = false, onDraftChange = null, onCreateItem = null, createCategories = [] }) {
   const [label, setLabel] = useState(editing ? editing.label : "");
   const [noun, setNoun] = useState(editing ? editing.shelfNoun || "" : "");
   const [target, setTarget] = useState(editing ? editing.pickTarget : ASK_TARGET_DEFAULT);
@@ -90,201 +89,6 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   const labelField = useRef(null);
   const shelfField = useRef(null);
   const searchField = useRef(null);
-  const pressing = useRef(false);   // a press is in progress (see onSearchBlur)
-  const [searchFocus, setSearchFocus] = useState(false);
-  const [closing, setClosing] = useState(false);   // the field has let go; the keyboard is still on its way down
-  const [rest, setRest] = useState(false);         // after a close: the min-height stays until the query changes
-  const [liftMin, setLiftMin] = useState(0);       // the catalog's min-height (see below)
-  // HELD: while the field has focus or the keyboard is closing, Save stays hidden and the min-height
-  // follows the scroller. After the close the min-height RESTS at its last value (so a short filtered
-  // list can't pull the field down) until the query changes.
-  const held = searchFocus || closing;
-  const closingRef = useRef(null);   // { cleanup } while closing
-  const releasePin = useRef(null);   // the field's screen top just before the release
-  const restTarget = useRef(null);   // the scrollTop to set once a grown resting min-height has rendered
-  const [chrome, setChrome] = useState(null);   // { above, field }: header and field heights, measured at focus
-  const vpRef = useRef(viewport);
-  vpRef.current = viewport;
-
-  // THE SEARCH FIELD RISES (SPEC_ask_setup_polish F2): with the keyboard and iOS's form-assistant bar up,
-  // "Find an item" sat low and only ~2 results showed. On focus, wait for the keyboard (the first
-  // visualViewport resize, else 350 ms), then bring the field to the top of the screen's one scroller
-  // (scroll-margin-top 8px under the header); the results fill the space down to the keyboard. While it
-  // is held the catalog keeps a min-height of the scroller's height less the field, so a narrowed list
-  // can't shrink the page and drop the field back down. The field moves; the results never get a scroll
-  // box of their own (the 11-14 one-scroller rule). Reduced motion: no smooth scroll. On the screen
-  // (AskScreen) the editor follows visualViewport and passes its box down as `viewport` (null when
-  // nothing covers the screen), so the scroller IS the visible area under the header. There the min-height
-  // is DERIVED IN RENDER from that box and the header and field heights measured once at focus, so it
-  // lands in the same DOM update as the editor's new size: no layout read in between, so the browser never
-  // gets a frame with a grown editor over a short page to clamp the scroll on (W5's 1-result case).
-  // Outside the screen it is measured from the visible height.
-  const holdFor = (vp) => {
-    if (!chrome || vp === undefined) return null;
-    const visible = vp ? vp.height : typeof window !== "undefined" ? window.innerHeight : 0;
-    return Math.max(0, Math.round(visible - chrome.above - chrome.field));
-  };
-  useLayoutEffect(() => {
-    if (!searchFocus) return;
-    const field = searchField.current;
-    const scroller = field?.closest?.(".ask-editor-body");
-    const editor = scroller?.closest?.(".ask-editor");
-    if (!field || !scroller || !editor) return;
-    setChrome({ above: Math.round(scroller.getBoundingClientRect().top - editor.getBoundingClientRect().top), field: field.offsetHeight });
-  }, [searchFocus]);
-  const measureHold = () => {
-    const field = searchField.current;
-    if (!field) return;
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    const scroller = field.closest?.(".ask-editor-body");
-    const visible = scroller && scroller.clientHeight ? scroller.clientHeight : vv ? vv.height : window.innerHeight;
-    setLiftMin(Math.max(0, Math.round(visible - field.offsetHeight)));
-  };
-  useLayoutEffect(() => {
-    if (held && viewport === undefined) measureHold();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [held, viewport]);
-  useEffect(() => {
-    if (!searchFocus) return undefined;
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    const field = searchField.current;
-    const reduced = !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    let lifted = false;
-    const lift = () => {
-      if (lifted) return;
-      lifted = true;
-      requestAnimationFrame(() => field?.scrollIntoView?.({ block: "start", behavior: reduced ? "auto" : "smooth" }));
-    };
-    // Outside the screen nothing passes `viewport` down, so the hold re-measures on the viewport itself.
-    const onResize = () => { if (viewport === undefined) requestAnimationFrame(measureHold); lift(); };
-    const timer = setTimeout(lift, 350);
-    if (vv) vv.addEventListener("resize", onResize);
-    // A press in progress (pointerdown until just after its click): see onSearchBlur.
-    const down = () => { pressing.current = true; };
-    const done = () => { setTimeout(() => { pressing.current = false; }, 0); };
-    document.addEventListener("pointerdown", down, true);
-    document.addEventListener("click", done, true);
-    document.addEventListener("pointercancel", done, true);
-    return () => {
-      clearTimeout(timer);
-      if (vv) vv.removeEventListener("resize", onResize);
-      document.removeEventListener("pointerdown", down, true);
-      document.removeEventListener("click", done, true);
-      document.removeEventListener("pointercancel", done, true);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchFocus]);
-
-  // SETTLE, THEN CHANGE ONCE (W5, Dan's iPhone: scroll → tap "Find an item" → ✓ flashed, every time).
-  // Releasing on the blur brought Save back over a still keyboard-sized editor, which then grew under it
-  // for the whole slide, and with a short list the released min-height let the scroller clamp a little
-  // more every frame. Now a blur while the keyboard covers the screen only marks the field CLOSING: Save
-  // stays hidden and the min-height keeps following the growing editor (so nothing clamps) until the
-  // visible area is whole again (`viewport` back to null) or has stopped changing for 120 ms (1 s at
-  // most). Then, in ONE commit, Save comes back and the min-height rests, and scrollTop is set so the
-  // field stays where it is on screen (clamped to the new max). A blur with nothing covering the screen
-  // releases at once, also resting the min-height. A refocus while closing just carries on.
-  // A field's top relative to the screen's editor (the visible area); the viewport's own top outside it.
-  const screenTop = (el) => {
-    if (!el) return null;
-    const editor = el.closest?.(".ask-editor");
-    return el.getBoundingClientRect().top - (editor ? editor.getBoundingClientRect().top : 0);
-  };
-  const covered = () => {
-    if (viewport !== undefined) return !!viewport;
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    return !!vv && (vv.offsetTop > 1 || window.innerHeight - vv.height - vv.offsetTop > 1);
-  };
-  const finishClose = () => {
-    if (!closingRef.current) return;
-    closingRef.current.cleanup();
-    closingRef.current = null;
-    const derived = holdFor(vpRef.current);
-    if (derived != null) setLiftMin(derived);   // the hold the screen had at this moment rests
-    setRest(true);
-    setClosing(false);
-  };
-  const startClose = () => {
-    if (closingRef.current) return;
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    let quiet = null;
-    const settle = () => requestAnimationFrame(() => flushSync(finishClose));
-    const onChange = () => { clearTimeout(quiet); quiet = setTimeout(settle, 120); };
-    const guard = setTimeout(settle, 1000);
-    if (vv) { vv.addEventListener("resize", onChange); vv.addEventListener("scroll", onChange); }
-    quiet = setTimeout(settle, 120);
-    // Where the field is held through the close (nothing moves it while closing), measured from the
-    // editor's top: the editor IS the visible area, so this is its place on screen whatever iOS's pan.
-    releasePin.current = screenTop(searchField.current);
-    closingRef.current = { cleanup: () => {
-      clearTimeout(quiet); clearTimeout(guard);
-      if (vv) { vv.removeEventListener("resize", onChange); vv.removeEventListener("scroll", onChange); }
-    } };
-    setClosing(true);
-  };
-  // The screen whole again: release in the same commit as the editor's return to full height.
-  useLayoutEffect(() => {
-    if (closing && viewport === null) finishClose();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [closing, viewport]);
-  // After the release has rendered (Save back, min-height resting): keep the field where it was on screen.
-  useLayoutEffect(() => {
-    const before = releasePin.current;
-    if (held || before == null) return;
-    releasePin.current = null;
-    const field = searchField.current;
-    const body = field?.closest?.(".ask-editor-body");
-    if (!field || !body) return;
-    const moved = screenTop(field) - before;
-    if (Math.abs(moved) < 0.5) return;
-    const target = Math.max(0, body.scrollTop + moved);
-    const max = Math.max(0, body.scrollHeight - body.clientHeight);
-    // The page is too short to hold the field there (the browser clamped): the resting min-height grows by
-    // the shortfall, and the scroll is set once that has rendered (the effect below), in this same commit.
-    if (target > max + 0.5) { restTarget.current = target; setLiftMin((m) => m + Math.ceil(target - max)); return; }
-    body.scrollTop = target;
-  }, [held]);
-  useLayoutEffect(() => {
-    const target = restTarget.current;
-    if (target == null) return;
-    restTarget.current = null;
-    const body = searchField.current?.closest?.(".ask-editor-body");
-    if (body) body.scrollTop = Math.min(target, Math.max(0, body.scrollHeight - body.clientHeight));
-  }, [liftMin]);
-  useEffect(() => () => { if (closingRef.current) closingRef.current.cleanup(); }, []);
-  const onSearchFocus = () => {
-    if (closingRef.current) { closingRef.current.cleanup(); closingRef.current = null; setClosing(false); }
-    setSearchFocus(true);
-  };
-
-  // THE BLUR WAITS FOR THE TAP THAT CAUSED IT (found on dev 2026-11-17: a real click on a result in a
-  // narrowed list missed). A press blurs the field before its click; releasing at once brought the
-  // footer back and let go of the catalog's min-height, the page shrank, the scroller clamped and the
-  // row moved out from under the pointer. So when a press is what blurred it, the release waits until
-  // that press's click has run (or 1 s); a blur with no press (tap out, the keyboard's ✓) releases at
-  // once. A refocus in the meantime keeps it. Result rows no longer blur at all (they keep the focus);
-  // this stays for every other press that takes it away. Either way the release itself settles first
-  // when the keyboard is up (startClose).
-  const onSearchBlur = () => {
-    const release = () => {
-      if (document.activeElement === searchField.current) return;
-      const keyboardUp = covered();
-      setSearchFocus(false);
-      if (keyboardUp) startClose();
-      else setRest(true);
-    };
-    if (!pressing.current) { release(); return; }
-    let guard = null;
-    const after = () => {
-      window.removeEventListener("click", after, true);
-      window.removeEventListener("pointercancel", after, true);
-      clearTimeout(guard);
-      setTimeout(release, 0);
-    };
-    window.addEventListener("click", after, true);
-    window.addEventListener("pointercancel", after, true);
-    guard = setTimeout(after, 1000);
-  };
 
   const edit = (set) => (value) => { attemptId.current = null; setFailure(null); set(value); };
   const onLabel = (value) => { setServerDup(null); edit(setLabel)(value); };
@@ -340,39 +144,11 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     if (!r || !r.ok) setPhotoFailed(r ? r.reason : "save");
   };
 
-  // THE FIELD HOLDS STILL WHILE TILES COME AND GO (F2 polish, Dan's iPhone walk). A tile row added or
-  // taken away above "Find an item" pushed it down or pulled it up, and iOS Safari has no CSS scroll
-  // anchoring (overflow-anchor). So every shelf change records the field's screen top first, and a
-  // layout effect after it moves the one scroller by the difference before paint. Only while the field
-  // has focus or sits near the top of the scroller: someone up among the tiles (taking one off with its
-  // ×) is left where they are.
-  const pinTop = useRef(null);
-  const recordPin = () => {
-    const field = searchField.current;
-    const body = field?.closest?.(".ask-editor-body");
-    if (!field || !body) return;
-    const top = field.getBoundingClientRect().top;
-    const fromTop = top - body.getBoundingClientRect().top;
-    const near = fromTop >= -field.offsetHeight && fromTop <= PIN_NEAR_TOP;
-    pinTop.current = document.activeElement === field || near ? top : null;
-  };
-  useLayoutEffect(() => {
-    const before = pinTop.current;
-    pinTop.current = null;
-    const field = searchField.current;
-    const body = field?.closest?.(".ask-editor-body");
-    if (before == null || !field || !body) return;
-    const moved = field.getBoundingClientRect().top - before;
-    if (Math.abs(moved) >= 0.5) body.scrollTop += moved;
-  }, [itemIds]);
   // Tiles that weren't there when the form opened fade in (below); the prefilled ones of an edit don't.
   const initialIds = useRef(new Set(itemIds));
 
-  const toggle = (id) => {
-    recordPin();
-    edit(setItemIds)((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= ASK_SHELF_MAX ? prev : [...prev, id]);
-  };
+  const toggle = (id) => edit(setItemIds)((prev) =>
+    prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= ASK_SHELF_MAX ? prev : [...prev, id]);
 
   // CREATE WITHOUT LEAVING THE ASK (SPEC_ask_setup_polish F3, Dan 2026-11-16: save right away). A
   // search with no match offers the typed name and the aisle pills; a tap writes the catalog row at
@@ -390,11 +166,10 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     setCreating(false);
     if (!item || !item.id) { setCreateFailed(true); return; }
     setCreatedNames((prev) => new Map(prev).set(item.id, item.name));
-    recordPin();
     edit(setItemIds)((prev) => (prev.includes(item.id) || prev.length >= ASK_SHELF_MAX ? prev : [...prev, item.id]));
     setQuery("");
   };
-  const onQuery = (value) => { setCreateFailed(false); setRest(false); setQuery(value); };
+  const onQuery = (value) => { setCreateFailed(false); setQuery(value); };
 
   const bringIntoView = (field) => {
     const el = field === "label" ? labelField.current : field === "shelf" ? shelfField.current : null;
@@ -417,11 +192,6 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 
   const targets = [];
   for (let n = ASK_TARGET_MIN; n <= ASK_TARGET_MAX; n++) targets.push(n);
-
-  // The catalog's min-height: derived from the screen's box while held on the screen; else the measured
-  // or resting value.
-  const derivedHold = held ? holdFor(viewport) : null;
-  const catalogMin = derivedHold != null ? derivedHold : (held || rest) && liftMin ? liftMin : 0;
 
   // The footer line: a failed save first, else what the draft still needs (once started).
   const footer = failure
@@ -555,9 +325,8 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
         {/* name / enterKeyHint: a non-name-like name so iOS doesn't offer "AutoFill Contact" (Dan's IMG_6884). */}
         <input ref={searchField} className="modal-input ask-form-search" type="search" autoComplete="off" placeholder="Find an item"
           name="ask-item-search" enterKeyHint="search" autoCorrect="off"
-          aria-label="Find an item for the ask" value={query} onChange={(e) => onQuery(e.target.value)}
-          onFocus={onSearchFocus} onBlur={onSearchBlur} />
-        <div data-testid="new-shelf-catalog" className="ask-form-catalog" style={catalogMin ? { minHeight: `${catalogMin}px` } : undefined}>
+          aria-label="Find an item for the ask" value={query} onChange={(e) => onQuery(e.target.value)} />
+        <div data-testid="new-shelf-catalog" className="ask-form-catalog">
           {results.length === 0 && q && onCreateItem ? (
             // F3's card, in Browse's create-card look (dashed card, "Add "<name>"", a hint), with the New
             // item sheet's aisle pills inside it. Browse's own card is a launcher for that sheet, which puts
@@ -585,7 +354,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
               // A result tap keeps the focus in "Find an item" (F2 polish, Dan's iPhone walk): no blur, so the
               // keyboard stays up, Save stays hidden and the catalog's hold stays, and several items go on in
               // a row. mousedown's default is what moves focus (iOS fires it for a tap too); the click still
-              // runs. Tapping out and the keyboard's ✓ blur as before (onSearchBlur).
+              // runs. Tapping out and the keyboard's ✓ blur as usual.
               <button key={item.id} type="button" aria-pressed={on} onClick={() => toggle(item.id)}
                 onMouseDown={(e) => e.preventDefault()}
                 style={{
@@ -603,11 +372,11 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 
       {/* The footer (.modal-actions): one full-width Save, the message line above it, always on screen.
           No Cancel (2026-11-13): the ✕ closes. */}
-      {!held && <div className="modal-actions ask-form-actions">
+      <div className="modal-actions ask-form-actions">
         {footer}
         <button className="modal-confirm" onClick={save} disabled={!!problem || !!dupName || saving}
           style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save ask"}</button>
-      </div>}
+      </div>
       <style>{ASK_FORM_CSS}</style>
     </div>
   );
@@ -625,16 +394,12 @@ const ASK_FORM_CSS = `
 .ask-form-screen .modal-label { margin-bottom: 8px; }
 .ask-form-screen .ask-form-shelf { margin-bottom: 16px; }
 .ask-form-screen .ask-form-catalog { margin-top: 8px; }
-.ask-form-search { scroll-margin-top: 8px; }
 .ask-create-card { margin: 10px 0 6px; padding: 12px 14px; border-radius: 10px; border: 1.5px dashed #C9A97A; background: rgba(201,169,122,0.06); }
 .ask-create-line { font: 400 calc(15px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; }
 .ask-create-sub { font: 400 calc(14px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8A5F3A; margin: 2px 0 10px; }
 .ask-create-card button:disabled { opacity: 0.5; cursor: default; }
 .ask-form-screen .ask-form-actions { position: sticky; bottom: 0; margin: 0 -24px; padding: 12px 24px calc(16px + env(safe-area-inset-bottom, 0px)); }
 `;
-
-// How far below the scroller's top the search field may sit and still be held still (recordPin).
-const PIN_NEAR_TOP = 160;
 
 // Three across on a phone (~96 px tiles in a ~330 px sheet), more on a wider screen. The art box
 // is square; a photo covers it, the dashed box carries a muted camera. The × is a 32 px target

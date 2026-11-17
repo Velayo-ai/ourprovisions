@@ -1,6 +1,6 @@
 /* eslint-disable testing-library/no-node-access, testing-library/no-container --
    where the name sits (.op-name, never an attribute) is the rule under test, read as raw DOM. */
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { AskScreen } from "./AskScreen";
 import { useScrollLock } from "../hooks/useScrollLock";
 import { ASK_LOOKS, askLook, ASK_TARGET_MAX } from "../lib/askCreate";
@@ -125,64 +125,5 @@ describe("scrolling while the page lock is active", () => {
     unmount();
     render(<AskScreen catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} />);
     expect(document.activeElement).toBe(screen.getByLabelText("Who's picking?"));
-  });
-});
-
-
-// SPEC_ask_setup_polish F2 (iPhone walk IMG_6884/6885): the editor is always exactly the visible area, so
-// iOS has nothing to pan when the keyboard opens.
-describe("the editor follows visualViewport", () => {
-  let rafSpy;
-  beforeEach(() => { rafSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { cb(0); return 1; }); });
-  afterEach(() => { rafSpy.mockRestore(); delete window.visualViewport; });
-  function fakeViewport(height, offsetTop = 0) {
-    const listeners = {};
-    window.visualViewport = { height, offsetTop,
-      addEventListener: (t, f) => { listeners[t] = f; }, removeEventListener: (t) => { delete listeners[t]; } };
-    return listeners;
-  }
-  const editor = () => screen.getByRole("dialog", { name: "New ask" });
-  const mount = () => render(<AskScreen catalogItems={[]} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} />);
-  test("uncovered: 100dvh from top 0 (no inline box); covered: top = offsetTop, height = the visible height; uncovered again: restored; listeners go on close", () => {
-    const listeners = fakeViewport(window.innerHeight);
-    const view = mount();
-    expect(editor().style.top).toBe("");
-    expect(editor().style.height).toBe("");
-    act(() => { window.visualViewport.height = 420; listeners.resize(); });
-    expect(editor().style.top).toBe("0px");
-    expect(editor().style.height).toBe("420px");
-    // (bottom: "auto" rides along for browsers; jsdom's cssstyle drops "auto" for bottom, so it isn't asserted.)
-    act(() => { window.visualViewport.offsetTop = 120; listeners.scroll(); });
-    expect(editor().style.top).toBe("120px");
-    act(() => { window.visualViewport.height = window.innerHeight; window.visualViewport.offsetTop = 0; listeners.resize(); });
-    expect(editor().style.top).toBe("");
-    expect(editor().style.height).toBe("");
-    view.unmount();
-    expect(listeners.resize).toBeUndefined();
-    expect(listeners.scroll).toBeUndefined();
-  });
-});
-
-
-describe("viewport updates are coalesced to one per frame (W5)", () => {
-  afterEach(() => { delete window.visualViewport; });
-  test("several viewport events before a frame make one update, with the latest values", () => {
-    const frames = [];
-    const rafSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { frames.push(cb); return frames.length; });
-    const listeners = {};
-    window.visualViewport = { height: window.innerHeight, offsetTop: 0,
-      addEventListener: (t, f) => { listeners[t] = f; }, removeEventListener: (t) => { delete listeners[t]; } };
-    render(<AskScreen catalogItems={[]} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} />);
-    const editor = () => screen.getByRole("dialog", { name: "New ask" });
-    window.visualViewport.height = 600; listeners.resize();
-    window.visualViewport.height = 500; listeners.resize();
-    window.visualViewport.offsetTop = 80; listeners.scroll();
-    const ours = frames.length;
-    expect(ours).toBeGreaterThanOrEqual(1);
-    expect(editor().style.height).toBe("");                        // nothing until the frame
-    act(() => { frames.splice(0).forEach((cb) => cb(0)); });
-    expect(editor().style.height).toBe("500px");
-    expect(editor().style.top).toBe("80px");
-    rafSpy.mockRestore();
   });
 });
