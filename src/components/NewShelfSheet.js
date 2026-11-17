@@ -516,6 +516,12 @@ const ASK_FORM_CSS = `
   padding-top: env(safe-area-inset-top, 0px); visibility: hidden; opacity: 0; transform: translateY(12px);
   transition: opacity 160ms ease-out, transform 160ms ease-out, visibility 0s linear 160ms; }
 .ask-search.open { visibility: visible; opacity: 1; transform: none; transition: opacity 160ms ease-out, transform 160ms ease-out, visibility 0s; }
+/* THE BACKFILL (Dan's iPhone, IMG_6895). Sized to visualViewport.height, the view ends above the keyboard, but
+   iOS 26's keyboard bar is translucent and floats with a gap, so the Ask form showed through below the list.
+   A cream skirt hangs off the view's bottom edge, a screen tall: whatever the keyboard leaves see-through, or
+   any strip a pan uncovers, shows the view's own cream. Sizing only, nothing moves (F2 item 7 holds); it is
+   part of the view, so the no-leak touchmove guard covers drags on it too. */
+.ask-search::after { content: ""; position: absolute; top: 100%; left: 0; right: 0; height: 100vh; background: #FAF4EC; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .ask-search, .ask-search.open { transition: none; transform: none; } }
 .ask-search-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 12px 16px 8px; }
 .ask-search-head .ask-form-search { flex: 1 1 auto; min-width: 0; margin: 0; }
