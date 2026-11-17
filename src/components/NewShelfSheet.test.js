@@ -685,3 +685,57 @@ describe("create an item from the ask (F3)", () => {
     expect(document.querySelector(".ask-create-card")).toBeNull();
   });
 });
+
+// F2 polish: the search field holds still on screen while tiles are added above it or taken away.
+describe("the field holds still while tiles come and go (F2 polish)", () => {
+  const search = () => screen.getByRole("searchbox", { name: "Find an item for the ask" });
+  let restore = [];
+  afterEach(() => { restore.forEach((f) => f()); restore = []; });
+  // A scroller whose layout moves the field down 100px per tile row (three across), offset by scrollTop.
+  function mountInScroller(fieldStartsAt = 300) {
+    const view = render(<div className="ask-editor-body"><NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null} /></div>);
+    const body = view.container.querySelector(".ask-editor-body");
+    let scrollTop = 0;
+    Object.defineProperty(body, "scrollTop", { configurable: true, get: () => scrollTop, set: (v) => { scrollTop = v; } });
+    body.getBoundingClientRect = () => ({ top: 0, bottom: 800, height: 800 });
+    const field = search();
+    Object.defineProperty(field, "offsetHeight", { configurable: true, value: 38 });
+    field.getBoundingClientRect = () => {
+      const rows = Math.ceil(view.container.querySelectorAll(".shelf-tile").length / 3);
+      const top = fieldStartsAt + rows * 100 - scrollTop;
+      return { top, bottom: top + 38, height: 38 };
+    };
+    return { body, field, view, scroll: () => scrollTop };
+  }
+  test("with focus in the field, adding a tile row moves the scroller by the row, so the field's screen top is unchanged; taking a tile off moves it back", () => {
+    const { field, scroll } = mountInScroller(300);
+    field.focus();
+    const before = field.getBoundingClientRect().top;
+    fireEvent.click(screen.getByRole("button", { name: "Goldfish" }));   // the first row of tiles appears
+    expect(field.getBoundingClientRect().top).toBe(before);
+    expect(scroll()).toBe(100);
+    fireEvent.click(screen.getByRole("button", { name: "Apples" }));     // same row: nothing to move
+    expect(scroll()).toBe(100);
+    fireEvent.click(screen.getByRole("button", { name: "Take Goldfish off the ask" }));
+    fireEvent.click(screen.getByRole("button", { name: "Take Apples off the ask" }));   // the row goes
+    expect(scroll()).toBe(0);
+    expect(field.getBoundingClientRect().top).toBe(before);
+  });
+  test("near the top without focus it holds too; far down (up among the tiles) it is left alone", () => {
+    const near = mountInScroller(120);
+    fireEvent.click(screen.getByRole("button", { name: "Goldfish" }));
+    expect(near.scroll()).toBe(100);
+    near.view.unmount();
+    const far = mountInScroller(600);
+    fireEvent.click(screen.getByRole("button", { name: "Goldfish" }));
+    expect(far.scroll()).toBe(0);
+  });
+  test("only a tile added after the form opened fades in", () => {
+    render(<NewShelfSheet catalogItems={ITEMS} asks={[]} onCreate={jest.fn()} onClose={jest.fn()} closeButton={null}
+      edit={{ id: "a1", label: "Easton", shelfNoun: "", pickTarget: 3, screenStyle: "standard", tiles: [{ id: "i-apples", name: "Apples" }] }} onUpdate={jest.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Goldfish" }));
+    const tiles = screen.getAllByRole("listitem");
+    expect(tiles[0]).not.toHaveClass("shelf-tile-new");   // Apples, prefilled
+    expect(tiles[1]).toHaveClass("shelf-tile-new");       // Goldfish, just added
+  });
+});

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { photoNudge } from "../lib/askManage";
 import {
   askDraftProblem, createAskFailure, findDuplicateAsk, pickLine, cleanAskLabel, askLook, ASK_LOOKS,
@@ -215,8 +215,39 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     if (!r || !r.ok) setPhotoFailed(r ? r.reason : "save");
   };
 
-  const toggle = (id) => edit(setItemIds)((prev) =>
-    prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= ASK_SHELF_MAX ? prev : [...prev, id]);
+  // THE FIELD HOLDS STILL WHILE TILES COME AND GO (F2 polish, Dan's iPhone walk). A tile row added or
+  // taken away above "Find an item" pushed it down or pulled it up, and iOS Safari has no CSS scroll
+  // anchoring (overflow-anchor). So every shelf change records the field's screen top first, and a
+  // layout effect after it moves the one scroller by the difference before paint. Only while the field
+  // has focus or sits near the top of the scroller: someone up among the tiles (taking one off with its
+  // ×) is left where they are.
+  const pinTop = useRef(null);
+  const recordPin = () => {
+    const field = searchField.current;
+    const body = field?.closest?.(".ask-editor-body");
+    if (!field || !body) return;
+    const top = field.getBoundingClientRect().top;
+    const fromTop = top - body.getBoundingClientRect().top;
+    const near = fromTop >= -field.offsetHeight && fromTop <= PIN_NEAR_TOP;
+    pinTop.current = document.activeElement === field || near ? top : null;
+  };
+  useLayoutEffect(() => {
+    const before = pinTop.current;
+    pinTop.current = null;
+    const field = searchField.current;
+    const body = field?.closest?.(".ask-editor-body");
+    if (before == null || !field || !body) return;
+    const moved = field.getBoundingClientRect().top - before;
+    if (Math.abs(moved) >= 0.5) body.scrollTop += moved;
+  }, [itemIds]);
+  // Tiles that weren't there when the form opened fade in (below); the prefilled ones of an edit don't.
+  const initialIds = useRef(new Set(itemIds));
+
+  const toggle = (id) => {
+    recordPin();
+    edit(setItemIds)((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= ASK_SHELF_MAX ? prev : [...prev, id]);
+  };
 
   // CREATE WITHOUT LEAVING THE ASK (SPEC_ask_setup_polish F3, Dan 2026-11-16: save right away). A
   // search with no match offers the typed name and the aisle pills; a tap writes the catalog row at
@@ -234,6 +265,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     setCreating(false);
     if (!item || !item.id) { setCreateFailed(true); return; }
     setCreatedNames((prev) => new Map(prev).set(item.id, item.name));
+    recordPin();
     edit(setItemIds)((prev) => (prev.includes(item.id) || prev.length >= ASK_SHELF_MAX ? prev : [...prev, item.id]));
     setQuery("");
   };
@@ -347,7 +379,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
               // The thumb (nothing while the signed URL is still coming), one element for both photo tiles.
               const thumb = url ? <img className="op-replay-block op-photo" src={url} alt="" draggable="false" /> : null;
               return (
-                <div key={id} className="shelf-tile" role="listitem">
+                <div key={id} className={`shelf-tile${initialIds.current.has(id) ? "" : " shelf-tile-new"}`} role="listitem">
                   {hasPhoto(id) && onPhoto ? (
                     // A photo tile with a photo flow: a tap replaces the photo (SPEC_ask_setup_polish F1) —
                     // Manage's strip's rule; the old thumb stays under a dimmed "…" while the new one uploads.
@@ -471,12 +503,18 @@ const ASK_FORM_CSS = `
 .ask-form-screen .ask-form-actions { position: sticky; bottom: 0; margin: 0 -24px; padding: 12px 24px calc(16px + env(safe-area-inset-bottom, 0px)); }
 `;
 
+// How far below the scroller's top the search field may sit and still be held still (recordPin).
+const PIN_NEAR_TOP = 160;
+
 // Three across on a phone (~96 px tiles in a ~330 px sheet), more on a wider screen. The art box
 // is square; a photo covers it, the dashed box carries a muted camera. The × is a 32 px target
 // riding the top-right corner; the name sits under the art, two lines at most.
 const SHELF_TILES_CSS = `
 .shelf-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px 10px; margin: 2px 0 12px; }
 .shelf-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
+.shelf-tile-new { animation: shelf-tile-in 180ms ease-out; }
+@keyframes shelf-tile-in { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .shelf-tile-new { animation: none; } }
 .shelf-tile-art { width: 100%; aspect-ratio: 1 / 1; border-radius: 14px; overflow: hidden; background: #F3E6CF; display: grid; place-items: center; padding: 0; }
 .shelf-tile-photo { border: 1px solid #E8D5B7; position: relative; }
 button.shelf-tile-photo { cursor: pointer; font-family: inherit; }
