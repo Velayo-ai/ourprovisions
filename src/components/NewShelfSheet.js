@@ -30,8 +30,10 @@ import {
 // phone (~96 px), each the item's household thumb, else a dashed box with a muted camera; the name
 // under it; a small × in the corner takes it off. Tapping a photo-less tile runs Browse's own photo
 // flow (onPhoto → setItemPhoto, the item-photos bucket; the phone's chooser, "Photograph the item,
-// not a person."); tapping a photo tile does nothing. The same grid on Shopper and Explorer, in
-// create and edit. Search and the ✓ list below remain the way to add.
+// not a person."); tapping a photo tile replaces its photo through the same flow (SPEC_ask_setup_polish
+// F1: no Replace / Remove sheet, Manage's strip's rule; the chooser's Cancel undoes a stray tap; the
+// photo is the household's item's, A23, so it changes on every ask and in Browse). The same grid on
+// Shopper and Explorer, in create and edit. Search and the ✓ list below remain the way to add.
 //
 // THE EXPLORER PHOTO NUDGE (S4-7): on Explorer only, under the grid, in muted text: "Explorers
 // pick by picture. Add a photo for {A} and {B}." A hint, never a block: the parent may have a
@@ -245,8 +247,16 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
               const busy = photoBusy === id;
               return (
                 <div key={id} className="shelf-tile" role="listitem">
-                  {hasPhoto(id) ? (
-                    // A photo tile: the thumb (an empty box while the signed URL is still coming); a tap does nothing.
+                  {hasPhoto(id) && onPhoto ? (
+                    // A photo tile with a photo flow: a tap replaces the photo (SPEC_ask_setup_polish F1) —
+                    // Manage's strip's rule; the old thumb stays under a dimmed "…" while the new one uploads.
+                    <button type="button" className="shelf-tile-art shelf-tile-photo" disabled={!!photoBusy}
+                      aria-label={`Change the photo of ${name}`} onClick={() => openPhoto(id)}>
+                      {url && <img className="op-replay-block op-photo" src={url} alt="" draggable="false" />}
+                      {busy && <span className="shelf-tile-busy" aria-hidden="true">…</span>}
+                    </button>
+                  ) : hasPhoto(id) ? (
+                    // A photo tile without a photo flow: the thumb (an empty box while the signed URL is still coming).
                     <div className="shelf-tile-art shelf-tile-photo" aria-hidden="true">
                       {url && <img className="op-replay-block op-photo" src={url} alt="" draggable="false" />}
                     </div>
@@ -335,8 +345,11 @@ const SHELF_TILES_CSS = `
 .shelf-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px 10px; margin: 2px 0 12px; }
 .shelf-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
 .shelf-tile-art { width: 100%; aspect-ratio: 1 / 1; border-radius: 14px; overflow: hidden; background: #F3E6CF; display: grid; place-items: center; padding: 0; }
-.shelf-tile-photo { border: 1px solid #E8D5B7; }
+.shelf-tile-photo { border: 1px solid #E8D5B7; position: relative; }
+button.shelf-tile-photo { cursor: pointer; font-family: inherit; }
+button.shelf-tile-photo:disabled { cursor: default; }
 .shelf-tile-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shelf-tile-busy { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(250,244,236,0.6); color: #2C1A0E; font: 700 22px/1 'Lato', sans-serif; }
 .shelf-tile-empty { border: 1px dashed #C9A97A; cursor: pointer; font-family: inherit; }
 .shelf-tile-empty:disabled { cursor: default; opacity: 0.7; }
 .shelf-tile-camera { font-size: 26px; opacity: 0.45; filter: grayscale(1); }

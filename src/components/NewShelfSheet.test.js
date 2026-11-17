@@ -414,16 +414,16 @@ describe("the Explorer photo nudge (S4-7)", () => {
     // eslint-disable-next-line testing-library/no-node-access
     return { onPhoto, rerender, container: view.container, input: () => view.container.querySelector("input[type=file]") };
   }
-  test("the grid: a photo tile shows the thumb and takes no tap; a photo-less tile is a dashed camera box that opens the photo flow, on Shopper too; × removes; Explorer adds the hint", () => {
+  test("the grid: a photo tile shows the thumb and is a Change button; a photo-less tile is a dashed camera box that opens the photo flow, on Shopper too; × removes; Explorer adds the hint", () => {
     setupPhoto({ photoUrl: (id) => (id === "i-apples" ? "https://x/apples.webp" : null) });
     pick("Goldfish"); pick("Apples"); pick("Yogurt");
     // Shelf order, three tiles; the name under each.
     expect(chips()).toEqual(["Goldfish", "Apples", "Yogurt"]);
-    // Apples has a photo: its thumb, no button, nothing to tap.
+    // Apples has a photo: its thumb, inside a button that replaces it (SPEC_ask_setup_polish F1).
     const apples = screen.getAllByRole("listitem")[1];
     expect(apples.querySelector("img")).toHaveAttribute("src", "https://x/apples.webp");
     expect(apples.querySelector("img")).toHaveClass("op-replay-block");
-    expect(apples.querySelector("button.shelf-tile-art")).toBeNull();
+    expect(apples.querySelector("button.shelf-tile-art.shelf-tile-photo")).toHaveAttribute("aria-label", "Change the photo of Apples");
     // The other two are dashed camera boxes that open the photo flow — on Shopper as well.
     expect(cameras().map((b) => b.getAttribute("aria-label"))).toEqual(["Add a photo of Goldfish", "Add a photo of Yogurt"]);
     expect(cameras()[0]).toHaveClass("shelf-tile-empty");
@@ -460,6 +460,31 @@ describe("the Explorer photo nudge (S4-7)", () => {
     expect(cameras().map((b) => b.getAttribute("aria-label"))).toEqual(["Add a photo of Yogurt"]);
     expect(screen.getAllByRole("listitem")[0].querySelector(".shelf-tile-photo")).not.toBeNull();   // Goldfish, now a photo tile
     expect(hint()).toHaveTextContent("Add a photo for Yogurt.");
+  });
+  test("F1: a tap on a photo tile replaces that item's photo through the same flow, with the old thumb under a dimmed …", async () => {
+    let finish;
+    const onPhoto = jest.fn(() => new Promise((r) => { finish = r; }));
+    const { input } = setupPhoto({ onPhoto, photoUrl: (id) => (id === "i-apples" ? "https://x/apples.webp" : null) });
+    pick("Apples");
+    const tile = screen.getByRole("button", { name: "Change the photo of Apples" });
+    fireEvent.click(tile);
+    const file = new File(["x"], "apples2.jpg", { type: "image/jpeg" });
+    fireEvent.change(input(), { target: { files: [file] } });
+    await waitFor(() => expect(onPhoto).toHaveBeenCalledWith("i-apples", file));
+    expect(tile).toBeDisabled();
+    expect(tile.querySelector("img")).toHaveAttribute("src", "https://x/apples.webp");   // the old photo stays visible
+    expect(tile.querySelector(".shelf-tile-busy")).toHaveTextContent("…");
+    finish({ ok: true });
+    await waitFor(() => expect(tile).toBeEnabled());
+    expect(tile.querySelector(".shelf-tile-busy")).toBeNull();
+  });
+  test("F1: a tap on a photo tile, then Cancel in the chooser, changes nothing", () => {
+    const { onPhoto, input } = setupPhoto();
+    pick("Apples");
+    fireEvent.click(screen.getByRole("button", { name: "Change the photo of Apples" }));
+    fireEvent.change(input(), { target: { files: [] } });
+    expect(onPhoto).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Change the photo of Apples" })).toBeEnabled();
   });
   test("a photo that fails says so in the same muted line", async () => {
     const { input } = setupPhoto({ onPhoto: jest.fn(async () => ({ ok: false, reason: "decode" })) });
