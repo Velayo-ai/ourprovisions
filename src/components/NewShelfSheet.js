@@ -82,6 +82,38 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   const attemptId = useRef(null);
   const labelField = useRef(null);
   const shelfField = useRef(null);
+  const searchField = useRef(null);
+  const [searchFocus, setSearchFocus] = useState(false);
+  const [liftMin, setLiftMin] = useState(0);   // the catalog's min-height while the search field has focus
+
+  // THE SEARCH FIELD RISES (SPEC_ask_setup_polish F2): with the keyboard and iOS's form-assistant bar up,
+  // "Find an item" sat low and only ~2 results showed. On focus, wait for the keyboard (the first
+  // visualViewport resize, else 350 ms), then bring the field to the top of the screen's one scroller
+  // (scroll-margin-top 8px under the header); the results fill the space down to the keyboard. While it
+  // has focus the catalog keeps a min-height of the visible height less the field, so a narrowed list
+  // can't shrink the page and drop the field back down; blur releases it. The field moves; the results
+  // never get a scroll box of their own (the 11-14 one-scroller rule). Reduced motion: no smooth scroll.
+  useEffect(() => {
+    if (!searchFocus) return undefined;
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const field = searchField.current;
+    const measure = () => {
+      const visible = vv ? vv.height : window.innerHeight;
+      setLiftMin(Math.max(0, Math.round(visible - (field ? field.offsetHeight : 0))));
+    };
+    const reduced = !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let lifted = false;
+    const lift = () => {
+      if (lifted) return;
+      lifted = true;
+      requestAnimationFrame(() => field?.scrollIntoView?.({ block: "start", behavior: reduced ? "auto" : "smooth" }));
+    };
+    const onResize = () => { measure(); lift(); };
+    measure();
+    const timer = setTimeout(lift, 350);
+    if (vv) vv.addEventListener("resize", onResize);
+    return () => { clearTimeout(timer); if (vv) vv.removeEventListener("resize", onResize); };
+  }, [searchFocus]);
 
   const edit = (set) => (value) => { attemptId.current = null; setFailure(null); set(value); };
   const onLabel = (value) => { setServerDup(null); edit(setLabel)(value); };
@@ -289,9 +321,10 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           </div>
         )}
         {onPhoto && <input ref={photoInput} type="file" accept="image/*" hidden onChange={pickPhoto} />}
-        <input className="modal-input" type="search" autoComplete="off" placeholder="Find an item"
-          aria-label="Find an item for the ask" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <div data-testid="new-shelf-catalog" className="ask-form-catalog">
+        <input ref={searchField} className="modal-input ask-form-search" type="search" autoComplete="off" placeholder="Find an item"
+          aria-label="Find an item for the ask" value={query} onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setSearchFocus(true)} onBlur={() => setSearchFocus(false)} />
+        <div data-testid="new-shelf-catalog" className="ask-form-catalog" style={searchFocus && liftMin ? { minHeight: `${liftMin}px` } : undefined}>
           {results.length === 0 ? (
             <div className="picker-sub" style={{ margin: "10px 0" }}>Nothing in your catalog matches that.</div>
           ) : results.map((item) => {
@@ -335,6 +368,7 @@ const ASK_FORM_CSS = `
 .ask-form-screen .modal-label { margin-bottom: 8px; }
 .ask-form-screen .ask-form-shelf { margin-bottom: 16px; }
 .ask-form-screen .ask-form-catalog { margin-top: 8px; }
+.ask-form-search { scroll-margin-top: 8px; }
 .ask-form-screen .ask-form-actions { position: sticky; bottom: 0; margin: 0 -24px; padding: 12px 24px calc(16px + env(safe-area-inset-bottom, 0px)); }
 `;
 

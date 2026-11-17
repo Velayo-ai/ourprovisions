@@ -1,7 +1,7 @@
 /* eslint-disable testing-library/no-node-access --
    where a message sits (under the name field, inside the sticky .modal-actions footer) and the
    catalog list's own style are the rules under test, read as raw DOM. */
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { NewShelfSheet } from "./NewShelfSheet";
 
 // + New shelf (SPEC_ask_slice2 C2 + C2.1): one id per draft (K1); a name already in use is caught
@@ -519,5 +519,69 @@ describe("the label guard", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("You already have Ask Easton.");
     expect(nameInput()).toHaveValue("Ask Easton");
     expect(save()).toBeDisabled();
+  });
+});
+
+// SPEC_ask_setup_polish F2: the search field rises to the top of the one scroller once the keyboard
+// is up, and the catalog holds the page tall enough to keep it there while it has focus.
+describe("the search field rises above the keyboard (F2)", () => {
+  const search = () => screen.getByRole("searchbox", { name: "Find an item for the ask" });
+  const catalog = () => screen.getByTestId("new-shelf-catalog");
+  let scrollSpy;
+  let rafSpy;
+  const origMatchMedia = window.matchMedia;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    scrollSpy = jest.fn();
+    Element.prototype.scrollIntoView = scrollSpy;
+    rafSpy = jest.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => { cb(0); return 0; });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    rafSpy.mockRestore();
+    delete Element.prototype.scrollIntoView;
+    window.matchMedia = origMatchMedia;
+    delete window.visualViewport;
+  });
+  test("with no keyboard event, the field lifts to the top after 350 ms, smoothly; the catalog holds the visible height while focused; blur releases it", () => {
+    window.matchMedia = jest.fn(() => ({ matches: false }));
+    setup();
+    fireEvent.focus(search());
+    expect(catalog().style.minHeight).toBe(`${window.innerHeight}px`);   // the field's own height is 0 in jsdom
+    expect(scrollSpy).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(349);
+    expect(scrollSpy).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
+    fireEvent.change(search(), { target: { value: "gold" } });   // typing keeps the hold
+    expect(catalog().style.minHeight).toBe(`${window.innerHeight}px`);
+    fireEvent.blur(search());
+    expect(catalog().style.minHeight).toBe("");
+    jest.advanceTimersByTime(1000);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+  });
+  test("the keyboard's first visualViewport resize lifts it at once and re-measures; only once per focus", () => {
+    window.matchMedia = jest.fn(() => ({ matches: false }));
+    const listeners = {};
+    window.visualViewport = { height: 800, addEventListener: (t, f) => { listeners[t] = f; }, removeEventListener: (t) => { delete listeners[t]; } };
+    setup();
+    fireEvent.focus(search());
+    expect(catalog().style.minHeight).toBe("800px");
+    window.visualViewport.height = 420;
+    act(() => listeners.resize());
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(catalog().style.minHeight).toBe("420px");
+    jest.advanceTimersByTime(400);
+    expect(scrollSpy).toHaveBeenCalledTimes(1);   // the fallback doesn't lift it a second time
+    fireEvent.blur(search());
+    expect(listeners.resize).toBeUndefined();
+  });
+  test("reduced motion lifts without the smooth scroll", () => {
+    window.matchMedia = jest.fn((q) => ({ matches: /reduce/.test(q) }));
+    setup();
+    fireEvent.focus(search());
+    jest.advanceTimersByTime(350);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: "start", behavior: "auto" });
   });
 });
