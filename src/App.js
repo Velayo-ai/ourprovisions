@@ -183,6 +183,9 @@ function CategoryPickerGrid({ categories, selected, onSelect, onNewCategory }) {
 }
 
 const SWIPE_THRESHOLD = 60;
+// How long a tap on Edit or an Ask pill waits for the asks to be read again before opening on what
+// this device already has (SPEC_ask_shelf_sync A1). A read is ~0.2 s; this only bounds a slow one.
+const ASK_OPEN_REFRESH_WAIT_MS = 1200;
 
 // Device-local text-size steps (SPEC_global_text_size: one knob, every surface). Index (0–4)
 // is persisted under the ORIGINAL key op_list_text_size — the key is internal and existing
@@ -5351,7 +5354,7 @@ function ProvisionsApp({ scrollRootRef }) {
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
-    asks, asksLoaded, createAsk, updateAsk, deleteAsk, landAskPicks, itemPhotos, setItemPhoto,
+    asks, asksLoaded, refreshAsks, createAsk, updateAsk, deleteAsk, landAskPicks, itemPhotos, setItemPhoto,
     supabase,
     _supabase,
     _household,
@@ -6923,7 +6926,18 @@ function ProvisionsApp({ scrollRootRef }) {
   // Browse header's "· Edit". View & organize closes first — the two share one overlay layer (Step 0
   // #2). An ask that is gone (deleted elsewhere) closes it.
   const [editAskId, setEditAskId] = useState(null);
-  const openEditAsk = (askId) => { setBrowseFilterOpen(false); setEditAskId(askId); };
+  // OPEN ON A FRESH SHELF (SPEC_ask_shelf_sync A1). The Edit sheet copies its tiles once, when it
+  // mounts, and a run shows the shelf it opened with (A2), so both read the asks again first —
+  // another member may have changed the shelf since this device last looked. The wait is capped:
+  // a slow read opens on what this device already has, as before. A newer open, a tab switch or a
+  // household switch cancels a pending one (askOpenSeqRef), so a late read never opens a stale tap.
+  const askOpenSeqRef = useRef(0);
+  const openAfterAskRefresh = (open) => {
+    const seq = ++askOpenSeqRef.current;
+    Promise.race([refreshAsks(), new Promise((r) => setTimeout(r, ASK_OPEN_REFRESH_WAIT_MS))])
+      .then(() => { if (askOpenSeqRef.current === seq) open(); });
+  };
+  const openEditAsk = (askId) => openAfterAskRefresh(() => { setBrowseFilterOpen(false); setEditAskId(askId); });
   // Delete Ask {Label} (S4-2; Dan 2026-11-10): the trash on the ask's Manage row opens a centred
   // confirmation over Manage; a yes is the plain soft delete, and the ask leaves the rail, Manage
   // and any selected pill.
@@ -6958,7 +6972,7 @@ function ProvisionsApp({ scrollRootRef }) {
   // (2026-11-15: a highlight that waits for her) lives in useLandedHighlight, below the Shop list.
   // "+N more" (C4.2): the asks past the rail's two pills, in a small sheet.
   const [moreAsksOpen, setMoreAsksOpen] = useState(false);
-  useEffect(() => { setAddSheet(null); setNewAskOpen(false); setEditAskId(null); setDeleteAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
+  useEffect(() => { askOpenSeqRef.current++; setAddSheet(null); setNewAskOpen(false); setEditAskId(null); setDeleteAskId(null); setSelectedAsks(new Set()); setRunAskId(null); setMoreAsksOpen(false); }, [view, activeHouseholdId]);
   // A26 resume (SPEC_ask_slice3 S3-6). AskRun keeps op_ask_held current while it is up; any end of
   // the run (Done, Back to the list, a tab or household switch) clears it here. A reload with the
   // key held reopens the run ONCE, on its screen with its picks — after this place's asks and
@@ -6998,7 +7012,7 @@ function ProvisionsApp({ scrollRootRef }) {
   // more" rows and a Browse block's "Hand it to" all come here. Only a hand-over writes "Picked by"
   // (11-04 ruling) and records its time for the rail's order. An Ask pill is never a filter (the
   // pill-as-filter of C3 is retired): selectedAsks is no longer set by anything on screen.
-  const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); setRunAskId(askId); };
+  const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); openAfterAskRefresh(() => setRunAskId(askId)); };
   // The Ask drawn pressed on its pills: the one whose run is open or whose edit sheet is up.
   const activeAskId = runAskId || editAskId || null;
   useScrollLock(!!runAskId || newAskOpen || !!editAskId || browseFilterOpen, scrollRootRef);   // the run and the Ask screen are full screen; View & organize is the one scroller while open
@@ -7177,7 +7191,13 @@ function ProvisionsApp({ scrollRootRef }) {
   }, [asks, selectedAsks, rawCategoryByName]);
   // The ask being run (C3b): its LIVE tiles, in shelf order (the same ones its Browse block shows),
   // and the effective target (S4-5). A run never opens with 0 live tiles.
-  const runAsk = ASK_ENABLED && runAskId ? asks.find(a => a.id === runAskId) || null : null;
+  // A RUN IS FROZEN (SPEC_ask_shelf_sync A2): the run keeps the ask as it was when it opened, so a
+  // refresh mid-run never adds or takes away a tile while a child is choosing. The next run opens on
+  // the fresh shelf. Until this place's asks hold the ask (a resume before the read lands), keep looking.
+  const runFrozenRef = useRef(null);
+  if (!runAskId) runFrozenRef.current = null;
+  else if (runFrozenRef.current?.id !== runAskId) runFrozenRef.current = asks.find(a => a.id === runAskId) || null;
+  const runAsk = ASK_ENABLED && runAskId ? runFrozenRef.current : null;
   const runLive = useMemo(() => (runAsk ? liveTiles(runAsk) : []), [runAsk]);
   // The ask being edited (S4-2): the sheet is prefilled from its LIVE tiles, in shelf order (S4-9).
   const editAsk = useMemo(() => {

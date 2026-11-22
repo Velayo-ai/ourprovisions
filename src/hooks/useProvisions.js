@@ -156,6 +156,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const hiddenIdsRef = useRef(new Set());
   const deletedIdsRef = useRef(new Set());
   const refreshCatalogRef = useRef(() => {});
+  const refreshAsksRef = useRef(() => {});   // refreshAsks (Ask shelf sync A1), for the catalog tick
   // Part 3 (passive-viewer provenance sync). The 2s poll is the only thing
   // that knows the shared list moved, but mealProvenance lives in App.js —
   // this ref is that hook→App channel, the same shape refreshCatalogRef
@@ -1148,7 +1149,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // interval. A missing token does not close the gate: the tick has to
         // reach the wrapper for Clerk to be asked again.
         const listTick = () => { if (!isPollingOpen()) return; loadListItems(db, hh.id); pollActiveCycle(db, hh.id); };
-        const catalogTick = () => { if (!isPollingOpen()) return; refreshCatalogRef.current(); };
+        const catalogTick = () => { if (!isPollingOpen()) return; refreshCatalogRef.current(); refreshAsksRef.current(); };
         pollInterval = setInterval(listTick, 2000);
         catalogPollInterval = setInterval(catalogTick, 20000);
         onlineTick = () => { listTick(); catalogTick(); };
@@ -1466,21 +1467,30 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // label (rules + copy in src/lib/askCreate.js).
   // ─────────────────────────────────────────────────────────────
   const [asks, setAsks] = useState([]);
+  // Reads can overlap now that a background refresh runs (SPEC_ask_shelf_sync A1): a 20 s tick that
+  // started before this device's save must not land after the save's own read and put the old shelf
+  // back. Each read takes a number; one that a later read has already beaten is dropped.
+  const asksReadSeqRef = useRef(0);
+  const asksAppliedSeqRef = useRef(0);
   const fetchAsks = useCallback(async () => {
     if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
     const hhId = hh.id;
+    const seq = ++asksReadSeqRef.current;
     const { data, error: err } = await db
       .from("asks")
       .select("id, household_id, label, shelf_noun, screen_style, pick_target, created_at, ask_shelf_items(catalog_item_id, position, catalog_items(name, category, is_global, household_id, deleted_at))")
       .eq("household_id", hhId)
       .is("deleted_at", null);
     if (householdRef.current?.id !== hhId) return null;   // switched mid-read: not this place's asks
+    if (seq < asksAppliedSeqRef.current) return null;      // a later read already landed
     if (err) { console.warn("[ask] asks read failed (non-fatal):", err.code); emitAskEvent("ask_admin_failed", "read", err); return null; }
+    asksAppliedSeqRef.current = seq;
     const shaped = shapeAsks(data);
-    setAsks(shaped);
+    // An unchanged read keeps the old array, so a 20 s tick that finds nothing new re-renders nothing.
+    setAsks((prev) => (JSON.stringify(prev) === JSON.stringify(shaped) ? prev : shaped));
     setAsksLoadedFor(hhId);
     return shaped;
   }, []);
@@ -1566,22 +1576,27 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // "upload" | "save" }; an upload whose RPC fails leaves orphan objects (the Slice 4 sweep).
   // ─────────────────────────────────────────────────────────────
   const [itemPhotos, setItemPhotos] = useState({});   // catalog_item_id → { id, thumbPath, viewPath }
+  const photosReadSeqRef = useRef(0);      // the asks read's ordering guard, for the photos read
+  const photosAppliedSeqRef = useRef(0);
   const fetchItemPhotos = useCallback(async () => {
     if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
     const hhId = hh.id;
+    const seq = ++photosReadSeqRef.current;
     const { data, error: err } = await db
       .from("household_item_photos")
       .select("id, catalog_item_id, thumb_path, view_path")
       .eq("household_id", hhId)
       .is("deleted_at", null);
     if (householdRef.current?.id !== hhId) return null;
+    if (seq < photosAppliedSeqRef.current) return null;
     if (err) { console.warn("[item photo] read failed (non-fatal):", err.code); return null; }
+    photosAppliedSeqRef.current = seq;
     const byItem = {};
     (data || []).forEach((r) => { byItem[r.catalog_item_id] = { id: r.id, thumbPath: r.thumb_path, viewPath: r.view_path }; });
-    setItemPhotos(byItem);
+    setItemPhotos((prev) => (JSON.stringify(prev) === JSON.stringify(byItem) ? prev : byItem));
     return byItem;
   }, []);
 
@@ -1589,6 +1604,32 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setItemPhotos({});
     if (household?.id) fetchItemPhotos();
   }, [household?.id, fetchItemPhotos]);
+
+  // ─────────────────────────────────────────────────────────────
+  // EVERY PHONE CATCHES UP (SPEC_ask_shelf_sync Part A). Another member's shelf edit reaches this
+  // device through refreshAsks: the asks and the item photos, read again together. It runs on the
+  // catalog tick (20 s, behind isPollingOpen), on coming back to the foreground, and before the Edit
+  // sheet or a run opens (App awaits it, briefly). One refresh at a time: a call while one is in
+  // flight shares it. Polling, not realtime (A4): the Ask tables are not in supabase_realtime.
+  // ─────────────────────────────────────────────────────────────
+  const asksRefreshRef = useRef(null);
+  const refreshAsks = useCallback(() => {
+    if (!ASK_ENABLED) return Promise.resolve();
+    if (asksRefreshRef.current) return asksRefreshRef.current;
+    const p = Promise.all([fetchAsks(), fetchItemPhotos()])
+      .catch(() => {})
+      .finally(() => { if (asksRefreshRef.current === p) asksRefreshRef.current = null; });
+    asksRefreshRef.current = p;
+    return p;
+  }, [fetchAsks, fetchItemPhotos]);
+  refreshAsksRef.current = refreshAsks;
+
+  useEffect(() => {
+    if (!ASK_ENABLED) return undefined;
+    const onVisible = () => { if (document.visibilityState === "visible" && isPollingOpen()) refreshAsks(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshAsks]);
 
   const setItemPhoto = useCallback(async (catalogItemId, file) => {
     if (!ASK_ENABLED) return { ok: false, reason: "save" };   // Ask off (featureFlags): no request to an Ask table or RPC
@@ -4510,7 +4551,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     asksLoaded: !!household?.id && asksLoadedFor === household.id,
     adjustQty, removeItem, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    landAskPicks, asks, fetchAsks, createAsk, updateAsk, deleteAsk, itemPhotos, setItemPhoto,
+    landAskPicks, asks, fetchAsks, refreshAsks, createAsk, updateAsk, deleteAsk, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
