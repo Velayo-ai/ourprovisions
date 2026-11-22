@@ -31,6 +31,7 @@ node ask-run.js                  # Browse → + New shelf (Ask Test) → Hand it
 node step.js <name> <action> …   # ad-hoc: open | click <sel> | clickText <text> | type <sel> <ENV:VAR|text> | press | wait | eval | shot
 node qty-race.js [--legacy]       # 085 V3: two writes at once via PostgREST (pick ∥ ±1 …), 20 rounds a case; --legacy = the lost-update control
 node qty-burst.js                # 085 V5: 10 bursts of 5 fast + / − taps on one Browse row, throttled; screen never backtracks, server agrees
+node version-walk.js [askLabel]  # SPEC_app_version_check pre-walk: stubs asset-manifest.json → notice, ✕, held in a run, offline, a failed fetch, Reload, the dev tag
 node chrome.js stop              # ALWAYS, when the walk is done
 ```
 
