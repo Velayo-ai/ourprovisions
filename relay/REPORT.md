@@ -1,53 +1,50 @@
-Reported: 2026-11-21 23:36 ET · dev 289db56 · main 80cd739 · prompt cbc9d9a · re: BUILD SPEC_app_version_check — Step 0 only
+Reported: 2026-11-22 00:21 ET · dev f66db6a · main 80cd739 · prompt be845aa · re: BUILD SPEC_app_version_check (Step 0 approved)
 
-## App version check, Step 0: no surprises. No service worker, the manifest can't go stale, and the sha is already in the build
+## App version check is on dev: harness pre-walk 20/20 PASS, phone part handed to Dan
 
-**Noted:** Ask shelf sync Part B walked on prod by Dan at 23:23 (V4, V9, V10 pass on `main.4e6c5a9d.js`). Done, and dropped from pending.
-**Spec:** `SPEC_app_version_check.md` pulled from `origin/handoff` (`3d68070`) into `handoff/` (Step 0.5's first bullet). No code, no commits.
+### Built (as approved in Step 0)
+- **V1, `useVersionCheck`** (`src/hooks/useVersionCheck.js`, helpers in `src/lib/versionCheck.js`):
+  - Reads the running `main.*.js` `<script src>` once and compares it with `asset-manifest.json`'s `files["main.js"]`, fetched with `cache: 'no-store'`.
+  - Checks at startup, on `visibilitychange → visible`, and every 10 minutes while visible and online.
+  - A failed fetch changes nothing and sends nothing. A rollback to the running bundle clears the notice. `npm start` (`bundle.js`) never checks.
+- **V2, `VersionNotice`:**
+  - The toast's pill as its own element: no timer, Reload + ✕, in the bottom stack only when `!runAskId && !toastMessage`.
+  - Reload = plain `location.reload()`. ✕ hides it until the next foreground. It never reloads by itself.
+- **V3, `BuildTag`:**
+  - `dev · <sha7>` from `REACT_APP_GIT_SHA`, under the Helm (`left: 28px; bottom: calc(3px + inset)`), `pointer-events: none`, z 901.
+  - Gated on `BUILD_TAG_ON = REACT_APP_DEPLOY_ENV !== "production"`.
+  - A local prod-mode build showed `op-build-tag` 0 and the version check present. That is the check to repeat on the prod bundle at promotion.
+- **Commits, pushed with Dan's approval:**
+  - `c3f9449`: the feature, one scoped commit, 1202 tests.
+  - `a7d5bad`: the pre-walk fix (below), 1204 tests.
+  - `f66db6a`: `tools/harness/version-walk.js` + README line.
+  - Pushed as `289db56..c3f9449` and `c3f9449..f66db6a`. `CI=true` build clean each time. No promotion to main.
 
-### 1. Service worker: none, so a plain `location.reload()` is enough
-- **No service worker, now or ever:**
-  - No `serviceWorker` / Workbox / `caches.` anywhere in `src/`; no `sw.js` or `service-worker.js` in `public/`; `src/index.js` registers nothing.
-  - `git log -S serviceWorker -- src public` is empty, so no installed phone can be holding an old registration from us.
-  - `public/manifest.json` + `apple-mobile-web-app-*` meta only (home-screen install, not offline).
-- **Why phones run old code:** an installed iOS web app resumes the page that's already in memory and doesn't reload it on foreground. HTTP caching isn't the cause (see 2).
-- **What `location.reload()` does:** re-requests `index.html`, which must revalidate, so the ETag check gets the new page naming the new hashed `main.<hash>.js`. That fetches the new immutable bundle.
-- **Proposal:** Reload = plain `location.reload()`. No service worker work.
-- **Offline check-off:** doesn't depend on a service worker. It isn't built yet (`docs/specs/active/SPEC_offline_checkoff.md`, still NEXT). Constraint for that spec: if it ever adds a service worker (for example to launch offline), the version check's Reload must then do `registration.update()` + `skipWaiting` before reloading, or it would serve the cached shell. Worth one line in that spec.
+### Read back on dev
+- `dpl_HmXupCB281N3fNKn4FXH5oeaykoV` (`f66db6a`). The deployment's manifest and `dev.ourprovisions.velayo.ai`'s both name `main.7fca574c.js`.
+- Live bundle: version-check marker `A new version is ready.` ×1; build-tag marker `op-build-tag` ×1; the full sha `f66db6a…` ×1. (The literal `dev · ` reads 0 only because the minifier escapes the middle dot.)
 
-### 2. Caching headers (read tonight with `curl -sI`)
-| | `/` and `/index.html` | `/asset-manifest.json` | `/static/js/main.<hash>.js` |
-|---|---|---|---|
-| prod `ourprovisions.velayo.ai` | `public, max-age=0, must-revalidate` + ETag | `public, max-age=0, must-revalidate` + ETag | `s-maxage=31536000, immutable` |
-| dev `dev.ourprovisions.velayo.ai` | the same | the same | (same build rules) |
-- `vercel.json` sets only `Referrer-Policy`. These are Vercel's defaults for a CRA build.
-- **Edge cache:** prod showed `X-Vercel-Cache: HIT` with Age about 17–20 min, but `Last-Modified` 04:15 UTC is after tonight's deploy. That's consistent with Vercel purging its edge cache on each deployment. The edge copy is current, not stale.
-- **Browser cache:** `max-age=0, must-revalidate` means the browser must revalidate every time. The check will also fetch with `cache: 'no-store'` (V1), which skips the browser cache entirely.
-- **Verdict:** the manifest can't be served stale. No `vercel.json` change needed.
-- **The compare is like-for-like:** the manifest's `files["main.js"]` is `/static/js/main.4e6c5a9d.js`, and `index.html` loads `<script defer src="/static/js/main.4e6c5a9d.js">`. So "what's running" = that script tag's `src`, read once at startup (CRA has no build-time constant for its own hash). Under `npm start` the page runs `bundle.js`, the two match, and no toast shows.
+### Harness pre-walk (the new rule): two signed-in runs as Cody Test on the dev URL, manifest stubbed by request interception
+- **Run 1, on `c3f9449`: 11/14.** It found a real gap. With a new version already known, the notice re-showed on an offline foreground, and **Reload with no connection would leave the installed app on a "no internet" page.**
+  - Fixed in `a7d5bad`: the notice hides while offline and re-checks on reconnect.
+  - A failed fetch still keeps what was known. A transient error doesn't hide a real new version.
+  - The other two "fails" were the walk's own: the "Ask Test" pill sits behind "+2 more", so the run uses "Ask Kid"; and a failed fetch is now tested from a clean state.
+- **Run 2, on `f66db6a`: 20/20 PASS:**
+  - V3 tag shows `dev · f66db6a`; it sits under the Helm (tag top 829 ≥ Helm bottom 826, bottom 841 ≤ 844), `pointer-events: none`, z 901.
+  - V1 same bundle: no notice.
+  - V1 newer manifest + foreground: the notice appears. V2 copy: "A new version is ready." with Reload and ✕.
+  - V2 ✕ hides it; it stays hidden in the same foreground; the next foreground shows it again.
+  - V2 Ask run open (Ask Kid) + foreground: no notice (held). The run closed by its 1 s hold, then the notice appears.
+  - Offline with a newer bundle known: hides. Back online: returns.
+  - From a clean state: offline foreground → no fetch, no notice. A failed (500) manifest fetch → no notice, no app error (only the browser's resource-load line).
+  - V2 Reload reloads the page; the fresh page on the current bundle shows no notice; the tag is still there.
+- **Harness Chrome stopped** (4 processes). Screenshots `tools/harness/out/version-notice.png` and `version-tag.png` (git-ignored).
+- **Not driven by the harness:** the hand-back toast's 10 s wait at a run's end. The App gate `!toastMessage` is pinned by a source test, and the run → notice order passed above.
 
-### 3. The toast, and "an Ask run is open"
-- **Toast:** `showToast(message, action, { ms, line })` (`App.js` ~5927) is **one slot**:
-  - a new toast replaces the current one;
-  - every toast auto-hides on a timer (2.5 s, 4 s with an action, `ms` to override);
-  - there's no dismiss control (the action button clears it).
-  - The hand-back toast is `showToast(<>{Label} added {N}</>, { label: "See", … }, { ms: 10000 })`, fired from `onHandBack` right as the run closes.
-- **Run open:** `runAskId` (App state, ~6954). Non-null while a run is up; set to null by That's it!/Great picks' hand-back, Done/Close, and a tab or household switch.
-- **Proposal:**
-  - The version notice is **its own small element in the toast's style** (same dark pill, Lato, same anchor), not `showToast`. It has to stay until Reload or ✕ (no timer), carry two controls (Reload, ✕), and not be clobbered by, or clobber, a timed toast.
-  - Show it only when `!runAskId && !toastMessage`. So at the end of a run it waits out the 10 s hand-back toast ("{Label} added {N} · See") instead of replacing it, then appears.
-  - ✕ dismisses it for this foreground; the next `visible` (V1) re-checks and may show it again.
+### For Dan's phone (needs eyes or real iOS)
+1. **V1/V2 on the iPhone (installed app):** open dev, note the tag (`dev · f66db6a`), then background the app. Tell me, and I'll push a trivial dev commit (asking first, as always) and say when it's live. Bring the app forward: the notice shows within a few seconds. Tap Reload: the tag shows the new sha.
+2. **The tag's spot:** under the Helm's left end, just above the home indicator (see `version-tag.png`). Approve it or move it.
+3. **Optional:** ✕, background, foreground → it's back; Reload → it's gone.
 
-### Proposals for V3, the dev build tag
-- **The sha needs no new wiring.** `.env.production` (tracked) already maps `REACT_APP_GIT_SHA=$VERCEL_GIT_COMMIT_SHA` (dotenv-expand; Vercel's env wins). `rum.js` already uses it for the RUM version. Both of tonight's bundles carry their full sha (dev `fb97941…`, prod `80cd739…`).
-  - **Least fragile:** reuse `REACT_APP_GIT_SHA` and slice it to 7 characters. It's already proven on every Vercel build, and needs no `vercel.json`, build script or Vercel env entry to drift.
-  - A Vercel env reference (a dashboard variable set to `$VERCEL_GIT_COMMIT_SHA`) would be the most fragile: it lives outside the repo, per environment.
-- **Gate:** `process.env.REACT_APP_DEPLOY_ENV !== "production"`, the same constant as the 11-17 `ASK_SEARCH_DEBUG`. That readout is confirmed absent from tonight's prod bundle and present in dev's, so the minifier drops it. A local build shows `local · <none>`.
-- **Spot:** the band under the Helm. The Helm is a fixed pill, `left/right: 24px`, `bottom: calc(18px + var(--op-inset-bottom))`, 56px tall, z-index 900. The 18px strip under it holds nothing.
-  - Proposal: `dev · fb97941`, 10px Lato at about 40% espresso, `position: fixed; left: 28px; bottom: calc(3px + var(--op-inset-bottom))`, `pointer-events: none`, z-index 901 (above page content, below sheets and the Ask run at 2000, which cover it).
-  - On an iPhone it sits just above the home indicator, under the Helm's left end. It covers no control and can't take a tap. Dan approves the spot on the phone.
-
-### Surprises
-None that change the spec. The one design point is the toast's own element (it outlives a 2.5 s slot and has to avoid the hand-back toast), already covered under 3.
-
-**Ready for BUILD** of `SPEC_app_version_check` on Dan's go. Nothing pending from Ask shelf sync.
+### Note (no change made)
+Splunk RUM auto-instruments `fetch`, so each manifest check is a RUM fetch span (startup, every foreground, every 10 minutes while open). The fix would be `ignoreUrls: [/asset-manifest\.json/]` in `rum.js`, outside this spec. Dan's call.
