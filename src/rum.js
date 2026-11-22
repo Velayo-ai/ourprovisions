@@ -323,6 +323,10 @@ if (rumToken) {
     instrumentations: {
       frustrationSignals: { deadClick: true, errorClick: true },
     },
+    // SPEC_app_version_check (Dan, 2026-11-22): the version check fetches /asset-manifest.json at
+    // startup, on every foreground and every 10 minutes while open. Housekeeping, not a user action:
+    // no fetch span for it, in either environment.
+    ignoreUrls: [/asset-manifest\.json/],
     // D5: see scrubUrlAttributes above. Never throws into the agent.
     exporter: {
       onAttributesSerializing: (attributes) => {

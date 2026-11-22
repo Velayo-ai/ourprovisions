@@ -18,6 +18,9 @@ import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
 import { EditItemCategoryField } from './components/EditItemCategoryField';
 import { AskScreen } from './components/AskScreen';
 import { AskRun } from './components/AskRun';
+import { VersionNotice } from './components/VersionNotice';
+import { BuildTag, BUILD_TAG_ON } from './components/BuildTag';
+import { useVersionCheck } from './hooks/useVersionCheck';
 import { ShelfPhotoStrip } from './components/ShelfPhotoStrip';
 import { manageRow, shelfNote, saveOutcome } from './lib/askManage';
 import { askBlocks, categoryPartShown, browseFilterCount as countBrowseFilters, browseFilterDescriptor as describeBrowseFilters } from './lib/askBrowse';
@@ -5924,6 +5927,9 @@ function ProvisionsApp({ scrollRootRef }) {
   // no-use-before-define into a build failure.
   const [toastMessage, setToastMessage] = useState(null);
   const toastTimerRef = useRef(null);
+  // A new version deployed while this page was open (SPEC_app_version_check V1, V2): its own notice in
+  // the bottom stack, held while an Ask run is open or a toast is up (rendered below).
+  const versionCheck = useVersionCheck();
   const showToast = useCallback((message, action = null, opts = {}) => {
     setToastMessage({ text: message, action, line: !!opts.line });
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -8959,6 +8965,8 @@ function ProvisionsApp({ scrollRootRef }) {
           Adding another bottom-centred surface? Put it in here. Do not give it
           its own `position: fixed; bottom: …` — that is exactly how this bug
           got in. */}
+      {/* Dev only: which build this is (SPEC_app_version_check V3), under the Helm. Out of the prod bundle. */}
+      {BUILD_TAG_ON && <BuildTag />}
       <div className="bottom-stack" style={{
         position: "fixed", left: "50%", transform: "translateX(-50%)",
         zIndex: 2000, display: "flex", flexDirection: "column", alignItems: "center",
@@ -9031,6 +9039,13 @@ function ProvisionsApp({ scrollRootRef }) {
               >{toastMessage.action.label}</button>
             )}
           </div>
+        )}
+
+        {/* "A new version is ready." · Reload · ✕ (SPEC_app_version_check V2). Never during an Ask run (it
+            waits for That's it! / Done) and never over another toast (at a run's end it waits out the
+            hand-back toast). No timer: it stays until Reload or ✕. */}
+        {versionCheck.show && !runAskId && !toastMessage && (
+          <VersionNotice onReload={versionCheck.reload} onDismiss={versionCheck.dismiss} />
         )}
 
         {/* "✓ {item} checked · Undo" (2026-11-07) — one per checked row, newest at

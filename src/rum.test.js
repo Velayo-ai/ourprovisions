@@ -292,3 +292,16 @@ describe("scrubUrlAttributes", () => {
     expect(scrubUrlAttributes(clean)).toBe(clean);
   });
 });
+
+describe("the version check's manifest fetch is not traced (SPEC_app_version_check, 2026-11-22)", () => {
+  test("ignoreUrls drops /asset-manifest.json in both environments, and nothing else", () => {
+    for (const env of ["production", "preview"]) {
+      const { web } = initWith(env);
+      expect(web.ignoreUrls).toHaveLength(1);
+      const [re] = web.ignoreUrls;
+      expect(re.test("https://ourprovisions.velayo.ai/asset-manifest.json")).toBe(true);
+      expect(re.test("https://parpauldmbetptkmdwbd.supabase.co/rest/v1/rpc/edit_ask")).toBe(false);
+      expect(re.test("https://ourprovisions.velayo.ai/manifest.json")).toBe(false);
+    }
+  });
+});
