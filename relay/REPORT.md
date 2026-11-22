@@ -1,22 +1,20 @@
-Reported: 2026-11-21 23:27 ET · dev a95b1e8 · main 80cd739 · prompt 349a497 · re: Velayo OS ruling — prompts travel by origin/handoff ("take prompt")
+Reported: 2026-11-21 23:31 ET · dev 289db56 · main 80cd739 · prompt f58574b · re: harness pre-walk rule + leftover branch cleanup
 
-## Take prompt: the rule is in CLAUDE.md and on dev
+## Harness pre-walk rule is on dev; the two fix branches were already gone
 
-- **Taken:** `handoff/PROMPT.md` from `origin/handoff`, last touched by `349a497` ("prompt: take-prompt setup (Velayo OS)"). Its precondition held: the 087 prod rollout had been reported (relay `2e48592`) before this started.
-- **CLAUDE.md:**
-  - New section `## TAKE PROMPT — run the design chat's latest prompt`, after BUILD, as written in the prompt:
-    - fetch and read `PROMPT.md` without merging or checking out the branch;
-    - note the sha of its last commit;
-    - one-shot: "Already taken: <sha> — <first line>" if it matches the last relay header;
-    - otherwise show the `Prompt:` line and carry it out under every existing rule (asks before pushes, prod writes and SESSION END steps; a prompt approves nothing and never starts SESSION END);
-    - stop if the file is missing;
-    - relay header gets `· prompt <sha>`.
-  - Tagged "Ruled 2026-11-21 [Velayo OS]".
-  - The Git discipline design-chat rule now reads "`SPEC_*.md` and `PROMPT.md` mid-session (ordinary commits on top)".
-- **Commit:** `a95b1e8` "docs: CLAUDE.md — take prompt via origin/handoff (2026-11-21 [Velayo OS])". CLAUDE.md only.
-- **Push:** `origin/dev..dev` was `a95b1e8` alone. Dan approved, and it was pushed as `fb97941..a95b1e8`. Main is unchanged at `80cd739` (prod).
+### 1. Pre-walk with the harness (CLAUDE.md)
+- **Rule:** added under BUILD Step 5 as written in the prompt, tagged "Ruled 2026-11-21 [Velayo OS]".
+  - Before handing Dan a walk, run every step `tools/harness/` can drive (two sessions on the dev URL: saves, reads, landings, error codes, read-backs).
+  - Report each as PASS/FAIL in the walk hand-off.
+  - Dan's phone walk covers only what needs eyes or real iOS.
+  - A failing harness step gets fixed before the walk is handed over.
+- **Commit:** `289db56` "docs: CLAUDE.md — harness pre-walks (2026-11-21 [Velayo OS])". CLAUDE.md only, LF.
+- **Push:** `origin/dev..dev` was `289db56` alone. Dan approved, and it was pushed as `a95b1e8..289db56`. Main is unchanged at `80cd739` (prod).
 
-### Also seen on origin/handoff, not acted on
-- `3d68070` "spec: SPEC_app_version_check.md — new-version toast (dev+prod) and dev build tag". It is not in the airlock yet. Per CLAUDE.md, BUILD or Step 0.5 pulls it in.
+### 2. Branch cleanup: nothing to delete
+- After `git fetch --prune origin`, neither `fix/ask-search-backfill` nor `fix/ask-search-no-contact-autofill` exists on origin. `git ls-remote --heads origin` lists only `dev`, `handoff`, `main`, `relay`. There are no local branches by those names either.
+- **Not done:** no `rev-list` count, and no `git push --delete` (nothing to delete).
+- **Approval note:** under the TAKE PROMPT rule a prompt can't approve on Dan's behalf, and a branch delete is a push. Had they existed, I would have asked Dan first despite the prompt's "needs no extra approval".
+- **`gh`:** still not on PATH in this shell, so the prompt's "open a fresh terminal" applies. It wasn't needed here (git alone answers this).
 
 **Still pending:** Dan's prod walk of Ask shelf sync Part B (prod `80cd739` / `main.4e6c5a9d.js`).
