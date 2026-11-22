@@ -85,7 +85,11 @@ import {
 // onCreateItem(name, rawCategory) → the catalog row ({ id, name, … }) or null on a failure;
 // createCategories: [{ rawName, label, glyph }] for its aisle pills. Without onCreateItem a search with
 // no match says "Nothing in your catalog matches that." as before.
-export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null, embedded = false, onDraftChange = null, onCreateItem = null, createCategories = [] }) {
+// removed (an edit only; SPEC_ask_shelf_sync, Dan 2026-11-21): another member deleted this ask while the
+// sheet was open. The sheet stays, never closing on its own: one line, "{First} removed this ask.", an OK
+// that closes it, and Save disabled. { by } is the remover's first name, or null when it isn't known —
+// asks records no deleter yet, so the line is "This ask was removed." until it does.
+export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null, embedded = false, onDraftChange = null, onCreateItem = null, createCategories = [], removed = null }) {
   const [label, setLabel] = useState(editing ? editing.label : "");
   const [noun, setNoun] = useState(editing ? editing.shelfNoun || "" : "");
   const [target, setTarget] = useState(editing ? editing.pickTarget : ASK_TARGET_DEFAULT);
@@ -300,7 +304,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   };
 
   const save = async () => {
-    if (problem || dupName || saving) return;
+    if (removed || problem || dupName || saving) return;
     if (!editing && !attemptId.current) attemptId.current = crypto.randomUUID();
     setSaving(true);
     setFailure(null);
@@ -316,8 +320,14 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   const targets = [];
   for (let n = ASK_TARGET_MIN; n <= ASK_TARGET_MAX; n++) targets.push(n);
 
-  // The footer line: a failed save first, else what the draft still needs (once started).
-  const footer = failure
+  // The footer line: the ask removed elsewhere first, then a failed save, else what the draft still
+  // needs (once started). The remover's name is a person's (K3): in .op-name, never in an attribute.
+  const footer = removed
+    ? <div className="ask-removed" role="alert">
+        <span>{removed.by ? <><span className="op-name">{removed.by}</span> removed this ask.</> : "This ask was removed."}</span>
+        <button type="button" className="modal-cancel" onClick={onClose}>OK</button>
+      </div>
+    : failure
     ? <div className={`modal-error${failure.hasName ? " op-name" : ""}`} role="alert" style={{ flexBasis: "100%", margin: 0 }}>{failure.message}</div>
     : problem && touched && !dupName && problem !== ASK_SIMPLE_CAP_MESSAGE
       ? <div className="picker-sub" style={{ flexBasis: "100%", margin: 0 }}>{problem}</div>
@@ -454,8 +464,8 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
           No Cancel (2026-11-13): the ✕ closes. */}
       <div className="modal-actions ask-form-actions">
         {footer}
-        <button className="modal-confirm" onClick={save} disabled={!!problem || !!dupName || saving}
-          style={{ opacity: problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save ask"}</button>
+        <button className="modal-confirm" onClick={save} disabled={!!removed || !!problem || !!dupName || saving}
+          style={{ opacity: removed || problem || dupName || saving ? 0.5 : 1 }}>{saving ? "Saving…" : "Save ask"}</button>
       </div>
 
       {/* THE SEARCH VIEW (F2 revised). Always mounted; .open shows it. PORTALED TO document.body (Dan's
@@ -537,6 +547,9 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
 const ASK_FORM_CSS = `
 .ask-form-actions { flex-direction: column; align-items: stretch; gap: 8px; }
 .ask-form-actions .modal-confirm { width: 100%; }
+/* Removed elsewhere: the line and its OK on one row above the disabled Save. */
+.ask-removed { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #8A5F3A; font-weight: 700; }
+.ask-removed .modal-cancel { flex: none; min-height: 44px; }
 .ask-form-screen .modal-field { margin: 0 0 32px; }
 .ask-form-screen .modal-label { margin-bottom: 8px; }
 .ask-form-screen .ask-form-shelf { margin-bottom: 16px; }

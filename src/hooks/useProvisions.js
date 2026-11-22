@@ -1472,6 +1472,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // back. Each read takes a number; one that a later read has already beaten is dropped.
   const asksReadSeqRef = useRef(0);
   const asksAppliedSeqRef = useRef(0);
+  const asksReadFailingRef = useRef(false);   // the last applied-or-failed read failed: the event is sent
   const fetchAsks = useCallback(async () => {
     if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
@@ -1486,7 +1487,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       .is("deleted_at", null);
     if (householdRef.current?.id !== hhId) return null;   // switched mid-read: not this place's asks
     if (seq < asksAppliedSeqRef.current) return null;      // a later read already landed
-    if (err) { console.warn("[ask] asks read failed (non-fatal):", err.code); emitAskEvent("ask_admin_failed", "read", err); return null; }
+    if (err) {
+      console.warn("[ask] asks read failed (non-fatal):", err.code);
+      // Once per run of failures (Dan 2026-11-21): the 20 s tick would otherwise send one every tick.
+      if (!asksReadFailingRef.current) emitAskEvent("ask_admin_failed", "read", err);
+      asksReadFailingRef.current = true;
+      return null;
+    }
+    asksReadFailingRef.current = false;   // a success re-arms the event
     asksAppliedSeqRef.current = seq;
     const shaped = shapeAsks(data);
     // An unchanged read keeps the old array, so a 20 s tick that finds nothing new re-renders nothing.

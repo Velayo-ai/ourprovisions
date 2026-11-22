@@ -6957,8 +6957,11 @@ function ProvisionsApp({ scrollRootRef }) {
     setDeleteAskId(null);
     setSelectedAsks(prev => { if (!prev.has(gone)) return prev; const n = new Set(prev); n.delete(gone); return n; });
   };
+  // An ask that is gone when the sheet would open closes it. Once the sheet has shown the ask, it never
+  // closes on its own: deleted elsewhere mid-edit, it stays up with "removed" (editAskLastRef, below).
+  const editAskLastRef = useRef(null);
   useEffect(() => {
-    if (editAskId && !asks.some(a => a.id === editAskId)) setEditAskId(null);
+    if (editAskId && !editAskLastRef.current && !asks.some(a => a.id === editAskId)) setEditAskId(null);
   }, [asks, editAskId]);
   // Selected ask pills (C3, K5): ask ids, never mixed into selectedCategories. Ephemeral like the
   // category pills: a tab or household switch clears them.
@@ -7200,10 +7203,16 @@ function ProvisionsApp({ scrollRootRef }) {
   const runAsk = ASK_ENABLED && runAskId ? runFrozenRef.current : null;
   const runLive = useMemo(() => (runAsk ? liveTiles(runAsk) : []), [runAsk]);
   // The ask being edited (S4-2): the sheet is prefilled from its LIVE tiles, in shelf order (S4-9).
-  const editAsk = useMemo(() => {
+  const editAskLive = useMemo(() => {
     const a = editAskId ? asks.find(x => x.id === editAskId) || null : null;
     return a ? { ...a, tiles: liveTiles(a) } : null;
   }, [asks, editAskId]);
+  // Deleted by another member while the sheet is open (Dan 2026-11-21): the sheet keeps the ask it had
+  // and says so, Save disabled, until OK or ✕. asks records no deleter, so the line carries no name yet.
+  if (editAskLastRef.current && editAskLastRef.current.id !== editAskId) editAskLastRef.current = null;
+  if (editAskLive) editAskLastRef.current = editAskLive;
+  const editAsk = editAskLive || editAskLastRef.current;
+  const editAskRemoved = !!editAsk && !editAskLive;
 
   // Shelf photos (C3b.2, A23): one per household item, signed only for the tiles on screen — the
   // selected asks' strips in Browse and the run's tiles. Thumbnails only (≈480 px covers a tile);
@@ -12698,6 +12707,7 @@ function ProvisionsApp({ scrollRootRef }) {
           <AskScreen
             key={editAsk ? editAsk.id : "new"}
             edit={editAsk}
+            removed={editAskRemoved ? { by: null } : null}
             catalogItems={shelfCatalogItems}
             asks={asks}
             photoIds={itemPhotoIds}
