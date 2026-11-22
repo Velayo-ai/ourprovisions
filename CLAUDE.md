@@ -144,6 +144,13 @@ commits — if the spec carves out follow-on work, do NOT bundle it. Respect the
 Commit + push dev, then verify on dev.ourprovisions.velayo.ai — NOT localhost.
 Local edits don't reach the deployed domain. Report what you verified.
 
+**Pre-walk with the harness.** Before handing me a walk, run every step the harness
+in `tools/harness/` can drive (two sessions on the dev URL: saves, reads, landings,
+error codes, read-backs) and report each as PASS/FAIL in the walk hand-off. My phone
+walk then covers only what needs eyes or real iOS: layout, keyboard, gestures, timing
+I can see. If a harness step fails, fix it before handing over the walk. (Ruled
+2026-11-21 [Velayo OS].)
+
 ### Step 6 — Stop at dev unless told otherwise
 Do NOT merge dev->main as part of BUILD. The dev->main gate is a separate,
 explicit step I trigger once I've verified the deployed preview.
