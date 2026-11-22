@@ -162,3 +162,53 @@ test("shelfCatalog — Browse's catalog plus the editor's hidden items, once eac
   expect(shelfCatalog(map, null).map((i) => i.id)).toEqual(["a", "b"]);
   expect(shelfCatalog(null, hidden).map((i) => i.id)).toEqual(["h", "a"]);
 });
+
+// ── 087 edit_ask: the delta save (SPEC_ask_shelf_sync B3, B4) ──────────────────────────────────
+describe("the delta save (087 edit_ask)", () => {
+  const { NO_PENDING, mergeShelf, togglePending, editAskArgs, createAskFailure: failure } = require("./askCreate");
+  const SERVER = ["a", "b", "c"];
+
+  test("mergeShelf: the server's shelf − removes + adds, adds at the end in order, no repeats", () => {
+    expect(mergeShelf(SERVER, NO_PENDING)).toEqual(["a", "b", "c"]);
+    expect(mergeShelf(SERVER, { adds: ["e", "d"], removes: ["b"] })).toEqual(["a", "c", "e", "d"]);
+    // Another member added "d" first: it shows once, at the server's place.
+    expect(mergeShelf([...SERVER, "d"], { adds: ["d"], removes: [] })).toEqual(["a", "b", "c", "d"]);
+    // Another member removed "a" the editor had already removed: still gone.
+    expect(mergeShelf(["b", "c"], { adds: [], removes: ["a"] })).toEqual(["b", "c"]);
+  });
+
+  test("togglePending: off removes (or un-adds), on adds (or un-removes); never both", () => {
+    let p = togglePending(NO_PENDING, SERVER, "b");          // a server tile off
+    expect(p).toEqual({ adds: [], removes: ["b"] });
+    p = togglePending(p, SERVER, "b");                       // back on: un-removed, not added
+    expect(p).toEqual({ adds: [], removes: [] });
+    p = togglePending(p, SERVER, "d");                       // a new item on
+    expect(p).toEqual({ adds: ["d"], removes: [] });
+    p = togglePending(p, SERVER, "d");                       // and off again: un-added
+    expect(p).toEqual({ adds: [], removes: [] });
+    // An item the editor added that another member also added: off means remove it.
+    p = togglePending({ adds: ["d"], removes: [] }, [...SERVER, "d"], "d");
+    expect(p).toEqual({ adds: [], removes: ["d"] });
+  });
+
+  test("togglePending respects the shelf cap", () => {
+    const full = Array.from({ length: 48 }, (_, i) => `t${i}`);
+    expect(togglePending(NO_PENDING, full, "new")).toBe(NO_PENDING);
+  });
+
+  test("editAskArgs: the delta, and only the scalars sent; a noun of '' clears it", () => {
+    expect(editAskArgs("hh", "ask", { add: ["d"], remove: ["b"] })).toEqual({
+      p_household_id: "hh", p_ask_id: "ask", p_add_ids: ["d"], p_remove_ids: ["b"],
+    });
+    expect(editAskArgs("hh", "ask", { add: [], remove: [], label: "  Eastie ", noun: "", target: 3, style: "simple" })).toEqual({
+      p_household_id: "hh", p_ask_id: "ask", p_add_ids: [], p_remove_ids: [],
+      p_label: "Eastie", p_shelf_noun: "", p_pick_target: 3, p_screen_style: "simple",
+    });
+    expect(editAskArgs("hh", "ask")).toEqual({ p_household_id: "hh", p_ask_id: "ask", p_add_ids: [], p_remove_ids: [] });
+  });
+
+  test("P0409 reads as B5's line, never the server's message", () => {
+    expect(failure("P0409", { label: "Easton", target: 2, itemIds: ["a"] }))
+      .toEqual({ message: "Someone else just changed this shelf. Check it and save again.", hasName: false, field: "shelf" });
+  });
+});

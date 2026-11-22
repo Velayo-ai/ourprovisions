@@ -61,6 +61,18 @@ export function asksAfterCatalogDelete(asks, catalogItemId, at) {
   });
 }
 
+// B7 / B9.3 (087): picks that couldn't land because their item is gone (deleted, or not this place's).
+// landedAny: some picks did land (Great picks shows, with this line under it); otherwise nothing landed
+// and the run stays open with the dead tiles gone. names: the skipped items' names; empty when they
+// couldn't be read, which says it without names. Item names, not people's: no .op-name.
+export function goneLine(names, landedAny) {
+  const n = (names || []).filter(Boolean);
+  const rest = landedAny ? " The rest are on the list." : "";
+  if (n.length === 0) return `Some picks aren't available any more.${rest}`;
+  const who = n.length === 1 ? n[0] : `${n.slice(0, -1).join(", ")} and ${n[n.length - 1]}`;
+  return `${who} ${n.length === 1 ? "isn't" : "aren't"} available any more.${rest}`;
+}
+
 // What the run asks for: the target, or the live tiles when there are fewer (S4-5). 0 = the ask
 // can't run today; nothing offers it.
 export function effectiveTarget(ask, tiles) {

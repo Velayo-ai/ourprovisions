@@ -5354,7 +5354,7 @@ function ProvisionsApp({ scrollRootRef }) {
     updateHouseholdBanner,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings, cookIdsByMeal,
     giveMeal, copyGiftPhoto, revokeMealGifts, fetchMealGifts, previewMealGift, recordMealGiftReceipt, acceptGiftPhoto,
-    asks, asksLoaded, refreshAsks, createAsk, updateAsk, deleteAsk, landAskPicks, itemPhotos, setItemPhoto,
+    asks, asksLoaded, refreshAsks, createAsk, updateAsk, deleteAsk, fetchAskDeleter, landAskPicks, itemPhotos, setItemPhoto,
     supabase,
     _supabase,
     _household,
@@ -7208,11 +7208,25 @@ function ProvisionsApp({ scrollRootRef }) {
     return a ? { ...a, tiles: liveTiles(a) } : null;
   }, [asks, editAskId]);
   // Deleted by another member while the sheet is open (Dan 2026-11-21): the sheet keeps the ask it had
-  // and says so, Save disabled, until OK or ✕. asks records no deleter, so the line carries no name yet.
+  // and says so, Save disabled, until OK or ✕. The line names the remover (087 asks.deleted_by, B8)
+  // once that read comes back with a member of this place; otherwise "This ask was removed.".
   if (editAskLastRef.current && editAskLastRef.current.id !== editAskId) editAskLastRef.current = null;
   if (editAskLive) editAskLastRef.current = editAskLive;
   const editAsk = editAskLive || editAskLastRef.current;
   const editAskRemoved = !!editAsk && !editAskLive;
+  const [editAskRemovedBy, setEditAskRemovedBy] = useState(null);
+  useEffect(() => {
+    setEditAskRemovedBy(null);
+    if (!editAskRemoved || !editAskId) return undefined;
+    let cancelled = false;
+    fetchAskDeleter(editAskId).then((uid) => {
+      if (cancelled || !uid) return;
+      const member = householdMembers.find((m) => m.user_id === uid);
+      const first = (member?.users?.full_name || "").trim().split(/\s+/)[0] || null;
+      setEditAskRemovedBy(first);
+    });
+    return () => { cancelled = true; };
+  }, [editAskRemoved, editAskId, fetchAskDeleter, householdMembers]);
 
   // Shelf photos (C3b.2, A23): one per household item, signed only for the tiles on screen — the
   // selected asks' strips in Browse and the run's tiles. Thumbnails only (≈480 px covers a tile);
@@ -12659,8 +12673,10 @@ function ProvisionsApp({ scrollRootRef }) {
           tiles={runTiles}
           resume={runResume}
           onLand={async (ids) => {
-            const landed = await landAskPicks(runAsk.id, ids, runAsk.screenStyle);
-            if (landed == null) throw new Error("not landed");
+            // 087 (B7): { landed, skippedIds } — the run shows what was skipped; null means it didn't land.
+            const result = await landAskPicks(runAsk.id, ids, runAsk.screenStyle);
+            if (result == null) throw new Error("not landed");
+            return result;
           }}
           onExit={() => setRunAskId(null)}
           parentName={user?.firstName?.trim() || null}
@@ -12707,7 +12723,7 @@ function ProvisionsApp({ scrollRootRef }) {
           <AskScreen
             key={editAsk ? editAsk.id : "new"}
             edit={editAsk}
-            removed={editAskRemoved ? { by: null } : null}
+            removed={editAskRemoved ? { by: editAskRemovedBy } : null}
             catalogItems={shelfCatalogItems}
             asks={asks}
             photoIds={itemPhotoIds}

@@ -108,6 +108,57 @@ export function updateAskArgs(householdId, askId, { label, noun, target, itemIds
   };
 }
 
+// THE DELTA SAVE (087 edit_ask; SPEC_ask_shelf_sync B3, B4). An open Edit sheet tracks THIS editor's
+// own changes — the tiles added (in the order tapped) and the tiles removed — never a snapshot of the
+// shelf, so a refetch can move the server's shelf underneath without losing them. The sheet shows the
+// latest server shelf minus the removes plus the adds (B4); Save sends only the delta (B3).
+export const NO_PENDING = Object.freeze({ adds: [], removes: [] });
+
+// The shelf the sheet shows: the server's live tiles in order, minus this editor's removes, then this
+// editor's adds that aren't already there (another member may have added the same item first).
+export function mergeShelf(serverIds, pending) {
+  const removes = new Set(pending.removes);
+  const out = (serverIds || []).filter((id) => !removes.has(id));
+  for (const id of pending.adds) if (!removes.has(id) && !out.includes(id)) out.push(id);
+  return out;
+}
+
+// One tap on an item (a catalog row or a tile's ✕): off if it is shown, on if it isn't (unless the
+// shown shelf is full). adds and removes stay disjoint, so edit_ask never sees an item in both.
+export function togglePending(pending, serverIds, id, max = ASK_SHELF_MAX) {
+  const onServer = (serverIds || []).includes(id);
+  if (mergeShelf(serverIds, pending).includes(id)) {
+    return {
+      adds: pending.adds.filter((x) => x !== id),
+      removes: onServer && !pending.removes.includes(id) ? [...pending.removes, id] : pending.removes,
+    };
+  }
+  if (mergeShelf(serverIds, pending).length >= max) return pending;
+  return {
+    adds: onServer || pending.adds.includes(id) ? pending.adds : [...pending.adds, id],
+    removes: pending.removes.filter((x) => x !== id),
+  };
+}
+
+// edit_ask's arguments (087). A scalar the editor didn't touch is left out, so the server keeps its
+// value (B2 step 7: last write wins only for a field both people changed). A noun of "" clears it.
+export function editAskArgs(householdId, askId, { add, remove, label, noun, target, style } = {}) {
+  const args = {
+    p_household_id: householdId,
+    p_ask_id: askId,
+    p_add_ids: [...(add || [])],
+    p_remove_ids: [...(remove || [])],
+  };
+  if (label !== undefined) args.p_label = (label || "").trim();
+  if (noun !== undefined) args.p_shelf_noun = (noun || "").trim();
+  if (style !== undefined) args.p_screen_style = style === "simple" ? "simple" : ASK_STYLE_DEFAULT;
+  if (target !== undefined) args.p_pick_target = target;
+  return args;
+}
+
+// B5: edit_ask's P0409, the shelf changed under this editor. The sheet has re-read and kept the edits.
+export const SHELF_CHANGED_MESSAGE = "Someone else just changed this shelf. Check it and save again.";
+
 // The live ask whose label matches this one, trimmed and case-insensitive (K2, 078's
 // asks_household_label_live_uq), or null. The sheet checks it as the name is typed and shows the
 // EXISTING ask's spelling; create_ask's 23505 is the backstop for a race with another member.
@@ -124,6 +175,7 @@ export function findDuplicateAsk(label, asks) {
 export function createAskFailure(code, { label, target, itemIds }) {
   const l = (label || "").trim();
   if (code === "23505") return { message: `You already have Ask ${l}.`, hasName: true, field: "label" };
+  if (code === "P0409") return { message: SHELF_CHANGED_MESSAGE, hasName: false, field: "shelf" };
   if (code === "22023") {
     if (target > (itemIds || []).length) return { message: targetTilesMessage(target), hasName: false, field: "shelf" };
     return { message: "Something on the ask isn't available any more. Check the items and try again.", hasName: false, field: "shelf" };

@@ -23,7 +23,7 @@ import { setKindFailure } from "../lib/mealPhotos";
 import { giveFailure, giftObjectPath, giftExt, GIFT_RENDITIONS } from "../lib/giveMeal";
 import { arrivalFailure, giftSourcePaths, acceptCopyPaths } from "../lib/giftArrival";
 import { landAskPicksArgs, askCompletedAttributes } from "../lib/askPicks";
-import { createAskArgs, updateAskArgs, shapeAsks } from "../lib/askCreate";
+import { createAskArgs, editAskArgs, shapeAsks } from "../lib/askCreate";
 import { asksAfterCatalogDelete } from "../lib/askRun";
 import { ASK_ENABLED } from "../lib/featureFlags";
 
@@ -1434,8 +1434,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // landAskPicks: an Ask's "That's it!" (A16) — every held pick lands in ONE server write
   // (077 land_ask_picks). The request carries ids only; the server reads the label from the
   // ask (A22). Exactly one ask_completed span, the count only (A24). Picks emit no
-  // item_added_to_list. Resolves to the count landed; throws on failure so the Ask screen
+  // item_added_to_list. Resolves to { landed, skippedIds }; throws on failure so the Ask screen
   // keeps the wagon held and can offer the confirm again.
+  // 087 (B7): a pick whose item is gone is skipped and the rest land, so `landed` can be fewer than
+  // the picks. Then ONE read of those catalog rows, with the server's rule (live, and a seed or this
+  // place's own), names which were skipped (B9.3). skippedIds is null when that read fails: the run
+  // still knows how many, just not which.
   // ─────────────────────────────────────────────────────────────
   const landAskPicks = useCallback(async (askId, catalogItemIds, screenStyle = null) => {
     if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
@@ -1445,13 +1449,25 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const { data: landed, error: landErr } = await db
       .rpc("land_ask_picks", landAskPicksArgs(hh.id, askId, catalogItemIds));
     if (landErr) throw landErr;
+    let skippedIds = [];
+    if (typeof landed === "number" && landed < catalogItemIds.length) {
+      const { data: rows, error: readErr } = await db
+        .from("catalog_items")
+        .select("id, is_global, household_id, deleted_at")
+        .in("id", catalogItemIds);
+      if (readErr) skippedIds = null;
+      else {
+        const live = new Set((rows || []).filter((r) => !r.deleted_at && (r.is_global || r.household_id === hh.id)).map((r) => r.id));
+        skippedIds = catalogItemIds.filter((id) => !live.has(id));
+      }
+    }
     try {
       tracer.startSpan("ask_completed", { attributes: askCompletedAttributes(landed, screenStyle) }).end();
     } catch (e) {
       console.warn("[rum] ask_completed event failed:", e);
     }
     await loadListItems(db, hh.id);
-    return landed;
+    return { landed, skippedIds };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
 
@@ -1527,19 +1543,23 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return { ok: true, id: data };
   }, [fetchAsks]);
 
-  // Edit (083 update_ask; SPEC_ask_slice4 S4-3): the whole form in one RPC, the same codes as
-  // create (23505 / 22023), the asks re-read after. Any member edits any ask (A10). update_ask is
-  // the only edit door (S4-10): the column grants for a direct write are gone.
+  // Edit (087 edit_ask; SPEC_ask_shelf_sync B3): the editor's own changes only — draft.delta =
+  // { add, remove, and each scalar the editor touched } — merged on the server under the ask lock, so a
+  // save never undoes another member's (S4-3's "later form wins whole" is retired). The same codes as
+  // create (23505 / 22023), plus P0409, the shelf changed under this editor (B5): the asks and the
+  // catalog are re-read so the open sheet re-applies the edits to the fresh shelf and drops an add whose
+  // item is gone. Any member edits any ask (A10). update_ask stays on the server for older clients.
   const updateAsk = useCallback(async (askId, draft) => {
     if (!ASK_ENABLED) return { ok: false, code: null };   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !askId) return { ok: false, code: null };
-    const { error: err } = await db.rpc("update_ask", updateAskArgs(hh.id, askId, draft));
+    const { error: err } = await db.rpc("edit_ask", editAskArgs(hh.id, askId, draft?.delta));
     if (err) {
-      console.warn("[ask] update_ask failed:", err.code);
+      console.warn("[ask] edit_ask failed:", err.code);
       emitAskEvent("ask_admin_failed", "update", err);
       if (err.code === "23505") await fetchAsks();
+      if (err.code === "P0409") await Promise.all([fetchAsks(), refreshCatalogRef.current()]);
       return { ok: false, code: err.code || null };
     }
     await fetchAsks();
@@ -1572,6 +1592,25 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     await fetchAsks();
     return { ok: true };
   }, [fetchAsks]);
+
+  // Who deleted an ask (087 asks.deleted_by, B8), for the open Edit sheet's "{First} removed this
+  // ask.". asks_select lets a member read a deleted row of their place. Resolves to the deleter's user
+  // id, or null (not recorded — deleted before 087 — or the read failed): the sheet then says "This ask
+  // was removed.". The id is matched to a member's name by the caller; nothing here logs it.
+  const fetchAskDeleter = useCallback(async (askId) => {
+    if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || !askId) return null;
+    const { data, error: err } = await db
+      .from("asks")
+      .select("deleted_by")
+      .eq("id", askId)
+      .eq("household_id", hh.id)
+      .maybeSingle();
+    if (err) { console.warn("[ask] deleter read failed (non-fatal):", err.code); return null; }
+    return data?.deleted_by || null;
+  }, []);
 
   // ─────────────────────────────────────────────────────────────
   // SHELF PHOTOS (077 household_item_photos + the item-photos bucket; A23; SPEC_ask_slice2 C3b.2).
@@ -4559,7 +4598,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     asksLoaded: !!household?.id && asksLoadedFor === household.id,
     adjustQty, removeItem, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    landAskPicks, asks, fetchAsks, refreshAsks, createAsk, updateAsk, deleteAsk, itemPhotos, setItemPhoto,
+    landAskPicks, asks, fetchAsks, refreshAsks, createAsk, updateAsk, deleteAsk, fetchAskDeleter, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
