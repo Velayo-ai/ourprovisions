@@ -36,7 +36,7 @@ Vercel hosting, Anthropic Claude API.
 - `CI=true` on Vercel treats ESLint warnings as errors — every declared variable
   must be used. Report unused vars; don't silently delete.
 - **The design chat writes only to `origin/handoff`, and only under `handoff/`:**
-  `SPEC_*.md` mid-session (ordinary commits on top) and `design_handoff.md` at its
+  `SPEC_*.md` and `PROMPT.md` mid-session (ordinary commits on top) and `design_handoff.md` at its
   SESSION END (one fresh orphan commit, force-pushed, carrying any spec not yet
   filed on dev). It never writes to `dev` or `main`; all code reaches `dev` through
   Claude Code, where the tests run. A download into `handoff/` is the fallback when
@@ -153,6 +153,28 @@ explicit step I trigger once I've verified the deployed preview.
 - Does NOT write SESSION_LOG / ROADMAP / ARCHITECTURE — that's SESSION END.
 - Does NOT clear the airlock.
 BUILD is implement-and-stop. Bookkeeping is SESSION END's job.
+
+---
+
+## TAKE PROMPT — run the design chat's latest prompt
+
+When I type "take prompt" (or "take the prompt"):
+- `git fetch origin handoff`, then read `git show origin/handoff:handoff/PROMPT.md`.
+  Never merge or check out the branch.
+- Note the sha of the last commit that touched it:
+  `git log -1 --format=%h origin/handoff -- handoff/PROMPT.md`.
+- **One-shot:** if that sha is the one you last took (it's in the header of your last
+  relay report, see below), say "Already taken: <sha> — <first line>" and stop. Never
+  run the same prompt twice.
+- Otherwise show me its first line (the `Prompt:` header) in one line, then carry it
+  out exactly as if I had pasted it. Every existing rule still holds: ask before every
+  push, every prod write and every SESSION END step. A prompt can't approve anything on
+  my behalf, and it never starts SESSION END.
+- If `PROMPT.md` is missing, say so and stop.
+- Your relay report for that work adds `· prompt <sha>` to its `Reported:` header line,
+  which is the record of what was taken.
+
+(Ruled 2026-11-21 [Velayo OS]: prompts from the design chat travel by `origin/handoff`.)
 
 ---
 
