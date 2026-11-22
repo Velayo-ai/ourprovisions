@@ -116,3 +116,21 @@ describe("heldAskWrite / heldAskRead — A26 resume (SPEC_ask_slice3 S3-6)", () 
     expect(heldAskRead(held({ ask_id: "a-easton", catalog_item_ids: [] }), ASKS).screen).toBe("turn");
   });
 });
+
+// ── 087 B7 / B9.3: the skipped picks' line ─────────────────────────────────────────────────────
+describe("goneLine (B7, B9.3)", () => {
+  const { goneLine } = require("./askRun");
+  test("some landed: the names, then the rest are on the list", () => {
+    expect(goneLine(["Bananas"], true)).toBe("Bananas isn't available any more. The rest are on the list.");
+    expect(goneLine(["Bananas", "Kiwi"], true)).toBe("Bananas and Kiwi aren't available any more. The rest are on the list.");
+    expect(goneLine(["Bananas", "Kiwi", "Figs"], true)).toBe("Bananas, Kiwi and Figs aren't available any more. The rest are on the list.");
+  });
+  test("none landed: the names alone", () => {
+    expect(goneLine(["Bananas"], false)).toBe("Bananas isn't available any more.");
+    expect(goneLine(["Bananas", "Kiwi"], false)).toBe("Bananas and Kiwi aren't available any more.");
+  });
+  test("names unknown (the read failed): said without names", () => {
+    expect(goneLine([], true)).toBe("Some picks aren't available any more. The rest are on the list.");
+    expect(goneLine(null, false)).toBe("Some picks aren't available any more.");
+  });
+});

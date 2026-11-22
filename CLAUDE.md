@@ -41,6 +41,16 @@ Vercel hosting, Anthropic Claude API.
   filed on dev). It never writes to `dev` or `main`; all code reaches `dev` through
   Claude Code, where the tests run. A download into `handoff/` is the fallback when
   its push fails. (Ruled 2026-11-21 [Velayo OS].)
+- **Reports travel by the relay branch, `origin/relay`.** Every report I'd otherwise
+  paste into the design chat also goes there as `relay/REPORT.md`, one ordinary commit
+  per report (the branch was created as an orphan on first use). The file starts with
+  a header line: `Reported: <YYYY-MM-DD HH:MM ET> · dev <sha> · main <sha> · re: <the
+  prompt it answers>`, then the report exactly as shown here. Write only
+  `relay/REPORT.md` on that branch. Never merge it or check it out into the working
+  tree: build the commit with a temporary worktree or `git commit-tree`. Pushing to
+  `relay` needs no approval (it deploys nothing and touches no code); every other push
+  rule stands. The report is still shown here as usual; the relay is a copy for the
+  design chat. (Ruled 2026-11-21 [Velayo OS].)
 
 ---
 

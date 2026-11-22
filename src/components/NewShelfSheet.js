@@ -5,7 +5,7 @@ import { AskSearchDebug, ASK_SEARCH_DEBUG } from "./AskSearchDebug";
 import {
   askDraftProblem, createAskFailure, findDuplicateAsk, pickLine, cleanAskLabel, askLook, ASK_LOOKS,
   ASK_LABEL_MAX, ASK_NOUN_MAX, ASK_TARGET_MIN, ASK_TARGET_MAX, ASK_SHELF_MAX, ASK_TARGET_DEFAULT,
-  ASK_STYLE_DEFAULT, ASK_SIMPLE_CAP_MESSAGE,
+  ASK_STYLE_DEFAULT, ASK_SIMPLE_CAP_MESSAGE, NO_PENDING, mergeShelf, togglePending,
 } from "../lib/askCreate";
 
 // + New shelf (SPEC_ask_slice2 C2; 078 create_ask). The body of the sheet: who's picking, an
@@ -87,14 +87,23 @@ import {
 // no match says "Nothing in your catalog matches that." as before.
 // removed (an edit only; SPEC_ask_shelf_sync, Dan 2026-11-21): another member deleted this ask while the
 // sheet was open. The sheet stays, never closing on its own: one line, "{First} removed this ask.", an OK
-// that closes it, and Save disabled. { by } is the remover's first name, or null when it isn't known —
-// asks records no deleter yet, so the line is "This ask was removed." until it does.
+// that closes it, and Save disabled. { by } is the remover's first name (087 asks.deleted_by, matched to
+// a member by App), or null when it isn't known: then the line is "This ask was removed.".
 export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose, closeButton, edit: editing = null, photoIds = null, photoUrl = null, onPhoto = null, embedded = false, onDraftChange = null, onCreateItem = null, createCategories = [], removed = null }) {
   const [label, setLabel] = useState(editing ? editing.label : "");
   const [noun, setNoun] = useState(editing ? editing.shelfNoun || "" : "");
   const [target, setTarget] = useState(editing ? editing.pickTarget : ASK_TARGET_DEFAULT);
   const [style, setStyle] = useState(editing && editing.screenStyle === "simple" ? "simple" : ASK_STYLE_DEFAULT);
-  const [itemIds, setItemIds] = useState(editing ? editing.tiles.map((t) => t.id) : []);
+  // THE SHELF. Create: the tiles chosen here (createIds). Edit (SPEC_ask_shelf_sync B3, B4): this
+  // editor's own changes (pending: adds in tapped order, removes), shown on top of the server's latest
+  // live tiles — so a refetch while the sheet is open moves the shelf underneath without losing them,
+  // and Save sends only the delta (edit_ask, 087).
+  const [createIds, setCreateIds] = useState([]);
+  const [pending, setPending] = useState(NO_PENDING);
+  const serverIds = useMemo(() => (editing ? editing.tiles.map((t) => t.id) : []), [editing]);
+  const itemIds = useMemo(() => (editing ? mergeShelf(serverIds, pending) : createIds), [editing, serverIds, pending, createIds]);
+  // The scalars this editor changed. Untouched ones follow the server on a refetch (B4) and aren't sent.
+  const touchedFields = useRef(new Set());
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState(null);
@@ -112,7 +121,19 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   const searchField = useRef(null);
 
   const edit = (set) => (value) => { attemptId.current = null; setFailure(null); set(value); };
-  const onLabel = (value) => { setServerDup(null); edit(setLabel)(value); };
+  const editField = (field, set) => (value) => { touchedFields.current.add(field); edit(set)(value); };
+  const onLabel = (value) => { setServerDup(null); editField("label", setLabel)(value); };
+
+  // B4: a refetch while the sheet is open. Untouched scalars take the server's value; touched ones keep
+  // the draft. The tiles follow on their own (itemIds = the new server shelf + this editor's pending).
+  useEffect(() => {
+    if (!editing) return;
+    const t = touchedFields.current;
+    if (!t.has("label")) setLabel(editing.label);
+    if (!t.has("noun")) setNoun(editing.shelfNoun || "");
+    if (!t.has("target")) setTarget(editing.pickTarget);
+    if (!t.has("style")) setStyle(editing.screenStyle === "simple" ? "simple" : ASK_STYLE_DEFAULT);
+  }, [editing]);
   // The label as it will be saved (cleanAskLabel): the field keeps what was typed.
   const cleanLabel = cleanAskLabel(label);
   const draft = { label: cleanLabel, noun, target, itemIds, style };
@@ -138,9 +159,9 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   const explorer = style === "simple";
   const overBy = Math.max(0, itemIds.length - look.tileCap);
   const chooseStyle = (key) => {
-    edit(setStyle)(key);
+    editField("style", setStyle)(key);
     const cap = askLook(key).pickCap;
-    if (target > cap) setTarget(cap);
+    if (target > cap) { touchedFields.current.add("target"); setTarget(cap); }
   };
   useEffect(() => {
     if (onDraftChange) onDraftChange({ label: cleanLabel, noun: noun.trim(), target, style });
@@ -168,8 +189,19 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
   // Tiles that weren't there when the form opened fade in (below); the prefilled ones of an edit don't.
   const initialIds = useRef(new Set(itemIds));
 
-  const toggle = (id) => edit(setItemIds)((prev) =>
-    prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= ASK_SHELF_MAX ? prev : [...prev, id]);
+  const toggle = (id) => (editing
+    ? edit(setPending)((p) => togglePending(p, serverIds, id))
+    : edit(setCreateIds)((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= ASK_SHELF_MAX ? prev : [...prev, id]));
+
+  // An add whose item has left the catalog (another member deleted it; the catalog refresh, or P0409's
+  // re-read, brings that here) drops out of the pending adds, so the next Save can't send it again.
+  // Items made in this sheet count as known before the catalog has caught up with them.
+  useEffect(() => {
+    if (!editing) return;
+    const known = new Set([...catalogItems.map((i) => i.id), ...serverIds, ...createdNames.keys()]);
+    setPending((p) => (p.adds.every((id) => known.has(id)) ? p : { ...p, adds: p.adds.filter((id) => known.has(id)) }));
+  }, [editing, catalogItems, serverIds, createdNames]);
 
   // CREATE WITHOUT LEAVING THE ASK (SPEC_ask_setup_polish F3, Dan 2026-11-16: save right away). A
   // search with no match offers the typed name and the aisle pills; a tap writes the catalog row at
@@ -187,7 +219,8 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     setCreating(false);
     if (!item || !item.id) { setCreateFailed(true); return; }
     setCreatedNames((prev) => new Map(prev).set(item.id, item.name));
-    edit(setItemIds)((prev) => (prev.includes(item.id) || prev.length >= ASK_SHELF_MAX ? prev : [...prev, item.id]));
+    if (editing) edit(setPending)((p) => (mergeShelf(serverIds, p).includes(item.id) ? p : togglePending(p, serverIds, item.id)));
+    else edit(setCreateIds)((prev) => (prev.includes(item.id) || prev.length >= ASK_SHELF_MAX ? prev : [...prev, item.id]));
     setQuery("");
   };
   const onQuery = (value) => { setCreateFailed(false); setQuery(value); };
@@ -308,7 +341,17 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
     if (!editing && !attemptId.current) attemptId.current = crypto.randomUUID();
     setSaving(true);
     setFailure(null);
-    const result = editing ? await onUpdate(draft) : await onCreate(attemptId.current, draft);
+    // An edit sends its delta (B3): the tiles this editor added and removed, and only the scalars they
+    // touched. The whole draft still rides along for the caller's "ready for more" check (saveOutcome).
+    const t = touchedFields.current;
+    const delta = {
+      add: pending.adds, remove: pending.removes,
+      ...(t.has("label") ? { label: cleanLabel } : {}),
+      ...(t.has("noun") ? { noun: noun.trim() } : {}),
+      ...(t.has("target") ? { target } : {}),
+      ...(t.has("style") ? { style } : {}),
+    };
+    const result = editing ? await onUpdate({ ...draft, delta }) : await onCreate(attemptId.current, draft);
     if (result?.ok) { onClose(); return; }
     setSaving(false);
     const f = createAskFailure(result?.code, draft);
@@ -363,7 +406,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
       <div className="modal-field">
         <label className="modal-label" htmlFor="new-shelf-noun">What are they picking? (optional)</label>
         <input id="new-shelf-noun" className="modal-input" maxLength={ASK_NOUN_MAX} autoComplete="off"
-          placeholder="snacks" value={noun} onChange={(e) => edit(setNoun)(e.target.value)} />
+          placeholder="snacks" value={noun} onChange={(e) => editField("noun", setNoun)(e.target.value)} />
       </div>
 
       <div className="modal-field">
@@ -375,7 +418,7 @@ export function NewShelfSheet({ catalogItems, asks, onCreate, onUpdate, onClose,
               <button key={n} type="button" role="radio" aria-checked={target === n} disabled={off}
                 className={`cat-pill${target === n ? " on" : ""}`}
                 style={{ padding: "9px 14px", ...(off ? { opacity: 0.4, cursor: "not-allowed" } : null) }}
-                onClick={() => edit(setTarget)(n)}>{n}</button>
+                onClick={() => editField("target", setTarget)(n)}>{n}</button>
             );
           })}
         </div>

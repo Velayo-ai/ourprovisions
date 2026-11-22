@@ -1,6 +1,6 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { pickLine } from "../lib/askCreate";
-import { tapTile, takeOut, canConfirm, shelfTitlePrefix, effectiveTarget, tileFace, heldAskWrite, storeHeldAsk } from "../lib/askRun";
+import { tapTile, takeOut, canConfirm, shelfTitlePrefix, effectiveTarget, tileFace, heldAskWrite, storeHeldAsk, goneLine } from "../lib/askRun";
 import { useHold, holdFillCss } from "../hooks/useHold";
 import { emitAskEvent } from "../lib/askTelemetry";
 
@@ -297,7 +297,14 @@ const Name = ({ children }) => <span className="op-name">{children}</span>;
 // {Parent}"; null reads "Give it back". onHandBack({ count, ids }) (W8, W9): Great picks' one exit —
 // the caller closes the run, lands on Browse and shows "{Label} added {N} · See" once. Without it the
 // button just exits.
-export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName = null, onHandBack = null }) {
+export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, parentName = null, onHandBack = null }) {
+  // B9.3 (087): tiles whose item turned out to be gone when a land skipped them leave the run, so the
+  // child can't pick a dead tile again. The target follows (effectiveTarget counts the tiles left).
+  const [dead, setDead] = useState(() => new Set());
+  const tiles = useMemo(() => (dead.size ? allTiles.filter((t) => !dead.has(t.id)) : allTiles), [allTiles, dead]);
+  // The skipped picks' line (B7 / B9.3): { names, landedAny } — under Great picks when some landed, on
+  // the shelf when none did. null when every pick landed.
+  const [gone, setGone] = useState(null);
   const target = effectiveTarget(ask, tiles);
   const simple = ask.screenStyle === "simple";
   const [screen, setScreen] = useState(() => resume?.screen || "turn");     // turn | shelf | done
@@ -315,14 +322,14 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   const [failed, setFailed] = useState(false);
   const [boom, setBoom] = useState(0);               // the finish: a key that restarts the fireworks
   const wasFull = useRef(picks.length >= target);    // a resumed full wagon doesn't burst again
-  const byId = new Map(tiles.map((t) => [t.id, t]));
+  const byId = new Map(allTiles.map((t) => [t.id, t]));   // names for every tile the run opened with, dead ones included
   const inWagon = picks.map((id) => byId.get(id)).filter(Boolean);
   // Great picks shows the picks in the order they were made — the shelf wagon's order — fixed at the
   // moment they land: the tiles as they were then, so a list refresh after the land (new tiles, a tile
   // gone) can't reorder, drop or change a card. Never list order or land order.
   const [landedTiles, setLandedTiles] = useState(null);
   const shown = screen === "done" && landedTiles ? landedTiles : inWagon;
-  const one = picks.length === 1;   // Great picks reads singular when exactly one landed
+  const one = shown.length === 1;   // Great picks reads singular when exactly one landed
 
   useEffect(() => {
     storeHeldAsk(screen === "done" ? null : heldAskWrite(ask.id, screen, picks));
@@ -364,6 +371,7 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
     if (r.effect === "full") { bump("shake"); return; }
     setPicks(r.picks);
     setFailed(false);
+    setGone(null);
     if (r.effect === "added") {
       setCelebrating(id);                                              // beats 1–3 (CSS)
       const tileEl = tileEls.current[id], wagon = wagonEl.current;
@@ -388,7 +396,7 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
   };
   const out = (id) => {
     if (landing) return;
-    setPicks((p) => takeOut(p, id)); setFailed(false);
+    setPicks((p) => takeOut(p, id)); setFailed(false); setGone(null);
     if (celebrating === id) setCelebrating(null);
     setFlights((fl) => fl.filter((x) => x.id !== id));
   };
@@ -399,8 +407,23 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
     setFailed(false);
     try {
       const snapshot = inWagon;
-      await onLand(picks);
-      setLandedTiles(snapshot);
+      const r = await onLand(picks);
+      // 087 (B7): { landed, skippedIds }. A caller that resolves with nothing means every pick landed.
+      const landed = r && typeof r.landed === "number" ? r.landed : picks.length;
+      const skipped = r && Array.isArray(r.skippedIds) ? r.skippedIds.filter((id) => picks.includes(id)) : [];
+      if (landed === 0) {
+        // B9.3: nothing landed. No celebration; the dead picks leave the wagon and their tiles leave the
+        // run (every pick, when the read couldn't say which), and the run stays open with one line.
+        const goneIds = skipped.length ? skipped : picks;
+        setDead((d) => new Set([...d, ...goneIds]));
+        setPicks((p) => p.filter((id) => !goneIds.includes(id)));
+        setGone({ names: goneIds.map((id) => byId.get(id)?.name).filter(Boolean), landedAny: false });
+        return;
+      }
+      setLandedTiles(skipped.length ? snapshot.filter((t) => !skipped.includes(t.id)) : snapshot);
+      setGone(landed < picks.length
+        ? { names: skipped.map((id) => byId.get(id)?.name).filter(Boolean), landedAny: true }
+        : null);
       setScreen("done");
     } catch (e) {
       emitAskEvent("ask_land_failed", e, picks.length, ask.screenStyle);   // the code only, never the message
@@ -543,6 +566,8 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
               <span className="ask-sr" aria-live="polite" aria-label={`${picks.length} of ${target} picked`}>{picks.length} of {target} picked</span>
             </div>
             {failed && <div className="ask-failed" role="alert">That didn't reach the list. {simple ? "Tap ✓ again." : "Try That's it! again."}</div>}
+            {/* B9.3: nothing landed — the dead tiles are gone from the shelf; this says why. Never "Tap ✓ again". */}
+            {gone && !gone.landedAny && <div className="ask-failed" role="status">{goneLine(gone.names, false)}</div>}
             <div className="ask-actions">
               {simple ? (
                 <button type="button" className={`ask-primary ask-icon ask-thats-it${canConfirm(picks, target) ? " show" : ""}`}
@@ -575,6 +600,8 @@ export function AskRun({ ask, tiles, onLand, onExit, resume = null, parentName =
           </div>
           {/* W7 (amends A14): the credit is his, and the list is "our" list. */}
           <p className="ask-line">{one ? "Your pick is on our list!" : "Your picks are on our list!"}</p>
+          {/* B7: some picks were skipped (their item is gone); the rest are on the list. */}
+          {gone && gone.landedAny && <p className="ask-line ask-gone">{goneLine(gone.names, true)}</p>}
           <div className="ask-foot">
             {/* W8: the hand-back. The parent's first name sits in .op-name like any name in the run. */}
             <button type="button" className="ask-primary ask-give-back" onClick={giveBack} disabled={handedBack}>
@@ -741,6 +768,8 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-finale > * { flex-shrink: 0; }
 .ask-finale > .ask-finale-drop { flex: 0 1 7vh; flex-basis: 7dvh; min-height: 0; }
 .ask-finale .ask-line { margin-bottom: 24px; }
+/* B7: the skipped picks' line, under "Your picks are on our list!": quieter, close under it. */
+.ask-finale .ask-line.ask-gone { margin-top: -14px; font-size: calc(15px * var(--op-text-scale, 1)); color: #8A5F3A; }
 .ask-rollin { display: flex; justify-content: center; margin-top: 18px; animation: ask-roll 1s cubic-bezier(.2,.9,.25,1.05); }
 /* The summary wagon: the full width less a 12px gutter each side, up to 380px. */
 .ask-rollin .ask-wagon { width: calc(100% - 24px); max-width: 380px; }

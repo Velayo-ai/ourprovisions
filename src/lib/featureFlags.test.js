@@ -27,6 +27,7 @@ describe("with the flag off nothing reaches the Ask schema", () => {
     ["createAsk", "const createAsk = useCallback(async (askId, draft) => {"],
     ["updateAsk", "const updateAsk = useCallback(async (askId, draft) => {"],
     ["deleteAsk", "const deleteAsk = useCallback(async (askId) => {"],
+    ["fetchAskDeleter", "const fetchAskDeleter = useCallback(async (askId) => {"],
     ["fetchItemPhotos", "const fetchItemPhotos = useCallback(async () => {"],
     ["setItemPhoto", "const setItemPhoto = useCallback(async (catalogItemId, file) => {"],
   ])("%s returns before its first request", (name, sig) => {
@@ -37,15 +38,15 @@ describe("with the flag off nothing reaches the Ask schema", () => {
   });
 
   test("every Ask table, RPC and the item-photos bucket is touched only inside those functions", () => {
-    const gatedBodies = ["landAskPicks", "fetchAsks", "createAsk", "updateAsk", "deleteAsk", "fetchItemPhotos", "setItemPhoto"];
-    const calls = [...HOOK.matchAll(/from\("(asks|ask_shelf_items|household_item_photos|item-photos)"\)|rpc\("(create_ask|update_ask|land_ask_picks|set_household_item_photo|remove_household_item_photo)"/g)];
+    const gatedBodies = ["landAskPicks", "fetchAsks", "createAsk", "updateAsk", "deleteAsk", "fetchAskDeleter", "fetchItemPhotos", "setItemPhoto"];
+    const calls = [...HOOK.matchAll(/from\("(asks|ask_shelf_items|household_item_photos|item-photos)"\)|rpc\("(create_ask|update_ask|edit_ask|land_ask_picks|set_household_item_photo|remove_household_item_photo)"/g)];
     expect(calls.length).toBeGreaterThan(0);
     for (const c of calls) {
       // the nearest useCallback that opens before the call is the function the call sits in
       const owners = [...HOOK.slice(0, c.index).matchAll(/const (\w+) = useCallback\(/g)];
       expect(gatedBodies).toContain(owners[owners.length - 1][1]);
     }
-    expect(APP).not.toMatch(/from\("(asks|ask_shelf_items|household_item_photos)"\)|rpc\("(create_ask|update_ask|land_ask_picks|set_household_item_photo)"/);
+    expect(APP).not.toMatch(/from\("(asks|ask_shelf_items|household_item_photos)"\)|rpc\("(create_ask|update_ask|edit_ask|land_ask_picks|set_household_item_photo)"/);
   });
 });
 

@@ -835,3 +835,41 @@ describe("telemetry", () => {
     expect(calls().map((c) => c[0])).toEqual(["ask_started"]);
   });
 });
+
+// ── 087 (SPEC_ask_shelf_sync B7, B9.3): a pick whose item is gone is skipped ─────────────────────
+test("B7: some picks skipped — Great picks with the landed ones and one line naming the rest", async () => {
+  const onLand = jest.fn(async () => ({ landed: 2, skippedIds: ["c-0"] }));
+  setup({ onLand });
+  toShelf();
+  fireEvent.click(tile("Goldfish"));
+  fireEvent.click(tile("Cheese"));
+  fireEvent.click(tile("Yogurt"));
+  fireEvent.click(thatsIt());
+  await screen.findByText("Goldfish isn't available any more. The rest are on the list.");
+  expect(screen.getByRole("heading")).toHaveTextContent("Great picks, Easton!");
+  expect(summary()).toBe("Your picks: Cheese, Yogurt");
+  expect(screen.queryByText(/Tap ✓ again|Try That's it! again/)).toBeNull();
+});
+
+test("B9.3: nothing landed — no celebration; the dead tiles leave the run and the wagon; the run stays open", async () => {
+  const onLand = jest.fn()
+    .mockResolvedValueOnce({ landed: 0, skippedIds: ["c-0", "c-1", "c-2"] })
+    .mockResolvedValueOnce({ landed: 1, skippedIds: [] });
+  setup({ onLand });
+  toShelf();
+  fireEvent.click(tile("Goldfish"));
+  fireEvent.click(tile("Apples"));
+  fireEvent.click(tile("Cheese"));
+  fireEvent.click(thatsIt());
+  await screen.findByText("Goldfish, Apples and Cheese aren't available any more.");
+  expect(screen.queryByText("Your picks are on our list!")).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Goldfish/ })).toBeNull();          // the dead tiles are gone
+  expect(screen.queryByRole("button", { name: /^Cheese/ })).toBeNull();
+  expect(screen.getByLabelText("0 of 1 picked")).toBeInTheDocument();             // the target follows the tiles left
+  expect(screen.queryByText(/Tap ✓ again|Try That's it! again/)).toBeNull();
+  fireEvent.click(tile("Yogurt"));                                                  // pick again: the line goes
+  expect(screen.queryByText(/aren't available any more/)).toBeNull();
+  fireEvent.click(thatsIt());
+  await screen.findByText("Your pick is on our list!");
+  expect(onLand).toHaveBeenLastCalledWith(["c-3"]);
+});

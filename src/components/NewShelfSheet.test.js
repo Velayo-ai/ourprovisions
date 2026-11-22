@@ -334,15 +334,49 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
     expect(save()).toBeDisabled();
   });
 
-  test("Save sends the whole form to onUpdate, never onCreate, and closes", async () => {
+  test("Save sends the editor's delta to onUpdate (087 edit_ask, B3), never onCreate, and closes", async () => {
     const { onUpdate, onCreate, onClose } = setupEdit();
     fireEvent.click(screen.getByRole("button", { name: "Take Hidden thing off the ask" }));
     pick("Goldfish");
     fireEvent.change(nounInput(), { target: { value: "" } });
     await saveAndClose(onClose);
     expect(onUpdate).toHaveBeenCalledTimes(1);
-    expect(onUpdate).toHaveBeenCalledWith({ label: "Easton", noun: "", target: 2, itemIds: ["i-yogurt", "i-apples", "i-goldfish"], style: "simple" });
+    // The form as shown still rides along (saveOutcome reads it); the delta is what edit_ask gets:
+    // the tile added and the tile removed, and only the scalar touched (the noun, cleared).
+    expect(onUpdate).toHaveBeenCalledWith({
+      label: "Easton", noun: "", target: 2, itemIds: ["i-yogurt", "i-apples", "i-goldfish"], style: "simple",
+      delta: { add: ["i-goldfish"], remove: ["i-hidden"], noun: "" },
+    });
     expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  // B4: a refetch while the sheet is open. The view = the server's latest shelf − this editor's removes
+  // + this editor's adds; untouched scalars follow the server, touched ones keep the draft.
+  test("a refetch merges under the editor's pending changes (B4) and the delta stays the editor's own", async () => {
+    const onClose = jest.fn();
+    const onUpdate = jest.fn(async () => ({ ok: true }));
+    const props = { catalogItems: ITEMS, asks: [EASTON, EVERETT], onCreate: jest.fn(), onUpdate, onClose, closeButton: null };
+    const { rerender } = render(<NewShelfSheet {...props} edit={EDIT} />);
+    // The editor adds Goldfish (unsaved) and changes the count to 3.
+    pick("Goldfish");
+    fireEvent.click(screen.getByRole("radio", { name: "3" }));
+    // Another member removed Yogurt and renamed the ask's noun on the server.
+    rerender(<NewShelfSheet {...props} edit={{ ...EDIT, shelfNoun: "treats", tiles: EDIT.tiles.filter((t) => t.id !== "i-yogurt") }} />);
+    expect(chips()).toEqual(["Hidden thing", "Apples", "Goldfish"]);
+    expect(nounInput()).toHaveValue("treats");                                          // untouched: follows the server
+    expect(screen.getByRole("radio", { name: "3" })).toHaveAttribute("aria-checked", "true");   // touched: kept
+    await saveAndClose(onClose);
+    expect(onUpdate.mock.calls[0][0].delta).toEqual({ add: ["i-goldfish"], remove: [], target: 3 });
+  });
+
+  test("a P0409 keeps the sheet open with B5's line and the editor's changes", async () => {
+    const onUpdate = jest.fn().mockResolvedValueOnce({ ok: false, code: "P0409" });
+    const { onClose } = setupEdit({ onUpdate });
+    pick("Goldfish");
+    fireEvent.click(save());
+    await waitFor(() => expect(screen.getByText("Someone else just changed this shelf. Check it and save again.")).toBeInTheDocument());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(chips()).toContain("Goldfish");
   });
 
   test("update_ask's 23505 and 22023 read as create's", async () => {
