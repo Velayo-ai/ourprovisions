@@ -12,6 +12,9 @@ export function useVersionCheck({ intervalMs = VERSION_CHECK_INTERVAL_MS, fetchI
   if (runningRef.current === undefined) runningRef.current = runningMainScript(doc || (typeof document !== "undefined" ? document : null));
   const [newer, setNewer] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // Offline, the notice hides even when a newer bundle is already known: Reload with no connection would
+  // leave an installed app on a "no internet" page instead of the app (found by the harness pre-walk).
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
   const inFlight = useRef(false);
 
   const check = useCallback(async () => {
@@ -33,13 +36,22 @@ export function useVersionCheck({ intervalMs = VERSION_CHECK_INTERVAL_MS, fetchI
       setDismissed(false);   // a new foreground: a dismissed notice may come back (once per foreground)
       check();
     };
+    const onOnline = () => { setOnline(true); check(); };
+    const onOffline = () => setOnline(false);
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
     const id = setInterval(() => { if (document.visibilityState === "visible") check(); }, intervalMs);
     check();
-    return () => { document.removeEventListener("visibilitychange", onVisible); clearInterval(id); };
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      clearInterval(id);
+    };
   }, [check, intervalMs]);
 
   const dismiss = useCallback(() => setDismissed(true), []);
   const reload = useCallback(() => window.location.reload(), []);
-  return { show: newer && !dismissed, dismiss, reload };
+  return { show: newer && !dismissed && online, dismiss, reload };
 }

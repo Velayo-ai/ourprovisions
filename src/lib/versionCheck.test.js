@@ -84,6 +84,24 @@ describe("useVersionCheck", () => {
     expect(screen.getByText("quiet")).toBeInTheDocument();
   });
 
+  test("a newer bundle already known hides while offline (Reload would strand the app) and returns online", async () => {
+    render(<Probe fetchImpl={jest.fn(async () => manifest(NEWER))} doc={docWith(RUNNING)} />);
+    await flush();
+    expect(screen.getByText("A new version is ready.")).toBeInTheDocument();
+    await act(async () => { window.dispatchEvent(new Event("offline")); });
+    expect(screen.getByText("quiet")).toBeInTheDocument();
+    await act(async () => { window.dispatchEvent(new Event("online")); await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.getByText("A new version is ready.")).toBeInTheDocument();
+  });
+
+  test("a failed fetch keeps what was known: a newer bundle stays offered", async () => {
+    const fetchImpl = jest.fn().mockResolvedValueOnce(manifest(NEWER)).mockRejectedValue(new TypeError("blip"));
+    render(<Probe fetchImpl={fetchImpl} doc={docWith(RUNNING)} />);
+    await flush();
+    await foreground();
+    expect(screen.getByText("A new version is ready.")).toBeInTheDocument();
+  });
+
   test("a rollback to the running bundle clears it", async () => {
     const fetchImpl = jest.fn().mockResolvedValueOnce(manifest(NEWER)).mockResolvedValue(manifest(RUNNING));
     render(<Probe fetchImpl={fetchImpl} doc={docWith(RUNNING)} />);
