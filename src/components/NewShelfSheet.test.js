@@ -379,6 +379,44 @@ describe("edit mode (SPEC_ask_slice4 S4-2)", () => {
     expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("New ask");
     expect(screen.queryByRole("button", { name: /Delete/ })).toBeNull();
   });
+
+  // Removed elsewhere mid-edit (SPEC_ask_shelf_sync, Dan 2026-11-21): the sheet stays; one line, OK
+  // closes, Save disabled and never calls onUpdate.
+  describe("the ask removed by another member while the sheet is open", () => {
+    function setupRemoved(removed) {
+      const onClose = jest.fn();
+      const onUpdate = jest.fn(async () => ({ ok: true }));
+      render(<NewShelfSheet catalogItems={ITEMS} asks={[]} edit={EDIT} onCreate={jest.fn()} onUpdate={onUpdate} onClose={onClose} closeButton={null} removed={removed} />);
+      return { onClose, onUpdate };
+    }
+
+    test("with the remover's name: '{First} removed this ask.', the name in .op-name", () => {
+      setupRemoved({ by: "Tess" });
+      const line = screen.getByRole("alert");
+      expect(line).toHaveTextContent("Tess removed this ask.");
+      expect(line.querySelector(".op-name")).toHaveTextContent(/^Tess$/);
+    });
+
+    test("without a name: 'This ask was removed.'", () => {
+      setupRemoved({ by: null });
+      expect(screen.getByRole("alert")).toHaveTextContent(/^This ask was removed\.OK$/);
+    });
+
+    test("Save is disabled and never sends; OK closes", () => {
+      const { onClose, onUpdate } = setupRemoved({ by: null });
+      expect(save()).toBeDisabled();
+      fireEvent.click(save());
+      expect(onUpdate).not.toHaveBeenCalled();
+      fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "OK" }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    test("not removed: no line, Save enabled (the prop defaults off)", () => {
+      setupRemoved(null);
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(save()).toBeEnabled();
+    });
+  });
 });
 
 // Inside the full-screen Ask screen (2026-11-13): the same form, with the host's heading, preview pill

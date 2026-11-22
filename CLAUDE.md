@@ -35,6 +35,12 @@ Vercel hosting, Anthropic Claude API.
   push for a bugfix — dev only, main untouched.)
 - `CI=true` on Vercel treats ESLint warnings as errors — every declared variable
   must be used. Report unused vars; don't silently delete.
+- **The design chat writes only to `origin/handoff`, and only under `handoff/`:**
+  `SPEC_*.md` mid-session (ordinary commits on top) and `design_handoff.md` at its
+  SESSION END (one fresh orphan commit, force-pushed, carrying any spec not yet
+  filed on dev). It never writes to `dev` or `main`; all code reaches `dev` through
+  Claude Code, where the tests run. A download into `handoff/` is the fallback when
+  its push fails. (Ruled 2026-11-21 [Velayo OS].)
 
 ---
 
@@ -75,8 +81,11 @@ Vercel hosting, Anthropic Claude API.
 When I type "SESSION START" (or "session start"), do this first.
 
 ### Step 0 — handoff check
-Before the briefing, fetch `origin/handoff` and `origin/dev`, then classify
-`origin/handoff`'s sha with the same test as SESSION END Step 0:
+Before the briefing, fetch `origin/handoff` and `origin/dev`, then classify the
+**handoff sha** with the same test as SESSION END Step 0. The handoff sha is the
+last commit on the branch that touched the handoff file:
+`git log -1 --format=%h origin/handoff -- handoff/design_handoff.md`.
+Spec-only commits on the branch never count as a handoff.
 - **In `origin/dev`'s SESSION_LOG** (`git show origin/dev:docs/SESSION_LOG.md`)
   → consumed; say so in one line.
 - **In the local SESSION_LOG only** → merged, not pushed; the briefing's first
@@ -99,7 +108,8 @@ END and the next SESSION START briefed from stale docs. (Ruled 2026-11-03
 When I type "BUILD" (optionally naming a spec, e.g. "BUILD swipe parity"):
 
 ### Step 1 — Locate the spec
-List `handoff/`. Find the `SPEC_*.md` payload to build:
+First pull any specs the design chat pushed (see "Specs from `origin/handoff`"
+under Step 0.5). Then list `handoff/`. Find the `SPEC_*.md` payload to build:
 - If I named one, use it.
 - If exactly one `SPEC_*.md` payload is present, use it.
 - If several are present and I did not name one, list them and ASK which —
@@ -177,7 +187,11 @@ failure; stop and report it rather than committing.
     push dev right away (pre-push range check first: `git log origin/dev..dev`).
     (Ruled 2026-11-03.)
 - **If `handoff/design_handoff.md` isn't in the working tree, check `origin/handoff`:**
-  `git fetch origin handoff`, then `git rev-parse origin/handoff`.
+  `git fetch origin handoff`, then take the handoff sha:
+  `git log -1 --format=%h origin/handoff -- handoff/design_handoff.md`.
+  **Not** `git rev-parse origin/handoff`: the design chat pushes specs mid-session as
+  ordinary commits, and those move the branch tip without carrying a new handoff.
+  (Changed 2026-11-21 [Velayo OS].)
   - **If that sha already appears in `docs/SESSION_LOG.md`, the handoff is CONSUMED.** Say so,
     and treat it as "does not exist"; the HARD GATE does not apply. If the sha is in the
     local SESSION_LOG but not in `origin/dev`'s (`git show origin/dev:docs/SESSION_LOG.md`),
@@ -201,6 +215,12 @@ file handled in Step 0. EVERYTHING ELSE in `handoff/` is **payload**: files the
 design chat produced for this build (specs, etc.) that must be filed to their
 home and cleared out.
 
+- **Specs from `origin/handoff` (do this first).** `git fetch origin handoff`, then
+  `git ls-tree --name-only origin/handoff handoff/`. For each `SPEC_*.md` listed
+  there that is NOT already in `docs/specs/**` and NOT already in `handoff/`, copy it
+  in: `git show origin/handoff:handoff/<file> > handoff/<file>`. From then on it is
+  ordinary payload, exactly like a hand-dropped file. Never merge or check out the
+  branch. (Added 2026-11-21 [Velayo OS]: specs travel by the branch, not by download.)
 - List the contents of `handoff/`. For every file that is NOT one of the two
   baseline files and NOT `design_handoff.md`, treat it as payload.
 - The handoff's `## DROPPED_FILES` manifest (if present) tells you each payload
@@ -347,8 +367,10 @@ sections (any may be omitted if nothing applies):
 - `## DROPPED_FILES` — manifest of payload files (specs, etc.) dropped into
   `handoff/` alongside the handoff, with each file's destination.
 
-Step 0 consumes `design_handoff.md` (merge + delete). Step 0.5 routes the payload
-files named in `## DROPPED_FILES` to their homes. `handoff/` is an AIRLOCK: its
+Both the handoff and its specs arrive on `origin/handoff`. Specs can also arrive
+mid-session, ahead of the handoff. A download into `handoff/` is the fallback.
+Step 0 consumes `design_handoff.md` (merge + delete). Step 0.5 pulls specs from the
+branch, then routes the payload files named in `## DROPPED_FILES` to their homes. `handoff/` is an AIRLOCK: its
 only permanent residents are `.gitignore` and `DESIGN_CHAT_handoff_prompt.md`;
 everything else passes through and is cleared each SESSION END.
 

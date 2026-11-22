@@ -123,8 +123,9 @@ test("the rail renders the layout: Staples, two people pills, '+N more', the gho
   expect(app.match(/<span className="cat-em">\+<\/span>New ask/g)).toHaveLength(1);
   expect(app.match(/className="cat-pill cat-pill-new" style=\{\{ marginTop: "10px" \}\} onClick=\{\(\) => openNewAsk\("organize"\)\}/g)).toHaveLength(1);
   // Every hand-over — a pill, a "+N more" row, a block's "Hand it to" — is the one handoverAsk, which
-  // records its time; nothing else does.
-  expect(app).toContain("const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); setRunAskId(askId); };");
+  // records its time; nothing else does. The run opens once the asks are read again (SPEC_ask_shelf_sync
+  // A1), so it starts on the fresh shelf; the time is recorded at the tap.
+  expect(app).toContain("const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); openAfterAskRefresh(() => setRunAskId(askId)); };");
   expect(app).toContain("onClick={() => handoverAsk(block.id)}");
   expect(app).toContain("onOpen={(askId) => { setMoreAsksOpen(false); handoverAsk(askId); }}");
   expect(app.match(/recordAskHandover\(/g)).toHaveLength(1);

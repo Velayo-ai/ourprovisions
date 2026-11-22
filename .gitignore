@@ -32,9 +32,11 @@ qa/test_fixture.dev.json
 
 *.dump
 
-# Supabase CLI version-check cache (written by `supabase functions deploy`);
-# `.temp/linked-project.json` above it IS tracked on purpose — it names the dev project.
-supabase/.temp/cli-latest
+# Supabase CLI scratch (`supabase link`, `functions deploy`, `db query --linked` write version
+# caches, the pooler URL and the project ref here). `.temp/linked-project.json` IS tracked on
+# purpose — it names the dev project — so the folder's contents are ignored, not the folder.
+supabase/.temp/*
+!supabase/.temp/linked-project.json
 
 # local verification helper; bakes in the dev anon key, never committed
 scripts/verify6.ps1

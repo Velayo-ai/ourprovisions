@@ -1,9 +1,8 @@
 // supabase/functions/meal-photo-sweep/index.ts
 //
-// !! main's source includes the item-photos pass needing migration 084; do not deploy to prod
-// !! until 084 ships with Ask. (2026-11-12: Ask went to prod behind REACT_APP_FEATURE_ASK, OFF;
-// !! 077 / 078 / 083 / 084 are dev-only. Prod runs the meal-only version deployed from dev b0282a6.
-// !! If it is deployed early anyway, the item pass skips itself: see MISSING_RPC below.)
+// 084 (the item pass's RPCs) is on dev and prod since Ask went live, 2026-11-16 (main 085c9d2),
+// so this file deploys to either. On a project without 084 the item pass skips itself rather than
+// failing the run: see MISSING_RPC below.
 //
 // OurProvisions — the photo sweep. The project's THIRD Edge Function, and the first that
 // runs as service role. Spec: SPEC_photo_sweep.md (+ Amendment 2026-10-25); the item pass:
