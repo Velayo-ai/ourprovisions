@@ -1,4 +1,5 @@
 import { useConnectivity } from "../contexts/ConnectivityContext";
+import { useAuthHealth } from "../lib/authHealth";
 import { resolvePillState } from "../lib/pillState";
 
 const CONFIGS = {
@@ -60,12 +61,28 @@ const dotBase = {
 // rendered at least once — App.js passes householdReady. Without it the
 // "offline" state is drawn as "Reconnecting…": there is nothing saved to show.
 // Copy only — visibility still follows connState alone.
-export function ConnectivityPill({ hasSavedData = true }) {
+//
+// `queuedCount` (offline check-off R4, 2026-11-23): checks saved on this phone and not yet synced. While
+// there are any, the pill says so whatever the connection state: offline → "Offline · N checks waiting to
+// sync"; online (they're on their way) → "Syncing N checks…". It takes over from "Reconnecting…".
+export function ConnectivityPill({ hasSavedData = true, queuedCount = 0, syncing = false }) {
   const { connState } = useConnectivity();
+  const { online } = useAuthHealth();
+
+  if (queuedCount > 0) {
+    const noun = queuedCount === 1 ? "check" : "checks";
+    // The dot pulses while a send is actually in flight.
+    return renderPill(online
+      ? { ...CONFIGS.reconnecting, dotStyle: syncing ? "pulse" : "steady", label: `Syncing ${queuedCount} ${noun}…` }
+      : { ...CONFIGS.offline, label: `Offline · ${queuedCount} ${noun} waiting to sync` });
+  }
 
   if (connState === "online") return null;
 
-  const cfg = CONFIGS[resolvePillState(connState, hasSavedData)];
+  return renderPill(CONFIGS[resolvePillState(connState, hasSavedData)]);
+}
+
+function renderPill(cfg) {
 
   return (
     <>

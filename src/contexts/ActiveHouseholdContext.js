@@ -10,6 +10,7 @@ import { scheduleHoldRetry } from "../lib/holdRetry";
 // (`activeHouseholdId:<clerkId>`), legacy per-browser key adopted once — see
 // src/lib/rememberedHousehold.js.
 import { pickActiveHousehold, rememberHousehold } from "../lib/rememberedHousehold";
+import { clearCheckStorage } from "../lib/checkQueue";
 
 const ActiveHouseholdContext = createContext(null);
 
@@ -246,6 +247,9 @@ export function ActiveHouseholdProvider({ getToken, clerkId, sessionId, onRemova
 
   const switchHousehold = useCallback((id) => {
     if (!myHouseholdsRef.current.some((h) => h.id === id)) return;
+    // Offline check-off (amendment A9): a switch to ANOTHER place clears the stored check queue and cached
+    // list — a queue never follows the person to a different household.
+    if (activeHouseholdIdRef.current && activeHouseholdIdRef.current !== id) clearCheckStorage();
     rememberHousehold(clerkIdRef.current, id);   // A6: per user; a storage failure never blocks a switch
     setActiveHouseholdId(id);
   }, []);

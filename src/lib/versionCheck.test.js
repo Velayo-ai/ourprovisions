@@ -123,8 +123,8 @@ describe("the wiring (source)", () => {
   const SRC = path.join(__dirname, "..");
   const APP = fs.readFileSync(path.join(SRC, "App.js"), "utf8");
   const TAG = fs.readFileSync(path.join(SRC, "components", "BuildTag.js"), "utf8");
-  test("the notice waits for an Ask run to end and for any toast to go", () => {
-    expect(APP).toContain("{versionCheck.show && !runAskId && !toastMessage && (");
+  test("the notice waits for an Ask run to end, for any toast to go, and for queued offline checks to sync (A8)", () => {
+    expect(APP).toContain("{versionCheck.show && !runAskId && !toastMessage && Object.keys(queuedChecks || {}).length === 0 && (");
     expect(APP.match(/<VersionNotice /g)).toHaveLength(1);
   });
   test("the build tag is behind the build-time production check, so it leaves the prod bundle", () => {
