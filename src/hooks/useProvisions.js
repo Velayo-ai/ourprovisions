@@ -1747,14 +1747,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // resolves to nothing, instead of re-deriving "bought" from stale state
     // and emitting a second `checked` event. A genuine uncheck → recheck is
     // two real transitions and still resolves both times.
+    // Offline check-off (SPEC_offline_checkoff amendment 2026-11-23, 088): every check write carries the
+    // time of the tap and applies only if the row's CHECK hasn't changed since (status_changed_at < tap).
+    // Online taps stamp it too, so a check queued earlier on another phone can't land over this one.
+    // A qty / price / meal change never moves status_changed_at, so it never cancels a check (R1).
+    const tapAt = opts.tapAt || new Date().toISOString();
     const res = await chain.enqueue(listItemId, wantBought, async (signal) => {
       const { data: rows, error: updateErr } = await db
         .from("list_items")
-        .update({ status: newStatus })
+        .update({ status: newStatus, status_changed_at: tapAt })
         .eq("id", listItemId)
         .eq("household_id", hh.id)
         .is("deleted_at", null)
         .neq("status", newStatus)
+        .lt("status_changed_at", tapAt)
         .select("status")
         .abortSignal(signal);
       if (updateErr) throw updateErr;
