@@ -55,6 +55,9 @@ export function clearCheckStorage(store = defaultStorage()) {
 }
 
 const validEntry = (e) => !!e && typeof e.want === "boolean" && typeof e.tapAt === "string" && !Number.isNaN(Date.parse(e.tapAt));
+// An entry as stored: want, tapAt, and the row's catalog item id when it was known at the tap (cid) — the
+// confirmed check is logged against it, whether or not the list has loaded by the time it lands.
+const cleanEntry = (e) => (typeof e.cid === "string" && e.cid ? { want: e.want, tapAt: e.tapAt, cid: e.cid } : { want: e.want, tapAt: e.tapAt });
 
 export function readQueue(clerkId, householdId, store = defaultStorage()) {
   if (!store || !clerkId || !householdId) return {};
@@ -63,7 +66,7 @@ export function readQueue(clerkId, householdId, store = defaultStorage()) {
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     const out = {};
-    Object.keys(parsed || {}).forEach((id) => { if (validEntry(parsed[id])) out[id] = { want: parsed[id].want, tapAt: parsed[id].tapAt }; });
+    Object.keys(parsed || {}).forEach((id) => { if (validEntry(parsed[id])) out[id] = cleanEntry(parsed[id]); });
     return out;
   } catch (e) { return {}; }
 }
@@ -77,12 +80,27 @@ export function writeQueue(clerkId, householdId, entries, store = defaultStorage
 }
 
 // A tap's final intent for a row. syncedWant = the row's status as the server last said it (true =
-// bought), or null when unknown. Returns the new entries; the input is never mutated.
-export function putEntry(entries, id, want, tapAt, syncedWant) {
+// bought), or null when unknown. cid = the row's catalog item id, kept from an earlier entry when this
+// tap doesn't know it. Returns the new entries; the input is never mutated.
+export function putEntry(entries, id, want, tapAt, syncedWant, cid = null) {
   const next = { ...entries };
   if (syncedWant !== null && syncedWant !== undefined && want === syncedWant) delete next[id];
-  else next[id] = { want, tapAt };
+  else next[id] = cleanEntry({ want, tapAt, cid: cid || entries[id]?.cid || null });
   return next;
+}
+
+// The household this person's cached list is for (the newest, if several survived) — the restore's
+// fallback when no place has been remembered on this phone (the remembered key is written on a switch).
+export function cachedHouseholdFor(clerkId, store = defaultStorage()) {
+  if (!store || !clerkId) return null;
+  const prefix = `${CACHE_PREFIX}${clerkId}:`;
+  let best = null;
+  ownKeys(store).filter((k) => k.startsWith(prefix)).forEach((k) => {
+    let at = 0;
+    try { at = Date.parse(JSON.parse(store.getItem(k)).savedAt) || 0; } catch (e) { at = 0; }
+    if (!best || at > best.at) best = { id: k.slice(prefix.length), at };
+  });
+  return best ? best.id : null;
 }
 
 // A write for this row settled (sent, or found already there): its entry leaves the queue — unless a

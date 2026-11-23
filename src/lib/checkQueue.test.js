@@ -1,6 +1,6 @@
 import {
   queueKey, cacheKey, discardForeign, clearCheckStorage, readQueue, writeQueue, putEntry, settleEntry,
-  earliestCheckTap, writeListCache, readListCache, listCacheSignature, OFFLINE_SKIP, isOfflineSkip,
+  earliestCheckTap, writeListCache, readListCache, listCacheSignature, OFFLINE_SKIP, isOfflineSkip, cachedHouseholdFor,
 } from "./checkQueue";
 
 const memStore = () => {
@@ -65,6 +65,24 @@ describe("checkQueue — entries", () => {
   });
   test("an unknown synced state keeps the entry (never drop what might be a change)", () => {
     expect(putEntry({}, "r1", false, T1, null)).toEqual({ r1: { want: false, tapAt: T1 } });
+  });
+  test("the catalog id rides with the entry, kept across taps that don't know it, and survives storage", () => {
+    let q = putEntry({}, "r1", true, T1, false, "c1");
+    expect(q).toEqual({ r1: { want: true, tapAt: T1, cid: "c1" } });
+    q = putEntry(q, "r1", true, T2, null);
+    expect(q.r1.cid).toBe("c1");
+    const s = memStore();
+    writeQueue("u", "h", q, s);
+    expect(readQueue("u", "h", s)).toEqual({ r1: { want: true, tapAt: T2, cid: "c1" } });
+  });
+  test("cachedHouseholdFor: this person's newest cached place, never someone else's", () => {
+    const s = memStore();
+    s.setItem("op_list_cache:u:hh_old", JSON.stringify({ savedAt: "2026-11-20T10:00:00.000Z" }));
+    s.setItem("op_list_cache:u:hh_new", JSON.stringify({ savedAt: "2026-11-23T10:00:00.000Z" }));
+    s.setItem("op_list_cache:other:hh_x", JSON.stringify({ savedAt: "2026-11-24T10:00:00.000Z" }));
+    expect(cachedHouseholdFor("u", s)).toBe("hh_new");
+    expect(cachedHouseholdFor("nobody", s)).toBeNull();
+    expect(cachedHouseholdFor("u", null)).toBeNull();
   });
   test("putEntry never mutates its input", () => {
     const q = { r1: { want: true, tapAt: T1 } };

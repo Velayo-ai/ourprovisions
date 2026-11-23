@@ -7,7 +7,7 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { createRowWriteChain, mergePolledById } from "../lib/checkWrites";
-import { readQueue, writeQueue, putEntry, settleEntry, earliestCheckTap, discardForeign, readListCache, writeListCache, listCacheSignature, OFFLINE_SKIP, isOfflineSkip } from "../lib/checkQueue";
+import { readQueue, writeQueue, putEntry, settleEntry, earliestCheckTap, discardForeign, readListCache, writeListCache, listCacheSignature, cachedHouseholdFor, OFFLINE_SKIP, isOfflineSkip } from "../lib/checkQueue";
 import { activeKeyFor } from "../lib/rememberedHousehold";
 import { createQtyQueue, adoptQtyResult, seedRowKey, isListEntry, guessChange, adoptCheckedResult } from "../lib/qtyWrites";
 import { rollbackQty } from "../lib/qtyRollback";
@@ -225,6 +225,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // otherwise hold the cached rows for ever).
   const listCacheSigRef = useRef("");
   const restoredFromCacheRef = useRef(null);
+  // The household whose list is in listRowsRef (loaded, or restored from the cache). The flush waits for
+  // it, so a confirmed check is never logged against a list that hasn't arrived yet.
+  const listReadyForRef = useRef(null);
   const clerkIdLiveRef = useRef(clerkId);
   clerkIdLiveRef.current = clerkId;
   // In-flight guard for the 2s list poll. On a slow (3G) connection a single
@@ -384,6 +387,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const cache = readListCache(clerk, householdId);
     if (!cache) return false;
     listRowsRef.current = cache.rows;
+    listReadyForRef.current = householdId;
     setListRows(cache.rows);
     const qty = {};
     const chk = {};
@@ -539,6 +543,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     });
     Object.assign(mergedPrices, newPrices);
     listRowsRef.current = newListRows;
+    listReadyForRef.current = householdId;
     // A poll requested after an adjust answer carries at least what it said: the answer's status retires.
     qtyStatusRef.current.forEach((v, id) => { if (v.seq <= qtySeqAtStart) qtyStatusRef.current.delete(id); });
     setListRows(newListRows);
@@ -1044,6 +1049,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       listFingerprintRef.current = "";
       if (!keepRestored) {
         restoredFromCacheRef.current = null;
+        listReadyForRef.current = null;
         setListRows([]);
         setQuantities({});
         setChecked({});
@@ -1863,7 +1869,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Resolves to: the committed status ("bought" | "pending") on a real transition; null on a no-op, a
   // lost conflict or a cancel; "queued" when it couldn't reach the server and waits in the queue; false
   // when the server refused it and the row was put back.
-  async function runCheckWrite(listItemId, wantBought, tapAt, { itemName = null, fromQueue = false } = {}) {
+  async function runCheckWrite(listItemId, wantBought, tapAt, { itemName = null, catalogItemId = null, fromQueue = false } = {}) {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return null;
@@ -1894,7 +1900,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // (res.latest false) decides the row instead. Only into the queue of the place being shown.
     if (res.error && !res.aborted && (isOfflineSkip(res.error) || classifyFetchError(res.error) === "transient") && q.householdId === hh.id) {
       if (res.latest) {
-        q.entries = putEntry(q.entries, listItemId, wantBought, tapAt, syncedWantOf(listItemId));
+        const cid = catalogItemId || listRowsRef.current.find((r) => r.id === listItemId)?.catalogItemId || null;
+        q.entries = putEntry(q.entries, listItemId, wantBought, tapAt, syncedWantOf(listItemId), cid);
         persistCheckQueue();
         if (q.entries[listItemId]) pendingCheckRef.current.add(listItemId);
         else if (!chain.pending(listItemId)) pendingCheckRef.current.delete(listItemId);   // the change cancelled itself out
@@ -1962,7 +1969,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         tracer.startSpan("item_checked_off", {
           attributes: {
             list_item_id: listItemId,
-            catalog_item_id: (itemName && catalogRef.current[itemName]?.id) ?? null,
+            catalog_item_id: catalogItemId ?? ((itemName && catalogRef.current[itemName]?.id) || null),
             household_id: hh.id,
           },
         }).end();
@@ -1988,6 +1995,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const hh = householdRef.current;
     const q = checkQueueRef.current;
     if (!db || !hh || q.householdId !== hh.id) return;
+    // Not before bootstrap has named this person (a list restored from the cache can be up first): the
+    // confirmed checks must be logged, and recordListEvent needs the internal user id.
+    if (!internalUserIdRef.current) return;
+    if (listReadyForRef.current !== hh.id) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
     const chain = checkChainRef.current;
     const batch = Object.keys(q.entries).filter((id) => !chain.pending(id)).map((id) => ({ id, ...q.entries[id] }));
@@ -1999,8 +2010,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     try {
       results = await Promise.all(batch.map(async (e) => {
         const row = listRowsRef.current.find((r) => r.id === e.id);
-        const status = await runCheckWrite(e.id, e.want, e.tapAt, { itemName: row?.name ?? null, fromQueue: true });
-        return { ...e, status, catalogItemId: row?.catalogItemId ?? null };
+        const cid = e.cid || row?.catalogItemId || null;
+        const status = await runCheckWrite(e.id, e.want, e.tapAt, { itemName: row?.name ?? null, catalogItemId: cid, fromQueue: true });
+        return { ...e, status, catalogItemId: cid };
       }));
     } finally {
       flushingChecksRef.current = false;
@@ -2033,8 +2045,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (!sessionLive || !clerkId || householdReady) return undefined;
     const t = setTimeout(() => {
       if (restoredFromCacheRef.current) return;
+      // The place being loaded, else the one remembered on this phone (written on a switch), else the
+      // place this person's cached list is for.
       let hhId = householdRef.current?.id || null;
       if (!hhId) { try { hhId = window.localStorage.getItem(activeKeyFor(clerkId)); } catch (e) { hhId = null; } }
+      if (!hhId || !readListCache(clerkId, hhId)) hhId = cachedHouseholdFor(clerkId) || hhId;
       if (hhId) restoreListFromCache(clerkId, hhId);
     }, CACHE_RESTORE_AFTER_MS);
     return () => clearTimeout(t);
