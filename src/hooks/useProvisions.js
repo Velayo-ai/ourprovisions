@@ -7,6 +7,8 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { createRowWriteChain, mergePolledById } from "../lib/checkWrites";
+import { readQueue, writeQueue, putEntry, settleEntry, earliestCheckTap, discardForeign, readListCache, writeListCache, listCacheSignature, OFFLINE_SKIP, isOfflineSkip } from "../lib/checkQueue";
+import { activeKeyFor } from "../lib/rememberedHousehold";
 import { createQtyQueue, adoptQtyResult, seedRowKey, isListEntry, guessChange, adoptCheckedResult } from "../lib/qtyWrites";
 import { rollbackQty } from "../lib/qtyRollback";
 import { inviteFailureNotice } from "../lib/inviteFailure";
@@ -62,6 +64,9 @@ export async function releaseLinksOrWarn(db, { householdId, mealId, listItemIds,
 // materializePendingIngredients swaps these for real ids at Save; nothing with
 // a pending id may ever reach meal_ingredients.
 const normCatalogName = (str) => (str || "").trim().toLowerCase().replace(/\s+/g, " ");
+// Offline check-off slice 1 item 5: how long the app waits for the real list before showing the cached one.
+// Under the splash's 5 s failsafe, so a reload on weak signal dissolves into the cached list.
+const CACHE_RESTORE_AFTER_MS = 2500;
 const PENDING_CATALOG_PREFIX = "pending:";
 // Meal occasions (061, Meal Library v1; "drink" added by 069, SPEC_meal_occasion_drink):
 // the eight values meals.occasion may hold, in the CHECK constraint's vocabulary.
@@ -199,6 +204,29 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Per-row check writes, one at a time, newest intent wins (lib/checkWrites; 2026-11-08 Undo on tap).
   const checkChainRef = useRef(null);
   if (!checkChainRef.current) checkChainRef.current = createRowWriteChain();
+  // OFFLINE CHECK-OFF (SPEC_offline_checkoff 2026-11-08 + amendment 2026-11-23, slice 1; lib/checkQueue).
+  // A check or uncheck that can't reach the server (navigator.onLine false, or the request never got an
+  // answer) waits here instead of rolling back: { listItemId: { want, tapAt } }, persisted per person and
+  // place. The row stays in pendingCheckRef the whole time, so no poll can put it back
+  // (mergePolledById); it leaves only when its write settles. queuedChecks is what the Shop draws as
+  // waiting; it is published in ONE batch per flush, so confirmed rows slide into In cart together.
+  const checkQueueRef = useRef({ clerkId: null, householdId: null, entries: {} });
+  const [queuedChecks, setQueuedChecks] = useState({});
+  const [checkSyncing, setCheckSyncing] = useState(false);
+  const flushingChecksRef = useRef(false);
+  const publishQueuedChecks = () => setQueuedChecks({ ...checkQueueRef.current.entries });
+  const persistCheckQueue = () => { const q = checkQueueRef.current; writeQueue(q.clerkId, q.householdId, q.entries); };
+  // The row's status as the server last said it (the poll's rows; after a cold restore, the cache's).
+  const syncedWantOf = (id) => { const row = listRowsRef.current.find((r) => r.id === id); return row ? row.status === "bought" : null; };
+  // The cached list (slice 1 item 5): the last loaded list, rewritten when it moves; restored when the app
+  // has been up CACHE_RESTORE_AFTER_MS without its list (a reload on weak signal: the shell loaded, the
+  // API didn't). restoredFromCacheRef = the household shown from the cache until a real list arrives;
+  // the first real answer after a restore is trusted even when empty (the suspect-empty guard would
+  // otherwise hold the cached rows for ever).
+  const listCacheSigRef = useRef("");
+  const restoredFromCacheRef = useRef(null);
+  const clerkIdLiveRef = useRef(clerkId);
+  clerkIdLiveRef.current = clerkId;
   // In-flight guard for the 2s list poll. On a slow (3G) connection a single
   // loadListItems cycle (get_list_items RPC → contributors query → setStates) can
   // outlast the 2s interval; without this the setInterval keeps firing and the
@@ -331,6 +359,50 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }
 
+  // The queue for this person at this place: anything stored for another person or place is discarded
+  // (never sent), the queued intents are laid over `checked`, and their rows held from the poll until
+  // their writes settle. Called after loadForHousehold's reset and before its first poll, and by the
+  // cold restore. Re-reading storage on a retry of the same place is idempotent.
+  function loadCheckQueue(clerk, householdId) {
+    if (!clerk || !householdId) return;
+    discardForeign(clerk, householdId);
+    const entries = readQueue(clerk, householdId);
+    checkQueueRef.current = { clerkId: clerk, householdId, entries };
+    const ids = Object.keys(entries);
+    if (ids.length > 0) {
+      ids.forEach((id) => { pendingCheckRef.current.add(id); touchCheck(id); });
+      setChecked((prev) => { const next = { ...prev }; ids.forEach((id) => { next[id] = entries[id].want; }); return next; });
+    }
+    publishQueuedChecks();
+  }
+
+  // Slice 1 item 5: show the household's last-loaded list when the app has been up a while without it.
+  // Seeds exactly what the Shop renders from (listRows, quantities, checked, contributors) plus the
+  // household's id / name, then the queue on top. Never touches bootstrap, the households list or the
+  // catalog: those load for real once the API answers, and the first real list replaces this one.
+  function restoreListFromCache(clerk, householdId) {
+    const cache = readListCache(clerk, householdId);
+    if (!cache) return false;
+    listRowsRef.current = cache.rows;
+    setListRows(cache.rows);
+    const qty = {};
+    const chk = {};
+    cache.rows.forEach((r) => { qty[r.id] = r.quantity; chk[r.id] = r.status === "bought"; });
+    setQuantities(qty);
+    setChecked(chk);
+    setContributorsMap(cache.contributors || {});
+    listCacheSigRef.current = listCacheSignature(householdId, cache.rows, cache.contributors);
+    if (!householdRef.current || householdRef.current.id !== householdId) {
+      householdRef.current = { ...cache.household, photoUrl: null };
+      setHousehold(householdRef.current);
+    }
+    restoredFromCacheRef.current = householdId;
+    loadCheckQueue(clerk, householdId);
+    setHouseholdReady(true);
+    setLoading(false);
+    return true;
+  }
+
   async function loadListItemsInner(db, householdId) {
     // Where the check writes stood when this snapshot was requested: a row written after this keeps its
     // local value when the answer lands (mergePolledChecked).
@@ -350,7 +422,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // empty response and bail before any setters run — don't clobber quantities,
     // checks, rows, or contributors to empty. A real clear-list calls the
     // setters directly, not through this poll.
-    if (!items || items.length === 0) {
+    // A list shown from the cache (restoredFromCacheRef) is not "held state": the first real answer for
+    // that household is the truth, even an empty one (the list may have been cleared meanwhile).
+    if ((!items || items.length === 0) && restoredFromCacheRef.current !== householdId) {
       let hadItems = false;
       setQuantities((prev) => { hadItems = Object.keys(prev).length > 0; return prev; });
       if (hadItems) { reportTransientFailure(); return; }
@@ -496,6 +570,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setPrices(mergedPrices);
     setAddedByMap(newAddedBy);
     setContributorsMap(newContributors);
+    // A real list arrived: the cache's stand-in (if any) is retired, and the cache follows this list
+    // whenever it moves (ids, quantities, statuses, contributors), keyed to this person and place.
+    if (restoredFromCacheRef.current === householdId) restoredFromCacheRef.current = null;
+    if (householdRef.current?.id === householdId && clerkIdLiveRef.current) {
+      const sig = listCacheSignature(householdId, newListRows, newContributors);
+      if (sig !== listCacheSigRef.current) {
+        listCacheSigRef.current = sig;
+        writeListCache(clerkIdLiveRef.current, householdId, { household: householdRef.current, rows: newListRows, contributors: newContributors });
+      }
+    }
 
     // Only now, and only if something actually moved. Fired after the setters
     // so provenance is read against the list the user is about to see.
@@ -812,6 +896,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (sessionLive) { wasLiveRef.current = true; return; }
     if (!wasLiveRef.current) return;
     wasLiveRef.current = false;
+    // The offline queue and the cached list in MEMORY go with the session (a deliberate Sign out also
+    // clears them from storage — App.js; any other end leaves storage keyed to this person, discarded on
+    // load by anyone else).
+    checkQueueRef.current = { clerkId: null, householdId: null, entries: {} };
+    setQueuedChecks({});
+    setCheckSyncing(false);
+    restoredFromCacheRef.current = null;
+    listCacheSigRef.current = "";
     supabaseRef.current = null;
     householdRef.current = null;
     setHousehold(null);
@@ -941,17 +1033,26 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     let cancelled = false;
 
     async function loadForHousehold(householdId) {
+      // A list already on screen from the cache (restoreListFromCache) for THIS place stays up through the
+      // load — no overlay, no blank list — and the first real list replaces it (slice 1 item 5).
+      const keepRestored = restoredFromCacheRef.current === householdId;
       // Overlay on the first attempt only; a retry runs behind the pill (A3).
-      if (householdHoldRef.current.failures === 0) setLoading(true);
-      setHouseholdReady(false);
+      if (householdHoldRef.current.failures === 0 && !keepRestored) setLoading(true);
+      if (!keepRestored) setHouseholdReady(false);
 
       // Reset per-household state so the previous household's rows don't flash
       listFingerprintRef.current = "";
-      setListRows([]);
-      setQuantities({});
-      setChecked({});
+      if (!keepRestored) {
+        restoredFromCacheRef.current = null;
+        setListRows([]);
+        setQuantities({});
+        setChecked({});
+        setContributorsMap({});
+      }
       setAddedByMap({});
-      setContributorsMap({});
+      // The queue for this person here, laid over the reset state BEFORE the first poll (below), because
+      // mergePolledById keeps only ids already in `checked` (amendment item 5).
+      loadCheckQueue(clerkIdLiveRef.current, householdId);
       setActiveCycle(null);
       activeCycleRef.current = null;
       setActiveSession(null);
@@ -1148,7 +1249,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         // `online` event runs one immediate tick instead of waiting out the
         // interval. A missing token does not close the gate: the tick has to
         // reach the wrapper for Clerk to be asked again.
-        const listTick = () => { if (!isPollingOpen()) return; loadListItems(db, hh.id); pollActiveCycle(db, hh.id); };
+        // Queued checks go out on every open tick (iOS rarely delivers `online` to a resumed PWA). The
+        // order against the poll doesn't matter: a queued row is held from the poll until it settles.
+        const listTick = () => { if (!isPollingOpen()) return; flushQueuedChecksRef.current(); loadListItems(db, hh.id); pollActiveCycle(db, hh.id); };
         const catalogTick = () => { if (!isPollingOpen()) return; refreshCatalogRef.current(); refreshAsksRef.current(); };
         pollInterval = setInterval(listTick, 2000);
         catalogPollInterval = setInterval(catalogTick, 20000);
@@ -1728,7 +1831,6 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const before = chain.intent(listItemId, !!checked[listItemId]);
     const wantBought = opts.to ? opts.to === "bought" : !before;
     if (wantBought === before) return null;
-    const newStatus = wantBought ? "bought" : "pending";
     // F3: mark this row as having an in-flight write so the 2s poll won't
     // snap the optimistic value back to the stale server status before the
     // update commits (Bug 3: toggle bounces / needs ~3 taps to stick).
@@ -1736,23 +1838,40 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     touchCheck(listItemId);
     setChecked((prev) => ({ ...prev, [listItemId]: wantBought }));
 
-    // One row's writes go one at a time (2026-11-08): a newer intent aborts the
-    // write in flight and cancels one still waiting, so "check, then Undo before
-    // the check reached the server" ends unchecked, in order.
-    // SPEC_checked_event_duplicate_emission: the write is conditional on the
-    // row NOT already being at newStatus, and returns the row it changed. So
-    // the resolved status is a server-confirmed before/after transition — a
-    // re-tap that lands on an already-committed write (the closure or a
-    // late poll still showing the row unchecked) matches zero rows and
-    // resolves to nothing, instead of re-deriving "bought" from stale state
-    // and emitting a second `checked` event. A genuine uncheck → recheck is
-    // two real transitions and still resolves both times.
-    // Offline check-off (SPEC_offline_checkoff amendment 2026-11-23, 088): every check write carries the
-    // time of the tap and applies only if the row's CHECK hasn't changed since (status_changed_at < tap).
-    // Online taps stamp it too, so a check queued earlier on another phone can't land over this one.
-    // A qty / price / meal change never moves status_changed_at, so it never cancels a check (R1).
     const tapAt = opts.tapAt || new Date().toISOString();
+    return runCheckWrite(listItemId, wantBought, tapAt, { itemName });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checked]);
+
+  // THE ONE CHECK WRITE — a tap (toggleChecked) and the offline flush both come through here, on the same
+  // per-row chain, so there is no second write path (SPEC_offline_checkoff "extend, don't add").
+  // One row's writes go one at a time (2026-11-08): a newer intent aborts the
+  // write in flight and cancels one still waiting, so "check, then Undo before
+  // the check reached the server" ends unchecked, in order.
+  // SPEC_checked_event_duplicate_emission: the write is conditional on the
+  // row NOT already being at newStatus, and returns the row it changed. So
+  // the resolved status is a server-confirmed before/after transition — a
+  // re-tap that lands on an already-committed write (the closure or a
+  // late poll still showing the row unchecked) matches zero rows and
+  // resolves to nothing, instead of re-deriving "bought" from stale state
+  // and emitting a second `checked` event. A genuine uncheck → recheck is
+  // two real transitions and still resolves both times.
+  // Offline check-off (SPEC_offline_checkoff amendment 2026-11-23, 088): every check write carries the
+  // time of the tap and applies only if the row's CHECK hasn't changed since (status_changed_at < tap).
+  // Online taps stamp it too, so a check queued earlier on another phone can't land over this one.
+  // A qty / price / meal change never moves status_changed_at, so it never cancels a check (R1).
+  // Resolves to: the committed status ("bought" | "pending") on a real transition; null on a no-op, a
+  // lost conflict or a cancel; "queued" when it couldn't reach the server and waits in the queue; false
+  // when the server refused it and the row was put back.
+  async function runCheckWrite(listItemId, wantBought, tapAt, { itemName = null, fromQueue = false } = {}) {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!hh || !db) return null;
+    const chain = checkChainRef.current;
+    const newStatus = wantBought ? "bought" : "pending";
     const res = await chain.enqueue(listItemId, wantBought, async (signal) => {
+      // Offline: don't send into the void (A4) — the tap waits in the queue instead.
+      if (typeof navigator !== "undefined" && navigator.onLine === false) throw OFFLINE_SKIP;
       const { data: rows, error: updateErr } = await db
         .from("list_items")
         .update({ status: newStatus, status_changed_at: tapAt })
@@ -1768,8 +1887,31 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     });
     // Cancelled before it was sent: nothing was written.
     if (res.skipped) return null;
-    // The poll may follow the server again once no newer write is pending.
-    if (res.latest) pendingCheckRef.current.delete(listItemId);
+    const q = checkQueueRef.current;
+
+    // It never reached the server (offline, or no answer — the class that used to roll back): queue it
+    // (A4). The row keeps its intent on screen and stays held from the poll. A newer intent for the row
+    // (res.latest false) decides the row instead. Only into the queue of the place being shown.
+    if (res.error && !res.aborted && (isOfflineSkip(res.error) || classifyFetchError(res.error) === "transient") && q.householdId === hh.id) {
+      if (res.latest) {
+        q.entries = putEntry(q.entries, listItemId, wantBought, tapAt, syncedWantOf(listItemId));
+        persistCheckQueue();
+        if (q.entries[listItemId]) pendingCheckRef.current.add(listItemId);
+        else if (!chain.pending(listItemId)) pendingCheckRef.current.delete(listItemId);   // the change cancelled itself out
+        if (!fromQueue) publishQueuedChecks();
+      }
+      touchCheck(listItemId);
+      if (!isOfflineSkip(res.error)) reportTransientFailure();
+      return "queued";
+    }
+
+    // Settled. Its queue entry (if any) is done — a newer tap still waiting keeps its own. The poll may
+    // follow the server again once nothing newer is pending or queued for the row.
+    if (!res.aborted) {
+      const next = settleEntry(q.entries, listItemId, tapAt);
+      if (next !== q.entries) { q.entries = next; persistCheckQueue(); if (!fromQueue) publishQueuedChecks(); }
+    }
+    if (res.latest && !q.entries[listItemId]) pendingCheckRef.current.delete(listItemId);
     touchCheck(listItemId);   // settled: a poll requested before now can't put the row back
 
     if (res.error) {
@@ -1779,7 +1921,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       console.error("toggleChecked error:", err.message);
       // Put the row back, unless a newer intent is already on its way.
       if (res.latest) setChecked((prev) => ({ ...prev, [listItemId]: !wantBought }));
-      if (classifyFetchError(err) === 'transient') { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
+      if (isOfflineSkip(err) || classifyFetchError(err) === "transient") { reportTransientFailure(); } else { setError(`Could not update item: ${err.message}`); }
       // false = the write failed and the row was put back (the Shop drops its Undo toast).
       return false;
     }
@@ -1787,12 +1929,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     reportSuccess();
     const rows = res.value;
     if (!rows || rows.length === 0) {
-      // No transition: the row was already at newStatus (or is gone).
-      // Reconcile the optimistic flip to the server's truth and resolve to
-      // nothing, so the caller records no event. Read the truth rather than
+      // No transition: the row was already at newStatus, a newer check change won (088), or the row is
+      // gone. Reconcile the optimistic flip to the server's truth, silently (Decision 3), and resolve to
+      // nothing, so no event is recorded. Read the truth rather than
       // assume it; if that read fails, the row already being at newStatus is
       // by far the likeliest reason for the zero-row update. Skipped when a
-      // newer intent is pending: its own write reconciles.
+      // newer intent is pending or queued: its own write reconciles.
       if (res.latest) {
         let serverBought = newStatus === "bought";
         try {
@@ -1806,7 +1948,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         } catch (e) {
           console.warn("toggleChecked reconcile read failed:", e?.message || e);
         }
-        if (!chain.pending(listItemId)) setChecked((prev) => ({ ...prev, [listItemId]: serverBought }));
+        if (!chain.pending(listItemId) && !checkQueueRef.current.entries[listItemId]) setChecked((prev) => ({ ...prev, [listItemId]: serverBought }));
       }
       return null;
     }
@@ -1820,7 +1962,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         tracer.startSpan("item_checked_off", {
           attributes: {
             list_item_id: listItemId,
-            catalog_item_id: catalogRef.current[itemName]?.id ?? null,
+            catalog_item_id: (itemName && catalogRef.current[itemName]?.id) ?? null,
             household_id: hh.id,
           },
         }).end();
@@ -1832,8 +1974,72 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // list_item_events row AFTER the primary write (D12) — and only when the
     // write actually transitioned the row. null on no-op or cancel; false on failure.
     return committedStatus;
+  }
+
+  // THE FLUSH (amendment item 4): every queued change goes out through runCheckWrite with its stored tap
+  // time, on the 2 s tick, `visibilitychange` and `online`. Each send gets a fresh Clerk token (the fetch
+  // wrapper asks at send time; no token offline → it stays queued). A row leaves `pendingCheckRef` only
+  // when its write settles. The waiting set is published ONCE when the batch is done, so the confirmed
+  // rows slide into In cart together. Confirmed transitions are logged with their TAP time, and a trip
+  // started offline starts at its first queued check (R3); dropped changes log nothing.
+  async function flushQueuedChecks() {
+    if (flushingChecksRef.current) return;
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    const q = checkQueueRef.current;
+    if (!db || !hh || q.householdId !== hh.id) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    const chain = checkChainRef.current;
+    const batch = Object.keys(q.entries).filter((id) => !chain.pending(id)).map((id) => ({ id, ...q.entries[id] }));
+    if (batch.length === 0) return;
+    flushingChecksRef.current = true;
+    setCheckSyncing(true);
+    const tripStartedAt = earliestCheckTap(q.entries);
+    let results = [];
+    try {
+      results = await Promise.all(batch.map(async (e) => {
+        const row = listRowsRef.current.find((r) => r.id === e.id);
+        const status = await runCheckWrite(e.id, e.want, e.tapAt, { itemName: row?.name ?? null, fromQueue: true });
+        return { ...e, status, catalogItemId: row?.catalogItemId ?? null };
+      }));
+    } finally {
+      flushingChecksRef.current = false;
+      setCheckSyncing(false);
+      publishQueuedChecks();
+    }
+    const confirmed = results
+      .filter((r) => (r.status === "bought" || r.status === "pending") && r.catalogItemId)
+      .sort((a, b) => Date.parse(a.tapAt) - Date.parse(b.tapAt));
+    for (const r of confirmed) {
+      // Sequential, so the first one opens (or adopts) the trip and the rest join it.
+      await recordListEvent(r.status === "bought" ? "checked" : "unchecked", {
+        listItemId: r.id, catalogItemId: r.catalogItemId, occurredAt: r.tapAt, tripStartedAt,
+      });
+    }
+  }
+  const flushQueuedChecksRef = useRef(null);
+  flushQueuedChecksRef.current = flushQueuedChecks;
+  // Coming back to the app is a flush moment too (a resumed iOS PWA often hears no `online`).
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible" && isPollingOpen()) flushQueuedChecksRef.current(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+  // The cached list (slice 1 item 5): signed in, but no list after CACHE_RESTORE_AFTER_MS — the API isn't
+  // answering (a reload on weak signal; bootstrap, the households read or the list itself is holding).
+  // Show this person's last-loaded list for their remembered place, with the queue on top. The real
+  // load carries on underneath and replaces it the moment it lands.
+  useEffect(() => {
+    if (!sessionLive || !clerkId || householdReady) return undefined;
+    const t = setTimeout(() => {
+      if (restoredFromCacheRef.current) return;
+      let hhId = householdRef.current?.id || null;
+      if (!hhId) { try { hhId = window.localStorage.getItem(activeKeyFor(clerkId)); } catch (e) { hhId = null; } }
+      if (hhId) restoreListFromCache(clerkId, hhId);
+    }, CACHE_RESTORE_AFTER_MS);
+    return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checked]);
+  }, [sessionLive, clerkId, householdReady]);
 
   const clearAll = useCallback(async () => {
     const db = supabaseRef.current;
@@ -1878,7 +2084,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // `silent` — the in-store event path (recordListEvent) starts the session as
   // a side effect of a check that already succeeded; a failure there is logged,
   // never toasted (D12: telemetry may not slow or interrupt shopping).
-  const startSession = useCallback(async ({ silent = false } = {}) => {
+  const startSession = useCallback(async ({ silent = false, startedAt = null } = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return null;
@@ -1914,6 +2120,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         user_id: internalUserIdRef.current,
         gps_lat: gpsLat,
         gps_lng: gpsLng,
+        // R3: backdated to the first queued offline tap; never into the future (a phone clock ahead).
+        ...(startedAt && Date.parse(startedAt) < Date.now() ? { started_at: startedAt } : {}),
       })
       .select()
       .single();
@@ -2007,7 +2215,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // loadSessions ends a stale own session itself, so what remains is either a
   // fresh session or none. Serialized through sessionStartingRef so two quick
   // taps cannot open two sessions during the GPS wait.
-  const ensureSession = useCallback(async ({ silent = false } = {}) => {
+  // `startedAt` (R3, offline check-off): a trip whose first checks were queued offline starts at the first
+  // queued tap, not at the reconnect. Only used when a NEW session is opened here.
+  const ensureSession = useCallback(async ({ silent = false, startedAt = null } = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
@@ -2016,7 +2226,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       await loadSessions(db, hh.id, { withStores: false });
       const cur = activeSessionRef.current;
       if (cur) return cur;
-      return startSession({ silent });
+      return startSession({ silent, startedAt });
     })();
     try {
       return await sessionStartingRef.current;
@@ -2078,12 +2288,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // the first in-store action of a trip (silently — a session failure must not
   // surface as a check failure). Against a database without 046 the insert
   // errors and is logged, nothing more.
-  const recordListEvent = useCallback(async (eventType, { listItemId = null, catalogItemId } = {}) => {
+  // occurredAt / tripStartedAt (offline check-off): a queued check is logged when the server confirms it,
+  // with its TAP time as created_at, and a trip it opens starts at the first queued tap (R3).
+  const recordListEvent = useCallback(async (eventType, { listItemId = null, catalogItemId, occurredAt = null, tripStartedAt = null } = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh || !catalogItemId || !internalUserIdRef.current) return;
     try {
-      const session = await ensureSession({ silent: true });
+      const session = await ensureSession({ silent: true, startedAt: tripStartedAt });
       eventSeqRef.current += 1;
       const { error: evErr } = await db
         .from("list_item_events")
@@ -2096,6 +2308,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           cycle_id: activeCycleRef.current?.id || session?.cycle_id || null,
           event_type: eventType,
           sequence: eventSeqRef.current,
+          ...(occurredAt ? { created_at: occurredAt } : {}),
         });
       if (evErr) console.warn(`list_item_events ${eventType}:`, evErr.message);
     } catch (err) {
@@ -4604,6 +4817,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     asksLoaded: !!household?.id && asksLoadedFor === household.id,
     adjustQty, removeItem, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
+    queuedChecks, checkSyncing,
     landAskPicks, asks, fetchAsks, refreshAsks, createAsk, updateAsk, deleteAsk, fetchAskDeleter, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
