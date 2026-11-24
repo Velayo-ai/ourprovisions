@@ -25,6 +25,28 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-11-24] — [OurProvisions] — Ask: the hand-back needs a hold, and the wagon is how you send it on both styles (H1–H13), built on dev (handoff `1c4a7bf` merged)
+**Goal:** Fix what Dan saw testing Ask Everett with Everett (age 2): his taps on the ✓ carried through to "Give it back to Dan" and ended Great picks within a second. Design chat 2026-11-24 ~01:00 → 02:06 ET; Claude Code built dev `8e66ffd` → `763686c` from prompts `00c8201` and `8e31f9b` (rev 3; rev 2 `ce8cd50` superseded, folded in).
+**Completed:**
+- **Found the cause** in `AskRun.js`: the ✓ and Give it back share the footer slot, and Give it back closed on a single tap. The picks had landed; only the payoff screen was lost.
+- **Ruled kids tap, adults hold** and built it (`8e66ffd`): Give it back is a `useHold` hold (HOLD_MS, the same fill as Done; a tap only says "Hold to give back"), armed 1500 ms after Great picks appears; a tap on the finale wagon hops (H1–H3). Its accessible name is screen-reader text, not an aria-label, so the parent's name stays out of every attribute (K3).
+- **The wagon is how you send it, on both styles** (`8e66ffd` Explorer, `d4dd7d6` rev 3 Shopper): no ✓ / That's it! button; the bigger wagon (min(88vw, 360px)); drag ≥ 60 px right to send (it rolls off, then Great picks rolls it in); taps still swap; Done held full sends; per-style failure copy; "Send the wagon" for assistive tech (H5–H11). Shopper: "That's it!" pops onto the tub front and a tap there sends; Explorer's tub stays wordless (H13).
+- **Hints from the object, no adult text:** the tug + → (first ~1.7 s after the wagon fills, ~1.1 s loop with ~0.5 s rest, none under reduced motion) (H8). **Explorer's picked tiles** unmistakable: ~5 px outline, #E3F4F1 wash, 44 px ✓ with a white ring (H12).
+- **Tests:** `AskRun.test.js` 87 per the spec (incl. Everett's mash, the arm delay, the swipe, the tub tap, Done-to-send); Jest 1267 green, `CI=true` build green. Dan reviewed: "all tests look really great". Spec → `docs/specs/active/SPEC_ask_handback_hold.md`, mockup → `docs/mockups/mockup_ask_swipe_wagon.html` (rev 3).
+- **Extended `tools/harness/wagon-walk.js`** for H1–H13 (`1cce2f0`, `763686c`): the hold under a mash, the hop, a short drag and a 120 px drag, the tug, Shopper's tub tap by a real mouse click.
+**Unfinished:**
+- **The rev 3 harness pre-walk on the dev domain hasn't run** (`wagon-walk.js` + `shop-burst.js` revert), and **no relay report for prompts `00c8201` / `8e31f9b`** went out: the session ended while the dev domain was still serving the previous build. The superseded rev 1 build (`1cce2f0`) was never pre-walked either.
+- **The real walk with the kids on dev** (Everett: mash + swipe; Easton: tap That's it! on the tub) is still to do.
+- **Spec's H1 asks for an aria-label naming the parent;** built as screen-reader text instead (K3). Say so to Dan; no further change unless he rules otherwise.
+- Carried: the offline check-off promotion (088 first) is NOW 0 and unstarted; everything listed under 2026-11-24's offline entry still stands.
+**Next session:**
+SESSION START
+Goal: Run the rev 3 pre-walk on dev (`wagon-walk.js`, `shop-burst.js` revert) and send its relay report; then promote dev to prod: 088 on prod through the CLI first (read back by object and hash), then dev → main by tree identity, then a short prod walk covering offline check-off / OFF GRID / the beacon / an offline Wrap up **and** Ask rev 3 (swipe to send on both styles, That's it! on the tub, hold to give back), plus the first prod "A new version is ready".
+State: Dev `763686c` carries offline check-off slice 1 + offline calm (walked 1–14) and Ask rev 3 (H1–H13, Jest green, pre-walk pending). Prod `54d453c`. The client must not reach prod before 088. Ask is live on prod, so rev 3 rides this promotion. Next migration 089.
+Done when: the rev 3 pre-walk passes and is reported; 088 is read back on prod; main's tree equals dev's; Dan has walked offline check-off and an Ask run (swipe + hold to give back) on prod, with Instant Rollback ready.
+**Files updated:** `src/components/AskRun.js`, `src/components/AskRun.test.js`, `tools/harness/wagon-walk.js`, `docs/specs/active/SPEC_ask_handback_hold.md` (new), `docs/mockups/mockup_ask_swipe_wagon.html` (new), `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`. From chat: the spec, the mockup and prompt revs 1–3 on `origin/handoff`.
+**DB changes:** None
+
 ### [2026-11-24] — [Cross] — Offline check-off: Step 0, slice 1 (088), then "offline is calm" — the Harbor dots, "Off grid", a clockwise additive beacon and an offline Wrap up — built on dev and walked 1–14 by Dan on the installed iPhone (handoff `727cee2` merged)
 **Goal:** Offline check-off (`SPEC_offline_checkoff.md`): run Step 0, rule the findings, build slice 1 on dev. Design chat 2026-11-23 00:27 → 11-24 00:58 ET, Dan in Madbury; Claude Code built dev `aacd5eb` → `2cee835` (16 commits) through prompts `2dcb05e`, `cdc6965`, `871a167`, `cb3dbb2`, `852f1fe` and `17d511c` on `origin/handoff` (`4ec4683` and `41dc7a3` superseded, never taken); reports by relay (`ccce278`, `5c9735f`, `93e8f25`, `992f40e`, `a4eba5b`, `ff0cb69`).
 **Completed:**
