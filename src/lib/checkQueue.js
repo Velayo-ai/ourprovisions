@@ -11,7 +11,15 @@
 // THE CACHE is the household's last-loaded list — what the Shop renders from (listRows, contributors) and
 // the household's id / name — so a reload on weak signal (the shell loads, the API doesn't) shows it.
 //
-// KEYING. Both live under `<prefix><clerkId>:<householdId>`. A key for any other person or place is
+// THE QUEUED WRAP UP (SPEC_offline_calm C6) is a Wrap up tapped while offline (or while checks still wait):
+// { tapAt, dropIds, hideIds }. It replays on the same flush, AFTER every check tapped before it.
+//   dropIds — rows this phone showed unchecked that the person chose NOT to carry forward: the only pending
+//             rows the replay may archive. Anything else pending on the server by then (a partner's add, a
+//             check that lost a conflict) is carried forward, never archived.
+//   hideIds — every row this phone had at the tap except the ones carried: the trip it just finished,
+//             kept off screen until the replay lands, so the list looks wrapped up.
+//
+// KEYING. All three live under `<prefix><clerkId>:<householdId>`. A key for any other person or place is
 // discarded on load, never sent or shown (a shared phone must never show the previous user's list or send
 // their queue). Sign-out and a household switch clear every key of both kinds.
 //
@@ -19,10 +27,12 @@
 // for this session, which is what today's code did with nothing at all.
 export const QUEUE_PREFIX = "op_check_queue:";
 export const CACHE_PREFIX = "op_list_cache:";
+export const WRAP_PREFIX = "op_wrap_queue:";
 const CACHE_VERSION = 1;
 
 export const queueKey = (clerkId, householdId) => `${QUEUE_PREFIX}${clerkId}:${householdId}`;
 export const cacheKey = (clerkId, householdId) => `${CACHE_PREFIX}${clerkId}:${householdId}`;
+export const wrapKey = (clerkId, householdId) => `${WRAP_PREFIX}${clerkId}:${householdId}`;
 
 export const defaultStorage = () => {
   try { return typeof window !== "undefined" ? window.localStorage : null; } catch (e) { return null; }
@@ -33,7 +43,7 @@ const ownKeys = (store) => {
   try {
     for (let i = 0; i < store.length; i++) {
       const k = store.key(i);
-      if (k && (k.startsWith(QUEUE_PREFIX) || k.startsWith(CACHE_PREFIX))) out.push(k);
+      if (k && (k.startsWith(QUEUE_PREFIX) || k.startsWith(CACHE_PREFIX) || k.startsWith(WRAP_PREFIX))) out.push(k);
     }
   } catch (e) { /* storage unavailable */ }
   return out;
@@ -42,7 +52,7 @@ const ownKeys = (store) => {
 // Removes every queue and cache key that isn't this person's at this place. Returns the keys removed.
 export function discardForeign(clerkId, householdId, store = defaultStorage()) {
   if (!store) return [];
-  const keep = new Set([queueKey(clerkId, householdId), cacheKey(clerkId, householdId)]);
+  const keep = new Set([queueKey(clerkId, householdId), cacheKey(clerkId, householdId), wrapKey(clerkId, householdId)]);
   const gone = ownKeys(store).filter((k) => !keep.has(k));
   gone.forEach((k) => { try { store.removeItem(k); } catch (e) { /* storage unavailable */ } });
   return gone;
@@ -163,3 +173,63 @@ export function listCacheSignature(householdId, rows, contributors) {
 // navigator.onLine is false.
 export const OFFLINE_SKIP = Object.freeze({ name: "OfflineSkip", message: "OfflineSkip: navigator.onLine is false — not sent" });
 export const isOfflineSkip = (err) => !!err && (err === OFFLINE_SKIP || err.name === "OfflineSkip");
+
+// ── The queued Wrap up (C6) ──
+const idList = (a) => (Array.isArray(a) ? a.filter((x) => typeof x === "string" && x) : []);
+
+// rows = the list this phone shows at the tap (listRows: { id, name }), checked = its checked map,
+// rollIds = the unchecked rows the person chose to carry forward.
+export function makeQueuedWrap({ tapAt, rows, checked, rollIds }) {
+  const roll = new Set(idList(rollIds));
+  const ids = (rows || []).map((r) => r.id).filter(Boolean);
+  return {
+    tapAt,
+    dropIds: ids.filter((id) => !checked?.[id] && !roll.has(id)),
+    hideIds: ids.filter((id) => !roll.has(id)),
+  };
+}
+
+export function readWrap(clerkId, householdId, store = defaultStorage()) {
+  if (!store || !clerkId || !householdId) return null;
+  try {
+    const raw = store.getItem(wrapKey(clerkId, householdId));
+    if (!raw) return null;
+    const w = JSON.parse(raw);
+    if (!w || typeof w.tapAt !== "string" || Number.isNaN(Date.parse(w.tapAt))) return null;
+    return { tapAt: w.tapAt, dropIds: idList(w.dropIds), hideIds: idList(w.hideIds) };
+  } catch (e) { return null; }
+}
+
+export function writeWrap(clerkId, householdId, wrap, store = defaultStorage()) {
+  if (!store || !clerkId || !householdId) return;
+  try {
+    if (!wrap) store.removeItem(wrapKey(clerkId, householdId));
+    else store.setItem(wrapKey(clerkId, householdId), JSON.stringify(wrap));
+  } catch (e) { /* storage unavailable: the queued Wrap up lives in memory for this session */ }
+}
+
+// What the replay carries forward: every row pending on the server now, except the ones the person chose
+// not to carry. These are both archive_trip_items' keep list and close_cycle's roll list.
+export function wrapKeepIds(serverPendingIds, dropIds) {
+  const drop = new Set(idList(dropIds));
+  return idList(serverPendingIds).filter((id) => !drop.has(id));
+}
+
+// The trip a queued Wrap up finished stays off screen until the replay lands.
+export function hideForWrap(rows, wrap, idOf = (r) => r.id) {
+  if (!wrap || !wrap.hideIds || wrap.hideIds.length === 0) return rows;
+  const hide = new Set(wrap.hideIds);
+  return (rows || []).filter((r) => !hide.has(idOf(r)));
+}
+
+// Order on the flush: checks tapped before the Wrap up go first (they're part of the trip it closes); a check
+// tapped after it belongs to the next trip and waits until the Wrap up has landed.
+export function splitAroundWrap(entries, wrap) {
+  const ids = Object.keys(entries || {});
+  if (!wrap) return { before: ids, after: [] };
+  const at = Date.parse(wrap.tapAt);
+  const before = [];
+  const after = [];
+  ids.forEach((id) => { (Date.parse(entries[id].tapAt) <= at ? before : after).push(id); });
+  return { before, after };
+}

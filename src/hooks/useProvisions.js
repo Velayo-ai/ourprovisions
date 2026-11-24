@@ -7,7 +7,7 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { createRowWriteChain, mergePolledById } from "../lib/checkWrites";
-import { readQueue, writeQueue, putEntry, settleEntry, earliestCheckTap, discardForeign, readListCache, writeListCache, listCacheSignature, cachedHouseholdFor, OFFLINE_SKIP, isOfflineSkip } from "../lib/checkQueue";
+import { readQueue, writeQueue, putEntry, settleEntry, earliestCheckTap, discardForeign, readListCache, writeListCache, listCacheSignature, cachedHouseholdFor, OFFLINE_SKIP, isOfflineSkip, makeQueuedWrap, readWrap, writeWrap, wrapKeepIds, hideForWrap, splitAroundWrap } from "../lib/checkQueue";
 import { activeKeyFor } from "../lib/rememberedHousehold";
 import { createQtyQueue, adoptQtyResult, seedRowKey, isListEntry, guessChange, adoptCheckedResult } from "../lib/qtyWrites";
 import { rollbackQty } from "../lib/qtyRollback";
@@ -97,6 +97,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // poll delivers the real row.
   const [quantities, setQuantities] = useState({});
   const [checked, setChecked] = useState({});
+  // Live mirrors for code memoized once (the queued Wrap up, SPEC_offline_calm C6).
+  const checkedLiveRef = useRef(checked);
+  checkedLiveRef.current = checked;
   const listRowsRef = useRef([]);
   const preKey = (catalogItemId) => `pre:${catalogItemId}`;
   const liveRowIdFor = (catalogItemId) =>
@@ -104,6 +107,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [prices, setPrices] = useState({});
   const [addedByMap, setAddedByMap] = useState({});
   const [contributorsMap, setContributorsMap] = useState({});
+  const contributorsLiveRef = useRef(contributorsMap);
+  contributorsLiveRef.current = contributorsMap;
   const [categoryAvgPrices, setCategoryAvgPrices] = useState({});
   const [household, setHousehold] = useState(null);
   const [householdMembers, setHouseholdMembers] = useState([]);
@@ -141,7 +146,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const [error, setError] = useState(null);
   // Which subsystem owns the message currently in `error`. See failWith/clearErrorFrom.
   const errorSourceRef = useRef(null);
-  const { reportTransientFailure, reportSuccess } = useConnectivity();
+  const { offline, reportTransientFailure, reportSuccess } = useConnectivity();
+  const offlineRef = useRef(offline);
+  offlineRef.current = offline;
+  // The known gap (SPEC_offline_calm): an add, a quantity change, a removal or a price that couldn't reach
+  // the server still rolls back for now. It says so once, plainly, in the offline sheet — never a toast.
+  // Cleared when the app is back online (App.js).
+  const [needsSignal, setNeedsSignal] = useState(null);
+  const clearNeedsSignal = useCallback(() => setNeedsSignal(null), []);
+  const quietTransient = useCallback((kind) => { reportTransientFailure(); setNeedsSignal(kind); }, [reportTransientFailure]);
   // §Polling discipline — every POLLED read runs its failure through this first.
   // An auth failure never retries and never toasts: 'missing' (the wrapper
   // refused on a null token) skips the tick — authHealth is already counting
@@ -208,12 +221,25 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // A check or uncheck that can't reach the server (navigator.onLine false, or the request never got an
   // answer) waits here instead of rolling back: { listItemId: { want, tapAt } }, persisted per person and
   // place. The row stays in pendingCheckRef the whole time, so no poll can put it back
-  // (mergePolledById); it leaves only when its write settles. queuedChecks is what the Shop draws as
-  // waiting; it is published in ONE batch per flush, so confirmed rows slide into In cart together.
+  // (mergePolledById); it leaves only when its write settles. queuedChecks is what the Shop draws a small
+  // "not shared yet" dot from (SPEC_offline_calm C1); it is published as each change settles, so the dots
+  // clear one by one, silently (C4).
   const checkQueueRef = useRef({ clerkId: null, householdId: null, entries: {} });
   const [queuedChecks, setQueuedChecks] = useState({});
-  const [checkSyncing, setCheckSyncing] = useState(false);
   const flushingChecksRef = useRef(false);
+  // THE QUEUED WRAP UP (SPEC_offline_calm C6; lib/checkQueue makeQueuedWrap): a Wrap up tapped offline, or
+  // while checks still wait, finishes the trip on this phone at once and on the server when signal returns,
+  // after the checks tapped before it. { householdId, clerkId, wrap: { tapAt, dropIds, hideIds } } | null.
+  const wrapQueueRef = useRef(null);
+  const [queuedWrap, setQueuedWrap] = useState(false);
+  const currentWrap = (householdId) => (wrapQueueRef.current && wrapQueueRef.current.householdId === householdId ? wrapQueueRef.current.wrap : null);
+  const setWrapQueue = (entry) => {
+    const prev = wrapQueueRef.current;
+    wrapQueueRef.current = entry;
+    if (entry) writeWrap(entry.clerkId, entry.householdId, entry.wrap);
+    else if (prev) writeWrap(prev.clerkId, prev.householdId, null);
+    setQueuedWrap(!!entry);
+  };
   const publishQueuedChecks = () => setQueuedChecks({ ...checkQueueRef.current.entries });
   const persistCheckQueue = () => { const q = checkQueueRef.current; writeQueue(q.clerkId, q.householdId, q.entries); };
   // The row's status as the server last said it (the poll's rows; after a cold restore, the cache's).
@@ -371,6 +397,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     discardForeign(clerk, householdId);
     const entries = readQueue(clerk, householdId);
     checkQueueRef.current = { clerkId: clerk, householdId, entries };
+    const wrap = readWrap(clerk, householdId);
+    wrapQueueRef.current = wrap ? { clerkId: clerk, householdId, wrap } : null;
+    setQueuedWrap(!!wrap);
     const ids = Object.keys(entries);
     if (ids.length > 0) {
       ids.forEach((id) => { pendingCheckRef.current.add(id); touchCheck(id); });
@@ -384,8 +413,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // household's id / name, then the queue on top. Never touches bootstrap, the households list or the
   // catalog: those load for real once the API answers, and the first real list replaces this one.
   function restoreListFromCache(clerk, householdId) {
-    const cache = readListCache(clerk, householdId);
-    if (!cache) return false;
+    const cached = readListCache(clerk, householdId);
+    if (!cached) return false;
+    const cache = { ...cached, rows: hideForWrap(cached.rows, readWrap(clerk, householdId)) };
     listRowsRef.current = cache.rows;
     listReadyForRef.current = householdId;
     setListRows(cache.rows);
@@ -412,7 +442,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // local value when the answer lands (mergePolledChecked).
     const checkSeqAtStart = checkSeqRef.current;
     const qtySeqAtStart = qtySeqRef.current;
-    const { data: items, error: listErr, status: listStatus } = await db
+    // As it stood when this read was sent: an answer that left before a queued Wrap up landed still hides
+    // the trip it finished (the server's archive may not be in it).
+    const wrapAtStart = currentWrap(householdId);
+    const { data: polled, error: listErr, status: listStatus } = await db
       .rpc("get_list_items_for_household", { p_household_id: householdId });
 
     if (listErr) {
@@ -428,11 +461,14 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // setters directly, not through this poll.
     // A list shown from the cache (restoredFromCacheRef) is not "held state": the first real answer for
     // that household is the truth, even an empty one (the list may have been cleared meanwhile).
-    if ((!items || items.length === 0) && restoredFromCacheRef.current !== householdId) {
+    if ((!polled || polled.length === 0) && restoredFromCacheRef.current !== householdId) {
       let hadItems = false;
       setQuantities((prev) => { hadItems = Object.keys(prev).length > 0; return prev; });
       if (hadItems) { reportTransientFailure(); return; }
     }
+    // A Wrap up waiting to replay (C6): the trip it finished stays off screen until it lands, so the list
+    // looks wrapped up on this phone. A partner's new row still shows (it is carried, never archived).
+    const items = hideForWrap(polled || [], currentWrap(householdId) || wrapAtStart);
 
     // The read succeeded (an empty list here is a real empty list, not a dropped
     // connection — the guard above already returned in that case), so retire any
@@ -906,7 +942,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // load by anyone else).
     checkQueueRef.current = { clerkId: null, householdId: null, entries: {} };
     setQueuedChecks({});
-    setCheckSyncing(false);
+    wrapQueueRef.current = null;
+    setQueuedWrap(false);
+    setNeedsSignal(null);
     restoredFromCacheRef.current = null;
     listCacheSigRef.current = "";
     supabaseRef.current = null;
@@ -1397,7 +1435,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
             });
           }
           releaseChecks();
-          if (classifyFetchError(err) === 'transient') reportTransientFailure();
+          if (classifyFetchError(err) === 'transient') quietTransient(ctx.isAdd ? "add" : "qty");
           else setError(`Could not update quantity: ${err?.message}`);
         }
         ctx.keys.forEach((k) => qtyBusyRef.current.delete(k));
@@ -1480,7 +1518,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         if (!qtyQueueRef.current.busy(`${hh.id}:${catalogItem?.id}`)) qtyBusyRef.current.delete(optKey);
         setQuantities((prev) => rollbackQty(prev, optKey, listRowsRef.current));
       }
-      if (classifyFetchError(err) === 'transient') reportTransientFailure();
+      if (classifyFetchError(err) === 'transient') quietTransient(delta > 0 && !(catalogItem && liveRowIdFor(catalogItem.id)) ? "add" : "qty");
       else setError(`Could not update quantity: ${err.message}`);
       return null;
     }
@@ -1488,7 +1526,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const key = `${hh.id}:${catalogItem.id}`;
     let ctx = qtyCtxRef.current.get(key);
     if (!ctx) {
-      ctx = { hhId: hh.id, cid: catalogItem.id, catalogItem, categoryName, keys: new Set(), price: null, optKey, renewing: false, uncheckedIds: new Set() };
+      // isAdd: this burst puts the item on the list (no live row yet) — what the offline sheet names if it fails.
+      ctx = { hhId: hh.id, cid: catalogItem.id, catalogItem, categoryName, keys: new Set(), price: null, optKey, renewing: false, uncheckedIds: new Set(), isAdd: delta > 0 && !liveRowIdFor(catalogItem.id) };
       qtyCtxRef.current.set(key, ctx);
     }
     if (renewRowId) { ctx.renewing = true; ctx.uncheckedIds.add(renewRowId); }
@@ -1530,7 +1569,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     } catch (err) {
       console.error("removeItem error:", err.message, err);
       setQuantities((prev) => rollbackQty(prev, optKey, listRowsRef.current));
-      if (classifyFetchError(err) === 'transient') reportTransientFailure();
+      if (classifyFetchError(err) === 'transient') quietTransient("remove");
       else setError(`Could not update quantity: ${err.message}`);
     } finally {
       touchQty(optKey);
@@ -1869,7 +1908,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Resolves to: the committed status ("bought" | "pending") on a real transition; null on a no-op, a
   // lost conflict or a cancel; "queued" when it couldn't reach the server and waits in the queue; false
   // when the server refused it and the row was put back.
-  async function runCheckWrite(listItemId, wantBought, tapAt, { itemName = null, catalogItemId = null, fromQueue = false } = {}) {
+  async function runCheckWrite(listItemId, wantBought, tapAt, { itemName = null, catalogItemId = null } = {}) {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return null;
@@ -1905,7 +1944,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         persistCheckQueue();
         if (q.entries[listItemId]) pendingCheckRef.current.add(listItemId);
         else if (!chain.pending(listItemId)) pendingCheckRef.current.delete(listItemId);   // the change cancelled itself out
-        if (!fromQueue) publishQueuedChecks();
+        publishQueuedChecks();
       }
       touchCheck(listItemId);
       if (!isOfflineSkip(res.error)) reportTransientFailure();
@@ -1916,7 +1955,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // follow the server again once nothing newer is pending or queued for the row.
     if (!res.aborted) {
       const next = settleEntry(q.entries, listItemId, tapAt);
-      if (next !== q.entries) { q.entries = next; persistCheckQueue(); if (!fromQueue) publishQueuedChecks(); }
+      if (next !== q.entries) { q.entries = next; persistCheckQueue(); publishQueuedChecks(); }
     }
     if (res.latest && !q.entries[listItemId]) pendingCheckRef.current.delete(listItemId);
     touchCheck(listItemId);   // settled: a poll requested before now can't put the row back
@@ -1986,39 +2025,53 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // THE FLUSH (amendment item 4): every queued change goes out through runCheckWrite with its stored tap
   // time, on the 2 s tick, `visibilitychange` and `online`. Each send gets a fresh Clerk token (the fetch
   // wrapper asks at send time; no token offline → it stays queued). A row leaves `pendingCheckRef` only
-  // when its write settles. The waiting set is published ONCE when the batch is done, so the confirmed
-  // rows slide into In cart together. Confirmed transitions are logged with their TAP time, and a trip
-  // started offline starts at its first queued check (R3); dropped changes log nothing.
+  // when its write settles; its dot clears then (C4). Confirmed transitions are logged with their TAP
+  // time, and a trip started offline starts at its first queued check (R3); dropped changes log nothing.
+  // A queued Wrap up (C6) goes on the same flush: the checks tapped before it first, their events, then
+  // the Wrap up itself; a check tapped after it waits for the Wrap up to land (the next trip's).
   async function flushQueuedChecks() {
     if (flushingChecksRef.current) return;
     const db = supabaseRef.current;
     const hh = householdRef.current;
     const q = checkQueueRef.current;
     if (!db || !hh || q.householdId !== hh.id) return;
+    if (Object.keys(q.entries).length === 0 && !currentWrap(hh.id)) return;
     // Not before bootstrap has named this person (a list restored from the cache can be up first): the
     // confirmed checks must be logged, and recordListEvent needs the internal user id.
     if (!internalUserIdRef.current) return;
     if (listReadyForRef.current !== hh.id) return;
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
-    const chain = checkChainRef.current;
-    const batch = Object.keys(q.entries).filter((id) => !chain.pending(id)).map((id) => ({ id, ...q.entries[id] }));
-    if (batch.length === 0) return;
     flushingChecksRef.current = true;
-    setCheckSyncing(true);
-    const tripStartedAt = earliestCheckTap(q.entries);
-    let results = [];
     try {
-      results = await Promise.all(batch.map(async (e) => {
-        const row = listRowsRef.current.find((r) => r.id === e.id);
-        const cid = e.cid || row?.catalogItemId || null;
-        const status = await runCheckWrite(e.id, e.want, e.tapAt, { itemName: row?.name ?? null, catalogItemId: cid, fromQueue: true });
-        return { ...e, status, catalogItemId: cid };
-      }));
+      const wrap = currentWrap(hh.id);
+      const { before, after } = splitAroundWrap(q.entries, wrap);
+      // The trip the queued Wrap up closes starts at its first queued check; the next trip at its own.
+      const subset = (ids) => Object.fromEntries(ids.map((id) => [id, q.entries[id]]));
+      const sent = await sendQueuedChecks(before, earliestCheckTap(subset(before)));
+      if (!wrap) return;
+      // Every check of the finished trip has to have landed (or been dropped) before the Wrap up goes.
+      if (!sent || before.some((id) => checkQueueRef.current.entries[id])) return;
+      const landed = await replayQueuedWrap(wrap);
+      if (landed && after.length) await sendQueuedChecks(after.filter((id) => checkQueueRef.current.entries[id]), earliestCheckTap(subset(after)));
     } finally {
       flushingChecksRef.current = false;
-      setCheckSyncing(false);
-      publishQueuedChecks();
     }
+  }
+
+  // One batch of queued checks, then their events in tap order. A row with a write already in flight is
+  // left to it (as slice 1); the batch then resolves false, so a queued Wrap up doesn't run ahead of it.
+  async function sendQueuedChecks(ids, tripStartedAt) {
+    const q = checkQueueRef.current;
+    const chain = checkChainRef.current;
+    const busy = ids.some((id) => chain.pending(id));
+    const batch = ids.filter((id) => q.entries[id] && !chain.pending(id)).map((id) => ({ id, ...q.entries[id] }));
+    if (batch.length === 0) return !busy;
+    const results = await Promise.all(batch.map(async (e) => {
+      const row = listRowsRef.current.find((r) => r.id === e.id);
+      const cid = e.cid || row?.catalogItemId || null;
+      const status = await runCheckWrite(e.id, e.want, e.tapAt, { itemName: row?.name ?? null, catalogItemId: cid });
+      return { ...e, status, catalogItemId: cid };
+    }));
     const confirmed = results
       .filter((r) => (r.status === "bought" || r.status === "pending") && r.catalogItemId)
       .sort((a, b) => Date.parse(a.tapAt) - Date.parse(b.tapAt));
@@ -2028,6 +2081,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         listItemId: r.id, catalogItemId: r.catalogItemId, occurredAt: r.tapAt, tripStartedAt,
       });
     }
+    return !busy;
   }
   const flushQueuedChecksRef = useRef(null);
   flushQueuedChecksRef.current = flushQueuedChecks;
@@ -2331,6 +2385,115 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     }
   }, [ensureSession]);
 
+  // Queue a Wrap up (C6). The roll-forward set is named by the rows on screen (ids, not names: the replay
+  // can't ask the server which rows were pending at the tap). Resolves true: the trip is over here.
+  function queueWrapUp(rollItemNames) {
+    const hh = householdRef.current;
+    const clerk = clerkIdLiveRef.current;
+    if (currentWrap(hh.id)) return true;   // already queued; a second tap changes nothing
+    const rows = listRowsRef.current;
+    const names = new Set(rollItemNames);
+    // Refs, not state: wrapUpTrip is memoized once, so state read here would be the first render's.
+    const shown = checkedLiveRef.current;
+    const contributors = contributorsLiveRef.current;
+    const rollIds = rows.filter((r) => names.has(r.name) && !shown[r.id]).map((r) => r.id);
+    const wrap = makeQueuedWrap({ tapAt: new Date().toISOString(), rows, checked: shown, rollIds });
+    setWrapQueue({ clerkId: clerk, householdId: hh.id, wrap });
+    // The finished trip leaves the screen now (and the cached list, so a reload agrees).
+    const kept = hideForWrap(rows, wrap);
+    listRowsRef.current = kept;
+    setListRows(kept);
+    setChecked(Object.fromEntries(kept.map((r) => [r.id, false])));
+    setQuantities(Object.fromEntries(kept.map((r) => [r.id, r.quantity])));
+    if (clerk) {
+      listCacheSigRef.current = listCacheSignature(hh.id, kept, contributors);
+      writeListCache(clerk, hh.id, { household: householdRef.current, rows: kept, contributors });
+    }
+    setActiveSession(null);
+    // Online with checks waiting: go now rather than at the next tick.
+    setTimeout(() => flushQueuedChecksRef.current && flushQueuedChecksRef.current(), 0);
+    return true;
+  }
+
+  // THE REPLAY (C6) — exactly what an online Wrap up writes, in order, with two differences, both so a late
+  // replay can't do what the person didn't do:
+  //   1. The session ends at the Wrap up TAP (shopping_sessions.ended_at), not at the reconnect.
+  //   2. What's carried forward is every row pending on the server NOW except the ones the person chose not
+  //      to carry (lib/checkQueue wrapKeepIds). Online, the two sets are the same rows; after a long offline
+  //      spell they aren't: a partner's add must never be archived by a Wrap up that never saw it.
+  // The open cycle is read fresh (a partner may have wrapped up meanwhile). Resolves true once the trip has
+  // closed on the server. A network failure keeps it queued for the next flush; any other failure drops it
+  // with today's "Could not wrap up trip", and the next poll brings the list back as the server has it.
+  async function replayQueuedWrap(wrap) {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh || currentWrap(hh.id) !== wrap) return false;
+    wrappingUpRef.current = true;
+    let closed = false;
+    try {
+      await loadSessions(db, hh.id, { withStores: false });
+      const s = activeSessionRef.current;
+      if (s) {
+        const endAt = Date.parse(wrap.tapAt) > Date.parse(s.started_at) ? wrap.tapAt : s.started_at;
+        const { error: endErr } = await db.from("shopping_sessions").update({ ended_at: endAt }).eq("id", s.id);
+        if (endErr) throw endErr;
+        setActiveSession(null);
+        activeSessionRef.current = null;
+      }
+      const { data: open, error: cycleErr } = await db
+        .from("provision_cycles")
+        .select("id, cycle_type, label, started_at, seeded_from")
+        .eq("household_id", hh.id)
+        .is("closed_at", null)
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cycleErr) throw cycleErr;
+      activeCycleRef.current = open || null;
+      const cycle = open || await ensureOpenCycle("planned");
+      if (!cycle) { reportTransientFailure(); return false; }   // stays queued; tried again next flush
+      const { data: pending, error: pendErr } = await db
+        .from("list_items")
+        .select("id")
+        .eq("household_id", hh.id)
+        .eq("status", "pending")
+        .is("deleted_at", null);
+      if (pendErr) throw pendErr;
+      const keep = wrapKeepIds((pending || []).map((r) => r.id), wrap.dropIds);
+      const { error: archErr } = await db.rpc("archive_trip_items", { p_household_id: hh.id, p_keep_item_ids: keep });
+      if (archErr) throw archErr;
+      const { data: newCycleId, error: closeErr } = await db.rpc("close_cycle", { p_cycle_id: cycle.id, p_roll_item_ids: keep });
+      if (closeErr) throw closeErr;
+      closed = true;
+      setWrapQueue(null);
+      if (newCycleId) {
+        const { data: newCycle } = await db
+          .from("provision_cycles")
+          .select("id, cycle_type, label, started_at, seeded_from")
+          .eq("id", newCycleId)
+          .single();
+        setActiveCycle(newCycle || null);
+        activeCycleRef.current = newCycle || null;
+      } else {
+        setActiveCycle(null);
+        activeCycleRef.current = null;
+      }
+      reportSuccess();
+    } catch (err) {
+      if (!closed) {
+        console.error("queued wrapUpTrip error:", err?.message || err);
+        if (isOfflineSkip(err) || classifyFetchError(err) === "transient") { reportTransientFailure(); }
+        else { setWrapQueue(null); setError(`Could not wrap up trip: ${err?.message || err}`); }
+      }
+    } finally {
+      wrappingUpRef.current = false;
+    }
+    // The server's list from here (a poll already in flight still hides the finished trip: loadListItemsInner
+    // reads the queued Wrap up as it stood when that poll was sent).
+    if (closed || !currentWrap(hh.id)) await loadListItems(db, hh.id);
+    return closed;
+  }
+
   // Returns true only when the trip actually closed. The caller shows a trip
   // summary on the strength of it, and a celebration over a failed wrap-up is
   // worse than none — the errors below are reported through setError, never
@@ -2339,6 +2502,15 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return false;
+
+    // OFFLINE (SPEC_offline_calm C6): you can always get the job done. Offline — or online with checks still
+    // waiting to share, which must land first — the Wrap up is queued behind them and finishes the trip on
+    // the server when signal returns. On this phone the trip is over now: the same summary, the list
+    // wrapped up. Below, the online path is unchanged.
+    const q = checkQueueRef.current;
+    const waiting = q.householdId === hh.id && Object.keys(q.entries).length > 0;
+    const offlineNow = (typeof navigator !== "undefined" && navigator.onLine === false) || offlineRef.current;
+    if (offlineNow || waiting || currentWrap(hh.id)) return queueWrapUp(rollItemNames);
 
     wrappingUpRef.current = true;
     try {
@@ -2525,9 +2697,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       }
     } catch (err) {
       console.error("updatePrice error:", err.message);
-      setError(`Could not update price: ${err.message}`);
+      if (classifyFetchError(err) === 'transient') quietTransient("price");
+      else setError(`Could not update price: ${err.message}`);
     }
-  }, []);
+  }, [quietTransient]);
 
   // ── Scoped error ownership ─────────────────────────────────────────────────
   // `error` is ONE state behind ONE toast, shared by every subsystem. That makes a
@@ -2709,10 +2882,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       if (rmErr) throw rmErr;
     } catch (err) {
       console.error("removeFromList error:", err.message);
-      setError(`Could not remove item: ${err.message}`);
+      if (classifyFetchError(err) === 'transient') quietTransient("remove");
+      else setError(`Could not remove item: ${err.message}`);
       setListRows(prevRows);
     }
-  }, [listRows]);
+  }, [listRows, quietTransient]);
 
   // ─────────────────────────────────────────────────────────────
   // hideItem: per-user, view-only. Hides any catalog item (global
@@ -4832,7 +5006,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     asksLoaded: !!household?.id && asksLoadedFor === household.id,
     adjustQty, removeItem, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    queuedChecks, checkSyncing,
+    queuedChecks, queuedWrap, needsSignal, clearNeedsSignal,
     landAskPicks, asks, fetchAsks, refreshAsks, createAsk, updateAsk, deleteAsk, fetchAskDeleter, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,

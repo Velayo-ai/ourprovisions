@@ -8,7 +8,9 @@ import { isGripTouch, pointerDistance } from "../lib/shopCheck";
 // The item name is spoken through .sr-only text, never an attribute (the replay recorder copies
 // attributes verbatim). `filled` draws the gold In cart circle; an aisle row leaves it false and
 // lets the row's .checking class draw the teal tick during its hold, as before.
-export default function ShopCheckbox({ checked, name, onToggle, filled = false, className = "" }) {
+// `unsynced` (SPEC_offline_calm C1): this row's check or uncheck is saved on this phone and hasn't shared
+// yet — a small neutral dot at the circle's shoulder, nothing else.
+export default function ShopCheckbox({ checked, name, onToggle, filled = false, unsynced = false, className = "" }) {
   const p = useRef(null);
   const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
@@ -50,7 +52,9 @@ export default function ShopCheckbox({ checked, name, onToggle, filled = false, 
       <span className={`checkbox${filled ? " checked" : ""}`} aria-hidden="true">
         {filled && <span className="checkmark">✓</span>}
       </span>
+      {unsynced && <span className="sync-dot" aria-hidden="true" />}
       <span className="sr-only">{name}</span>
+      {unsynced && <span className="sr-only">, not shared yet</span>}
     </button>
   );
 }

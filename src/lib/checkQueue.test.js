@@ -1,6 +1,7 @@
 import {
   queueKey, cacheKey, discardForeign, clearCheckStorage, readQueue, writeQueue, putEntry, settleEntry,
   earliestCheckTap, writeListCache, readListCache, listCacheSignature, OFFLINE_SKIP, isOfflineSkip, cachedHouseholdFor,
+  wrapKey, makeQueuedWrap, readWrap, writeWrap, wrapKeepIds, hideForWrap, splitAroundWrap,
 } from "./checkQueue";
 
 const memStore = () => {
@@ -145,5 +146,49 @@ describe("checkQueue — the cached list", () => {
     expect(listCacheSignature("h", [{ ...rows[0], status: "bought" }], {})).not.toBe(a);
     expect(listCacheSignature("h", [{ ...rows[0], quantity: 2 }], {})).not.toBe(a);
     expect(listCacheSignature("h", rows, { Milk: [{ userId: "x", quantityAdded: 1 }] })).not.toBe(a);
+  });
+});
+
+describe("checkQueue — the queued Wrap up (SPEC_offline_calm C6)", () => {
+  const rows = [{ id: "a" }, { id: "b" }, { id: "c" }, { id: "d" }];
+  const checked = { a: true, b: true, c: false, d: false };
+  test("drop = shown unchecked and not carried; hide = everything but the carried rows", () => {
+    const w = makeQueuedWrap({ tapAt: "2026-11-23T20:00:00.000Z", rows, checked, rollIds: ["c"] });
+    expect(w).toEqual({ tapAt: "2026-11-23T20:00:00.000Z", dropIds: ["d"], hideIds: ["a", "b", "d"] });
+  });
+  test("keyed per person and place, read back, cleared, cleared with the rest; junk reads as none", () => {
+    const s = memStore();
+    expect(wrapKey("u", "h")).toBe("op_wrap_queue:u:h");
+    const w = makeQueuedWrap({ tapAt: "2026-11-23T20:00:00.000Z", rows, checked, rollIds: [] });
+    writeWrap("u", "h", w, s);
+    expect(readWrap("u", "h", s)).toEqual(w);
+    expect(readWrap("u2", "h", s)).toBeNull();
+    s.setItem("op_wrap_queue:u2:h", "{}");
+    expect(discardForeign("u", "h", s)).toEqual(["op_wrap_queue:u2:h"]);
+    writeWrap("u", "h", null, s);
+    expect(readWrap("u", "h", s)).toBeNull();
+    writeWrap("u", "h", w, s);
+    clearCheckStorage(s);
+    expect(s._keys()).toEqual([]);
+    s.setItem("op_wrap_queue:u:h", "{\"tapAt\":\"nope\"}");
+    expect(readWrap("u", "h", s)).toBeNull();
+  });
+  test("the replay carries every pending row except the dropped ones (a partner's add is never archived)", () => {
+    expect(wrapKeepIds(["c", "d", "partnerAdd", "lostConflict"], ["d"])).toEqual(["c", "partnerAdd", "lostConflict"]);
+    expect(wrapKeepIds([], ["d"])).toEqual([]);
+  });
+  test("the finished trip stays off screen until the replay lands", () => {
+    const w = { tapAt: "x", dropIds: [], hideIds: ["a", "b"] };
+    expect(hideForWrap(rows, w)).toEqual([{ id: "c" }, { id: "d" }]);
+    expect(hideForWrap(rows, null)).toBe(rows);
+  });
+  test("checks tapped before the Wrap up go first; later ones wait for the next trip", () => {
+    const entries = {
+      a: { want: true, tapAt: "2026-11-23T19:59:00.000Z" },
+      b: { want: true, tapAt: "2026-11-23T20:00:00.000Z" },
+      z: { want: true, tapAt: "2026-11-23T20:05:00.000Z" },
+    };
+    expect(splitAroundWrap(entries, { tapAt: "2026-11-23T20:00:00.000Z" })).toEqual({ before: ["a", "b"], after: ["z"] });
+    expect(splitAroundWrap(entries, null)).toEqual({ before: ["a", "b", "z"], after: [] });
   });
 });

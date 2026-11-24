@@ -7,7 +7,8 @@ import { useScrollLock } from './hooks/useScrollLock';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
-import { ConnectivityPill } from './components/ConnectivityPill';
+import { OfflineIndicator, OfflineSheet, OfflineNote } from './components/OfflineMode';
+import { NOTE_MS, noteDue, readNoteShownAt, writeNoteShownAt, clearNoteShownAt } from './lib/offlineMode';
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
@@ -1122,19 +1123,6 @@ export function OnDeckCard({
 // The link is a LEAF button carrying fixed copy only — the RUM unmask rule
 // matches the tapped element and its ancestors, so the count and the item name
 // sit beside it in .home-line-text (masked), never inside it.
-// The waiting row's small clock (SPEC_offline_checkoff mockup, 2026-11-08): saved on this phone, not yet shared.
-function WaitingClock() {
-  return (
-    <span className="waiting-clock">
-      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-        <circle cx="8" cy="8" r="6.2" />
-        <path d="M8 4.6V8l2.4 1.6" />
-      </svg>
-      <span className="sr-only">waiting to sync</span>
-    </span>
-  );
-}
-
 function HomeListLine({ openCount, checkedCount, firstItem, shopping, onStartList, onShop }) {
   if (!openCount && checkedCount > 0) {
     return (
@@ -1201,7 +1189,7 @@ function ShopLensSegment({ lens, onChange }) {
 // D2: checked items get a PLACE, not a toggle. Collapsed by default, hidden
 // entirely at 0. Rows un-check from inside the tray. `initialFor` returns a
 // small initial for rows the current user did not check (partner's check).
-export function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor, pickPool = [] }) {
+export function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, isUnsynced = () => false, initialFor, pickPool = [] }) {
   if (items.length === 0 && count === 0) return null;
   return (
     <div className="in-cart-tray">
@@ -1216,7 +1204,7 @@ export function InCartTray({ items, count, motionClass = () => "", open, onToggl
             const initial = initialFor(item.listItemId);
             return (
               <div key={item.name} className={`list-item shop-row-in${motionClass(item.listItemId)}`}>
-                <ShopCheckbox checked filled name={item.name} onToggle={() => onUncheck(item)} />
+                <ShopCheckbox checked filled unsynced={isUnsynced(item.listItemId)} name={item.name} onToggle={() => onUncheck(item)} />
                 <div className="li-name">{item.name}</div>
                 {item.qty > 1 && <span className="li-qty">×{item.qty}</span>}
                 {initial && <span className="tray-initial" title="Checked by another member">{initial}</span>}
@@ -5315,7 +5303,9 @@ function ProvisionsApp({ scrollRootRef }) {
     updatePrice,
     toggleChecked,
     queuedChecks,
-    checkSyncing,
+    queuedWrap,
+    needsSignal,
+    clearNeedsSignal,
     updateBudgetGoal,
     hideItem,
     deleteItem,
@@ -5479,7 +5469,25 @@ function ProvisionsApp({ scrollRootRef }) {
   // pill clears itself when a poller's read succeeds (reportSuccess at the
   // read sites). session_lost clears it too — the sheet is the surface then and
   // the network is not the story.
-  const { reportTransientFailure, reportSuccess } = useConnectivity();
+  const { offline, reportTransientFailure, reportSuccess } = useConnectivity();
+  // OFFLINE IS CALM (SPEC_offline_calm_2026-11-23). C2: the header icon opens a short sheet. C3: one note
+  // per trip on the first switch to offline, about 3 s; signal dropping in and out doesn't repeat it (the
+  // shown state already holds 10 s, and the note is stamped per trip, cleared at Wrap up).
+  const [offlineSheetOpen, setOfflineSheetOpen] = useState(false);
+  const [offlineNote, setOfflineNote] = useState(false);
+  const noteShownRef = useRef(null);
+  useEffect(() => {
+    if (!offline || !sessionLive) { if (!offline) { setOfflineSheetOpen(false); clearNeedsSignal(); } return undefined; }
+    const now = Date.now();
+    const last = readNoteShownAt() ?? noteShownRef.current;
+    if (!noteDue(last, now)) return undefined;
+    noteShownRef.current = now;
+    writeNoteShownAt(now);
+    setOfflineNote(true);
+    const t = setTimeout(() => setOfflineNote(false), NOTE_MS);
+    return () => { clearTimeout(t); setOfflineNote(false); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offline, sessionLive]);
   const holdEpisodeRef = useRef(false);
   useEffect(() => {
     if (authPhase === "signed_in_no_token") {
@@ -6885,28 +6893,6 @@ function ProvisionsApp({ scrollRootRef }) {
   const [rowMotion, setRowMotion] = useState({});
   const rowMotionTimers = useRef({});
   useEffect(() => () => { Object.values(rowMotionTimers.current).forEach(clearTimeout); }, []);
-  // OFFLINE CHECK-OFF, on reconnect: the waiting checks the server confirmed leave the waiting set in ONE
-  // publish per flush (useProvisions), and slide into In cart TOGETHER — the same beat-2 collapse as an
-  // online check, started on all of them at once. A check that lost a conflict is unchecked by then
-  // (restored to the server's state, no notice) and simply stays.
-  const prevWaitingRef = useRef(new Set());
-  useEffect(() => {
-    const now = new Set(Object.keys(queuedChecks || {}).filter((id) => queuedChecks[id].want));
-    const landed = [...prevWaitingRef.current].filter((id) => !now.has(id) && checked[id]);
-    prevWaitingRef.current = now;
-    if (landed.length === 0) return;
-    const reduced = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) return;
-    setRowMotion((prev) => { const n = { ...prev }; landed.forEach((id) => { if (!n[id]) n[id] = { dir: "out", phase: "collapse" }; }); return n; });
-    landed.forEach((id) => {
-      clearTimeout(rowMotionTimers.current[id]);
-      rowMotionTimers.current[id] = setTimeout(() => {
-        setRowMotion((prev) => { if (!prev[id]) return prev; const n = { ...prev }; delete n[id]; return n; });
-        delete rowMotionTimers.current[id];
-      }, 200);
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queuedChecks]);
   // "✓ {item} checked · Undo" toasts (2026-11-07; on the tap since 11-08): one
   // per checked row, each with its own 5s timer, so Undo only ever reverts its
   // own row. Shown before the server answers; dropped if the write fails.
@@ -8042,6 +8028,8 @@ function ProvisionsApp({ scrollRootRef }) {
     setAddedHereIds(new Set());
     setStorePromptOpen(false);
     setStorePromptSkippedFor(null);
+    // The next trip that loses signal gets its own calm note (C3).
+    if (closed) clearNoteShownAt();
   };
 
   // The modal's confirm. wrapUpRollItems is the user's edited selection, which
@@ -8106,26 +8094,12 @@ function ProvisionsApp({ scrollRootRef }) {
       to = "pending";
     } else if (m) {
       return;                                          // collapsing or returning — ignore the tap
-    } else if (isWaiting(id)) {
-      // A waiting row (checked offline, not yet synced) unchecks where it is: it never left the aisle, so
-      // there is no motion — it just becomes a full row again, and its queued check is withdrawn.
-      dismissCheckUndo(id);
-      to = "pending";
     } else {
       const reduced = typeof window !== "undefined" && window.matchMedia
         && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const dir = checked[id] ? "in" : "out";
       if (to === "pending" && dir === "out") return;   // Undo on a row that is already unchecked
-      // Offline (Decision 4): a check stays in place as the waiting row — no 3 s hold, no move to In cart.
-      // The Undo toast still shows, for consistency.
-      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-      if (dir === "out" && offline) {
-        offerCheckUndo(id, name);
-        const status = await toggleChecked(name, item.listItemId, to ? { to } : undefined);
-        if (status === false) dismissCheckUndo(id);
-        if (status === "bought") recordListEvent("checked", { listItemId: item.listItemId, catalogItemId: item.catalogItemId });
-        return;
-      }
+      // Offline or online, a check looks and moves the same (SPEC_offline_calm C1): the hold, then In cart.
       const collapseMs = 200;                          // beat 2
       const collapseThenClear = () => {
         setRowMotion(prev => prev[id] ? { ...prev, [id]: { dir, phase: "collapse" } } : prev);
@@ -8155,12 +8129,10 @@ function ProvisionsApp({ scrollRootRef }) {
     // SPEC_checked_event_duplicate_emission) or was cancelled by a newer tap;
     // false when it failed and the row was put back. Only a real transition is an event.
     const status = await toggleChecked(name, item.listItemId, to ? { to } : undefined);
-    if (status === "queued") {
-      // It couldn't reach the server and waits on this phone: the check stays in its aisle as the waiting
-      // row (its hold, if still running, ends now; its Undo toast stays). The hook logs it when it lands.
-      if (checking) { clearTimeout(rowMotionTimers.current[id]); clearMotion(); }
-      return;
-    }
+    // "queued": it couldn't reach the server and waits on this phone. Nothing changes on screen (C1): the
+    // hold runs on, the row moves to In cart, the Undo toast stays; only a small dot says it hasn't shared
+    // yet. The hook logs the event when the change lands.
+    if (status === "queued") return;
     if (status === false && checking) {
       // The check didn't take (offline, or the server refused): the row is back
       // to unchecked, so drop its toast and its hold.
@@ -8324,7 +8296,8 @@ function ProvisionsApp({ scrollRootRef }) {
     });
     return out;
   }, [partnerSession, storeSuggestions]);
-  const storePromptVisible = view === "list" && !!activeSession && (
+  // Not while an offline Wrap up is waiting to finish: that trip is over on this phone (SPEC_offline_calm C6).
+  const storePromptVisible = view === "list" && !!activeSession && !queuedWrap && (
     storePromptOpen || (!activeSession.store_name_raw && storePromptSkippedFor !== activeSession.id)
   );
 
@@ -8874,18 +8847,16 @@ function ProvisionsApp({ scrollRootRef }) {
   // while it is returning from the tray ("in"), so the motion can play where
   // the person is looking. The write already happened; this is only where the
   // row is drawn.
-  // OFFLINE CHECK-OFF (SPEC_offline_checkoff Decision 4 + amendment 2026-11-23): a check saved on this
-  // phone and waiting to sync stays in its aisle as the compact faded "waiting" row — it hasn't reached
-  // anyone else, so it doesn't move to In cart. It counts as checked for "N of M" and All done (Decision 5).
-  const isWaiting = (id) => !!checked[id] && queuedChecks?.[id]?.want === true;
+  // OFFLINE IS CALM (SPEC_offline_calm C1): a change saved on this phone and not yet shared is drawn
+  // exactly as online, plus a small neutral dot — on the In cart row for a check, on the circle for an
+  // uncheck — that clears silently when the server confirms it.
+  const unsynced = (id) => !!queuedChecks?.[id];
   const inAisle = (i) => {
-    if (isWaiting(i.listItemId)) return true;
     const m = rowMotion[i.listItemId];
     if (m) return m.dir === "out";
     return !checked[i.listItemId];
   };
   const inTray = (i) => {
-    if (isWaiting(i.listItemId)) return false;
     const m = rowMotion[i.listItemId];
     if (m) return m.dir === "in";
     return !!checked[i.listItemId];
@@ -8896,20 +8867,19 @@ function ProvisionsApp({ scrollRootRef }) {
       .flatMap(c => c.items)
       .filter(inAisle)
       .sort((a, b) => a.name.localeCompare(b.name)),
-    [shoppingList, checked, rowMotion, queuedChecks]); // eslint-disable-line react-hooks/exhaustive-deps
+    [shoppingList, checked, rowMotion]); // eslint-disable-line react-hooks/exhaustive-deps
   // Shop Aisles lens — today's grouping minus the checked rows; an aisle that
   // empties out disappears (its items are all in the tray).
   const shopAisles = useMemo(() =>
     shoppingList
       .map(cat => ({ ...cat, items: cat.items.filter(inAisle) }))
       .filter(cat => cat.items.length > 0),
-    [shoppingList, checked, rowMotion, queuedChecks]); // eslint-disable-line react-hooks/exhaustive-deps
+    [shoppingList, checked, rowMotion]); // eslint-disable-line react-hooks/exhaustive-deps
   // Tray rows and the tray COUNT move at different beats: a checked row is
   // counted once it starts collapsing out of the aisle; an unchecked row stops
   // being counted once it starts collapsing out of the tray.
   const trayItems = shoppingList.flatMap(cat => cat.items.filter(inTray));
   const trayCount = shoppingList.flatMap(cat => cat.items).filter(i => {
-    if (isWaiting(i.listItemId)) return false;
     const m = rowMotion[i.listItemId];
     if (m?.dir === "out") return m.phase === "collapse";
     if (m?.dir === "in") return m.phase === "mark";
@@ -9044,11 +9014,9 @@ function ProvisionsApp({ scrollRootRef }) {
         // children that need interaction opt back in individually.
         pointerEvents: "none",
       }}>
-        {/* A5b: "Offline — showing last saved" only once this household's list has
-            actually arrived (householdReady — the same signal the splash and the
-            landing rule treat as "the data is on screen"); before that, a fresh
-            sign-in with nothing saved reads "Reconnecting…". */}
-        <ConnectivityPill hasSavedData={householdReady} queuedCount={Object.keys(queuedChecks || {}).length} syncing={checkSyncing} />
+        {/* C3 (SPEC_offline_calm): the one calm note per trip, about 3 s, on the first switch to offline.
+            The old connectivity pill lived here; the header's offline icon replaces it (C2, C4, C7). */}
+        {offlineNote && <OfflineNote />}
 
         {/* Error toast — carries a Dismiss button, so it opts into pointer events */}
         {error && (
@@ -9110,8 +9078,8 @@ function ProvisionsApp({ scrollRootRef }) {
         {/* "A new version is ready." · Reload · ✕ (SPEC_app_version_check V2). Never during an Ask run (it
             waits for That's it! / Done) and never over another toast (at a run's end it waits out the
             hand-back toast). No timer: it stays until Reload or ✕. */}
-        {/* Hidden while checks wait on this phone (A8): a Reload before they sync could land on no signal. */}
-        {versionCheck.show && !runAskId && !toastMessage && Object.keys(queuedChecks || {}).length === 0 && (
+        {/* Hidden while changes wait on this phone (A8): a Reload before they share could land on no signal. */}
+        {versionCheck.show && !runAskId && !toastMessage && Object.keys(queuedChecks || {}).length === 0 && !queuedWrap && (
           <VersionNotice onReload={versionCheck.reload} onDismiss={versionCheck.dismiss} />
         )}
 
@@ -10001,7 +9969,7 @@ function ProvisionsApp({ scrollRootRef }) {
            Meal; found offline on the phone 2026-10-11). Keyed off the document, not
            a flag: eleven surfaces own a .modal-overlay (ten in ProvisionsApp plus
            LibraryFilterSheet's own state) and the next one would miss a flag.
-           Position stays with the stack; the pill carries none (ConnectivityPill.js).
+           Position stays with the stack; its children carry none (the offline note included).
            Engines without :has() (Safari < 15.4) keep today's bottom anchor. */
         body:has(.modal-overlay) .bottom-stack { bottom: auto; top: 10px; }   /* not + --op-inset-top: the viewport already starts below the bar (2026-10-17) */
         /* …and the Helm with its fade leave entirely. A sheet is modal, so the nav
@@ -10338,15 +10306,24 @@ function ProvisionsApp({ scrollRootRef }) {
         .list-item.checking .checkbox::after { content: "✓"; color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 1; }
         .list-item.checking .li-name { color: #a89878; text-decoration: line-through; }
         .list-item.checking, .list-item.unchecking, .list-item.collapsing { pointer-events: none; }
-        /* Offline check-off (SPEC_offline_checkoff Decision 4, mockup approved 2026-11-08): a check saved on
-           this phone and waiting to sync — compact, faded, struck through, a small clock, still in its aisle.
-           Never the In cart look: it hasn't reached anyone else yet. Its circle still takes the check back. */
-        .list-item.waiting { padding-top: 7px; padding-bottom: 7px; opacity: 0.62; }
-        .list-item.waiting .checkbox { background: #0D9488; border-color: #0D9488; width: 18px; height: 18px; }
-        .list-item.waiting .checkbox::after { content: "✓"; color: #fff; font-size: 0.62rem; font-weight: 700; line-height: 1; }
-        .list-item.waiting .li-name { color: #a89878; text-decoration: line-through; font-size: 0.9em; }
-        .list-item.waiting .li-qty, .list-item.waiting .li-right { display: none; }
-        .waiting-clock { display: inline-flex; vertical-align: -2px; margin-left: 8px; color: #B8860B; text-decoration: none; }
+        /* Offline is calm (SPEC_offline_calm C1): a change saved on this phone and not yet shared looks exactly
+           as online, plus this small neutral dot at the circle's shoulder. It clears silently on confirm. */
+        .shop-check { position: relative; }
+        .sync-dot { position: absolute; top: 9px; right: 7px; width: 7px; height: 7px; border-radius: 50%;
+                    background: #a89878; box-shadow: 0 0 0 2px #FAF4EC; pointer-events: none; }
+        /* C2: the header's offline icon, and the short sheet it opens. Neutral: header gold, low contrast. */
+        .offline-indicator { background: none; border: none; padding: 4px; margin-left: 6px; cursor: pointer;
+                             color: #C9A97A; opacity: 0.85; display: inline-flex; align-items: center; }
+        .offline-sheet-overlay { align-items: center; z-index: 2100; }
+        .offline-sheet { max-width: 360px; }
+        .offline-sheet-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: #6b5a40; }
+        .offline-sheet-title { font-family: 'Lato', sans-serif; font-size: 1rem; font-weight: 700; color: #2C1A0E; }
+        .offline-sheet-copy, .offline-sheet-line { font-family: 'Lato', sans-serif; font-size: 0.92rem; line-height: 1.45; color: #4a3a28; margin: 0 0 10px; }
+        .offline-sheet-line { color: #6b5a40; }
+        /* C3: the one calm note per trip, in the bottom status stack. */
+        .offline-note { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+                        background: #FAF4EC; color: #6b5a40; border: 1px solid #e8ddd0; box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+                        font-family: 'Lato', sans-serif; font-size: 13px; white-space: nowrap; pointer-events: none; }
         /* The hold (CHECK_HOLD_MS): the row ignores taps, but its checkbox takes the check back. */
         .list-item.checking .shop-check { pointer-events: auto; }
         /* Shop check target (2026-11-07): only the checkbox checks a row. 44×44 around the circle,
@@ -10667,7 +10644,7 @@ function ProvisionsApp({ scrollRootRef }) {
               </svg>
             </button>
           )}
-          <div style={{ minHeight: "32px" }}>
+          <div style={{ minHeight: "32px", display: "flex", alignItems: "center" }}>
             {/* The header avatar is the one Profile trigger at every width
                 (the rail's foot avatar went with the rail, 2026-09-20). The
                 wrapping div stays (32px tall, the avatar's height) so the row's
@@ -10692,6 +10669,8 @@ function ProvisionsApp({ scrollRootRef }) {
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </button>
             )}
+            {/* C2 (SPEC_offline_calm): the only standing sign of offline — a small neutral icon; tap for why. */}
+            {sessionLive && offline && <OfflineIndicator onOpen={() => setOfflineSheetOpen(true)} />}
           </div>
           <button
             onClick={() => setShowVelayoMenu(true)}
@@ -12244,18 +12223,8 @@ function ProvisionsApp({ scrollRootRef }) {
                   // Under a minute reads as words, never "0 minutes" (mockup_shop_wrapup_bar.html, state 4).
                   const minutes = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null;
                   const learning = !!activeSession?.store_name_raw;
-                  // Decision 5: finishing in a dead zone still feels finished, worded honestly. Waiting checks
-                  // count as checked; the card says they'll sync, and there's no Wrap up until they have.
-                  if (shoppingList.some((c) => c.items.some((i) => isWaiting(i.listItemId)))) {
-                    return (
-                      <div className="all-done all-done-waiting">
-                        <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
-                        <h2>All picked up</h2>
-                        <p className="all-done-sub">Will sync when you're back online.</p>
-                        <div className="all-done-meta"><b>{totalItems}</b> {totalItems === 1 ? "item" : "items"}</div>
-                      </div>
-                    );
-                  }
+                  // Offline or not, this is the same card with the same Wrap up (SPEC_offline_calm C6): an
+                  // offline Wrap up is queued behind the checks and finishes the trip when signal returns.
                   return (
                     <div className="all-done">
                       <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
@@ -12285,15 +12254,14 @@ function ProvisionsApp({ scrollRootRef }) {
                       <div className="list-cat-title">{cat.category}</div>
                       {cat.items.map((item) => (
                         <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                          <div className={`list-item shop-row-in${isWaiting(item.listItemId) ? " waiting" : rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
-                            <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
+                          <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
+                            <ShopCheckbox checked={!!checked[item.listItemId]} unsynced={!checked[item.listItemId] && unsynced(item.listItemId)} name={item.name} onToggle={() => handleShopToggle(item)} />
                             <div style={{ flex: 1 }}>
                               <div className="li-name">
                                 {item.name}
                                 {addedHereIds.has(item.catalogItemId) && <span className="added-here-tag">added here</span>}
-                                {isWaiting(item.listItemId) && <WaitingClock />}
                               </div>
-                              {!isWaiting(item.listItemId) && provenanceLines(item)}
+                              {provenanceLines(item)}
                             </div>
                             {item.qty > 1 && (
                               <span className="li-qty">×{item.qty}</span>
@@ -12315,12 +12283,11 @@ function ProvisionsApp({ scrollRootRef }) {
                     {shopFlatItems.length > 0 && <div className="az-eyebrow">{shopFlatItems.length} to find</div>}
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
-                        <div className={`list-item az shop-row-in${isWaiting(item.listItemId) ? " waiting" : rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
-                          <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
+                        <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
+                          <ShopCheckbox checked={!!checked[item.listItemId]} unsynced={!checked[item.listItemId] && unsynced(item.listItemId)} name={item.name} onToggle={() => handleShopToggle(item)} />
                           <div className="li-name">
                             {item.name}
                             {addedHereIds.has(item.catalogItemId) && <span className="added-here-tag">added here</span>}
-                            {isWaiting(item.listItemId) && <WaitingClock />}
                           </div>
                           {item.qty > 1 && (
                             <span className="li-qty">×{item.qty}</span>
@@ -12337,6 +12304,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   open={trayOpen}
                   onToggle={() => setTrayOpen(o => !o)}
                   onUncheck={handleShopToggle}
+                  isUnsynced={unsynced}
                   initialFor={initialFor}
                   pickPool={pickPool}
                 />
@@ -13160,6 +13128,16 @@ function ProvisionsApp({ scrollRootRef }) {
           tap (the scrim's onClick), the Close button (SheetClose: VoiceOver's
           way, focus returns to the avatar on unmount) and swipe-down
           (SheetPanel → useSheetDrag, 2026-10-05). */}
+      {/* C2: the offline icon's short sheet. The one count is changes waiting on this phone (a queued
+          Wrap up is one change). */}
+      {offlineSheetOpen && offline && (
+        <OfflineSheet
+          changes={Object.keys(queuedChecks || {}).length + (queuedWrap ? 1 : 0)}
+          needsSignal={needsSignal}
+          onClose={() => setOfflineSheetOpen(false)}
+        />
+      )}
+
       {showProfileSheet && (
         <div
           style={{ position: "fixed", inset: 0, background: "rgba(2,15,26,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-end" }}
