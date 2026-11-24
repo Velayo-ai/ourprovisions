@@ -13,7 +13,8 @@ export const OFFLINE_HOLD_MS = 10000;
 export const NOTE_MS = 3000;
 export const NOTE_TRIP_MS = 8 * 60 * 60 * 1000;
 export const NOTE_KEY = "op_offline_note_at";
-export const NOTE_COPY = "Shopping offline · everything's saved";
+// C10: the word is "Off grid" — it only ever means signal (plan names only ever mean what you pay for).
+export const NOTE_COPY = "Off grid · everything's saved";
 
 // prev = { shown, raw, steadySince } — steadySince = when raw last went from offline to online. Returns the
 // next state plus clearAt: when to look again, set only while a clear is being held back.
@@ -48,8 +49,19 @@ export function clearNoteShownAt(store = defaultStorage()) {
   try { store.removeItem(NOTE_KEY); } catch (e) { /* storage unavailable */ }
 }
 
-// The sheet (C2). Fixed copy; the one count is changes waiting on this phone.
-export const SHEET_COPY = "You're offline. Everything you do is saved on this phone and shares with your household when you're back in signal.";
+// The Velayo menu, off grid (C10; replaces C2's copy). Keyed on the household's MEMBER COUNT, never the
+// plan. An unknown count (members not loaded, e.g. a cold start off grid) takes the one-member words,
+// which claim no sharing.
+export function offGridCopy({ memberCount = 0, householdName = "" } = {}) {
+  if (memberCount > 1) {
+    const name = (householdName || "").trim() || "your household";
+    return `You're off grid, shopping on your own for now. Everything's kept on this phone and shared with ${name} when you're back in signal.`;
+  }
+  return "You're off grid. Everything's kept on this phone and syncs when you're back in signal.";
+}
+// The OurProvisions app row's status in the Velayo menu.
+export const APP_ROW_STATUS = { online: "Active", offGrid: "Working off grid" };
+// Changes waiting on this phone: shown with the many-member words only (one member has no one to share with).
 export function changesLine(n) {
   if (!n || n < 1) return null;
   return `${n} ${n === 1 ? "change" : "changes"} will share when you're back.`;
@@ -66,12 +78,15 @@ export function needsSignalLine(kind) {
   return NEEDS_SIGNAL[kind] || null;
 }
 
-// C9 — the Velayo dots are the Harbor connection light. The beacon: a lighthouse sweep, each dot
-// brightening in turn over one pass, two passes, then rest. Never loops.
-export const BEACON_PASS_MS = 1500;
+// C9 — the Velayo dots are the Harbor connection light. The beacon: a lighthouse turning clockwise
+// (top-left → top-right → bottom), ~3 s a turn, each dot brightening as the one before it fades (a
+// travelling beam), two turns, then rest. Never loops. (Revised 23:58: the first build was 1.5 s and ran
+// counterclockwise.) BEACON_TAIL_MS covers the last dot's fade after the second turn.
+export const BEACON_PASS_MS = 3000;
 export const BEACON_PASSES = 2;
 export const BEACON_MS = BEACON_PASS_MS * BEACON_PASSES;
-export const HARBOR_LABEL = { connected: "Connected to the Harbor", offline: "Offline" };
+export const BEACON_TAIL_MS = 600;
+export const HARBOR_LABEL = { connected: "Connected to the Harbor", offline: "Off grid" };
 // Low Power Mode, where detectable: iOS caps requestAnimationFrame at 30 fps in Low Power Mode, so a
 // short sample whose frames average slower than ~24 ms reads as "save power: no sweep". Anything
 // unmeasurable (a hidden tab runs no frames) also skips the sweep.

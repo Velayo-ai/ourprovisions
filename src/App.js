@@ -8,7 +8,7 @@ import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_U
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
 import { HarborLight, OfflineLines, OfflineNote } from './components/OfflineMode';
-import { NOTE_MS, noteDue, readNoteShownAt, writeNoteShownAt, clearNoteShownAt } from './lib/offlineMode';
+import { NOTE_MS, noteDue, readNoteShownAt, writeNoteShownAt, clearNoteShownAt, APP_ROW_STATUS } from './lib/offlineMode';
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
@@ -10341,19 +10341,27 @@ function ProvisionsApp({ scrollRootRef }) {
         .shop-check { position: relative; }
         .sync-dot { position: absolute; top: 9px; right: 7px; width: 7px; height: 7px; border-radius: 50%;
                     background: #a89878; box-shadow: 0 0 0 2px #FAF4EC; pointer-events: none; }
-        /* C9: the Velayo dots as the Harbor connection light. Steady dots; OFFLINE in the household name's gold
-           small caps (a label, never a badge); the beacon — each dot brightens in turn, 1.5 s a pass, two
-           passes. One soft fade between dots and word. Reduce Motion: no sweep, no fade. */
+        /* C9: the Velayo dots as the Harbor connection light. Steady dots; OFF GRID (C10) in the household name's
+           gold small caps (a label, never a badge); the beacon — a lighthouse turning clockwise, top-left →
+           top-right → bottom, 3 s a turn, each dot brightening as the one before it fades, two turns. One
+           soft fade between dots and word. Reduce Motion: no sweep, no fade. */
         .harbor-light { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: center;
                         justify-content: flex-end; min-width: 28px; min-height: 24px; }
         .harbor-word { font-family: 'Lato', sans-serif; font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px;
                        color: #C9A97A; white-space: nowrap; }
         .harbor-word, .harbor-dots { animation: harbor-fade 320ms ease-out; }
         @keyframes harbor-fade { from { opacity: 0; } to { opacity: 1; } }
-        .harbor-dots.beacon .hd { animation: harbor-sweep 1500ms ease-in-out 2 both; }
-        .harbor-dots.beacon .hd2 { animation-delay: 500ms; }
-        .harbor-dots.beacon .hd3 { animation-delay: 1000ms; }
-        @keyframes harbor-sweep { 0% { fill: #C9A97A; } 16% { fill: #FFF1CF; } 33% { fill: #C9A97A; } 100% { fill: #C9A97A; } }
+        .harbor-dots.beacon .hd { animation: harbor-sweep 3000ms linear 2 both; }
+        .harbor-dots.beacon .hd3 { animation-delay: 1000ms; }   /* top-right, a third of a turn after top-left */
+        .harbor-dots.beacon .hd2 { animation-delay: 2000ms; }   /* bottom, two thirds */
+        /* Each dot's light rises over ~0.66 s and falls over ~0.84 s: the next dot starts rising (at 1 s) while
+           this one is still fading, so the light travels round the mark. Same peak as before. */
+        @keyframes harbor-sweep {
+          0%   { fill: #C9A97A; animation-timing-function: ease-in-out; }
+          22%  { fill: #FFF1CF; animation-timing-function: ease-in-out; }
+          50%  { fill: #C9A97A; }
+          100% { fill: #C9A97A; }
+        }
         @media (prefers-reduced-motion: reduce) {
           .harbor-dots.beacon .hd, .harbor-word, .harbor-dots { animation: none; }
         }
@@ -10713,7 +10721,7 @@ function ProvisionsApp({ scrollRootRef }) {
             )}
           </div>
           {/* C9 (SPEC_offline_calm): the Velayo dots are the Harbor connection light — steady when connected,
-              OFFLINE when the core is unreachable, one beacon when something just answered. The tap still
+              OFF GRID when the core is unreachable, one beacon when something just answered. The tap still
               opens the Velayo menu (Dan, 2026-11-23: the dots' menu stays the Velayo menu). */}
           <HarborLight offline={offline} beacon={beacon} onOpen={() => { requestBeacon(); setShowVelayoMenu(true); }} />
         </div>
@@ -10805,9 +10813,14 @@ function ProvisionsApp({ scrollRootRef }) {
               display: "flex", flexDirection: "column", alignItems: "center", gap: "24px",
             }}
           >
-            {/* C9 / C2: offline, the menu opens with the offline lines at its top. */}
+            {/* C9 / C10: off grid, the menu opens with the off-grid lines at its top (worded by member count). */}
             {offline && (
-              <OfflineLines changes={Object.keys(queuedChecks || {}).length + (queuedWrap ? 1 : 0)} needsSignal={needsSignal} />
+              <OfflineLines
+                changes={Object.keys(queuedChecks || {}).length + (queuedWrap ? 1 : 0)}
+                needsSignal={needsSignal}
+                memberCount={membersLoaded ? householdMembers.length : 0}
+                householdName={household?.name || ""}
+              />
             )}
             {/* Menu header */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
@@ -10840,7 +10853,7 @@ function ProvisionsApp({ scrollRootRef }) {
                 <div style={{
                   fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1.5px",
                   textTransform: "uppercase", color: "#c8973a", fontWeight: 700,
-                }}>Active</div>
+                }}>{offline ? APP_ROW_STATUS.offGrid : APP_ROW_STATUS.online}</div>
               </button>
             </div>
           </div>

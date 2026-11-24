@@ -46,26 +46,52 @@ What that means in practice, for this and every later Velayo app:
 
 ## C9 — The Velayo dots are the Harbor connection light (Dan, 2026-11-23 22:58–23:07)
 
-The three dots in the header (top right) are the household's way into the Harbor (Brand Addendum,
-March 2026: "not a generic overflow menu"). They now also say whether you're connected to it.
+The three dots in the header (top right) are the way into the Harbor: they open the **Velayo app menu**
+(`showVelayoMenu`: the Velayo logo, "Live Better. Live Smarter.", and one app row, "OurProvisions ·
+Active"). They now also say whether you're connected to it. (The Brand Addendum of March 2026 said the
+dots open the household menu; the code moved that to the household name. Corrected 23:09, Dan.)
 Replaces C2's cloud icon, which is removed.
 
 | State | What shows |
 |---|---|
 | **Connected** | The dots, **steady**. |
-| **Beacon** | A slow lighthouse sweep (each dot brightens in turn, ~1.5 s), **2 passes, then rest**. Plays: on app open, when the connection returns, on a tap of the dots, and **on every tab switch, only after that tab's first successful fetch** (it is a verified check, never decoration). Never loops. |
+| **Beacon** | A slow lighthouse sweep, **clockwise** (top-left → top-right → bottom), **~3 s a turn**, each dot brightening as the one before it fades (a travelling beam, not steps), **2 turns, then rest**. (Revised 23:58, Dan on the iPhone: the first build was too quick and ran counterclockwise.) Plays: on app open, when the connection returns, on a tap of the dots, and **on every tab switch, only after that tab's first successful fetch** (it is a verified check, never decoration). Never loops. |
 | **Not connected to the Harbor core** (sign-in + household data unreachable, C5's rules) | The dots are replaced by the word **OFFLINE**, in the same gold small caps as the household name. A label, never a badge: no red, no amber. |
 | **Reduce Motion / Low Power Mode** | No sweep; steady dots. |
 
-- **Tap (either state)** opens the household menu as today. Offline, its top carries C2's copy ("You're
+- **Tap (either state)** opens the Velayo app menu as today. Offline, C2's lines sit at its top, above
+  the logo: C2's copy ("You're
   offline. Everything you do is saved on this phone and shares with your household when you're back in
-  signal." plus "N changes will share when you're back." when changes wait). If the menu doesn't exist
-  as described, Claude Code reports what the dots do today before building.
+  signal." plus "N changes will share when you're back." when changes wait). The household menu stays on the
+  household name.
 - Accessible name: "Connected to the Harbor" / "Offline". The fade between dots and word is one soft
   transition, once.
 - **Why:** the brand carries the function, the same across every Velayo app; motion only when something
   just happened, so the shopping screen stays still (the calm principle); the beacon on a tab is a
   promise that tab's services just answered.
+
+## C10 — The word is "Off grid"; connection words and plan words never overlap (Dan, 2026-11-23 23:10–23:23)
+
+Replaces the word OFFLINE in C9 (Cody built C9 with OFFLINE; swap the strings after it lands).
+
+- **Header:** **OFF GRID** in place of the dots, same gold small caps. Every household, every plan.
+  Accessible name "Off grid". Chosen over Offline (every other app's failure word), Underway (reads as
+  "in progress"), At sea ("all at sea" = lost) and Solo (now a plan name, below). Off grid reads as a
+  capable choice, and fits the liveaboard brand.
+- **The Velayo app menu, off grid** (replaces C2's copy at its top):
+  - household with more than one member: "You're off grid, shopping on your own for now. Everything's
+    kept on this phone and shared with {Household} when you're back in signal." + "N changes will
+    share when you're back." when changes wait.
+  - one member: "You're off grid. Everything's kept on this phone and syncs when you're back in signal."
+  - keyed on **member count, not the plan**.
+  - the OurProvisions app row reads "Working off grid" (online: "Active", as today).
+- **The rule:** "Off grid" only ever means signal. Plan names (Solo, Household, Intelligent, Event) only
+  ever mean what you pay for. Hence no "solo" in the off-grid copy.
+- **Paid features pause off grid, never lock:** a feature that needs signal says "back when you're in
+  signal", never "upgrade". **No upgrade or purchase prompts while off grid.**
+- **Billing states never borrow connection words:** a lapsed household or an ended event gets its own
+  label ("Sharing paused", "Event ended"), never "Off grid". (Pricing is an open direction, not built:
+  Project doc `claude/PRICING_direction_2026-11-23.md`.)
 
 ## Recorded, not built: partial service health (Harbor architecture, Dan 23:07)
 
@@ -74,7 +100,7 @@ price comparison). Ruled design, to build when a second outside service exists:
 - **The core** (sign-in + household data) down → OFFLINE (C9). Built now.
 - **One service** down, core fine → the dots stay, **one dot becomes a hollow ring** ("something's
   limited, tap to see"). Dots never map to specific services.
-- **The dots menu lists services** with a plain state each ("Recipe ideas · back soon", "Calendar · can't
+- **The Velayo app menu lists services** (its app rows grow into them) with a plain state each ("Recipe ideas · back soon", "Calendar · can't
   reach right now").
 - **Where the feature lives**, it says so calmly in place; no error toasts. The core task never depends
   on an outside service.

@@ -4,7 +4,7 @@
 // RUM unmask rule never meets a name here.
 import { useEffect, useRef, useState } from "react";
 import {
-  NOTE_COPY, SHEET_COPY, changesLine, needsSignalLine, BEACON_MS, HARBOR_LABEL, lowPowerFromFrames,
+  NOTE_COPY, offGridCopy, changesLine, needsSignalLine, BEACON_MS, BEACON_TAIL_MS, HARBOR_LABEL, lowPowerFromFrames,
 } from "../lib/offlineMode";
 
 const reducedMotion = () => {
@@ -30,9 +30,9 @@ function sampleLowPower() {
   });
 }
 
-// C9: the Velayo dots, steady when connected; the word OFFLINE (the household name's gold small caps)
-// when the Harbor core is unreachable (C5's rules). `beacon` is a counter: each increase asks for one
-// sweep — two passes, then rest. A request during a sweep is ignored (it never loops); none plays
+// C9: the Velayo dots, steady when connected; the words OFF GRID (C10; the household name's gold small
+// caps) when the Harbor core is unreachable (C5's rules). `beacon` is a counter: each increase asks for
+// one sweep — two clockwise turns, then rest. A request during a sweep is ignored (it never loops); none plays
 // offline, with Reduce Motion, or in Low Power Mode where detectable. data-beacon is for the harness.
 export function HarborLight({ offline, beacon = 0, onOpen }) {
   const [sweep, setSweep] = useState(0);   // > 0 while a sweep plays; its value keys the restart
@@ -49,7 +49,7 @@ export function HarborLight({ offline, beacon = 0, onOpen }) {
       if (!mountedRef.current) return;
       if (lowPower || offlineRef.current) { activeRef.current = false; return; }
       setSweep(beacon);
-      timerRef.current = setTimeout(() => { activeRef.current = false; setSweep(0); }, BEACON_MS + 100);
+      timerRef.current = setTimeout(() => { activeRef.current = false; setSweep(0); }, BEACON_MS + BEACON_TAIL_MS);
     });
   }, [beacon, offline]);
   useEffect(() => { if (offline) { clearTimeout(timerRef.current); activeRef.current = false; setSweep(0); } }, [offline]);
@@ -63,7 +63,7 @@ export function HarborLight({ offline, beacon = 0, onOpen }) {
       data-beacon={sweep ? "on" : "off"}
     >
       {offline ? (
-        <span key="word" className="harbor-word" aria-hidden="true">Offline</span>
+        <span key="word" className="harbor-word" aria-hidden="true">Off grid</span>
       ) : (
         <svg key={`dots-${sweep}`} className={`harbor-dots${sweep ? " beacon" : ""}`} width="28" height="24" viewBox="0 0 28 24" fill="none" aria-hidden="true">
           <circle className="hd hd1" cx="5" cy="4" r="3.5" fill="#C9A97A" />
@@ -75,14 +75,15 @@ export function HarborLight({ offline, beacon = 0, onOpen }) {
   );
 }
 
-// C9 / C2: offline, the Velayo menu opens with these lines at its top. One plain line for changes waiting;
-// one for the known gap (an add, a quantity, a removal or a price that needed signal), never a toast.
-export function OfflineLines({ changes = 0, needsSignal = null }) {
-  const waiting = changesLine(changes);
+// C9 / C10: off grid, the Velayo menu opens with these lines at its top — worded by member count, never
+// the plan. Changes waiting get one plain line with the many-member words; the known gap (an add, a
+// quantity, a removal or a price that needed signal) gets one line, never a toast.
+export function OfflineLines({ changes = 0, needsSignal = null, memberCount = 0, householdName = "" }) {
+  const waiting = memberCount > 1 ? changesLine(changes) : null;
   const gap = needsSignalLine(needsSignal);
   return (
     <div className="offline-lines">
-      <p className="offline-lines-copy">{SHEET_COPY}</p>
+      <p className="offline-lines-copy">{offGridCopy({ memberCount, householdName })}</p>
       {waiting && <p className="offline-lines-line">{waiting}</p>}
       {gap && <p className="offline-lines-line">{gap}</p>}
     </div>

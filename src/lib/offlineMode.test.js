@@ -1,7 +1,7 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/lib/offlineMode
 import {
   nextOffline, OFFLINE_HOLD_MS, noteDue, NOTE_TRIP_MS, readNoteShownAt, writeNoteShownAt, clearNoteShownAt,
-  changesLine, needsSignalLine, NOTE_COPY, SHEET_COPY, BEACON_MS, HARBOR_LABEL, lowPowerFromFrames,
+  changesLine, needsSignalLine, NOTE_COPY, offGridCopy, APP_ROW_STATUS, BEACON_MS, BEACON_PASS_MS, HARBOR_LABEL, lowPowerFromFrames,
 } from "./offlineMode";
 
 const memStore = () => {
@@ -61,10 +61,24 @@ describe("C3: one note per trip", () => {
   });
 });
 
-describe("C2: the sheet's copy", () => {
-  test("the copy is the ruled copy", () => {
-    expect(NOTE_COPY).toBe("Shopping offline · everything's saved");
-    expect(SHEET_COPY).toBe("You're offline. Everything you do is saved on this phone and shares with your household when you're back in signal.");
+describe("C10: off grid — the copy", () => {
+  test("the note", () => {
+    expect(NOTE_COPY).toBe("Off grid · everything's saved");
+  });
+  test("more than one member: on your own for now, shared with the household by name", () => {
+    expect(offGridCopy({ memberCount: 2, householdName: "Madbury" })).toBe("You're off grid, shopping on your own for now. Everything's kept on this phone and shared with Madbury when you're back in signal.");
+    expect(offGridCopy({ memberCount: 5, householdName: "  " })).toContain("shared with your household when");
+  });
+  test("one member, or a count not known yet: no sharing claimed", () => {
+    const one = "You're off grid. Everything's kept on this phone and syncs when you're back in signal.";
+    expect(offGridCopy({ memberCount: 1, householdName: "Madbury" })).toBe(one);
+    expect(offGridCopy({ memberCount: 0 })).toBe(one);
+    expect(offGridCopy()).toBe(one);
+  });
+  test("the app row's status, and no copy uses the word offline (connection words and plan words never overlap)", () => {
+    expect(APP_ROW_STATUS).toEqual({ online: "Active", offGrid: "Working off grid" });
+    const all = [NOTE_COPY, offGridCopy({ memberCount: 3, householdName: "H" }), offGridCopy({ memberCount: 1 }), APP_ROW_STATUS.offGrid, HARBOR_LABEL.offline];
+    all.forEach((t) => { expect(t).not.toMatch(/offline/i); expect(t).not.toMatch(/\b(solo|upgrade|intelligent|event)\b/i); });
   });
   test("changes waiting: one plain line, none when nothing waits", () => {
     expect(changesLine(0)).toBeNull();
@@ -78,11 +92,12 @@ describe("C2: the sheet's copy", () => {
 });
 
 describe("C9: the beacon", () => {
-  test("two 1.5 s passes, then rest", () => {
-    expect(BEACON_MS).toBe(3000);
+  test("two ~3 s turns, then rest", () => {
+    expect(BEACON_PASS_MS).toBe(3000);
+    expect(BEACON_MS).toBe(6000);
   });
   test("the accessible names", () => {
-    expect(HARBOR_LABEL).toEqual({ connected: "Connected to the Harbor", offline: "Offline" });
+    expect(HARBOR_LABEL).toEqual({ connected: "Connected to the Harbor", offline: "Off grid" });
   });
   test("60 fps sweeps; 30 fps (Low Power Mode) and an unmeasurable sample don't", () => {
     expect(lowPowerFromFrames([16.7, 16.6, 16.8, 16.7, 16.6])).toBe(false);
