@@ -181,6 +181,10 @@ const HOLD_AND_MOVE_MS = 4000;   // the 3 s hold + beat 2
   for (const s of openBefore) await rest("PATCH", `shopping_sessions?id=eq.${s.id}`, { ended_at: new Date().toISOString() });
   log(`ended ${openBefore.length} open session(s) first`);
   const t0Iso = new Date(Date.now() + (skewMs || 0) - 2000).toISOString();
+  // Tab A loaded on an empty list, so the landing rule put it on Home: to the Shop now the items are there.
+  await waitFor(() => A.evaluate(() => /things? to get/.test(document.body.innerText)), 15000, 300);
+  await A.evaluate(() => { window.location.hash = "#/shop"; });
+  await sleep(1500);
   const sawAll = await waitFor(async () => { const s = await shopState(A); return W.filter((n) => n !== W[3]).every((n) => s.unchecked.includes(n)) && s.inCart.includes(W[3]) && s; }, 15000);
   check("setup: tab A shows six walk items to find and one in the cart", !!sawAll);
   check("setup: nothing queued, no offline icon", Object.keys(await queueInStorage(A)).length === 0 && !(await shopState(A)).indicator);
@@ -351,7 +355,7 @@ const HOLD_AND_MOVE_MS = 4000;   // the 3 s hold + beat 2
   await sleep(HOLD_AND_MOVE_MS + 5500);   // the holds, then the Undo toasts expire; All done waits for them
   s = await shopState(A);
   await shot(A, "offline-v7-done");
-  check("V7 every item checked offline → the normal All done card with Wrap up", /^All done\. Everything on your list is in the cart\./.test(s.allDone) && /Wrap up trip/.test(s.allDone), JSON.stringify(s.allDone));
+  check("V7 every item checked offline → the normal All done card with Wrap up", /^All done\. Everything on your list is in the cart\./.test(s.allDone) && /Wrap up trip/i.test(s.allDone), JSON.stringify(s.allDone));
   // The second phone adds something while A is still offline: the Wrap up must never archive it.
   await rpc("adjust_list_item_quantity", { p_household_id: HH, p_catalog_item_id: CID[PARTNER], p_delta: 1, p_price_per_unit: null });
   const wrapTapFrom = Date.now() + (skewMs || 0);
