@@ -32,6 +32,14 @@ import { emitAskEvent } from "../lib/askTelemetry";
 // meets a grown-up screen: a missing tile is the grown-up's business, said in Browse and Manage.
 // The caller never opens a run with 0 live tiles.
 //
+// THE HAND-BACK HOLD + EXPLORER'S SWIPE (SPEC_ask_handback_hold H1–H11, 2026-11-24): in Ask, anything
+// that ends the child's turn needs a press-and-hold — child actions are taps, adult actions are holds.
+// "Give it back" is a hold (useHold, HOLD_MS, the same fill as Done), armed 1500 ms after Great picks
+// appears; a tap on the finale wagon makes it hop. Explorer has no ✓: a full wagon is sent by dragging it
+// ≥ 60 px to the right (it rolls off, then Great picks rolls it in), by holding Done, or (keyboard / screen
+// reader) as the "Send the wagon" button; while full, the wagon tugs right with a → beside it.
+// docs/mockups/mockup_ask_swipe_wagon.html is the look.
+//
 // RESUME (A26 as amended by S3-6): while the hand-over or the shelf is up, every change of screen
 // or picks rewrites op_ask_held ({ask_id, screen, ids}); Great picks clears it, because the picks
 // have landed. A failed land keeps it with the wagon. The caller clears it on every other way out
@@ -289,6 +297,49 @@ function HoldDone({ onDone, label = "Done", hold = "Hold to finish" }) {
 // The shelf screen's title and the other two screens' names: the name always in .op-name.
 const Name = ({ children }) => <span className="op-name">{children}</span>;
 
+// H1–H2: "Give it back to {Parent}" is a press-and-hold (the same useHold, HOLD_MS and fill as Done). A short
+// tap does nothing to the run; it only says "Hold to give back" for ~1.6 s. For ARM_MS after Great picks
+// appears it ignores presses altogether — no hold, no hint, no grey — so a finger still mashing from the
+// shelf can't end the screen. The accessible name ("Hold to give it back to {Parent}") is screen-reader
+// text, never an attribute: the name stays out of every attribute (K3) and inside .op-name.
+export const ARM_MS = 1500;
+function HoldGiveBack({ parentName, onGiveBack, done }) {
+  const [armed, setArmed] = useState(false);
+  const [hint, setHint] = useState(false);
+  const hintTimer = useRef(null);
+  useEffect(() => {
+    const t = setTimeout(() => setArmed(true), ARM_MS);
+    return () => { clearTimeout(t); clearTimeout(hintTimer.current); };
+  }, []);
+  const showHint = () => {
+    setHint(true);
+    clearTimeout(hintTimer.current);
+    hintTimer.current = setTimeout(() => setHint(false), 1600);
+  };
+  const { holding, bind } = useHold({ onHold: onGiveBack, onRelease: showHint });
+  const live = armed && !done;
+  return (
+    <button type="button" className={`ask-primary ask-give-back${holding ? " holding" : ""}`} disabled={done}
+      {...(live ? bind : { onContextMenu: bind.onContextMenu })}
+      onClick={live ? () => { if (!holding) showHint(); } : undefined}>
+      <span className="ask-give-fill" aria-hidden="true" />
+      <span className="ask-sr">Hold to give it back{parentName ? <> to <Name>{parentName}</Name></> : null}</span>
+      <span className="ask-give-text" aria-hidden="true">
+        {hint ? "Hold to give back" : parentName ? <>Give it back to <Name>{parentName}</Name></> : "Give it back"}
+      </span>
+    </button>
+  );
+}
+
+// H6: the swipe. A full Explorer wagon follows the finger to the right; released at SEND_PX or more it is
+// sent (the picks land and it rolls off over ROLL_MS); short of that it springs back. TAP_PX: a press that
+// never moves further than this is a tap (a card in the wagon comes out, H7).
+export const SEND_PX = 60;
+const TAP_PX = 8;
+const ROLL_MS = 600;
+// H8: the tug hint starts once the fireworks are over (they start FLY_MS after the wagon fills, ~2.4 s).
+const TUG_AFTER_MS = FLY_MS + 2400;
+
 // ask: { id, label, shelfNoun, pickTarget, screenStyle }. tiles: the LIVE tiles [{ id, name, glyph,
 // photoUrl }] in shelf order; glyph is the ITEM's own (null when the catalog has none), never the aisle's.
 // onLand(ids) resolves when the picks are on the list and throws when they are not.
@@ -320,6 +371,14 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
   const wagonEl = useRef(null);
   const [landing, setLanding] = useState(false);
   const [failed, setFailed] = useState(false);
+  // H5–H11 (Explorer): the wagon's wrapper is what moves (drag, roll-off, tug), never the SVG.
+  const wrapEl = useRef(null);
+  const drag = useRef(null);                         // { x0, dx, moved } while a press is down on the wagon
+  const suppressTap = useRef(false);                 // a drag that moved must not also take a card out
+  const [dragging, setDragging] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [tugReady, setTugReady] = useState(false);
+  const finaleHop = useRef(null);
   const [boom, setBoom] = useState(0);               // the finish: a key that restarts the fireworks
   const wasFull = useRef(picks.length >= target);    // a resumed full wagon doesn't burst again
   const byId = new Map(allTiles.map((t) => [t.id, t]));   // names for every tile the run opened with, dead ones included
@@ -365,6 +424,16 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
     return () => clearTimeout(t);
   }, [boom]);
   const reducedMotion = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // H8: while an Explorer wagon is full, after the fireworks (at once for a run resumed full), the wagon
+  // tugs. Unpicking stops it; refilling waits out the fireworks again.
+  const sendable = simple && screen === "shelf" && canConfirm(picks, target);
+  const resumedFull = useRef(!!resume && picks.length >= target);
+  useEffect(() => {
+    if (!sendable) { setTugReady(false); resumedFull.current = false; return undefined; }
+    if (resumedFull.current) { setTugReady(true); return undefined; }
+    const t = setTimeout(() => setTugReady(true), TUG_AFTER_MS);
+    return () => clearTimeout(t);
+  }, [sendable]);
   const tap = (id) => {
     if (landing) return;
     const r = tapTile(picks, id, target);
@@ -395,14 +464,17 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
     bump("hop");
   };
   const out = (id) => {
+    if (suppressTap.current) { suppressTap.current = false; return; }   // that press was a drag, not a tap
     if (landing) return;
     setPicks((p) => takeOut(p, id)); setFailed(false); setGone(null);
     if (celebrating === id) setCelebrating(null);
     setFlights((fl) => fl.filter((x) => x.id !== id));
   };
   const inFlight = new Set(flights.map((f) => f.id));
-  const confirm = async () => {
-    if (!canConfirm(picks, target) || landing) return;
+  // Resolves true when the run moved on to Great picks. beforeDone runs after the land and before the
+  // screen changes (the swipe lets its roll-off finish first).
+  const confirm = async ({ beforeDone = null } = {}) => {
+    if (!canConfirm(picks, target) || landing) return false;
     setLanding(true);
     setFailed(false);
     try {
@@ -418,19 +490,86 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
         setDead((d) => new Set([...d, ...goneIds]));
         setPicks((p) => p.filter((id) => !goneIds.includes(id)));
         setGone({ names: goneIds.map((id) => byId.get(id)?.name).filter(Boolean), landedAny: false });
-        return;
+        return false;
       }
+      if (beforeDone) await beforeDone();
       setLandedTiles(skipped.length ? snapshot.filter((t) => !skipped.includes(t.id)) : snapshot);
       setGone(landed < picks.length
         ? { names: skipped.map((id) => byId.get(id)?.name).filter(Boolean), landedAny: true }
         : null);
       setScreen("done");
+      return true;
     } catch (e) {
       emitAskEvent("ask_land_failed", e, picks.length, ask.screenStyle);   // the code only, never the message
-      setFailed(true);   // the wagon stays held; That's it! can be tapped again
+      setFailed(true);   // the wagon stays held; That's it! (or a swipe) can try again
+      return false;
     } finally {
       setLanding(false);
     }
+  };
+
+  // H6 / H9 / H11 (Explorer): send the full wagon — by the swipe, by holding Done, or as a button. It rolls
+  // off to the right while the picks land; Great picks then rolls it in. If the land fails (H10) or nothing
+  // landed (B9.3), it rolls back in.
+  const send = async () => {
+    if (!simple || !canConfirm(picks, target) || landing || sending) return;
+    setSending(true);
+    const el = wrapEl.current;
+    const still = reducedMotion();
+    if (el && !still) { el.style.transition = `transform ${ROLL_MS}ms ease-in`; el.style.transform = "translateX(130vw)"; }
+    const started = Date.now();
+    const moved = await confirm({
+      beforeDone: async () => {
+        const left = still ? 0 : ROLL_MS - (Date.now() - started);
+        if (left > 0) await new Promise((r) => setTimeout(r, left));
+      },
+    });
+    if (!moved) {
+      const w = wrapEl.current;
+      if (w) { w.style.transition = still ? "" : "transform 0.45s cubic-bezier(.3,1.25,.5,1)"; w.style.transform = ""; }
+      setSending(false);
+    }
+  };
+  // The drag (H6, H7): only a full wagon moves, and only to the right. A press that never travels past
+  // TAP_PX stays a tap, so the card under it still comes out.
+  const springBack = () => {
+    const w = wrapEl.current;
+    if (!w) return;
+    w.style.transition = "transform 0.3s cubic-bezier(.3,1.5,.5,1)";
+    w.style.transform = "";
+  };
+  const onWagonDown = (e) => {
+    if (!simple || landing || sending) return;
+    suppressTap.current = false;
+    drag.current = { x0: e.clientX, dx: 0, moved: false };
+  };
+  const onWagonMove = (e) => {
+    const d = drag.current;
+    if (!d) return;
+    d.dx = e.clientX - d.x0;
+    if (!d.moved && Math.abs(d.dx) > TAP_PX) { d.moved = true; setDragging(true); }
+    if (d.moved && sendable && d.dx > 0 && wrapEl.current) {
+      wrapEl.current.style.transition = "none";
+      wrapEl.current.style.transform = `translateX(${d.dx}px)`;
+    }
+  };
+  const onWagonUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    setDragging(false);
+    if (d.moved) suppressTap.current = true;
+    if (d.moved && sendable && d.dx >= SEND_PX) { send(); return; }
+    if (d.moved) springBack();
+  };
+  const onWagonCancel = () => { drag.current = null; setDragging(false); springBack(); };
+  // H3: on Great picks a tap on the wagon makes it hop (not under reduced motion; nothing elsewhere).
+  const hopFinale = () => {
+    const el = finaleHop.current;
+    if (!el || reducedMotion() || typeof el.animate !== "function") return;
+    el.animate([
+      { transform: "none" }, { transform: "translateY(-14px)", offset: 0.3 }, { transform: "translateY(2px)", offset: 0.6 }, { transform: "none" },
+    ], { duration: 450, easing: "cubic-bezier(.3,1.5,.5,1)" });
   };
 
   // Close / Done before the picks land: the run is abandoned (telemetry: where, and how many were held).
@@ -444,10 +583,13 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
     <div className="ask-top">
       <span className="ask-eyebrow">Ask <Name>{ask.label}</Name></span>
       {screen === "turn" && <HoldDone onDone={abandon} label="Close" hold="Hold to close" />}
-      {screen === "shelf" && <HoldDone onDone={abandon} label="Done" hold="Hold to finish" />}
+      {/* H9: Explorer's Done with a full wagon sends it (never throws the picks away); otherwise it abandons. */}
+      {screen === "shelf" && (sendable
+        ? <HoldDone key="send" onDone={send} label="Done" hold="Hold to send" />
+        : <HoldDone key="finish" onDone={abandon} label="Done" hold="Hold to finish" />)}
     </div>
   );
-  // W8: the child hands the phone back. Once: the run closes on the first tap.
+  // W8 as amended by H1: the phone goes back to the grown-up on a HOLD (HoldGiveBack). Once.
   const [handedBack, setHandedBack] = useState(false);
   const giveBack = () => {
     if (handedBack) return;
@@ -561,24 +703,36 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
                 has dots (Explorer's went 2026-11-15): Shopper's numbered cards carry the count; Explorer's
                 tub fills turquoise. The count stays for screen readers on both. */}
             <div className="ask-cartrow">
-              <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-small" hiddenIds={inFlight} svgRef={wagonEl}
-                fill={simple ? (target > 0 ? picks.length / target : 0) : null} />
+              {simple ? (
+                // H5–H8, H11: Explorer's wagon is bigger (the ✓'s space), and when full it is sent by a drag to the
+                // right, by holding Done, or — keyboard / screen reader — as the "Send the wagon" button. While
+                // full (after the fireworks) it tugs right with a → beside it; reduced motion: no tug, no arrow.
+                <div ref={wrapEl}
+                  className={`ask-wagonwrap${sendable ? " full" : ""}${sendable && tugReady && !dragging && !sending ? " tug" : ""}${dragging ? " dragging" : ""}${sending ? " rolling" : ""}`}
+                  role={sendable ? "button" : undefined} tabIndex={sendable ? 0 : undefined} aria-label={sendable ? "Send the wagon" : undefined}
+                  onKeyDown={sendable ? (e) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); send(); } } : undefined}
+                  onPointerDown={onWagonDown} onPointerMove={onWagonMove} onPointerUp={onWagonUp} onPointerCancel={onWagonCancel}>
+                  <div className="ask-wagon-tug">
+                    <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-big" hiddenIds={inFlight} svgRef={wagonEl}
+                      fill={target > 0 ? picks.length / target : 0} />
+                  </div>
+                  <span className="ask-send-hint" aria-hidden="true">→</span>
+                </div>
+              ) : (
+                <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-small" hiddenIds={inFlight} svgRef={wagonEl} fill={null} />
+              )}
               <span className="ask-sr" aria-live="polite" aria-label={`${picks.length} of ${target} picked`}>{picks.length} of {target} picked</span>
             </div>
-            {failed && <div className="ask-failed" role="alert">That didn't reach the list. {simple ? "Tap ✓ again." : "Try That's it! again."}</div>}
+            {failed && <div className="ask-failed" role="alert">That didn't reach the list. {simple ? "Swipe the wagon again." : "Try That's it! again."}</div>}
             {/* B9.3: nothing landed — the dead tiles are gone from the shelf; this says why. Never "Tap ✓ again". */}
             {gone && !gone.landedAny && <div className="ask-failed" role="status">{goneLine(gone.names, false)}</div>}
-            <div className="ask-actions">
-              {simple ? (
-                <button type="button" className={`ask-primary ask-icon ask-thats-it${canConfirm(picks, target) ? " show" : ""}`}
-                  aria-label={landing ? "Adding…" : "That's it!"} onClick={confirm} disabled={!canConfirm(picks, target) || landing}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.6 4.6L19 7.6" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                </button>
-              ) : (
+            {/* H5: Explorer has no ✓ — a full wagon already means done. Shopper keeps That's it! (a tap: it's the child's). */}
+            {!simple && (
+              <div className="ask-actions">
                 <button type="button" className={`ask-primary ask-thats-it${canConfirm(picks, target) ? " show" : ""}`}
-                  onClick={confirm} disabled={!canConfirm(picks, target) || landing}>{landing ? "Adding…" : "That's it!"}</button>
-              )}
-            </div>
+                  onClick={() => confirm()} disabled={!canConfirm(picks, target) || landing}>{landing ? "Adding…" : "That's it!"}</button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -596,17 +750,18 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
               line and the button; a raised back tier (5–6 picks) gets its room above. Screen readers get
               the list from the wagon's label, in pick order. */}
           <div className={`ask-rollin ask-roll${shown.length >= 5 ? " ask-rollin-tall" : ""}`}>
-            <Wagon picks={shown} label={`${one ? "Your pick" : "Your picks"}: ${shown.map((t) => t.name).join(", ")}`} />
+            {/* H3: his taps get an answer — a tap on the wagon makes it hop. */}
+            <div className="ask-finale-hop" ref={finaleHop} onClick={hopFinale}>
+              <Wagon picks={shown} label={`${one ? "Your pick" : "Your picks"}: ${shown.map((t) => t.name).join(", ")}`} />
+            </div>
           </div>
           {/* W7 (amends A14): the credit is his, and the list is "our" list. */}
           <p className="ask-line">{one ? "Your pick is on our list!" : "Your picks are on our list!"}</p>
           {/* B7: some picks were skipped (their item is gone); the rest are on the list. */}
           {gone && gone.landedAny && <p className="ask-line ask-gone">{goneLine(gone.names, true)}</p>}
           <div className="ask-foot">
-            {/* W8: the hand-back. The parent's first name sits in .op-name like any name in the run. */}
-            <button type="button" className="ask-primary ask-give-back" onClick={giveBack} disabled={handedBack}>
-              {parentName ? <>Give it back to <Name>{parentName}</Name></> : "Give it back"}
-            </button>
+            {/* W8 + H1–H2: the hand-back, a hold. The parent's first name sits in .op-name like any name in the run. */}
+            <HoldGiveBack parentName={parentName} onGiveBack={giveBack} done={handedBack} />
           </div>
         </div>
       )}
@@ -734,6 +889,22 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-cartrow { display: flex; align-items: center; justify-content: center; gap: 14px; }
 .ask-wagon { display: block; overflow: visible; }
 .ask-wagon-small { width: 185px; }
+/* H5–H8 (Explorer; docs/mockups/mockup_ask_swipe_wagon.html): the wagon takes the ✓'s space; a full one
+   drags right, rolls off with its wheels spinning, and tugs right with a teal → while it waits. */
+.ask-wagonwrap { position: relative; width: min(88vw, 360px); touch-action: none; -webkit-user-select: none; user-select: none; }
+.ask-wagonwrap.full { cursor: grab; }
+.ask-wagonwrap.dragging { cursor: grabbing; }
+.ask-wagonwrap:focus-visible { outline: 3px solid #0A776D; outline-offset: 4px; border-radius: 16px; }
+.ask-wagon-big { width: 100%; height: auto; }
+.ask-wagonwrap.tug .ask-wagon-tug { animation: ask-tug 1.6s ease-in-out infinite; }
+@keyframes ask-tug { 0%, 55%, 100% { transform: none; } 65% { transform: translateX(14px); } 75% { transform: translateX(4px); } 85% { transform: translateX(10px); } }
+.ask-wagonwrap.tug .ask-wagon-handle { animation: ask-pull 1.6s ease-in-out infinite; }
+@keyframes ask-pull { 0%, 55%, 100% { transform: none; } 65% { transform: rotate(14deg); } 85% { transform: rotate(8deg); } }
+.ask-send-hint { position: absolute; right: -4px; bottom: 38%; font: 900 30px 'Lato', sans-serif; color: #0D9488; opacity: 0; pointer-events: none; }
+.ask-wagonwrap.tug .ask-send-hint { animation: ask-arrow 1.6s ease-in-out infinite; }
+@keyframes ask-arrow { 0%, 50% { opacity: 0; transform: translateX(-10px); } 70% { opacity: .85; transform: translateX(4px); } 100% { opacity: 0; transform: translateX(12px); } }
+.ask-wagonwrap.rolling .ask-wheel-spin { animation: ask-spin 0.5s linear infinite; }
+@keyframes ask-spin { to { transform: rotate(360deg); } }
 .ask-wagon-pick { cursor: pointer; }
 .ask-card.fresh { animation: ask-drop 0.38s cubic-bezier(.3,1.5,.5,1); transform-box: fill-box; transform-origin: center bottom; }
 @keyframes ask-drop { from { transform: translateY(-22px) scale(0.7); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -783,6 +954,11 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-rollin .ask-wheel-spin { animation: ask-wheel-roll 1s cubic-bezier(.2,.9,.25,1); }
 @keyframes ask-roll { from { transform: translateX(-120%); } to { transform: none; } }
 .ask-give-back:disabled { opacity: 1; }
+/* H1: the hold fill runs left to right inside the teal pill, the label above it. */
+.ask-give-back { position: relative; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; }
+${holdFillCss(".ask-give-fill", ".ask-give-back.holding .ask-give-fill")}
+.ask-give-text { position: relative; }
+.ask-finale-hop { width: 100%; display: flex; justify-content: center; cursor: pointer; }
 .ask-finale .ask-foot { margin-top: auto; }
 
 @media (prefers-reduced-motion: reduce) {
