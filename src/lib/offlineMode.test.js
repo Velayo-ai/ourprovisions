@@ -1,7 +1,7 @@
 // Run: CI=true npx react-scripts test --watchAll=false src/lib/offlineMode
 import {
   nextOffline, OFFLINE_HOLD_MS, noteDue, NOTE_TRIP_MS, readNoteShownAt, writeNoteShownAt, clearNoteShownAt,
-  changesLine, needsSignalLine, NOTE_COPY, SHEET_COPY,
+  changesLine, needsSignalLine, NOTE_COPY, SHEET_COPY, BEACON_MS, HARBOR_LABEL, lowPowerFromFrames,
 } from "./offlineMode";
 
 const memStore = () => {
@@ -74,5 +74,21 @@ describe("C2: the sheet's copy", () => {
   test("the known gap, said plainly", () => {
     expect(needsSignalLine("add")).toBe("Adding items needs signal for now.");
     expect(needsSignalLine("nope")).toBeNull();
+  });
+});
+
+describe("C9: the beacon", () => {
+  test("two 1.5 s passes, then rest", () => {
+    expect(BEACON_MS).toBe(3000);
+  });
+  test("the accessible names", () => {
+    expect(HARBOR_LABEL).toEqual({ connected: "Connected to the Harbor", offline: "Offline" });
+  });
+  test("60 fps sweeps; 30 fps (Low Power Mode) and an unmeasurable sample don't", () => {
+    expect(lowPowerFromFrames([16.7, 16.6, 16.8, 16.7, 16.6])).toBe(false);
+    expect(lowPowerFromFrames([8.3, 8.4, 8.3, 8.3])).toBe(false);
+    expect(lowPowerFromFrames([33.3, 33.4, 33.3, 33.3])).toBe(true);
+    expect(lowPowerFromFrames([16.7])).toBe(true);
+    expect(lowPowerFromFrames([])).toBe(true);
   });
 });

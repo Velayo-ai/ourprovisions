@@ -65,3 +65,18 @@ const NEEDS_SIGNAL = {
 export function needsSignalLine(kind) {
   return NEEDS_SIGNAL[kind] || null;
 }
+
+// C9 — the Velayo dots are the Harbor connection light. The beacon: a lighthouse sweep, each dot
+// brightening in turn over one pass, two passes, then rest. Never loops.
+export const BEACON_PASS_MS = 1500;
+export const BEACON_PASSES = 2;
+export const BEACON_MS = BEACON_PASS_MS * BEACON_PASSES;
+export const HARBOR_LABEL = { connected: "Connected to the Harbor", offline: "Offline" };
+// Low Power Mode, where detectable: iOS caps requestAnimationFrame at 30 fps in Low Power Mode, so a
+// short sample whose frames average slower than ~24 ms reads as "save power: no sweep". Anything
+// unmeasurable (a hidden tab runs no frames) also skips the sweep.
+export function lowPowerFromFrames(deltas) {
+  const d = (deltas || []).filter((x) => Number.isFinite(x) && x > 0);
+  if (d.length < 3) return true;
+  return d.reduce((a, b) => a + b, 0) / d.length > 24;
+}

@@ -474,6 +474,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // connection — the guard above already returned in that case), so retire any
     // stale "Could not load list" left behind by an earlier failed tick.
     clearErrorFrom("list");
+    // The household's core answered (C5 clears the offline light on it; C9's tab beacon waits on it).
+    reportSuccess();
 
     // Names/categories/staple flags now arrive inline from the list RPC join.
     const catalogNameMap = {};

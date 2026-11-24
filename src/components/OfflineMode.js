@@ -1,47 +1,90 @@
-// Offline is a mode, not a problem (SPEC_offline_calm_2026-11-23): the header's small offline icon (C2),
-// the short sheet it opens, and the one calm note per trip (C3). All neutral: no amber, no alarms, no
-// counts on screen. Fixed copy only, so the RUM unmask rule never meets a name here.
-import { NOTE_COPY, SHEET_COPY, changesLine, needsSignalLine } from "../lib/offlineMode";
+// Offline is a mode, not a problem (SPEC_offline_calm_2026-11-23): the Harbor connection light in the
+// header (C9 — the Velayo dots), the offline lines at the top of the Velayo menu it opens, and the one
+// calm note per trip (C3). All neutral: no amber, no red, no counts on screen. Fixed copy only, so the
+// RUM unmask rule never meets a name here.
+import { useEffect, useRef, useState } from "react";
+import {
+  NOTE_COPY, SHEET_COPY, changesLine, needsSignalLine, BEACON_MS, HARBOR_LABEL, lowPowerFromFrames,
+} from "../lib/offlineMode";
 
-// A cloud with a slash: the plain, widely-read sign for "no connection".
-function CloudOff({ size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M7.5 18.5h9.2a3.8 3.8 0 0 0 1.1-7.4 5.6 5.6 0 0 0-9.6-3" />
-      <path d="M5.4 9.6A4.5 4.5 0 0 0 7.5 18.5" />
-      <path d="M3 3l18 18" />
-    </svg>
-  );
+const reducedMotion = () => {
+  try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; }
+};
+
+// ~100 ms of frames: Low Power Mode caps them at 30 fps (lib/offlineMode lowPowerFromFrames).
+function sampleLowPower() {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined" || !window.requestAnimationFrame) { resolve(true); return; }
+    const deltas = [];
+    let last = null;
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(lowPowerFromFrames(deltas)); } };
+    const step = (t) => {
+      if (done) return;
+      if (last !== null) deltas.push(t - last);
+      last = t;
+      if (deltas.length >= 6) finish(); else window.requestAnimationFrame(step);
+    };
+    window.requestAnimationFrame(step);
+    setTimeout(finish, 400);   // a hidden page runs no frames: unmeasurable, no sweep
+  });
 }
 
-// C2: the indicator. Header gold at low contrast, the same family as the household name beside it.
-export function OfflineIndicator({ onOpen }) {
+// C9: the Velayo dots, steady when connected; the word OFFLINE (the household name's gold small caps)
+// when the Harbor core is unreachable (C5's rules). `beacon` is a counter: each increase asks for one
+// sweep — two passes, then rest. A request during a sweep is ignored (it never loops); none plays
+// offline, with Reduce Motion, or in Low Power Mode where detectable. data-beacon is for the harness.
+export function HarborLight({ offline, beacon = 0, onOpen }) {
+  const [sweep, setSweep] = useState(0);   // > 0 while a sweep plays; its value keys the restart
+  const activeRef = useRef(false);
+  const timerRef = useRef(null);
+  const mountedRef = useRef(true);
+  const offlineRef = useRef(offline);
+  offlineRef.current = offline;
+  useEffect(() => () => { mountedRef.current = false; clearTimeout(timerRef.current); }, []);
+  useEffect(() => {
+    if (!beacon || offline || activeRef.current || reducedMotion()) return;
+    activeRef.current = true;   // a request arriving while this one samples or plays is ignored
+    sampleLowPower().then((lowPower) => {
+      if (!mountedRef.current) return;
+      if (lowPower || offlineRef.current) { activeRef.current = false; return; }
+      setSweep(beacon);
+      timerRef.current = setTimeout(() => { activeRef.current = false; setSweep(0); }, BEACON_MS + 100);
+    });
+  }, [beacon, offline]);
+  useEffect(() => { if (offline) { clearTimeout(timerRef.current); activeRef.current = false; setSweep(0); } }, [offline]);
+
   return (
-    <button type="button" className="offline-indicator" onClick={onOpen} aria-label="Offline">
-      <CloudOff />
+    <button
+      type="button"
+      className={`harbor-light${offline ? " is-offline" : ""}`}
+      onClick={onOpen}
+      aria-label={offline ? HARBOR_LABEL.offline : HARBOR_LABEL.connected}
+      data-beacon={sweep ? "on" : "off"}
+    >
+      {offline ? (
+        <span key="word" className="harbor-word" aria-hidden="true">Offline</span>
+      ) : (
+        <svg key={`dots-${sweep}`} className={`harbor-dots${sweep ? " beacon" : ""}`} width="28" height="24" viewBox="0 0 28 24" fill="none" aria-hidden="true">
+          <circle className="hd hd1" cx="5" cy="4" r="3.5" fill="#C9A97A" />
+          <circle className="hd hd2" cx="14" cy="16" r="3.5" fill="#C9A97A" />
+          <circle className="hd hd3" cx="23" cy="4" r="3.5" fill="#C9A97A" />
+        </svg>
+      )}
     </button>
   );
 }
 
-// C2: tap → a short sheet. One plain line for changes waiting; one for the known gap (an add, a quantity,
-// a removal or a price that needed signal), never an error toast.
-export function OfflineSheet({ changes = 0, needsSignal = null, onClose }) {
+// C9 / C2: offline, the Velayo menu opens with these lines at its top. One plain line for changes waiting;
+// one for the known gap (an add, a quantity, a removal or a price that needed signal), never a toast.
+export function OfflineLines({ changes = 0, needsSignal = null }) {
   const waiting = changesLine(changes);
   const gap = needsSignalLine(needsSignal);
   return (
-    <div className="modal-overlay offline-sheet-overlay" onClick={onClose}>
-      <div className="modal offline-sheet" role="dialog" aria-label="Offline" onClick={(e) => e.stopPropagation()}>
-        <div className="offline-sheet-head">
-          <span className="offline-sheet-icon"><CloudOff size={20} /></span>
-          <span className="offline-sheet-title">Offline</span>
-        </div>
-        <p className="offline-sheet-copy">{SHEET_COPY}</p>
-        {waiting && <p className="offline-sheet-line">{waiting}</p>}
-        {gap && <p className="offline-sheet-line">{gap}</p>}
-        <div className="modal-actions-spaced" style={{ justifyContent: "flex-end" }}>
-          <button type="button" className="modal-confirm" onClick={onClose}>OK</button>
-        </div>
-      </div>
+    <div className="offline-lines">
+      <p className="offline-lines-copy">{SHEET_COPY}</p>
+      {waiting && <p className="offline-lines-line">{waiting}</p>}
+      {gap && <p className="offline-lines-line">{gap}</p>}
     </div>
   );
 }
@@ -50,7 +93,6 @@ export function OfflineSheet({ changes = 0, needsSignal = null, onClose }) {
 export function OfflineNote() {
   return (
     <div className="offline-note" role="status" aria-live="polite">
-      <CloudOff size={14} />
       <span>{NOTE_COPY}</span>
     </div>
   );

@@ -25,6 +25,14 @@ export function ConnectivityProvider({ children }) {
   const [offline, setOffline] = useState(!online);
   const timerRef = useRef(null);
   const evaluateRef = useRef(null);
+  // C9: the tab beacon waits on "that tab's first fetch" — the next request result after a switch.
+  // onRequestResult(fn) → unsubscribe; fn(true) on a success, fn(false) on a network failure.
+  const resultListeners = useRef(new Set());
+  const emitResult = (ok) => { [...resultListeners.current].forEach((fn) => { try { fn(ok); } catch (e) { /* a listener never breaks a report */ } }); };
+  const onRequestResult = useCallback((fn) => {
+    resultListeners.current.add(fn);
+    return () => resultListeners.current.delete(fn);
+  }, []);
 
   evaluateRef.current = () => {
     const now = Date.now();
@@ -46,6 +54,7 @@ export function ConnectivityProvider({ children }) {
   const reportTransientFailure = useCallback(() => {
     lastFailAt.current = Date.now();
     evaluateRef.current();
+    emitResult(false);
   }, []);
 
   const reportSuccess = useCallback(() => {
@@ -54,10 +63,11 @@ export function ConnectivityProvider({ children }) {
     if (now <= lastFailAt.current) return;
     lastOkAt.current = now;
     if (modeRef.current.shown) evaluateRef.current();   // the 2 s poll's successes cost nothing while online
+    if (resultListeners.current.size) emitResult(true);
   }, []);
 
   return (
-    <ConnectivityContext.Provider value={{ offline, reportTransientFailure, reportSuccess }}>
+    <ConnectivityContext.Provider value={{ offline, reportTransientFailure, reportSuccess, onRequestResult }}>
       {children}
     </ConnectivityContext.Provider>
   );

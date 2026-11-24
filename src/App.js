@@ -7,7 +7,7 @@ import { useScrollLock } from './hooks/useScrollLock';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
-import { OfflineIndicator, OfflineSheet, OfflineNote } from './components/OfflineMode';
+import { HarborLight, OfflineLines, OfflineNote } from './components/OfflineMode';
 import { NOTE_MS, noteDue, readNoteShownAt, writeNoteShownAt, clearNoteShownAt } from './lib/offlineMode';
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
@@ -5469,15 +5469,18 @@ function ProvisionsApp({ scrollRootRef }) {
   // pill clears itself when a poller's read succeeds (reportSuccess at the
   // read sites). session_lost clears it too — the sheet is the surface then and
   // the network is not the story.
-  const { offline, reportTransientFailure, reportSuccess } = useConnectivity();
-  // OFFLINE IS CALM (SPEC_offline_calm_2026-11-23). C2: the header icon opens a short sheet. C3: one note
-  // per trip on the first switch to offline, about 3 s; signal dropping in and out doesn't repeat it (the
-  // shown state already holds 10 s, and the note is stamped per trip, cleared at Wrap up).
-  const [offlineSheetOpen, setOfflineSheetOpen] = useState(false);
+  const { offline, reportTransientFailure, reportSuccess, onRequestResult } = useConnectivity();
+  // OFFLINE IS CALM (SPEC_offline_calm_2026-11-23). C9: the Velayo dots are the Harbor connection light
+  // (OFFLINE in their place when the core is unreachable; a tap opens the Velayo menu with C2's offline
+  // lines at its top). C3: one note per trip on the first switch to offline, about 3 s; signal dropping in
+  // and out doesn't repeat it (the shown state holds through flaky signal, and the note is stamped per
+  // trip, cleared at Wrap up).
   const [offlineNote, setOfflineNote] = useState(false);
   const noteShownRef = useRef(null);
+  const offlineLiveRef = useRef(offline);
+  offlineLiveRef.current = offline;
   useEffect(() => {
-    if (!offline || !sessionLive) { if (!offline) { setOfflineSheetOpen(false); clearNeedsSignal(); } return undefined; }
+    if (!offline || !sessionLive) { if (!offline) clearNeedsSignal(); return undefined; }
     const now = Date.now();
     const last = readNoteShownAt() ?? noteShownRef.current;
     if (!noteDue(last, now)) return undefined;
@@ -8296,6 +8299,33 @@ function ProvisionsApp({ scrollRootRef }) {
     });
     return out;
   }, [partnerSession, storeSuggestions]);
+  // C9 — THE BEACON (one sweep: two passes, then rest; never loops). Asked for on app open (the household's
+  // first data on screen), when the connection returns, on a tap of the dots, and on a tab switch ONLY
+  // after that tab's first successful fetch — a verified check, never decoration: the next request result
+  // after the switch decides it, and a failure plays nothing. HarborLight skips it offline, with Reduce
+  // Motion, and in Low Power Mode where detectable.
+  const [beacon, setBeacon] = useState(0);
+  const requestBeacon = useCallback(() => setBeacon((b) => b + 1), []);
+  const openBeaconRef = useRef(false);
+  useEffect(() => {
+    if (openBeaconRef.current || !householdReady || !sessionLive || offline) return;
+    openBeaconRef.current = true;
+    requestBeacon();
+  }, [householdReady, sessionLive, offline, requestBeacon]);
+  const wasOfflineRef = useRef(offline);
+  useEffect(() => {
+    if (wasOfflineRef.current && !offline && sessionLive) requestBeacon();
+    wasOfflineRef.current = offline;
+  }, [offline, sessionLive, requestBeacon]);
+  const beaconViewRef = useRef(view);
+  useEffect(() => {
+    if (beaconViewRef.current === view) return undefined;
+    beaconViewRef.current = view;
+    if (!sessionLive) return undefined;
+    const off = onRequestResult((ok) => { off(); if (ok && !offlineLiveRef.current) requestBeacon(); });
+    return off;
+  }, [view, sessionLive, onRequestResult, requestBeacon]);
+
   // Not while an offline Wrap up is waiting to finish: that trip is over on this phone (SPEC_offline_calm C6).
   const storePromptVisible = view === "list" && !!activeSession && !queuedWrap && (
     storePromptOpen || (!activeSession.store_name_raw && storePromptSkippedFor !== activeSession.id)
@@ -10311,15 +10341,27 @@ function ProvisionsApp({ scrollRootRef }) {
         .shop-check { position: relative; }
         .sync-dot { position: absolute; top: 9px; right: 7px; width: 7px; height: 7px; border-radius: 50%;
                     background: #a89878; box-shadow: 0 0 0 2px #FAF4EC; pointer-events: none; }
-        /* C2: the header's offline icon, and the short sheet it opens. Neutral: header gold, low contrast. */
-        .offline-indicator { background: none; border: none; padding: 4px; margin-left: 6px; cursor: pointer;
-                             color: #C9A97A; opacity: 0.85; display: inline-flex; align-items: center; }
-        .offline-sheet-overlay { align-items: center; z-index: 2100; }
-        .offline-sheet { max-width: 360px; }
-        .offline-sheet-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: #6b5a40; }
-        .offline-sheet-title { font-family: 'Lato', sans-serif; font-size: 1rem; font-weight: 700; color: #2C1A0E; }
-        .offline-sheet-copy, .offline-sheet-line { font-family: 'Lato', sans-serif; font-size: 0.92rem; line-height: 1.45; color: #4a3a28; margin: 0 0 10px; }
-        .offline-sheet-line { color: #6b5a40; }
+        /* C9: the Velayo dots as the Harbor connection light. Steady dots; OFFLINE in the household name's gold
+           small caps (a label, never a badge); the beacon — each dot brightens in turn, 1.5 s a pass, two
+           passes. One soft fade between dots and word. Reduce Motion: no sweep, no fade. */
+        .harbor-light { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: center;
+                        justify-content: flex-end; min-width: 28px; min-height: 24px; }
+        .harbor-word { font-family: 'Lato', sans-serif; font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px;
+                       color: #C9A97A; white-space: nowrap; }
+        .harbor-word, .harbor-dots { animation: harbor-fade 320ms ease-out; }
+        @keyframes harbor-fade { from { opacity: 0; } to { opacity: 1; } }
+        .harbor-dots.beacon .hd { animation: harbor-sweep 1500ms ease-in-out 2 both; }
+        .harbor-dots.beacon .hd2 { animation-delay: 500ms; }
+        .harbor-dots.beacon .hd3 { animation-delay: 1000ms; }
+        @keyframes harbor-sweep { 0% { fill: #C9A97A; } 16% { fill: #FFF1CF; } 33% { fill: #C9A97A; } 100% { fill: #C9A97A; } }
+        @media (prefers-reduced-motion: reduce) {
+          .harbor-dots.beacon .hd, .harbor-word, .harbor-dots { animation: none; }
+        }
+        /* C2's copy, at the top of the Velayo menu when offline. */
+        .offline-lines { width: 100%; padding-bottom: 18px; border-bottom: 0.5px solid #e8ddd0; }
+        .offline-lines-copy, .offline-lines-line { font-family: 'Lato', sans-serif; font-size: 0.92rem; line-height: 1.45;
+                                                   color: #4a3a28; margin: 0 0 8px; text-align: left; }
+        .offline-lines-line { color: #6b5a40; margin-bottom: 0; }
         /* C3: the one calm note per trip, in the bottom status stack. */
         .offline-note { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
                         background: #FAF4EC; color: #6b5a40; border: 1px solid #e8ddd0; box-shadow: 0 4px 16px rgba(0,0,0,0.10);
@@ -10644,7 +10686,7 @@ function ProvisionsApp({ scrollRootRef }) {
               </svg>
             </button>
           )}
-          <div style={{ minHeight: "32px", display: "flex", alignItems: "center" }}>
+          <div style={{ minHeight: "32px" }}>
             {/* The header avatar is the one Profile trigger at every width
                 (the rail's foot avatar went with the rail, 2026-09-20). The
                 wrapping div stays (32px tall, the avatar's height) so the row's
@@ -10669,20 +10711,11 @@ function ProvisionsApp({ scrollRootRef }) {
                 {user?.firstName?.[0]}{user?.lastName?.[0]}
               </button>
             )}
-            {/* C2 (SPEC_offline_calm): the only standing sign of offline — a small neutral icon; tap for why. */}
-            {sessionLive && offline && <OfflineIndicator onOpen={() => setOfflineSheetOpen(true)} />}
           </div>
-          <button
-            onClick={() => setShowVelayoMenu(true)}
-            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center" }}
-            aria-label="Velayo menu"
-          >
-            <svg width="28" height="24" viewBox="0 0 28 24" fill="none">
-              <circle cx="5" cy="4" r="3.5" fill="#C9A97A"/>
-              <circle cx="14" cy="16" r="3.5" fill="#C9A97A"/>
-              <circle cx="23" cy="4" r="3.5" fill="#C9A97A"/>
-            </svg>
-          </button>
+          {/* C9 (SPEC_offline_calm): the Velayo dots are the Harbor connection light — steady when connected,
+              OFFLINE when the core is unreachable, one beacon when something just answered. The tap still
+              opens the Velayo menu (Dan, 2026-11-23: the dots' menu stays the Velayo menu). */}
+          <HarborLight offline={offline} beacon={beacon} onOpen={() => { requestBeacon(); setShowVelayoMenu(true); }} />
         </div>
 
         {/* Row 2: OurProvisions wordmark band — HOME ONLY (bannerOnHome) and
@@ -10772,6 +10805,10 @@ function ProvisionsApp({ scrollRootRef }) {
               display: "flex", flexDirection: "column", alignItems: "center", gap: "24px",
             }}
           >
+            {/* C9 / C2: offline, the menu opens with the offline lines at its top. */}
+            {offline && (
+              <OfflineLines changes={Object.keys(queuedChecks || {}).length + (queuedWrap ? 1 : 0)} needsSignal={needsSignal} />
+            )}
             {/* Menu header */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
               <img src={VELAYO_LOGO_TEAL} alt="Velayo" style={{ width: "48px", height: "48px", objectFit: "contain" }} />
@@ -13128,16 +13165,6 @@ function ProvisionsApp({ scrollRootRef }) {
           tap (the scrim's onClick), the Close button (SheetClose: VoiceOver's
           way, focus returns to the avatar on unmount) and swipe-down
           (SheetPanel → useSheetDrag, 2026-10-05). */}
-      {/* C2: the offline icon's short sheet. The one count is changes waiting on this phone (a queued
-          Wrap up is one change). */}
-      {offlineSheetOpen && offline && (
-        <OfflineSheet
-          changes={Object.keys(queuedChecks || {}).length + (queuedWrap ? 1 : 0)}
-          needsSignal={needsSignal}
-          onClose={() => setOfflineSheetOpen(false)}
-        />
-      )}
-
       {showProfileSheet && (
         <div
           style={{ position: "fixed", inset: 0, background: "rgba(2,15,26,0.6)", zIndex: 1000, display: "flex", alignItems: "flex-end" }}
