@@ -1,110 +1,75 @@
-Reported: 2026-11-23 08:26 ET · dev 56442ec · main 54d453c · re: Offline check-off slice 1 — 088 on dev, then the queue on dev; harness pre-walk; report to relay (2026-11-23) · prompt cdc6965
+Reported: 2026-11-23 22:45 ET · dev 4cc626a · main 54d453c · re: Offline check-off — make offline calm (SPEC_offline_calm), dev only (2026-11-23 evening) · prompt 871a167
 
-# Offline check-off slice 1 is on dev, and the harness pre-walk passed
+# Offline is calm: built on dev, harness 47/47, ready for Dan's iPhone walk
 
-**Status:** 088 is applied on dev. The slice 1 client is live on dev at `56442ec` (`main.5601c209.js`, `dpl_7mNn6e96ntxrV6rEZ8rbr1bzoSWt`).
-**Pre-walk on the deployed dev preview:** `offline-walk.js` passed 29/29, covering Verify 1–8 and 10. The `shop-burst.js` revert mode ran 3 bursts with 0 reverts.
-**Not touched:** prod and main (`54d453c`). Next: Dan walks it on the installed iPhone.
+**Deployed:** dev `4cc626a` (`dpl_8yzc2MMAcimEkxkBkVNM84232A4t`, `main.bbc043ef.js`, build tag `dev · 4cc626a`). App only, no migration. Prod untouched (`54d453c`).
+**Commits:** `f2e9045` the build (C1–C7 + the queued Wrap up; spec copied to `docs/specs/active/SPEC_offline_calm_2026-11-23.md`), `4cc626a` harness. `b9803e8` (two harness-only fixes, below) is **local, not pushed**.
+**Gates:** Jest 83 suites / 1236 tests green; `CI=true` build green, before the push.
 
-## 088 `status_changed_at` (applied on dev)
+## What's built
+- **C1:** an offline check behaves exactly as online: the 3 s hold, the move to In cart, the same toast, grouped toast and Undo. A small neutral dot sits at the circle's shoulder: on the In cart row for a check, on the aisle row's circle for an offline uncheck. Each dot clears silently when its change is confirmed.
+- **C2:** a small neutral cloud-off icon in the header beside the avatar, icon only (there's no room for the word beside a centred place name at 390 px). Tapping it opens a sheet with the ruled copy, plus "N changes will share when you're back." when changes wait. A queued Wrap up counts as one change.
+- **C3:** "Shopping offline · everything's saved" shows about 3 s in the bottom status stack, once per trip. The trip is stamped in localStorage, cleared at Wrap up, and treated as a new trip after 8 h.
+- **C4:** nothing appears on the way back. The dots clear and the icon goes.
+- **C5:** one failed request counts as offline. The icon clears only after the next successful request plus **10 s of steady signal since the last drop**. I counted the hold from the last drop rather than from when the icon appeared: counted from onset, a long flaky spell flicked the icon off during any good second.
+- **C6:** Wrap up works offline (below).
+- **C7:** removed, not left unreachable:
+  - `ConnectivityPill.js` and `pillState.js` (+ test) are deleted.
+  - Gone: the waiting row and its CSS, the clock, the "Offline · N checks waiting to sync" / "Syncing N checks…" copy, the slide-together effect, and the offline All done card.
+- **C8:** unchanged: the queue, 088's rule, tap-time events, a trip starting at its first tap, the cached list and its keying/clearing, and the version notice hidden while changes wait (now also while a Wrap up waits).
+- **Known gap (spec "until then"):** a transient failure of an add, a quantity change, a removal or a price no longer toasts. It reports offline and the sheet says "Adding items / Changing quantities / Removing items / Editing prices needs signal for now." Non-transient failures still toast as before.
 
-- **Event types:** confirmed on dev before writing the backfill: `checked` 1184, `unchecked` 311, `added_in_store` 31.
-- **Column:** `list_items.status_changed_at timestamptz not null default now()`.
-- **Backfill:** it runs once, only in the same step that adds the column. Each row takes its newest checked/unchecked event, else `updated_at`, else `created_at`. Result: 252 rows from an event, 202 from the fallback, 0 mismatched, 454 rows in all.
-- **Trigger** `trg_list_items_status_changed_at`, BEFORE UPDATE:
-  - It fires when the status changes, or when a deleted row is revived.
-  - It stamps `now()` unless the update set the column itself (a client's tap time is kept).
-  - A change to quantity, price or a meal doesn't move the column.
-  - The function is SECURITY INVOKER with `search_path ""`, and EXECUTE is revoked from everyone. No grants changed.
-- **Firing order** (BEFORE UPDATE triggers fire alphabetically): `trg_list_items_picked_by_guard` → `trg_list_items_resurrect` → `trg_list_items_status_changed_at`.
-  - The guard only raises an error. The resurrect trigger writes `cycle_id` and `picked_by_labels`.
-  - 088 runs last and reads only `status`, `deleted_at` and its own column. They don't conflict.
-- **Parse check** through the CLI (`commit` swapped for `rollback`) left nothing behind. The canary copy failed with "17 checks passed, want 18", so every probe ran.
-- **Fixture:** 17 probes. They cover the five cases the amendment lists, plus:
-  - the revive edge, both the upsert revive and the 085 re-need;
-  - a quantity +1 through 085 not moving the stamp;
-  - an outsider, anon, and the column privileges.
-- **Real apply** (after Dan's go): 2026-11-23 06:16 UTC through the CLI on `zxwtxjjmssykhqrghouf` (`system_identifier` 7642734024280108049).
-  - Read back by object.
-  - Stored body hash with CRs stripped: `ac36b001fc182d8ba1b06c82522135fb`, which equals the file.
-  - Ledger row `20261123061608 088_status_changed_at`.
-- **Rollback:** `088_rollback.sql` was parse-checked against the applied state. Its verify block passed, and it rolled back.
-- **Not on prod.** At promotion, 088 must go on prod before the client: PostgREST refuses an update to a column it doesn't know.
+## C6: what Wrap up writes today (online, unchanged), and the queued version
+Online `wrapUpTrip`, in order:
+1. If there's no open cycle, insert one (`provision_cycles`, via `ensureOpenCycle`).
+2. `shopping_sessions.ended_at = now()` on this person's open session.
+3. Select the household's pending `list_items` to turn the roll-forward names into ids.
+4. RPC `archive_trip_items(household, keep = roll ids)`. This soft-deletes **every** bought row and every pending row not in keep, and deletes contributor rows except for keep.
+5. RPC `close_cycle(cycle, roll ids)`. This sets `closed_at`, `item_count`, `sessions_count`, stamps `meal_placements.ready_at`, opens a new cycle and upserts the rolled rows into it.
+6. Read the new cycle, then reload the list.
 
-## Commits on dev (pushed; every one green on Jest 1222/1222 and the `CI=true` build before the push)
+**Queued version: the same tables and the same two RPCs; no migration, no new RPC.**
+- A Wrap up is queued when tapped offline, or online while checks still wait. It stores `{ tapAt, dropIds, hideIds }`, keyed per person and place like the queue, and cleared the same way.
+- On the phone the trip is over at once: the same trip summary, the list wrapped up, and the store prompt held back. The verdict fetch fails offline, so the summary shows in its plain state.
+- On the next flush, the checks tapped **before** the Wrap up go first, then their events (the trip's session starts at the first tap, R3).
+- Then the replay runs, in order:
+  1. Adopt this person's open session and end it at the **Wrap up tap time**.
+  2. Read the open cycle fresh, or create one if a partner wrapped up meanwhile.
+  3. Read the server's pending rows; `archive_trip_items`; `close_cycle`; reload.
+- Checks tapped **after** the Wrap up wait until it has landed (they belong to the next trip).
+- **One difference from replaying literally:** keep and the roll list are every row pending on the server at replay time, minus the rows the person chose not to carry (`dropIds`). Replaying `archive_trip_items` as is would archive a partner's add made during the offline trip. You approved this before the push.
+- **Not exact:** `close_cycle` stamps `closed_at` and `ready_at` with the server's `now()`, so the cycle closes at the reconnect, not at the tap. Only `ended_at` carries the tap time. Making them match needs a new RPC parameter, which means a migration. I didn't do it; your call.
+- **Small risk:** if `close_cycle` commits but its answer is lost, the replay retries. It would close the new cycle too: an extra empty cycle, with the carried rows rolled again. No rows are lost.
+- A household switch clears a queued Wrap up, as A9 already clears queued checks.
 
-- `dd84aed`: 088 plus its rollback. Also files `docs/specs/active/SPEC_offline_checkoff_amendment_2026-11-23.md`. That spec is also in this session's DROPPED_FILES; SESSION END shouldn't file it twice.
-- `9f0cdcb` (1/n): every check write sends `status_changed_at = tap` and filters on `status_changed_at < tap`. This is A1, and it applies online too.
-- `0779abd` (2/n): `lib/checkQueue`, pure and tested. It holds the queue and the cached list, both keyed `<clerkId>:<householdId>`; keys for anyone else are discarded on load.
-- `57cb7ce` (3/n): `runCheckWrite` is the single write. A tap and the flush share it, on the same per-row chain.
-  - A tap queues on any temporary failure, or without sending while `navigator.onLine` is false. It then returns `"queued"`.
-  - The flush runs on the 2 s tick, on `visibilitychange` and on `online`, and publishes the waiting set once per batch.
-  - Events are logged with their tap time, and a trip's session starts at the first queued check (R3).
-  - The queue loads after `loadForHousehold`'s reset and before its first poll.
-  - The cached list is restored after 2.5 s without a list.
-- `6ed047f` (4/n): what you see.
-  - The waiting row: compact, faded, struck through, with a clock, still in its aisle.
-  - Offline taps skip the 3 s hold, and a waiting row unchecks in place.
-  - Confirmed rows slide into In cart together.
-  - The pill (R4), the offline All done card, the version notice hidden while checks wait (A8), and clearing at sign-out and on a switch to another place (A9).
-  - Nothing was added to `LandscapeStaples.js`.
-- `4542d5a` (5/n): fixes the harness pre-walk found.
-  1. A flush that ran before the first list load logged nothing. Entries now carry the row's catalog id, and the flush waits until both the list and bootstrap are ready.
-  2. The weak-signal restore found no place when none had been remembered by a switch. It now falls back to the place this person's cached list is for.
-- `56442ec`: `tools/harness/offline-walk.js` plus a README line (Velayo OS).
+## Harness pre-walk: `offline-walk.js` on the dev preview (`main.bbc043ef.js`): 47/47 PASS
+- **V1:** the note shows once, then the icon. Six device drops plus a spell of API failures: the note showed once, and the icon never flicked off.
+- **V2:** three offline checks hold in place, struck through, then move to In cart (tray 1→4). There's a dot on exactly those three rows. Toasts read "✓ Apples checked" and so on. No old copy anywhere, and nothing on the server.
+- **V3:** a re-tap from In cart and an Undo on a toast both put the item back with no dot. An offline uncheck of a server-bought row moves back with the dot on its circle. Three changes stored.
+- **V4:** the sheet shows the ruled copy and "3 changes will share when you're back."
+- **V5:** after background and return, then a weak-signal reload (device online, API blocked), the list and all three dots are restored. The icon shows on one bar. Nothing on the server.
+- **V6:** on reconnect the dots clear, nothing stays queued, the icon goes, and no status message appears. The server has the checks stamped with their tap times. Tab B shows them. The session starts at the first offline tap, and each check is logged once at its tap time.
+- **V8:** slice 1's V6, V7, V7b and V8 all pass.
+- **V7:** every item checked offline gives the normal "All done." card with Wrap up. Wrap up offline shows the trip summary, and the Wrap up waits on the phone behind 2 checks. The list on the phone is empty while the server still has all 6 rows.
+  - On reconnect the trip's rows are archived and the cycle is closed.
+  - The session ended at the tap (03:38:37.6 vs the tap ≈ 03:38:36.6 UTC).
+  - The partner's add made during the trip stayed on the list, carried forward and shown to find.
 
-## Pre-walk on dev.ourprovisions.velayo.ai (bundle `main.5601c209.js`): 29/29 PASS
+Runs: the 1st failed at setup because Cody Test House's list was empty at load, so the landing rule opened Home (slice 1 always had rows). The 2nd was 46/47: the Wrap up button text is uppercased by CSS. Both are harness fixes, in `b9803e8`; the 3rd run was 47/47. A 4th run went by mistake with its output discarded. Read back on dev, it completed and tidied: Cody Test House has 0 live rows and 0 open sessions. The 1st run crashed before tidying; I soft-deleted its 7 rows and their contributor rows on dev. The test house now holds 3 extra closed cycles and 3 ended trips from the walks.
 
-- **V1** Three offline checks each collapse to a waiting row in place, and the tray stays at 0. The pill reads "Offline · 3 checks waiting to sync". Nothing reached the server. **PASS**
-- **V2** Undo on one and a re-tap on another: both are full rows again, 1 is waiting, and the pill reads "Offline · 1 check waiting to sync". **PASS**
-- **V3** After one more check, background, then return: the 2 waiting rows are still there, and 2 are stored. The pill reads 2. **PASS**
-- **V4** Weak signal (online, all `*.supabase.co` requests aborted). **PASS**
-  - The queue stays queued through failed sends.
-  - The reload restores the list (6 rows) and the 2 waiting rows from the phone.
-  - The pill reads "Syncing 2 checks…" (online, so R4's syncing copy).
-  - Still nothing on the server.
-- **V5** Reconnect. **PASS**
-  - Both waiting rows leave in the same batch (Δ 0 ms) and land in In cart (tray 2).
-  - The pill read "Syncing 2 checks…" on the way, then cleared.
-  - The server has both as bought, each stamped with its exact tap time.
-  - The second phone (tab B) shows both in its In cart.
-- **V5b** Every item checked offline shows "All picked up · Will sync when you're back online.", with no Wrap up button. After reconnecting, the normal "All done." card shows. **PASS**
-- **V6** A checks offline; afterwards B checks and unchecks. B wins: unchecked on both, no notice, no error, and the losing check logged nothing. **PASS**
-- **V7** B changes the check first, then A taps offline. A wins: bought on the server and in A's cart. **PASS**
-- **V7b** A checks offline; afterwards B does +1. The row stays checked with quantity 2 (R1). **PASS**
-- **V8** B deletes the item while A has it checked offline. No error, and it's gone on both. **PASS**
-- **V10** The trip's session `started_at` equals the first queued tap (`13:22:42.239`) to the millisecond. Each confirmed check is logged once, at its tap time. **PASS**
-- **End state:** the queue is empty, and one cache key is stored, for this person at Cody Test House only. **PASS**
-- **V11** `shop-burst.js` revert mode: 3 bursts, 0 reverts. **PASS**
-  - Its fold mode fails one existing check ("Undo all puts all 6 back": 1 → 6 unchecked).
-  - **It fails the same way on the pre-slice dev build** (run before the push), so slice 1 didn't cause it. Not investigated; queued as a finding.
-- **V9:** not run. It needs a second account. Left for Dan's phone walk or Dan's call.
-- **The walk cleans up after itself.** It adds six items of its own, ends open sessions first and its own last, and puts other rows back. Cody Test House is left with 0 live rows (as it started) and no stamps missing.
+**`shop-burst.js` revert mode** (`OP_BURST_REVERTS=5`): 5 bursts of 6 checks, 0 reverted. Online is unchanged.
 
-## Departures from the amendment, and things to rule on
+## For your iPhone walk (things the harness can't see)
+- How the icon looks in the header next to a long place name.
+- The dot's size and colour on a real screen.
+- The note's look, and that it doesn't come back on flaky signal.
+- The offline hold feeling exactly like online.
+- Airplane mode on a resumed installed app: the icon, then the dots clearing on return.
+- Wrap up in airplane mode, then the trip closing after reconnect (second phone).
 
-1. **088 also stamps the revive edge, not only a status change.** `list_items` is one row per (household, catalog item) for good, so a removed item that's added again revives the same row id. Reviving a row that was deleted while pending changes no status. Without the revive stamp, an older queued check of that id would land on the newer need. Fixture probes 12 and 13 cover it.
-2. **Queue entries also store the row's catalog id (`cid`),** so a confirmed check can be logged even when the list hasn't loaded yet (fix 1 above).
-3. **When the API is unreachable while the phone reports itself online (one bar), the pill reads "Syncing N checks…" the whole time.** R4's copy keys on `navigator.onLine`. Rule whether "Syncing" should switch to the waiting copy after a failed send.
-4. **The offline All done card has no Wrap up button** until the checks sync (a wrap-up can't succeed offline). The amendment didn't say; worth a ruling.
-5. **An offline uncheck of a row that's already bought** isn't drawn as waiting. It shows as an ordinary unchecked row in its aisle, while the pill still counts it. Only the waiting check has an approved look.
-6. **The Undo toast copy offline** still reads "✓ X checked", and the folded group reads "N items in cart", even for waiting checks. A copy nit for the design chat.
-7. **After a weak-signal reload, the restored list shows the place's name from the cache.**
-   - The landing tab isn't decided while bootstrap is held, so the app opens on the URL's tab or Home. The shopper may need to tap Shop.
-   - Browse shows "Loading your catalog…" (the catalog isn't cached).
-   - The first real list replaces the cached one.
-8. **Clock skew:** online taps now carry the phone's clock. A phone whose clock runs behind can lose, silently, to another member's change made just before its tap. Measured on this desktop: local runs 1.2–1.6 s ahead of the server. The spec accepts drift.
-9. **Session start and location (existing behaviour, noted):**
-   - `startSession` waits for the geolocation answer, so a trip's first event waits until a location prompt is answered.
-   - In the harness, the background tab B held tab A's geolocation request, so the trip's session landed only when tab B closed. That was fixed in the walk by bringing tab A to the front; it isn't an app change.
+## Open
+- `b9803e8` (harness only) is local on dev. It rides the next dev push or goes alone: your call.
+- At SESSION END, add to ROADMAP NEXT as the prompt asks: `shop-burst.js` fold mode fails "Undo all puts all 6 back" (1 of 6); it predates offline check-off.
+- One judgement to confirm: the connectivity pill is gone **app-wide**, not only in Shop. That includes "Reconnecting…" during a token hold and "Back online". The header icon is now the only sign, per principle 2 and C4.
 
-## For Dan's phone walk (installed iPhone, dev, Wi-Fi and cellular off)
-
-1. V1–V3: the waiting row's look, the pill, Undo and re-tap, then background and return.
-2. V5: reconnect, and watch the rows slide into In cart together (a second phone or the desktop shows them).
-3. V5b: the offline All done card.
-4. V9: sign out with checks waiting, then sign in as someone else. Only if a second account is at hand.
-
-V4 (weak-signal reload) is harness-only on slice 1; with no signal, a phone reload can't load the app until slice 2.
-
-Stopped here. Nothing is on prod; the dev → main promotion is a separate step, with 088 on prod before the client.
+Stopped. Not merged to main.
