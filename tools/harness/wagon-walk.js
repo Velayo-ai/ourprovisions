@@ -121,7 +121,18 @@ const geom = (p) => p.evaluate(() => {
   await p.evaluate(() => document.querySelectorAll(".ask-wagon .ask-wagon-pick")[1].dispatchEvent(new MouseEvent("click", { bubbles: true }))); await sleep(500);
   check("shelf: tapping a card in the wagon takes it out", (await p.evaluate(() => document.querySelectorAll(".ask-wagon .ask-wagon-pick").length)) === 3);
   await p.evaluate(() => [...document.querySelectorAll(".ask-tile")].find((t) => t.getAttribute("aria-pressed") === "false").click()); await sleep(600);
-  await clickText(p, /^That's it!$/); await sleep(3200);
+  // H13 (rev 3): no That's it! button; full, "That's it!" pops onto the tub front, and a tap there sends.
+  const tubState = await p.evaluate(() => {
+    const words = document.querySelector(".ask-shelf .ask-tub-words"); const tap = document.querySelector(".ask-shelf .ask-tub-send");
+    const r = tap && tap.getBoundingClientRect(); const cards = [...document.querySelectorAll(".ask-shelf .ask-wagon-pick")].map((c) => c.getBoundingClientRect());
+    return { button: [...document.querySelectorAll(".ask-shelf button")].some((b) => /That's it!/.test(b.innerText)), words: words?.textContent || null,
+      tap: r ? { x: r.left + r.width / 2, y: r.top + r.height / 2, top: Math.round(r.top) } : null, cardsBottom: Math.round(Math.max(...cards.map((c) => c.bottom))),
+      done: document.querySelector(".ask-top .ask-done")?.getAttribute("aria-label"), send: document.querySelector(".ask-wagonwrap")?.getAttribute("aria-label") };
+  });
+  await shot(p, "wagon-2b-shopper-tub");
+  check("H13: Shopper has no That's it! button; full, the tub says That's it!; Done reads 'Hold to send'; the wagon is 'Send the wagon'", !tubState.button && tubState.words === "That's it!" && tubState.done === "Hold to send" && tubState.send === "Send the wagon", JSON.stringify(tubState));
+  await p.mouse.click(tubState.tap.x, tubState.tap.y);
+  await sleep(3200);
 
   // ── 1, 4: Great picks → give it back → Browse toast → See ──
   await shot(p, "wagon-3-great-picks");
