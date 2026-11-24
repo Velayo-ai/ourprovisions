@@ -1,14 +1,15 @@
-// offline-walk.js — the SPEC_offline_checkoff slice 1 pre-walk (amendment 2026-11-23, Verify 1–8, 10, 11
-// is shop-burst.js). Dev only, Cody Test House, signed in already (signin.js).
+// offline-walk.js — the offline pre-walk: SPEC_offline_calm_2026-11-23 Verify 1–8, on top of slice 1
+// (SPEC_offline_checkoff amendment 2026-11-23; its V6, V7, V7b, V8 and V10 are Verify 8 here; online
+// unchanged is shop-burst.js). Dev only, Cody Test House, signed in already (signin.js).
 //   Tab A is the phone under test: offline by page.setOfflineMode, weak signal (the shell loads, the API
 //     doesn't) by aborting every *.supabase.co request.
 //   Tab B is only the second phone's TOKEN: its writes go to dev's PostgREST straight from here, as
 //     qty-race.js does (same account; the conflict rule is about tap times, not who calls). Tab B is
 //     opened before anything is queued, and never checks anything in its UI, so it never touches the
 //     shared localStorage queue.
-// The walk adds six items of its own (W1–W6, seeds not on the list), snapshots every other row's status
-// first, and puts the list back at the end: other rows to their old status, its own items removed, the
-// sessions it opened ended. Screenshots: out/offline-*.png.
+// The walk adds seven items of its own (W0–W6, seeds not on the list), snapshots every other row first,
+// and puts the list back at the end. Verify 7 wraps the trip up for real (the house's list must hold only
+// the walk's items; the walk refuses to start otherwise). Screenshots: out/offline-*.png.
 //   node offline-walk.js
 const fs = require("fs");
 const path = require("path");
@@ -55,26 +56,44 @@ async function rest(method, p, body, prefer = "return=representation") {
 const rpc = (fn, args) => rest("POST", `rpc/${fn}`, args);
 
 // ── page readers (tab A) ──
-const shopState = (page) => page.evaluate(() => {
+const OLD_COPY = /waiting to sync|Syncing|Reconnecting|Back online|showing last saved|Will sync|All picked up/;
+const shopState = (page) => page.evaluate((oldSrc) => {
+  const OLD = new RegExp(oldSrc);
   const nm = (b) => (b.querySelector(".sr-only") || b).innerText.trim();
-  const aisle = [...document.querySelectorAll(".list-item")].filter((r) => !r.closest(".tray-body"));
-  const waiting = aisle.filter((r) => r.classList.contains("waiting")).map((r) => nm(r.querySelector("button.shop-check")));
-  const unchecked = aisle.map((r) => r.querySelector('button.shop-check[aria-checked="false"]')).filter(Boolean).map(nm);
-  const tray = (document.querySelector(".tray-sub") || {}).innerText || "";
-  const pillEl = [...document.querySelectorAll('[role="status"]')].find((e) => /check|Syncing|Reconnecting|Offline|Back online/.test(e.innerText));
+  const tray = document.querySelector(".tray-head");
+  if (tray && tray.getAttribute("aria-expanded") !== "true") tray.click();   // the walk reads In cart rows
+  const rows = [...document.querySelectorAll(".list-item")];
+  const aisle = rows.filter((r) => !r.closest(".tray-body"));
+  const inCart = rows.filter((r) => r.closest(".tray-body"));
+  const nameOf = (r) => { const b = r.querySelector("button.shop-check"); return b ? nm(b) : ""; };
   const done = document.querySelector(".all-done");
-  const err = [...document.querySelectorAll("div")].find((d) => /^Could not update item/.test((d.innerText || "").trim()));
+  const err = [...document.querySelectorAll("div")].find((d) => /^Could not /.test((d.innerText || "").trim()));
+  const statuses = [...document.querySelectorAll('[role="status"]')].map((e) => e.innerText.trim()).filter(Boolean);
   return {
-    waiting, unchecked,
-    trayCount: Number((tray.match(/\d+/) || [0])[0]),
-    pill: pillEl ? pillEl.innerText.trim() : "",
-    allDone: done ? done.innerText.replace(/\s+/g, " ").trim() : "",
+    unchecked: aisle.map((r) => r.querySelector('button.shop-check[aria-checked="false"]')).filter(Boolean).map(nm),
+    holding: aisle.filter((r) => r.classList.contains("checking")).map(nameOf),
+    inCart: inCart.map(nameOf),
+    dotsInCart: inCart.filter((r) => r.querySelector(".sync-dot")).map(nameOf),
+    dotsAisle: aisle.filter((r) => r.querySelector(".sync-dot")).map(nameOf),
+    trayCount: Number(((document.querySelector(".tray-sub") || {}).innerText || "").match(/\d+/)?.[0] || 0),
+    indicator: !!document.querySelector(".offline-indicator"),
+    note: (document.querySelector(".offline-note") || {}).innerText || "",
+    toasts: [...document.querySelectorAll(".check-undo-text")].map((e) => e.innerText.trim()),
+    oldCopy: [...statuses, document.body.innerText].some((t) => OLD.test(t)),
+    allDone: done && !done.closest('[role="dialog"]') ? done.innerText.replace(/\s+/g, " ").trim() : "",
+    summary: !!document.querySelector('[role="dialog"][aria-label="Trip wrapped"]'),
     error: err ? err.innerText.trim().slice(0, 80) : "",
-    rows: aisle.length,
+    rows: aisle.length + inCart.length,
   };
-});
-const tap = (page, name) => page.evaluate((name) => {
-  const b = [...document.querySelectorAll("button.shop-check")].find((x) => !x.closest(".tray-body") && (x.querySelector(".sr-only") || x).innerText.trim() === name);
+}, OLD_COPY.source);
+const tapAisle = (page, name) => page.evaluate((name) => {
+  const b = [...document.querySelectorAll("button.shop-check")].find((x) => !x.closest(".tray-body") && (x.querySelector(".sr-only") || x).innerText.trim().startsWith(name));
+  if (!b) return false; b.scrollIntoView({ block: "center" }); b.click(); return true;
+}, name);
+const tapCart = (page, name) => page.evaluate((name) => {
+  const tray = document.querySelector(".tray-head");
+  if (tray && tray.getAttribute("aria-expanded") !== "true") tray.click();
+  const b = [...document.querySelectorAll(".tray-body button.shop-check")].find((x) => (x.querySelector(".sr-only") || x).innerText.trim().startsWith(name));
   if (!b) return false; b.scrollIntoView({ block: "center" }); b.click(); return true;
 }, name);
 const undoToast = (page, name) => page.evaluate((name) => {
@@ -87,6 +106,8 @@ const queueInStorage = (page) => page.evaluate(() => {
   for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("op_check_queue:")) out[k] = JSON.parse(localStorage.getItem(k)); }
   return out;
 });
+const queued = async (page) => Object.values(await queueInStorage(page))[0] || {};
+const wrapInStorage = (page) => page.evaluate(() => { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("op_wrap_queue:")) return JSON.parse(localStorage.getItem(k)); } return null; });
 const cacheKeys = (page) => page.evaluate(() => { const o = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("op_list_cache:")) o.push(k); } return o; });
 const waitFor = async (fn, ms = 10000, step = 200) => { const t0 = Date.now(); let v; while (Date.now() - t0 < ms) { v = await fn(); if (v) return v; await sleep(step); } return v; };
 const visibility = (page, state) => page.evaluate((state) => {
@@ -94,30 +115,46 @@ const visibility = (page, state) => page.evaluate((state) => {
   Object.defineProperty(document, "hidden", { value: state === "hidden", configurable: true });
   document.dispatchEvent(new Event("visibilitychange"));
 }, state);
+// Samples the header indicator and the note every 25 ms: did either ever flick?
+const startSampler = (page) => page.evaluate(() => {
+  window.__s = { ind: [], notes: 0, noteWas: false };
+  window.__sampler = setInterval(() => {
+    const on = !!document.querySelector(".offline-indicator");
+    const s = window.__s;
+    if (s.ind[s.ind.length - 1] !== on) s.ind.push(on);
+    const note = !!document.querySelector(".offline-note");
+    if (note && !s.noteWas) s.notes++;
+    s.noteWas = note;
+  }, 25);
+});
+const stopSampler = (page) => page.evaluate(() => { clearInterval(window.__sampler); return window.__s; });
+// Reconnected and settled: nothing queued, no dots.
+const settled = async () => { const x = await shopState(A); return Object.keys(await queued(A)).length === 0 && !x.dotsInCart.length && !x.dotsAisle.length && x; };
 
 let blocking = false;
 async function setWeakSignal(on) {
   blocking = on;
   await A.setRequestInterception(on);
 }
+const HOLD_AND_MOVE_MS = 4000;   // the 3 s hold + beat 2
 
 (async () => {
   const browser = await connect();
   A = await firstPage(browser);
-  // Request interception is on only for V4's weak signal (an intercepted page stalled the session insert
-  // until interception was turned off — a harness artefact, seen in the first runs).
+  // Request interception is on only while the walk blocks the API (an intercepted page stalled the
+  // session insert until interception was turned off — a harness artefact, seen in slice 1's first runs).
   A.on("request", (req) => {
     if (blocking && /supabase\.co/.test(req.url())) { req.abort("internetdisconnected").catch(() => {}); return; }
     req.continue().catch(() => {});
   });
   await A.goto(BASE + "#/shop", { waitUntil: "networkidle2" });
   await A.waitForFunction(() => window.Clerk && window.Clerk.user, { timeout: 30000 });
+  // C3's note is once per trip: start this walk as a new one.
+  await A.evaluate(() => { try { localStorage.removeItem("op_offline_note_at"); } catch (e) { /* ignore */ } });
   B = await browser.newPage();
   await B.goto(BASE + "#/home", { waitUntil: "networkidle2" });
   await B.waitForFunction(() => window.Clerk && window.Clerk.session, { timeout: 30000 });
-  // Tab A is the phone in the shopper's hand: in front. A background tab has its timers throttled and its
-  // geolocation request held until it's visible — startSession waits on that (seen in the first runs:
-  // the trip's session was written only when tab B closed).
+  // Tab A is the phone in the shopper's hand: in front (a background tab's timers and geolocation are held).
   await A.bringToFront();
   await sleep(2500);
   const bundle = await A.evaluate(() => [...document.scripts].map((s) => s.src).find((s) => /main\.[a-z0-9]+\.js/.test(s)) || "");
@@ -127,206 +164,234 @@ async function setWeakSignal(on) {
   const HH = (await rest("GET", `households?select=id&name=eq.${encodeURIComponent(HOUSE)}&deleted_at=is.null`))[0]?.id;
   if (!HH) throw new Error(`no ${HOUSE}`);
   const live = await rest("GET", `list_items?select=id,catalog_item_id,status,quantity&household_id=eq.${HH}&deleted_at=is.null`);
-  const snapshot = new Map(live.map((r) => [r.id, r.status]));
-  log(`skew server − local ${skewMs} ms; ${live.length} live rows before the walk`);
-  const onList = new Set(live.map((r) => r.catalog_item_id));
+  if (live.length) throw new Error(`${HOUSE} has ${live.length} rows on its list — Verify 7 wraps the trip up for real; clear the list first`);
+  log(`skew server − local ${skewMs} ms`);
   const seeds = await rest("GET", `catalog_items?select=id,name&is_global=eq.true&deleted_at=is.null&order=name&limit=300`);
-  const free = seeds.filter((s) => !onList.has(s.id) && /^[A-Za-z][A-Za-z ]+$/.test(s.name)).slice(0, 6);
-  if (free.length < 6) throw new Error("fewer than 6 seed items off the list");
-  const W = free.map((s) => s.name);
+  const free = seeds.filter((s) => /^[A-Za-z][A-Za-z ]+$/.test(s.name)).slice(0, 8);
+  const W = free.slice(0, 7).map((s) => s.name);
+  const PARTNER = free[7].name;   // Verify 7: added by "the second phone" while A is offline
   const CID = Object.fromEntries(free.map((s) => [s.name, s.id]));
-  for (const s of free) await rpc("adjust_list_item_quantity", { p_household_id: HH, p_catalog_item_id: s.id, p_delta: 1, p_price_per_unit: null });
+  for (const n of W) await rpc("adjust_list_item_quantity", { p_household_id: HH, p_catalog_item_id: CID[n], p_delta: 1, p_price_per_unit: null });
   const rowOf = async (name) => (await rest("GET", `list_items?select=id,status,quantity,deleted_at,status_changed_at&household_id=eq.${HH}&catalog_item_id=eq.${CID[name]}`))[0];
   const setStatus = async (name, status) => { const r = await rowOf(name); await rest("PATCH", `list_items?id=eq.${r.id}`, { status }); };
-  log(`walk items: ${JSON.stringify(W)}`);
-  // No open session for this house, so the trip the walk starts offline is a new one (V10).
+  // W3 is bought on the server before the walk: Verify 3's offline uncheck of a bought row.
+  await setStatus(W[3], "bought");
+  log(`walk items: ${JSON.stringify(W)}; partner's add ${JSON.stringify(PARTNER)}`);
   const openBefore = await rest("GET", `shopping_sessions?select=id&household_id=eq.${HH}&ended_at=is.null`);
   for (const s of openBefore) await rest("PATCH", `shopping_sessions?id=eq.${s.id}`, { ended_at: new Date().toISOString() });
   log(`ended ${openBefore.length} open session(s) first`);
   const t0Iso = new Date(Date.now() + (skewMs || 0) - 2000).toISOString();
-  const sawAll = await waitFor(async () => { const s = await shopState(A); return W.every((n) => s.unchecked.includes(n)) && s; }, 15000);
-  check("setup: tab A shows the six walk items unchecked", !!sawAll && W.every((n) => sawAll.unchecked.includes(n)));
-  check("setup: no queue stored before the walk", Object.keys(await queueInStorage(A)).length === 0);
+  const sawAll = await waitFor(async () => { const s = await shopState(A); return W.filter((n) => n !== W[3]).every((n) => s.unchecked.includes(n)) && s.inCart.includes(W[3]) && s; }, 15000);
+  check("setup: tab A shows six walk items to find and one in the cart", !!sawAll);
+  check("setup: nothing queued, no offline icon", Object.keys(await queueInStorage(A)).length === 0 && !(await shopState(A)).indicator);
 
-  // ── V1: offline, 3 checks → waiting rows in place, pill ──
+  // ── Verify 1: offline → the note once, then the icon; flaky signal → no repeat note, no flicker ──
+  await startSampler(A);
   await A.setOfflineMode(true);
-  await sleep(600);
-  const trayBefore = (await shopState(A)).trayCount;
-  for (const n of W.slice(0, 3)) { await tap(A, n); await sleep(350); }
-  await sleep(500);
+  const noted = await waitFor(async () => { const x = await shopState(A); return x.note && x; }, 3000, 50);
+  check("V1 going offline shows the calm note: Shopping offline · everything's saved", !!noted && noted.note.trim() === "Shopping offline · everything's saved", JSON.stringify(noted && noted.note));
+  check("V1 …and the header's offline icon", !!noted && noted.indicator);
+  await sleep(3600);
   let s = await shopState(A);
-  await shot(A, "offline-v1");
-  check("V1 three offline checks collapse to waiting rows, in place", W.slice(0, 3).every((n) => s.waiting.includes(n)) && s.trayCount === trayBefore, `waiting ${JSON.stringify(s.waiting)}, tray ${trayBefore}→${s.trayCount}`);
-  check("V1 pill: Offline · 3 checks waiting to sync", s.pill === "Offline · 3 checks waiting to sync", JSON.stringify(s.pill));
-  const srv1 = await Promise.all(W.slice(0, 3).map(rowOf));
-  check("V1 nothing reached the server", srv1.every((r) => r.status === "pending"), JSON.stringify(srv1.map((r) => r.status)));
-
-  // ── V2: Undo one, re-tap another → both restore, count 1 ──
-  const undid = await undoToast(A, W[0]);
-  await sleep(300);
-  await tap(A, W[1]);
+  check("V1 the note goes after about 3 s; the icon stays", !s.note && s.indicator);
+  // One bar, dropping in and out: device offline/online flaps, then the API failing with the device online.
+  for (let k = 0; k < 3; k++) { await A.setOfflineMode(false); await sleep(1200); await A.setOfflineMode(true); await sleep(1200); }
+  await setWeakSignal(true); await A.setOfflineMode(false); await sleep(2500);
+  await A.setOfflineMode(true); await setWeakSignal(false);
   await sleep(500);
+  const samp = await stopSampler(A);
+  check("V1 flaky signal: the note never repeats", samp.notes === 1, `notes shown ${samp.notes}`);
+  check("V1 flaky signal: the icon never flicks off", samp.ind.join() === "false,true" || samp.ind.join() === "true", JSON.stringify(samp.ind));
+  await shot(A, "offline-v1");
+
+  // ── Verify 2: three offline checks look and move exactly as online, with a dot in In cart ──
+  const trayBefore = (await shopState(A)).trayCount;
+  for (const n of W.slice(0, 3)) { await tapAisle(A, n); await sleep(300); }
+  s = await shopState(A);
+  check("V2 each check holds in place, struck through (as online)", W.slice(0, 3).every((n) => s.holding.includes(n)), JSON.stringify(s.holding));
+  const toasts2 = s.toasts;
+  await sleep(HOLD_AND_MOVE_MS);
   s = await shopState(A);
   await shot(A, "offline-v2");
-  check("V2 Undo one and re-tap another: both full rows again, 1 waiting", undid && s.waiting.length === 1 && s.waiting[0] === W[2] && s.unchecked.includes(W[0]) && s.unchecked.includes(W[1]), `undo clicked ${undid}; waiting ${JSON.stringify(s.waiting)}`);
-  check("V2 pill: Offline · 1 check waiting to sync", s.pill === "Offline · 1 check waiting to sync", JSON.stringify(s.pill));
+  check("V2 …then moves to In cart (tray +3)", W.slice(0, 3).every((n) => s.inCart.includes(n)) && s.trayCount === trayBefore + 3, `in cart ${JSON.stringify(s.inCart)}, tray ${trayBefore}→${s.trayCount}`);
+  check("V2 a small dot on each of the three In cart rows, nowhere else", W.slice(0, 3).every((n) => s.dotsInCart.includes(n)) && s.dotsInCart.length === 3 && !s.dotsAisle.length, `cart dots ${JSON.stringify(s.dotsInCart)}, aisle dots ${JSON.stringify(s.dotsAisle)}`);
+  check("V2 the toasts read as online", toasts2.length > 0 && toasts2.every((t) => /^✓ .+ (checked|in cart)$/.test(t)), JSON.stringify(toasts2));
+  check("V2 none of the old offline copy anywhere (pill, waiting row, Syncing…)", !s.oldCopy);
+  const srv2 = await Promise.all(W.slice(0, 3).map(rowOf));
+  check("V2 nothing reached the server", srv2.every((r) => r.status === "pending"), JSON.stringify(srv2.map((r) => r.status)));
 
-  // ── V3: one more, background and return ──
-  await tap(A, W[3]);
-  await sleep(500);
+  // ── Verify 3: Undo, re-tap, and an offline uncheck of a bought row — as online ──
+  await tapCart(A, W[0]);   // re-tap: back to find, its queued check withdrawn
+  await sleep(1200);
+  await tapAisle(A, W[5]); await sleep(300);
+  const undid = await undoToast(A, W[5]);   // Undo on its toast, inside the hold
+  await sleep(1200);
+  await tapCart(A, W[3]);   // bought on the server: an offline UNcheck
+  await sleep(1200);
+  s = await shopState(A);
+  await shot(A, "offline-v3");
+  check("V3 a re-tap and an Undo put both back to find, with no dot (nothing left to share)", undid && s.unchecked.includes(W[0]) && s.unchecked.includes(W[5]) && !s.dotsAisle.includes(W[0]) && !s.dotsAisle.includes(W[5]), `undo clicked ${undid}; aisle dots ${JSON.stringify(s.dotsAisle)}`);
+  check("V3 the offline uncheck of a bought row moves back to find, with the dot on its circle", s.unchecked.includes(W[3]) && s.dotsAisle.includes(W[3]), `aisle dots ${JSON.stringify(s.dotsAisle)}`);
+  const q3 = await queued(A);
+  check("V3 three changes wait on the phone (W1 ✓, W2 ✓, W3 uncheck)", Object.keys(q3).length === 3 && s.dotsInCart.length === 2 && s.dotsAisle.length === 1, `stored ${Object.keys(q3).length}; cart dots ${JSON.stringify(s.dotsInCart)}; aisle dots ${JSON.stringify(s.dotsAisle)}`);
+  const tapTimes = Object.values(q3).filter((e) => e.want).map((e) => e.tapAt).sort();
+
+  // ── Verify 4: the indicator's sheet ──
+  await A.click(".offline-indicator");
+  await sleep(400);
+  const sheet = await A.evaluate(() => { const d = document.querySelector(".offline-sheet"); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; });
+  await shot(A, "offline-v4");
+  check("V4 tap the icon: the sheet", sheet.includes("You're offline. Everything you do is saved on this phone and shares with your household when you're back in signal."), JSON.stringify(sheet));
+  check("V4 …with: 3 changes will share when you're back.", sheet.includes("3 changes will share when you're back."), JSON.stringify(sheet));
+  await A.evaluate(() => { const b = [...document.querySelectorAll(".offline-sheet button")].find((x) => x.innerText.trim() === "OK"); if (b) b.click(); });
+  await sleep(300);
+
+  // ── Verify 5: background and return; a weak-signal reload — the dots and the list are still there ──
   await visibility(A, "hidden"); await sleep(1500); await visibility(A, "visible"); await sleep(800);
   s = await shopState(A);
-  const q3 = Object.values(await queueInStorage(A))[0] || {};
-  check("V3 after background → return: the 2 waiting rows are still there (and stored)", s.waiting.length === 2 && s.waiting.includes(W[2]) && s.waiting.includes(W[3]) && Object.keys(q3).length === 2, `waiting ${JSON.stringify(s.waiting)}, stored ${Object.keys(q3).length}`);
-  check("V3 pill: Offline · 2 checks waiting to sync", s.pill === "Offline · 2 checks waiting to sync", JSON.stringify(s.pill));
-  const tapTimes = Object.values(q3).map((e) => e.tapAt).sort();
-
-  // ── V4: weak-signal reload (shell loads, API blocked) → list + waiting rows restored ──
+  check("V5 after background → return: the dots and the list are still there", s.dotsInCart.length === 2 && s.dotsAisle.length === 1 && s.rows >= W.length, `cart dots ${s.dotsInCart.length}, aisle dots ${s.dotsAisle.length}, rows ${s.rows}`);
   await setWeakSignal(true);
   await A.setOfflineMode(false);
   await sleep(2500);   // a tick or two: the flush tries, fails as transient, stays queued
-  const stillQueued = Object.keys(Object.values(await queueInStorage(A))[0] || {}).length;
   await A.reload({ waitUntil: "domcontentloaded" });
-  const restored = await waitFor(async () => { const x = await shopState(A); return x.waiting.length === 2 && x; }, 15000, 300);
+  const restored = await waitFor(async () => { const x = await shopState(A); return x.dotsInCart.length === 2 && x.dotsAisle.length === 1 && x; }, 15000, 300);
   s = restored || (await shopState(A));
-  await shot(A, "offline-v4");
-  check("V4 online with the API blocked, the queue stays queued (transient failures)", stillQueued === 2, `stored ${stillQueued}`);
-  check("V4 weak-signal reload: the list and the 2 waiting rows are restored from the phone", s.waiting.length === 2 && s.rows >= W.length, `waiting ${JSON.stringify(s.waiting)}, rows ${s.rows}`);
-  check("V4 pill (online, API unreachable): Syncing 2 checks…", s.pill === "Syncing 2 checks…", JSON.stringify(s.pill));
-  const srv4 = await Promise.all([W[2], W[3]].map(rowOf));
-  check("V4 still nothing on the server", srv4.every((r) => r.status === "pending"));
+  await shot(A, "offline-v5");
+  check("V5 weak-signal reload: the list and the three dots are restored from the phone", !!restored && s.rows >= W.length, `cart dots ${JSON.stringify(s.dotsInCart)}, aisle dots ${JSON.stringify(s.dotsAisle)}, rows ${s.rows}`);
+  check("V5 the icon shows on one bar (the API failing, the device online)", s.indicator);
+  const srv5 = await Promise.all([W[1], W[2], W[3]].map(rowOf));
+  check("V5 still nothing on the server", srv5.map((r) => r.status).join() === "pending,pending,bought", JSON.stringify(srv5.map((r) => r.status)));
 
-  // ── V5: reconnect → both sync, slide into In cart together, the second phone has them ──
-  await A.evaluate(() => {
-    window.__left = {};
-    window.__pills = [];
-    window.__sampler = setInterval(() => {
-      const now = performance.now();
-      const nm = (b) => (b.querySelector(".sr-only") || b).innerText.trim();
-      const waiting = new Set([...document.querySelectorAll(".list-item.waiting")].map((r) => nm(r.querySelector("button.shop-check"))));
-      for (const n of window.__watch || []) if (!waiting.has(n) && window.__left[n] === undefined) window.__left[n] = now;
-      const p = [...document.querySelectorAll('[role="status"]')].map((e) => e.innerText.trim()).find((t) => /check/.test(t));
-      if (p && window.__pills[window.__pills.length - 1] !== p) window.__pills.push(p);
-    }, 25);
-  });
-  await A.evaluate((w) => { window.__watch = w; }, [W[2], W[3]]);
+  // ── Verify 6: reconnect — no message; the dots clear; the icon goes; the second phone has it ──
+  await startSampler(A);
+  const statusTexts = [];
+  await A.exposeFunction("__statusSeen", (t) => statusTexts.push(t)).catch(() => {});
+  await A.evaluate(() => { window.__obs = new MutationObserver(() => { document.querySelectorAll('[role="status"]').forEach((e) => window.__statusSeen(e.innerText.trim())); }); window.__obs.observe(document.body, { subtree: true, childList: true, characterData: true }); });
   await setWeakSignal(false);
   await visibility(A, "visible");
-  const synced = await waitFor(async () => { const x = await shopState(A); return x.waiting.length === 0 && x; }, 30000, 300);
-  await sleep(1500);
-  const left = await A.evaluate(() => { clearInterval(window.__sampler); return { left: window.__left, pills: window.__pills }; });
+  const synced = await waitFor(settled, 30000, 300);
+  const goneIcon = await waitFor(async () => !(await shopState(A)).indicator, 15000, 300);
+  await A.evaluate(() => window.__obs && window.__obs.disconnect());
+  await stopSampler(A);
   s = await shopState(A);
-  await shot(A, "offline-v5");
-  const dt = Math.abs((left.left[W[2]] ?? 0) - (left.left[W[3]] ?? 1e9));
-  check("V5 reconnect: both waiting rows leave together (one batch)", !!synced && dt <= 60, `Δ ${Math.round(dt)} ms`);
-  check("V5 they are in In cart (not in the aisle) after the slide", !s.unchecked.includes(W[2]) && !s.unchecked.includes(W[3]) && !s.waiting.length, `tray ${s.trayCount}`);
-  check("V5 the pill read Syncing 2 checks… on the way, and is gone now", left.pills.includes("Syncing 2 checks…") && !/check/.test(s.pill), JSON.stringify(left.pills) + " now " + JSON.stringify(s.pill));
-  const srv5 = await Promise.all([W[2], W[3]].map(rowOf));
-  check("V5 the server has both bought, stamped with their TAP times", srv5.every((r) => r.status === "bought") && srv5.map((r) => Date.parse(r.status_changed_at)).sort().join() === tapTimes.map(Date.parse).join(), JSON.stringify(srv5.map((r) => [r.status, r.status_changed_at])) + " taps " + JSON.stringify(tapTimes));
-  const bSees = await waitFor(() => B.evaluate((names) => {
+  await shot(A, "offline-v6");
+  check("V6 reconnect: the dots clear and nothing is left queued", !!synced);
+  check("V6 the icon goes away", !!goneIcon);
+  check("V6 no message on the way back (no Back online, no Syncing…)", !statusTexts.some((t) => OLD_COPY.test(t) || /online/i.test(t)) && !s.oldCopy, JSON.stringify([...new Set(statusTexts)]));
+  const srv6 = await Promise.all([W[1], W[2], W[3]].map(rowOf));
+  check("V6 the server has W1 ✓, W2 ✓, W3 unchecked, checks stamped with their TAP times", srv6.map((r) => r.status).join() === "bought,bought,pending" && [srv6[0], srv6[1]].map((r) => Date.parse(r.status_changed_at)).sort().join() === tapTimes.map(Date.parse).join(), JSON.stringify(srv6.map((r) => [r.status, r.status_changed_at])) + " taps " + JSON.stringify(tapTimes));
+  const bSees = async () => B.evaluate((inCart, toFind) => {
     const tray = document.querySelector(".tray-head"); if (tray && tray.getAttribute("aria-expanded") !== "true") tray.click();
-    const inTray = [...document.querySelectorAll(".tray-body button.shop-check")].map((b) => (b.querySelector(".sr-only") || b).innerText.trim());
-    return names.every((n) => inTray.includes(n));
-  }, [W[2], W[3]]), 12000, 500).catch(() => false);
-  if (!bSees) { await B.goto(BASE + "#/shop", { waitUntil: "networkidle2" }); }
-  const bSees2 = bSees || (await waitFor(() => B.evaluate((names) => {
-    const tray = document.querySelector(".tray-head"); if (tray && tray.getAttribute("aria-expanded") !== "true") tray.click();
-    const inTray = [...document.querySelectorAll(".tray-body button.shop-check")].map((b) => (b.querySelector(".sr-only") || b).innerText.trim());
-    return names.every((n) => inTray.includes(n));
-  }, [W[2], W[3]]), 12000, 500));
-  check("V5 the second phone (tab B) shows both in its In cart", !!bSees2);
-
-  // ── V10: the trip started at the first queued tap; events carry tap times ──
-  const sess = await rest("GET", `shopping_sessions?select=id,started_at&household_id=eq.${HH}&started_at=gte.${encodeURIComponent(t0Iso)}&order=created_at.desc&limit=3`);
+    const nm = (b) => (b.querySelector(".sr-only") || b).innerText.trim();
+    const cart = [...document.querySelectorAll(".tray-body button.shop-check")].map(nm);
+    const find = [...document.querySelectorAll("button.shop-check")].filter((b) => !b.closest(".tray-body")).map(nm);
+    return inCart.every((n) => cart.includes(n)) && toFind.every((n) => find.includes(n));
+  }, [W[1], W[2]], [W[3]]);
+  await B.goto(BASE + "#/shop", { waitUntil: "networkidle2" });
+  check("V6 the second phone (tab B) shows W1 and W2 in its cart, W3 to find", !!(await waitFor(bSees, 15000, 500)));
+  // Slice 1 V10 (R3): the trip started at the first queued tap; events carry tap times.
   const opened = await waitFor(async () => (await rest("GET", `shopping_sessions?select=id,started_at,created_at&household_id=eq.${HH}&ended_at=is.null&order=created_at.desc&limit=1`))[0], 15000, 1000);
-  check("V10 the trip's session starts at the first queued offline tap", !!opened && Date.parse(opened.started_at) === Date.parse(tapTimes[0]), `${opened && opened.started_at} vs ${tapTimes[0]} (created ${opened && opened.created_at}; ${sess.length} since t0)`);
-  const rows5 = await Promise.all([W[2], W[3]].map(rowOf));
-  const ev = await rest("GET", `list_item_events?select=list_item_id,event_type,created_at&household_id=eq.${HH}&list_item_id=in.(${rows5.map((r) => r.id).join(",")})&created_at=gte.${encodeURIComponent(t0Iso)}&order=created_at.asc`);
-  const evOk = rows5.every((r, i) => ev.some((e) => e.list_item_id === r.id && e.event_type === "checked" && Date.parse(e.created_at) === Date.parse(srv5[i].status_changed_at)));
-  check("V10 each confirmed check is logged once, at its tap time", evOk && ev.filter((e) => e.event_type === "checked").length === 2, JSON.stringify(ev));
+  check("V8·V10 the trip's session starts at the first queued offline tap", !!opened && Date.parse(opened.started_at) === Date.parse(tapTimes[0]), `${opened && opened.started_at} vs ${tapTimes[0]}`);
+  const ev = await rest("GET", `list_item_events?select=list_item_id,event_type,created_at&household_id=eq.${HH}&list_item_id=in.(${[srv6[0], srv6[1]].map((r) => r.id).join(",")})&created_at=gte.${encodeURIComponent(t0Iso)}&order=created_at.asc`);
+  check("V8·V10 each confirmed check is logged once, at its tap time", ev.filter((e) => e.event_type === "checked").length === 2 && [srv6[0], srv6[1]].every((r) => ev.some((e) => e.list_item_id === r.id && Date.parse(e.created_at) === Date.parse(r.status_changed_at))), JSON.stringify(ev));
 
-  // ── V5b: check every remaining item offline → offline All done; reconnect → the normal card ──
-  await A.setOfflineMode(true);
-  await sleep(600);
-  for (let k = 0; k < 60; k++) {
-    const nxt = (await shopState(A)).unchecked[0];
-    if (!nxt) break;
-    await tap(A, nxt); await sleep(250);
-  }
-  await sleep(6000);   // the Undo toasts expire; All done waits for them
-  s = await shopState(A);
-  await shot(A, "offline-v5b");
-  check("V5b every item checked offline → All picked up · Will sync when you're back online", /^All picked up Will sync when you're back online\./.test(s.allDone) && !/Wrap up/.test(s.allDone), JSON.stringify(s.allDone));
-  await A.setOfflineMode(false);
-  const normal = await waitFor(async () => { const x = await shopState(A); return /^All done\./.test(x.allDone) && x; }, 30000, 300);
-  await shot(A, "offline-v5b-online");
-  check("V5b reconnect → the normal All done card", !!normal, JSON.stringify((normal || (await shopState(A))).allDone));
-
-  // ── V6: A checks offline, B changes the check AFTER → B wins, silently ──
-  await setStatus(W[4], "pending"); await setStatus(W[5], "pending"); await setStatus(W[0], "pending");
-  await waitFor(async () => { const x = await shopState(A); return [W[4], W[5], W[0]].every((n) => x.unchecked.includes(n)); }, 10000);
+  // ── Verify 8: slice 1's conflict cases still pass ──
+  await setStatus(W[5], "pending"); await setStatus(W[6], "pending"); await setStatus(W[0], "pending");
+  await waitFor(async () => { const x = await shopState(A); return [W[5], W[6], W[0]].every((n) => x.unchecked.includes(n)); }, 10000);
+  // V6: A checks offline, B changes the check AFTER → B wins, silently
   await A.setOfflineMode(true); await sleep(500);
   const v6From = new Date(Date.now() - 1000).toISOString();
-  await tap(A, W[4]); await sleep(1200);
-  await setStatus(W[4], "bought"); await setStatus(W[4], "pending");   // B checks and unchecks, after A's tap
-  await A.setOfflineMode(false);
-  await waitFor(async () => { const x = await shopState(A); return !x.waiting.length && x; }, 20000);
-  await sleep(3000);
-  s = await shopState(A);
-  const r6 = await rowOf(W[4]);
-  check("V6 B's later change wins: Milk-equivalent ends unchecked on both, no notice", r6.status === "pending" && s.unchecked.includes(W[4]) && !s.error, `server ${r6.status}; A unchecked ${s.unchecked.includes(W[4])}; error ${JSON.stringify(s.error)}`);
-  const ev6 = await rest("GET", `list_item_events?select=event_type,created_at&list_item_id=eq.${r6.id}&created_at=gte.${encodeURIComponent(v6From)}`);
-  check("V6 the losing check logged nothing", ev6.length === 0, JSON.stringify(ev6));
-
-  // ── V7: B changes first, then A taps offline → A wins ──
+  await tapAisle(A, W[5]); await sleep(1200);
   await setStatus(W[5], "bought"); await setStatus(W[5], "pending");
-  await sleep(2500);
-  await A.setOfflineMode(true); await sleep(500);
-  await tap(A, W[5]); await sleep(500);
   await A.setOfflineMode(false);
-  await waitFor(async () => { const x = await shopState(A); return !x.waiting.length && x; }, 20000);
-  await sleep(2500);
+  await waitFor(settled, 20000); await sleep(3000);
   s = await shopState(A);
-  const r7 = await rowOf(W[5]);
-  check("V7 A's later tap wins: checked on the server and in A's cart", r7.status === "bought" && !s.unchecked.includes(W[5]), `server ${r7.status}`);
-
-  // ── V7b (R1): A checks offline, B bumps +1 after → still checked, quantity 2 ──
+  const r6 = await rowOf(W[5]);
+  check("V8·V6 B's later change wins: unchecked on both, no notice", r6.status === "pending" && s.unchecked.includes(W[5]) && !s.error, `server ${r6.status}; error ${JSON.stringify(s.error)}`);
+  const ev6 = await rest("GET", `list_item_events?select=event_type,created_at&list_item_id=eq.${r6.id}&created_at=gte.${encodeURIComponent(v6From)}`);
+  check("V8·V6 the losing check logged nothing", ev6.length === 0, JSON.stringify(ev6));
+  // V7: B changes first, then A taps offline → A wins
+  await setStatus(W[6], "bought"); await setStatus(W[6], "pending");
+  await sleep(2500);
   await A.setOfflineMode(true); await sleep(500);
-  await tap(A, W[4]); await sleep(1200);
-  await rpc("adjust_list_item_quantity", { p_household_id: HH, p_catalog_item_id: CID[W[4]], p_delta: 1, p_price_per_unit: null });
+  await tapAisle(A, W[6]); await sleep(500);
   await A.setOfflineMode(false);
-  await waitFor(async () => { const x = await shopState(A); return !x.waiting.length && x; }, 20000);
-  await sleep(2500);
-  const r7b = await rowOf(W[4]);
+  await waitFor(settled, 20000); await sleep(2500);
   s = await shopState(A);
-  check("V7b a +1 after the offline check doesn't cancel it: checked, quantity 2", r7b.status === "bought" && r7b.quantity === 2 && !s.unchecked.includes(W[4]), `server ${r7b.status} ×${r7b.quantity}`);
-
-  // ── V8: B deletes the item while A checked it offline → no error, gone on both ──
+  const r7 = await rowOf(W[6]);
+  check("V8·V7 A's later tap wins: checked on the server and in A's cart", r7.status === "bought" && s.inCart.includes(W[6]), `server ${r7.status}`);
+  // V7b (R1): A checks offline, B bumps +1 after → still checked, quantity 2
   await A.setOfflineMode(true); await sleep(500);
-  await tap(A, W[0]); await sleep(800);
+  await tapAisle(A, W[5]); await sleep(1200);
+  await rpc("adjust_list_item_quantity", { p_household_id: HH, p_catalog_item_id: CID[W[5]], p_delta: 1, p_price_per_unit: null });
+  await A.setOfflineMode(false);
+  await waitFor(settled, 20000); await sleep(2500);
+  const r7b = await rowOf(W[5]);
+  s = await shopState(A);
+  check("V8·V7b a +1 after the offline check doesn't cancel it: checked, quantity 2", r7b.status === "bought" && r7b.quantity === 2 && !s.unchecked.includes(W[5]), `server ${r7b.status} ×${r7b.quantity}`);
+  // V8: B deletes the item while A checked it offline → no error, gone on both
+  await A.setOfflineMode(true); await sleep(500);
+  await tapAisle(A, W[0]); await sleep(800);
   await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: CID[W[0]] });
   await A.setOfflineMode(false);
-  await waitFor(async () => { const x = await shopState(A); return !x.waiting.length && x; }, 20000);
-  await sleep(3000);
+  await waitFor(settled, 20000); await sleep(3000);
   s = await shopState(A);
   const r8 = await rowOf(W[0]);
-  const onA = await A.evaluate((n) => [...document.querySelectorAll("button.shop-check")].some((b) => (b.querySelector(".sr-only") || b).innerText.trim() === n), W[0]);
-  check("V8 deleted on B while checked offline on A: no error, gone on both", !!r8.deleted_at && !onA && !s.error, `deleted ${!!r8.deleted_at}; on A ${onA}; error ${JSON.stringify(s.error)}`);
+  const onA = await A.evaluate((n) => [...document.querySelectorAll("button.shop-check")].some((b) => (b.querySelector(".sr-only") || b).innerText.trim().startsWith(n)), W[0]);
+  check("V8·V8 deleted on B while checked offline on A: no error, gone on both", !!r8.deleted_at && !onA && !s.error, `deleted ${!!r8.deleted_at}; on A ${onA}; error ${JSON.stringify(s.error)}`);
 
-  check("the queue is empty at the end", Object.keys(await queueInStorage(A)).length === 0, JSON.stringify(await queueInStorage(A)));
+  // ── Verify 7: finish the list offline and Wrap up — the normal card; the trip closes after reconnect ──
+  const cycleBefore = (await rest("GET", `provision_cycles?select=id&household_id=eq.${HH}&closed_at=is.null&limit=1`))[0];
+  await A.setOfflineMode(true); await sleep(600);
+  for (let k = 0; k < 20; k++) {
+    const nxt = (await shopState(A)).unchecked[0];
+    if (!nxt) break;
+    await tapAisle(A, nxt); await sleep(250);
+  }
+  await sleep(HOLD_AND_MOVE_MS + 5500);   // the holds, then the Undo toasts expire; All done waits for them
+  s = await shopState(A);
+  await shot(A, "offline-v7-done");
+  check("V7 every item checked offline → the normal All done card with Wrap up", /^All done\. Everything on your list is in the cart\./.test(s.allDone) && /Wrap up trip/.test(s.allDone), JSON.stringify(s.allDone));
+  // The second phone adds something while A is still offline: the Wrap up must never archive it.
+  await rpc("adjust_list_item_quantity", { p_household_id: HH, p_catalog_item_id: CID[PARTNER], p_delta: 1, p_price_per_unit: null });
+  const wrapTapFrom = Date.now() + (skewMs || 0);
+  await A.evaluate(() => { const b = document.querySelector(".all-done .all-done-btn"); if (b) b.click(); });
+  const summary = await waitFor(async () => { const x = await shopState(A); return x.summary && x; }, 5000, 200);
+  await shot(A, "offline-v7-wrapped");
+  check("V7 Wrap up offline: the trip summary, as online", !!summary);
+  const wq = await wrapInStorage(A);
+  check("V7 the Wrap up waits on the phone, behind the checks", !!wq && Object.keys(await queued(A)).length > 0, `wrap ${!!wq}; checks queued ${Object.keys(await queued(A)).length}`);
+  await A.evaluate(() => { const d = document.querySelector('[role="dialog"][aria-label="Trip wrapped"]'); const o = d && d.closest(".modal-overlay"); if (o) o.click(); });
+  await sleep(500);
+  s = await shopState(A);
+  check("V7 on the phone the list is wrapped up (no rows left)", s.rows === 0, `rows ${s.rows}`);
+  const stillLive = await rest("GET", `list_items?select=id&household_id=eq.${HH}&deleted_at=is.null&catalog_item_id=in.(${W.slice(1).map((n) => CID[n]).join(",")})`);
+  check("V7 …and nothing is archived on the server yet", stillLive.length === 6, `live ${stillLive.length}`);
+  await A.setOfflineMode(false);
+  const closed = await waitFor(async () => (await wrapInStorage(A)) === null && Object.keys(await queued(A)).length === 0, 30000, 500);
+  await sleep(2500);
+  check("V7 reconnect: the queued checks and the Wrap up have gone out", !!closed);
+  const after = await rest("GET", `list_items?select=id,catalog_item_id,status,deleted_at&household_id=eq.${HH}&catalog_item_id=in.(${[...W.slice(1), PARTNER].map((n) => CID[n]).join(",")})&deleted_at=is.null`);
+  const partnerLive = after.find((r) => r.catalog_item_id === CID[PARTNER]);
+  check("V7 the trip's items are archived on the server", after.filter((r) => r.catalog_item_id !== CID[PARTNER]).length === 0, JSON.stringify(after));
+  check("V7 the partner's add made during the offline trip is NOT archived (carried forward)", !!partnerLive && partnerLive.status === "pending", JSON.stringify(partnerLive));
+  const cyc = await rest("GET", `provision_cycles?select=id,closed_at&id=eq.${cycleBefore && cycleBefore.id}`);
+  check("V7 the trip's cycle is closed on the server", !!cyc[0] && !!cyc[0].closed_at, JSON.stringify(cyc));
+  const sessEnded = await rest("GET", `shopping_sessions?select=id,started_at,ended_at&id=eq.${opened && opened.id}`);
+  const endedAt = sessEnded[0] && Date.parse(sessEnded[0].ended_at);
+  check("V7 the trip's session ended at the Wrap up TAP, not at the reconnect", !!endedAt && Math.abs(endedAt - wrapTapFrom) < 4000, `${sessEnded[0] && sessEnded[0].ended_at} vs tap ≈ ${new Date(wrapTapFrom).toISOString()}`);
+  s = await shopState(A);
+  check("V7 tab A now shows the server's list: the partner's add, to find", s.unchecked.includes(PARTNER) && s.rows === 1, `rows ${s.rows}; unchecked ${JSON.stringify(s.unchecked)}`);
+
+  check("the queue is empty at the end", Object.keys(await queueInStorage(A)).length === 0 && !(await wrapInStorage(A)), JSON.stringify(await queueInStorage(A)));
   const ck = await cacheKeys(A);
   check("the cached list is stored for this person at this place only", ck.length === 1 && ck[0].endsWith(`:${HH}`), JSON.stringify(ck.map((k) => k.replace(/:user_[^:]+:/, ":<clerk>:"))));
 
-  // ── tidy: every other row back to its status, the walk's items removed, its sessions ended ──
-  const now = await rest("GET", `list_items?select=id,status&household_id=eq.${HH}&deleted_at=is.null`);
-  let put = 0;
-  for (const r of now) {
-    if (snapshot.has(r.id) && snapshot.get(r.id) !== r.status) { await rest("PATCH", `list_items?id=eq.${r.id}`, { status: snapshot.get(r.id) }); put++; }
-  }
-  for (const n of W) await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: CID[n] }).catch(() => {});
+  // ── tidy: the walk's items removed, its sessions ended ──
+  for (const n of [...W, PARTNER]) await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: CID[n] }).catch(() => {});
   const openAfter = await rest("GET", `shopping_sessions?select=id&household_id=eq.${HH}&ended_at=is.null`);
   for (const x of openAfter) await rest("PATCH", `shopping_sessions?id=eq.${x.id}`, { ended_at: new Date().toISOString() });
-  log(`tidied: ${put} rows back to their status, ${W.length} walk items removed, ${openAfter.length} session(s) ended`);
+  log(`tidied: walk items removed, ${openAfter.length} session(s) ended`);
 
   await B.close();
   log(`${results.filter((r) => r.ok).length}/${results.length} PASS${fails ? `, ${fails} FAILED` : ""}`);
