@@ -35,10 +35,12 @@ import { emitAskEvent } from "../lib/askTelemetry";
 // THE HAND-BACK HOLD + EXPLORER'S SWIPE (SPEC_ask_handback_hold H1–H11, 2026-11-24): in Ask, anything
 // that ends the child's turn needs a press-and-hold — child actions are taps, adult actions are holds.
 // "Give it back" is a hold (useHold, HOLD_MS, the same fill as Done), armed 1500 ms after Great picks
-// appears; a tap on the finale wagon makes it hop. Explorer has no ✓: a full wagon is sent by dragging it
-// ≥ 60 px to the right (it rolls off, then Great picks rolls it in), by holding Done, or (keyboard / screen
-// reader) as the "Send the wagon" button; while full, the wagon tugs right with a → beside it.
-// docs/mockups/mockup_ask_swipe_wagon.html is the look.
+// appears; a tap on the finale wagon makes it hop. THE WAGON IS HOW YOU SEND IT, on both styles (H5–H11,
+// H13 rev 3): no That's it! / ✓ button; a full wagon is sent by dragging it ≥ 60 px to the right (it rolls
+// off, then Great picks rolls it in), by holding Done, or (keyboard / screen reader) as the "Send the wagon"
+// button; while full, the wagon tugs right with a → beside it. Shopper's full wagon also shows "That's it!"
+// on the tub front, and a tap there sends; Explorer's stays wordless and swipe-only.
+// docs/mockups/mockup_ask_swipe_wagon.html (Explorer / Shopper toggle) is the look.
 //
 // RESUME (A26 as amended by S3-6): while the hand-over or the shelf is up, every change of screen
 // or picks rewrites op_ask_held ({ask_id, screen, ids}); Great picks clears it, because the picks
@@ -146,7 +148,9 @@ function PickCard({ tile, box, uid, fresh, onTakeOut, hidden = false }) {
 // with turquoise from the bottom as picks go in — `fill` is picks / target, 0…1 — and when it is full the
 // screen bursts (Fireworks). Only the shelf wagon passes `fill`; the other two never show the tide.
 const TUB_D = "M56 56 H232 L222 110 Q220 116 213 116 H75 Q68 116 66 110 Z";
-function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null, hiddenIds = null, svgRef = null, fill = null }) {
+// sendWords (H13, Shopper): the full wagon says "That's it!" on the tub front, and onSendTap makes that front
+// (below the stripe, between the wheels — never under a card) send it.
+function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null, hiddenIds = null, svgRef = null, fill = null, sendWords = false, onSendTap = null }) {
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const n = picks.length;
   const boxes = cardLayout(n);
@@ -195,6 +199,13 @@ function Wagon({ picks, onTakeOut, fresh, kick, className = "", label = null, hi
             <circle cx="60" cy="119" r="1.8" fill="#3B2A1C" />
           </g>
         </g>
+        {sendWords && (
+          <>
+            <text className="ask-tub-words" x="144" y="110" textAnchor="middle" fontFamily="Lato, sans-serif" fontWeight="900" fontSize="15" fill="#0D9488"
+              aria-hidden="true" pointerEvents="none">That's it!</text>
+            <rect className="ask-tub-send" data-send="" x="66" y="94" width="156" height="22" fill="transparent" onClick={onSendTap || undefined} />
+          </>
+        )}
     </svg>
   );
 }
@@ -337,8 +348,8 @@ function HoldGiveBack({ parentName, onGiveBack, done }) {
 export const SEND_PX = 60;
 const TAP_PX = 8;
 const ROLL_MS = 600;
-// H8: the tug hint starts once the fireworks are over (they start FLY_MS after the wagon fills, ~2.4 s).
-const TUG_AFTER_MS = FLY_MS + 2400;
+// H8 (rev 2): the first tug starts as the last firework fades, ~1.7 s after the wagon fills (both styles).
+export const TUG_AFTER_MS = 1700;
 
 // ask: { id, label, shelfNoun, pickTarget, screenStyle }. tiles: the LIVE tiles [{ id, name, glyph,
 // photoUrl }] in shelf order; glyph is the ITEM's own (null when the catalog has none), never the aisle's.
@@ -424,9 +435,9 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
     return () => clearTimeout(t);
   }, [boom]);
   const reducedMotion = () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  // H8: while an Explorer wagon is full, after the fireworks (at once for a run resumed full), the wagon
-  // tugs. Unpicking stops it; refilling waits out the fireworks again.
-  const sendable = simple && screen === "shelf" && canConfirm(picks, target);
+  // H8: while the wagon is full (either style), ~1.7 s after it fills (at once for a run resumed full), it
+  // tugs. Unpicking stops it; refilling waits again.
+  const sendable = screen === "shelf" && canConfirm(picks, target);
   const resumedFull = useRef(!!resume && picks.length >= target);
   useEffect(() => {
     if (!sendable) { setTugReady(false); resumedFull.current = false; return undefined; }
@@ -508,11 +519,11 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
     }
   };
 
-  // H6 / H9 / H11 (Explorer): send the full wagon — by the swipe, by holding Done, or as a button. It rolls
-  // off to the right while the picks land; Great picks then rolls it in. If the land fails (H10) or nothing
-  // landed (B9.3), it rolls back in.
+  // H6 / H9 / H11 / H13: send the full wagon — by the swipe, by holding Done, as a button, or (Shopper) by a
+  // tap on the tub's "That's it!". It rolls off to the right while the picks land; Great picks then rolls it
+  // in. If the land fails (H10) or nothing landed (B9.3), it rolls back in.
   const send = async () => {
-    if (!simple || !canConfirm(picks, target) || landing || sending) return;
+    if (!canConfirm(picks, target) || landing || sending) return;
     setSending(true);
     const el = wrapEl.current;
     const still = reducedMotion();
@@ -538,8 +549,13 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
     w.style.transition = "transform 0.3s cubic-bezier(.3,1.5,.5,1)";
     w.style.transform = "";
   };
+  // H13: Shopper's tub front sends on a tap (a press that became a drag doesn't).
+  const tubTap = () => {
+    if (suppressTap.current) { suppressTap.current = false; return; }
+    send();
+  };
   const onWagonDown = (e) => {
-    if (!simple || landing || sending) return;
+    if (landing || sending) return;
     suppressTap.current = false;
     drag.current = { x0: e.clientX, dx: 0, moved: false };
   };
@@ -583,7 +599,7 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
     <div className="ask-top">
       <span className="ask-eyebrow">Ask <Name>{ask.label}</Name></span>
       {screen === "turn" && <HoldDone onDone={abandon} label="Close" hold="Hold to close" />}
-      {/* H9: Explorer's Done with a full wagon sends it (never throws the picks away); otherwise it abandons. */}
+      {/* H9: Done with a full wagon sends it (never throws the picks away); otherwise it abandons. */}
       {screen === "shelf" && (sendable
         ? <HoldDone key="send" onDone={send} label="Done" hold="Hold to send" />
         : <HoldDone key="finish" onDone={abandon} label="Done" hold="Hold to finish" />)}
@@ -703,10 +719,10 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
                 has dots (Explorer's went 2026-11-15): Shopper's numbered cards carry the count; Explorer's
                 tub fills turquoise. The count stays for screen readers on both. */}
             <div className="ask-cartrow">
-              {simple ? (
-                // H5–H8, H11: Explorer's wagon is bigger (the ✓'s space), and when full it is sent by a drag to the
-                // right, by holding Done, or — keyboard / screen reader — as the "Send the wagon" button. While
-                // full (after the fireworks) it tugs right with a → beside it; reduced motion: no tug, no arrow.
+              {/* H5–H8, H11, H13: the wagon is bigger (the old button's space), and when full it is sent by a drag
+                  to the right, by holding Done, or — keyboard / screen reader — as the "Send the wagon" button;
+                  Shopper's also by a tap on the tub's "That's it!". While full it tugs right with a → beside it;
+                  reduced motion: no tug, no arrow. */}
                 <div ref={wrapEl}
                   className={`ask-wagonwrap${sendable ? " full" : ""}${sendable && tugReady && !dragging && !sending ? " tug" : ""}${dragging ? " dragging" : ""}${sending ? " rolling" : ""}`}
                   role={sendable ? "button" : undefined} tabIndex={sendable ? 0 : undefined} aria-label={sendable ? "Send the wagon" : undefined}
@@ -714,25 +730,17 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
                   onPointerDown={onWagonDown} onPointerMove={onWagonMove} onPointerUp={onWagonUp} onPointerCancel={onWagonCancel}>
                   <div className="ask-wagon-tug">
                     <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-big" hiddenIds={inFlight} svgRef={wagonEl}
-                      fill={target > 0 ? picks.length / target : 0} />
+                      fill={simple ? (target > 0 ? picks.length / target : 0) : null}
+                      sendWords={!simple && sendable} onSendTap={!simple && sendable ? tubTap : null} />
                   </div>
                   <span className="ask-send-hint" aria-hidden="true">→</span>
                 </div>
-              ) : (
-                <Wagon picks={inWagon} onTakeOut={out} fresh={fresh} kick={kick} className="ask-wagon-small" hiddenIds={inFlight} svgRef={wagonEl} fill={null} />
-              )}
               <span className="ask-sr" aria-live="polite" aria-label={`${picks.length} of ${target} picked`}>{picks.length} of {target} picked</span>
             </div>
             {failed && <div className="ask-failed" role="alert">That didn't reach the list. {simple ? "Swipe the wagon again." : "Try That's it! again."}</div>}
             {/* B9.3: nothing landed — the dead tiles are gone from the shelf; this says why. Never "Tap ✓ again". */}
             {gone && !gone.landedAny && <div className="ask-failed" role="status">{goneLine(gone.names, false)}</div>}
-            {/* H5: Explorer has no ✓ — a full wagon already means done. Shopper keeps That's it! (a tap: it's the child's). */}
-            {!simple && (
-              <div className="ask-actions">
-                <button type="button" className={`ask-primary ask-thats-it${canConfirm(picks, target) ? " show" : ""}`}
-                  onClick={() => confirm()} disabled={!canConfirm(picks, target) || landing}>{landing ? "Adding…" : "That's it!"}</button>
-              </div>
-            )}
+            {/* H5 / H13: no That's it! / ✓ button on either style — a full wagon already means done. */}
           </div>
         </div>
       )}
@@ -860,7 +868,7 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 @keyframes ask-chk-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(.4); } }
 @keyframes ask-num-in { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
 .ask-ring { position: absolute; top: -10px; right: -10px; z-index: 1; width: 44px; height: 44px; border-radius: 50%; border: 3px solid #0D9488; opacity: 0; pointer-events: none; }
-.ask-ring.ask-ring-simple { top: 10px; right: 10px; width: 36px; height: 36px; }
+.ask-ring.ask-ring-simple { top: 8px; right: 8px; width: 44px; height: 44px; }
 .ask-tile.press .ask-ring { animation: ask-ring 0.6s ease-out; }
 @keyframes ask-ring { 0% { opacity: .7; transform: scale(1); } 100% { opacity: 0; transform: scale(2.4); } }
 .ask-fly { position: fixed; z-index: 5; border-radius: 8px; background: #FFFDF9; border: 3px solid #FFFDF9; box-shadow: 0 6px 16px rgba(44,26,14,.25);
@@ -879,7 +887,10 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-tiles-simple .ask-tile-glyph { font-size: 64px; font-size: 52cqmin; }
 .ask-tiles-simple .ask-tile.plain { min-height: 0; }
 .ask-tiles-simple .ask-tile-name.ask-tile-name-only { font-size: calc(24px * (1 + (var(--op-text-scale, 1) - 1) * 0.5)); }
-.ask-tiles-simple .ask-tile-check { width: 36px; height: 36px; font-size: 19px; top: 10px; right: 10px; }
+/* H12: picked must be unmistakable — a ~5px outline (3px ring over the 2px border), a pale teal wash, and a
+   44px ✓ with a white ring that reads over photos. */
+.ask-tiles-simple .ask-tile.picked { background: #E3F4F1; box-shadow: 0 0 0 3px #0D9488; }
+.ask-tiles-simple .ask-tile-check { width: 44px; height: 44px; font-size: 24px; font-weight: 900; top: 8px; right: 8px; box-shadow: 0 0 0 3px #fff; }
 .ask-icon { display: grid; place-items: center; padding: 0; border-radius: 50%; width: 72px; height: 72px; min-height: 0; }
 .ask-icon svg { width: 38px; height: 38px; }
 .ask-go { width: 96px; height: 96px; }
@@ -888,7 +899,6 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-cartbar { border-top: 1px solid #EFE3D0; padding: 8px 20px 18px; background: #FAF4EC; }
 .ask-cartrow { display: flex; align-items: center; justify-content: center; gap: 14px; }
 .ask-wagon { display: block; overflow: visible; }
-.ask-wagon-small { width: 185px; }
 /* H5–H8 (Explorer; docs/mockups/mockup_ask_swipe_wagon.html): the wagon takes the ✓'s space; a full one
    drags right, rolls off with its wheels spinning, and tugs right with a teal → while it waits. */
 .ask-wagonwrap { position: relative; width: min(88vw, 360px); touch-action: none; -webkit-user-select: none; user-select: none; }
@@ -896,13 +906,18 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-wagonwrap.dragging { cursor: grabbing; }
 .ask-wagonwrap:focus-visible { outline: 3px solid #0A776D; outline-offset: 4px; border-radius: 16px; }
 .ask-wagon-big { width: 100%; height: auto; }
-.ask-wagonwrap.tug .ask-wagon-tug { animation: ask-tug 1.6s ease-in-out infinite; }
-@keyframes ask-tug { 0%, 55%, 100% { transform: none; } 65% { transform: translateX(14px); } 75% { transform: translateX(4px); } 85% { transform: translateX(10px); } }
-.ask-wagonwrap.tug .ask-wagon-handle { animation: ask-pull 1.6s ease-in-out infinite; }
-@keyframes ask-pull { 0%, 55%, 100% { transform: none; } 65% { transform: rotate(14deg); } 85% { transform: rotate(8deg); } }
+/* H8 (rev 2): each loop is ~1.1 s — the tug in the first ~0.6 s, then ~0.5 s of rest. */
+.ask-wagonwrap.tug .ask-wagon-tug { animation: ask-tug 1.1s ease-in-out infinite; }
+@keyframes ask-tug { 0%, 55%, 100% { transform: none; } 15% { transform: translateX(14px); } 30% { transform: translateX(4px); } 42% { transform: translateX(10px); } }
+.ask-wagonwrap.tug .ask-wagon-handle { animation: ask-pull 1.1s ease-in-out infinite; }
+@keyframes ask-pull { 0%, 55%, 100% { transform: none; } 15% { transform: rotate(14deg); } 42% { transform: rotate(8deg); } }
 .ask-send-hint { position: absolute; right: -4px; bottom: 38%; font: 900 30px 'Lato', sans-serif; color: #0D9488; opacity: 0; pointer-events: none; }
-.ask-wagonwrap.tug .ask-send-hint { animation: ask-arrow 1.6s ease-in-out infinite; }
-@keyframes ask-arrow { 0%, 50% { opacity: 0; transform: translateX(-10px); } 70% { opacity: .85; transform: translateX(4px); } 100% { opacity: 0; transform: translateX(12px); } }
+.ask-wagonwrap.tug .ask-send-hint { animation: ask-arrow 1.1s ease-in-out infinite; }
+@keyframes ask-arrow { 0% { opacity: 0; transform: translateX(-10px); } 20% { opacity: .85; transform: translateX(4px); } 55%, 100% { opacity: 0; transform: translateX(12px); } }
+/* H13: Shopper's full wagon says "That's it!" on the tub front (it pops in); the front below the stripe sends. */
+.ask-tub-words { animation: ask-tub-pop 0.4s cubic-bezier(.3,1.7,.5,1) both; transform-box: fill-box; transform-origin: center; }
+@keyframes ask-tub-pop { from { transform: scale(0); } to { transform: scale(1); } }
+.ask-tub-send { cursor: pointer; }
 .ask-wagonwrap.rolling .ask-wheel-spin { animation: ask-spin 0.5s linear infinite; }
 @keyframes ask-spin { to { transform: rotate(360deg); } }
 .ask-wagon-pick { cursor: pointer; }
@@ -930,9 +945,6 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
   animation: ask-spark 1.6s cubic-bezier(.15,.7,.3,1) both; }
 @keyframes ask-spark { 0% { opacity: 1; transform: translate(0, 0) scale(1.2); } 70% { opacity: 1; }
   100% { opacity: 0; transform: translate(var(--dx), calc(var(--dy) + 60px)) scale(.4); } }
-.ask-actions { display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 58px; margin-top: 6px; }
-.ask-thats-it { transform: scale(0); transition: transform 0.3s cubic-bezier(.3,1.6,.5,1); }
-.ask-thats-it.show { transform: scale(1); }
 .ask-failed { text-align: center; font: 400 14px 'Lato', sans-serif; color: #B3412E; margin-top: 6px; }
 
 .ask-finale { align-items: stretch; overflow-y: auto; overflow-x: hidden; }
@@ -950,7 +962,7 @@ ${holdFillCss(".ask-done-fill", ".ask-done.holding .ask-done-fill")}
 .ask-finale .ask-rollin .ask-wagon { transform: translateX(calc(100% * -14 / 260)); }
 /* A raised back tier (5–6 picks) stands BACK_RISE (34) wagon units above the drawing: room above it. */
 .ask-rollin.ask-rollin-tall { padding-top: calc(min(100vw - 24px, 380px) * 34 / 260); }
-.ask-cartbar.ask-cartbar-tall { padding-top: calc(8px + 185px * 34 / 260); }
+.ask-cartbar.ask-cartbar-tall { padding-top: calc(8px + min(88vw, 360px) * 34 / 260); }
 .ask-rollin .ask-wheel-spin { animation: ask-wheel-roll 1s cubic-bezier(.2,.9,.25,1); }
 @keyframes ask-roll { from { transform: translateX(-120%); } to { transform: none; } }
 .ask-give-back:disabled { opacity: 1; }
