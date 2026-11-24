@@ -10354,11 +10354,14 @@ function ProvisionsApp({ scrollRootRef }) {
         .harbor-dots.beacon .hd { animation: harbor-sweep 3000ms linear 2 both; }
         .harbor-dots.beacon .hd3 { animation-delay: 1000ms; }   /* top-right, a third of a turn after top-left */
         .harbor-dots.beacon .hd2 { animation-delay: 2000ms; }   /* bottom, two thirds */
-        /* Each dot's light rises over ~0.66 s and falls over ~0.84 s: the next dot starts rising (at 1 s) while
-           this one is still fading, so the light travels round the mark. Same peak as before. */
+        /* The beam only adds light (00:24): every keyframe is the resting gold #C9A97A or brighter, so no dot
+           ever dips below rest — at the start (the 0% frame, held before each dot's delay by fill-mode both),
+           during, or at the end (100% = rest, so removing the class changes nothing). The lift is a brighter
+           gold, #F2D49B. Each dot rises over ~0.66 s and falls over ~0.84 s; the next starts rising at 1 s while
+           this one is still fading, so the light travels round the mark. */
         @keyframes harbor-sweep {
           0%   { fill: #C9A97A; animation-timing-function: ease-in-out; }
-          22%  { fill: #FFF1CF; animation-timing-function: ease-in-out; }
+          22%  { fill: #F2D49B; animation-timing-function: ease-in-out; }
           50%  { fill: #C9A97A; }
           100% { fill: #C9A97A; }
         }

@@ -7,6 +7,9 @@ import {
   NOTE_COPY, offGridCopy, changesLine, needsSignalLine, BEACON_MS, BEACON_TAIL_MS, HARBOR_LABEL, lowPowerFromFrames,
 } from "../lib/offlineMode";
 
+// The word ↔ dots fade (App.js .harbor-dots / .harbor-word, harbor-fade).
+const FADE_MS = 320;
+
 const reducedMotion = () => {
   try { return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches); } catch (e) { return false; }
 };
@@ -41,6 +44,12 @@ export function HarborLight({ offline, beacon = 0, onOpen }) {
   const mountedRef = useRef(true);
   const offlineRef = useRef(offline);
   offlineRef.current = offline;
+  // When the dots last appeared (first render, or OFF GRID giving way to them): their one soft fade-in
+  // runs for FADE_MS, and a sweep never starts inside it — the beam only adds light (00:24).
+  const dotsSinceRef = useRef(Date.now());
+  const wasOfflineRef = useRef(offline);
+  if (wasOfflineRef.current && !offline) dotsSinceRef.current = Date.now();
+  wasOfflineRef.current = offline;
   useEffect(() => () => { mountedRef.current = false; clearTimeout(timerRef.current); }, []);
   useEffect(() => {
     if (!beacon || offline || activeRef.current || reducedMotion()) return;
@@ -48,8 +57,14 @@ export function HarborLight({ offline, beacon = 0, onOpen }) {
     sampleLowPower().then((lowPower) => {
       if (!mountedRef.current) return;
       if (lowPower || offlineRef.current) { activeRef.current = false; return; }
-      setSweep(beacon);
-      timerRef.current = setTimeout(() => { activeRef.current = false; setSweep(0); }, BEACON_MS + BEACON_TAIL_MS);
+      const start = () => {
+        if (!mountedRef.current) return;
+        if (offlineRef.current) { activeRef.current = false; return; }
+        setSweep(beacon);
+        timerRef.current = setTimeout(() => { activeRef.current = false; setSweep(0); }, BEACON_MS + BEACON_TAIL_MS);
+      };
+      const wait = Math.max(0, dotsSinceRef.current + FADE_MS + 40 - Date.now());
+      if (wait) timerRef.current = setTimeout(start, wait); else start();
     });
   }, [beacon, offline]);
   useEffect(() => { if (offline) { clearTimeout(timerRef.current); activeRef.current = false; setSweep(0); } }, [offline]);
@@ -65,7 +80,10 @@ export function HarborLight({ offline, beacon = 0, onOpen }) {
       {offline ? (
         <span key="word" className="harbor-word" aria-hidden="true">Off grid</span>
       ) : (
-        <svg key={`dots-${sweep}`} className={`harbor-dots${sweep ? " beacon" : ""}`} width="28" height="24" viewBox="0 0 28 24" fill="none" aria-hidden="true">
+        // ONE element for the dots' whole life: a beacon only toggles a class. (A key that changed with the sweep
+        // remounted the SVG at its start and end, and each new SVG replayed the fade-in from opacity 0 — the
+        // whole mark blinked before it turned, Dan on the iPhone, 00:24.)
+        <svg key="dots" className={`harbor-dots${sweep ? " beacon" : ""}`} width="28" height="24" viewBox="0 0 28 24" fill="none" aria-hidden="true">
           <circle className="hd hd1" cx="5" cy="4" r="3.5" fill="#C9A97A" />
           <circle className="hd hd2" cx="14" cy="16" r="3.5" fill="#C9A97A" />
           <circle className="hd hd3" cx="23" cy="4" r="3.5" fill="#C9A97A" />

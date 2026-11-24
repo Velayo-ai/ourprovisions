@@ -55,7 +55,7 @@ Replaces C2's cloud icon, which is removed.
 | State | What shows |
 |---|---|
 | **Connected** | The dots, **steady**. |
-| **Beacon** | A slow lighthouse sweep, **clockwise** (top-left → top-right → bottom), **~3 s a turn**, each dot brightening as the one before it fades (a travelling beam, not steps), **2 turns, then rest**. (Revised 23:58, Dan on the iPhone: the first build was too quick and ran counterclockwise.) Plays: on app open, when the connection returns, on a tap of the dots, and **on every tab switch, only after that tab's first successful fetch** (it is a verified check, never decoration). Never loops. |
+| **Beacon** | A slow lighthouse sweep, **clockwise** (top-left → top-right → bottom), **~3 s a turn**, each dot brightening as the one before it fades (a travelling beam, not steps), **2 turns, then rest**. (Revised 23:58, Dan on the iPhone: the first build was too quick and ran counterclockwise.) **The beam only adds light:** no dot ever drops below its resting brightness at the start, during or at the end of a sweep, so the mark never blinks (00:24, Dan: "before it turns, the whole thing blinks"). Plays: on app open, when the connection returns, on a tap of the dots, and **on every tab switch, only after that tab's first successful fetch** (it is a verified check, never decoration). Never loops. |
 | **Not connected to the Harbor core** (sign-in + household data unreachable, C5's rules) | The dots are replaced by the word **OFFLINE**, in the same gold small caps as the household name. A label, never a badge: no red, no amber. |
 | **Reduce Motion / Low Power Mode** | No sweep; steady dots. |
 
