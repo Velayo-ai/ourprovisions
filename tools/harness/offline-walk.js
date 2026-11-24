@@ -1,4 +1,4 @@
-// offline-walk.js — the offline pre-walk: SPEC_offline_calm_2026-11-23 Verify 1–8, on top of slice 1
+// offline-walk.js — the offline pre-walk: SPEC_offline_calm_2026-11-23 Verify 1–9 (C9: the Harbor dots), on top of slice 1
 // (SPEC_offline_checkoff amendment 2026-11-23; its V6, V7, V7b, V8 and V10 are Verify 8 here; online
 // unchanged is shop-burst.js). Dev only, Cody Test House, signed in already (signin.js).
 //   Tab A is the phone under test: offline by page.setOfflineMode, weak signal (the shell loads, the API
@@ -76,7 +76,11 @@ const shopState = (page) => page.evaluate((oldSrc) => {
     dotsInCart: inCart.filter((r) => r.querySelector(".sync-dot")).map(nameOf),
     dotsAisle: aisle.filter((r) => r.querySelector(".sync-dot")).map(nameOf),
     trayCount: Number(((document.querySelector(".tray-sub") || {}).innerText || "").match(/\d+/)?.[0] || 0),
-    indicator: !!document.querySelector(".offline-indicator"),
+    // C9: the Velayo dots are the connection light. indicator = OFFLINE is showing in their place.
+    indicator: ((document.querySelector(".harbor-light") || { getAttribute: () => "" }).getAttribute("aria-label") || "") === "Offline",
+    harborLabel: (document.querySelector(".harbor-light") || { getAttribute: () => "" }).getAttribute("aria-label") || "",
+    harborText: ((document.querySelector(".harbor-light") || {}).innerText || "").trim(),
+    harborDots: !!document.querySelector(".harbor-light svg.harbor-dots"),
     note: (document.querySelector(".offline-note") || {}).innerText || "",
     toasts: [...document.querySelectorAll(".check-undo-text")].map((e) => e.innerText.trim()),
     oldCopy: [...statuses, document.body.innerText].some((t) => OLD.test(t)),
@@ -115,18 +119,24 @@ const visibility = (page, state) => page.evaluate((state) => {
   Object.defineProperty(document, "hidden", { value: state === "hidden", configurable: true });
   document.dispatchEvent(new Event("visibilitychange"));
 }, state);
-// Samples the header indicator and the note every 25 ms: did either ever flick?
+// Samples the Harbor light and the note every 25 ms: did OFFLINE or the note ever flick, and how many
+// beacons started (C9)?
 const startSampler = (page) => page.evaluate(() => {
-  window.__s = { ind: [], notes: 0, noteWas: false };
+  window.__s = { ind: [], notes: 0, noteWas: false, beacons: 0, beaconWas: false };
   window.__sampler = setInterval(() => {
-    const on = !!document.querySelector(".offline-indicator");
+    const light = document.querySelector(".harbor-light");
+    const on = !!light && light.getAttribute("aria-label") === "Offline";
     const s = window.__s;
     if (s.ind[s.ind.length - 1] !== on) s.ind.push(on);
     const note = !!document.querySelector(".offline-note");
     if (note && !s.noteWas) s.notes++;
     s.noteWas = note;
+    const b = !!light && light.getAttribute("data-beacon") === "on";
+    if (b && !s.beaconWas) s.beacons++;
+    s.beaconWas = b;
   }, 25);
 });
+const sampled = (page) => page.evaluate(() => ({ ...window.__s }));
 const stopSampler = (page) => page.evaluate(() => { clearInterval(window.__sampler); return window.__s; });
 // Reconnected and settled: nothing queued, no dots.
 const settled = async () => { const x = await shopState(A); return Object.keys(await queued(A)).length === 0 && !x.dotsInCart.length && !x.dotsAisle.length && x; };
@@ -187,17 +197,18 @@ const HOLD_AND_MOVE_MS = 4000;   // the 3 s hold + beat 2
   await sleep(1500);
   const sawAll = await waitFor(async () => { const s = await shopState(A); return W.filter((n) => n !== W[3]).every((n) => s.unchecked.includes(n)) && s.inCart.includes(W[3]) && s; }, 15000);
   check("setup: tab A shows six walk items to find and one in the cart", !!sawAll);
-  check("setup: nothing queued, no offline icon", Object.keys(await queueInStorage(A)).length === 0 && !(await shopState(A)).indicator);
+  const s0 = await shopState(A);
+  check("setup: nothing queued; the dots steady, named \"Connected to the Harbor\"", Object.keys(await queueInStorage(A)).length === 0 && !s0.indicator && s0.harborDots && s0.harborLabel === "Connected to the Harbor", JSON.stringify({ label: s0.harborLabel, dots: s0.harborDots }));
 
   // ── Verify 1: offline → the note once, then the icon; flaky signal → no repeat note, no flicker ──
   await startSampler(A);
   await A.setOfflineMode(true);
   const noted = await waitFor(async () => { const x = await shopState(A); return x.note && x; }, 3000, 50);
   check("V1 going offline shows the calm note: Shopping offline · everything's saved", !!noted && noted.note.trim() === "Shopping offline · everything's saved", JSON.stringify(noted && noted.note));
-  check("V1 …and the header's offline icon", !!noted && noted.indicator);
+  check("V1 …and OFFLINE replaces the dots (gold small caps, named \"Offline\")", !!noted && noted.indicator && noted.harborText === "OFFLINE" && !noted.harborDots, JSON.stringify(noted && { text: noted.harborText, label: noted.harborLabel, dots: noted.harborDots }));
   await sleep(3600);
   let s = await shopState(A);
-  check("V1 the note goes after about 3 s; the icon stays", !s.note && s.indicator);
+  check("V1 the note goes after about 3 s; OFFLINE stays", !s.note && s.indicator);
   // One bar, dropping in and out: device offline/online flaps, then the API failing with the device online.
   for (let k = 0; k < 3; k++) { await A.setOfflineMode(false); await sleep(1200); await A.setOfflineMode(true); await sleep(1200); }
   await setWeakSignal(true); await A.setOfflineMode(false); await sleep(2500);
@@ -205,7 +216,7 @@ const HOLD_AND_MOVE_MS = 4000;   // the 3 s hold + beat 2
   await sleep(500);
   const samp = await stopSampler(A);
   check("V1 flaky signal: the note never repeats", samp.notes === 1, `notes shown ${samp.notes}`);
-  check("V1 flaky signal: the icon never flicks off", samp.ind.join() === "false,true" || samp.ind.join() === "true", JSON.stringify(samp.ind));
+  check("V1 flaky signal: OFFLINE never flicks back to the dots", samp.ind.join() === "false,true" || samp.ind.join() === "true", JSON.stringify(samp.ind));
   await shot(A, "offline-v1");
 
   // ── Verify 2: three offline checks look and move exactly as online, with a dot in In cart ──
@@ -240,15 +251,16 @@ const HOLD_AND_MOVE_MS = 4000;   // the 3 s hold + beat 2
   check("V3 three changes wait on the phone (W1 ✓, W2 ✓, W3 uncheck)", Object.keys(q3).length === 3 && s.dotsInCart.length === 2 && s.dotsAisle.length === 1, `stored ${Object.keys(q3).length}; cart dots ${JSON.stringify(s.dotsInCart)}; aisle dots ${JSON.stringify(s.dotsAisle)}`);
   const tapTimes = Object.values(q3).filter((e) => e.want).map((e) => e.tapAt).sort();
 
-  // ── Verify 4: the indicator's sheet ──
-  await A.click(".offline-indicator");
-  await sleep(400);
-  const sheet = await A.evaluate(() => { const d = document.querySelector(".offline-sheet"); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; });
+  // ── Verify 4: tap the dots offline (the word OFFLINE) → the Velayo menu with the offline lines at its top ──
+  await A.click(".harbor-light");
+  await sleep(500);
+  const sheet = await A.evaluate(() => { const d = document.querySelector(".offline-lines"); return d ? d.innerText.replace(/\s+/g, " ").trim() : ""; });
+  const menuUnder = await A.evaluate(() => { const d = document.querySelector(".offline-lines"); const card = d && d.parentElement; return !!card && /Live Better\. Live Smarter\./i.test(card.innerText) && /OurProvisions/.test(card.innerText); });
   await shot(A, "offline-v4");
-  check("V4 tap the icon: the sheet", sheet.includes("You're offline. Everything you do is saved on this phone and shares with your household when you're back in signal."), JSON.stringify(sheet));
+  check("V4 tap OFFLINE: the Velayo menu opens with the offline lines at its top", !!sheet && menuUnder && sheet.startsWith("You're offline. Everything you do is saved on this phone and shares with your household when you're back in signal."), JSON.stringify(sheet));
   check("V4 …with: 3 changes will share when you're back.", sheet.includes("3 changes will share when you're back."), JSON.stringify(sheet));
-  await A.evaluate(() => { const b = [...document.querySelectorAll(".offline-sheet button")].find((x) => x.innerText.trim() === "OK"); if (b) b.click(); });
-  await sleep(300);
+  await A.evaluate(() => { const d = document.querySelector(".offline-lines"); const overlay = d && d.parentElement && d.parentElement.parentElement; if (overlay) overlay.click(); });
+  await sleep(400);
 
   // ── Verify 5: background and return; a weak-signal reload — the dots and the list are still there ──
   await visibility(A, "hidden"); await sleep(1500); await visibility(A, "visible"); await sleep(800);
@@ -275,12 +287,15 @@ const HOLD_AND_MOVE_MS = 4000;   // the 3 s hold + beat 2
   await visibility(A, "visible");
   const synced = await waitFor(settled, 30000, 300);
   const goneIcon = await waitFor(async () => !(await shopState(A)).indicator, 15000, 300);
+  const beaconed = await waitFor(async () => (await sampled(A)).beacons >= 1, 4000, 100);
+  await sleep(3500);   // the sweep's two passes, then rest: it never loops
   await A.evaluate(() => window.__obs && window.__obs.disconnect());
-  await stopSampler(A);
+  const samp6 = await stopSampler(A);
   s = await shopState(A);
   await shot(A, "offline-v6");
   check("V6 reconnect: the dots clear and nothing is left queued", !!synced);
-  check("V6 the icon goes away", !!goneIcon);
+  check("V6 the dots return in place of OFFLINE", !!goneIcon);
+  check("V6 …with exactly one beacon, then rest", !!beaconed && samp6.beacons === 1 && !(await A.evaluate(() => document.querySelector(".harbor-light").getAttribute("data-beacon") === "on")), `beacons ${samp6.beacons}`);
   check("V6 no message on the way back (no Back online, no Syncing…)", !statusTexts.some((t) => OLD_COPY.test(t) || /online/i.test(t)) && !s.oldCopy, JSON.stringify([...new Set(statusTexts)]));
   const srv6 = await Promise.all([W[1], W[2], W[3]].map(rowOf));
   check("V6 the server has W1 ✓, W2 ✓, W3 unchecked, checks stamped with their TAP times", srv6.map((r) => r.status).join() === "bought,bought,pending" && [srv6[0], srv6[1]].map((r) => Date.parse(r.status_changed_at)).sort().join() === tapTimes.map(Date.parse).join(), JSON.stringify(srv6.map((r) => [r.status, r.status_changed_at])) + " taps " + JSON.stringify(tapTimes));
@@ -386,6 +401,36 @@ const HOLD_AND_MOVE_MS = 4000;   // the 3 s hold + beat 2
   check("V7 the trip's session ended at the Wrap up TAP, not at the reconnect", !!endedAt && Math.abs(endedAt - wrapTapFrom) < 4000, `${sessEnded[0] && sessEnded[0].ended_at} vs tap ≈ ${new Date(wrapTapFrom).toISOString()}`);
   s = await shopState(A);
   check("V7 tab A now shows the server's list: the partner's add, to find", s.unchecked.includes(PARTNER) && s.rows === 1, `rows ${s.rows}; unchecked ${JSON.stringify(s.unchecked)}`);
+
+  // ── Verify 9: switch tabs online — one beacon after each tab's first fetch; none if it fails; none with Reduce Motion ──
+  const switchTab = (hash) => A.evaluate((h) => { window.location.hash = h; }, hash);
+  await waitFor(async () => !(await shopState(A)).indicator, 15000, 300);
+  await sleep(3500);   // any sweep still playing has rested
+  for (const tab of ["#/home", "#/plan", "#/browse", "#/shop"]) {
+    await startSampler(A);
+    await switchTab(tab);
+    const one = await waitFor(async () => (await sampled(A)).beacons >= 1, 6000, 100);
+    await sleep(3500);
+    const sv = await stopSampler(A);
+    check(`V9 ${tab.slice(2)}: one beacon after the tab's first fetch`, !!one && sv.beacons === 1, `beacons ${sv.beacons}`);
+  }
+  await A.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+  await startSampler(A);
+  await switchTab("#/home");
+  await sleep(5000);
+  let sv = await stopSampler(A);
+  check("V9 Reduce Motion: no beacon on a tab switch", sv.beacons === 0, `beacons ${sv.beacons}`);
+  await A.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "no-preference" }]);
+  await sleep(3500);
+  await setWeakSignal(true);
+  await startSampler(A);
+  await switchTab("#/shop");
+  await sleep(5000);
+  sv = await stopSampler(A);
+  check("V9 a tab whose first fetch fails: no beacon (and OFFLINE shows)", sv.beacons === 0 && (await shopState(A)).indicator, `beacons ${sv.beacons}`);
+  await setWeakSignal(false);
+  await waitFor(async () => !(await shopState(A)).indicator, 20000, 300);
+  await shot(A, "offline-v9");
 
   check("the queue is empty at the end", Object.keys(await queueInStorage(A)).length === 0 && !(await wrapInStorage(A)), JSON.stringify(await queueInStorage(A)));
   const ck = await cacheKeys(A);
