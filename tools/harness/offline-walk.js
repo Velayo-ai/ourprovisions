@@ -138,31 +138,49 @@ const startSampler = (page) => page.evaluate(() => {
   }, 25);
 });
 const sampled = (page) => page.evaluate(() => ({ ...window.__s }));
-// The beacon's shape (C9, revised 23:58): every 20 ms for `ms`, each dot's fill brightness. Peaks = the
-// brightest moment of each spell above the threshold. Clockwise = top-left (hd1) → top-right (hd3) →
-// bottom (hd2); a turn = top-left's second peak − its first.
-const measureBeacon = async (page, run, ms = 8500) => {
+// The beacon's shape (C9, revised 23:58 and 00:24): every 20 ms for `ms`, from rest before the beacon to rest
+// after it, each dot's fill brightness (r+g+b) and opacity (its own × the SVG's), and whether the SVG
+// element was ever replaced (a remount). Peaks = the brightest moment of each spell above the threshold.
+// Clockwise = top-left (hd1) → top-right (hd3) → bottom (hd2); a turn = top-left's second peak − its first.
+// REST_SUM = #C9A97A (201+169+122): the beam only adds light, so no sample may fall below it.
+const REST_SUM = 492;
+const measureBeacon = async (page, run, ms = 9500) => {
   await page.evaluate(() => {
-    window.__bm = { t0: performance.now(), rows: [] };
+    window.__bm = { t0: performance.now(), rows: [], svgs: new Set(), svgCount: 0, low: [] };
     window.__bmt = setInterval(() => {
+      const svg = document.querySelector(".harbor-light svg.harbor-dots");
+      if (!svg) { window.__bm.low.push(["no-svg", Math.round(performance.now() - window.__bm.t0)]); return; }
+      if (!window.__bm.svgs.has(svg)) { window.__bm.svgs.add(svg); window.__bm.svgCount++; }
+      const op = (el) => parseFloat(getComputedStyle(el).opacity || "1");
       const f = (c) => { const m = (getComputedStyle(c).fill || "").match(/\d+/g); return m ? (+m[0]) + (+m[1]) + (+m[2]) : 0; };
-      const d = ["hd1", "hd3", "hd2"].map((k) => document.querySelector(`.harbor-light .${k}`));
-      if (d.every(Boolean)) window.__bm.rows.push([performance.now() - window.__bm.t0, ...d.map(f)]);
+      const d = ["hd1", "hd3", "hd2"].map((k) => svg.querySelector(`.${k}`));
+      const svgOp = op(svg);
+      window.__bm.rows.push([performance.now() - window.__bm.t0, ...d.map(f), ...d.map((c) => op(c) * svgOp), svg.getAttribute("class")]);
     }, 20);
   });
   await run();
   await sleep(ms);
-  const rows = await page.evaluate(() => { clearInterval(window.__bmt); return window.__bm.rows; });
+  const bm = await page.evaluate(() => { clearInterval(window.__bmt); return { rows: window.__bm.rows, svgCount: window.__bm.svgCount, low: window.__bm.low }; });
+  const rows = bm.rows;
   const peaks = [1, 2, 3].map((col) => {
     const out = []; let best = null;
     for (const r of rows) {
-      if (r[col] > 640) { if (!best || r[col] > best[1]) best = [r[0], r[col]]; }
+      if (r[col] > 560) { if (!best || r[col] > best[1]) best = [r[0], r[col]]; }
       else if (best) { out.push(Math.round(best[0])); best = null; }
     }
     if (best) out.push(Math.round(best[0]));
     return out;
   });
-  return { tl: peaks[0], tr: peaks[1], bottom: peaks[2], samples: rows.length };
+  // Below rest: any fill under #C9A97A, any opacity under 1, or the SVG missing.
+  const below = rows.filter((r) => r[1] < REST_SUM || r[2] < REST_SUM || r[3] < REST_SUM || r[4] < 0.999 || r[5] < 0.999 || r[6] < 0.999)
+    .map((r) => [Math.round(r[0]), r[1], r[2], r[3], +r[4].toFixed(2), +r[5].toFixed(2), +r[6].toFixed(2)]);
+  const firstBeacon = rows.findIndex((r) => /beacon/.test(r[7]));
+  const lastBeacon = rows.length - 1 - [...rows].reverse().findIndex((r) => /beacon/.test(r[7]));
+  const peakSum = Math.max(...rows.map((r) => Math.max(r[1], r[2], r[3])));
+  return {
+    tl: peaks[0], tr: peaks[1], bottom: peaks[2], samples: rows.length, below: below.concat(bm.low), svgCount: bm.svgCount, peakSum,
+    restBefore: firstBeacon > 0, restAfter: firstBeacon >= 0 && lastBeacon < rows.length - 1,
+  };
 };
 const stopSampler = (page) => page.evaluate(() => { clearInterval(window.__sampler); return window.__s; });
 // Reconnected and settled: nothing queued, no dots.
@@ -445,6 +463,8 @@ const HOLD_AND_MOVE_MS = 4000;   // the 3 s hold + beat 2
   const turn = bm.tl.length === 2 ? bm.tl[1] - bm.tl[0] : null;
   check("V9 the beacon turns clockwise (top-left → top-right → bottom), two turns", clockwise, JSON.stringify(bm));
   check("V9 a turn takes ~3 s", turn !== null && Math.abs(turn - 3000) <= 300 && bm.tr.length === 2 && Math.abs((bm.tr[1] - bm.tr[0]) - 3000) <= 300, `turn ${turn} ms; top-right ${bm.tr.length === 2 ? bm.tr[1] - bm.tr[0] : "?"} ms`);
+  check("V9 the beam only adds light: no dot below its resting brightness or opacity — before, during or after; no remount", bm.below.length === 0 && bm.svgCount === 1 && bm.restBefore && bm.restAfter, `samples ${bm.samples}; below rest ${bm.below.length} ${JSON.stringify(bm.below.slice(0, 5))}; SVG elements seen ${bm.svgCount}; rest before ${bm.restBefore}, after ${bm.restAfter}`);
+  check("V9 …and it does lift above rest (the brighter gold #F2D49B = 609)", bm.peakSum >= 600, `peak r+g+b ${bm.peakSum}`);
   check("V9 a travelling beam: each dot's light overlaps the next (≈1 s apart, not steps)", bm.tr[0] - bm.tl[0] > 700 && bm.tr[0] - bm.tl[0] < 1300 && bm.bottom[0] - bm.tr[0] > 700 && bm.bottom[0] - bm.tr[0] < 1300, `gaps ${bm.tr[0] - bm.tl[0]} / ${bm.bottom[0] - bm.tr[0]} ms`);
   for (const tab of ["#/plan", "#/browse", "#/shop", "#/home"]) {
     await startSampler(A);
