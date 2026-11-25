@@ -149,6 +149,22 @@ Stop and report if Step 0 finds a second write path for Ask picks, or if anythin
 
 ---
 
+## As built — slice 2, the client (dev `542771d` → `222063e`, 2026-11-24; relay `a0d703d`)
+
+Five departures, **accepted by Dan 2026-11-24**:
+1. **The queue entry carries `items`**: the picks' `{ id, name, category }` from the ask's shelf at send time. Display only, like `label`; never sent. An overlay row for an item not on the list needs a name, the shelf can hold items hidden from Browse, and a deleted ask is gone from the asks list.
+2. **A fresh run id after any send that resolved** (landed or queued); the same one is reused only after a send that threw. A run id recorded with `landed 0` (B9.3) would answer every later That's it! with 0.
+3. **A check is held only if it was tapped after a covering landing.** One tapped before the pick goes first, so check-then-pick lands as a new need (D4).
+4. **A landing restored from storage already landed retires at once**, so a cached list that already holds it never shows it twice.
+5. **The 8 s limit uses its own `AbortController`**, not `AbortSignal.timeout()` (that rejects with a `TimeoutError`, which `classifyFetchError` calls real).
+
+Known gaps — **NOT BUILT** (rare, off grid only; Dan rules them later; ROADMAP NEXT):
+- **(i) One intent per row.** A check tapped both before and after a pick on the same row keeps only the later one, so the server sees a +1 where it would have seen a new need (the quantity differs).
+- **(ii) A checked overlay-only row after an offline Wrap up** stays on this phone's list until the replays land (the Wrap up's `hideIds` don't know overlay rows; an unchecked pick is carried forward, as verification 6 wants).
+- **(iii) Browse − / remove on an overlay-only item** online changes nothing on the server, and the overlay keeps showing it until its replay.
+
+---
+
 ## Open
 
 None in design. Ruled 2026-11-24: Q1 → O5 (land anyway), promotion → O6 (this first). Step 0 may raise build questions.
