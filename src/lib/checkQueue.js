@@ -19,7 +19,10 @@
 //   hideIds — every row this phone had at the tap except the ones carried: the trip it just finished,
 //             kept off screen until the replay lands, so the list looks wrapped up.
 //
-// KEYING. All three live under `<prefix><clerkId>:<householdId>`. A key for any other person or place is
+// THE ASK QUEUE (SPEC_ask_offline D2) lives in lib/askQueue under its own prefix, ASK_PREFIX below, so the
+// keying, discard and clear rules here cover it too.
+//
+// KEYING. All four live under `<prefix><clerkId>:<householdId>`. A key for any other person or place is
 // discarded on load, never sent or shown (a shared phone must never show the previous user's list or send
 // their queue). Sign-out and a household switch clear every key of both kinds.
 //
@@ -28,11 +31,13 @@
 export const QUEUE_PREFIX = "op_check_queue:";
 export const CACHE_PREFIX = "op_list_cache:";
 export const WRAP_PREFIX = "op_wrap_queue:";
+export const ASK_PREFIX = "op_ask_queue:";
 const CACHE_VERSION = 1;
 
 export const queueKey = (clerkId, householdId) => `${QUEUE_PREFIX}${clerkId}:${householdId}`;
 export const cacheKey = (clerkId, householdId) => `${CACHE_PREFIX}${clerkId}:${householdId}`;
 export const wrapKey = (clerkId, householdId) => `${WRAP_PREFIX}${clerkId}:${householdId}`;
+export const askKey = (clerkId, householdId) => `${ASK_PREFIX}${clerkId}:${householdId}`;
 
 export const defaultStorage = () => {
   try { return typeof window !== "undefined" ? window.localStorage : null; } catch (e) { return null; }
@@ -43,7 +48,7 @@ const ownKeys = (store) => {
   try {
     for (let i = 0; i < store.length; i++) {
       const k = store.key(i);
-      if (k && (k.startsWith(QUEUE_PREFIX) || k.startsWith(CACHE_PREFIX) || k.startsWith(WRAP_PREFIX))) out.push(k);
+      if (k && (k.startsWith(QUEUE_PREFIX) || k.startsWith(CACHE_PREFIX) || k.startsWith(WRAP_PREFIX) || k.startsWith(ASK_PREFIX))) out.push(k);
     }
   } catch (e) { /* storage unavailable */ }
   return out;
@@ -52,7 +57,7 @@ const ownKeys = (store) => {
 // Removes every queue and cache key that isn't this person's at this place. Returns the keys removed.
 export function discardForeign(clerkId, householdId, store = defaultStorage()) {
   if (!store) return [];
-  const keep = new Set([queueKey(clerkId, householdId), cacheKey(clerkId, householdId), wrapKey(clerkId, householdId)]);
+  const keep = new Set([queueKey(clerkId, householdId), cacheKey(clerkId, householdId), wrapKey(clerkId, householdId), askKey(clerkId, householdId)]);
   const gone = ownKeys(store).filter((k) => !keep.has(k));
   gone.forEach((k) => { try { store.removeItem(k); } catch (e) { /* storage unavailable */ } });
   return gone;
@@ -222,14 +227,27 @@ export function hideForWrap(rows, wrap, idOf = (r) => r.id) {
   return (rows || []).filter((r) => !hide.has(idOf(r)));
 }
 
-// Order on the flush: checks tapped before the Wrap up go first (they're part of the trip it closes); a check
+// Order on the flush (SPEC_ask_offline D4): the queue's checks split at every boundary, a queued Ask landing
+// or the queued Wrap up, by tap time. Segment i holds the checks tapped after boundary i-1 and at or before
+// boundary i; the last segment, the checks after every boundary. The flush sends a segment, then replays
+// its boundary, then moves on. taps = the boundaries' tap times (ISO), in any order. Returns taps.length + 1
+// arrays of ids.
+export function splitAtTaps(entries, taps) {
+  const at = (taps || []).map((t) => Date.parse(t)).sort((a, b) => a - b);
+  const segments = at.map(() => []).concat([[]]);
+  Object.keys(entries || {}).forEach((id) => {
+    const t = Date.parse(entries[id].tapAt);
+    let i = 0;
+    while (i < at.length && t > at[i]) i++;
+    segments[i].push(id);
+  });
+  return segments;
+}
+
+// The Wrap up's own split (C6): checks tapped before it go first (they're part of the trip it closes); a check
 // tapped after it belongs to the next trip and waits until the Wrap up has landed.
 export function splitAroundWrap(entries, wrap) {
-  const ids = Object.keys(entries || {});
-  if (!wrap) return { before: ids, after: [] };
-  const at = Date.parse(wrap.tapAt);
-  const before = [];
-  const after = [];
-  ids.forEach((id) => { (Date.parse(entries[id].tapAt) <= at ? before : after).push(id); });
+  if (!wrap) return { before: Object.keys(entries || {}), after: [] };
+  const [before, after] = splitAtTaps(entries, [wrap.tapAt]);
   return { before, after };
 }
