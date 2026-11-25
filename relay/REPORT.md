@@ -1,61 +1,68 @@
-Reported: 2026-11-24 22:05 ET · dev 222063e · main 54d453c · re: Ask off grid slice 2 — the client (queue, send, flush, overlay) · prompt 56ad49e
+Reported: 2026-11-24 22:48 ET · dev 6bcc05e · main 54d453c · re: Ask off grid slices 3 + 4 · prompt 048d190
 
-# Slice 2 is on dev: an Ask send off grid now carries on to Great picks, and Paige's list shows it. Prod untouched.
+# Slice 3 is on dev, and the dev pre-walk is green: ask-offline-walk 32/32, wagon-walk ALL PASS, shop-burst 0 reverts. Ready for Dan's phone walk. Prod untouched.
 
-## Shas, all pushed to origin/dev with Dan's OK
+## Shas, all pushed to origin/dev (Dan's OK for this prompt: each when green)
 | | sha | Jest | `CI=true` build |
 |---|---|---|---|
-| push of slice 1 | `eb467a1` | — | — |
-| spec: 089 recorded as built (both departures ruled 21:32, md5s `9d80b8ab…` / `32ff20db…`, ledger `20261125022124`) | `93ca0fe` | — | — |
-| (a) `lib/askQueue` + `checkQueue.splitAtTaps` | `542771d` | 84 suites / **1293** green | green |
-| (b) the send + the flush | `7538d1d` | 84 / **1297** green | green |
-| harness: `wagon-walk.js` fix (Velayo OS) | `b42ab45` | — | — |
-| (c) the overlay | `222063e` | 84 / **1301** green | green |
+| docs: slice 2 as built (the five departures, accepted) + the three gaps NOT BUILT; ROADMAP NEXT "Ask off grid: the three known gaps (SPEC_ask_offline)" | `e92569d` | — | — |
+| slice 3: O4 / D6 | `d65d795` | 84 suites / **1313** green | green |
+| harness: `tools/harness/ask-offline-walk.js` (Velayo OS) | `6bcc05e` | — | — |
 
-## What's built
-- **(a) `src/lib/askQueue.js`:**
-  - The queue `op_ask_queue:<clerkId>:<householdId>` with wrapped storage. Its prefix joins `ownKeys` / `discardForeign` / `clearCheckStorage`, so sign-out and a household switch clear it.
-  - `splitAtTaps`: `splitAroundWrap` is now its one-boundary case, unchanged.
-  - The synthetic key `ask:<runId>:<cid>` and `rekeySynth`.
-  - `askSendIsTransient` (D1 + 2a + 2c).
-  - `applyAskOverlay` with 087's three branches in tap order, and `liveLandings` (no blink).
-- **(b) `landAskPicks(askId, ids, style, runId)`:**
-  - Every send carries `p_run_id`.
-  - **Known off grid** (`navigator.onLine === false || offlineRef.current`) → queued, no request.
-  - A **transient error**, a **missing token while off grid (2a)** or the **8 s limit (2c)** → queued with the same run id.
-  - A queued send resolves `{ landed: ids.length, skippedIds: [], queued: true }`. Real errors still throw; AskRun is untouched.
-  - **Telemetry:** `ask_land_queued` (count + style); `ask_completed` once, when the replay lands, with the server's count; `ask_land_dropped` (code only) when D5 drops one, silently.
-  - **The flush** walks boundaries in tap order (`planFlushStep`): the checks before → the landing (`p_run_id` + `p_tapped_at`) or the Wrap up → a fresh list read → the re-key of the held checks → on to the next.
-  - **A synthetic key never reaches the network:**
-    - `runCheckWrite` holds it, along with any check of a row a queued landing covers when that check was tapped after the landing.
-    - `sendQueuedChecks` never sends one.
-    - `planFlushStep` never plans one (Jest).
-  - The flag gate stays first in the one request site (`callLandAskPicks`), pinned in `featureFlags.test.js`.
-- **(c) One `useMemo` at the hook's return** (`shownListState`) derives the shown `listRows` / `quantities` / `checked` / `queuedChecks`, and the overlay rows get the dot. `listRowsRef`, the list cache and its signature, and the queued Wrap up keep server truth. A landing leaves the overlay only after its replay landed **and** a read that started after it was applied, in the same render as its row arrives. See highlights overlay rows (catalog ids). A tap's intent starts from the shown state.
-- **Jest (c), as asked:** the three branches, no blink (before and after the read: same quantity, the dot goes with the read), a Browse +1 online on an overlay-only item (the server row it makes gets the pick on top: one row, qty 2), a check and its Undo on an overlay row cancelling out, plus two landings of one new item and the tap-order cases.
+## Slice 3 (`d65d795`)
+- **AskRun:** with a full wagon whose last send failed with a real error, Done reads **"Hold to finish"**, and holding it calls `onExit({ keep: true })`. That's not an abandon: no `ask_abandoned`. `tapTile` / `takeOut` clear `failed`, which brings "Hold to send" back. Not full → abandon, full → send, as before.
+- **App:**
+  - `onExit({ keep })` sets a one-shot `keepHeldRef`. At the end of the run, the clearing effect **parks** `op_ask_held` instead of clearing it.
+  - `handoverAsk(askId)` → `handoverResume(loadHeldAsk(), asks, askId)`. The same ask → `setRunResume({ screen, ids })` before `setRunAskId`. Another ask → the key is cleared.
+- **Jest:**
+  - D6's table row by row on **both styles**: not full → finish; full → send; real error → finish; a change to the wagon → send.
+  - Keep: the run closes with `{ keep: true }`, the picks are held, and no `ask_abandoned`.
+  - A queued send is not a failure (Great picks, no red line).
+  - The hand-over resumes on the shelf, wagon full, "Hold to send", as `ask_resumed`.
+  - Another ask's hand-over clears the key. A parked key reads back as parked.
+  - The App wiring is pinned by source.
+- **Pinned source strings updated:**
+  - `askRail.test.js`'s one-line `handoverAsk` is now a regex on the new body.
+  - In the new Explorer D6 tests, the swipe's trailing click (which real browsers send and the drag swallows) is sent explicitly, because jsdom sends none.
 
-## Smoke (local build, Ask on, dev database, Cody Test)
-- **`wagon-walk.js`: ALL PASS** with (b), and again with (c). Online sends are unchanged: Shopper (4) and Explorer (1), Great picks, give back, See.
-- **First run failed twice; both were stale walk checks, not the app.** The 120px drag started at 75% of the wagon, so the release fell off the 375px screen and no `land_ask_picks` was ever sent. The fade check waited 3.7 s against See's 5.2 s highlight. Fixed in `b42ab45`. This was the rev 3 walk's first run since the rev 3 harness change.
-- **Off-grid probe** (a throwaway script, not committed), all PASS:
-  1. CDP offline → Explorer swipe → Great pick, no red line, no request, `op_ask_queue` = 1.
-  2. The toast reads "Kid added 1".
-  3. See → Apples highlighted, with the dot and "Picked by Kid".
-  4. Back on grid → exactly one `land_ask_picks` carrying `p_run_id` and `p_tapped_at`, answered 200. The queue empties, the dot clears, and the row stays.
+## Slice 4: the pre-walk on the DEV deployment
+**Dev bundle read-back:** the build tag on `dev.ourprovisions.velayo.ai` reads **`dev · d65d795`**, bundle **`main.649d8cc3.js`**. Every walk below logged the same bundle. (`6bcc05e` is harness-only; the app is the same.)
 
-  Its Apples was taken back off the test list after.
-- **Not yet checked:** the dev deployment's bundle isn't read back here, and there's no harness offline pass or phone walk. Those belong to slice 4 (verification 1–10).
+**`wagon-walk.js` (online, both styles): ALL PASS** (27 checks): Shopper 4 and Explorer 1, Great picks, give back, See (highlight + fade), the H1–H13 rules, reduced motion, held Close.
+
+**`shop-burst.js` revert mode (`OP_BURST_REVERTS=5`): ALL PASS.** Bursts 1–5 were each 6/6 still checked after 6 s, with **0 reverts**, and it tidied its 7 rows.
+
+**`ask-offline-walk.js`, new: 32/32 PASS** (after three walk fixes, below). Tab A is the phone (CDP offline, request interception); tab B is the second phone's token over PostgREST.
+| # | check | |
+|---|---|---|
+| — | the build is `d65d795`; the walk's three asks are on the rail (or in +N more) | PASS |
+| V1 | **Explorer off grid**: the swipe → Great pick, no red line · waits on the phone (`op_ask_queue` 1), **no request** · the toast "OG Kid added 1" · **See**: the row highlighted, **with the dot** and "Picked by OG Kid" | PASS ×4 |
+| V2 | **Shopper off grid**: a tub tap → Great picks · "OG Shop added 2" · **Done held full** ("Hold to send") → Great picks | PASS ×3 |
+| V1–V8 | every off-grid send waited (**7 runs**), no request made | PASS |
+| V3 | **on grid**: the landings, the checks and the Wrap up all go out · **exactly one `land_ask_picks` per run (7), each with `p_run_id` + `p_tapped_at`, each 200** · no dots left, nothing said · the second phone reads every pick with its "Picked by" | PASS ×4 |
+| V4 | **lost reply** (the request forwarded to the server, the page's copy failed): Great pick, no red line · the retry carries the **same run id** and gets the first count back (forwarded 200 "1", replay 200) · **+1, not +2** (1 → 2) · **`ask_landings` for that run: exactly 1 row, landed 1** (SQL, below) | PASS ×3 + SQL |
+| V5 | the new pick shows off grid as an overlay row with the dot · its check waits under `ask:<run>:<item>` · **check-then-pick** → a new need at 1, labelled · **pick-then-check** → the row exists, **bought, `status_changed_at` = the check's tap time to the millisecond** (`03:46:18.746`) | PASS ×4 |
+| V6 | Wrap up off grid waits (`op_wrap_queue`) · the unchecked pick before it is **carried forward, not archived** | PASS ×2 |
+| V7 | **O4**: a forced real error (400 `22023`) → the red line, Done "Hold to finish" · holding it closes the run, `op_ask_held` kept **and parked**, both picks · **the next hand-over of the same ask opens the shelf, wagon full, "Hold to send"** · …and it sends for real (+1) | PASS ×4 |
+| V8 | **O5**: picked off grid, the ask deleted on the second phone, reconnect → **lands, labelled "OG Gone"** | PASS |
+| V9 | the prod bundle's call, **three named args, through PostgREST against dev** → returns 1, the row +1 | PASS |
+| — | tidy: the list empty, the walk's asks deleted (read back 0 / 0) | PASS |
+
+Spec verification 10 (Jest) is green above. What's left for the phone: real iOS, the swipe under a finger, the timing, one bar rather than airplane mode, and the second phone's screen.
+
+**Cleanup:**
+- **Walk rows:** removed by the walk itself and read back over REST: Cody Test House live list rows **0**, live "OG …" asks **0**.
+- **`ask_landings`:** it has no client grant, so I read it by SQL on dev (CLI, ref `zxwtxjjmssykhqrghouf`, system id `7642734024280108049`). V4's run had exactly 1 row. All **34** rows were Cody Test House's: today's walks, the slice-2 probe, and wagon-walk's online sends, which now carry run ids. I deleted them; read back: `ask_landings` **0**, live rows **0**, walk asks **0**.
+
+**Three walk-script fixes before the green run (the app was right each time):**
+1. Shopper's "Let's pick" is `.ask-turn .ask-primary`, not `.ask-go`.
+2. The tub's That's it! is an SVG part, so it needs a dispatched click.
+3. The forced 400 needed **CORS headers**. Without them the browser rejects it as a network failure. The app then **correctly** treated it as transient, queued it and replayed it once, which itself shows D1 working.
+
+The earlier runs' rows were tidied by each run and by the next setup.
 
 ## Departures from the spec, for a ruling
-1. **The queue entry carries `items`**, the picks' `{ id, name, category }` from the ask's shelf at send time. It's display only, like `label`, and never sent. Why: an overlay row for an item not on the list needs a name. The Ask shelf can include items hidden from Browse, so the catalog map can't always name them, and a deleted ask is gone from the asks list.
-2. **The run id is fresh after any send that resolved; it's reused only after a send that threw.** The spec says "the caller passes it in, so a retry from the same run reuses it". A real error rolls back, so reuse is safe. But a run id recorded with `landed 0` (B9.3: nothing landed, the run stays open) would answer every later That's it! with 0 for ever. App keeps the id in a ref per run.
-3. **A check is held only if it was tapped after a covering landing.** A check tapped *before* the pick goes first, so check-then-pick lands as a new need (D4).
-4. **A landing restored from storage already landed retires at once** instead of waiting for a read. The cached list may already hold it, and it must not show twice.
-5. **The 8 s limit uses its own `AbortController`,** not `AbortSignal.timeout()`. That one rejects with a `TimeoutError`, which `classifyFetchError` would call real.
+1. **A kept run is parked.** It's `op_ask_held` with `parked: true`, and the reload resume (A26) skips a parked key. Without it, a reload after "Hold to finish" would pop the run back open by itself, with no hand-over. O4 says the *next hand-over* reopens it. Fixture: V7 + Jest.
+2. **"Hold to finish" after a real error emits no event.** Not `ask_abandoned`, since nothing is thrown away. The failure already has its `ask_land_failed`. Say if you want an event for "closed and kept".
 
-## Known gaps, not built (say if any should be)
-- **(i) One intent per row:** a check tapped both before and after a pick on the same row keeps only the later one (the queue's existing collapse). The server then gets a +1 instead of a new need, so the quantity differs.
-- **(ii) A queued Wrap up after an offline pick:** overlay rows aren't in its roll choice or `hideIds`. An unchecked pick is always carried forward, which matches verification 6. A *checked* overlay-only row stays visible on this phone until the replays land.
-- **(iii) Browse − / remove online on an overlay-only item** changes nothing on the server, and the overlay keeps showing it until its replay.
-
-Slice 3 (O4 / D6, AskRun's Done) waits for its own prompt. Prod untouched.
+Nothing else departs. The promotion order stays 088 → 089 → client (O6). Stopping here: Dan walks it on the phone next.
