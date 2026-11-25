@@ -1,68 +1,63 @@
-Reported: 2026-11-24 22:48 ET · dev 6bcc05e · main 54d453c · re: Ask off grid slices 3 + 4 · prompt 048d190
+Reported: 2026-11-24 23:40 ET · dev 9c2eb3a · main 5098508 · re: promotion 088 → 089 → client · prompt d7180b4
 
-# Slice 3 is on dev, and the dev pre-walk is green: ask-offline-walk 32/32, wagon-walk ALL PASS, shop-burst 0 reverts. Ready for Dan's phone walk. Prod untouched.
+# Live on prod: offline check-off + offline calm, Ask rev 3 and Ask off grid. 088 → 089 → main, each read back. Dan's prod walk is next.
 
-## Shas, all pushed to origin/dev (Dan's OK for this prompt: each when green)
-| | sha | Jest | `CI=true` build |
-|---|---|---|---|
-| docs: slice 2 as built (the five departures, accepted) + the three gaps NOT BUILT; ROADMAP NEXT "Ask off grid: the three known gaps (SPEC_ask_offline)" | `e92569d` | — | — |
-| slice 3: O4 / D6 | `d65d795` | 84 suites / **1313** green | green |
-| harness: `tools/harness/ask-offline-walk.js` (Velayo OS) | `6bcc05e` | — | — |
+**Prod now:** main **`5098508`**, a single-parent commit on `54d453c` whose **tree = dev `2b07573`** (`a247a845…`, proven equal before the push). Deployment **`dpl_3niRSygTFv6vT9RTQPhPz8Mrjpzc`**, bundle **`main.92d845f6.js`**, aliased to `ourprovisions.velayo.ai`.
+**Rollback:** Instant Rollback to **`dpl_D5cbUAGqNdVdmFi81kEe8vMpq4tb`** (`54d453c`), never a redeploy. For the database, `089_rollback.sql` then `088_rollback.sql`, after the client is reverted.
 
-## Slice 3 (`d65d795`)
-- **AskRun:** with a full wagon whose last send failed with a real error, Done reads **"Hold to finish"**, and holding it calls `onExit({ keep: true })`. That's not an abandon: no `ask_abandoned`. `tapTile` / `takeOut` clear `failed`, which brings "Hold to send" back. Not full → abandon, full → send, as before.
-- **App:**
-  - `onExit({ keep })` sets a one-shot `keepHeldRef`. At the end of the run, the clearing effect **parks** `op_ask_held` instead of clearing it.
-  - `handoverAsk(askId)` → `handoverResume(loadHeldAsk(), asks, askId)`. The same ask → `setRunResume({ screen, ids })` before `setRunAskId`. Another ask → the key is cleared.
-- **Jest:**
-  - D6's table row by row on **both styles**: not full → finish; full → send; real error → finish; a change to the wagon → send.
-  - Keep: the run closes with `{ keep: true }`, the picks are held, and no `ask_abandoned`.
-  - A queued send is not a failure (Great picks, no red line).
-  - The hand-over resumes on the shelf, wagon full, "Hold to send", as `ask_resumed`.
-  - Another ask's hand-over clears the key. A parked key reads back as parked.
-  - The App wiring is pinned by source.
-- **Pinned source strings updated:**
-  - `askRail.test.js`'s one-line `handoverAsk` is now a regex on the new body.
-  - In the new Explorer D6 tests, the swipe's trailing click (which real browsers send and the drag swallows) is sent explicitly, because jsdom sends none.
+## 1. Pre-checks (read only)
+- **Dev head** was `6bcc05e`: the app Dan walked (`d65d795`) plus the harness commit. Jest 84 / **1313** green; `CI=true` build green.
+- **Prod** was main `54d453c` on `dpl_D5cbUAGqNdVdmFi81kEe8vMpq4tb` (READY, rollback candidate), confirmed in Vercel.
+- **Prod database**, by ref `parpauldmbetptkmdwbd`, system id `7606130613603586966`:
+  - `land_ask_picks(uuid,uuid,uuid[])` = `1376af1f…` and `asks_stamp_deleted_by` = `50b66842…` (what 089's rollback assumes).
+  - `edit_ask` = `39466771…`, `update_ask` = `bda189ca…`.
+  - No 088 or 089 objects.
+- **Unexpected, as recorded before:** prod has **no ledger** (`supabase_migrations.schema_migrations` doesn't exist), so the prompt's "ledger tops at 087" doesn't apply. Applied on prod = the object read-back, as with 072–087.
 
-## Slice 4: the pre-walk on the DEV deployment
-**Dev bundle read-back:** the build tag on `dev.ourprovisions.velayo.ai` reads **`dev · d65d795`**, bundle **`main.649d8cc3.js`**. Every walk below logged the same bundle. (`6bcc05e` is harness-only; the app is the same.)
+## 2. 088 on prod (Dan's OK) — 2026-11-25 04:27 UTC
+- **How:** the committed file minus its fixture block, with a prod-only preflight (087's practice), through the CLI linked by ref and relinked to dev after.
+- **Read-back:**
+  - Committed; the column is there (not null, default `now()`), on all 709 rows.
+  - The trigger is on, and BEFORE UPDATE runs `picked_by_guard → resurrect → status_changed_at`.
+  - The function is invoker with `search_path ""` and ACL `''`; body **`ac36b001fc182d8ba1b06c82522135fb` = dev**.
+  - `authenticated` may write the column; anon may not.
+  - **Backfill:** 260 rows from a check event + 449 from the fallback = 709; 0 null, 0 stamped now.
+  - Fixture rows 0.
 
-**`wagon-walk.js` (online, both styles): ALL PASS** (27 checks): Shopper 4 and Explorer 1, Great picks, give back, See (highlight + fade), the H1–H13 rules, reduced motion, held Close.
+## 3. 089 on prod (Dan's OK) — 04:34 UTC
+- **How:** the same practice.
+- **Read-back:**
+  - Committed; **`land_3arg` 0, `land_5arg` 1**, 2 defaults, ACL `authenticated=EXECUTE`, secdef + `search_path ""`.
+  - `land_ask_picks` **`9d80b8ab…`** and `asks_stamp_deleted_by` **`32ff20db…`**, both = dev.
+  - `ask_landings`: RLS on, 0 policies, client grants `''`, service_role `DELETE,INSERT,SELECT,UPDATE`.
+  - `edit_ask` and `update_ask` unchanged; fixture rows 0.
+- **The live prod client (54d453c) against 089:** proven on prod in a **rolled-back transaction** with throwaway rows. The old client's **three named args**, run as `authenticated`, landed 1, labelled from the ask, and wrote no `ask_landings` row. Afterwards: 0 throwaway rows, `ask_landings` 0. No real household data was touched. (PostgREST's resolution of that shape was proven on dev: ask-offline-walk V9.)
 
-**`shop-burst.js` revert mode (`OP_BURST_REVERTS=5`): ALL PASS.** Bursts 1–5 were each 6/6 still checked after 6 s, with **0 reverts**, and it tidied its 7 rows.
+## 4. dev → main (Dan's OK)
+- **Dev `2b07573`, pushed first (docs only):**
+  - The prod-apply header addenda for **087** (owed since 2026-11-22), **088** and **089**.
+  - `SPEC_ask_offline` records slice 3 as built (a kept run is parked; no event on "Hold to finish", both accepted).
+- **The promotion commit:** made as recent promotions were (tree identity, not a merge commit). `5098508` = `commit-tree dev^{tree} -p origin/main`; parent = `54d453c`; tree = origin/dev's tree; then pushed.
+- **Vercel:** Production `dpl_3niRSygTFv6vT9RTQPhPz8Mrjpzc`, QUEUED → BUILDING → **READY** (~70 s).
+- **Bundle read-back** (the domain and the deployment URL both serve `main.92d845f6.js`):
+  - "Hold to give back" 1, "Off grid" 3, "Hold to finish" 3, `op_ask_queue:` 1, `p_run_id` 1, `p_tapped_at` 1, `op-ask:on` 1 (Ask on).
+  - The build sha `509850869f…` (main) is embedded 1×; the old `54d453c` 0×.
+  - **`op-build-tag` 0:** the build tag is dev-only by design, so prod has none. Its "dev sha" equivalent is the embedded main sha, whose tree is dev `2b07573`'s.
 
-**`ask-offline-walk.js`, new: 32/32 PASS** (after three walk fixes, below). Tab A is the phone (CDP offline, request interception); tab B is the second phone's token over PostgREST.
-| # | check | |
-|---|---|---|
-| — | the build is `d65d795`; the walk's three asks are on the rail (or in +N more) | PASS |
-| V1 | **Explorer off grid**: the swipe → Great pick, no red line · waits on the phone (`op_ask_queue` 1), **no request** · the toast "OG Kid added 1" · **See**: the row highlighted, **with the dot** and "Picked by OG Kid" | PASS ×4 |
-| V2 | **Shopper off grid**: a tub tap → Great picks · "OG Shop added 2" · **Done held full** ("Hold to send") → Great picks | PASS ×3 |
-| V1–V8 | every off-grid send waited (**7 runs**), no request made | PASS |
-| V3 | **on grid**: the landings, the checks and the Wrap up all go out · **exactly one `land_ask_picks` per run (7), each with `p_run_id` + `p_tapped_at`, each 200** · no dots left, nothing said · the second phone reads every pick with its "Picked by" | PASS ×4 |
-| V4 | **lost reply** (the request forwarded to the server, the page's copy failed): Great pick, no red line · the retry carries the **same run id** and gets the first count back (forwarded 200 "1", replay 200) · **+1, not +2** (1 → 2) · **`ask_landings` for that run: exactly 1 row, landed 1** (SQL, below) | PASS ×3 + SQL |
-| V5 | the new pick shows off grid as an overlay row with the dot · its check waits under `ask:<run>:<item>` · **check-then-pick** → a new need at 1, labelled · **pick-then-check** → the row exists, **bought, `status_changed_at` = the check's tap time to the millisecond** (`03:46:18.746`) | PASS ×4 |
-| V6 | Wrap up off grid waits (`op_wrap_queue`) · the unchecked pick before it is **carried forward, not archived** | PASS ×2 |
-| V7 | **O4**: a forced real error (400 `22023`) → the red line, Done "Hold to finish" · holding it closes the run, `op_ask_held` kept **and parked**, both picks · **the next hand-over of the same ask opens the shelf, wagon full, "Hold to send"** · …and it sends for real (+1) | PASS ×4 |
-| V8 | **O5**: picked off grid, the ask deleted on the second phone, reconnect → **lands, labelled "OG Gone"** | PASS |
-| V9 | the prod bundle's call, **three named args, through PostgREST against dev** → returns 1, the row +1 | PASS |
-| — | tidy: the list empty, the walk's asks deleted (read back 0 / 0) | PASS |
+## 5. After it's live
+- **"A new version is ready" on an old tab:** not observed here. No old prod tab was open, and the harness's test account is dev-only. Dan's installed app should show it the first time it comes to the foreground.
+- **Harness prod check:** not run. The harness signs in only as the dev test account (never prod), and every useful prod check touches real household data. The bundle markers above are the read-only check; the rest is Dan's prod walk.
+- **Docs, dev `9c2eb3a` (pushed, Dan's OK):**
+  - ROADMAP: the three items move to **DONE (prod)** with ids and rollback; Last updated notes the promotion.
+  - ARCHITECTURE: 088 / 089 **on prod**, and a new **Ask off grid** section (`ask_landings`, the 5-arg land, the client queue / flush / overlay, O4).
+  - Specs **→ `built/`**: `SPEC_ask_offline`, `SPEC_ask_handback_hold`, `SPEC_offline_calm_2026-11-23`, `SPEC_offline_checkoff_amendment_2026-11-23`. **`SPEC_offline_checkoff.md` stays in `active/`**: its later slices (the service worker, quantity → add → remove → price) are open.
+  - Next migration **090**.
+  - **SESSION_LOG is not written:** that's SESSION END's job (Dan's).
+- `main` = tree of dev `2b07573`; dev is one docs commit ahead (`9c2eb3a`), which rides the next promotion.
 
-Spec verification 10 (Jest) is green above. What's left for the phone: real iOS, the swipe under a finger, the timing, one bar rather than airplane mode, and the second phone's screen.
+## Unexpected
+- Prod has no ledger (expected from earlier sessions; the prompt assumed one).
+- The recent promotions were tree-identity commits, not merges. I followed them, and the tree identity is proven.
+- Nothing else. The database and client read-backs all matched dev.
 
-**Cleanup:**
-- **Walk rows:** removed by the walk itself and read back over REST: Cody Test House live list rows **0**, live "OG …" asks **0**.
-- **`ask_landings`:** it has no client grant, so I read it by SQL on dev (CLI, ref `zxwtxjjmssykhqrghouf`, system id `7642734024280108049`). V4's run had exactly 1 row. All **34** rows were Cody Test House's: today's walks, the slice-2 probe, and wagon-walk's online sends, which now carry run ids. I deleted them; read back: `ask_landings` **0**, live rows **0**, walk asks **0**.
-
-**Three walk-script fixes before the green run (the app was right each time):**
-1. Shopper's "Let's pick" is `.ask-turn .ask-primary`, not `.ask-go`.
-2. The tub's That's it! is an SVG part, so it needs a dispatched click.
-3. The forced 400 needed **CORS headers**. Without them the browser rejects it as a network failure. The app then **correctly** treated it as transient, queued it and replayed it once, which itself shows D1 working.
-
-The earlier runs' rows were tidied by each run and by the next setup.
-
-## Departures from the spec, for a ruling
-1. **A kept run is parked.** It's `op_ask_held` with `parked: true`, and the reload resume (A26) skips a parked key. Without it, a reload after "Hold to finish" would pop the run back open by itself, with no hand-over. O4 says the *next hand-over* reopens it. Fixture: V7 + Jest.
-2. **"Hold to finish" after a real error emits no event.** Not `ask_abandoned`, since nothing is thrown away. The failure already has its `ask_land_failed`. Say if you want an event for "closed and kept".
-
-Nothing else departs. The promotion order stays 088 → 089 → client (O6). Stopping here: Dan walks it on the phone next.
+**Dan's prod walk next:** offline check-off, OFF GRID + the beacon, an offline Wrap up, and an Ask run on and off grid (swipe, That's it! on the tub, hold to give back).
