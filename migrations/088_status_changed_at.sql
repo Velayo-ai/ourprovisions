@@ -56,6 +56,13 @@
 --   ac36b001fc182d8ba1b06c82522135fb. Backfill: 252 rows from an event, 202 from the fallback, 0
 --   mismatched, of 454. Ledger 20261123061608 088_status_changed_at. 088_rollback.sql parse-checked
 --   against the applied state (`commit;` → `rollback;`): its VERIFY passed, rolled back. NOT ON PROD.
+-- ADDENDUM (2026-11-25): APPLIED on prod 2026-11-25 04:27 UTC by Claude Code through the CLI (Dan approved;
+--   linked by ref parpauldmbetptkmdwbd, relinked to dev after): the fixture-free copy (this file minus the
+--   FIXTURE block, a prod-only preflight), as 087. Committed; col 1, not null, default now(); trigger on;
+--   BEFORE UPDATE order picked_by_guard → resurrect → status_changed_at; function invoker, search_path "",
+--   ACL ''; body ac36b001fc182d8ba1b06c82522135fb (= dev); authenticated may write the column, anon may not;
+--   backfill 260 rows from an event + 449 from the fallback = 709, 0 null; fixture_rows 0. Prod has no
+--   ledger: applied = this read-back. Before 089, as O6 orders.
 
 begin;
 

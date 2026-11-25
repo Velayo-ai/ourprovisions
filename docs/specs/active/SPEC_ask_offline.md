@@ -165,6 +165,14 @@ Known gaps — **NOT BUILT** (rare, off grid only; Dan rules them later; ROADMAP
 
 ---
 
+## As built — slice 3, O4 / D6 (dev `d65d795`, 2026-11-24; walked by Dan on the installed iPhone 23:13)
+
+Two departures, **accepted by Dan 2026-11-24**:
+1. **A kept run is parked.** "Hold to finish" after a real error stores `op_ask_held` with `parked: true`; the reload resume (A26) skips a parked key, so only the next hand-over of the same ask reopens it (on the shelf, the wagon full). Without it a reload would pop the run back open by itself.
+2. **"Hold to finish" after a real error emits no event.** It isn't an abandon (nothing is thrown away) and the failure already has its `ask_land_failed`.
+
+---
+
 ## Open
 
 None in design. Ruled 2026-11-24: Q1 → O5 (land anyway), promotion → O6 (this first). Step 0 may raise build questions.

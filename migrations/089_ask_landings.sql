@@ -71,6 +71,15 @@
 --   fixture re-run standalone against the committed state (begin … rollback): 30/30, cleanup 0.
 --   089_rollback.sql parse-checked against the applied state (`commit;` → `rollback;`): its VERIFY passed
 --   (land_ask_picks back to 1376af1f…, asks_stamp_deleted_by back to 50b66842…), rolled back. NOT ON PROD.
+-- ADDENDUM (2026-11-25): APPLIED on prod 2026-11-25 04:34 UTC by Claude Code through the CLI (Dan approved;
+--   after 088, before the client, O6), the fixture-free copy (this file minus the FIXTURE block, a prod-only
+--   preflight), as 087. Committed; land_3arg 0, land_5arg 1, 2 defaults, ACL authenticated=EXECUTE, secdef +
+--   search_path ""; land_ask_picks 9d80b8abd9d784a9690b271d1b32c527, asks_stamp_deleted_by
+--   32ff20db0b8d72379820786717238828 (= dev); ask_landings RLS on, 0 policies, client grants '',
+--   service_role DELETE,INSERT,SELECT,UPDATE; edit_ask / update_ask unchanged; fixture_rows 0. The live
+--   client's call (main 54d453c: three named args) proven on prod in a rolled-back transaction with
+--   throw-away rows: landed 1, labelled from the ask, no ask_landings row; 0 rows left, ask_landings 0.
+--   Prod has no ledger: applied = this read-back.
 
 begin;
 
