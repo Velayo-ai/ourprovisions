@@ -25,6 +25,50 @@ Done when: [clear success condition]
 
 ## LOG
 
+### [2026-11-25] — [OurProvisions] — Prod walk: offline check-off, offline calm and Ask off grid all pass on the installed app; offline add and quantity are silent no-ops (handoff `7d27270` merged)
+**Goal:** Walk the 11-24 promotion (main `5098508` / `main.92d845f6.js`: offline check-off + offline calm, Ask rev 3, Ask off grid; 088 → 089 on prod first) on Dan's installed iPhone. Design chat 2026-11-24 23:41 → 2026-11-25 00:32 ET; design handoff `7d27270`.
+**Completed:**
+- **Walked Ask off grid on prod, both styles** (Explorer: Everett; Shopper: Sesame Street): off grid, on grid, and off grid again. The wagon sends, Great picks, hold to give back, the toast and See all behave as online; on reconnect each run's picks land once with "Picked by", no doubles.
+- **Walked offline check-off on prod:** OFF GRID, item dots on offline checks, checking off and putting back, an offline Wrap up, then reconnect with no conflict.
+- **Confirmed the first prod "A new version is ready · Reload"** on the installed app (open since 2026-11-22). The release loop works end to end.
+- **Found: Ask shelf photos off grid show "?"** when the phone has never loaded them online (first run went off grid before the shelf's photos were fetched). Once seen online they survive a dead zone. Fix direction ruled: prefetch every Ask shelf's photos in the background when the household loads online, plus a kinder fallback than "?" (the item's name on a warm card).
+- **Found: off grid, + / − and manual Add are silent no-ops** (the button shows pressed, nothing happens). The known gap (slice 1 queues checks only), but silence breaks the calm principle. Ruled a new rule: **off grid, every tap answers** — either it works, or it says calmly why it can't, at the tap.
+**Unfinished:**
+- **Offline quantity and manual add** (the next slice). Remove and price after.
+- **Ask shelf photos off grid** (prefetch + fallback) not built.
+- **"Every tap answers"** not built; today a still-unsupported action off grid does nothing.
+- **V9** (sign out with changes waiting, sign in as someone else) still unwalked.
+- Carried: slice 2 (service worker); `shop-burst.js` fold-mode "Undo all" (1 of 6); SPEC_ask_offline's known gaps (i)–(iii); measure AI cost per household; the first-30-days design session; brand addendum 5; dev tidy-up.
+**Next session:**
+SESSION START
+Goal: Offline quantity and manual add: Step 0 then a spec for + / − and Add off grid, reusing the Ask off grid machinery (the queue, the run id / replay-once of 089, the overlay rows with the dot, tap-order flush). Quantity first if it splits (085's deltas replay cleanly).
+State: Prod main `5098508` / `main.92d845f6.js` (`dpl_3niRSygTFv6vT9RTQPhPz8Mrjpzc`; rollback `dpl_D5cbUAGqNdVdmFi81kEe8vMpq4tb`): offline check-off + offline calm + Ask off grid walked on the installed app; 088 and 089 on prod. Dev `9c2eb3a` + this SESSION END's docs commit (docs ahead of main). Next migration 090.
+Done when: on dev, off grid, + / − and Add work exactly as online (the row changes now with the small dot), replay once on reconnect with no conflict, and anything still unsupported answers the tap calmly; walked on the installed iPhone.
+**Files updated:** From Claude Code at this SESSION END: `docs/SESSION_LOG.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`. From chat: none (no spec or prompt).
+**DB changes:** None this session (088 and 089 went on prod in the preceding promotion).
+
+### [2026-11-25] — [Cross] — Ask off grid: Step 0, 089, the client queue and overlay, Done can always finish, the dev pre-walk — then 088 → 089 → main `5098508` on prod with offline check-off and Ask rev 3
+**Goal:** Unstick an Ask run off grid (Dan, dev `763686c`, 2026-11-24 ~20:30: a swipe off grid failed, and Done held full failed too) and ship it with offline check-off and Ask rev 3. Claude Code ran the design chat's prompts `db35f87` → `69ea55d` → `56ad49e` → `048d190` → `d7180b4` (spec `999034f`, rulings A/B/C/2a/2c and every departure accepted by Dan); no design handoff of its own (noted in `7d27270`).
+**Completed:**
+- **Step 0, read-only** (relay `608fdd4`): no stop; one write path for Ask picks. Found (A) 087 already dropped the target and shelf checks, so O5 only needed a deleted ask; (B) 088 stamps the replay time, so a check tapped after an offline pick would lose; (C) `asks.deleted_at` came from the phone's clock. Dan ruled A, B, C, 2a (a missing token off grid is transient) and 2c (an 8 s limit).
+- **089 on dev** (`eb467a1`, relay `a5e7a1b`): `ask_landings`; `land_ask_picks` 5-arg (a run id lands once, the lock above the input checks, a qualifying replay may land on a deleted ask, replayed rows get `status_changed_at = least(tap, now())`); `asks_stamp_deleted_by` stamps `deleted_at = now()`. Parse check, canary, fixture 30/30 (in-file and standalone), rollback parse-checked; ledger `20261125022124`; `land_ask_picks` `9d80b8ab…`.
+- **The client, slice 2** (`542771d` lib/askQueue, `7538d1d` send + flush, `222063e` overlay; relay `a0d703d`): a send off grid or with no answer waits on the phone with its run id and resolves as landed; the flush replays landings, checks and the Wrap up in tap order, re-keying checks held under `ask:<run>:<item>` (never sent); the overlay shows the picks at once with the dot and retires only after the read that follows the replay.
+- **Slice 3, O4 / D6** (`d65d795`): after a real error a full wagon's Done is "Hold to finish", which keeps the picks (`op_ask_held` parked); the next hand-over of that ask resumes on the shelf, wagon full. Jest 84 / 1313.
+- **Harness** (Velayo OS): `wagon-walk.js` fixed (`b42ab45`: the drag ran off screen; the fade wait); new `tools/harness/ask-offline-walk.js` (`6bcc05e`) **32/32 on dev `d65d795`**, plus `wagon-walk.js` and `shop-burst.js` revert ALL PASS (relay `b2e93e7`). Dan walked Ask off grid on the installed iPhone 2026-11-24 23:13: "everything works really well".
+- **Promoted to prod** (relay `b1051de`, each prod write on Dan's OK): **088 at 04:27 UTC, 089 at 04:34 UTC** (the fixture-free copies by project ref, read back by object; prod has no ledger), the live client's 3-arg call proven in a rolled-back transaction; then main **`5098508`** (tree = dev `2b07573`) → **`dpl_3niRSygTFv6vT9RTQPhPz8Mrjpzc` / `main.92d845f6.js`**, markers read back on the domain. Rollback = Instant Rollback to `dpl_D5cbUAGqNdVdmFi81kEe8vMpq4tb` / `54d453c`.
+- **Docs:** SPEC_ask_offline as built for slices 1–3 (`93ca0fe`, `e92569d`, `2b07573`); the prod-apply header addenda for 087 (owed since 11-22), 088 and 089 (`2b07573`); ROADMAP DONE, ARCHITECTURE and four specs → `built/` (`9c2eb3a`).
+**Unfinished:**
+- SPEC_ask_offline's three known gaps (one intent per row; a checked overlay-only row after an offline Wrap up; Browse − / remove on an overlay-only item), NOT BUILT, in NEXT.
+- No harness check on prod: the harness signs in only as the dev test account; prod was covered by the bundle read-back and Dan's prod walk (entry above).
+- `SPEC_offline_checkoff.md` stays in `active/`: its later slices (service worker; quantity → add → remove → price) are open.
+**Next session:**
+SESSION START
+Goal: As the entry above: offline quantity and manual add (Step 0, then a spec), reusing the Ask off grid machinery.
+State: Prod main `5098508` / `main.92d845f6.js` with 088 + 089, walked on the installed app (entry above). Dev docs ahead of main. Next migration 090.
+Done when: As the entry above.
+**Files updated:** `migrations/089_ask_landings.sql` + `089_rollback.sql` (new), `migrations/087_ask_shelf_deltas.sql` + `088_status_changed_at.sql` (prod addenda), `src/lib/askQueue.js` + test (new), `src/lib/checkQueue.js`, `src/hooks/useProvisions.js`, `src/App.js`, `src/components/AskRun.js` + test, `src/lib/askRun.js` + test, `src/lib/askPicks.js` + test, `src/lib/askTelemetry.js` + test, `src/lib/askRail.test.js`, `src/lib/featureFlags.test.js`, `tools/harness/wagon-walk.js`, `tools/harness/ask-offline-walk.js` (new), `docs/specs/built/SPEC_ask_offline.md` (routed and moved), four specs `active/` → `built/`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`.
+**DB changes:** Dev: 089 (ledger `20261125022124`); `ask_landings` test rows of Cody Test House deleted (34, read back 0). Prod: 088 (2026-11-25 04:27 UTC) and 089 (04:34 UTC), read back by object; no prod data changed (the 3-arg proof rolled back).
+
 ### [2026-11-24] — [OurProvisions] — Ask: the hand-back needs a hold, and the wagon is how you send it on both styles (H1–H13), built on dev (handoff `1c4a7bf` merged)
 **Goal:** Fix what Dan saw testing Ask Everett with Everett (age 2): his taps on the ✓ carried through to "Give it back to Dan" and ended Great picks within a second. Design chat 2026-11-24 ~01:00 → 02:06 ET; Claude Code built dev `8e66ffd` → `763686c` from prompts `00c8201` and `8e31f9b` (rev 3; rev 2 `ce8cd50` superseded, folded in).
 **Completed:**
