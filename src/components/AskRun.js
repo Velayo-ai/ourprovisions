@@ -593,16 +593,24 @@ export function AskRun({ ask, tiles: allTiles, onLand, onExit, resume = null, pa
     emitAskEvent("ask_abandoned", screen, picks.length, ask.screenStyle);
     onExit();
   };
+  // O4 / D6 (SPEC_ask_offline): after a send that failed for a real reason (off grid never fails: it waits on
+  // the phone), the adult can always get out. Done closes the run and KEEPS the picks: the next hand-over of
+  // this ask reopens the shelf with the wagon full. Not an abandon (nothing is thrown away).
+  const finishKeep = () => onExit({ keep: true });
   // W6: "Close" on the turn screen, "Done" on the shelf, nothing on Great picks (the picks have landed;
   // the bottom button is the one exit).
   const top = (
     <div className="ask-top">
       <span className="ask-eyebrow">Ask <Name>{ask.label}</Name></span>
       {screen === "turn" && <HoldDone onDone={abandon} label="Close" hold="Hold to close" />}
-      {/* H9: Done with a full wagon sends it (never throws the picks away); otherwise it abandons. */}
-      {screen === "shelf" && (sendable
+      {/* H9 as amended by D6: Done with a full wagon sends it (never throws the picks away); after a real
+          error it finishes and keeps them (O4); with a wagon that isn't full it abandons. Changing the wagon
+          clears the failure, so Done goes back to sending. */}
+      {screen === "shelf" && (sendable && !failed
         ? <HoldDone key="send" onDone={send} label="Done" hold="Hold to send" />
-        : <HoldDone key="finish" onDone={abandon} label="Done" hold="Hold to finish" />)}
+        : sendable
+          ? <HoldDone key="keep" onDone={finishKeep} label="Done" hold="Hold to finish" />
+          : <HoldDone key="finish" onDone={abandon} label="Done" hold="Hold to finish" />)}
     </div>
   );
   // W8 as amended by H1: the phone goes back to the grown-up on a HOLD (HoldGiveBack). Once.

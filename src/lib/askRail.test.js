@@ -125,7 +125,8 @@ test("the rail renders the layout: Staples, two people pills, '+N more', the gho
   // Every hand-over — a pill, a "+N more" row, a block's "Hand it to" — is the one handoverAsk, which
   // records its time; nothing else does. The run opens once the asks are read again (SPEC_ask_shelf_sync
   // A1), so it starts on the fresh shelf; the time is recorded at the tap.
-  expect(app).toContain("const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); openAfterAskRefresh(() => setRunAskId(askId)); };");
+  // SPEC_ask_offline O4: it also resumes a run kept after a real error (lib/askRun handoverResume).
+  expect(app).toMatch(/const handoverAsk = \(askId\) => \{\r?\n    recordAskHandover\(household\?\.id, askId\);\r?\n    const resume = handoverResume\(loadHeldAsk\(\), asks, askId\);\r?\n    if \(!resume\) storeHeldAsk\(null\);\r?\n    setRunResume\(resume\);\r?\n    openAfterAskRefresh\(\(\) => setRunAskId\(askId\)\);\r?\n  \};/);
   expect(app).toContain("onClick={() => handoverAsk(block.id)}");
   expect(app).toContain("onOpen={(askId) => { setMoreAsksOpen(false); handoverAsk(askId); }}");
   expect(app.match(/recordAskHandover\(/g)).toHaveLength(1);

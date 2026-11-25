@@ -108,7 +108,28 @@ export function heldAskRead(raw, liveAsks) {
   for (const id of Array.isArray(held.catalog_item_ids) ? held.catalog_item_ids : []) {
     if (shelf.has(id) && !ids.includes(id)) ids.push(id);
   }
-  return { askId: ask.id, screen: held.screen === "shelf" ? "shelf" : "turn", ids: ids.slice(0, target) };
+  return {
+    askId: ask.id, screen: held.screen === "shelf" ? "shelf" : "turn", ids: ids.slice(0, target),
+    ...(held.parked === true ? { parked: true } : {}),
+  };
+}
+
+// O4 (SPEC_ask_offline D6): a run closed with "Hold to finish" after a real error keeps its picks for the
+// next hand-over of the same ask. Its key is PARKED: a reload doesn't reopen it on its own (A26 reopens a run
+// that was still up); only a hand-over of that ask does. Returns the key's new value, or null for a bad one.
+export function parkHeldAsk(raw) {
+  try {
+    const v = JSON.parse(raw);
+    if (!v || typeof v !== "object" || typeof v.ask_id !== "string") return null;
+    return JSON.stringify({ ...v, parked: true });
+  } catch (_e) { return null; }
+}
+
+// The hand-over of askId (O4): the held run's { screen, ids } when it is this ask's, else null (the caller
+// then clears the key: another ask's hand-over drops the kept picks).
+export function handoverResume(raw, liveAsks, askId) {
+  const held = heldAskRead(raw, liveAsks);
+  return held && held.askId === askId ? { screen: held.screen, ids: held.ids } : null;
 }
 
 // The key's storage: the one impure pair here. Blocked storage (a private window) means no resume,

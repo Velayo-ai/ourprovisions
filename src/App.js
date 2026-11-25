@@ -54,7 +54,7 @@ import { nextInsetTop } from './lib/standaloneInset';
 import { swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool, joinPickLabels } from './lib/askPicks';
 import { readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
 import { AskIcon } from './components/AskIcon';
-import { heldAskRead, loadHeldAsk, storeHeldAsk, liveTiles } from './lib/askRun';
+import { heldAskRead, loadHeldAsk, storeHeldAsk, liveTiles, parkHeldAsk, handoverResume } from './lib/askRun';
 import { clearCheckStorage } from './lib/checkQueue';
 import { shelfCatalog } from './lib/askCreate';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
@@ -7024,8 +7024,17 @@ function ProvisionsApp({ scrollRootRef }) {
   const heldAskRef = useRef(undefined);
   if (heldAskRef.current === undefined) heldAskRef.current = loadHeldAsk();
   const prevRunAskIdRef = useRef(null);
+  // O4 (SPEC_ask_offline D6): a run closed with "Hold to finish" after a real error keeps its picks. One shot:
+  // the next end of a run clears the key as before. The kept key is parked, so a reload leaves it alone and
+  // only a hand-over of the same ask reopens it.
+  const keepHeldRef = useRef(false);
   useEffect(() => {
-    if (prevRunAskIdRef.current && !runAskId) { storeHeldAsk(null); setRunResume(null); }
+    if (prevRunAskIdRef.current && !runAskId) {
+      if (keepHeldRef.current) storeHeldAsk(parkHeldAsk(loadHeldAsk()));
+      else storeHeldAsk(null);
+      keepHeldRef.current = false;
+      setRunResume(null);
+    }
     prevRunAskIdRef.current = runAskId;
   }, [runAskId]);
   useEffect(() => {
@@ -7033,6 +7042,7 @@ function ProvisionsApp({ scrollRootRef }) {
     const held = heldAskRead(heldAskRef.current, asks);
     heldAskRef.current = null;
     if (!held) { storeHeldAsk(null); return; }
+    if (held.parked) return;   // O4: a kept run waits for its hand-over
     setRunResume({ screen: held.screen, ids: held.ids });
     setRunAskId(held.askId);
   }, [asks, asksLoaded, catalogLoaded, landingDecided]);
@@ -7053,7 +7063,15 @@ function ProvisionsApp({ scrollRootRef }) {
   // more" rows and a Browse block's "Hand it to" all come here. Only a hand-over writes "Picked by"
   // (11-04 ruling) and records its time for the rail's order. An Ask pill is never a filter (the
   // pill-as-filter of C3 is retired): selectedAsks is no longer set by anything on screen.
-  const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); openAfterAskRefresh(() => setRunAskId(askId)); };
+  // O4 (SPEC_ask_offline D6): a run kept after a real error comes back on the hand-over of the same ask, on its
+  // screen with its picks (the wagon full); any other ask's hand-over drops it.
+  const handoverAsk = (askId) => {
+    recordAskHandover(household?.id, askId);
+    const resume = handoverResume(loadHeldAsk(), asks, askId);
+    if (!resume) storeHeldAsk(null);
+    setRunResume(resume);
+    openAfterAskRefresh(() => setRunAskId(askId));
+  };
   // The Ask drawn pressed on its pills: the one whose run is open or whose edit sheet is up.
   const activeAskId = runAskId || editAskId || null;
   useScrollLock(!!runAskId || newAskOpen || !!editAskId || browseFilterOpen, scrollRootRef);   // the run and the Ask screen are full screen; View & organize is the one scroller while open
@@ -12812,7 +12830,7 @@ function ProvisionsApp({ scrollRootRef }) {
             askRunIdRef.current = null;
             return result;
           }}
-          onExit={() => setRunAskId(null)}
+          onExit={(opts) => { if (opts && opts.keep) keepHeldRef.current = true; setRunAskId(null); }}
           parentName={user?.firstName?.trim() || null}
           onHandBack={({ count, ids }) => {
             const label = runAsk.label;

@@ -1229,3 +1229,84 @@ test("B9.3: nothing landed — no celebration; the dead tiles leave the run and 
   await screen.findByText("Your pick is on our list!");
   expect(onLand).toHaveBeenLastCalledWith(["c-3"]);
 });
+
+// SPEC_ask_offline D6 (amends H9) — the Done button, row by row, on both styles:
+//   not full                → Hold to finish → abandon
+//   full, no send / queued  → Hold to send   → send
+//   full, real error        → Hold to finish → close the run, KEEP op_ask_held (O4)
+//   a change to the wagon after a failure → back to the first two rows
+describe("D6: Done can always finish (SPEC_ask_offline O4)", () => {
+  const KID = { id: "a-k", label: "Kid", shelfNoun: null, pickTarget: 2, screenStyle: "simple" };
+  const STYLES = [
+    ["Shopper", ASK, ["Goldfish", "Apples", "Cheese"], () => tapTub()],
+    // A real drag ends with the browser's click on the card under the finger, which the drag swallows
+    // (suppressTap); jsdom sends none, so it is sent here.
+    ["Explorer", KID, ["Cheese", "Apples"], () => { swipe(SEND_PX + 10); fireEvent.click(screen.getAllByRole("button", { name: /^Take out / })[0]); }],
+  ];
+  const done = () => document.querySelector(".ask-top .ask-done")?.getAttribute("aria-label");
+  const holdDone = () => {
+    const d = document.querySelector(".ask-top .ask-done");
+    fireEvent.pointerDown(d);
+    act(() => { jest.advanceTimersByTime(HOLD_MS); });
+    fireEvent.pointerUp(d);
+  };
+  const realError = () => Object.assign(new Error("no live ask"), { code: "P0002" });
+  beforeEach(() => sessionStorage.clear());
+
+  test.each(STYLES)("%s: not full → finish; full → send; a real error → finish; a change to the wagon → send again", async (_, ask, names, send) => {
+    const onLand = jest.fn().mockRejectedValueOnce(realError());
+    setup({ ask, onLand });
+    toShelf();
+    names.slice(0, -1).forEach((n) => fireEvent.click(tile(n)));
+    expect(done()).toBe("Hold to finish");
+    fireEvent.click(tile(names[names.length - 1]));
+    expect(done()).toBe("Hold to send");
+    send();
+    expect(await screen.findByRole("alert")).toHaveTextContent("That didn't reach the list.");
+    expect(done()).toBe("Hold to finish");
+    fireEvent.click(screen.getByRole("button", { name: `Take out ${names[0]}` }));
+    expect(done()).toBe("Hold to finish");                  // not full: the abandon row
+    fireEvent.click(tile(names[0]));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(done()).toBe("Hold to send");                    // full again, the failure cleared
+  });
+
+  test.each(STYLES)("%s: after a real error, holding Done closes the run with keep, the picks still held, and no abandon", async (_, ask, names, send) => {
+    const emit = jest.spyOn(askTelemetry, "emitAskEvent").mockImplementation(() => {});
+    jest.useFakeTimers();
+    try {
+      const { onExit } = setup({ ask, onLand: jest.fn().mockRejectedValueOnce(realError()) });
+      toShelf();
+      names.forEach((n) => fireEvent.click(tile(n)));
+      send();
+      await screen.findByRole("alert");
+      holdDone();
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(onExit).toHaveBeenCalledWith({ keep: true });
+      expect(JSON.parse(sessionStorage.getItem("op_ask_held"))).toMatchObject({ ask_id: ask.id, screen: "shelf", catalog_item_ids: names.map((n) => TILES.find((x) => x.name === n).id) });
+      expect(emit.mock.calls.map((c) => c[0])).not.toContain("ask_abandoned");
+    } finally { jest.useRealTimers(); emit.mockRestore(); }
+  });
+
+  test.each(STYLES)("%s: a queued send (off grid) is not a failure — Great picks, no red line", async (_, ask, names, send) => {
+    const onLand = jest.fn(async (ids) => ({ landed: ids.length, skippedIds: [], queued: true }));
+    setup({ ask, onLand });
+    toShelf();
+    names.forEach((n) => fireEvent.click(tile(n)));
+    send();
+    await screen.findByText(names.length === 1 ? "Your pick is on our list!" : "Your picks are on our list!");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test.each(STYLES)("%s: the next hand-over resumes on the shelf with the wagon full, ready to send, as ask_resumed", (_, ask, names) => {
+    const emit = jest.spyOn(askTelemetry, "emitAskEvent").mockImplementation(() => {});
+    try {
+      const ids = names.map((n) => TILES.find((x) => x.name === n).id);
+      render(<AskRun ask={ask} tiles={TILES} onLand={jest.fn()} onExit={jest.fn()} resume={{ screen: "shelf", ids }} />);
+      expect(screen.getByLabelText(`${ids.length} of ${ids.length} picked`)).toBeInTheDocument();
+      expect(wagonWrap()).toHaveClass("full");
+      expect(done()).toBe("Hold to send");
+      expect(emit.mock.calls[0]).toEqual(["ask_resumed", "shelf", ask.screenStyle]);
+    } finally { emit.mockRestore(); }
+  });
+});
