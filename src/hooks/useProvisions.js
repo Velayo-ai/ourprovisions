@@ -8,7 +8,7 @@ import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { createRowWriteChain, mergePolledById } from "../lib/checkWrites";
 import { readQueue, writeQueue, putEntry, settleEntry, earliestCheckTap, discardForeign, readListCache, writeListCache, listCacheSignature, cachedHouseholdFor, OFFLINE_SKIP, isOfflineSkip, makeQueuedWrap, readWrap, writeWrap, wrapKeepIds, hideForWrap, splitAtTaps } from "../lib/checkQueue";
-import { readAskQueue, writeAskQueue, makeAskLanding, isSynthKey, rekeySynth, synthKeysOf, askSendIsTransient, heldByLanding, planFlushStep, ASK_LAND_TIMEOUT_MS } from "../lib/askQueue";
+import { readAskQueue, writeAskQueue, makeAskLanding, isSynthKey, rekeySynth, synthKeysOf, askSendIsTransient, heldByLanding, planFlushStep, shownListState, ASK_LAND_TIMEOUT_MS } from "../lib/askQueue";
 import { activeKeyFor } from "../lib/rememberedHousehold";
 import { createQtyQueue, adoptQtyResult, seedRowKey, isListEntry, guessChange, adoptCheckedResult } from "../lib/qtyWrites";
 import { rollbackQty } from "../lib/qtyRollback";
@@ -236,12 +236,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // with its run id and tap time, in tap order with the checks and the Wrap up (D4). askQueue is the
   // published copy the overlay (D3) is drawn from.
   const askQueueRef = useRef({ clerkId: null, householdId: null, list: [] });
-  const [, setAskQueue] = useState([]);   // read by the overlay (D3)
+  const [askQueue, setAskQueue] = useState([]);
   // Every list read takes a number when it starts; the highest one applied is appliedReadNo. A replayed
   // landing leaves the overlay only once a read that started after it has been applied (D3: no blink).
   const listReadSeqRef = useRef(0);
   const appliedReadRef = useRef(0);
-  const [, setAppliedReadNo] = useState(0);   // read by the overlay (D3)
+  const [appliedReadNo, setAppliedReadNo] = useState(0);
   // THE QUEUED WRAP UP (SPEC_offline_calm C6; lib/checkQueue makeQueuedWrap): a Wrap up tapped offline, or
   // while checks still wait, finishes the trip on this phone at once and on the server when signal returns,
   // after the checks tapped before it. { householdId, clerkId, wrap: { tapAt, dropIds, hideIds } } | null.
@@ -5196,11 +5196,18 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     return map;
   }, []);
 
+  // THE OVERLAY (SPEC_ask_offline D3; lib/askQueue shownListState): Paige's list shows each queued Ask landing
+  // now, the way land_ask_picks will apply it, each touched row with the "not shared yet" dot. The one place
+  // it applies: what the hook hands out. Everything inside the hook (listRowsRef, the cache and its
+  // signature, the queued Wrap up) keeps the server's rows. A landing leaves it on the read after its replay.
+  const shown = useMemo(
+    () => shownListState({ listRows, quantities, checked, queuedChecks, askQueue, appliedReadNo, me: internalUserIdRef.current }),
+    [listRows, quantities, checked, queuedChecks, askQueue, appliedReadNo]);
   // What a tap's intent starts from (toggleChecked): the checked state as drawn.
-  shownCheckedRef.current = checked;
+  shownCheckedRef.current = shown.checked;
 
   return {
-    quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,
+    quantities: shown.quantities, checked: shown.checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows: shown.listRows, updateFullName,
     hiddenCatalogItems, loading, householdReady, bootstrapped, error, dismissError,
     // A5: per active household — false until that place's rows have been read once.
     membersLoaded: !!household?.id && membersLoadedFor === household.id,
@@ -5208,7 +5215,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     catalogLoaded: !!household?.id && catalogLoadedFor === household.id,
     asksLoaded: !!household?.id && asksLoadedFor === household.id,
     adjustQty, removeItem, updatePrice, toggleChecked, clearAll, updateBudgetGoal,
-    queuedChecks, queuedWrap, needsSignal, clearNeedsSignal,
+    queuedChecks: shown.queuedChecks, queuedWrap, needsSignal, clearNeedsSignal,
     landAskPicks, asks, fetchAsks, refreshAsks, createAsk, updateAsk, deleteAsk, fetchAskDeleter, itemPhotos, setItemPhoto,
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,

@@ -217,6 +217,21 @@ export function applyAskOverlay({ rows, quantities = {}, checked = {}, checkEntr
   return { rows: out, quantities: qty, checked: chk, addIds: [...touched.keys()] };
 }
 
+// What the hook hands the app (D3): the server state with the live landings laid over it, and the "not
+// shared yet" set (queuedChecks) widened to the rows the overlay touched, so each gets the small dot (C1).
+// One place, at the hook's return; the hook's own refs, the list cache and its signature never see it.
+// With nothing queued every input comes back as it is.
+export function shownListState({ listRows, quantities, checked, queuedChecks, askQueue, appliedReadNo, me = null }) {
+  const o = applyAskOverlay({ rows: listRows, quantities, checked, checkEntries: queuedChecks || {}, landings: liveLandings(askQueue, appliedReadNo), me });
+  const extra = o.addIds.filter((id) => !(queuedChecks || {})[id]);
+  return {
+    listRows: o.rows,
+    quantities: o.quantities,
+    checked: o.checked,
+    queuedChecks: extra.length ? { ...queuedChecks, ...Object.fromEntries(extra.map((id) => [id, { add: true }])) } : queuedChecks,
+  };
+}
+
 // Must this check wait in the queue for a landing (D4)? A synthetic key always does: it never reaches the
 // network. A real row does while a landing that hasn't replayed covers it and was sent BEFORE this check's
 // tap (tapAt; a new tap, when omitted): that check has to land after the pick, as it would have online. A

@@ -1,7 +1,7 @@
 import {
   ASK_LAND_TIMEOUT_MS, makeAskLanding, cleanLanding, readAskQueue, writeAskQueue, byTap,
   synthKey, isSynthKey, parseSynthKey, rekeySynth, synthKeysOf, askSendIsTransient,
-  liveLandings, applyAskOverlay, heldByLanding, planFlushStep,
+  liveLandings, applyAskOverlay, heldByLanding, planFlushStep, shownListState,
 } from "./askQueue";
 import { askKey, queueKey, discardForeign, clearCheckStorage, OFFLINE_SKIP, putEntry, splitAtTaps, splitAroundWrap } from "./checkQueue";
 import { AuthTokenMissing } from "./supabaseClient";
@@ -325,5 +325,51 @@ describe("the overlay (D3)", () => {
     // Restored from storage already landed (no landedSeq): it retires at once, never shown twice.
     expect(liveLandings([{ ...land(), landed: true }], 0)).toHaveLength(0);
     expect(liveLandings([land()], 99)).toHaveLength(1);   // a queued one stays whatever is read
+  });
+});
+
+describe("what the hook hands out (D3: one place, at the return)", () => {
+  const listRows = [{ id: "r-apples", catalogItemId: "apples", name: "Apples", quantity: 2, status: "pending", pickedByLabels: null }];
+  const quantities = { "r-apples": 2 };
+  const checked = { "r-apples": false };
+  const items = [{ id: "apples", name: "Apples", category: "Produce" }, { id: "bananas", name: "Bananas", category: "Produce" }];
+
+  test("nothing queued: the hook's own objects, untouched", () => {
+    const queuedChecks = {};
+    const s = shownListState({ listRows, quantities, checked, queuedChecks, askQueue: [], appliedReadNo: 3 });
+    expect(s.listRows).toBe(listRows);
+    expect(s.quantities).toBe(quantities);
+    expect(s.checked).toBe(checked);
+    expect(s.queuedChecks).toBe(queuedChecks);
+  });
+
+  test("a queued landing: the rows it touched are drawn as landed, each with the dot; a queued check keeps its own entry", () => {
+    const L = land({ ids: ["apples", "bananas"], items });
+    const queuedChecks = { "r-other": { want: true, tapAt: T(1) } };
+    const s = shownListState({ listRows, quantities, checked, queuedChecks, askQueue: [L], appliedReadNo: 0, me: "u-paige" });
+    expect(s.listRows.map((r) => [r.id, r.quantity])).toEqual([["r-apples", 3], [synthKey(RUN, "bananas"), 1]]);
+    expect(s.quantities).toMatchObject({ "r-apples": 3, [synthKey(RUN, "bananas")]: 1 });
+    expect(Object.keys(s.queuedChecks).sort()).toEqual(["r-apples", "r-other", synthKey(RUN, "bananas")].sort());
+    expect(s.queuedChecks["r-other"]).toEqual({ want: true, tapAt: T(1) });
+    // The server state the hook keeps is never touched.
+    expect(listRows).toHaveLength(1);
+    expect(quantities["r-apples"]).toBe(2);
+  });
+
+  test("See highlights overlay rows: they carry the catalog id landed.start is given", () => {
+    const s = shownListState({ listRows, quantities, checked, queuedChecks: {}, askQueue: [land({ ids: ["bananas"], items })], appliedReadNo: 0 });
+    const ids = new Set(["bananas"]);
+    expect(s.listRows.filter((r) => ids.has(r.catalogItemId)).map((r) => r.name)).toEqual(["Bananas"]);
+  });
+
+  test("no blink across the replay: before the read and after it the same quantity, and the dot goes with the read", () => {
+    const L = { ...land({ ids: ["apples"] }), landed: true, landedSeq: 7 };
+    const before = shownListState({ listRows, quantities, checked, queuedChecks: {}, askQueue: [L], appliedReadNo: 7 });
+    const serverAfter = [{ ...listRows[0], quantity: 3, pickedByLabels: ["Easton"] }];
+    const after = shownListState({ listRows: serverAfter, quantities: { "r-apples": 3 }, checked, queuedChecks: {}, askQueue: [L], appliedReadNo: 8 });
+    expect(before.listRows[0].quantity).toBe(3);
+    expect(after.listRows[0].quantity).toBe(3);
+    expect(before.queuedChecks).toHaveProperty("r-apples");
+    expect(after.queuedChecks).toEqual({});
   });
 });
