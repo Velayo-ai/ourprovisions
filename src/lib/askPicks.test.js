@@ -18,6 +18,16 @@ describe("landAskPicksArgs (A22: ids only, never the label)", () => {
     const serialized = JSON.stringify(landAskPicksArgs("hh-1", "ask-1", ["c1"]));
     expect(serialized).not.toMatch(/label|Easton|picked/i);
   });
+
+  test("089: the run id on a send, and the tap time on a replay; neither when not given", () => {
+    expect(landAskPicksArgs("hh-1", "ask-1", ["c1"], "run-1")).toEqual({
+      p_household_id: "hh-1", p_ask_id: "ask-1", p_catalog_item_ids: ["c1"], p_run_id: "run-1",
+    });
+    expect(landAskPicksArgs("hh-1", "ask-1", ["c1"], "run-1", "2026-11-24T20:10:00.000Z")).toEqual({
+      p_household_id: "hh-1", p_ask_id: "ask-1", p_catalog_item_ids: ["c1"], p_run_id: "run-1", p_tapped_at: "2026-11-24T20:10:00.000Z",
+    });
+    expect(Object.keys(landAskPicksArgs("hh-1", "ask-1", ["c1"], null, null)).sort()).toEqual(["p_ask_id", "p_catalog_item_ids", "p_household_id"]);
+  });
 });
 
 describe("askCompletedAttributes (A24 / R5: the count only, named as a Custom Event)", () => {

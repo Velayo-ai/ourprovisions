@@ -1,77 +1,73 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useAuthHealth } from "../lib/authHealth";
+import { nextOffline } from "../lib/offlineMode";
 
-const OFFLINE_THRESHOLD = 3;
-const RECOVERED_DURATION = 2000;
-
+// Offline is a mode, not a problem (SPEC_offline_calm_2026-11-23). This provider answers ONE question for
+// the whole app, `offline`, and the header's small icon is its only standing sign (C2). The old three-state
+// pill ("Reconnecting…", "Offline — showing last saved", "Back online") is gone (C4, C7).
+//
+// Raw offline = the device reports offline, or the latest request failed for want of a network (one bar
+// counts as offline, C5). A device-offline spell counts as a failure, so coming back clears only after
+// the next successful request (iOS can report online before the radio is up). The shown state clears only
+// after OFFLINE_HOLD_MS of steady signal (lib/offlineMode nextOffline), so it never flicks back and forth.
+//
+// reportTransientFailure / reportSuccess keep their names and callers: every request path that already
+// reported to the old pill now feeds this.
 const ConnectivityContext = createContext(null);
 
 export function ConnectivityProvider({ children }) {
-  const [connState, setConnState] = useState("online");
-  const failureCount = useRef(0);
-  const recoveredTimer = useRef(null);
+  const { online } = useAuthHealth();
+  const onlineRef = useRef(online);
+  onlineRef.current = online;
+  const lastFailAt = useRef(online ? 0 : Date.now());
+  const lastOkAt = useRef(0);
+  const modeRef = useRef(online ? { shown: false, raw: false, steadySince: null } : { shown: true, raw: true, steadySince: null });
+  const [offline, setOffline] = useState(!online);
+  const timerRef = useRef(null);
+  const evaluateRef = useRef(null);
+  // C9: the tab beacon waits on "that tab's first fetch" — the next request result after a switch.
+  // onRequestResult(fn) → unsubscribe; fn(true) on a success, fn(false) on a network failure.
+  const resultListeners = useRef(new Set());
+  const emitResult = (ok) => { [...resultListeners.current].forEach((fn) => { try { fn(ok); } catch (e) { /* a listener never breaks a report */ } }); };
+  const onRequestResult = useCallback((fn) => {
+    resultListeners.current.add(fn);
+    return () => resultListeners.current.delete(fn);
+  }, []);
+
+  evaluateRef.current = () => {
+    const now = Date.now();
+    const raw = !onlineRef.current || lastFailAt.current > lastOkAt.current;
+    const n = nextOffline(modeRef.current, raw, now);
+    modeRef.current = { shown: n.shown, raw: n.raw, steadySince: n.steadySince };
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    if (n.clearAt) timerRef.current = setTimeout(() => evaluateRef.current(), Math.max(0, n.clearAt - now) + 25);
+    setOffline(n.shown);
+  };
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   useEffect(() => {
-    return () => {
-      if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
-    };
-  }, []);
+    if (!online) lastFailAt.current = Date.now();
+    evaluateRef.current();
+  }, [online]);
 
   const reportTransientFailure = useCallback(() => {
-    setConnState((prev) => {
-      if (prev === "offline") return prev;
-
-      failureCount.current += 1;
-
-      if (failureCount.current >= OFFLINE_THRESHOLD) return "offline";
-      if (prev === "online" || prev === "recovered") return "reconnecting";
-      return prev;
-    });
+    lastFailAt.current = Date.now();
+    evaluateRef.current();
+    emitResult(false);
   }, []);
-
-  // V5 pill bug (2026-09-24): only the FIRST offline episode ever showed a pill.
-  // This provider inferred "offline" from failed requests — and once the polling
-  // gate (authHealth.isPollingOpen) started skipping ticks while navigator.onLine
-  // is false, nothing fails while offline, so nothing was ever reported. Now the
-  // pill subscribes to the same signal the gate uses: while onLine is false it
-  // reads "Reconnecting…" for as long as that lasts, and the offline → online
-  // edge shows "Back online" every time, not only when a prior failure had moved
-  // the state off "online". The failure counter stays as the one-bar fallback
-  // (onLine true, requests failing).
-  const { online } = useAuthHealth();
-  const wasOfflineRef = useRef(false);
-  const markRecovered = useCallback(() => {
-    failureCount.current = 0;
-    if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
-    recoveredTimer.current = setTimeout(() => {
-      setConnState("online");
-    }, RECOVERED_DURATION);
-    setConnState("recovered");
-  }, []);
-  useEffect(() => {
-    if (!online) { wasOfflineRef.current = true; return; }
-    if (!wasOfflineRef.current) return;
-    wasOfflineRef.current = false;
-    markRecovered();
-  }, [online, markRecovered]);
 
   const reportSuccess = useCallback(() => {
-    setConnState((prev) => {
-      if (prev === "online") return prev;
-
-      failureCount.current = 0;
-
-      if (recoveredTimer.current) clearTimeout(recoveredTimer.current);
-      recoveredTimer.current = setTimeout(() => {
-        setConnState("online");
-      }, RECOVERED_DURATION);
-
-      return "recovered";
-    });
+    const now = Date.now();
+    // Same millisecond as a failure: the failure stands (no answer is not an answer).
+    if (now <= lastFailAt.current) return;
+    lastOkAt.current = now;
+    if (modeRef.current.shown) evaluateRef.current();   // the 2 s poll's successes cost nothing while online
+    if (resultListeners.current.size) emitResult(true);
   }, []);
 
   return (
-    <ConnectivityContext.Provider value={{ connState: online ? connState : "reconnecting", reportTransientFailure, reportSuccess }}>
+    <ConnectivityContext.Provider value={{ offline, reportTransientFailure, reportSuccess, onRequestResult }}>
       {children}
     </ConnectivityContext.Provider>
   );

@@ -4,8 +4,17 @@
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import fs from "fs";
 import path from "path";
-import { AskRun, cardLayout, flightFor } from "./AskRun";
+import { AskRun, cardLayout, flightFor, ARM_MS, SEND_PX, TUG_AFTER_MS } from "./AskRun";
+import { HOLD_MS } from "../hooks/useHold";
 import * as askTelemetry from "../lib/askTelemetry";
+
+// jsdom 16 has no PointerEvent, so testing-library falls back to a plain Event and drops clientX — the
+// swipe (H6) needs it. A MouseEvent carrying pointerId / pointerType is enough here.
+if (typeof window.PointerEvent !== "function") {
+  window.PointerEvent = class PointerEvent extends MouseEvent {
+    constructor(type, init = {}) { super(type, init); this.pointerId = init.pointerId ?? 1; this.pointerType = init.pointerType ?? "mouse"; }
+  };
+}
 
 // Running an Ask (SPEC_ask amendment A14–A17, A24; SPEC_ask_slice2 C3b).
 const ASK = { id: "a-easton", label: "Easton", shelfNoun: "snacks", pickTarget: 3 };
@@ -17,10 +26,30 @@ function setup({ onLand = jest.fn(async () => {}), tiles = TILES, ask = ASK } = 
   return { onLand, onExit, container: view.container };
 }
 const tile = (name) => screen.getByRole("button", { name: new RegExp(`^${name}`) });
-const thatsIt = () => screen.getByRole("button", { name: /That's it!|Adding…/ });
+// H13 (rev 3): no That's it! button on either style. Shopper's full wagon says "That's it!" on the tub front,
+// and a tap there sends it (the same send as the swipe).
+const tub = () => document.querySelector(".ask-tub-send");
+const tapTub = () => fireEvent.click(tub());
 function toShelf() { fireEvent.click(screen.getByRole("button", { name: "Let's pick" })); }
 // Great picks: the wagon is the summary; its label lists the picks in order ("Your picks: A, B, C").
 const summary = () => screen.getByRole("img", { name: /^Your picks?: / }).getAttribute("aria-label");
+// H1–H2 (fake timers): past the arm delay, a full hold on Give it back.
+function holdGiveBack(btn) {
+  act(() => { jest.advanceTimersByTime(ARM_MS); });
+  fireEvent.pointerDown(btn);
+  act(() => { jest.advanceTimersByTime(HOLD_MS); });
+  fireEvent.pointerUp(btn);
+}
+// H6: a drag on Explorer's wagon, dx px to the right (two moves, then the release).
+const wagonWrap = () => document.querySelector(".ask-wagonwrap");
+const pt = (x) => ({ pointerId: 1, pointerType: "touch", clientX: x, clientY: 300, button: 0 });
+function swipe(dx) {
+  const w = wagonWrap();
+  fireEvent.pointerDown(w, pt(100));
+  fireEvent.pointerMove(w, pt(100 + dx / 2));
+  fireEvent.pointerMove(w, pt(100 + dx));
+  fireEvent.pointerUp(w, pt(100 + dx));
+}
 
 test("the run is excluded from replay, and every copy of the name wears .op-name", () => {
   const { container } = setup();
@@ -40,13 +69,14 @@ test("Your turn → the shelf; picks fill the wagon in order; That's it! only wh
   const { onLand } = setup();
   toShelf();
   expect(screen.getByRole("heading")).toHaveTextContent("Pick 3, Easton!");
-  expect(thatsIt()).toBeDisabled();
+  expect(tub()).toBeNull();                                              // nothing to send yet
   fireEvent.click(tile("Cheese"));
   fireEvent.click(tile("Goldfish"));
   expect(screen.getByLabelText("2 of 3 picked")).toBeInTheDocument();
   fireEvent.click(tile("Yogurt"));
-  expect(thatsIt()).toBeEnabled();
-  fireEvent.click(thatsIt());
+  expect(tub()).not.toBeNull();
+  expect(document.querySelector(".ask-tub-words")).toHaveTextContent("That's it!");
+  tapTub();
   await screen.findByText("Your picks are on our list!");
   expect(onLand).toHaveBeenCalledTimes(1);
   expect(onLand).toHaveBeenCalledWith(["c-2", "c-0", "c-3"]);
@@ -68,7 +98,7 @@ test("changing his mind: the tile again or the item in the wagon; a full wagon t
   fireEvent.click(screen.getByRole("button", { name: "Take out Apples" }));   // the wagon
   expect(tile("Apples")).toHaveAttribute("aria-pressed", "false");
   expect(screen.getByLabelText("2 of 3 picked")).toBeInTheDocument();
-  // A16 amended 2026-11-09: no ↶ on either style; That's it! is the only button under the wagon.
+  // A16 amended 2026-11-09: no ↶ on either style.
   expect(screen.queryByRole("button", { name: "Take the last one out" })).toBeNull();
   expect(screen.queryByText("↶")).toBeNull();
   expect(onLand).not.toHaveBeenCalled();
@@ -79,10 +109,10 @@ test("a landing that fails keeps the wagon held and says so; That's it! again la
   setup({ onLand });
   toShelf();
   ["Goldfish", "Apples", "Cheese"].forEach((n) => fireEvent.click(tile(n)));
-  fireEvent.click(thatsIt());
+  tapTub();
   expect(await screen.findByRole("alert")).toHaveTextContent("That didn't reach the list.");
   expect(screen.getByLabelText("3 of 3 picked")).toBeInTheDocument();
-  fireEvent.click(thatsIt());
+  tapTub();
   await screen.findByText("Your picks are on our list!");
   expect(onLand).toHaveBeenCalledTimes(2);
 });
@@ -121,18 +151,21 @@ describe("Close and Done need a hold (A17; W6)", () => {
   });
 });
 
-test("after the confirm: no top-right control (W6); without onHandBack, 'Give it back' just leaves", async () => {
-  const { onExit } = setup({ ask: { ...ASK, pickTarget: 1 } });
-  toShelf();
-  expect(screen.getByRole("heading")).toHaveTextContent("Pick one, Easton!");
-  fireEvent.click(tile("Apples"));
-  fireEvent.click(thatsIt());
-  await screen.findByText("Your pick is on our list!");
-  expect(screen.getByRole("heading")).toHaveTextContent("Great pick, Easton!");   // one landed: singular
-  expect(screen.queryByText("Your picks are on our list!")).toBeNull();
-  expect(screen.queryByRole("button", { name: /Hold to|^Done$|^Close$/ })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Give it back" }));
-  await waitFor(() => expect(onExit).toHaveBeenCalledTimes(1));
+test("after the confirm: no top-right control (W6); without onHandBack, holding 'Give it back' just leaves", async () => {
+  jest.useFakeTimers();
+  try {
+    const { onExit } = setup({ ask: { ...ASK, pickTarget: 1 } });
+    toShelf();
+    expect(screen.getByRole("heading")).toHaveTextContent("Pick one, Easton!");
+    fireEvent.click(tile("Apples"));
+    tapTub();
+    await screen.findByText("Your pick is on our list!");
+    expect(screen.getByRole("heading")).toHaveTextContent("Great pick, Easton!");   // one landed: singular
+    expect(screen.queryByText("Your picks are on our list!")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Hold to (close|finish|send)|^Done$|^Close$/ })).toBeNull();
+    holdGiveBack(screen.getByRole("button", { name: "Hold to give it back" }));
+    expect(onExit).toHaveBeenCalledTimes(1);
+  } finally { jest.useRealTimers(); }
 });
 
 // S4-5: a short shelf runs at the effective target, end to end; no grown-up screen for the child.
@@ -144,10 +177,10 @@ test("a shelf with fewer tiles than the target runs at the tiles it has: Pick 2,
   expect(screen.getByRole("heading")).toHaveTextContent("Pick 2, Easton!");
   expect(screen.getByLabelText("0 of 2 picked")).toBeInTheDocument();
   fireEvent.click(tile("Goldfish"));
-  expect(thatsIt()).toBeDisabled();
+  expect(tub()).toBeNull();
   fireEvent.click(tile("Apples"));
-  expect(thatsIt()).toBeEnabled();
-  fireEvent.click(thatsIt());
+  expect(tub()).not.toBeNull();
+  tapTub();
   await screen.findByText("Your picks are on our list!");
   expect(onLand).toHaveBeenCalledWith(["c-0", "c-1"]);
 });
@@ -165,10 +198,10 @@ test("no photo and no item glyph → plain name tiles everywhere, no glyph or ar
   expect(bananas.textContent.replace("✓", "")).toBe("Bananas");
   ["Apples", "Bananas", "Greek yogurt"].forEach((n) => fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${n}`) })));
   // The wagon draws each pick's name, not a glyph.
-  const wagonText = [...container.querySelectorAll(".ask-wagon text")].map((t) => t.textContent);
+  const wagonText = [...container.querySelectorAll(".ask-wagon .ask-wagon-pick text")].map((t) => t.textContent);
   expect(wagonText).toEqual(["Apples", "Bananas", "Greekyogurt"]);              // a long two-word name wraps to two lines
-  expect([...container.querySelectorAll(".ask-wagon text")][2].querySelectorAll("tspan")).toHaveLength(2);
-  fireEvent.click(thatsIt());
+  expect([...container.querySelectorAll(".ask-wagon .ask-wagon-pick text")][2].querySelectorAll("tspan")).toHaveLength(2);
+  tapTub();
   await screen.findByText("Your picks are on our list!");
   expect(summary()).toBe("Your picks: Apples, Bananas, Greek yogurt");
   expect(container.textContent).not.toMatch(/[🥦🥫🥛🍞📦]/u);
@@ -197,7 +230,7 @@ describe("Simple", () => {
     { id: "s-2", name: "Cheese", glyph: "🧀", photoUrl: null },
     { id: "s-3", name: "Bread", glyph: null, photoUrl: null },
   ];
-  test("▶ on Your turn; 2×2 tiles with no names but the plain tile's; ✓ for That's it!; words for the grown-up", async () => {
+  test("▶ on Your turn; 2×2 tiles with no names but the plain tile's; no ✓ — the full wagon is swiped (H5, H6); words for the grown-up", async () => {
     const { container, onLand } = setup({ ask: SIMPLE, tiles: FOUR });
     expect(screen.getByRole("heading")).toHaveTextContent("Your turn, Everett!");
     const go = screen.getByRole("button", { name: "Let's pick" });
@@ -207,7 +240,8 @@ describe("Simple", () => {
     fireEvent.click(go);
     expect(container.querySelector(".ask-tiles")).toHaveClass("ask-tiles-simple");
     expect(screen.queryByRole("button", { name: "Take the last one out" })).toBeNull();   // no ↶ here either
-    expect(container.querySelectorAll(".ask-actions button")).toHaveLength(1);         // ✓ alone, centred
+    expect(container.querySelector(".ask-actions")).toBeNull();                          // H5: no ✓
+    expect(screen.queryByRole("button", { name: "That's it!" })).toBeNull();
     expect(container.querySelectorAll(".ask-tile-name")).toHaveLength(1);       // Bread, the plain tile
     expect(screen.getByRole("button", { name: "Bread" })).toHaveTextContent("Bread");
     for (const n of ["Apples", "Bananas", "Cheese"]) {
@@ -215,32 +249,31 @@ describe("Simple", () => {
       expect(t).toHaveAttribute("aria-label", n);
       expect(t.textContent).not.toMatch(n);
     }
-    const ok = screen.getByRole("button", { name: "That's it!" });
-    expect(ok).toHaveClass("ask-icon");
-    expect(ok.textContent).toBe("");
     fireEvent.click(screen.getByRole("button", { name: "Apples" }));
-    fireEvent.click(ok);
+    swipe(SEND_PX + 20);
     await screen.findByText("Your pick is on our list!");
     expect(onLand).toHaveBeenCalledWith(["s-0"]);
     expect(screen.getByRole("heading")).toHaveTextContent("Great pick, Everett!");
     expect(summary()).toBe("Your pick: Apples");
-    expect(screen.getByRole("button", { name: "Give it back" })).toHaveTextContent("Give it back");
+    expect(screen.getByRole("button", { name: "Hold to give it back" })).toHaveTextContent("Give it back");
   });
-  test("a failed land on Simple keeps the wagon and points at ✓", async () => {
+  test("H10: a failed land on Simple rolls the wagon back, still full, and says to swipe again", async () => {
     setup({ ask: SIMPLE, tiles: FOUR, onLand: jest.fn().mockRejectedValueOnce(new Error("offline")) });
     toShelf();
     fireEvent.click(screen.getByRole("button", { name: "Cheese" }));
-    fireEvent.click(screen.getByRole("button", { name: "That's it!" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("That didn't reach the list. Tap ✓ again.");
+    swipe(SEND_PX + 20);
+    expect(await screen.findByRole("alert")).toHaveTextContent("That didn't reach the list. Swipe the wagon again.");
+    expect(screen.queryByText(/Tap ✓ again/)).toBeNull();
     expect(screen.getByLabelText("1 of 1 picked")).toBeInTheDocument();
+    expect(wagonWrap()).toHaveClass("full");
   });
-  test("Standard keeps its words and names", () => {
+  test("Standard keeps its words and names; its That's it! is on the tub, not a button (H13)", () => {
     const { container } = setup();
     expect(screen.getByRole("button", { name: "Let's pick" })).toHaveTextContent("Let's pick");
     toShelf();
     expect(container.querySelector(".ask-tiles")).not.toHaveClass("ask-tiles-simple");
     expect(container.querySelectorAll(".ask-tile-name")).toHaveLength(4);
-    expect(thatsIt()).toHaveTextContent("That's it!");
+    expect(screen.queryByRole("button", { name: "That's it!" })).toBeNull();
   });
 });
 
@@ -257,7 +290,7 @@ describe("op_ask_held", () => {
     expect(held()).toEqual({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: ["c-2", "c-1"] });
     expect(sessionStorage.getItem("op_ask_held")).not.toMatch(/Easton|Cheese|standard/);
     fireEvent.click(tile("Yogurt"));
-    fireEvent.click(thatsIt());
+    tapTub();
     await screen.findByText("Your picks are on our list!");
     expect(sessionStorage.getItem("op_ask_held")).toBeNull();
   });
@@ -265,7 +298,7 @@ describe("op_ask_held", () => {
     setup({ onLand: jest.fn().mockRejectedValueOnce(new Error("offline")) });
     toShelf();
     ["Goldfish", "Apples", "Cheese"].forEach((n) => fireEvent.click(tile(n)));
-    fireEvent.click(thatsIt());
+    tapTub();
     await screen.findByRole("alert");
     expect(held().catalog_item_ids).toEqual(["c-0", "c-1", "c-2"]);
   });
@@ -310,10 +343,10 @@ describe("the wagon (W1–W4)", () => {
     const one = { viewBox: "0 0 260 150", wheels: 4, handle: true, bracket: true, tongue: true };
     expect(parts()).toEqual([one]);                                                         // turn
     toShelf();
-    expect(parts()).toEqual([one]);                                                         // shelf (small)
-    expect(container.querySelector(".ask-wagon")).toHaveClass("ask-wagon-small");
+    expect(parts()).toEqual([one]);                                                         // shelf (the bigger wagon, H5 / H13)
+    expect(container.querySelector(".ask-wagon")).toHaveClass("ask-wagon-big");
     fireEvent.click(tile("Cheese"));
-    fireEvent.click(thatsIt());
+    tapTub();
     await screen.findByText("Your pick is on our list!");
     expect(parts()).toEqual([one]);                                                         // Great picks
     // The bracket and tongue are drawn BEFORE the near wheels (so the wheel hides the bracket), and the
@@ -341,14 +374,16 @@ describe("the wagon (W1–W4)", () => {
   });
 });
 
-describe("the hand-back (W7–W9)", () => {
+describe("the hand-back (W7–W9; W8 amended by H1)", () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
   async function toGreatPicks(props = {}, n = 3) {
     const onExit = jest.fn();
     const onHandBack = jest.fn();
     const view = render(<AskRun ask={{ ...ASK, pickTarget: n }} tiles={TILES} onLand={jest.fn(async () => {})} onExit={onExit} onHandBack={onHandBack} {...props} />);
     toShelf();
     TILES.slice(0, n).forEach((t) => fireEvent.click(tile(t.name)));
-    fireEvent.click(thatsIt());
+    tapTub();
     await screen.findByText(n === 1 ? "Your pick is on our list!" : "Your picks are on our list!");
     return { onExit, onHandBack, container: view.container };
   }
@@ -356,12 +391,13 @@ describe("the hand-back (W7–W9)", () => {
     await toGreatPicks({}, 3);
     expect(screen.getByRole("heading")).toHaveTextContent("Great picks, Easton!");
   });
-  test("W8: 'Give it back to {Parent}' with the parent's name in .op-name; one tap hands back once with the count and ids", async () => {
+  test("W8 + H1: 'Give it back to {Parent}' with the parent's name in .op-name; a hold hands back once with the count and ids", async () => {
     const { onHandBack, onExit, container } = await toGreatPicks({ parentName: "Paige" }, 3);
-    const btn = screen.getByRole("button", { name: "Give it back to Paige" });
+    const btn = screen.getByRole("button", { name: "Hold to give it back to Paige" });
     expect(btn.querySelector(".op-name")).toHaveTextContent(/^Paige$/);
-    fireEvent.click(btn);
-    fireEvent.click(btn);
+    expect(btn.querySelector(".ask-give-text")).toHaveTextContent(/^Give it back to Paige$/);
+    holdGiveBack(btn);
+    holdGiveBack(btn);
     expect(onHandBack).toHaveBeenCalledTimes(1);
     expect(onHandBack).toHaveBeenCalledWith({ count: 3, ids: ["c-0", "c-1", "c-2"] });
     expect(onExit).not.toHaveBeenCalled();
@@ -371,8 +407,80 @@ describe("the hand-back (W7–W9)", () => {
   });
   test("W8: no first name reads 'Give it back'", async () => {
     await toGreatPicks({ parentName: null }, 1);
-    expect(screen.getByRole("button", { name: "Give it back" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hold to give it back" }).querySelector(".ask-give-text")).toHaveTextContent(/^Give it back$/);
     expect(screen.getByRole("heading")).toHaveTextContent("Great pick, Easton!");
+  });
+  test("H1: a plain tap never hands back; it only says 'Hold to give back' for ~1.6 s", async () => {
+    const { onHandBack, onExit } = await toGreatPicks({ parentName: "Paige" }, 3);
+    const btn = screen.getByRole("button", { name: "Hold to give it back to Paige" });
+    act(() => { jest.advanceTimersByTime(ARM_MS); });
+    fireEvent.click(btn);
+    expect(onHandBack).not.toHaveBeenCalled();
+    expect(onExit).not.toHaveBeenCalled();
+    expect(btn.querySelector(".ask-give-text")).toHaveTextContent(/^Hold to give back$/);
+    fireEvent.pointerDown(btn);                                           // a short press: same hint, nothing else
+    act(() => { jest.advanceTimersByTime(300); });
+    fireEvent.pointerUp(btn);
+    expect(onHandBack).not.toHaveBeenCalled();
+    act(() => { jest.advanceTimersByTime(1700); });
+    expect(btn.querySelector(".ask-give-text")).toHaveTextContent(/^Give it back to Paige$/);
+    expect(screen.getByRole("heading")).toHaveTextContent("Great picks, Easton!");
+  });
+  test("H1: the fill runs inside the teal pill (the same holdFillCss as Done)", async () => {
+    await toGreatPicks({}, 3);
+    const btn = screen.getByRole("button", { name: "Hold to give it back" });
+    expect(btn.querySelector(".ask-give-fill")).not.toBeNull();
+    act(() => { jest.advanceTimersByTime(ARM_MS); });
+    fireEvent.pointerDown(btn);
+    expect(btn).toHaveClass("holding");
+    fireEvent.pointerUp(btn);
+    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+    expect(css).toMatch(new RegExp(`\\.ask-give-back\\.holding \\.ask-give-fill \\{ transform: scaleX\\(1\\); transition: transform ${HOLD_MS}ms linear; \\}`));
+  });
+  test("H2: a hold started within 1500 ms of Great picks appearing does nothing (and shows no hint); after, it hands back", async () => {
+    const { onHandBack } = await toGreatPicks({ parentName: "Paige" }, 3);
+    const btn = screen.getByRole("button", { name: "Hold to give it back to Paige" });
+    fireEvent.pointerDown(btn);
+    act(() => { jest.advanceTimersByTime(HOLD_MS + 100); });
+    fireEvent.pointerUp(btn);
+    fireEvent.click(btn);
+    expect(onHandBack).not.toHaveBeenCalled();
+    expect(btn).not.toHaveClass("holding");
+    expect(btn.querySelector(".ask-give-text")).toHaveTextContent(/^Give it back to Paige$/);   // no hint while unarmed
+    expect(btn).toBeEnabled();                                                                    // and no disabled grey
+    act(() => { jest.advanceTimersByTime(ARM_MS); });
+    fireEvent.pointerDown(btn);
+    act(() => { jest.advanceTimersByTime(HOLD_MS); });
+    fireEvent.pointerUp(btn);
+    expect(onHandBack).toHaveBeenCalledTimes(1);
+  });
+  test("the real bug (Everett, 2026-11-24): That's it!, then the same mash on the footer, stays on Great picks", async () => {
+    const { onHandBack, onExit } = await toGreatPicks({ parentName: "Dan" }, 3);
+    const btn = screen.getByRole("button", { name: "Hold to give it back to Dan" });
+    for (let k = 0; k < 6; k++) { fireEvent.pointerDown(btn); fireEvent.pointerUp(btn); fireEvent.click(btn); }
+    act(() => { jest.advanceTimersByTime(3000); });
+    for (let k = 0; k < 6; k++) { fireEvent.pointerDown(btn); fireEvent.pointerUp(btn); fireEvent.click(btn); }
+    expect(onHandBack).not.toHaveBeenCalled();
+    expect(onExit).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading")).toHaveTextContent("Great picks, Easton!");
+  });
+  test("H3: a tap on the Great picks wagon makes it hop; not under reduced motion; taps elsewhere do nothing", async () => {
+    const animate = jest.fn(() => ({ onfinish: null, cancel() {} }));
+    const had = Element.prototype.animate;
+    const mm = window.matchMedia;
+    try {
+      const { container } = await toGreatPicks({}, 3);
+      Element.prototype.animate = animate;                 // after the shelf: the pick fly-in uses it too
+      const hop = container.querySelector(".ask-finale .ask-finale-hop");
+      fireEvent.click(screen.getByRole("heading"));
+      expect(animate).not.toHaveBeenCalled();
+      fireEvent.click(hop);
+      expect(animate).toHaveBeenCalledTimes(1);
+      expect(animate.mock.contexts ? animate.mock.contexts[0] : hop).toBe(hop);
+      window.matchMedia = (q) => ({ matches: /reduce/.test(q), media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
+      fireEvent.click(hop);
+      expect(animate).toHaveBeenCalledTimes(1);
+    } finally { window.matchMedia = mm; if (had) Element.prototype.animate = had; else delete Element.prototype.animate; }
   });
   test("W9 (App, source): the hand-back closes the run, lands on Browse, and shows '{Label} added {N} · See' once; See opens the list highlighted", () => {
     const app = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
@@ -422,7 +530,7 @@ test("Great picks: wagon cards and the landed list keep pick order, even when th
   fireEvent.click(tile("Goldfish"));
   const shelfOrder = [...container.querySelectorAll(".ask-wagon .ask-wagon-pick")].map((g) => g.getAttribute("aria-label").replace("Take out ", ""));
   expect(shelfOrder).toEqual(["Yogurt", "Cheese", "Goldfish"]);
-  fireEvent.click(thatsIt());
+  tapTub();
   await screen.findByText("Your picks are on our list!");
   expect(onLand).toHaveBeenCalledWith(["c-3", "c-2", "c-0"]);
   const cards = () => [...container.querySelectorAll(".ask-finale .ask-wagon-pick")].map((g) => g.getAttribute("aria-label"));
@@ -478,20 +586,20 @@ describe("numbered picks (Shopper)", () => {
     const byBadge = ["Yogurt", "Cheese", "Apples", "Goldfish"].sort((a, b) => Number(badge(a)) - Number(badge(b)));
     expect(byBadge).toEqual(["Yogurt", "Apples", "Goldfish", "Cheese"]);
     expect(wagonOrder(container)).toEqual(byBadge);
-    fireEvent.click(thatsIt());
+    tapTub();
     await screen.findByText("Your picks are on our list!");
     expect([...container.querySelectorAll(".ask-finale .ask-wagon-pick")].map((g) => g.getAttribute("aria-label"))).toEqual(byBadge);
     expect(summary()).toBe(`Your picks: ${byBadge.join(", ")}`);
   });
-  test("no progress dots on Shopper; the count stays for screen readers; the footer wagon is the 185px drawing", () => {
+  test("no progress dots on Shopper; the count stays for screen readers; the footer wagon is the bigger drawing (H13)", () => {
     const { container } = setup({ ask: ASK4 });
     toShelf();
     fireEvent.click(tile("Cheese"));
     expect(container.querySelector(".ask-dots")).toBeNull();
     expect(screen.getByLabelText("1 of 4 picked")).toHaveClass("ask-sr");
     const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
-    expect(css).toMatch(/\.ask-wagon-small \{ width: 185px; \}/);
-    expect(container.querySelector(".ask-cartrow .ask-wagon")).toHaveClass("ask-wagon-small");
+    expect(css).toMatch(/\.ask-wagonwrap \{ position: relative; width: min\(88vw, 360px\);/);
+    expect(container.querySelector(".ask-cartrow .ask-wagon")).toHaveClass("ask-wagon-big");
   });
   test("Shopper's wagon has no tide and never bursts", () => {
     jest.useFakeTimers();
@@ -516,7 +624,7 @@ test("the titles use lining figures, so the 5 in \"Pick 5\" stands at cap height
 describe("Explorer's tide and finish", () => {
   const KID = { id: "a-k", label: "Kid", shelfNoun: null, pickTarget: 2, screenStyle: "simple" };
   const tide = (c) => c.querySelector(".ask-cartrow .ask-tide");
-  test("a plain ✓ (no number), no dots, the same 185px wagon; the tub fills one step per pick", () => {
+  test("a plain ✓ on the tile (no number), no dots, the bigger wagon (H5); the tub fills one step per pick", () => {
     const { container } = setup({ ask: KID });
     fireEvent.click(screen.getByRole("button", { name: "Let's pick" }));
     expect(tide(container)).toHaveAttribute("data-fill", "0");
@@ -527,7 +635,8 @@ describe("Explorer's tide and finish", () => {
     expect(container.querySelector(".ask-dots")).toBeNull();
     expect(container.querySelector(".ask-dot")).toBeNull();
     expect(screen.getByLabelText("1 of 2 picked")).toHaveClass("ask-sr");
-    expect(container.querySelector(".ask-cartrow .ask-wagon")).toHaveClass("ask-wagon-small");
+    expect(container.querySelector(".ask-cartrow .ask-wagon")).toHaveClass("ask-wagon-big");
+    expect(container.querySelector(".ask-cartrow .ask-wagonwrap")).not.toBeNull();
     expect(tide(container)).toHaveAttribute("data-fill", "50");
     expect(tide(container)).not.toHaveClass("full");
     fireEvent.click(screen.getByRole("button", { name: "Apples" }));
@@ -590,6 +699,253 @@ describe("Explorer's tide and finish", () => {
   });
 });
 
+// H5–H11: Explorer swipes the wagon to send (docs/mockups/mockup_ask_swipe_wagon.html).
+describe("Explorer swipes the wagon (H5–H11)", () => {
+  const KID = { id: "a-k", label: "Kid", shelfNoun: null, pickTarget: 2, screenStyle: "simple" };
+  const fill = () => ["Cheese", "Apples"].forEach((n) => fireEvent.click(screen.getByRole("button", { name: n })));
+  const kid = (props = {}) => {
+    const r = setup({ ask: KID, ...props });
+    fireEvent.click(screen.getByRole("button", { name: "Let's pick" }));
+    return r;
+  };
+  test("H5: no ✓ is rendered, full or not", () => {
+    kid();
+    expect(screen.queryByRole("button", { name: "That's it!" })).toBeNull();
+    fill();
+    expect(screen.queryByRole("button", { name: "That's it!" })).toBeNull();
+    expect(document.querySelector(".ask-thats-it")).toBeNull();
+  });
+  test("H6: a drag of ≥ 60px to the right on a full wagon lands once and reaches Great picks", async () => {
+    const { onLand } = kid();
+    fill();
+    swipe(SEND_PX);
+    expect(onLand).toHaveBeenCalledTimes(1);
+    expect(onLand).toHaveBeenCalledWith(["c-2", "c-1"]);
+    await screen.findByText("Your picks are on our list!");
+    expect(screen.getByRole("heading")).toHaveTextContent("Great picks, Kid!");
+  });
+  test("H6: short of 60px it springs back; a drag on a not-full wagon does nothing", () => {
+    const { onLand } = kid();
+    fireEvent.click(screen.getByRole("button", { name: "Cheese" }));
+    swipe(SEND_PX + 40);                                                    // not full
+    expect(onLand).not.toHaveBeenCalled();
+    expect(wagonWrap().style.transform).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Apples" }));
+    swipe(SEND_PX - 1);                                                     // full, but short
+    expect(onLand).not.toHaveBeenCalled();
+    expect(wagonWrap().style.transform).toBe("");
+    expect(screen.getByRole("heading")).toHaveTextContent("Pick 2, Kid!");
+  });
+  test("H6: only rightward travel moves the wagon", () => {
+    kid();
+    fill();
+    const w = wagonWrap();
+    fireEvent.pointerDown(w, pt(200));
+    fireEvent.pointerMove(w, pt(120));
+    expect(w.style.transform).toBe("");
+    fireEvent.pointerMove(w, pt(240));
+    expect(w.style.transform).toBe("translateX(40px)");
+    fireEvent.pointerUp(w, pt(240));
+  });
+  test("H7: taps keep working on a full wagon — a card comes out, a tile unpicks; the wagon stops being sendable", () => {
+    const { onLand } = kid();
+    fill();
+    expect(wagonWrap()).toHaveClass("full");
+    fireEvent.click(screen.getByRole("button", { name: "Take out Apples" }));
+    expect(screen.getByLabelText("1 of 2 picked")).toBeInTheDocument();
+    expect(wagonWrap()).not.toHaveClass("full");
+    fireEvent.click(screen.getByRole("button", { name: "Apples" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Cheese, pick/ }));
+    expect(screen.getByLabelText("1 of 2 picked")).toBeInTheDocument();
+    expect(onLand).not.toHaveBeenCalled();
+  });
+  test("H7: a press that moves (a drag) doesn't also take the card out", () => {
+    kid();
+    fill();
+    const card = screen.getByRole("button", { name: "Take out Apples" });
+    const w = wagonWrap();
+    fireEvent.pointerDown(w, pt(100));
+    fireEvent.pointerMove(w, pt(130));
+    fireEvent.pointerUp(w, pt(130));                                        // 30px: a drag, short of sending
+    fireEvent.click(card);                                                  // the click that follows the release
+    expect(screen.getByLabelText("2 of 2 picked")).toBeInTheDocument();
+  });
+  test("H8: the first tug ~1.7 s after it fills (as the fireworks fade), with a → beside it; unpicking stops it; no adult text", () => {
+    jest.useFakeTimers();
+    try {
+      const { container } = kid();
+      fill();
+      expect(TUG_AFTER_MS).toBe(1700);
+      act(() => { jest.advanceTimersByTime(TUG_AFTER_MS - 100); });
+      expect(wagonWrap()).not.toHaveClass("tug");
+      act(() => { jest.advanceTimersByTime(150); });
+      expect(wagonWrap()).toHaveClass("tug");
+      expect(container.querySelector(".ask-send-hint")).toHaveTextContent("→");
+      expect(container.querySelector(".ask-send-hint")).toHaveAttribute("aria-hidden", "true");
+      expect(screen.queryByText(/grown-up|swipe/i)).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Take out Apples" }));
+      expect(wagonWrap()).not.toHaveClass("tug");
+      const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+      expect(css).toMatch(/\.ask-wagonwrap\.tug \.ask-wagon-tug \{ animation: ask-tug 1\.1s ease-in-out infinite; \}/);   // ~1.1 s loops
+      expect(css).toMatch(/@keyframes ask-tug \{ 0%, 55%, 100% \{ transform: none; \}/);                                 // ~0.5 s of rest in each
+      expect(css).toMatch(/\.ask-send-hint \{[^}]*opacity: 0;/);         // reduced motion (no animation) leaves it hidden
+    } finally { jest.useRealTimers(); }
+  });
+  test("H9: Done held with a full wagon sends it (not ask_abandoned); with a wagon that isn't full it abandons", async () => {
+    const emit = jest.spyOn(askTelemetry, "emitAskEvent").mockImplementation(() => {});
+    jest.useFakeTimers();
+    try {
+      const { onLand, onExit } = kid();
+      fill();
+      const done = screen.getByRole("button", { name: "Hold to send" });
+      fireEvent.pointerDown(done);
+      act(() => { jest.advanceTimersByTime(HOLD_MS); });
+      fireEvent.pointerUp(done);
+      await screen.findByText("Your picks are on our list!");
+      expect(onLand).toHaveBeenCalledTimes(1);
+      expect(onExit).not.toHaveBeenCalled();
+      expect(emit.mock.calls.map((c) => c[0])).not.toContain("ask_abandoned");
+    } finally { jest.useRealTimers(); emit.mockRestore(); }
+  });
+  test("H9: Done with a wagon that isn't full abandons, as today", () => {
+    jest.useFakeTimers();
+    try {
+      const { onLand, onExit } = kid();
+      fireEvent.click(screen.getByRole("button", { name: "Cheese" }));
+      const done = screen.getByRole("button", { name: "Hold to finish" });
+      fireEvent.pointerDown(done);
+      act(() => { jest.advanceTimersByTime(HOLD_MS); });
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(onLand).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+  test("H10: onLand throwing after a swipe — still on the shelf, wagon full, the new copy; a second swipe lands", async () => {
+    const onLand = jest.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
+    kid({ onLand });
+    fill();
+    swipe(SEND_PX + 10);
+    expect(await screen.findByRole("alert")).toHaveTextContent("That didn't reach the list. Swipe the wagon again.");
+    expect(screen.getByRole("heading")).toHaveTextContent("Pick 2, Kid!");
+    expect(screen.getByLabelText("2 of 2 picked")).toBeInTheDocument();
+    expect(wagonWrap()).toHaveClass("full");
+    expect(wagonWrap().style.transform).toBe("");                          // rolled back in
+    swipe(SEND_PX + 10);
+    await screen.findByText("Your picks are on our list!");
+    expect(onLand).toHaveBeenCalledTimes(2);
+  });
+  test("H11: the full wagon is a 'Send the wagon' button for keyboards and screen readers", async () => {
+    const { onLand } = kid();
+    expect(screen.queryByRole("button", { name: "Send the wagon" })).toBeNull();      // not until it's full
+    fill();
+    expect(screen.getByRole("button", { name: "Send the wagon" })).toHaveAttribute("tabindex", "0");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Take out Apples" }), { key: "Enter" });   // Enter on a card is the card's:
+    expect(screen.getByLabelText("1 of 2 picked")).toBeInTheDocument();                             // it comes out, nothing is sent
+    expect(onLand).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Apples" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: "Send the wagon" }), { key: "Enter" });
+    expect(onLand).toHaveBeenCalledTimes(1);
+    await screen.findByText("Your picks are on our list!");
+  });
+  test("H12: picked is unmistakable — a ~5px outline, a pale teal wash, a 44px ✓ with a white ring", () => {
+    kid();
+    fireEvent.click(screen.getByRole("button", { name: "Cheese" }));
+    expect(screen.getByRole("button", { name: /^Cheese, pick/ }).querySelector(".ask-tile-check")).toHaveTextContent(/^✓$/);
+    const css = [...document.querySelectorAll("style")].map((el) => el.textContent).join("");
+    expect(css).toMatch(/\.ask-tiles-simple \.ask-tile\.picked \{ background: #E3F4F1; box-shadow: 0 0 0 3px #0D9488; \}/);
+    expect(css).toMatch(/\.ask-tiles-simple \.ask-tile-check \{ width: 44px; height: 44px; font-size: 24px;[^}]*box-shadow: 0 0 0 3px #fff;/);
+    expect(css).toMatch(/\.ask-tile \{[^}]*border: 2px solid/);                      // 2px border + 3px ring ≈ 5px
+  });
+  test("H13: Explorer's tub is wordless and a tap on its front sends nothing", () => {
+    const { onLand } = kid();
+    fill();
+    expect(document.querySelector(".ask-tub-words")).toBeNull();
+    expect(tub()).toBeNull();
+    fireEvent.click(document.querySelector(".ask-cartrow .ask-wagon"));
+    expect(onLand).not.toHaveBeenCalled();
+  });
+});
+
+// H13 (rev 3): Shopper sends with the wagon too — no That's it! button; "That's it!" pops onto the tub front.
+describe("Shopper sends with the wagon (H13)", () => {
+  const shopper = (props = {}) => { const r = setup(props); toShelf(); return r; };
+  const fillThree = () => ["Cheese", "Apples", "Yogurt"].forEach((n) => fireEvent.click(tile(n)));
+  test("no That's it! button is rendered; full, the tub says That's it!; the numbered badges are unchanged", () => {
+    shopper();
+    expect(screen.queryByRole("button", { name: /That's it!/ })).toBeNull();
+    expect(document.querySelector(".ask-tub-words")).toBeNull();
+    fillThree();
+    expect(screen.queryByRole("button", { name: /That's it!/ })).toBeNull();
+    const words = document.querySelector(".ask-tub-words");
+    expect(words).toHaveTextContent(/^That's it!$/);
+    expect(words).toHaveAttribute("aria-hidden", "true");                                // the wagon is "Send the wagon" for readers
+    expect(words.getAttribute("font-weight")).toBe("900");
+    expect(screen.getByRole("button", { name: "Yogurt, pick 3 of 3" }).querySelector(".ask-order-num")).toHaveTextContent("3");
+    // the tap area is the tub front below the stripe (y 92) and between the wheels — never under a card
+    const r = tub();
+    expect(+r.getAttribute("y")).toBeGreaterThanOrEqual(92);
+    expect([+r.getAttribute("x"), +r.getAttribute("width")]).toEqual([66, 156]);
+  });
+  test("a tap on the tub front sends: onLand once, then Great picks", async () => {
+    const { onLand } = shopper();
+    fillThree();
+    tapTub();
+    tapTub();
+    expect(onLand).toHaveBeenCalledTimes(1);
+    expect(onLand).toHaveBeenCalledWith(["c-2", "c-1", "c-3"]);
+    await screen.findByText("Your picks are on our list!");
+  });
+  test("a swipe sends too", async () => {
+    const { onLand } = shopper();
+    fillThree();
+    swipe(SEND_PX + 15);
+    expect(onLand).toHaveBeenCalledTimes(1);
+    await screen.findByText("Your picks are on our list!");
+  });
+  test("a card tap still takes the pick out (and the tub's words go)", () => {
+    const { onLand } = shopper();
+    fillThree();
+    fireEvent.click(screen.getByRole("button", { name: "Take out Apples" }));
+    expect(screen.getByLabelText("2 of 3 picked")).toBeInTheDocument();
+    expect(document.querySelector(".ask-tub-words")).toBeNull();
+    expect(onLand).not.toHaveBeenCalled();
+  });
+  test("a press on the tub that turns into a short drag doesn't send", () => {
+    const { onLand } = shopper();
+    fillThree();
+    const w = wagonWrap();
+    fireEvent.pointerDown(w, pt(100));
+    fireEvent.pointerMove(w, pt(130));
+    fireEvent.pointerUp(w, pt(130));
+    tapTub();                                                                            // the click after the release
+    expect(onLand).not.toHaveBeenCalled();
+  });
+  test("Done held full sends; the tug and → come ~1.7 s after it fills; Send the wagon for assistive tech", async () => {
+    jest.useFakeTimers();
+    try {
+      const { onLand, onExit } = shopper();
+      fillThree();
+      expect(screen.getByRole("button", { name: "Send the wagon" })).toBeInTheDocument();
+      act(() => { jest.advanceTimersByTime(TUG_AFTER_MS + 50); });
+      expect(wagonWrap()).toHaveClass("tug");
+      const done = screen.getByRole("button", { name: "Hold to send" });
+      fireEvent.pointerDown(done);
+      act(() => { jest.advanceTimersByTime(HOLD_MS); });
+      fireEvent.pointerUp(done);
+      await screen.findByText("Your picks are on our list!");
+      expect(onLand).toHaveBeenCalledTimes(1);
+      expect(onExit).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+  test("a failed land: the wagon rolls back full, and Shopper's copy is 'Try That's it! again.'", async () => {
+    shopper({ onLand: jest.fn().mockRejectedValueOnce(new Error("offline")) });
+    fillThree();
+    tapTub();
+    expect(await screen.findByRole("alert")).toHaveTextContent("That didn't reach the list. Try That's it! again.");
+    expect(screen.getByLabelText("3 of 3 picked")).toBeInTheDocument();
+    expect(document.querySelector(".ask-tub-words")).toHaveTextContent("That's it!");
+  });
+});
+
 // Great picks: the wagon is the summary (2026-11-14).
 describe("the summary wagon", () => {
   const SIX = ["Apples", "Bananas", "Carrots", "Cheddar cheese", "Hummus", "Greek yogurt"].map((name, i) => ({ id: `s-${i}`, name, glyph: null, photoUrl: null }));
@@ -597,7 +953,7 @@ describe("the summary wagon", () => {
     const view = render(<AskRun ask={{ ...ASK, pickTarget: n }} tiles={SIX} onLand={jest.fn(async () => {})} onExit={jest.fn()} />);
     toShelf();
     SIX.slice(0, n).forEach((t) => fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${t.name}`) })));
-    fireEvent.click(thatsIt());
+    tapTub();
     await screen.findByText(n === 1 ? "Your pick is on our list!" : "Your picks are on our list!");
     return view.container;
   }
@@ -647,7 +1003,7 @@ describe("Great picks layout", () => {
     const { container } = setup({ ask: { ...ASK, pickTarget: 1 } });
     toShelf();
     fireEvent.click(tile("Cheese"));
-    fireEvent.click(thatsIt());
+    tapTub();
     await screen.findByText("Your pick is on our list!");
     const kids = [...container.querySelector(".ask-finale").children].map((el) => el.className || el.tagName);
     const at = (re) => kids.findIndex((k) => re.test(k));
@@ -822,7 +1178,7 @@ describe("telemetry", () => {
     setup({ onLand: jest.fn(async () => { throw err; }) });
     toShelf();
     ["Cheese", "Apples", "Yogurt"].forEach((n) => fireEvent.click(tile(n)));
-    fireEvent.click(thatsIt());
+    tapTub();
     await screen.findByRole("alert");
     expect(calls()).toContainEqual(["ask_land_failed", err, 3, undefined]);
   });
@@ -830,7 +1186,7 @@ describe("telemetry", () => {
     setup();
     toShelf();
     ["Cheese", "Apples", "Yogurt"].forEach((n) => fireEvent.click(tile(n)));
-    fireEvent.click(thatsIt());
+    tapTub();
     await screen.findByText("Your picks are on our list!");
     expect(calls().map((c) => c[0])).toEqual(["ask_started"]);
   });
@@ -844,7 +1200,7 @@ test("B7: some picks skipped — Great picks with the landed ones and one line n
   fireEvent.click(tile("Goldfish"));
   fireEvent.click(tile("Cheese"));
   fireEvent.click(tile("Yogurt"));
-  fireEvent.click(thatsIt());
+  tapTub();
   await screen.findByText("Goldfish isn't available any more. The rest are on the list.");
   expect(screen.getByRole("heading")).toHaveTextContent("Great picks, Easton!");
   expect(summary()).toBe("Your picks: Cheese, Yogurt");
@@ -860,7 +1216,7 @@ test("B9.3: nothing landed — no celebration; the dead tiles leave the run and 
   fireEvent.click(tile("Goldfish"));
   fireEvent.click(tile("Apples"));
   fireEvent.click(tile("Cheese"));
-  fireEvent.click(thatsIt());
+  tapTub();
   await screen.findByText("Goldfish, Apples and Cheese aren't available any more.");
   expect(screen.queryByText("Your picks are on our list!")).toBeNull();
   expect(screen.queryByRole("button", { name: /^Goldfish/ })).toBeNull();          // the dead tiles are gone
@@ -869,7 +1225,88 @@ test("B9.3: nothing landed — no celebration; the dead tiles leave the run and 
   expect(screen.queryByText(/Tap ✓ again|Try That's it! again/)).toBeNull();
   fireEvent.click(tile("Yogurt"));                                                  // pick again: the line goes
   expect(screen.queryByText(/aren't available any more/)).toBeNull();
-  fireEvent.click(thatsIt());
+  tapTub();
   await screen.findByText("Your pick is on our list!");
   expect(onLand).toHaveBeenLastCalledWith(["c-3"]);
+});
+
+// SPEC_ask_offline D6 (amends H9) — the Done button, row by row, on both styles:
+//   not full                → Hold to finish → abandon
+//   full, no send / queued  → Hold to send   → send
+//   full, real error        → Hold to finish → close the run, KEEP op_ask_held (O4)
+//   a change to the wagon after a failure → back to the first two rows
+describe("D6: Done can always finish (SPEC_ask_offline O4)", () => {
+  const KID = { id: "a-k", label: "Kid", shelfNoun: null, pickTarget: 2, screenStyle: "simple" };
+  const STYLES = [
+    ["Shopper", ASK, ["Goldfish", "Apples", "Cheese"], () => tapTub()],
+    // A real drag ends with the browser's click on the card under the finger, which the drag swallows
+    // (suppressTap); jsdom sends none, so it is sent here.
+    ["Explorer", KID, ["Cheese", "Apples"], () => { swipe(SEND_PX + 10); fireEvent.click(screen.getAllByRole("button", { name: /^Take out / })[0]); }],
+  ];
+  const done = () => document.querySelector(".ask-top .ask-done")?.getAttribute("aria-label");
+  const holdDone = () => {
+    const d = document.querySelector(".ask-top .ask-done");
+    fireEvent.pointerDown(d);
+    act(() => { jest.advanceTimersByTime(HOLD_MS); });
+    fireEvent.pointerUp(d);
+  };
+  const realError = () => Object.assign(new Error("no live ask"), { code: "P0002" });
+  beforeEach(() => sessionStorage.clear());
+
+  test.each(STYLES)("%s: not full → finish; full → send; a real error → finish; a change to the wagon → send again", async (_, ask, names, send) => {
+    const onLand = jest.fn().mockRejectedValueOnce(realError());
+    setup({ ask, onLand });
+    toShelf();
+    names.slice(0, -1).forEach((n) => fireEvent.click(tile(n)));
+    expect(done()).toBe("Hold to finish");
+    fireEvent.click(tile(names[names.length - 1]));
+    expect(done()).toBe("Hold to send");
+    send();
+    expect(await screen.findByRole("alert")).toHaveTextContent("That didn't reach the list.");
+    expect(done()).toBe("Hold to finish");
+    fireEvent.click(screen.getByRole("button", { name: `Take out ${names[0]}` }));
+    expect(done()).toBe("Hold to finish");                  // not full: the abandon row
+    fireEvent.click(tile(names[0]));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(done()).toBe("Hold to send");                    // full again, the failure cleared
+  });
+
+  test.each(STYLES)("%s: after a real error, holding Done closes the run with keep, the picks still held, and no abandon", async (_, ask, names, send) => {
+    const emit = jest.spyOn(askTelemetry, "emitAskEvent").mockImplementation(() => {});
+    jest.useFakeTimers();
+    try {
+      const { onExit } = setup({ ask, onLand: jest.fn().mockRejectedValueOnce(realError()) });
+      toShelf();
+      names.forEach((n) => fireEvent.click(tile(n)));
+      send();
+      await screen.findByRole("alert");
+      holdDone();
+      expect(onExit).toHaveBeenCalledTimes(1);
+      expect(onExit).toHaveBeenCalledWith({ keep: true });
+      expect(JSON.parse(sessionStorage.getItem("op_ask_held"))).toMatchObject({ ask_id: ask.id, screen: "shelf", catalog_item_ids: names.map((n) => TILES.find((x) => x.name === n).id) });
+      expect(emit.mock.calls.map((c) => c[0])).not.toContain("ask_abandoned");
+    } finally { jest.useRealTimers(); emit.mockRestore(); }
+  });
+
+  test.each(STYLES)("%s: a queued send (off grid) is not a failure — Great picks, no red line", async (_, ask, names, send) => {
+    const onLand = jest.fn(async (ids) => ({ landed: ids.length, skippedIds: [], queued: true }));
+    setup({ ask, onLand });
+    toShelf();
+    names.forEach((n) => fireEvent.click(tile(n)));
+    send();
+    await screen.findByText(names.length === 1 ? "Your pick is on our list!" : "Your picks are on our list!");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test.each(STYLES)("%s: the next hand-over resumes on the shelf with the wagon full, ready to send, as ask_resumed", (_, ask, names) => {
+    const emit = jest.spyOn(askTelemetry, "emitAskEvent").mockImplementation(() => {});
+    try {
+      const ids = names.map((n) => TILES.find((x) => x.name === n).id);
+      render(<AskRun ask={ask} tiles={TILES} onLand={jest.fn()} onExit={jest.fn()} resume={{ screen: "shelf", ids }} />);
+      expect(screen.getByLabelText(`${ids.length} of ${ids.length} picked`)).toBeInTheDocument();
+      expect(wagonWrap()).toHaveClass("full");
+      expect(done()).toBe("Hold to send");
+      expect(emit.mock.calls[0]).toEqual(["ask_resumed", "shelf", ask.screenStyle]);
+    } finally { emit.mockRestore(); }
+  });
 });

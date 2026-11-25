@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Ask: swipe the wagon</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Playfair+Display:wght@700&display=swap">
+<style>
+/* VOICE: a toddler's turn — calm setting, delight from his own actions.
+   IDEA: the beach wagon from Ask; he fills it, then pulls it away to send it.
+   PICTURE: the full app wagon, bigger now that the ✓ is gone, on the shelf screen.
+   COLOUR/TYPE: Ask's own — cream #FBF6EC, teal #0D9488, wood; Playfair titles, Lato everything else.
+   LAYOUT: phone-first, 3 screens (turn, shelf, Great picks), a test bar under the phone. */
+:root{color-scheme:light;--bg:#FBF6EC;--ink:#2C1A0E;--teal:#0D9488;--sand:#E8D5B7}
+*{box-sizing:border-box;min-width:0;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:#1f2d2b;font:16px/1.5 Lato,system-ui,sans-serif;color:var(--ink);overflow:hidden}
+.phone{position:relative;width:min(100vw,430px);height:100%;max-height:932px;margin:0 auto;background:var(--bg);overflow:hidden;
+  user-select:none;-webkit-user-select:none;touch-action:manipulation;display:flex;flex-direction:column}
+.top{display:flex;justify-content:space-between;align-items:center;padding:14px 18px 6px;min-height:52px;font-size:14px;color:rgba(44,26,14,.62)}
+.top b{font-weight:700}.name{color:var(--teal);font-weight:900}
+.hold{position:relative;overflow:hidden;border:0;background:transparent;color:inherit;font:700 15px Lato,sans-serif;padding:10px 14px;border-radius:999px;min-height:44px;cursor:pointer;touch-action:none}
+.fill{position:absolute;inset:0;background:var(--sand);transform:scaleX(0);transform-origin:left;transition:transform .2s}
+.holding .fill{transform:scaleX(1);transition:transform 1000ms linear}
+.hold span{position:relative}
+.screen{flex:1;display:none;flex-direction:column;position:relative}
+.screen.on{display:flex}
+h1{font:700 clamp(30px,8.5vw,38px)/1.08 'Playfair Display',serif;margin:6px 22px 4px;text-wrap:balance}
+.sub{margin:0 22px;color:rgba(44,26,14,.7)}
+.thatsit{animation:pop .4s cubic-bezier(.3,1.7,.5,1) both;transform-box:fill-box;transform-origin:center}
+@keyframes pop{from{transform:scale(0)}to{transform:scale(1)}}
+.coach{margin:10px 18px 0;padding:10px 14px;border-radius:14px;background:#fff;border:1px solid #E6D8C1;font-size:14px;line-height:1.4;color:rgba(44,26,14,.8);display:flex;gap:10px;align-items:flex-start}
+.coach i{font-style:normal;font-weight:900;color:var(--teal);flex:none}
+.coach[hidden]{display:none}
+.shelf{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px 16px 0}
+.tile{position:relative;aspect-ratio:1/1.05;border:0;border-radius:18px;background:#fff;box-shadow:0 2px 0 #E6D8C1;font-size:42px;display:grid;place-items:center;cursor:pointer;transition:transform .12s}
+.tile:active{transform:scale(.94)}
+.tile.picked{background:#E3F4F1;box-shadow:0 0 0 5px var(--teal)}
+.tile .ck{position:absolute;top:6px;right:6px;width:44px;height:44px;border-radius:50%;background:var(--teal);color:#fff;font-size:24px;box-shadow:0 0 0 3px #fff;font-weight:900;display:grid;place-items:center;transform:scale(0);transition:transform .25s cubic-bezier(.3,1.6,.5,1)}
+.tile.picked .ck{transform:scale(1)}
+.cartzone{flex:1;position:relative;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding-bottom:max(18px,env(safe-area-inset-bottom))}
+.wagonwrap{position:relative;width:min(88vw,360px);touch-action:none;cursor:grab}
+.wagonwrap svg{display:block;width:100%;height:auto;overflow:visible}
+.wagonwrap.dragging{cursor:grabbing}
+.wagonwrap.full .tug{animation:tug 1.1s ease-in-out infinite}
+@keyframes tug{0%,55%,100%{transform:translateX(0)}15%{transform:translateX(14px)}30%{transform:translateX(4px)}42%{transform:translateX(10px)}}
+.wagonwrap.full .handle{animation:pull 1.1s ease-in-out infinite;transform-box:view-box;transform-origin:60px 119px}
+@keyframes pull{0%,55%,100%{transform:rotate(0)}15%{transform:rotate(14deg)}42%{transform:rotate(8deg)}}
+.spin{transform-box:fill-box;transform-origin:center}
+.rolling .spin{animation:spin .5s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hop{animation:hop .45s cubic-bezier(.3,1.5,.5,1)}
+@keyframes hop{30%{transform:translateY(-14px)}60%{transform:translateY(2px)}}
+.count{font-weight:700;color:rgba(44,26,14,.55);font-size:14px;margin-top:2px}
+.hint{position:absolute;right:6px;bottom:38%;font:900 30px Lato;color:var(--teal);opacity:0;pointer-events:none}
+.wagonwrap.full~.hint{animation:arrow 1.1s ease-in-out infinite}
+@keyframes arrow{0%{opacity:0;transform:translateX(-10px)}20%{opacity:.85;transform:translateX(4px)}55%,100%{opacity:0;transform:translateX(12px)}}
+.fw{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.spark{position:absolute;width:7px;height:7px;border-radius:50%;animation:burst 1.1s ease-out forwards}
+@keyframes burst{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--dx),var(--dy)) scale(.3);opacity:0}}
+.foot{display:flex;justify-content:center;padding:16px 20px max(28px,env(safe-area-inset-bottom))}
+.primary{position:relative;overflow:hidden;border:0;background:var(--teal);color:#fff;font:700 18px Lato,sans-serif;min-height:56px;padding:0 34px;border-radius:999px;cursor:pointer;touch-action:none}
+.primary .fill{background:rgba(255,255,255,.35)}
+.go{width:84px;height:84px;padding:0;border-radius:50%;font-size:34px}
+.final .wagonwrap{cursor:pointer;margin:auto}
+.line{text-align:center;font-weight:700;margin:6px 0 0}
+.rollin{animation:rollin 1.1s cubic-bezier(.2,.8,.3,1) both}
+@keyframes rollin{from{transform:translateX(-120%)}to{transform:translateX(0)}}
+.sea{position:absolute;inset:0;background:linear-gradient(#CFEDEA 0 34%,#8FD3CB 34% 58%,#F1E2C4 58%);z-index:0}
+.turn>*{position:relative;z-index:1}
+.testbar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;justify-content:center;padding:6px;font-size:12px;z-index:9;pointer-events:none}
+.testbar button{pointer-events:auto;border:0;border-radius:999px;background:rgba(0,0,0,.45);color:#fff;font:700 12px Lato;padding:7px 12px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <div class="top"><span>Ask <b class="name kid">Everett</b></span><span id="topctl"></span></div>
+
+  <section class="screen turn on" id="s-turn">
+    <div class="sea"></div>
+    <h1>Your turn, <span class="name kid">Everett</span>!</h1>
+    <p class="sub">Pick 3 snacks for the wagon.</p>
+    <div class="cartzone"><div class="wagonwrap" id="wTurn"></div></div>
+    <div class="foot"><button class="primary go" id="letsgo" aria-label="Let's pick">▶</button></div>
+  </section>
+
+  <section class="screen" id="s-shelf">
+    <h1>Pick 3, <span class="name kid">Everett</span>!</h1>
+    <div class="shelf" id="shelf"></div>
+    <div class="cartzone" id="cartzone">
+      <div class="wagonwrap" id="wShelf" aria-label="The wagon"></div>
+      <div class="hint" aria-hidden="true">→</div>
+      <div class="count" id="count">0 of 3</div>
+    </div>
+    <div class="fw" id="fw"></div>
+  </section>
+
+  <section class="screen final" id="s-done">
+    <h1>Great picks,<br><span class="name kid">Everett</span>!</h1>
+    <div class="cartzone" style="justify-content:center"><div class="wagonwrap rollin" id="wDone"></div>
+      <p class="line">Your picks are on our list!</p></div>
+    <div class="foot"><button class="primary" id="giveback"><span class="fill"></span><span id="gbText">Give it back to <b>Dan</b></span></button></div>
+  </section>
+</div>
+<div class="testbar"><button id="style">Style: Explorer</button><button id="again">Run again</button></div>
+
+<script>
+{
+let shopper=false; const TARGET=3, SNACKS=["🍎","🧀","🍌","🥕","🍇","🥨","🍓","🥒","🍪"];
+let hintT=null; const HINT_AFTER=1700, HOLD=1000, ARM=1500, SEND_PX=60;
+let picks=[], screen="turn", sent=false, armedAt=0;
+const $=id=>document.getElementById(id);
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function layout(n){const w=n>=4?40:46,h=n>=4?44:50,gap=n>=4?41:44,t={1:[0],2:[-5,5],3:[-8,0,8],4:[-9,-3,3,9]}[n]||[];
+  return t.map((tilt,k)=>{const cx=144+(k-(n-1)/2)*gap;return{x:cx-w/2,y:13+Math.abs(tilt)*.45,w,h,tilt}})}
+function wheel(x,y,far,u){return `<g transform="translate(${x} ${y})" ${far?'opacity=".75"':''}><g class="spin"><circle r="17" fill="url(#${u}d)" stroke="#6E4A2A" stroke-width="3"/><path d="M0 -15 V15 M-15 0 H15 M-10.6 -10.6 L10.6 10.6 M-10.6 10.6 L10.6 -10.6" stroke="#7F5532" stroke-width="1.1" opacity=".3"/><circle r="4.5" fill="#3B2A1C"/></g></g>`}
+let wid=0;
+function wagon(list,fill,words){const u='w'+(++wid);
+  const cards=layout(list.length).map((b,k)=>`<g transform="rotate(${b.tilt} ${b.x+b.w/2} ${b.y+b.h})" data-k="${k}" style="cursor:pointer"><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="7" fill="#FFFDF8" stroke="#E6D8C1" stroke-width="3"/><text x="${b.x+b.w/2}" y="${b.y+b.h*.62}" font-size="${b.w*.55}" text-anchor="middle">${list[k]}</text></g>`).join("");
+  const TUB="M56 56 H232 L222 110 Q220 116 213 116 H75 Q68 116 66 110 Z";
+  return `<svg viewBox="0 0 260 150"><defs><linearGradient id="${u}b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFDF8"/><stop offset="1" stop-color="#EFE4D1"/></linearGradient><linearGradient id="${u}d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#C99660"/><stop offset="1" stop-color="#9A6A3E"/></linearGradient><clipPath id="${u}c"><path d="${TUB}"/></clipPath></defs>
+  <g class="tug"><ellipse cx="134" cy="142" rx="104" ry="7" fill="#6E4A2A" opacity=".16"/>${wheel(96,122,1,u)}${wheel(196,122,1,u)}
+  <path d="M58 50 Q58 42 66 42 H222 Q230 42 230 50 L226 58 H62 Z" fill="#E6D8C1"/>${cards}
+  <g pointer-events="none"><path d="${TUB}" fill="url(#${u}b)" stroke="#D2BC98" stroke-width="1.5"/>
+  ${fill!=null?`<g clip-path="url(#${u}c)"><rect x="50" y="${56+60*(1-fill)}" width="190" height="${60*fill}" fill="#0D9488" style="transition:all .4s"/></g>`:""}
+  <path d="M60 82 H228 L226 92 H62 Z" fill="#0D9488"/>${words?`<text class="thatsit" x="144" y="110" text-anchor="middle" font-family="Lato,sans-serif" font-weight="900" font-size="15" fill="#0D9488">That's it!</text>`:""}<rect x="50" y="50" width="188" height="10" rx="5" fill="#FFFDF9" stroke="#D2BC98" stroke-width="1.5"/>
+  <rect x="70" y="109" width="26" height="7" rx="2.5" fill="#8A5E37"/><path d="M74 113 L60 119" stroke="#8A5E37" stroke-width="4.5" stroke-linecap="round"/>
+  ${wheel(86,126,0,u)}${wheel(204,126,0,u)}
+  <g class="handle"><path d="M60 119 L35 52 Q33 46 28 43" fill="none" stroke="url(#${u}d)" stroke-width="5" stroke-linecap="round"/><path d="M29 43.5 L14 37" stroke="#3B2A1C" stroke-width="8" stroke-linecap="round"/><circle cx="60" cy="119" r="5" fill="#B5814B" stroke="#7F5532" stroke-width="1.5"/></g></g>${words?`<rect data-send x="66" y="94" width="156" height="22" fill="transparent" style="cursor:pointer"/>`:""}</g></svg>`}
+
+function renderShelf(){
+  $("shelf").innerHTML=SNACKS.map((s,i)=>`<button class="tile${picks.includes(s)?" picked":""}" data-s="${i}" aria-pressed="${picks.includes(s)}">${s}<span class="ck">${shopper&&picks.includes(s)?picks.indexOf(s)+1:"✓"}</span></button>`).join("");
+  const full=picks.length===TARGET;
+  const w=$("wShelf"); w.innerHTML=wagon(picks,shopper?null:picks.length/TARGET,shopper&&full);
+  clearTimeout(hintT); if(!full||reduce) w.classList.remove("full"); else if(!w.classList.contains("full")) hintT=setTimeout(()=>{if(picks.length===TARGET&&!sent)w.classList.add("full")},HINT_AFTER);
+  $("count").textContent=`${picks.length} of ${TARGET}`;
+  renderTop();
+}
+function renderTop(){
+  const t=$("topctl");
+  if(screen==="done"){t.innerHTML="";return}
+  const full=screen==="shelf"&&picks.length===TARGET;
+  t.innerHTML=`<button class="hold" id="topHold"><span class="fill"></span><span id="topTxt">${screen==="turn"?"Close":"Done"}</span></button>`;
+  bindHold($("topHold"),()=>{ if(full) send(); else reset(); },
+    ()=>{$("topTxt").textContent=full?"Hold to send":"Hold to "+(screen==="turn"?"close":"finish");setTimeout(()=>{const e=$("topTxt");if(e)e.textContent=screen==="turn"?"Close":"Done"},1600)});
+}
+function bindHold(el,onHold,onShort,canStart=()=>true){
+  let t=null;
+  const start=e=>{e.preventDefault();if(t||!canStart())return;el.classList.add("holding");t=setTimeout(()=>{t=null;el.classList.remove("holding");onHold()},HOLD)};
+  const stop=()=>{if(!t)return;clearTimeout(t);t=null;el.classList.remove("holding");onShort&&onShort()};
+  el.onpointerdown=start;el.onpointerup=stop;el.onpointerleave=stop;el.onpointercancel=stop;el.oncontextmenu=e=>e.preventDefault();
+}
+let lastFull=false;
+function afterChange(){
+  const full=picks.length===TARGET;
+  if(full&&!lastFull&&!reduce) fireworks();
+  lastFull=full; renderShelf();
+}
+$("shelf").onclick=e=>{const b=e.target.closest(".tile");if(!b||sent)return;const s=SNACKS[b.dataset.s];
+  if(picks.includes(s)) picks=picks.filter(x=>x!==s); else if(picks.length<TARGET) picks=[...picks,s];
+  else{const w=$("wShelf");w.classList.remove("hop");void w.offsetWidth;w.classList.add("hop");return}
+  afterChange();};
+
+/* the swipe: a tap on a card takes it out; a drag of SEND_PX+ to the right sends a full wagon */
+{const w=$("wShelf");let x0=null,dx=0,moved=false;
+  w.onpointerdown=e=>{if(sent)return;x0=e.clientX;dx=0;moved=false;w.setPointerCapture(e.pointerId)};
+  w.onpointermove=e=>{if(x0==null)return;dx=e.clientX-x0;if(Math.abs(dx)>8)moved=true;
+    if(picks.length===TARGET&&dx>0){w.classList.add("dragging");w.style.transform=`translateX(${dx}px)`}};
+  w.onpointerup=e=>{if(x0==null)return;const full=picks.length===TARGET;w.classList.remove("dragging");
+    if(full&&dx>=SEND_PX){send();}
+    else{w.style.transition="transform .3s cubic-bezier(.3,1.5,.5,1)";w.style.transform="";setTimeout(()=>w.style.transition="",300);
+      if(!moved&&shopper&&full&&e.target.closest("[data-send]")){send();x0=null;return}
+      if(!moved){const g=e.target.closest("[data-k]");if(g){picks.splice(+g.dataset.k,1);picks=[...picks];afterChange();}}}
+    x0=null};
+  w.onpointercancel=()=>{x0=null;w.style.transform="";w.classList.remove("dragging")};
+}
+function send(){
+  if(sent)return;sent=true;
+  const w=$("wShelf");w.classList.remove("full");w.classList.add("rolling");
+  w.style.transition=reduce?"":"transform .6s ease-in";w.style.transform="translateX(130vw)";
+  setTimeout(()=>go("done"),reduce?0:600);
+}
+function fireworks(){const fw=$("fw");const cols=["#0D9488","#F59E0B","#EF6F6C","#7DD3C0"];
+  [[25,30],[70,22],[50,42]].forEach(([px,py],j)=>setTimeout(()=>{for(let i=0;i<18;i++){const s=document.createElement("i");s.className="spark";
+    const a=i/18*6.283,r=60+Math.random()*30;s.style.cssText=`left:${px}%;top:${py}%;background:${cols[i%4]};--dx:${Math.cos(a)*r}px;--dy:${Math.sin(a)*r}px`;fw.appendChild(s);setTimeout(()=>s.remove(),1200)}},j*300));}
+
+function go(s){screen=s;["turn","shelf","done"].forEach(k=>$("s-"+k).classList.toggle("on",k===s));
+  if(s==="shelf")renderShelf();
+  if(s==="done"){const w=$("wDone");w.innerHTML=wagon(picks,null);w.classList.remove("rollin");void w.offsetWidth;w.classList.add("rollin");
+    w.querySelector(".tug").classList.add("rollspin");armedAt=Date.now();w.classList.add("rolling");setTimeout(()=>w.classList.remove("rolling"),1100)}
+  renderTop();}
+$("letsgo").onclick=()=>go("shelf");
+$("wDone").onclick=()=>{if(reduce)return;const w=$("wDone");w.classList.remove("hop","rollin");void w.offsetWidth;w.classList.add("hop")};
+bindHold($("giveback"),()=>{$("gbText").textContent="Back to Dan — Everett added 3 · See";setTimeout(reset,1800)},
+  ()=>{if(Date.now()-armedAt<ARM)return;$("gbText").textContent="Hold to give back";setTimeout(()=>$("gbText").innerHTML="Give it back to <b>Dan</b>",1600)},
+  ()=>Date.now()-armedAt>=ARM);
+function reset(){picks=[];sent=false;lastFull=false;const w=$("wShelf");w.style.transform="";w.style.transition="";w.classList.remove("rolling");$("gbText").innerHTML="Give it back to <b>Dan</b>";go("turn")}
+$("again").onclick=reset;
+$("style").onclick=()=>{shopper=!shopper;$("style").textContent="Style: "+(shopper?"Shopper":"Explorer");document.querySelectorAll(".kid").forEach(e=>e.textContent=shopper?"Easton":"Everett");reset()};
+$("wTurn").innerHTML=wagon([],null);$("wTurn").style.cursor="default";
+renderTop();
+}
+</script>
+</body>
+</html>

@@ -68,6 +68,11 @@
 --   394667711aef89e05675cc681623e0d2, land_ask_picks 1376af1f060719ed42003b6faf08c662,
 --   asks_stamp_deleted_by 50b66842d10482367343b322dd960d2c. Ledger 20261122030559 087_ask_shelf_deltas.
 --   NOT ON PROD.
+-- ADDENDUM (2026-11-25): APPLIED on prod 2026-11-22 04:09:12 UTC by Claude Code through the CLI (relinked
+--   to prod by ref parpauldmbetptkmdwbd and back to dev): the fixture-free copy (this file minus the FIXTURE
+--   block, a prod-only preflight), read back by object. Prod has no ledger: applied = the object read-back.
+--   Read again 2026-11-25 before 089: land_ask_picks 1376af1f…, asks_stamp_deleted_by 50b66842…, edit_ask
+--   39466771…, update_ask bda189ca… (= dev).
 
 begin;
 

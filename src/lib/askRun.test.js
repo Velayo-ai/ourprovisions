@@ -1,4 +1,6 @@
-import { tapTile, takeOut, canConfirm, shelfTitlePrefix, liveTiles, effectiveTarget, asksAfterCatalogDelete, tileFace, heldAskWrite, heldAskRead } from "./askRun";
+import { tapTile, takeOut, canConfirm, shelfTitlePrefix, liveTiles, effectiveTarget, asksAfterCatalogDelete, tileFace, heldAskWrite, heldAskRead, parkHeldAsk, handoverResume } from "./askRun";
+import fs from "fs";
+import path from "path";
 
 describe("tapTile — A16", () => {
   test("adds in tap order until the target", () => {
@@ -75,6 +77,35 @@ describe("liveTiles / effectiveTarget — S4-9, S4-5", () => {
     expect(effectiveTarget({ pickTarget: 1 }, [{ id: "c-1" }, { id: "c-2" }])).toBe(1);
     expect(effectiveTarget({ pickTarget: 3 }, [])).toBe(0);
     expect(effectiveTarget(null, null)).toBe(0);
+  });
+});
+
+describe("O4: a kept run, parked for its hand-over (SPEC_ask_offline D6)", () => {
+  const ASKS = [
+    { id: "a-easton", label: "Easton", householdId: "hh", pickTarget: 3, shelf: ["c-1", "c-2", "c-3", "c-4"].map((id) => row(id, live(id))) },
+    { id: "a-kid", label: "Kid", householdId: "hh", pickTarget: 1, shelf: ["c-1", "c-2"].map((id) => row(id, live(id))) },
+  ];
+  const kept = parkHeldAsk(heldAskWrite("a-easton", "shelf", ["c-3", "c-1", "c-2"]));
+  test("parking marks the key and keeps everything else; a bad key parks as nothing", () => {
+    expect(JSON.parse(kept)).toEqual({ ask_id: "a-easton", screen: "shelf", catalog_item_ids: ["c-3", "c-1", "c-2"], parked: true });
+    for (const raw of [null, "", "{", "null", JSON.stringify({ screen: "shelf" })]) expect(parkHeldAsk(raw)).toBeNull();
+  });
+  test("a parked key reads back as parked (a reload leaves it for the hand-over); an open run's key doesn't", () => {
+    expect(heldAskRead(kept, ASKS)).toEqual({ askId: "a-easton", screen: "shelf", ids: ["c-3", "c-1", "c-2"], parked: true });
+    expect(heldAskRead(heldAskWrite("a-easton", "shelf", ["c-1"]), ASKS)).not.toHaveProperty("parked");
+  });
+  test("the hand-over of the same ask resumes on the shelf with the wagon full; another ask's gets nothing", () => {
+    expect(handoverResume(kept, ASKS, "a-easton")).toEqual({ screen: "shelf", ids: ["c-3", "c-1", "c-2"] });
+    expect(handoverResume(kept, ASKS, "a-kid")).toBeNull();
+    expect(handoverResume(null, ASKS, "a-easton")).toBeNull();
+    expect(handoverResume(kept, [], "a-easton")).toBeNull();   // the ask is gone
+  });
+  test("App wires it: Done's keep sets a one-shot flag, the end of the run parks the key, a reload skips a parked key, the hand-over resumes it", () => {
+    const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
+    expect(APP).toContain("onExit={(opts) => { if (opts && opts.keep) keepHeldRef.current = true; setRunAskId(null); }}");
+    expect(APP).toContain("if (keepHeldRef.current) storeHeldAsk(parkHeldAsk(loadHeldAsk()));\n      else storeHeldAsk(null);\n      keepHeldRef.current = false;".replace(/\n/g, APP.includes("\r\n") ? "\r\n" : "\n"));
+    expect(APP).toContain("if (held.parked) return;");
+    expect(APP).toContain("const resume = handoverResume(loadHeldAsk(), asks, askId);\n    if (!resume) storeHeldAsk(null);\n    setRunResume(resume);\n    openAfterAskRefresh(() => setRunAskId(askId));".replace(/\n/g, APP.includes("\r\n") ? "\r\n" : "\n"));
   });
 });
 

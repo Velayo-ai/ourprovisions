@@ -12,6 +12,9 @@
 //   ask_land_failed   That's it! didn't reach the list (the wagon is kept)   error_code, pick_count, ask.style
 //   ask_admin_failed  reading, making, editing or deleting an Ask failed     op, error_code
 //   ask_completed     (lib/askPicks) the picks landed                        pick_count, ask.style
+//                     (a queued send: once, when its replay lands, with the server's count)
+//   ask_land_queued   the send waits on this phone (off grid, SPEC_ask_offline) pick_count, ask.style
+//   ask_land_dropped  a queued landing the server refused on replay (D5)     error_code
 //   ask_see_tapped    the parent tapped See on "{Label} added N · See"       pick_count, ask.style
 //                     (÷ ask_completed ≈ how often the hand-back toast gets used)
 //
@@ -62,6 +65,12 @@ export const askEventAttributes = {
   }),
   ask_create_abandoned: () => ({}),
   ask_see_tapped: (picks, style) => ({ pick_count: count(picks), "ask.style": askStyle(style) }),
+  ask_land_queued: (picks, style) => ({ pick_count: count(picks), "ask.style": askStyle(style) }),
+  // D5: the code only. A dropped landing is said nowhere on screen (C3), so this is the one record of it.
+  ask_land_dropped: (err) => {
+    const code = askErrorCode(err);
+    return { error: true, "error.message": code, error_code: code };
+  },
   ask_land_failed: (err, picks, style) => {
     const code = askErrorCode(err);
     return { error: true, "error.message": code, error_code: code, pick_count: count(picks), "ask.style": askStyle(style) };

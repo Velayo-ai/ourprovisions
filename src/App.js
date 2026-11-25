@@ -7,7 +7,8 @@ import { useScrollLock } from './hooks/useScrollLock';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
 import { ConnectivityProvider } from './contexts/ConnectivityContext';
-import { ConnectivityPill } from './components/ConnectivityPill';
+import { HarborLight, OfflineLines, OfflineNote } from './components/OfflineMode';
+import { NOTE_MS, noteDue, readNoteShownAt, writeNoteShownAt, clearNoteShownAt, APP_ROW_STATUS } from './lib/offlineMode';
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
@@ -53,7 +54,8 @@ import { nextInsetTop } from './lib/standaloneInset';
 import { swipeRemoveConfirm, provenanceClayLine, pickInitials, pickLabelPool, joinPickLabels } from './lib/askPicks';
 import { readAskHandovers, recordAskHandover, freezeAskOrder, askRailLayout } from './lib/askRail';
 import { AskIcon } from './components/AskIcon';
-import { heldAskRead, loadHeldAsk, storeHeldAsk, liveTiles } from './lib/askRun';
+import { heldAskRead, loadHeldAsk, storeHeldAsk, liveTiles, parkHeldAsk, handoverResume } from './lib/askRun';
+import { clearCheckStorage } from './lib/checkQueue';
 import { shelfCatalog } from './lib/askCreate';
 import { MoreAsksSheet } from './components/MoreAsksSheet';
 import ShopCheckbox from './components/ShopCheckbox';
@@ -1187,7 +1189,7 @@ function ShopLensSegment({ lens, onChange }) {
 // D2: checked items get a PLACE, not a toggle. Collapsed by default, hidden
 // entirely at 0. Rows un-check from inside the tray. `initialFor` returns a
 // small initial for rows the current user did not check (partner's check).
-export function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, initialFor, pickPool = [] }) {
+export function InCartTray({ items, count, motionClass = () => "", open, onToggle, onUncheck, isUnsynced = () => false, initialFor, pickPool = [] }) {
   if (items.length === 0 && count === 0) return null;
   return (
     <div className="in-cart-tray">
@@ -1202,7 +1204,7 @@ export function InCartTray({ items, count, motionClass = () => "", open, onToggl
             const initial = initialFor(item.listItemId);
             return (
               <div key={item.name} className={`list-item shop-row-in${motionClass(item.listItemId)}`}>
-                <ShopCheckbox checked filled name={item.name} onToggle={() => onUncheck(item)} />
+                <ShopCheckbox checked filled unsynced={isUnsynced(item.listItemId)} name={item.name} onToggle={() => onUncheck(item)} />
                 <div className="li-name">{item.name}</div>
                 {item.qty > 1 && <span className="li-qty">×{item.qty}</span>}
                 {initial && <span className="tray-initial" title="Checked by another member">{initial}</span>}
@@ -5300,6 +5302,10 @@ function ProvisionsApp({ scrollRootRef }) {
     removeItem,
     updatePrice,
     toggleChecked,
+    queuedChecks,
+    queuedWrap,
+    needsSignal,
+    clearNeedsSignal,
     updateBudgetGoal,
     hideItem,
     deleteItem,
@@ -5463,7 +5469,28 @@ function ProvisionsApp({ scrollRootRef }) {
   // pill clears itself when a poller's read succeeds (reportSuccess at the
   // read sites). session_lost clears it too — the sheet is the surface then and
   // the network is not the story.
-  const { reportTransientFailure, reportSuccess } = useConnectivity();
+  const { offline, reportTransientFailure, reportSuccess, onRequestResult } = useConnectivity();
+  // OFFLINE IS CALM (SPEC_offline_calm_2026-11-23). C9: the Velayo dots are the Harbor connection light
+  // (OFFLINE in their place when the core is unreachable; a tap opens the Velayo menu with C2's offline
+  // lines at its top). C3: one note per trip on the first switch to offline, about 3 s; signal dropping in
+  // and out doesn't repeat it (the shown state holds through flaky signal, and the note is stamped per
+  // trip, cleared at Wrap up).
+  const [offlineNote, setOfflineNote] = useState(false);
+  const noteShownRef = useRef(null);
+  const offlineLiveRef = useRef(offline);
+  offlineLiveRef.current = offline;
+  useEffect(() => {
+    if (!offline || !sessionLive) { if (!offline) clearNeedsSignal(); return undefined; }
+    const now = Date.now();
+    const last = readNoteShownAt() ?? noteShownRef.current;
+    if (!noteDue(last, now)) return undefined;
+    noteShownRef.current = now;
+    writeNoteShownAt(now);
+    setOfflineNote(true);
+    const t = setTimeout(() => setOfflineNote(false), NOTE_MS);
+    return () => { clearTimeout(t); setOfflineNote(false); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offline, sessionLive]);
   const holdEpisodeRef = useRef(false);
   useEffect(() => {
     if (authPhase === "signed_in_no_token") {
@@ -6975,6 +7002,11 @@ function ProvisionsApp({ scrollRootRef }) {
   // The ask being run, full screen (C3b). A tab or household switch ends it, picks discarded
   // (nothing lands before That's it!, A16).
   const [runAskId, setRunAskId] = useState(null);
+  // SPEC_ask_offline (089): the run id this run's next send carries. Kept after a send that threw (a real
+  // error: nothing landed, so a retry may reuse it); a fresh one after any send that resolved, landed or
+  // queued (a recorded run id answers every later call with its first count). A new run starts fresh.
+  const askRunIdRef = useRef(null);
+  useEffect(() => { askRunIdRef.current = null; }, [runAskId]);
   // THE HAND-BACK (SPEC_ask_wagon_handback W8, W9): Great picks' "Give it back to {Parent}" closes the
   // run and lands on Browse with the app toast "{Label} added {N} · See" — once per run, and only
   // after a successful land (a failed land never reaches Great picks). No approval step. What See does
@@ -6992,8 +7024,17 @@ function ProvisionsApp({ scrollRootRef }) {
   const heldAskRef = useRef(undefined);
   if (heldAskRef.current === undefined) heldAskRef.current = loadHeldAsk();
   const prevRunAskIdRef = useRef(null);
+  // O4 (SPEC_ask_offline D6): a run closed with "Hold to finish" after a real error keeps its picks. One shot:
+  // the next end of a run clears the key as before. The kept key is parked, so a reload leaves it alone and
+  // only a hand-over of the same ask reopens it.
+  const keepHeldRef = useRef(false);
   useEffect(() => {
-    if (prevRunAskIdRef.current && !runAskId) { storeHeldAsk(null); setRunResume(null); }
+    if (prevRunAskIdRef.current && !runAskId) {
+      if (keepHeldRef.current) storeHeldAsk(parkHeldAsk(loadHeldAsk()));
+      else storeHeldAsk(null);
+      keepHeldRef.current = false;
+      setRunResume(null);
+    }
     prevRunAskIdRef.current = runAskId;
   }, [runAskId]);
   useEffect(() => {
@@ -7001,6 +7042,7 @@ function ProvisionsApp({ scrollRootRef }) {
     const held = heldAskRead(heldAskRef.current, asks);
     heldAskRef.current = null;
     if (!held) { storeHeldAsk(null); return; }
+    if (held.parked) return;   // O4: a kept run waits for its hand-over
     setRunResume({ screen: held.screen, ids: held.ids });
     setRunAskId(held.askId);
   }, [asks, asksLoaded, catalogLoaded, landingDecided]);
@@ -7021,7 +7063,15 @@ function ProvisionsApp({ scrollRootRef }) {
   // more" rows and a Browse block's "Hand it to" all come here. Only a hand-over writes "Picked by"
   // (11-04 ruling) and records its time for the rail's order. An Ask pill is never a filter (the
   // pill-as-filter of C3 is retired): selectedAsks is no longer set by anything on screen.
-  const handoverAsk = (askId) => { recordAskHandover(household?.id, askId); openAfterAskRefresh(() => setRunAskId(askId)); };
+  // O4 (SPEC_ask_offline D6): a run kept after a real error comes back on the hand-over of the same ask, on its
+  // screen with its picks (the wagon full); any other ask's hand-over drops it.
+  const handoverAsk = (askId) => {
+    recordAskHandover(household?.id, askId);
+    const resume = handoverResume(loadHeldAsk(), asks, askId);
+    if (!resume) storeHeldAsk(null);
+    setRunResume(resume);
+    openAfterAskRefresh(() => setRunAskId(askId));
+  };
   // The Ask drawn pressed on its pills: the one whose run is open or whose edit sheet is up.
   const activeAskId = runAskId || editAskId || null;
   useScrollLock(!!runAskId || newAskOpen || !!editAskId || browseFilterOpen, scrollRootRef);   // the run and the Ask screen are full screen; View & organize is the one scroller while open
@@ -8004,6 +8054,8 @@ function ProvisionsApp({ scrollRootRef }) {
     setAddedHereIds(new Set());
     setStorePromptOpen(false);
     setStorePromptSkippedFor(null);
+    // The next trip that loses signal gets its own calm note (C3).
+    if (closed) clearNoteShownAt();
   };
 
   // The modal's confirm. wrapUpRollItems is the user's edited selection, which
@@ -8073,6 +8125,7 @@ function ProvisionsApp({ scrollRootRef }) {
         && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const dir = checked[id] ? "in" : "out";
       if (to === "pending" && dir === "out") return;   // Undo on a row that is already unchecked
+      // Offline or online, a check looks and moves the same (SPEC_offline_calm C1): the hold, then In cart.
       const collapseMs = 200;                          // beat 2
       const collapseThenClear = () => {
         setRowMotion(prev => prev[id] ? { ...prev, [id]: { dir, phase: "collapse" } } : prev);
@@ -8102,6 +8155,10 @@ function ProvisionsApp({ scrollRootRef }) {
     // SPEC_checked_event_duplicate_emission) or was cancelled by a newer tap;
     // false when it failed and the row was put back. Only a real transition is an event.
     const status = await toggleChecked(name, item.listItemId, to ? { to } : undefined);
+    // "queued": it couldn't reach the server and waits on this phone. Nothing changes on screen (C1): the
+    // hold runs on, the row moves to In cart, the Undo toast stays; only a small dot says it hasn't shared
+    // yet. The hook logs the event when the change lands.
+    if (status === "queued") return;
     if (status === false && checking) {
       // The check didn't take (offline, or the server refused): the row is back
       // to unchecked, so drop its toast and its hold.
@@ -8265,7 +8322,35 @@ function ProvisionsApp({ scrollRootRef }) {
     });
     return out;
   }, [partnerSession, storeSuggestions]);
-  const storePromptVisible = view === "list" && !!activeSession && (
+  // C9 — THE BEACON (one sweep: two passes, then rest; never loops). Asked for on app open (the household's
+  // first data on screen), when the connection returns, on a tap of the dots, and on a tab switch ONLY
+  // after that tab's first successful fetch — a verified check, never decoration: the next request result
+  // after the switch decides it, and a failure plays nothing. HarborLight skips it offline, with Reduce
+  // Motion, and in Low Power Mode where detectable.
+  const [beacon, setBeacon] = useState(0);
+  const requestBeacon = useCallback(() => setBeacon((b) => b + 1), []);
+  const openBeaconRef = useRef(false);
+  useEffect(() => {
+    if (openBeaconRef.current || !householdReady || !sessionLive || offline) return;
+    openBeaconRef.current = true;
+    requestBeacon();
+  }, [householdReady, sessionLive, offline, requestBeacon]);
+  const wasOfflineRef = useRef(offline);
+  useEffect(() => {
+    if (wasOfflineRef.current && !offline && sessionLive) requestBeacon();
+    wasOfflineRef.current = offline;
+  }, [offline, sessionLive, requestBeacon]);
+  const beaconViewRef = useRef(view);
+  useEffect(() => {
+    if (beaconViewRef.current === view) return undefined;
+    beaconViewRef.current = view;
+    if (!sessionLive) return undefined;
+    const off = onRequestResult((ok) => { off(); if (ok && !offlineLiveRef.current) requestBeacon(); });
+    return off;
+  }, [view, sessionLive, onRequestResult, requestBeacon]);
+
+  // Not while an offline Wrap up is waiting to finish: that trip is over on this phone (SPEC_offline_calm C6).
+  const storePromptVisible = view === "list" && !!activeSession && !queuedWrap && (
     storePromptOpen || (!activeSession.store_name_raw && storePromptSkippedFor !== activeSession.id)
   );
 
@@ -8815,6 +8900,10 @@ function ProvisionsApp({ scrollRootRef }) {
   // while it is returning from the tray ("in"), so the motion can play where
   // the person is looking. The write already happened; this is only where the
   // row is drawn.
+  // OFFLINE IS CALM (SPEC_offline_calm C1): a change saved on this phone and not yet shared is drawn
+  // exactly as online, plus a small neutral dot — on the In cart row for a check, on the circle for an
+  // uncheck — that clears silently when the server confirms it.
+  const unsynced = (id) => !!queuedChecks?.[id];
   const inAisle = (i) => {
     const m = rowMotion[i.listItemId];
     if (m) return m.dir === "out";
@@ -8978,11 +9067,9 @@ function ProvisionsApp({ scrollRootRef }) {
         // children that need interaction opt back in individually.
         pointerEvents: "none",
       }}>
-        {/* A5b: "Offline — showing last saved" only once this household's list has
-            actually arrived (householdReady — the same signal the splash and the
-            landing rule treat as "the data is on screen"); before that, a fresh
-            sign-in with nothing saved reads "Reconnecting…". */}
-        <ConnectivityPill hasSavedData={householdReady} />
+        {/* C3 (SPEC_offline_calm): the one calm note per trip, about 3 s, on the first switch to offline.
+            The old connectivity pill lived here; the header's offline icon replaces it (C2, C4, C7). */}
+        {offlineNote && <OfflineNote />}
 
         {/* Error toast — carries a Dismiss button, so it opts into pointer events */}
         {error && (
@@ -9044,7 +9131,8 @@ function ProvisionsApp({ scrollRootRef }) {
         {/* "A new version is ready." · Reload · ✕ (SPEC_app_version_check V2). Never during an Ask run (it
             waits for That's it! / Done) and never over another toast (at a run's end it waits out the
             hand-back toast). No timer: it stays until Reload or ✕. */}
-        {versionCheck.show && !runAskId && !toastMessage && (
+        {/* Hidden while changes wait on this phone (A8): a Reload before they share could land on no signal. */}
+        {versionCheck.show && !runAskId && !toastMessage && Object.keys(queuedChecks || {}).length === 0 && !queuedWrap && (
           <VersionNotice onReload={versionCheck.reload} onDismiss={versionCheck.dismiss} />
         )}
 
@@ -9934,7 +10022,7 @@ function ProvisionsApp({ scrollRootRef }) {
            Meal; found offline on the phone 2026-10-11). Keyed off the document, not
            a flag: eleven surfaces own a .modal-overlay (ten in ProvisionsApp plus
            LibraryFilterSheet's own state) and the next one would miss a flag.
-           Position stays with the stack; the pill carries none (ConnectivityPill.js).
+           Position stays with the stack; its children carry none (the offline note included).
            Engines without :has() (Safari < 15.4) keep today's bottom anchor. */
         body:has(.modal-overlay) .bottom-stack { bottom: auto; top: 10px; }   /* not + --op-inset-top: the viewport already starts below the bar (2026-10-17) */
         /* …and the Helm with its fade leave entirely. A sheet is modal, so the nav
@@ -10271,6 +10359,47 @@ function ProvisionsApp({ scrollRootRef }) {
         .list-item.checking .checkbox::after { content: "✓"; color: #fff; font-size: 0.7rem; font-weight: 700; line-height: 1; }
         .list-item.checking .li-name { color: #a89878; text-decoration: line-through; }
         .list-item.checking, .list-item.unchecking, .list-item.collapsing { pointer-events: none; }
+        /* Offline is calm (SPEC_offline_calm C1): a change saved on this phone and not yet shared looks exactly
+           as online, plus this small neutral dot at the circle's shoulder. It clears silently on confirm. */
+        .shop-check { position: relative; }
+        .sync-dot { position: absolute; top: 9px; right: 7px; width: 7px; height: 7px; border-radius: 50%;
+                    background: #a89878; box-shadow: 0 0 0 2px #FAF4EC; pointer-events: none; }
+        /* C9: the Velayo dots as the Harbor connection light. Steady dots; OFF GRID (C10) in the household name's
+           gold small caps (a label, never a badge); the beacon — a lighthouse turning clockwise, top-left →
+           top-right → bottom, 3 s a turn, each dot brightening as the one before it fades, two turns. One
+           soft fade between dots and word. Reduce Motion: no sweep, no fade. */
+        .harbor-light { background: none; border: none; padding: 0; cursor: pointer; display: flex; align-items: center;
+                        justify-content: flex-end; min-width: 28px; min-height: 24px; }
+        .harbor-word { font-family: 'Lato', sans-serif; font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px;
+                       color: #C9A97A; white-space: nowrap; }
+        .harbor-word, .harbor-dots { animation: harbor-fade 320ms ease-out; }
+        @keyframes harbor-fade { from { opacity: 0; } to { opacity: 1; } }
+        .harbor-dots.beacon .hd { animation: harbor-sweep 3000ms linear 2 both; }
+        .harbor-dots.beacon .hd3 { animation-delay: 1000ms; }   /* top-right, a third of a turn after top-left */
+        .harbor-dots.beacon .hd2 { animation-delay: 2000ms; }   /* bottom, two thirds */
+        /* The beam only adds light (00:24): every keyframe is the resting gold #C9A97A or brighter, so no dot
+           ever dips below rest — at the start (the 0% frame, held before each dot's delay by fill-mode both),
+           during, or at the end (100% = rest, so removing the class changes nothing). The lift is a brighter
+           gold, #F2D49B. Each dot rises over ~0.66 s and falls over ~0.84 s; the next starts rising at 1 s while
+           this one is still fading, so the light travels round the mark. */
+        @keyframes harbor-sweep {
+          0%   { fill: #C9A97A; animation-timing-function: ease-in-out; }
+          22%  { fill: #F2D49B; animation-timing-function: ease-in-out; }
+          50%  { fill: #C9A97A; }
+          100% { fill: #C9A97A; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .harbor-dots.beacon .hd, .harbor-word, .harbor-dots { animation: none; }
+        }
+        /* C2's copy, at the top of the Velayo menu when offline. */
+        .offline-lines { width: 100%; padding-bottom: 18px; border-bottom: 0.5px solid #e8ddd0; }
+        .offline-lines-copy, .offline-lines-line { font-family: 'Lato', sans-serif; font-size: 0.92rem; line-height: 1.45;
+                                                   color: #4a3a28; margin: 0 0 8px; text-align: left; }
+        .offline-lines-line { color: #6b5a40; margin-bottom: 0; }
+        /* C3: the one calm note per trip, in the bottom status stack. */
+        .offline-note { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+                        background: #FAF4EC; color: #6b5a40; border: 1px solid #e8ddd0; box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+                        font-family: 'Lato', sans-serif; font-size: 13px; white-space: nowrap; pointer-events: none; }
         /* The hold (CHECK_HOLD_MS): the row ignores taps, but its checkbox takes the check back. */
         .list-item.checking .shop-check { pointer-events: auto; }
         /* Shop check target (2026-11-07): only the checkbox checks a row. 44×44 around the circle,
@@ -10617,17 +10746,10 @@ function ProvisionsApp({ scrollRootRef }) {
               </button>
             )}
           </div>
-          <button
-            onClick={() => setShowVelayoMenu(true)}
-            style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center" }}
-            aria-label="Velayo menu"
-          >
-            <svg width="28" height="24" viewBox="0 0 28 24" fill="none">
-              <circle cx="5" cy="4" r="3.5" fill="#C9A97A"/>
-              <circle cx="14" cy="16" r="3.5" fill="#C9A97A"/>
-              <circle cx="23" cy="4" r="3.5" fill="#C9A97A"/>
-            </svg>
-          </button>
+          {/* C9 (SPEC_offline_calm): the Velayo dots are the Harbor connection light — steady when connected,
+              OFF GRID when the core is unreachable, one beacon when something just answered. The tap still
+              opens the Velayo menu (Dan, 2026-11-23: the dots' menu stays the Velayo menu). */}
+          <HarborLight offline={offline} beacon={beacon} onOpen={() => { requestBeacon(); setShowVelayoMenu(true); }} />
         </div>
 
         {/* Row 2: OurProvisions wordmark band — HOME ONLY (bannerOnHome) and
@@ -10717,6 +10839,15 @@ function ProvisionsApp({ scrollRootRef }) {
               display: "flex", flexDirection: "column", alignItems: "center", gap: "24px",
             }}
           >
+            {/* C9 / C10: off grid, the menu opens with the off-grid lines at its top (worded by member count). */}
+            {offline && (
+              <OfflineLines
+                changes={Object.keys(queuedChecks || {}).length + (queuedWrap ? 1 : 0)}
+                needsSignal={needsSignal}
+                memberCount={membersLoaded ? householdMembers.length : 0}
+                householdName={household?.name || ""}
+              />
+            )}
             {/* Menu header */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
               <img src={VELAYO_LOGO_TEAL} alt="Velayo" style={{ width: "48px", height: "48px", objectFit: "contain" }} />
@@ -10748,7 +10879,7 @@ function ProvisionsApp({ scrollRootRef }) {
                 <div style={{
                   fontFamily: "'Lato', sans-serif", fontSize: "0.6rem", letterSpacing: "1.5px",
                   textTransform: "uppercase", color: "#c8973a", fontWeight: 700,
-                }}>Active</div>
+                }}>{offline ? APP_ROW_STATUS.offGrid : APP_ROW_STATUS.online}</div>
               </button>
             </div>
           </div>
@@ -12168,6 +12299,8 @@ function ProvisionsApp({ scrollRootRef }) {
                   // Under a minute reads as words, never "0 minutes" (mockup_shop_wrapup_bar.html, state 4).
                   const minutes = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 60000)) : null;
                   const learning = !!activeSession?.store_name_raw;
+                  // Offline or not, this is the same card with the same Wrap up (SPEC_offline_calm C6): an
+                  // offline Wrap up is queued behind the checks and finishes the trip when signal returns.
                   return (
                     <div className="all-done">
                       <svg className="all-done-arc" viewBox="0 0 150 12" aria-hidden="true"><path d="M4 10 Q75 -6 146 10" /></svg>
@@ -12198,7 +12331,7 @@ function ProvisionsApp({ scrollRootRef }) {
                       {cat.items.map((item) => (
                         <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
                           <div className={`list-item shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
-                            <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
+                            <ShopCheckbox checked={!!checked[item.listItemId]} unsynced={!checked[item.listItemId] && unsynced(item.listItemId)} name={item.name} onToggle={() => handleShopToggle(item)} />
                             <div style={{ flex: 1 }}>
                               <div className="li-name">
                                 {item.name}
@@ -12227,7 +12360,7 @@ function ProvisionsApp({ scrollRootRef }) {
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
                         <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
-                          <ShopCheckbox checked={!!checked[item.listItemId]} name={item.name} onToggle={() => handleShopToggle(item)} />
+                          <ShopCheckbox checked={!!checked[item.listItemId]} unsynced={!checked[item.listItemId] && unsynced(item.listItemId)} name={item.name} onToggle={() => handleShopToggle(item)} />
                           <div className="li-name">
                             {item.name}
                             {addedHereIds.has(item.catalogItemId) && <span className="added-here-tag">added here</span>}
@@ -12247,6 +12380,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   open={trayOpen}
                   onToggle={() => setTrayOpen(o => !o)}
                   onUncheck={handleShopToggle}
+                  isUnsynced={unsynced}
                   initialFor={initialFor}
                   pickPool={pickPool}
                 />
@@ -12689,11 +12823,14 @@ function ProvisionsApp({ scrollRootRef }) {
           resume={runResume}
           onLand={async (ids) => {
             // 087 (B7): { landed, skippedIds } — the run shows what was skipped; null means it didn't land.
-            const result = await landAskPicks(runAsk.id, ids, runAsk.screenStyle);
+            // 089: queued off grid it resolves { queued: true } with every pick, and the run goes on (O1).
+            if (!askRunIdRef.current) askRunIdRef.current = crypto.randomUUID();
+            const result = await landAskPicks(runAsk.id, ids, runAsk.screenStyle, askRunIdRef.current);
             if (result == null) throw new Error("not landed");
+            askRunIdRef.current = null;
             return result;
           }}
-          onExit={() => setRunAskId(null)}
+          onExit={(opts) => { if (opts && opts.keep) keepHeldRef.current = true; setRunAskId(null); }}
           parentName={user?.firstName?.trim() || null}
           onHandBack={({ count, ids }) => {
             const label = runAsk.label;
@@ -13192,7 +13329,7 @@ function ProvisionsApp({ scrollRootRef }) {
             {/* Sign out */}
             <div style={{ height: "0.5px", background: "#e8ddd0", margin: "0 20px" }} />
             <button
-              onClick={() => { markDeliberateSignOut(); storeHeldAsk(null); signOut(() => setShowProfileSheet(false)); }}
+              onClick={() => { markDeliberateSignOut(); storeHeldAsk(null); clearCheckStorage(); signOut(() => setShowProfileSheet(false)); }}
               style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", width: "100%" }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
