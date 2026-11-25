@@ -7002,6 +7002,11 @@ function ProvisionsApp({ scrollRootRef }) {
   // The ask being run, full screen (C3b). A tab or household switch ends it, picks discarded
   // (nothing lands before That's it!, A16).
   const [runAskId, setRunAskId] = useState(null);
+  // SPEC_ask_offline (089): the run id this run's next send carries. Kept after a send that threw (a real
+  // error: nothing landed, so a retry may reuse it); a fresh one after any send that resolved, landed or
+  // queued (a recorded run id answers every later call with its first count). A new run starts fresh.
+  const askRunIdRef = useRef(null);
+  useEffect(() => { askRunIdRef.current = null; }, [runAskId]);
   // THE HAND-BACK (SPEC_ask_wagon_handback W8, W9): Great picks' "Give it back to {Parent}" closes the
   // run and lands on Browse with the app toast "{Label} added {N} · See" — once per run, and only
   // after a successful land (a failed land never reaches Great picks). No approval step. What See does
@@ -12800,8 +12805,11 @@ function ProvisionsApp({ scrollRootRef }) {
           resume={runResume}
           onLand={async (ids) => {
             // 087 (B7): { landed, skippedIds } — the run shows what was skipped; null means it didn't land.
-            const result = await landAskPicks(runAsk.id, ids, runAsk.screenStyle);
+            // 089: queued off grid it resolves { queued: true } with every pick, and the run goes on (O1).
+            if (!askRunIdRef.current) askRunIdRef.current = crypto.randomUUID();
+            const result = await landAskPicks(runAsk.id, ids, runAsk.screenStyle, askRunIdRef.current);
             if (result == null) throw new Error("not landed");
+            askRunIdRef.current = null;
             return result;
           }}
           onExit={() => setRunAskId(null)}

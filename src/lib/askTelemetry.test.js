@@ -41,6 +41,12 @@ describe("attributes: counts, a screen, an op and a code — nothing about the p
     expect(askEventAttributes.ask_see_tapped(5, "standard")).toEqual({ pick_count: 5, "ask.style": "shopper" });
     expect(askEventAttributes.ask_see_tapped("Easton", "simple")).toEqual({ pick_count: 0, "ask.style": "explorer" });
   });
+  test("SPEC_ask_offline: ask_land_queued is the count and the style; ask_land_dropped the code only", () => {
+    expect(askEventAttributes.ask_land_queued(2, "simple")).toEqual({ pick_count: 2, "ask.style": "explorer" });
+    expect(askEventAttributes.ask_land_queued("Easton", "Easton")).toEqual({ pick_count: 0, "ask.style": "shopper" });
+    expect(askEventAttributes.ask_land_dropped({ code: "42501", message: "not a member of household Easton" }))
+      .toEqual({ error: true, "error.message": "42501", error_code: "42501" });
+  });
   test("only the two failures carry the error flag", () => {
     ["ask_started", "ask_resumed", "ask_abandoned"].forEach((n) => expect(askEventAttributes[n]("shelf", 1)).not.toHaveProperty("error"));
   });

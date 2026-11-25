@@ -4,11 +4,16 @@ import { askStyle } from "./askTelemetry";
 // Kept out of App.js / useProvisions so each rule has a test beside it.
 
 // A22: the request carries ids only — NEVER the label. The server reads the label from the ask.
-export function landAskPicksArgs(householdId, askId, catalogItemIds) {
+// 089 (SPEC_ask_offline O3): every send carries its run id, so a reply lost on a weak signal can't land the
+// picks twice; a replay from the queue also carries its tap time (089 rulings A, B). Both are omitted when
+// not given, so the request stays the 3-arg shape the old client sends.
+export function landAskPicksArgs(householdId, askId, catalogItemIds, runId = null, tappedAt = null) {
   return {
     p_household_id: householdId,
     p_ask_id: askId,
     p_catalog_item_ids: [...(catalogItemIds || [])],
+    ...(runId ? { p_run_id: runId } : {}),
+    ...(tappedAt ? { p_tapped_at: tappedAt } : {}),
   };
 }
 

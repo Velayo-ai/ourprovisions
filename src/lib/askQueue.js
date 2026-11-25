@@ -217,11 +217,28 @@ export function applyAskOverlay({ rows, quantities = {}, checked = {}, checkEntr
   return { rows: out, quantities: qty, checked: chk, addIds: [...touched.keys()] };
 }
 
-// Is this list-item id covered by a landing that hasn't replayed (its check must wait in the queue, D4)?
-// rows = the server rows; a synthetic key is always held.
-export function heldByLanding(id, rows, list) {
+// Must this check wait in the queue for a landing (D4)? A synthetic key always does: it never reaches the
+// network. A real row does while a landing that hasn't replayed covers it and was sent BEFORE this check's
+// tap (tapAt; a new tap, when omitted): that check has to land after the pick, as it would have online. A
+// check tapped before the pick goes first. rows = the server rows.
+export function heldByLanding(id, rows, list, tapAt = null) {
   if (isSynthKey(id)) return true;
   const row = (rows || []).find((r) => r.id === id);
   if (!row || !row.catalogItemId) return false;
-  return (list || []).some((e) => !e.landed && e.ids.includes(row.catalogItemId));
+  const t = tapAt ? Date.parse(tapAt) : Infinity;
+  return (list || []).some((e) => !e.landed && e.ids.includes(row.catalogItemId) && Date.parse(e.tapAt) < t);
+}
+
+// One step of the flush (D4): the next boundary in tap order (a queued landing or the queued Wrap up), and
+// the checks to send before it (tapped at or before it). With no boundary left, every remaining check. A
+// synthetic key is never in `send`: it waits for its landing's re-key.
+//   → { send: [ids], boundary: { kind: "land", tapAt, entry } | { kind: "wrap", tapAt, wrap } | null }
+export function planFlushStep(entries, landings, wrap) {
+  const bounds = byTap(landings || []).map((e) => ({ kind: "land", tapAt: e.tapAt, entry: e }));
+  if (wrap) bounds.push({ kind: "wrap", tapAt: wrap.tapAt, wrap });
+  bounds.sort((a, b) => Date.parse(a.tapAt) - Date.parse(b.tapAt));
+  const boundary = bounds[0] || null;
+  const ids = Object.keys(entries || {}).filter((id) => !isSynthKey(id));
+  const at = boundary ? Date.parse(boundary.tapAt) : Infinity;
+  return { send: ids.filter((id) => Date.parse(entries[id].tapAt) <= at), boundary };
 }

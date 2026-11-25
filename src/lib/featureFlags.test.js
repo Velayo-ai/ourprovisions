@@ -22,7 +22,9 @@ describe("askFlagOn", () => {
 describe("with the flag off nothing reaches the Ask schema", () => {
   const GATE = "if (!ASK_ENABLED) return";
   test.each([
-    ["landAskPicks", "const landAskPicks = useCallback(async (askId, catalogItemIds, screenStyle = null) => {"],
+    ["landAskPicks", "const landAskPicks = useCallback(async (askId, catalogItemIds, screenStyle = null, runId = null) => {"],
+    // SPEC_ask_offline: the one place the land request is made (a send and a queued replay alike).
+    ["callLandAskPicks", "async function callLandAskPicks(db, householdId, askId, ids, runId, tappedAt) {"],
     ["fetchAsks", "const fetchAsks = useCallback(async () => {"],
     ["createAsk", "const createAsk = useCallback(async (askId, draft) => {"],
     ["updateAsk", "const updateAsk = useCallback(async (askId, draft) => {"],

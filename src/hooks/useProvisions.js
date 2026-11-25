@@ -7,7 +7,8 @@ import { classifyFetchError, classifyAuthFailure } from "../lib/classifyFetchErr
 import { reportAuthRejected, isPollingOpen } from "../lib/authHealth";
 import { scheduleHoldRetry } from "../lib/holdRetry";
 import { createRowWriteChain, mergePolledById } from "../lib/checkWrites";
-import { readQueue, writeQueue, putEntry, settleEntry, earliestCheckTap, discardForeign, readListCache, writeListCache, listCacheSignature, cachedHouseholdFor, OFFLINE_SKIP, isOfflineSkip, makeQueuedWrap, readWrap, writeWrap, wrapKeepIds, hideForWrap, splitAroundWrap } from "../lib/checkQueue";
+import { readQueue, writeQueue, putEntry, settleEntry, earliestCheckTap, discardForeign, readListCache, writeListCache, listCacheSignature, cachedHouseholdFor, OFFLINE_SKIP, isOfflineSkip, makeQueuedWrap, readWrap, writeWrap, wrapKeepIds, hideForWrap, splitAtTaps } from "../lib/checkQueue";
+import { readAskQueue, writeAskQueue, makeAskLanding, isSynthKey, rekeySynth, synthKeysOf, askSendIsTransient, heldByLanding, planFlushStep, ASK_LAND_TIMEOUT_MS } from "../lib/askQueue";
 import { activeKeyFor } from "../lib/rememberedHousehold";
 import { createQtyQueue, adoptQtyResult, seedRowKey, isListEntry, guessChange, adoptCheckedResult } from "../lib/qtyWrites";
 import { rollbackQty } from "../lib/qtyRollback";
@@ -100,6 +101,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // Live mirrors for code memoized once (the queued Wrap up, SPEC_offline_calm C6).
   const checkedLiveRef = useRef(checked);
   checkedLiveRef.current = checked;
+  // The checked state the person SEES (with the Ask overlay, D3, laid over it): a tap's intent starts here.
+  // Set where the hook returns.
+  const shownCheckedRef = useRef(checked);
   const listRowsRef = useRef([]);
   const preKey = (catalogItemId) => `pre:${catalogItemId}`;
   const liveRowIdFor = (catalogItemId) =>
@@ -227,6 +231,17 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const checkQueueRef = useRef({ clerkId: null, householdId: null, entries: {} });
   const [queuedChecks, setQueuedChecks] = useState({});
   const flushingChecksRef = useRef(false);
+  // ASK LANDINGS THAT WAIT ON THIS PHONE (SPEC_ask_offline D1–D5, 089; lib/askQueue). An Ask send that can't
+  // reach the server goes here and the run carries on as if it had landed (O1); the flush replays each one
+  // with its run id and tap time, in tap order with the checks and the Wrap up (D4). askQueue is the
+  // published copy the overlay (D3) is drawn from.
+  const askQueueRef = useRef({ clerkId: null, householdId: null, list: [] });
+  const [, setAskQueue] = useState([]);   // read by the overlay (D3)
+  // Every list read takes a number when it starts; the highest one applied is appliedReadNo. A replayed
+  // landing leaves the overlay only once a read that started after it has been applied (D3: no blink).
+  const listReadSeqRef = useRef(0);
+  const appliedReadRef = useRef(0);
+  const [, setAppliedReadNo] = useState(0);   // read by the overlay (D3)
   // THE QUEUED WRAP UP (SPEC_offline_calm C6; lib/checkQueue makeQueuedWrap): a Wrap up tapped offline, or
   // while checks still wait, finishes the trip on this phone at once and on the server when signal returns,
   // after the checks tapped before it. { householdId, clerkId, wrap: { tapAt, dropIds, hideIds } } | null.
@@ -242,8 +257,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   };
   const publishQueuedChecks = () => setQueuedChecks({ ...checkQueueRef.current.entries });
   const persistCheckQueue = () => { const q = checkQueueRef.current; writeQueue(q.clerkId, q.householdId, q.entries); };
-  // The row's status as the server last said it (the poll's rows; after a cold restore, the cache's).
-  const syncedWantOf = (id) => { const row = listRowsRef.current.find((r) => r.id === id); return row ? row.status === "bought" : null; };
+  const publishAskQueue = () => setAskQueue([...askQueueRef.current.list]);
+  const persistAskQueue = () => { const a = askQueueRef.current; writeAskQueue(a.clerkId, a.householdId, a.list); };
+  // The row's status as the server last said it (the poll's rows; after a cold restore, the cache's). A row
+  // a queued Ask landing covers (or an overlay-only row) is pending once that landing replays, so that is
+  // its synced state: a check of it, then its Undo, cancels out (D4).
+  const syncedWantOf = (id) => {
+    if (heldByLanding(id, listRowsRef.current, askQueueRef.current.list)) return false;
+    const row = listRowsRef.current.find((r) => r.id === id);
+    return row ? row.status === "bought" : null;
+  };
   // The cached list (slice 1 item 5): the last loaded list, rewritten when it moves; restored when the app
   // has been up CACHE_RESTORE_AFTER_MS without its list (a reload on weak signal: the shell loaded, the
   // API didn't). restoredFromCacheRef = the household shown from the cache until a real list arrives;
@@ -400,6 +423,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const wrap = readWrap(clerk, householdId);
     wrapQueueRef.current = wrap ? { clerkId: clerk, householdId, wrap } : null;
     setQueuedWrap(!!wrap);
+    askQueueRef.current = { clerkId: clerk, householdId, list: ASK_ENABLED ? readAskQueue(clerk, householdId) : [] };
+    publishAskQueue();
     const ids = Object.keys(entries);
     if (ids.length > 0) {
       ids.forEach((id) => { pendingCheckRef.current.add(id); touchCheck(id); });
@@ -442,6 +467,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // local value when the answer lands (mergePolledChecked).
     const checkSeqAtStart = checkSeqRef.current;
     const qtySeqAtStart = qtySeqRef.current;
+    const readNo = ++listReadSeqRef.current;   // D3: a landing retires from the overlay on a read started after it
     // As it stood when this read was sent: an answer that left before a queued Wrap up landed still hides
     // the trip it finished (the server's archive may not be in it).
     const wrapAtStart = currentWrap(householdId);
@@ -582,6 +608,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     Object.assign(mergedPrices, newPrices);
     listRowsRef.current = newListRows;
     listReadyForRef.current = householdId;
+    // In the same batch as setListRows below, so a landing leaves the overlay on the render its row arrives.
+    if (readNo > appliedReadRef.current) { appliedReadRef.current = readNo; setAppliedReadNo(readNo); }
     // A poll requested after an adjust answer carries at least what it said: the answer's status retires.
     qtyStatusRef.current.forEach((v, id) => { if (v.seq <= qtySeqAtStart) qtyStatusRef.current.delete(id); });
     setListRows(newListRows);
@@ -946,6 +974,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     setQueuedChecks({});
     wrapQueueRef.current = null;
     setQueuedWrap(false);
+    askQueueRef.current = { clerkId: null, householdId: null, list: [] };
+    setAskQueue([]);
     setNeedsSignal(null);
     restoredFromCacheRef.current = null;
     listCacheSigRef.current = "";
@@ -1591,14 +1621,30 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // place's own), names which were skipped (B9.3). skippedIds is null when that read fails: the run
   // still knows how many, just not which.
   // ─────────────────────────────────────────────────────────────
-  const landAskPicks = useCallback(async (askId, catalogItemIds, screenStyle = null) => {
+  // SPEC_ask_offline (089): every send carries a run id (the caller's, so a retry from the same run reuses
+  // it), and a send that can't reach the server waits on this phone instead of failing (D1): known off grid
+  // → no request at all; thought online but the call never got an answer (a transient error, a missing
+  // token while off grid — 2a — or the 8 s limit — 2c) → queued with the same run id. Either way it resolves
+  // { landed: ids.length, skippedIds: [], queued: true }, so the run goes on to Great picks exactly as online
+  // (O1). Only a real error still throws.
+  const landAskPicks = useCallback(async (askId, catalogItemIds, screenStyle = null, runId = null) => {
     if (!ASK_ENABLED) return null;   // Ask off (featureFlags): no request to an Ask table or RPC
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db) return null;
-    const { data: landed, error: landErr } = await db
-      .rpc("land_ask_picks", landAskPicksArgs(hh.id, askId, catalogItemIds));
-    if (landErr) throw landErr;
+    const run = runId || crypto.randomUUID();
+    const tapAt = new Date().toISOString();
+    if ((typeof navigator !== "undefined" && navigator.onLine === false) || offlineRef.current) {
+      return queueAskLanding(hh, askId, catalogItemIds, screenStyle, run, tapAt);
+    }
+    const { data: landed, error: landErr, timedOut } = await callLandAskPicks(db, hh.id, askId, catalogItemIds, run, null);
+    if (landErr || timedOut) {
+      if (askSendIsTransient(landErr, { timedOut, offline: offlineRef.current })) {
+        if (!isOfflineSkip(landErr)) reportTransientFailure();
+        return queueAskLanding(hh, askId, catalogItemIds, screenStyle, run, tapAt);
+      }
+      throw landErr;
+    }
     let skippedIds = [];
     if (typeof landed === "number" && landed < catalogItemIds.length) {
       const { data: rows, error: readErr } = await db
@@ -1621,6 +1667,45 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);  // empty deps — uses refs, never stale
 
+  // land_ask_picks with the 8 s limit (2c). Our own controller and flag: AbortSignal.timeout() rejects with a
+  // TimeoutError, which classifyFetchError doesn't know; abort() gives the AbortError it does. Resolves
+  // { data, error, timedOut }; never throws.
+  async function callLandAskPicks(db, householdId, askId, ids, runId, tappedAt) {
+    if (!ASK_ENABLED) return { data: null, error: { code: "ask_off", message: "Ask is off" }, timedOut: false };   // never a request
+    const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    let timedOut = false;
+    const timer = ctl ? setTimeout(() => { timedOut = true; ctl.abort(); }, ASK_LAND_TIMEOUT_MS) : null;
+    try {
+      let req = db.rpc("land_ask_picks", landAskPicksArgs(householdId, askId, ids, runId, tappedAt));
+      if (ctl) req = req.abortSignal(ctl.signal);
+      const { data, error } = await req;
+      return { data, error, timedOut };
+    } catch (e) {
+      return { data: null, error: e, timedOut };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // A send that waits (D2). The label and the picks' names are kept for this phone's overlay only (never
+  // sent; A22). Resolves as a landing would, so the run carries on (O1).
+  function queueAskLanding(hh, askId, ids, screenStyle, runId, tapAt) {
+    const clerk = clerkIdLiveRef.current;
+    if (askQueueRef.current.householdId !== hh.id) {
+      askQueueRef.current = { clerkId: clerk, householdId: hh.id, list: readAskQueue(clerk, hh.id) };
+    }
+    const ask = asksLatestRef.current.find((a) => a.id === askId) || null;
+    const items = (ask?.shelf || []).filter((s) => s.item).map((s) => ({ id: s.id, name: s.item.name, category: s.item.category }));
+    const entry = makeAskLanding({ runId, askId, ids, tapAt, label: ask?.label ?? null, style: screenStyle, items });
+    if (!entry) throw new Error("ask landing: not a landing");   // 0 or 49 picks, a duplicate: the run's own rules forbid it
+    const a = askQueueRef.current;
+    a.list = [...a.list.filter((e) => e.runId !== runId), entry];
+    persistAskQueue();
+    publishAskQueue();
+    emitAskEvent("ask_land_queued", ids.length, screenStyle);
+    return { landed: ids.length, skippedIds: [], queued: true };
+  }
+
   // ─────────────────────────────────────────────────────────────
   // ASKS (078 create_ask; SPEC_ask_slice2 C2). fetchAsks reads the household's live asks and their
   // shelves by household id ONLY — never filtered by label: the span scrub keeps a Supabase REST
@@ -1633,6 +1718,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // label (rules + copy in src/lib/askCreate.js).
   // ─────────────────────────────────────────────────────────────
   const [asks, setAsks] = useState([]);
+  const asksLatestRef = useRef([]);
+  asksLatestRef.current = asks;
   // Reads can overlap now that a background refresh runs (SPEC_ask_shelf_sync A1): a 20 s tick that
   // started before this device's save must not land after the save's own read and put the old shelf
   // back. Each read takes a number; one that a later read has already beaten is dropped.
@@ -1875,7 +1962,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // outright (Undo). Whether it is also a real transition is decided by the
     // server below, never here.
     const chain = checkChainRef.current;
-    const before = chain.intent(listItemId, !!checked[listItemId]);
+    const before = chain.intent(listItemId, !!shownCheckedRef.current[listItemId]);
     const wantBought = opts.to ? opts.to === "bought" : !before;
     if (wantBought === before) return null;
     // F3: mark this row as having an in-flight write so the 2s poll won't
@@ -1917,7 +2004,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const chain = checkChainRef.current;
     const newStatus = wantBought ? "bought" : "pending";
     const res = await chain.enqueue(listItemId, wantBought, async (signal) => {
-      // Offline: don't send into the void (A4) — the tap waits in the queue instead.
+      // Offline: don't send into the void (A4) — the tap waits in the queue instead. So does a check of a row
+      // a queued Ask landing covers (it lands after the pick, D4), and an overlay-only row's synthetic key,
+      // which never reaches the network.
+      if (heldByLanding(listItemId, listRowsRef.current, askQueueRef.current.list, tapAt)) throw OFFLINE_SKIP;
       if (typeof navigator !== "undefined" && navigator.onLine === false) throw OFFLINE_SKIP;
       const { data: rows, error: updateErr } = await db
         .from("list_items")
@@ -2031,13 +2121,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // time, and a trip started offline starts at its first queued check (R3); dropped changes log nothing.
   // A queued Wrap up (C6) goes on the same flush: the checks tapped before it first, their events, then
   // the Wrap up itself; a check tapped after it waits for the Wrap up to land (the next trip's).
+  // SPEC_ask_offline D4: queued Ask landings are boundaries on the same flush, like the Wrap up. Everything
+  // replays in tap order: the checks tapped before the first boundary, then that boundary (a landing, or the
+  // Wrap up), then on to the next (lib/askQueue planFlushStep). A landing replays with its run id and tap
+  // time, then the list is read, then the checks held against it by catalog item are re-keyed to the real
+  // rows and go out with their own tap times. A step that can't finish (no signal, a check still in flight)
+  // stops the flush; the next one starts again where this left off.
   async function flushQueuedChecks() {
     if (flushingChecksRef.current) return;
     const db = supabaseRef.current;
     const hh = householdRef.current;
     const q = checkQueueRef.current;
     if (!db || !hh || q.householdId !== hh.id) return;
-    if (Object.keys(q.entries).length === 0 && !currentWrap(hh.id)) return;
+    const landings = () => (askQueueRef.current.householdId === hh.id ? askQueueRef.current.list : []);
+    if (Object.keys(q.entries).length === 0 && !currentWrap(hh.id) && landings().length === 0) return;
     // Not before bootstrap has named this person (a list restored from the cache can be up first): the
     // confirmed checks must be logged, and recordListEvent needs the internal user id.
     if (!internalUserIdRef.current) return;
@@ -2045,19 +2142,119 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     if (typeof navigator !== "undefined" && navigator.onLine === false) return;
     flushingChecksRef.current = true;
     try {
-      const wrap = currentWrap(hh.id);
-      const { before, after } = splitAroundWrap(q.entries, wrap);
-      // The trip the queued Wrap up closes starts at its first queued check; the next trip at its own.
-      const subset = (ids) => Object.fromEntries(ids.map((id) => [id, q.entries[id]]));
-      const sent = await sendQueuedChecks(before, earliestCheckTap(subset(before)));
-      if (!wrap) return;
-      // Every check of the finished trip has to have landed (or been dropped) before the Wrap up goes.
-      if (!sent || before.some((id) => checkQueueRef.current.entries[id])) return;
-      const landed = await replayQueuedWrap(wrap);
-      if (landed && after.length) await sendQueuedChecks(after.filter((id) => checkQueueRef.current.entries[id]), earliestCheckTap(subset(after)));
+      // The trip the queued Wrap up closes starts at its first queued check; the next trip at its own (R3).
+      const entries0 = checkQueueRef.current.entries;
+      const wrap0 = currentWrap(hh.id);
+      const [pre, post] = wrap0 ? splitAtTaps(entries0, [wrap0.tapAt]) : [Object.keys(entries0), []];
+      const subset = (ids) => Object.fromEntries(ids.map((id) => [id, entries0[id]]));
+      const tripBefore = earliestCheckTap(subset(pre));
+      const tripAfter = earliestCheckTap(subset(post));
+      let wrapLanded = !wrap0;
+      // Each pass replays one boundary or stops; the bound only guards against a loop that can't happen.
+      for (let pass = 0; pass < 100; pass++) {
+        const { send, boundary } = planFlushStep(checkQueueRef.current.entries, landings(), currentWrap(hh.id));
+        const sent = await sendQueuedChecks(send, wrapLanded ? tripAfter : tripBefore);
+        if (!boundary) return;
+        // Every check before the boundary has to have landed (or been dropped) before it goes.
+        if (!sent || send.some((id) => checkQueueRef.current.entries[id])) return;
+        if (boundary.kind === "wrap") {
+          if (!(await replayQueuedWrap(boundary.wrap))) return;
+          wrapLanded = true;
+        } else if (!(await replayAskLanding(boundary.entry))) {
+          return;
+        }
+      }
     } finally {
       flushingChecksRef.current = false;
     }
+  }
+
+  // One queued Ask landing (D4, D5). Resolves true when the flush can move past it: it landed (the list read
+  // after it is in, its held checks re-keyed), or the server refused it and it was dropped. False keeps it
+  // queued (no signal) and stops the flush.
+  async function replayAskLanding(entry) {
+    const db = supabaseRef.current;
+    const hh = householdRef.current;
+    if (!db || !hh) return false;
+    if (!entry.landed) {
+      const { data, error, timedOut } = await callLandAskPicks(db, hh.id, entry.askId, entry.ids, entry.runId, entry.tapAt);
+      if (error || timedOut) {
+        if (askSendIsTransient(error, { timedOut, offline: offlineRef.current })) {
+          if (!isOfflineSkip(error)) reportTransientFailure();
+          return false;
+        }
+        dropAskLanding(entry, error);
+        return true;
+      }
+      reportSuccess();
+      // D2: ask_completed once, now, with the server's count (a repeat of a run that already landed returns
+      // its first count, 089).
+      try {
+        tracer.startSpan("ask_completed", { attributes: askCompletedAttributes(typeof data === "number" ? data : 0, entry.style) }).end();
+      } catch (e) {
+        console.warn("[rum] ask_completed event failed:", e);
+      }
+      const a = askQueueRef.current;
+      a.list = a.list.map((e) => (e.runId === entry.runId ? { ...e, landed: true, landedSeq: listReadSeqRef.current } : e));
+      persistAskQueue();
+      publishAskQueue();
+    }
+    // The list read after the landing: the overlay retires on it (D3), and the new rows have their ids.
+    if (!(await readListFresh(db, hh.id))) return false;
+    const q = checkQueueRef.current;
+    const idOfCid = (cid) => listRowsRef.current.find((r) => r.catalogItemId === cid)?.id || null;
+    const { entries, moved, dropped } = rekeySynth(q.entries, entry.runId, idOfCid);
+    if (moved.length || dropped.length) {
+      q.entries = entries;
+      persistCheckQueue();
+      moved.forEach(([from, to]) => { pendingCheckRef.current.delete(from); pendingCheckRef.current.add(to); touchCheck(to); });
+      dropped.forEach((k) => pendingCheckRef.current.delete(k));
+      setChecked((prev) => {
+        const next = { ...prev };
+        moved.forEach(([from, to]) => { delete next[from]; next[to] = entries[to].want; });
+        dropped.forEach((k) => { delete next[k]; });
+        return next;
+      });
+      publishQueuedChecks();
+    }
+    const a = askQueueRef.current;
+    a.list = a.list.filter((e) => e.runId !== entry.runId);
+    persistAskQueue();
+    publishAskQueue();
+    return true;
+  }
+
+  // D5: the server refused a replay (42501 no longer a member, P0002 an ask deleted too long ago, and so on).
+  // Drop it, and the checks held against its overlay rows with it, and say nothing (C3); the event has the
+  // code only.
+  function dropAskLanding(entry, err) {
+    console.warn("[ask] queued landing dropped:", err?.code || "unknown");
+    emitAskEvent("ask_land_dropped", err);
+    const a = askQueueRef.current;
+    a.list = a.list.filter((e) => e.runId !== entry.runId);
+    persistAskQueue();
+    publishAskQueue();
+    const q = checkQueueRef.current;
+    const keys = synthKeysOf(q.entries, entry.runId);
+    if (keys.length) {
+      const next = { ...q.entries };
+      keys.forEach((k) => { delete next[k]; pendingCheckRef.current.delete(k); });
+      q.entries = next;
+      persistCheckQueue();
+      setChecked((prev) => { const n = { ...prev }; keys.forEach((k) => { delete n[k]; }); return n; });
+      publishQueuedChecks();
+    }
+  }
+
+  // A list read that STARTS now (one already in flight began too early to count). Resolves true once a read
+  // started after this call has been applied.
+  async function readListFresh(db, householdId) {
+    const start = listReadSeqRef.current;
+    for (let i = 0; i < 100 && (loadingListRef.current || wrappingUpRef.current); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await loadListItems(db, householdId);
+    return appliedReadRef.current > start;
   }
 
   // One batch of queued checks, then their events in tap order. A row with a write already in flight is
@@ -2066,7 +2263,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     const q = checkQueueRef.current;
     const chain = checkChainRef.current;
     const busy = ids.some((id) => chain.pending(id));
-    const batch = ids.filter((id) => q.entries[id] && !chain.pending(id)).map((id) => ({ id, ...q.entries[id] }));
+    const batch = ids.filter((id) => q.entries[id] && !isSynthKey(id) && !chain.pending(id)).map((id) => ({ id, ...q.entries[id] }));
     if (batch.length === 0) return !busy;
     const results = await Promise.all(batch.map(async (e) => {
       const row = listRowsRef.current.find((r) => r.id === e.id);
@@ -4998,6 +5195,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     });
     return map;
   }, []);
+
+  // What a tap's intent starts from (toggleChecked): the checked state as drawn.
+  shownCheckedRef.current = checked;
 
   return {
     quantities, checked, prices, categoryAvgPrices, addedByMap, contributorsMap, household, householdMembers, catalogMap, setCatalogMap, listRows, updateFullName,

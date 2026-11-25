@@ -1,7 +1,7 @@
 import {
   ASK_LAND_TIMEOUT_MS, makeAskLanding, cleanLanding, readAskQueue, writeAskQueue, byTap,
   synthKey, isSynthKey, parseSynthKey, rekeySynth, synthKeysOf, askSendIsTransient,
-  liveLandings, applyAskOverlay, heldByLanding,
+  liveLandings, applyAskOverlay, heldByLanding, planFlushStep,
 } from "./askQueue";
 import { askKey, queueKey, discardForeign, clearCheckStorage, OFFLINE_SKIP, putEntry, splitAtTaps, splitAroundWrap } from "./checkQueue";
 import { AuthTokenMissing } from "./supabaseClient";
@@ -145,14 +145,41 @@ describe("the synthetic check key (D4)", () => {
     expect(synthKeysOf({ [synthKey(RUN, "a")]: {}, [synthKey(RUN2, "b")]: {}, r: {} }, RUN)).toEqual([synthKey(RUN, "a")]);
   });
 
-  test("a synthetic key is always held; a real row is held while an unlanded landing covers it", () => {
+  test("a synthetic key is always held; a real row is held while an unlanded landing sent before the tap covers it", () => {
     const rows = [{ id: "r-apples", catalogItemId: "apples" }, { id: "r-milk", catalogItemId: "milk" }];
-    const list = [land({ ids: ["apples"] })];
+    const list = [land({ ids: ["apples"], tapAt: T(10) })];
     expect(heldByLanding(synthKey(RUN, "x"), rows, [])).toBe(true);
-    expect(heldByLanding("r-apples", rows, list)).toBe(true);
+    expect(heldByLanding(synthKey(RUN, "x"), rows, [], T(1))).toBe(true);
+    expect(heldByLanding("r-apples", rows, list)).toBe(true);                 // a new tap
+    expect(heldByLanding("r-apples", rows, list, T(12))).toBe(true);          // tapped after the pick
+    expect(heldByLanding("r-apples", rows, list, T(5))).toBe(false);          // tapped before it: goes first
     expect(heldByLanding("r-milk", rows, list)).toBe(false);
     expect(heldByLanding("r-apples", rows, [{ ...list[0], landed: true }])).toBe(false);
     expect(heldByLanding("unknown", rows, list)).toBe(false);
+  });
+
+  test("the flush step: checks before the first boundary, then that boundary; synthetic keys never sent", () => {
+    const a = land({ runId: "a", tapAt: T(10) });
+    const b = land({ runId: "b", tapAt: T(30) });
+    const wrap = { tapAt: T(20), dropIds: [], hideIds: [] };
+    const entries = {
+      r1: { want: true, tapAt: T(5) }, r2: { want: true, tapAt: T(10) }, r3: { want: false, tapAt: T(15) },
+      r4: { want: true, tapAt: T(25) }, r5: { want: true, tapAt: T(40) },
+      [synthKey("a", "bananas")]: { want: true, tapAt: T(12) },
+    };
+    let s = planFlushStep(entries, [b, a], wrap);
+    expect(s.send).toEqual(["r1", "r2"]);
+    expect(s.boundary).toMatchObject({ kind: "land", entry: a });
+    s = planFlushStep(entries, [b], wrap);   // a replayed
+    expect(s.send).toEqual(["r1", "r2", "r3"]);
+    expect(s.boundary).toMatchObject({ kind: "wrap", wrap });
+    s = planFlushStep(entries, [b], null);   // the Wrap up landed
+    expect(s.send).toEqual(["r1", "r2", "r3", "r4"]);
+    expect(s.boundary.entry).toBe(b);
+    s = planFlushStep(entries, [], null);    // nothing left: every check, but never the synthetic key
+    expect(s.send).toEqual(["r1", "r2", "r3", "r4", "r5"]);
+    expect(s.boundary).toBeNull();
+    expect(planFlushStep({}, [], null)).toEqual({ send: [], boundary: null });
   });
 });
 
