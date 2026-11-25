@@ -153,7 +153,7 @@ const geom = (p) => p.evaluate(() => {
   const hl = await p.evaluate(() => ({ hash: location.hash, rows: [...document.querySelectorAll(".list-item.ask-landed-hl .li-name")].map((n) => n.innerText.split("\n")[0].trim()) }));
   await shot(p, "wagon-5-see-highlight");
   check("See opens the list with the 4 landed rows highlighted", /shop/.test(hl.hash) && hl.rows.length === 4, JSON.stringify(hl));
-  await sleep(3000);
+  await sleep(6000);   // See's highlight holds ~5.2 s after its scroll settles (useLandedHighlight HIGHLIGHT_MS)
   check("…and the highlight fades", (await p.evaluate(() => document.querySelectorAll(".ask-landed-hl").length)) === 0);
 
   // ── 1, 3 + H5–H11: Explorer (Simple), one pick — no ✓; the wagon is swiped; the singular copy ──
@@ -177,7 +177,7 @@ const geom = (p) => p.evaluate(() => {
   await shot(p, "wagon-7b-kid-tug");
   check("H8: after the fireworks the full wagon tugs, with the → animating beside it; no adult text", tug.tug && tug.arrow === "ask-arrow" && !(await p.evaluate(() => /grown-up|swipe/i.test(document.querySelector(".ask-shelf").innerText))), JSON.stringify(tug));
   // H6: a real drag with the mouse — short first (springs back), then past 60px (sent).
-  const box = await p.evaluate(() => { const r = document.querySelector(".ask-wagonwrap").getBoundingClientRect(); return { x: r.left + r.width * 0.75, y: r.top + r.height * 0.85 }; });
+  const box = await p.evaluate(() => { const r = document.querySelector(".ask-wagonwrap").getBoundingClientRect(); return { x: r.left + r.width * 0.4, y: r.top + r.height * 0.85 }; });
   await p.mouse.move(box.x, box.y); await p.mouse.down();
   await p.mouse.move(box.x + 20, box.y, { steps: 4 });
   const mid = await p.evaluate(() => document.querySelector(".ask-wagonwrap").style.transform);
