@@ -2154,7 +2154,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // Each pass replays one boundary or stops; the bound only guards against a loop that can't happen.
       for (let pass = 0; pass < 100; pass++) {
         const { send, boundary } = planFlushStep(checkQueueRef.current.entries, landings(), currentWrap(hh.id));
-        const sent = await sendQueuedChecks(send, wrapLanded ? tripAfter : tripBefore);
+        // The trip after a queued Wrap up starts at its own first check; with no Wrap up queued there is one
+        // trip, and it starts at the first queued check of all (R3). (wrapLanded starts true when there is
+        // no Wrap up, and `post` is then empty: keying on wrapLanded alone opened that trip at the reconnect.)
+        const sent = await sendQueuedChecks(send, wrap0 && wrapLanded ? tripAfter : tripBefore);
         if (!boundary) return;
         // Every check before the boundary has to have landed (or been dropped) before it goes.
         if (!sent || send.some((id) => checkQueueRef.current.entries[id])) return;
