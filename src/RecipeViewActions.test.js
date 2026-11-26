@@ -49,9 +49,9 @@ const buttons = (row) => Array.from(row.querySelectorAll("button"));
 
 describe("the four states (and C1 / R2) render the mockup's three parts", () => {
   test.each([
-    ["A · planned, not on the list", MEAL, {}, "✓ On This Week", ["rv-plan add", "Add to Shop"], "Remove from This Week"],
-    ["B · on the list, 4 left", MEAL, { total: 6, bought: 2 }, "✓ On This Week", ["rv-see", "4 left to buy · See list →"], "Remove (and take its items off Shop)"],
-    ["C1 · all in the cart", MEAL, { total: 6, bought: 6 }, "✓ On This Week · All in your cart", ["rv-plan wrap", "Wrap up →"], "Remove (and take its items off Shop)"],
+    ["A · planned, not on the list", MEAL, {}, "✓ On This Week", ["rv-plan add", "Add to list"], "Remove from This Week"],
+    ["B · on the list, 4 left", MEAL, { total: 6, bought: 2 }, "✓ On This Week", ["rv-see", "4 left to buy · See list →"], "Remove (and take its items off the list)"],
+    ["C1 · all in the cart", MEAL, { total: 6, bought: 6 }, "✓ On This Week · All in your cart", ["rv-plan wrap", "Wrap up →"], "Remove (and take its items off the list)"],
     ["C · ready", MEAL, { readyAt: "2026-10-19T12:00:00Z" }, "✓ On This Week · Everything's in", ["rv-plan teal", "Cooked it"], "Remove from This Week"],
     ["C · nothing to shop for", EMPTY, {}, "✓ On This Week · Nothing to shop for", ["rv-plan teal", "Cooked it"], "Remove from This Week"],
   ])("%s", (_, meal, inputs, statusText, [cls, main], removeText) => {
@@ -138,7 +138,7 @@ describe("each action calls its handler with the board's arguments", () => {
   test("B4: the view follows the state in place (rerender with the board's next state)", () => {
     const { row, rerender, h } = view(MEAL, stateOf(MEAL));
     const props = (st) => ({ meal: MEAL, state: st, members: [], cookCount: 0, lastCookedAt: null, cookRows: null, links: null, tagsReady: false, addedThisPlan: false, viewerUserId: null, busy: false, ...h });
-    expect(buttons(row)[0].textContent).toBe("Add to Shop");
+    expect(buttons(row)[0].textContent).toBe("Add to list");
     rerender(<RecipeView {...props(stateOf(MEAL, { total: 2 }))} />);
     expect(buttons(row)[0].textContent).toBe("2 left to buy · See list →");
     rerender(<RecipeView {...props(stateOf(MEAL, { total: 2, bought: 2 }))} />);
@@ -152,7 +152,7 @@ describe("each action calls its handler with the board's arguments", () => {
   });
   test("accessible names are the visible fixed copy (no aria-label on the block)", () => {
     const { row } = view(MEAL, stateOf(MEAL, { total: 6, bought: 2 }));
-    expect(buttons(row).map((b) => computeAccessibleName(b))).toEqual(["4 left to buy · See list →", "Remove (and take its items off Shop)"]);
+    expect(buttons(row).map((b) => computeAccessibleName(b))).toEqual(["4 left to buy · See list →", "Remove (and take its items off the list)"]);
     row.querySelectorAll("*").forEach((el) => expect(el.hasAttribute("aria-label")).toBe(false));
   });
 });

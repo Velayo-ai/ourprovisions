@@ -86,7 +86,7 @@ export const NAV_DOORS = [
   { key: "home",   label: "Home",   view: "home",  hash: "#/home",   Icon: HomeIcon },
   { key: "plan",   label: "Plan",   view: "plan",  hash: "#/plan",   Icon: PlanIcon },
   { key: "browse", label: "Browse", view: "input", hash: "#/browse", Icon: BrowseIcon },
-  { key: "shop",   label: "Shop",   view: "list",  hash: "#/shop",   Icon: ShopIcon, badge: true },
+  { key: "shop",   label: "List",   view: "list",  hash: "#/shop",   Icon: ShopIcon, badge: true },
 ];
 
 // D3: the Wrap up modal is the one non-door surface with a hash — the funnel's

@@ -55,7 +55,7 @@ export function leftToBuy(state) {
 //   planned, !canAdd (R2)  → ✓ On This Week · Nothing to shop for  · Cooked it          · week
 export const REMOVE_LABEL = {
   week: "Remove from This Week",
-  shop: "Remove (and take its items off Shop)",
+  shop: "Remove (and take its items off the list)",
 };
 export function recipeBlockFor(state, opts = {}) {
   const action = planActionFor(state, opts);

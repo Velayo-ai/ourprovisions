@@ -1071,7 +1071,7 @@ export function OnDeckCard({
     // Ready (row 3) — and a planned meal with nothing to shop for (row 6).
     primary = <button type="button" className="deck-primary teal" disabled={busy} onClick={() => { if (!busy) onCooked(m.id); }}>Cooked it</button>;
   } else {
-    primary = <button type="button" className="deck-primary" disabled={busy} onClick={() => { if (!busy) onLockIn(m.id); }}>Add to Shop</button>;
+    primary = <button type="button" className="deck-primary" disabled={busy} onClick={() => { if (!busy) onLockIn(m.id); }}>Add to list</button>;
   }
   const open = () => { if (!busy && !st.noShop) onView(m); };
   return (
@@ -1753,7 +1753,7 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                     className="board-lock"
                     disabled={busy}
                     onClick={(e) => { e.stopPropagation(); if (!busy) onLockIn(m.id); }}
-                  >Add to Shop</button>
+                  >Add to list</button>
                 )}
                 {/* At 0 left (everything in the cart, not wrapped up) the same door reads "Wrap up →"
                     — the recipe view's nudge, word for word (Amendment C, ruling 4). Wording only. */}
@@ -1790,7 +1790,7 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                 <div className="board-menu" role="menu" onClick={(e) => e.stopPropagation()}>
                   <button type="button" role="menuitem" disabled={busy}
                     onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onSkip(m.id, toBuy); }}>
-                    {toBuy ? "Remove (and take its items off Shop)" : "Remove"}
+                    {toBuy ? "Remove (and take its items off the list)" : "Remove"}
                   </button>
                   {planned && (
                     <button type="button" role="menuitem" disabled={busy}
@@ -3045,7 +3045,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
     // the meta line already says it was cooked.
     plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Plan again</button>;
   } else if (block.action === "addToShop") {
-    plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onAddToShop(meal.id); }}>Add to Shop</button>;
+    plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onAddToShop(meal.id); }}>Add to list</button>;
   } else if (block.action === "cookIt") {
     plan = <button type="button" className="rv-plan teal" disabled={busy} onClick={() => { if (!busy) onCooked(meal.id); }}>Cooked it</button>;
   } else if (block.action === "wrapUp") {
@@ -5188,7 +5188,7 @@ export function OnHandPrompt({ prompt, onChoose, onCancel, onConfirm }) {
             Edit Meal sheet's own Cancel/Save footer uses. */}
         <div className="modal-actions">
           <button className="modal-cancel" onClick={onCancel}>Cancel</button>
-          <button className="modal-confirm" onClick={onConfirm}>{haveEverything ? "I have everything" : "Add to Shop"}</button>
+          <button className="modal-confirm" onClick={onConfirm}>{haveEverything ? "I have everything" : "Add to list"}</button>
         </div>
       </div>
     </div>
@@ -5785,9 +5785,9 @@ function ProvisionsApp({ scrollRootRef }) {
     const N = boardStats.stillToAdd.length;
     if (boardStats.cards.length === 0) return { head, tail: "", link: 0 };
     if (N >= 2) return { head, tail: ` · ${N} meals to `, link: N };
-    if (N === 1) return { head, tail: " · 1 meal to add to Shop", link: 0 };
+    if (N === 1) return { head, tail: " · 1 meal to add to the list", link: 0 };
     if (boardStats.allReady) return { head, tail: " · ready", link: 0 };
-    if (boardStats.nonePlanned) return { head, tail: " · Everything's in Shop ✓", link: 0 };
+    if (boardStats.nonePlanned) return { head, tail: " · Everything's on the list ✓", link: 0 };
     return { head, tail: "", link: 0 };
   }, [boardMeals.length, boardStats]);
   const boardBanner = boardStats.allReady ? "stocked" : boardStats.nonePlanned ? "set" : null;
@@ -7124,7 +7124,7 @@ function ProvisionsApp({ scrollRootRef }) {
       const { added: n, readyOnHand: m } = await lockInAll(ids);
       await refreshProvenance();
       const line = m > 0 ? addAllOnHandLine(n, m) : addedToast(`${n} meal${n === 1 ? "" : "s"}`, rowsBefore);
-      showToast(line, { label: "Shop", onClick: () => goToDoor("list") });
+      showToast(line, { label: "List", onClick: () => goToDoor("list") });
     } finally {
       setLockingAll(false);
     }
@@ -9294,7 +9294,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .hdr-action { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 44px; padding: 0 18px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
         .hdr-action:disabled { opacity: 0.6; cursor: default; }
-        /* "add to Shop →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
+        /* "add to the list →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
            hit box; the matching negative margins keep the line box exactly where it was. Not a bar, not teal. */
         .plan-addall { display: inline-block; vertical-align: baseline; border: none; background: none; color: #6f5a45; cursor: pointer;
                        padding: 15px 4px; margin: -15px -4px; line-height: inherit;
@@ -9341,7 +9341,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .board-card.ready .board-line { color: #6f5a45; }
         .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .board-actions-gap { flex: 1; }
-        /* One primary per state. Add to Shop / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
+        /* One primary per state. Add to list / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
         .board-lock, .board-see, .board-cook { flex: none; border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; letter-spacing: 0.5px; }
         .board-lock { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
@@ -9975,7 +9975,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .deck-status { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: calc(14.7px * var(--op-text-scale)); line-height: 1.45; color: #6E5A4A; }
         .deck.cooked .deck-title { opacity: 0.55; }
         .deck-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 16px; }
-        /* Primary: espresso outline (Add to Shop); teal fill ONLY for Cooked it — the household finished something; deep sand (--op-add) for
+        /* Primary: espresso outline (Add to list); teal fill ONLY for Cooked it — the household finished something; deep sand (--op-add) for
            Add a meal, the same as both of Plan's add buttons. */
         .deck-primary { flex: none; min-height: 44px; padding: 0 22px; border-radius: 22px; cursor: pointer; white-space: nowrap;
                         border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45;
@@ -11735,7 +11735,7 @@ function ProvisionsApp({ scrollRootRef }) {
               // The recipe view over Home (SPEC_recipe_view D1/D2): a sheet, no route change —
               // closing it lands back here. openRecipe ignores a held night itself.
               onView: (m) => openRecipe(m, "make"),
-              onLockIn: handleAddMealToList,      // the board's Add to Shop — on-hand prompt included
+              onLockIn: handleAddMealToList,      // the board's Add to list — on-hand prompt included
               onCooked: handleCookedMeal,
               onSkip: handleSkipMeal,
               onSwitch: handleSwitchDeck,
@@ -11763,7 +11763,7 @@ function ProvisionsApp({ scrollRootRef }) {
           <>
             {/* THE BOARD (v2) under the title switch (SPEC_plan_week_meals_switch):
                 "This Week" active, "Meals" one tap away, the subtitle carrying the
-                count AND the batch action ("4 nights · 2 meals to add to Shop →" —
+                count AND the batch action ("4 nights · 2 meals to add to the list →" —
                 see boardSubtitle), and ONE control top-right — the add button
                 (--op-add: deep sand = adding things) into the library. The switch
                 row is the door's control row, so it is the compact sentinel
@@ -11785,9 +11785,9 @@ function ProvisionsApp({ scrollRootRef }) {
                   {boardSubtitle.head}{boardSubtitle.tail}
                   {boardSubtitle.link > 0 && (isSignedIn ? (
                     <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
-                      {lockingAll ? "adding…" : "add to Shop →"}
+                      {lockingAll ? "adding…" : "add to the list →"}
                     </button>
-                  ) : "add to Shop")}
+                  ) : "add to the list")}
                 </>
               ) : null}
               action={boardReady && !showWelcome ? (
@@ -12259,7 +12259,7 @@ function ProvisionsApp({ scrollRootRef }) {
                     {boardStats.stillToAdd.length > 0 ? (
                       <>
                         <span>{boardStats.stillToAdd.length} {boardStats.stillToAdd.length === 1 ? "meal" : "meals"} to</span>
-                        <button type="button" className="home-line-link" onClick={() => goToDoor("plan")}>add to Shop →</button>
+                        <button type="button" className="home-line-link" onClick={() => goToDoor("plan")}>add to the list →</button>
                       </>
                     ) : (
                       <button type="button" className="home-line-link" onClick={() => goToDoor("input")}>Browse items →</button>
@@ -12520,7 +12520,7 @@ function ProvisionsApp({ scrollRootRef }) {
 
       {/* The recipe view (SPEC_recipe_view): read first. Edit opens the sheet above in
           its place; the view returns on Cancel / Save with the live row. */}
-      {/* !onHandPrompt (Amendment B, R5): the board's Add to Shop opens the "I have this" prompt, a
+      {/* !onHandPrompt (Amendment B, R5): the board's Add to list opens the "I have this" prompt, a
           .modal-overlay (z 100) that would sit UNDER this view's scrim (z 1000) — the view steps aside
           while it is open and returns in its new state, the same pattern as the Edit sheet. */}
       {MEALS_ENABLED && rvMeal && !mealSheet && !onHandPrompt && (

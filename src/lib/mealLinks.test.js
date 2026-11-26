@@ -175,13 +175,13 @@ describe("a re-plan after either reads state A everywhere", () => {
     const noop = () => {};
     const { container: rvBox, unmount: rvUnmount } = render(<RecipeView meal={MEAL} state={st} members={[]} cookCount={0} lastCookedAt={null} cookRows={null} links={null} tagsReady={false}
       addedThisPlan={false} viewerUserId={null} busy={false} onClose={noop} onEdit={noop} onPlan={noop} onAddToShop={noop} onCooked={noop} onRemove={noop} onSeeList={noop} />);
-    expect(rvBox.querySelector(".rv-plan-row button").textContent).toBe("Add to Shop");
+    expect(rvBox.querySelector(".rv-plan-row button").textContent).toBe("Add to list");
     rvUnmount();
     // Home deck (rendered: the board's derivation, verbatim)
     const { container: deckBox } = render(<OnDeckCard boardMeals={[MEAL]} boardCards={[MEAL]} placements={{ [MEAL.id]: { sortOrder: 0, readyAt: null } }} rows={rows}
       mealById={{}} cookedIds={new Set()} busyMealId={null} switching={false} holdNight={false}
       onAdd={noop} onView={noop} onLockIn={noop} onCooked={noop} onSkip={noop} onSwitch={noop} onLeftovers={noop} onOut={noop} onOther={noop} />);
-    expect(deckBox.querySelector(".deck-primary").textContent).toBe("Add to Shop");
+    expect(deckBox.querySelector(".deck-primary").textContent).toBe("Add to list");
     // close_cycle 052 can no longer match the new placement at the next wrap-up
     expect(wouldStampReady(db, { mealId: MEAL.id, placement: openPlacement, closingCycle: NEW_CYCLE })).toBe(false);
   });

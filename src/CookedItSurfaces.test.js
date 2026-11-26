@@ -92,7 +92,7 @@ describe("C1: everything in the cart nudges to wrap up, in the same words on bot
   test("the board and the recipe view agree in every state (B2, no exception)", () => {
     // [meal, inputs, the recipe view's main action, the board's own line for the same placement]
     const rows = [
-      [MEAL, {}, "Add to Shop", "Not on the list yet"],
+      [MEAL, {}, "Add to list", "Not on the list yet"],
       [MEAL, { total: 3, bought: 1 }, "2 left to buy · See list →", "1 of 3 in cart"],
       [MEAL, { total: 3, bought: 3 }, "Wrap up →", "3 of 3 in cart"],
       [MEAL, { readyAt: "x" }, "Cooked it", "Everything's in — go cook"],
