@@ -29,6 +29,7 @@ import { landAskPicksArgs, askCompletedAttributes } from "../lib/askPicks";
 import { createAskArgs, editAskArgs, shapeAsks } from "../lib/askCreate";
 import { asksAfterCatalogDelete } from "../lib/askRun";
 import { ASK_ENABLED } from "../lib/featureFlags";
+import { ensureTripSession } from "../lib/tripSession";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -2485,22 +2486,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // taps cannot open two sessions during the GPS wait.
   // `startedAt` (R3, offline check-off): a trip whose first checks were queued offline starts at the first
   // queued tap, not at the reconnect. Only used when a NEW session is opened here.
-  const ensureSession = useCallback(async ({ silent = false, startedAt = null } = {}) => {
+  // `adoptOnly` (SPEC_one_list R5): return this person's open session or null, NEVER start one. An add
+  // passes it, so an add at home can't open a trip even when this phone's activeSession is stale (wrapped
+  // up on another phone, or past the 8 h expiry). The logic lives in lib/tripSession (tested there).
+  const ensureSession = useCallback(async ({ silent = false, startedAt = null, adoptOnly = false } = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
-    if (sessionStartingRef.current) return sessionStartingRef.current;
-    sessionStartingRef.current = (async () => {
-      await loadSessions(db, hh.id, { withStores: false });
-      const cur = activeSessionRef.current;
-      if (cur) return cur;
-      return startSession({ silent, startedAt });
-    })();
-    try {
-      return await sessionStartingRef.current;
-    } finally {
-      sessionStartingRef.current = null;
-    }
+    return ensureTripSession({
+      starting: sessionStartingRef,
+      reload: () => loadSessions(db, hh.id, { withStores: false }),
+      current: () => activeSessionRef.current,
+      start: () => startSession({ silent, startedAt }),
+      adoptOnly,
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startSession]);
 
@@ -2558,12 +2557,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // errors and is logged, nothing more.
   // occurredAt / tripStartedAt (offline check-off): a queued check is logged when the server confirms it,
   // with its TAP time as created_at, and a trip it opens starts at the first queued tap (R3).
-  const recordListEvent = useCallback(async (eventType, { listItemId = null, catalogItemId, occurredAt = null, tripStartedAt = null } = {}) => {
+  // adoptOnly (SPEC_one_list R5, the added_in_store path): join this person's open session, never start
+  // one; with none open, NO event is written. Resolves to the session the event was written under, or
+  // null (none adopted, no row written, or a failure) — the caller's "was this during a trip?".
+  const recordListEvent = useCallback(async (eventType, { listItemId = null, catalogItemId, occurredAt = null, tripStartedAt = null, adoptOnly = false } = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
-    if (!db || !hh || !catalogItemId || !internalUserIdRef.current) return;
+    if (!db || !hh || !catalogItemId || !internalUserIdRef.current) return null;
     try {
-      const session = await ensureSession({ silent: true, startedAt: tripStartedAt });
+      const session = await ensureSession({ silent: true, startedAt: tripStartedAt, adoptOnly });
+      if (adoptOnly && !session) return null;
       eventSeqRef.current += 1;
       const { error: evErr } = await db
         .from("list_item_events")
@@ -2578,9 +2581,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           sequence: eventSeqRef.current,
           ...(occurredAt ? { created_at: occurredAt } : {}),
         });
-      if (evErr) console.warn(`list_item_events ${eventType}:`, evErr.message);
+      if (evErr) { console.warn(`list_item_events ${eventType}:`, evErr.message); return null; }
+      return session || null;
     } catch (err) {
       console.warn(`list_item_events ${eventType}:`, err?.message || err);
+      return null;
     }
   }, [ensureSession]);
 

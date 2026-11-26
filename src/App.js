@@ -8255,8 +8255,9 @@ function ProvisionsApp({ scrollRootRef }) {
     setAddSheetOpen(false);
     setSearchQuery("");
   };
-  // D11 — the + does the DOOR's add. Shop → the Add sheet (add-from-the-aisle,
-  // "added here"); Browse → the same sheet, plain; Plan → what the switch row's
+  // D11 — the + does the DOOR's add. List → the Add sheet; Browse → the same
+  // sheet ("added here" on either only during this person's trip: noteAddedHere,
+  // SPEC_one_list R5); Plan → what the switch row's
   // own button does on the view you are on (SPEC_plan_week_meals_switch D11:
   // one rule everywhere — the pill's + does what the header button above it
   // did): on This Week, "+ Add" → Meals; on Meals, "+ New" → the New Meal sheet
@@ -8271,12 +8272,19 @@ function ProvisionsApp({ scrollRootRef }) {
         : { plan: { label: "Add a meal to this week", run: () => setPlanScreen("library") } })
       : {}),
   };
-  // "added here" and the added_in_store event are Shop semantics: the same sheet
-  // opened from Browse's + adds plainly (no tag, no event, no session start).
-  const noteAddedHere = (res) => {
-    if (!res || view !== "list") return;
-    setAddedHereIds(prev => { const n = new Set(prev); n.add(res.catalogItemId); return n; });
-    recordListEvent("added_in_store", res);
+  // "Added here" means added DURING YOUR TRIP, and an add never starts one (SPEC_one_list R5, 2026-11-26).
+  // Not a door rule any more: an add from List or Browse while this person's session is open is tagged
+  // and logged as added_in_store; with no open session it is a plain add (no tag, no event, no session).
+  // The tag shows at once from this phone's activeSession; the event is written through adoptOnly,
+  // which re-reads the open sessions and never calls startSession. If that read finds no open session
+  // (the trip was wrapped up on another phone, or passed the 8 h expiry), no event is written and the
+  // tag comes off again: it was a plain add after all.
+  const noteAddedHere = async (res) => {
+    if (!res || !activeSession) return;
+    const cid = res.catalogItemId;
+    setAddedHereIds(prev => { const n = new Set(prev); n.add(cid); return n; });
+    const session = await recordListEvent("added_in_store", { ...res, adoptOnly: true });
+    if (!session) setAddedHereIds(prev => { if (!prev.has(cid)) return prev; const n = new Set(prev); n.delete(cid); return n; });
   };
   // A catalog hit — the same change Browse's row makes: +1 through adjustQty. Adds land unchecked
   // (D6); on a row already in the cart the server makes it a NEW need of 1, never old + 1 (085 Q4).
@@ -13163,7 +13171,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   hiddenMatch={hiddenMatch}
                   onReveal={(m) => {
                     if (m.live) { unhideItem(m.item.id); closeAddSheet(); }
-                    else handleShopAddNew(m.item.category);   // un-hide + add at 1, recorded as added_in_store
+                    else handleShopAddNew(m.item.category);   // un-hide + add at 1 (added_in_store only during a trip, R5)
                   }}
                   showCount={false}
                   renderRow={(item) => (
