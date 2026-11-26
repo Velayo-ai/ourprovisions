@@ -940,10 +940,17 @@ describe("the search view (F2 revised)", () => {
     });
   });
   test("held on the source: the open handler shows the view with flushSync and focuses in the same call; no focus from an effect or a timeout", () => {
-    const src = require("fs").readFileSync(require("path").join(__dirname, "NewShelfSheet.js"), "utf8");
-    const open = src.slice(src.indexOf("const openSearch = () => {"), src.indexOf("const closeSearch = () => {"));
+    // Since SPEC_one_list R7 Commit A the view is ItemSearchView: the form's button runs its show(), and the
+    // flushSync + focus live there.
+    const read = (f) => require("fs").readFileSync(require("path").join(__dirname, f), "utf8");
+    const src = read("NewShelfSheet.js");
+    const view = read("ItemSearchView.js");
+    expect(src).toMatch(/const openSearch = search\.show;/);
+    expect(src).toMatch(/onClick=\{openSearch\}/);
+    const open = view.slice(view.indexOf("const show = () => {"), view.indexOf("const hide = () => {"));
     expect(open).toMatch(/flushSync\(\(\) => setSearchOpen\(true\)\);\s*(\/\/[^\n]*\n\s*)?searchField\.current\?\.focus\(/);
     expect(open).not.toMatch(/setTimeout|requestAnimationFrame|useEffect/);
     expect(src).not.toMatch(/useEffect\([^)]*\{[^}]*\.focus\(/);
+    expect(view).not.toMatch(/useEffect\([^)]*\{[^}]*\.focus\(/);
   });
 });
