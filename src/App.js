@@ -1114,7 +1114,7 @@ export function OnDeckCard({
 // checked), so Home and the badge can never disagree. `firstItem` is the first
 // unchecked row in Shop's Aisles order (pendingItems[0]: CATEGORY_ORDER, then
 // name) — what you'd reach first. `shopping` = this user has an open session.
-//   0 open, 0 in cart  "Nothing on your list · Start a list →"   (Browse)
+//   0 open, 0 in cart  "Nothing on your list · Start a list →"   (List — SPEC_one_list R11; its empty state is the guide)
 //   0 open, N in cart  "N in the cart · Finish the trip →"       (Shop — SPEC_list_counts D3 row 4:
 //                      the list is NOT empty, it is fully in the cart; Home never wraps up, the
 //                      one Wrap Up at 100% is Shop's All done card, so the link only opens Shop)
@@ -11753,7 +11753,7 @@ function ProvisionsApp({ scrollRootRef }) {
               checkedCount,
               firstItem: pendingItems[0]?.name || "",
               shopping: !!activeSession,
-              onStartList: () => goToDoor("input"),
+              onStartList: () => goToDoor("list"),   // SPEC_one_list R11: List (the guide, Slice 3), not Browse
               onShop: () => goToDoor("list"),
             }}
             // D7: only when Shop would show it — prices on, a budget set, a non-empty list.
@@ -12254,8 +12254,8 @@ function ProvisionsApp({ scrollRootRef }) {
                 </div>
                 {/* Empty state — Home's list-line pattern (status · link). Planned
                     meals not yet on the list (boardStats.stillToAdd, the board
-                    subtitle's N) point at This Week; otherwise at Browse — the
-                    same door Home's "Start a list →" opens. The count sits in the
+                    subtitle's N) point at This Week; otherwise at Browse (Home's
+                    "Start a list →" lands here since R11). The count sits in the
                     text span, never in the link (RUM: the link is fixed copy). */}
                 <div className="list-empty">
                   <h2>Your list is empty</h2>
