@@ -10291,7 +10291,6 @@ function ProvisionsApp({ scrollRootRef }) {
            floated over every sheet and partly covered the arrival form's Not for us / Add to our meals).
            Keyed off the document like the Helm rule above: every surface that owns a scrim or overlay. */
         body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .wrapbar { display: none; }
-        .wrapbar.p0 { border-style: dashed; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
         /* No hard edge on the fill: its 2px right border was the line through the "W" of
            the label at XXL (pass 2, Shop). The soft tint alone marks progress. */
@@ -12397,7 +12396,8 @@ function ProvisionsApp({ scrollRootRef }) {
                 {/* The Wrap Up bar — the trip's one exit until 100%, when it hands
                     off to the All done card (the bar renders nothing there). The
                     spacer keeps the last rows above it; both go with the list. */}
-                {checkedCount < totalItems && <div className="wrapbar-spacer" aria-hidden="true" />}
+                {/* R4: the spacer follows the bar's own rule — none at 0 checked, none at 100%. */}
+                {checkedCount > 0 && checkedCount < totalItems && <div className="wrapbar-spacer" aria-hidden="true" />}
                 <WrapUpBar checked={checkedCount} total={totalItems} onWrapUp={openWrapUp} busy={wrappingUp} />
               </>
             )}
