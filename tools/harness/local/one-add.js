@@ -25,6 +25,16 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   const visible = (sel) => p.evaluate((s) => { const e = document.querySelector(s); if (!e) return false; const cs = getComputedStyle(e); return cs.visibility !== "hidden" && cs.display !== "none" && cs.opacity !== "0"; }, sel);
   const touched = new Set();
 
+  // the ONE sheet's shape (R4), read off whatever dialog is open: title, section order, footer
+  const sheetShape = () => p.evaluate(() => {
+    const d = document.querySelector('[role=dialog][aria-label="View and filter"]');
+    if (!d) return null;
+    const lbls = [...d.querySelectorAll(".lib-sheet-lbl")].map((e) => e.textContent.trim()).filter((t) => ["View", "Filter", "Manage"].includes(t));
+    const btns = [...d.querySelectorAll(".lib-sheet-btns button")].map((e) => e.innerText.trim());
+    return { h2: d.querySelector("h2")?.innerText.trim(), lbls, btns };
+  });
+  const shapeOk = (sh, noun) => !!sh && sh.h2 === "View & filter" && JSON.stringify(sh.lbls) === JSON.stringify(["View", "Filter", "Manage"]) && sh.btns[0] === "Clear" && new RegExp("^Show [0-9]+ " + noun + "s?$").test(sh.btns[1] || "");
+
   // ── Step 0 reads: the build, the doors ──
   await p.goto(BASE + "#/home", { waitUntil: "networkidle2" }); await p.reload({ waitUntil: "networkidle2" }); await sleep(3500);
   check("the build's marker reads op-one-add:on", (await p.evaluate(() => document.querySelector(".app-root")?.getAttribute("data-op-one-add"))) === "op-one-add:on");
@@ -56,6 +66,13 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   const feederMeals = await p.evaluate(() => ({ title: document.querySelector(".plan-ctl .plan-view")?.innerText.trim(), done: !!document.querySelector(".plan-ctl .hdr-done"), search: document.querySelector(".lib-search input")?.placeholder || null }));
   check("V4 + Add opens the Meals feeder: \"Add to this week\" + Done", opened && feederMeals.title === "Add to this week" && feederMeals.done, JSON.stringify(feederMeals));
   await shot(p, "one-add-meals-feeder");
+  // V6 the Meals feeder's View & filter
+  if (await p.$(".lib .lib-fbtn")) {
+    await p.evaluate(() => document.querySelector(".lib .lib-fbtn")?.click()); await sleep(600);
+    const ms = await sheetShape();
+    check("V6 Meals: View & filter — View → Filter → Manage → Clear / Show N meals", shapeOk(ms, "meal"), JSON.stringify(ms));
+    await p.evaluate(() => document.querySelector(".modal-overlay")?.click()); await sleep(500);
+  } else log("SKIP  V6 Meals: this place has no meals, so no search row or sheet (Jest renders the sheet; the look is Dan's walk)");
   await p.click(".plan-ctl .hdr-done"); await sleep(800);
   check("V4 Done returns to This Week", (await txt(".plan-ctl .plan-view")) === "This Week");
 
@@ -130,6 +147,23 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   check("R2 + New item: the New item sheet shows, the feeder steps aside", aside.suspended && aside.sheet, JSON.stringify(aside));
   await p.evaluate(() => document.querySelector(".modal-overlay")?.click()); await sleep(600);
   check("R2 … and the feeder is back when it closes", (await pickerOpen()) && (await visible(".item-picker")) && !(await p.evaluate(() => !!document.querySelector(".item-picker.suspended"))));
+
+  // V6 the List feeder's View & filter: the feeder steps aside; Staples narrows the count live; Show brings it back
+  await p.click('.item-picker .pick-tool[aria-label="View and filter"]'); await sleep(700);
+  const ls = await sheetShape();
+  check("V6 List: View & filter — View → Filter → Manage → Clear / Show N items", shapeOk(ls, "item"), JSON.stringify(ls));
+  check("V6 … the feeder steps aside for it", await p.evaluate(() => !!document.querySelector(".item-picker.open.suspended")));
+  const before = ls ? parseInt(ls.btns[1].replace(/\D+/g, ""), 10) : NaN;
+  await p.evaluate(() => [...document.querySelectorAll('[role=dialog][aria-label="View and filter"] .lib-sw')].find((e) => /Staples/.test(e.innerText))?.click()); await sleep(400);
+  const narrowed = await sheetShape();
+  const after = narrowed ? parseInt(narrowed.btns[1].replace(/\D+/g, ""), 10) : NaN;
+  check("V6 … Staples narrows Show N", after > 0 && after <= before, JSON.stringify({ before, after }));
+  await p.evaluate(() => [...document.querySelectorAll('[role=dialog][aria-label="View and filter"] .lib-clear')][0]?.click()); await sleep(300);
+  const cleared = await sheetShape();
+  check("V6 … Clear puts it back", cleared && parseInt(cleared.btns[1].replace(/\D+/g, ""), 10) === before, JSON.stringify(cleared && cleared.btns));
+  await p.evaluate(() => document.querySelector('[role=dialog][aria-label="View and filter"] .lib-show')?.click()); await sleep(600);
+  check("V6 … Show closes it and the feeder is back", (await pickerOpen()) && !(await p.evaluate(() => !!document.querySelector(".item-picker.suspended, [role=dialog][aria-label=\"View and filter\"]"))));
+  await shot(p, "one-add-feeder-after-sheet");
 
   // Done → "N added"
   await p.click(".item-picker .item-search-done"); await sleep(700);
