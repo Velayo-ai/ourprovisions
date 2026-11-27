@@ -508,6 +508,7 @@ async function sheetAdd(name) {
   await shot(A, "olw-v11-welcome");
   await A.click(".list-welcome-ok"); await sleep(600);
   check("V11 Got it dismisses it and remembers (op_list_welcome_seen = 1)", !(await A.$(".list-welcome")) && (await A.evaluate((k) => localStorage.getItem(k), WKEY)) === "1");
+  await sleep(8000);   // one RUM export interval: a reload sooner drops list_welcome_dismissed from the batch
   await A.reload({ waitUntil: "networkidle2" }); await sleep(3000);
   await go(A, "#/shop"); await sleep(1500);
   check("V11 …and it never shows again on this phone (after a reload)", !(await A.$(".list-welcome")));
