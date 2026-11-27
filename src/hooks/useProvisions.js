@@ -185,6 +185,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // this ref is that hook→App channel, the same shape refreshCatalogRef
   // already uses for the catalog poll. App assigns it; the poll calls it.
   const onListChangedRef = useRef(() => {});
+  // SPEC_one_list first_item_added: App's hook into every manual add this person makes (Browse, the picker,
+  // landscape, a meal's new rows) — the same moments item_added_to_list fires. App assigns it.
+  const onItemAddedRef = useRef(() => {});
   // Fingerprint of the list the poll last saw. "" until the first load, so
   // the initial fetch never counts as a change — arriving on a surface
   // already triggers its own provenance refresh, and double-firing would
@@ -1390,8 +1393,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           household_id: ctx.hhId,
           source: ctx.source || "browse",
           ...(ctx.door ? { door: ctx.door } : {}),
+          "workflow.name": "item_added_to_list",   // rum.workflow.count (SPEC_one_list_dashboard)
         },
       }).end();
+      onItemAddedRef.current();
     } catch (e) {
       console.warn("[rum] item_added_to_list event failed:", e);
     }
@@ -5146,8 +5151,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
               household_id: hh.id,
               source: "meal",
               meal_id: mealId,
+              "workflow.name": "item_added_to_list",   // rum.workflow.count (SPEC_one_list_dashboard)
             },
           }).end();
+          onItemAddedRef.current();
         }
       } catch (e) {
         console.warn("[rum] item_added_to_list (meal) event failed:", e);
@@ -5238,7 +5245,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, createCatalogItemNow, addMealToList, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, createCatalogItemNow, addMealToList, fetchMealProvenance, onListChangedRef, onItemAddedRef,
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,

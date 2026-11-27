@@ -12,8 +12,9 @@ import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { ItemSearchView, useItemSearch, keepFocus } from './components/ItemSearchView';
-import { pickerItems, filterItems, letterGroups, itemStatus, hiddenMatchFor, openBucket, PICKER_COPY } from './lib/listPicker';
+import { pickerItems, filterItems, letterGroups, itemStatus, hiddenMatchFor, PICKER_COPY } from './lib/listPicker';
 import { welcomeSeen, markWelcomeSeen, shouldShowWelcome } from './lib/listWelcome';
+import { pickerOpened, pickerClosed, pickerTapOnListed, listGuideCta, firstItemAdded, listWelcomeDismissed } from './lib/listTelemetry';
 import { CategorySelect } from './components/CategorySelect';
 import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText, renameInSet } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
@@ -5532,6 +5533,7 @@ function ProvisionsApp({ scrollRootRef }) {
     requestRecipeImport,
     deleteMeal,
     onListChangedRef,
+    onItemAddedRef,
     createCatalogItem,
     materializePendingIngredients,
     createCatalogItemNow,
@@ -8462,10 +8464,10 @@ function ProvisionsApp({ scrollRootRef }) {
     pickerDoorRef.current = from === "guide" ? "guide" : view === "input" ? "browse" : "list";
     pickerScrollRef.current = { y: window.scrollY, root: scrollRootRef.current ? scrollRootRef.current.scrollTop : 0 };
     picker.show();
-    try { tracer.startSpan("picker_opened", { attributes: { from, household_id: household?.id || null } }).end(); } catch (e) { console.warn("[rum] picker_opened failed:", e); }
+    pickerOpened(from, household?.id);
   };
   const onPickerClosed = ({ added, openMs }) => {
-    try { tracer.startSpan("picker_closed", { attributes: { added, open_s: openBucket(openMs), household_id: household?.id || null } }).end(); } catch (e) { console.warn("[rum] picker_closed failed:", e); }
+    pickerClosed(added, openMs, household?.id);
     const at = pickerScrollRef.current;
     if (!at) return;
     const back = () => {
@@ -8561,16 +8563,16 @@ function ProvisionsApp({ scrollRootRef }) {
     return { kind: "added", id: res.catalogItemId };
   };
   const pickerTapListed = () => {
-    try { tracer.startSpan("picker_tap_on_listed", { attributes: { household_id: household?.id || null } }).end(); } catch (e) { console.warn("[rum] picker_tap_on_listed failed:", e); }
+    pickerTapOnListed(household?.id);
   };
   const pickerList = useMemo(() => pickerItems(categories, catalogMap), [categories, catalogMap]);
   // The guide's rows (R10). Add items opens the picker in the tap; Browse goes to Browse on everything, or
   // with Staples selected when the household has staples (the selection waits in a ref: the view effect
   // resets Browse's filters on every door switch, and applies it there); Plan a meal opens the library.
   const hasStaples = useMemo(() => Object.values(catalogMap).some((i) => i && i.is_staple), [catalogMap]);
-  const guideAdd = () => openPicker("guide");
-  const guideBrowse = () => { pendingStaplesRef.current = hasStaples; goToDoor("input"); };
-  const guidePlan = () => { setPlanScreen("library"); goToDoor("plan"); };
+  const guideAdd = () => { openPicker("guide"); listGuideCta("add", null, household?.id); };
+  const guideBrowse = () => { listGuideCta("browse", hasStaples ? "staples" : "aisles", household?.id); pendingStaplesRef.current = hasStaples; goToDoor("input"); };
+  const guidePlan = () => { listGuideCta("plan", null, household?.id); setPlanScreen("library"); goToDoor("plan"); };
   const pickerStatus = (cid) => itemStatus(cid, { listRows, quantities, checked });
   const pickerHidden = (typed) => hiddenMatchFor(typed, hiddenCatalogItems, listRows);
   const handleStorePick = async (name) => {
@@ -9169,7 +9171,24 @@ function ProvisionsApp({ scrollRootRef }) {
     if (listWelcomeOpen || welcomeOpen) return;   // never over the place's own welcome sheet
     if (shouldShowWelcome({ view, signedIn: isSignedIn, listReady: householdReady && !!household?.id, totalItems, seen: welcomeSeen(user?.id, household?.id) })) setListWelcomeOpen(true);
   }, [listWelcomeOpen, welcomeOpen, view, isSignedIn, householdReady, household?.id, totalItems, user?.id]);
-  const dismissWelcome = () => { markWelcomeSeen(user?.id, household?.id); setListWelcomeOpen(false); };
+  const dismissWelcome = () => { markWelcomeSeen(user?.id, household?.id); setListWelcomeOpen(false); listWelcomeDismissed(household?.id); };
+  // first_item_added (SPEC_one_list Telemetry): the time from first seeing the guide (this load) or the welcome
+  // to this person's first manual add, once per household per load. The welcome, shown later, re-arms it.
+  const firstAddRef = useRef(null);       // { after: "guide" | "welcome", at }
+  const firstAddDoneRef = useRef(false);
+  useEffect(() => { firstAddRef.current = null; firstAddDoneRef.current = false; }, [household?.id]);
+  useEffect(() => {
+    if (firstAddDoneRef.current) return;
+    if (listWelcomeOpen) { firstAddRef.current = { after: "welcome", at: Date.now() }; return; }
+    if (!firstAddRef.current && view === "list" && isSignedIn && householdReady && totalItems === 0) firstAddRef.current = { after: "guide", at: Date.now() };
+  }, [listWelcomeOpen, view, isSignedIn, householdReady, totalItems]);
+  onItemAddedRef.current = () => {
+    const m = firstAddRef.current;
+    if (!m || firstAddDoneRef.current) return;
+    firstAddRef.current = null;
+    firstAddDoneRef.current = true;
+    firstItemAdded(m.after, Date.now() - m.at, household?.id);
+  };
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.listItemId] ? i.subtotal : 0), 0), 0);
 

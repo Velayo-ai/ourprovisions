@@ -39,10 +39,10 @@ test("each row runs its own handler", () => {
 
 test("on the source: Add items opens the picker in the tap; Browse carries Staples through the door switch; Plan opens the library", () => {
   const app = require("fs").readFileSync(require("path").join(__dirname, "App.js"), "utf8");
-  expect(app).toMatch(/const guideAdd = \(\) => openPicker\("guide"\);/);
-  expect(app).toMatch(/const guideBrowse = \(\) => \{ pendingStaplesRef\.current = hasStaples; goToDoor\("input"\); \};/);
+  expect(app).toMatch(/const guideAdd = \(\) => \{ openPicker\("guide"\); listGuideCta\("add", null, household\?\.id\); \};/);   // the picker first: the focus stays in the tap
+  expect(app).toMatch(/const guideBrowse = \(\) => \{ listGuideCta\("browse", hasStaples \? "staples" : "aisles", household\?\.id\); pendingStaplesRef\.current = hasStaples; goToDoor\("input"\); \};/);
   expect(app).toMatch(/setStapleFilter\(view === "input" && pendingStaplesRef\.current\);\s*pendingStaplesRef\.current = false;/);
-  expect(app).toMatch(/const guidePlan = \(\) => \{ setPlanScreen\("library"\); goToDoor\("plan"\); \};/);
+  expect(app).toMatch(/const guidePlan = \(\) => \{ listGuideCta\("plan", null, household\?\.id\); setPlanScreen\("library"\); goToDoor\("plan"\); \};/);
   expect(app).toMatch(/<ListGuide hasStaples=\{hasStaples\} onAdd=\{guideAdd\} onBrowse=\{guideBrowse\} onPlan=\{guidePlan\} \/>/);
   expect(app).not.toMatch(/Your list is empty/);
 });
@@ -105,5 +105,26 @@ describe("the welcome's memory (R13)", () => {
     expect(shouldShowWelcome({ ...base, view: "home" })).toBe(false);
     expect(shouldShowWelcome({ ...base, listReady: false })).toBe(false);
     expect(shouldShowWelcome({ ...base, signedIn: false })).toBe(false);
+  });
+});
+
+// V13 for Slice 3: the guide's rows and the welcome's Got it are allow-listed; the welcome's heading (the
+// household's name) is under no unmask rule.
+describe("V13 privacy (prod config) — the guide and the welcome", () => {
+  const unmask = (() => {
+    const src = require("fs").readFileSync(require("path").join(__dirname, "rum.js"), "utf8");
+    const block = src.slice(src.indexOf("const CHROME_ALLOW_LIST = ["), src.indexOf("];", src.indexOf("const CHROME_ALLOW_LIST = [")));
+    return [...block.matchAll(/^\s*'([^']+)',/gm)].map((m) => m[1]);
+  })();
+  const under = (el) => unmask.filter((sel) => el.closest(sel));
+  test("every guide row label and line sits under .list-guide-row (fixed copy)", () => {
+    render(<ListGuide hasStaples onAdd={jest.fn()} onBrowse={jest.fn()} onPlan={jest.fn()} />);
+    document.querySelectorAll(".list-guide-label, .list-guide-sub").forEach((el) => expect(under(el)).toEqual([".list-guide-row"]));
+  });
+  test("Got it is unmasked; the heading with the household's name, the lead and the lines are not", () => {
+    render(<ListWelcome householdName="Madbury" onDone={jest.fn()} />);
+    expect(under(screen.getByRole("button", { name: "Got it" }))).toEqual([".list-welcome-ok"]);
+    [document.getElementById("list-welcome-title"), document.querySelector(".list-welcome-lead"), ...document.querySelectorAll(".list-welcome-head")]
+      .forEach((el) => expect(under(el)).toEqual([]));
   });
 });

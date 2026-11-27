@@ -23,6 +23,8 @@ const CHROME_ALLOW_LIST = [
   '.helm-label',     // the label span inside a door, when it is the tap target
   '.helm-plus',      // the compact pill's +
   '.shop-seg',       // Shop lens toggle: Aisles | A–Z
+  '.list-guide-row',  // the empty List's guide rows: "Add items" / "Browse the aisles" | "Browse our staples" / "Plan a meal" and their fixed lines (SPEC_one_list R10) — no household text
+  '.list-welcome-ok', // the new member welcome's "Got it" (R12) — fixed copy, a leaf button. NEVER the welcome's heading: it names the household
   '.item-search-done', // the List's quick picker: "Done" — fixed copy, a leaf button (SPEC_one_list Telemetry). The picker's rows, its no-match row and its toast carry item names / typed text and are NEVER listed; the Ask search view's Done is .ask-search-done alone, not this
   '.hdr-action',     // THE header action pill: Shop "+ Add", This Week "+ Add", Meals "+ New" (src/components/HeaderAction.js)
   '.wrapbar',        // List's Wrap Up bar above the Helm: "N of M · K carry forward Wrap up" (counts only, never a name; no bar at 0 checked since SPEC_one_list R4)
