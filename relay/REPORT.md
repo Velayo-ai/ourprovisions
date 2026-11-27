@@ -1,62 +1,68 @@
-Reported: 2026-11-27 02:52 ET · dev f6a9ce2 · main 5098508 · re: BUILD Slice 2 of SPEC_one_list.md · prompt e01b58b
+Reported: 2026-11-27 04:23 ET · dev 01593b3 · main 5098508 · re: BUILD Slice 3 of SPEC_one_list.md · prompt adefe15
 
-# One list, Slice 2 is on dev: the quick picker replaces the Add sheet, built on a search view shared with the Ask. Every harness walk passes; your iPhone walk is next.
+# One list, Slice 3 is on dev: the row is the undo, the empty list is the guide, the welcome, and the dashboard's events. Every harness walk passes; your iPhone walk is next.
 
-Built on dev and pushed with Dan's OK (Commit A first, then B plus the walk). Main and prod are untouched, and no docs or migrations were written. The spec stays in `handoff/`.
+Built on dev and pushed with Dan's OK. Main and prod are untouched; no docs, migrations, dashboard or detector were written. Both specs (`SPEC_one_list.md`, `SPEC_one_list_dashboard.md`) were re-pulled into `handoff/`. The earlier version of this prompt (`3cbd9f7`) was never taken, so there was nothing in flight.
 
 ## The commits (dev, pushed)
 | | Commit | What |
 |---|---|---|
-| A (R7) | `d40b1f6` | **`ItemSearchView` extracted from `NewShelfSheet`, no behaviour change.** |
-| B (R7–R9, R14, telemetry) | `7b53390` | **The quick picker** (`ListPicker` in App.js), replacing the Add sheet. |
-| harness | `f6a9ce2` | `one-list-walk.js` gains V6, V7, V8 and V12. |
+| R8 revised | `4f51fc3` | **The row is the confirmation and the undo.** |
+| R10 | `6152c36` | **The guide.** |
+| R12 + R13 | `013a402` | **The new member welcome.** |
+| telemetry | `d6fd79a` | **The one-list spans for the dashboard.** |
+| harness | `3d47099`, `01593b3` | `one-list-walk.js` for Slice 3, then V11's wait for the RUM export. |
 
-**Commit A in detail:**
-- `src/components/ItemSearchView.js` holds the portal (z 2100), the visible-area follow and scroll-home, the touch guard, the head (input + Done), a count-line slot, the list `children` and `keepFocus`.
-- `useItemSearch()` holds open / viewBox / the input ref; its `show()` is the same-tap sequence: `flushSync(open)` → `focus()` → `flushSync(viewBox)`.
-- The CSS moved unchanged and the `.ask-search*` class names are kept. A title-bar variant is added for the picker.
-- The one test change: NewShelfSheet's "held on the source" test now reads the open sequence in `ItemSearchView.js`, with the same assertions.
+**R8 revised in detail:**
+- **Fresh rows:** a row added this visit reads ✓ "Added · tap to undo", and a tap takes it back off (−1, back to +), however far back.
+- **Rows already on the list** when the visit began read "On the list" and are inert (`picker_tap_on_listed`). Done ends the visit.
+- **No toast for a plain add or its undo.** The toast stays for:
+  - off grid;
+  - the renewal ("{Item} added again · it was in your cart"; its row then reads "On the list" and is never undoable);
+  - errors ("That didn't save. Try again."; `adjustQty` gains `onError`, so a failed undo keeps the row fresh).
+- **Undoable too:** a created row and a revealed-and-added row.
+- **The query stays** after a tap, so the confirming row stays in sight.
+- **A second tap** while a row's change is still out does nothing.
 
-**Commit B, opening and layout:**
-- **Always mounted.** `openPicker(from)` calls `picker.show()` inside the tap, from List's + Add (both header forms), the Helm's + on List and on Browse, and `"guide"` for Slice 3.
-- **Layout (mockup screen 3):** "Add to our list" with a dark Done pill, a field reading "Type, or scroll and tap", then the person's Browse catalog A–Z with letter headers (`lib/listPicker`).
-- **Scroll:** the page's scroll is noted on open and put back on close.
+**R10 in detail:**
+- "What do we need?", then three quiet rows with a ›:
+  - **Add items** · "I know what we need." (teal; `openPicker("guide")` inside the tap);
+  - **the Browse row** · "Remind me what we might need.":
+    - no staples → "Browse the aisles", Browse on everything;
+    - staples → "Browse our staples", Browse with Staples selected (carried through the door switch's filter reset);
+  - **Plan a meal** · "I know what I want to cook." (the meal library).
+- The footer as specified.
+- **The empty header reads "Our list" alone, with no + Add, as on mockup screen 1;** the guide's Add items is the add. Say if you want the pill back.
 
-**Commit B, adding:**
-- **R8, the list state:** ✓ "On the list" comes from the shown rows, overlay included. A ✓ row is inert and fires `picker_tap_on_listed`.
-- **R8, a tap:** a tap = `adjustQty(name, +1, rawCategory)` and the picker stays open. Its toast sits inside the view, above the keyboard: "{Item} is on the list · Undo" (Undo = −1).
-- **R8, a renewal:** an item checked this trip toasts "{Item} added again · it was in your cart", with no Undo.
-- **With a query:** results go through `SearchResultsList`: the reveal card for a hidden exact match (F1b), else "+ Add "{text}" as a new item" (Other). "Added here" follows R5. **R9:** no quantity parsing.
-- **Browse's search:** `addSearchedItem(rawCategory, text, opts)` now takes the text as an argument. Browse passes `searchQuery` and clears it itself, so the Helm's + on Browse no longer wipes Browse's search.
+**R12 + R13 in detail:**
+- **The card:** a bottom card over the list dimmed at 55%, with the copy as on mockup screen 5. Got it (focused) or Escape dismisses it; the page behind is scroll-locked.
+- **When it shows:** once per person per household (`op_list_welcome_seen:<clerk user id>:<household id>`), the first time they open a non-empty List, signed in and loaded. Never over the place's own welcome sheet; a household switch decides afresh.
+- **Storage:** storage that throws counts as seen.
+- **Privacy:** the household's name is heading text only, never in an attribute (the dialog is `aria-labelledby` its heading).
 
-**R14, off grid:** with `offline` or `navigator.onLine === false`, nothing is sent and the picker answers "Adding items needs signal for now." A transient failure past that check gives the same answer, through the new `onTransient` in `adjustQty`. A real error is the usual error toast.
-
-**Telemetry:**
-- `adjustQty(name, delta, cat, price, opts)` carries `{ source, door, onTransient }`. `emitItemAdded` stops hard-coding `'browse'`: picker adds send `source: 'picker'` with `door: list | browse | guide`.
-- New events, counts only: `picker_opened {from}`, `picker_closed {added, open_s bucket}`, `picker_tap_on_listed`.
-- `CHROME_ALLOW_LIST` gains `.item-search-done` only, so 84 entries. The Ask's Done is `.ask-search-done` alone and stays off the list.
-
-**Retired:** the Add sheet block, `AddSheetPanel` and its disabled mic + LATER badge, the `.add-sheet*` / `.add-result*` / `.op-later-badge` CSS, `AddSheetPanel.test.js` and `AddSheetClip.test.js`. `useKeyboardInset` is now unused by App; the hook and its test stay.
+**Telemetry (`lib/listTelemetry`):**
+- **workflow.name on every span**, set to its own name, so `rum.workflow.count` sees it:
+  - `picker_opened {from}`;
+  - `picker_closed {added, added_bucket 0|1|2-4|5+, open_s}`;
+  - `picker_tap_on_listed`;
+  - `list_guide_cta {choice, browse_kind on browse}`;
+  - `first_item_added {after guide|welcome, s bucket}`;
+  - `list_welcome_dismissed`.
+- **Both `item_added_to_list` emitters** (manual, meal) gain `workflow.name`.
+- **Attributes:** `household_id` stays a span attribute only; no ids or names as dimensions.
+- **`first_item_added`** fires through a new hook callback (`onItemAddedRef`) that every manual add calls.
+- **`CHROME_ALLOW_LIST`** gains `.list-guide-row` and `.list-welcome-ok` (now 86), never the welcome's heading.
+- **Ask has no `item_added_to_list`** (it sends `ask_completed`), so the dashboard's chart 1 will show no `ask` series.
 
 **Tests:**
-- New: `ListPicker.test.js` (9, including V13's prod-config masking check) and `lib/listPicker.test.js`.
-- Updated pins: `qtyCallers`, `tripSession`, `rum` (84).
-- Jest: **85 suites / 1332 tests** pass; the `CI=true` build compiles (at A, and at B).
+- Jest: **87 suites / 1360 tests** pass; the `CI=true` build compiles.
+- New: `ListGuide.test.js` (guide, welcome, its memory, V13 for both) and `lib/listTelemetry.test.js` (every attribute set pinned; the callers).
+- Rewritten: `ListPicker.test.js` (12, for the revised rows).
 
-## The gate before Commit B (on the deployed `d40b1f6`)
-- `ask-offline-walk.js` **31/31**; `wagon-walk.js` **ALL PASS**.
-- Neither walk drives the New ask search view, so a one-off probe drove it on dev. It passed:
-  - closed: hidden and on the body;
-  - one tap: open with the focus in the field;
-  - the same DOM (head · count · list);
-  - typing filters;
-  - a tap adds with the focus kept, and the count reads "The ask · 1 item";
-  - Done closes, and one tile is on the shelf.
-
-## Pre-walk on the deployed preview (`f6a9ce2`, Cody Test House)
+## Pre-walk on the deployed preview (`3d47099`, Cody Test House)
 | Walk | Result |
 |---|---|
-| `one-list-walk.js` | **62/62** (61 + the build check). Before the push, 61/61 on a local build of `7b53390` against dev data. |
+| `one-list-walk.js` | **81/81** |
 | `offline-walk.js` | **60/60** |
 | `ask-offline-walk.js` | **31/31** |
 | `wagon-walk.js` | **ALL PASS** |
@@ -64,39 +70,44 @@ Built on dev and pushed with Dan's OK (Commit A first, then B plus the walk). Ma
 | the Ask search probe | **PASS** |
 
 **What one-list-walk now covers:**
-- **V6:**
-  - **Openers:** List's + Add, the Helm's + on List and on Browse all open the same single picker, with the focus in its field inside the tap (a real CDP click).
-  - **Layout:** the title, A–Z letter headers, "On the list" on ✓ rows; typing filters.
-  - **A tap:** puts the item on the list once (quantity 1) and the picker stays open, with "{Item} is on the list" + Undo. The row then reads ✓.
-  - **Second tap and Undo:** a tap on a ✓ row adds nothing; Undo takes a fresh add off again; Done closes.
-  - **Browse's search:** text typed there survives the Helm's +.
-- **V7:** an item checked this trip shows +, and a tap makes it pending at quantity 1, toasting "added again · it was in your cart" with no Undo.
-- **V8:**
-  - **New item:** no match offers "+ Add "…" as a new item", which creates a custom item in Other at quantity 1.
-  - **Hidden item:** hidden for this account, it's absent from A–Z. Typed exactly, it shows the reveal card (no create row), and a tap reveals and adds it: one catalog row, hide removed.
-- **V12:** off grid, a tap answers "Adding items needs signal for now.", the picker stays open, and nothing is written.
-- **Cleanup:** the custom item is deleted (`delete_custom_catalog_item`), the hide is removed, the list reads back empty, and no session is left open.
+- **Revised V6:**
+  - a tap reads ✓ "Added · tap to undo", with no toast;
+  - a row on the list before the visit is "On the list", and a tap adds nothing;
+  - three fresh adds, then a tap on the first (two back) takes it off the server and back to +, while the other two stay;
+  - the next visit reads them "On the list".
+- **Revised V7:** the renewal toast; the row is "On the list", inert.
+- **V8:** the created row is fresh.
+- **V9:**
+  - the guide's copy, rows and footer;
+  - "Browse our staples" → Browse with Staples selected;
+  - Plan a meal → Plan, Meals;
+  - Add items → the picker with the focus in the tap;
+  - the first add replaces the guide.
+- **V11:**
+  - the welcome on a non-empty List: "This is Cody Test House's list", aria-labelledby, no aria-label;
+  - Got it sets the key, and after a reload it never shows again;
+  - an empty List shows the guide, not the welcome.
+- **The spans, off the wire (OTLP to `/v1/rumotlp`):**
+  - every one-list event was sent at least once, each with `workflow.name` = its name;
+  - `picker_closed` carries `added_bucket` and `open_s`;
+  - `list_guide_cta` and `first_item_added` carry their labels;
+  - no item or household name appears in any attribute.
 
-**Walk fixes on the way** (bugs in the walk, not the app):
-- Browse's test search first matched nothing, so the page couldn't scroll for the compact +; it now types "a".
-- The probe's bare `.ask-search` selector hit the always-mounted picker; it's now scoped to the Ask view.
-- App code only queries a view through its own ref, so this doesn't affect the app.
+**Before the push:** 77/80 on a local build. The 3 misses were the span checks, which need the deployed build's RUM token.
 
-## Housekeeping: `ask_landings` test rows (Dan said yes)
-- **Deleted on dev only**, through the CLI after a system-id check (`7642734024280108049`), scoped to Cody Test House:
-  - first the 9 older rows;
-  - then 22 written by today's two ask-offline-walk runs.
-- **Read back 0.** Prod is untouched.
+**What the harness couldn't drive:**
+- **V9's "Browse the aisles" half:** Cody Test House already has 38 staples, so only the "Browse our staples" half ran. You declined deleting those test staples before, so the aisles half is covered by Jest only.
+- **V11's "second account":** there is one test account. It ran as the same account with its welcome key cleared; Jest pins that the key is per person.
+
+**Walk fix on the way:** the first dev run was 80/81. The walk reloaded right after Got it and dropped `list_welcome_dismissed` from the RUM batch. `01593b3` waits one export interval; then 81/81. (My push question named that commit "f8a3c8e" by mistake; the sha is `01593b3`, the only commit pushed.)
+
+## Housekeeping
+- `ask_landings` test rows from today's two ask-offline-walk runs: **11 deleted** on dev (Dan's OK), after the system-id check `7642734024280108049`, scoped to Cody Test House. **Read back 0.**
 
 ## For Dan's phone walk (installed iPhone, dev) — only what needs real iOS
-- **Keyboard on the first tap** from each opener: List's + Add, the Helm's + on List, the Helm's + on Browse.
-- **Scrolling A–Z with the keyboard down,** and the list ending at the keyboard's top.
-- **Done returns you to the same scroll position,** on List and on Browse. It's put back on close, and needs your eyes.
-- **The toast's placement:** inside the picker, above the keyboard; and the Undo tap.
-- **The look against mockup screen 3:** the title bar, the field with its glass, the ✓ and + marks, at XXL text too.
+- **The guide against screen 1 and the welcome against screen 5,** at XXL text too: row heights, the teal Add items, the dim behind the card, the card above the home indicator.
+- **The fresh-✓ undo by thumb:** tap two or three items, then take one back from further up.
+- **The dimmed list behind the welcome,** and that nothing scrolls under it.
+- **Whether the empty header** should keep "Our list" alone (as the mockup) or get its + Add back.
 
-## Notes
-- **R14 and the telemetry are in Commit B, not their own commits:** they run through the same few lines of the picker's handlers.
-- **"Write it" (pasting several lines) is not built.** That's Direction.
-
-Slice 3 (the guide and the welcome) waits for your go.
+Not built: the Splunk dashboard and the "Picker silent" detector (at the promotion, after the tags are indexed), and the Slices 1–3 promotion itself.
