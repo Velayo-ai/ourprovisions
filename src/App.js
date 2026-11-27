@@ -12,7 +12,7 @@ import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { ItemSearchView, useItemSearch, keepFocus } from './components/ItemSearchView';
-import { pickerItems, filterItems, letterGroups, itemStatus, hiddenMatchFor, PICKER_COPY } from './lib/listPicker';
+import { pickerItems, pickerSections, filterItems, letterGroups, itemStatus, hiddenMatchFor, PICKER_COPY } from './lib/listPicker';
 import { welcomeSeen, markWelcomeSeen, shouldShowWelcome } from './lib/listWelcome';
 import { pickerOpened, pickerClosed, pickerTapOnListed, listGuideCta, firstItemAdded, listWelcomeDismissed } from './lib/listTelemetry';
 import { CategorySelect } from './components/CategorySelect';
@@ -878,7 +878,15 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 // Item names and the typed text are household text: no element here is allow-listed except Done.
 // onAdd(item, status) / onCreate(text) / onReveal(match, text) / onUndo(item) resolve to { kind, id?, text? }:
 // "added" (id = the catalog item now on the list), "renewed", "revealed", "undone", "needsSignal", "error".
-export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate, onReveal, onUndo, onTapListed, onClosed }) {
+// ONE ADD (SPEC_results_feeder_standard R2; flag-on hosts pass `feeder`, everyone else gets the picker above
+// unchanged). The picker becomes the List's feeder and takes over Browse's strengths: aisle sections (or A–Z),
+// a grid/list toggle, + New item, "Search our provisions…". The first-tap keyboard rules are untouched (the
+// same ItemSearchView, the same openers). feeder = {
+//   sections: [{ name, rawName, items }] — Browse's category blocks after the rail's filters, items as `items`
+//   flat: the same items A–Z · organize: "category" | "alpha" · layout: "list" | "grid", onLayout(next)
+//   onNewItem(rawCategory | null) — the New item sheet (the feeder steps aside while it is up: suspended)
+//   rail, sheetButton, hint: nodes (R3 / R4) · suspended: bool }
+export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate, onReveal, onUndo, onTapListed, onClosed, feeder = null }) {
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState(null);   // { text }
   const [fresh, setFresh] = useState(() => new Set());   // catalog ids added this visit
@@ -953,10 +961,53 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
     );
   };
   const q = query.trim();
+  // While a sheet the feeder opened is up, the field gives the keyboard back (the view is hidden, not closed).
+  const suspended = !!feeder?.suspended;
+  useEffect(() => { if (suspended) search.inputRef.current?.blur(); }, [suspended, search.inputRef]);
+  const grid = feeder?.layout === "grid";
+  const rows = (list) => (grid ? <div className="pick-grid">{list.map(row)}</div> : list.map(row));
+  const feederBody = () => {
+    const groups = feeder.organize === "alpha"
+      ? letterGroups(feeder.flat).map((g) => (
+        <div key={g.letter} className="pick-group">
+          <div className="pick-letter" aria-hidden="true">{g.letter}</div>
+          {rows(g.items)}
+        </div>
+      ))
+      : feeder.sections.map((sec) => (
+        <div key={sec.rawName} className="pick-group">
+          <div className="pick-aisle">
+            <span className="pick-aisle-name">{sec.name}</span>
+            <button type="button" className="pick-aisle-new" onClick={() => feeder.onNewItem(sec.rawName)}>＋ New item</button>
+          </div>
+          {rows(sec.items)}
+        </div>
+      ));
+    return (
+      <>
+        {groups.length === 0 && <div className="pick-empty">Nothing here yet.</div>}
+        {groups}
+        <button type="button" className="pick-row pick-create" onClick={() => feeder.onNewItem(null)}>
+          <span className="pick-main"><span className="pick-name">+ New item</span></span>
+        </button>
+      </>
+    );
+  };
   return (
     <ItemSearchView search={search} onClose={close} query={query} onQuery={setQuery} label="Add to our list" title="Add to our list"
-      input={{ className: "modal-input", placeholder: "Type, or scroll and tap", name: "list-pick-search", ariaLabel: "Type to find an item" }}
-      listTestId="list-picker" className="item-picker"
+      input={{ className: "modal-input", placeholder: feeder ? "Search our provisions…" : "Type, or scroll and tap", name: "list-pick-search", ariaLabel: "Type to find an item" }}
+      listTestId="list-picker" className={`item-picker${feeder ? " feeder" : ""}`}
+      fieldAside={feeder ? (
+        <>
+          <button type="button" className="pick-tool" onMouseDown={keepFocus} aria-label={grid ? "Show as a list" : "Show as a grid"}
+            onClick={() => feeder.onLayout(grid ? "list" : "grid")}>
+            {grid ? <ListGlyph /> : <GridGlyph />}
+          </button>
+          {feeder.sheetButton}
+        </>
+      ) : null}
+      tools={feeder ? <>{feeder.rail}{feeder.hint}</> : null}
+      suspended={suspended}
       overlay={toast && (
         <div className="pick-toast" role="status">
           <span className="pick-toast-text">{toast.text}</span>
@@ -977,7 +1028,7 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
             </button>
           }
         />
-      ) : letterGroups(items).map((g) => (
+      ) : feeder ? feederBody() : letterGroups(items).map((g) => (
         <div key={g.letter} className="pick-group">
           <div className="pick-letter" aria-hidden="true">{g.letter}</div>
           {g.items.map(row)}
@@ -8503,6 +8554,7 @@ function ProvisionsApp({ scrollRootRef }) {
   };
   const onPickerClosed = ({ added, openMs }) => {
     pickerClosed(added, openMs, household?.id);
+    if (ONE_ADD_ENABLED) { const text = addedToastText(added); if (text) showToast(text); }
     const at = pickerScrollRef.current;
     if (!at) return;
     const back = () => {
@@ -8601,6 +8653,32 @@ function ProvisionsApp({ scrollRootRef }) {
     pickerTapOnListed(household?.id);
   };
   const pickerList = useMemo(() => pickerItems(categories, catalogMap), [categories, catalogMap]);
+  // ONE ADD — the List's feeder (SPEC_results_feeder_standard R2). Browse's own state drives it: the rail's
+  // Staples and categories, View & filter's organize (By category / A–Z), the declutter phase. Its sections are
+  // Browse's category blocks after those filters, as picker rows. The layout (list / grid) is this device's.
+  const [feederLayout, setFeederLayout] = useState(() => {
+    try { return localStorage.getItem("op_feeder_layout") === "grid" ? "grid" : "list"; } catch { return "list"; }
+  });
+  const chooseFeederLayout = (next) => {
+    setFeederLayout(next);
+    try { localStorage.setItem("op_feeder_layout", next); } catch { /* storage unavailable: this visit only */ }
+  };
+  const feederSections = useMemo(() => (ONE_ADD_ENABLED ? pickerSections(categoryBlocks, catalogMap) : []), [categoryBlocks, catalogMap]);
+  const feederFlat = useMemo(() => feederSections.flatMap((sec) => sec.items).sort((a, b) => a.name.localeCompare(b.name)), [feederSections]);
+  // A sheet the feeder opened is up (it lives below the portal): the feeder steps aside until it closes.
+  const feederSuspended = !!(addSheet || browseFilterOpen || moreAsksOpen || newAskOpen || editAskId || deleteAskId || deletingCategory || editModalItem);
+  const feeder = ONE_ADD_ENABLED ? {
+    sections: feederSections,
+    flat: feederFlat,
+    organize: browseOrganize,
+    layout: feederLayout,
+    onLayout: chooseFeederLayout,
+    onNewItem: (rawCategory) => openAddItem({ category: rawCategory }),
+    rail: null,
+    hint: null,
+    sheetButton: null,
+    suspended: feederSuspended,
+  } : null;
   // The guide's rows (R10). Add items opens the picker in the tap; Browse goes to Browse on everything, or
   // with Staples selected when the household has staples (the selection waits in a ref: the view effect
   // resets Browse's filters on every door switch, and applies it there); Plan a meal opens the library.
@@ -10813,6 +10891,18 @@ function ProvisionsApp({ scrollRootRef }) {
         .pick-create .pick-name { color: #8A5F3A; }
         .pick-create .pick-name b { color: #2C1A0E; }
         .item-picker .ask-search-list { padding-bottom: 96px; }
+        /* ONE ADD — the feeder (SPEC_results_feeder_standard R2): aisle headers with + New item, the grid layout
+           (two columns of the same rows as cards), the tools beside the field. */
+        .pick-aisle { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 0 4px; }
+        .pick-aisle-name { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; }
+        .pick-aisle-new { flex: none; border: none; background: none; padding: 10px 0; cursor: pointer; font: 700 calc(13px * var(--op-text-scale)) 'Lato', sans-serif; color: #8A5F3A; }
+        .pick-empty { padding: 24px 4px; font: italic 400 calc(15px * var(--op-text-scale)) 'Playfair Display', serif; color: #8a7a60; }
+        .pick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
+        .pick-grid .pick-row { min-height: 72px; padding: 10px 10px 10px 12px; border: 1.5px solid #EADFCF; border-radius: 14px; background: #fff; align-items: flex-start; }
+        .pick-grid .pick-row.on { border-color: #13877C; }
+        .pick-tool { flex: none; width: 46px; height: 46px; border-radius: 14px; border: 1.5px solid #d8bf94; background: #fff; color: #6f5a45; display: grid; place-items: center; cursor: pointer; }
+        .pick-tool.on { background: #3A281C; border-color: #3A281C; color: #FFFDF9; }
+        .item-picker.feeder .item-search-field input { min-width: 0; }
         .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
                       padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
                       box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
@@ -13465,7 +13555,8 @@ function ProvisionsApp({ scrollRootRef }) {
       {/* ── THE QUICK PICKER (SPEC_one_list R7) — always mounted, so an opener's tap can raise the keyboard.
           It replaced the Shop Add sheet (AddSheetPanel, its disabled mic) on 2026-11-26. ── */}
       <ListPicker search={picker} items={pickerList} statusOf={pickerStatus} hiddenFor={pickerHidden}
-        onAdd={pickerAdd} onCreate={pickerCreate} onReveal={pickerReveal} onUndo={pickerUndo} onTapListed={pickerTapListed} onClosed={onPickerClosed} />
+        onAdd={pickerAdd} onCreate={pickerCreate} onReveal={pickerReveal} onUndo={pickerUndo} onTapListed={pickerTapListed} onClosed={onPickerClosed}
+        feeder={feeder} />
       {/* ── THE NEW MEMBER WELCOME (R12) — over the dimmed list, once per person per household. ── */}
       {listWelcomeOpen && <ListWelcome householdName={household?.name || ""} onDone={dismissWelcome} />}
 

@@ -103,3 +103,25 @@ describe("R3 — the staples hint, first 3 visits per device", () => {
     expect(staplesHintVisit(bad)).toBe(false);
   });
 });
+
+describe("R2 — the feeder's aisle sections", () => {
+  const { pickerSections } = require("./listPicker");
+  const map = { Apples: { id: "a" }, Milk: { id: "m" }, Ghost: {} };
+  test("Browse's blocks in order, items as picker rows; a row with no id drops; an empty block keeps its header", () => {
+    const out = pickerSections([
+      { name: "🥦 Produce", rawName: "Produce", items: [{ name: "Apples" }, { name: "Ghost" }] },
+      { name: "🥛 Dairy", rawName: "Dairy", items: [{ name: "Milk" }] },
+      { name: "Camping", rawName: "Camping", items: [] },
+    ], map);
+    expect(out).toEqual([
+      { name: "🥦 Produce", rawName: "Produce", items: [{ id: "a", name: "Apples", category: "🥦 Produce", rawCategory: "Produce" }] },
+      { name: "🥛 Dairy", rawName: "Dairy", items: [{ id: "m", name: "Milk", category: "🥛 Dairy", rawCategory: "Dairy" }] },
+      { name: "Camping", rawName: "Camping", items: [] },
+    ]);
+  });
+  test("the feeder is wired only with the flag on; the picker without it is today's", () => {
+    expect(APP).toContain("const feeder = ONE_ADD_ENABLED ? {");
+    expect(APP).toContain("feeder={feeder} />");
+    expect(APP).toContain(') : feeder ? feederBody() : letterGroups(items).map((g) => (');
+  });
+});

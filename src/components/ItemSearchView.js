@@ -63,7 +63,13 @@ export function useItemSearch() {
 // it the input and Done share one row (the Ask view). count (optional): the count line between the head and
 // the list. listTestId, className: for the host. children: the list. overlay (optional): drawn over the list
 // inside the view (the picker's toast), so it sits on the visible area, above the keyboard.
-export function ItemSearchView({ search, onClose, query, onQuery, label, input = {}, title = null, count = null, listTestId, className = "", overlay = null, children }) {
+// One add (SPEC_results_feeder_standard R2, flag-on hosts only; every one defaults to today's view):
+//   fieldAside — controls beside the field in the title variant (the layout toggle, View & filter).
+//   tools      — a row under the field (the rail), above the count and the list.
+//   suspended  — the view stays open (its state, its query) but is hidden while a sheet the feeder
+//                opened sits over the app (New item, View & filter, the Ask chooser); those sheets live in
+//                the app's tree below this portal's z 2100, so the feeder steps aside rather than out-stack them.
+export function ItemSearchView({ search, onClose, query, onQuery, label, input = {}, title = null, count = null, listTestId, className = "", overlay = null, fieldAside = null, tools = null, suspended = false, children }) {
   const { open, viewRef, viewBox, setViewBox, inputRef } = search;
 
   useEffect(() => {
@@ -146,7 +152,7 @@ export function ItemSearchView({ search, onClose, query, onQuery, label, input =
   return (
     <>
       {typeof document !== "undefined" && createPortal(
-        <div ref={viewRef} className={`ask-search${className ? ` ${className}` : ""}${open ? " open" : ""}`} role="dialog" aria-modal="true" aria-label={label}
+        <div ref={viewRef} className={`ask-search${className ? ` ${className}` : ""}${open ? " open" : ""}${open && suspended ? " suspended" : ""}`} role="dialog" aria-modal="true" aria-label={label}
           style={open && viewBox ? { top: `${viewBox.top}px`, height: `${viewBox.height}px`, bottom: "auto" } : undefined}
           aria-hidden={open ? undefined : true} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
           {title ? (
@@ -160,6 +166,7 @@ export function ItemSearchView({ search, onClose, query, onQuery, label, input =
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
                 </span>
                 {field}
+                {fieldAside}
               </div>
             </>
           ) : (
@@ -168,6 +175,7 @@ export function ItemSearchView({ search, onClose, query, onQuery, label, input =
               {done()}
             </div>
           )}
+          {tools}
           {count && <div className="ask-search-count">{count}</div>}
           <div data-testid={listTestId} className="ask-search-list">
             {children}
@@ -186,6 +194,7 @@ export const ITEM_SEARCH_CSS = `
   padding-top: env(safe-area-inset-top, 0px); visibility: hidden; opacity: 0; transform: translateY(12px);
   transition: opacity 160ms ease-out, transform 160ms ease-out, visibility 0s linear 160ms; }
 .ask-search.open { visibility: visible; opacity: 1; transform: none; transition: opacity 160ms ease-out, transform 160ms ease-out, visibility 0s; }
+.ask-search.open.suspended { visibility: hidden; opacity: 0; transition: none; }
 /* THE BACKFILL (Dan's iPhone, IMG_6895). Sized to visualViewport.height, the view ends above the keyboard, but
    iOS 26's keyboard bar is translucent and floats with a gap, so the page showed through below the list.
    A cream skirt hangs off the view's bottom edge, a screen tall: whatever the keyboard leaves see-through, or

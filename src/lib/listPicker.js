@@ -17,6 +17,20 @@ export function pickerItems(categories, catalogMap) {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// ONE ADD (SPEC_results_feeder_standard R2): the feeder's aisle sections — Browse's category blocks (after the
+// rail's Staples and category filters) in Browse's order, each item as a picker row. A block can be empty (a
+// household category with nothing in it yet): it keeps its header, so its + New item is still there.
+export function pickerSections(blocks, catalogMap) {
+  return (blocks || []).map((cat) => ({
+    name: cat.name,
+    rawName: cat.rawName,
+    items: (cat.items || []).map((it) => {
+      const row = catalogMap ? catalogMap[it.name] : null;
+      return row && row.id ? { id: row.id, name: it.name, category: cat.name, rawCategory: cat.rawName } : null;
+    }).filter(Boolean),
+  }));
+}
+
 // Typed text → the matching items (a substring, case-insensitive), or every item for no text.
 export function filterItems(items, query) {
   const q = (query || "").trim().toLowerCase();
