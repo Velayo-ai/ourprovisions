@@ -2,7 +2,6 @@ import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/c
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useProvisions, isPendingCatalogId, normalizeOccasion } from './hooks/useProvisions';
-import { useKeyboardInset } from './hooks/useKeyboardInset';
 import { useScrollLock } from './hooks/useScrollLock';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
@@ -12,7 +11,10 @@ import { NOTE_MS, noteDue, readNoteShownAt, writeNoteShownAt, clearNoteShownAt, 
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
-import { AddSheetPanel } from './components/AddSheetPanel';
+import { ItemSearchView, useItemSearch, keepFocus } from './components/ItemSearchView';
+import { pickerItems, filterItems, letterGroups, itemStatus, hiddenMatchFor, PICKER_COPY } from './lib/listPicker';
+import { welcomeSeen, markWelcomeSeen, shouldShowWelcome } from './lib/listWelcome';
+import { pickerOpened, pickerClosed, pickerTapOnListed, listGuideCta, firstItemAdded, listWelcomeDismissed } from './lib/listTelemetry';
 import { CategorySelect } from './components/CategorySelect';
 import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText, renameInSet } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
@@ -854,6 +856,211 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
   );
 }
 
+// THE QUICK PICKER (SPEC_one_list R7–R9, R14; mockup "Our List — one list, one screen" screen 3). The one add
+// surface for List's "+ Add", the Helm's + on List and on Browse, and the guide's Add items. It is
+// ItemSearchView with a title bar — the Ask's search view, the same primitive — so the keyboard rises on
+// the first tap: App's openers call search.show() inside the tap, and this stays mounted.
+//   Rows: the person's Browse catalog A–Z with letter headers (hidden items excluded); typing filters.
+//   THE ROW IS THE CONFIRMATION AND THE UNDO (R8 revised 2026-11-27, Dan's walk: an accidental tap two items
+//   back had no way back, and a toast's Undo is small, brief and away from the eye). ✓ comes from the shown
+//   rows (overlay included). A row added THIS VISIT reads ✓ "Added · tap to undo", and a tap takes it back off
+//   (onUndo → −1, back to +), however far back it is. A row already on the list when the visit began reads
+//   "On the list" and is inert (onTapListed: picker_tap_on_listed, the quantity-friction signal). Done ends
+//   the visit: next time, everything reads "On the list".
+//   No toast for a plain add or its undo. The toast (inside the view, above the keyboard) says only what a row
+//   can't: off grid ("Adding items needs signal for now."), an item checked off this trip (085's renewal,
+//   "{Item} added again · it was in your cart"; its row then reads "On the list": a −1 would remove the row,
+//   and the cart state can't be restored), and an error.
+//   With a query: the matches through SearchResultsList — the reveal card for a hidden exact match (F1b) and,
+//   with no exact match, "+ Add "{text}" as a new item" (D7: Other); a row made this visit is undoable too.
+//   The query stays after a tap, so the row that confirms it stays in sight.
+// Item names and the typed text are household text: no element here is allow-listed except Done.
+// onAdd(item, status) / onCreate(text) / onReveal(match, text) / onUndo(item) resolve to { kind, id?, text? }:
+// "added" (id = the catalog item now on the list), "renewed", "revealed", "undone", "needsSignal", "error".
+export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate, onReveal, onUndo, onTapListed, onClosed }) {
+  const [query, setQuery] = useState("");
+  const [toast, setToast] = useState(null);   // { text }
+  const [fresh, setFresh] = useState(() => new Set());   // catalog ids added this visit
+  const freshRef = useRef(fresh);
+  freshRef.current = fresh;
+  const inFlight = useRef(new Set());   // a second tap on a row whose change is still out does nothing
+  const toastTimer = useRef(null);
+  const openedAt = useRef(0);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (search.open && !wasOpen.current) { openedAt.current = Date.now(); setFresh(new Set()); }
+    wasOpen.current = search.open;
+  }, [search.open]);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+  const say = (text) => {
+    clearTimeout(toastTimer.current);
+    setToast({ text });
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  };
+  const mark = (id, on) => setFresh((prev) => {
+    if (on === prev.has(id)) return prev;
+    const n = new Set(prev);
+    if (on) n.add(id); else n.delete(id);
+    return n;
+  });
+  // The answer a row can't give: renewal, off grid, an error. A plain add / undo says nothing here.
+  const answer = (r) => {
+    if (!r) return;
+    if (r.kind === "added" && r.id) mark(r.id, true);
+    if (r.kind === "renewed" || r.kind === "needsSignal" || r.kind === "error") say(r.text);
+  };
+  const close = () => {
+    search.hide();
+    setQuery("");
+    clearTimeout(toastTimer.current);
+    setToast(null);
+    onClosed({ added: freshRef.current.size, openMs: Date.now() - openedAt.current });
+    setFresh(new Set());
+  };
+  const once = async (id, run) => {
+    if (inFlight.current.has(id)) return;
+    inFlight.current.add(id);
+    try { await run(); } finally { inFlight.current.delete(id); }
+  };
+  const tap = (item) => once(item.id, async () => {
+    const status = statusOf(item.id);
+    if (status === "on" && fresh.has(item.id)) {
+      const r = await onUndo(item);
+      if (r && r.kind === "undone") mark(item.id, false);
+      else answer(r);
+      return;
+    }
+    if (status === "on") { onTapListed(item); return; }
+    answer(await onAdd(item, status));
+  });
+  const row = (item) => {
+    const on = statusOf(item.id) === "on";
+    const isFresh = on && fresh.has(item.id);
+    return (
+      <button key={item.id} type="button" className={`pick-row${on ? " on" : ""}${isFresh ? " fresh" : ""}`} aria-disabled={on && !isFresh ? "true" : undefined}
+        onMouseDown={keepFocus} onClick={() => tap(item)}>
+        <span className="pick-main">
+          <span className="pick-name">{item.name}</span>
+          {isFresh ? <span className="pick-sub">Added · tap to undo</span> : on && <span className="pick-sub">On the list</span>}
+        </span>
+        <span className={`pick-mark${on ? " on" : ""}`} aria-hidden="true">
+          {on
+            ? <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12l5 5 9-10" /></svg>
+            : "+"}
+        </span>
+      </button>
+    );
+  };
+  const q = query.trim();
+  return (
+    <ItemSearchView search={search} onClose={close} query={query} onQuery={setQuery} label="Add to our list" title="Add to our list"
+      input={{ className: "modal-input", placeholder: "Type, or scroll and tap", name: "list-pick-search", ariaLabel: "Type to find an item" }}
+      listTestId="list-picker" className="item-picker"
+      overlay={toast && (
+        <div className="pick-toast" role="status">
+          <span className="pick-toast-text">{toast.text}</span>
+        </div>
+      )}>
+      {q ? (
+        <SearchResultsList
+          query={query}
+          results={filterItems(items, q)}
+          hiddenMatch={hiddenFor(q)}
+          onReveal={(m) => once(m.item.id, async () => answer(await onReveal(m, q)))}
+          showCount={false}
+          renderRow={row}
+          createSlot={
+            <button type="button" className="pick-row pick-create" onMouseDown={keepFocus}
+              onClick={() => once(`new:${q}`, async () => answer(await onCreate(q)))}>
+              <span className="pick-main"><span className="pick-name">+ Add <b>“{q}”</b> as a new item</span></span>
+            </button>
+          }
+        />
+      ) : letterGroups(items).map((g) => (
+        <div key={g.letter} className="pick-group">
+          <div className="pick-letter" aria-hidden="true">{g.letter}</div>
+          {g.items.map(row)}
+        </div>
+      ))}
+    </ItemSearchView>
+  );
+}
+
+// THE GUIDE (SPEC_one_list R10; mockup "Our List — one list, one screen" screen 1). The empty list is not a
+// dead end: "What do we need?" and three quiet rows named by intention, each with a ›. Add items (teal) opens
+// the quick picker — its handler runs openPicker("guide") inside the tap, so the keyboard rises on the first
+// tap. The Browse row adapts: no staples (a new household) → "Browse the aisles", Browse on everything;
+// staples → "Browse our staples", Browse with Staples selected. Plan a meal opens the meal library. Every
+// label is fixed copy (.list-guide-row is allow-listed); nothing here names the household or an item.
+const GUIDE_ICONS = {
+  add: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>,
+  browse: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>,
+  plan: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 6v3M5 10l2 1.5M19 10l-2 1.5" /></svg>,
+};
+export function ListGuide({ hasStaples, onAdd, onBrowse, onPlan }) {
+  const row = (key, label, sub, onClick, teal = false) => (
+    <button type="button" className={`list-guide-row${teal ? " teal" : ""}`} onClick={onClick}>
+      <span className="list-guide-ico">{GUIDE_ICONS[key]}</span>
+      <span className="list-guide-text">
+        <span className="list-guide-label">{label}</span>
+        <span className="list-guide-sub">{sub}</span>
+      </span>
+      <svg className="list-guide-chev" viewBox="0 0 10 16" width="10" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m2 2 6 6-6 6" /></svg>
+    </button>
+  );
+  return (
+    <div className="list-guide">
+      <p className="list-guide-ask">What do we need?</p>
+      {row("add", "Add items", "I know what we need.", onAdd, true)}
+      {row("browse", hasStaples ? "Browse our staples" : "Browse the aisles", "Remind me what we might need.", onBrowse)}
+      {row("plan", "Plan a meal", "I know what I want to cook.", onPlan)}
+      <p className="list-guide-foot">One list for everyone in your household.<br />At the store, check things off here.</p>
+    </div>
+  );
+}
+
+// THE NEW MEMBER WELCOME (SPEC_one_list R12–R13; mockup screen 5). Once per person per household, the first
+// time they open List and the list is NOT empty (an empty list shows the guide): a bottom card over the
+// dimmed real list, then Got it, for good on this phone (lib/listWelcome). Existing members see it once too,
+// on rollout — accepted as a "what's new". The household's name is household text: it sits in the heading's
+// text only (masked on prod, never allow-listed) and never in an attribute — the dialog is named by the
+// heading (aria-labelledby), not an aria-label. Got it (.list-welcome-ok) is fixed copy, allow-listed.
+const WELCOME_LINES = [
+  { key: "add", head: "+ Add when you know what you need", sub: "Type it or tap it. The fastest way onto the list." },
+  { key: "browse", head: "Browse when you want to choose", sub: "Quantities, staples, and letting the kids pick their snacks." },
+  { key: "check", head: "Check off in the store", sub: "Tick items as they go in the cart. Wrap up when you are done." },
+];
+const WELCOME_ICONS = {
+  add: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#13877C" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>,
+  browse: GUIDE_ICONS.browse,
+  check: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>,
+};
+export function ListWelcome({ householdName, onDone }) {
+  return (
+    <div className="list-welcome-scrim">
+      <div className="list-welcome" role="dialog" aria-modal="true" aria-labelledby="list-welcome-title"
+        onKeyDown={(e) => { if (e.key === "Escape") onDone(); }}>
+        <div>
+          <div className="list-welcome-eyebrow">Welcome aboard</div>
+          <h2 id="list-welcome-title" className="list-welcome-title">This is {householdName ? <>{householdName}'s</> : "your household's"} list</h2>
+          <p className="list-welcome-lead">One list for the whole household. Whatever anyone adds shows up here for everyone, at home or in the store.</p>
+        </div>
+        {WELCOME_LINES.map((l) => (
+          <div key={l.key} className="list-welcome-line">
+            <span className="list-welcome-ico">{WELCOME_ICONS[l.key]}</span>
+            <div>
+              <div className="list-welcome-head">{l.head}</div>
+              <div className="list-welcome-sub">{l.sub}</div>
+            </div>
+          </div>
+        ))}
+        {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the card is modal: Got it takes the focus so a keyboard can leave it */}
+        <button type="button" className="list-welcome-ok" autoFocus onClick={onDone}>Got it</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Shop tab: lens, In cart tray, store prompt (SPEC_shop_lens_instore_capture.md) ──
 // D3: a control shows its STATE, never its next state — both words visible,
 // the active one filled. Replaces the old tri-state declutter cycle icon on Shop only.
@@ -1071,7 +1278,7 @@ export function OnDeckCard({
     // Ready (row 3) — and a planned meal with nothing to shop for (row 6).
     primary = <button type="button" className="deck-primary teal" disabled={busy} onClick={() => { if (!busy) onCooked(m.id); }}>Cooked it</button>;
   } else {
-    primary = <button type="button" className="deck-primary" disabled={busy} onClick={() => { if (!busy) onLockIn(m.id); }}>Add to Shop</button>;
+    primary = <button type="button" className="deck-primary" disabled={busy} onClick={() => { if (!busy) onLockIn(m.id); }}>Add to list</button>;
   }
   const open = () => { if (!busy && !st.noShop) onView(m); };
   return (
@@ -1114,7 +1321,7 @@ export function OnDeckCard({
 // checked), so Home and the badge can never disagree. `firstItem` is the first
 // unchecked row in Shop's Aisles order (pendingItems[0]: CATEGORY_ORDER, then
 // name) — what you'd reach first. `shopping` = this user has an open session.
-//   0 open, 0 in cart  "Nothing on your list · Start a list →"   (Browse)
+//   0 open, 0 in cart  "Nothing on your list · Start a list →"   (List — SPEC_one_list R11; its empty state is the guide)
 //   0 open, N in cart  "N in the cart · Finish the trip →"       (Shop — SPEC_list_counts D3 row 4:
 //                      the list is NOT empty, it is fully in the cart; Home never wraps up, the
 //                      one Wrap Up at 100% is Shop's All done card, so the link only opens Shop)
@@ -1753,7 +1960,7 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                     className="board-lock"
                     disabled={busy}
                     onClick={(e) => { e.stopPropagation(); if (!busy) onLockIn(m.id); }}
-                  >Add to Shop</button>
+                  >Add to list</button>
                 )}
                 {/* At 0 left (everything in the cart, not wrapped up) the same door reads "Wrap up →"
                     — the recipe view's nudge, word for word (Amendment C, ruling 4). Wording only. */}
@@ -1790,7 +1997,7 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                 <div className="board-menu" role="menu" onClick={(e) => e.stopPropagation()}>
                   <button type="button" role="menuitem" disabled={busy}
                     onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onSkip(m.id, toBuy); }}>
-                    {toBuy ? "Remove (and take its items off Shop)" : "Remove"}
+                    {toBuy ? "Remove (and take its items off the list)" : "Remove"}
                   </button>
                   {planned && (
                     <button type="button" role="menuitem" disabled={busy}
@@ -3045,7 +3252,7 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
     // the meta line already says it was cooked.
     plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onPlan(meal.id); }}>+ Plan again</button>;
   } else if (block.action === "addToShop") {
-    plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onAddToShop(meal.id); }}>Add to Shop</button>;
+    plan = <button type="button" className="rv-plan add" disabled={busy} onClick={() => { if (!busy) onAddToShop(meal.id); }}>Add to list</button>;
   } else if (block.action === "cookIt") {
     plan = <button type="button" className="rv-plan teal" disabled={busy} onClick={() => { if (!busy) onCooked(meal.id); }}>Cooked it</button>;
   } else if (block.action === "wrapUp") {
@@ -5188,7 +5395,7 @@ export function OnHandPrompt({ prompt, onChoose, onCancel, onConfirm }) {
             Edit Meal sheet's own Cancel/Save footer uses. */}
         <div className="modal-actions">
           <button className="modal-cancel" onClick={onCancel}>Cancel</button>
-          <button className="modal-confirm" onClick={onConfirm}>{haveEverything ? "I have everything" : "Add to Shop"}</button>
+          <button className="modal-confirm" onClick={onConfirm}>{haveEverything ? "I have everything" : "Add to list"}</button>
         </div>
       </div>
     </div>
@@ -5326,6 +5533,7 @@ function ProvisionsApp({ scrollRootRef }) {
     requestRecipeImport,
     deleteMeal,
     onListChangedRef,
+    onItemAddedRef,
     createCatalogItem,
     materializePendingIngredients,
     createCatalogItemNow,
@@ -5343,7 +5551,6 @@ function ProvisionsApp({ scrollRootRef }) {
     cooks,
     _listRows,
     updateFullName,
-    activeCycle,
     activeSession,
     partnerSession,
     storeSuggestions,
@@ -5785,9 +5992,9 @@ function ProvisionsApp({ scrollRootRef }) {
     const N = boardStats.stillToAdd.length;
     if (boardStats.cards.length === 0) return { head, tail: "", link: 0 };
     if (N >= 2) return { head, tail: ` · ${N} meals to `, link: N };
-    if (N === 1) return { head, tail: " · 1 meal to add to Shop", link: 0 };
+    if (N === 1) return { head, tail: " · 1 meal to add to the list", link: 0 };
     if (boardStats.allReady) return { head, tail: " · ready", link: 0 };
-    if (boardStats.nonePlanned) return { head, tail: " · Everything's in Shop ✓", link: 0 };
+    if (boardStats.nonePlanned) return { head, tail: " · Everything's on the list ✓", link: 0 };
     return { head, tail: "", link: 0 };
   }, [boardMeals.length, boardStats]);
   const boardBanner = boardStats.allReady ? "stocked" : boardStats.nonePlanned ? "set" : null;
@@ -6880,7 +7087,6 @@ function ProvisionsApp({ scrollRootRef }) {
   // session id). Reset on household switch and on Wrap up.
   const [trayOpen, setTrayOpen] = useState(false);
   const [addedHereIds, setAddedHereIds] = useState(() => new Set());
-  const [addSheetOpen, setAddSheetOpen] = useState(false);
   // Check motion (presentation only — the database write happens on the tap).
   // list_item.id → { dir: "out" (aisle → tray) | "in" (tray → aisle), phase: "mark" | "collapse" }.
   // Keyed by the ROW's id, not its name: names are not unique (a custom "Milk"
@@ -6907,7 +7113,6 @@ function ProvisionsApp({ scrollRootRef }) {
   const [storePromptOpen, setStorePromptOpen] = useState(false);
   const [storePromptSkippedFor, setStorePromptSkippedFor] = useState(null);
   const [storeSaving, setStoreSaving] = useState(false);
-  const addSheetInputRef = useRef(null);
   // Browse declutter cycle: 0 default (pills shown, grouped) · 1 tidied (pills hidden, grouped) · 2 flat (A–Z).
   const [browsePhase, setBrowsePhase] = useState(0);
   // How View & organize reads the phase (2026-11-13): "Organize items" — By category (phase 0 or 1) or
@@ -6921,11 +7126,15 @@ function ProvisionsApp({ scrollRootRef }) {
   // Declutter phase + Browse filters are per-view/per-household ephemeral state:
   // reset on tab or household switch so a stale filter can't shrink the new
   // household's list (phase 1 hides the pills that would otherwise explain it).
+  // The guide's "Browse our staples" (SPEC_one_list R10) arrives with Staples selected: the one filter a
+  // door switch may carry, set by the guide just before it switches.
+  const pendingStaplesRef = useRef(false);
   useEffect(() => {
     setBrowsePhase(0);
     setShortcutsPref(true);
     setSelectedCategories(new Set());
-    setStapleFilter(false);
+    setStapleFilter(view === "input" && pendingStaplesRef.current);
+    pendingStaplesRef.current = false;
     setBrowseFilterOpen(false);
   }, [view, activeHouseholdId]);
   // An Ask is the household's (SPEC_ask_slice2 C2), so View & organize's Asks section and the New ask
@@ -7124,7 +7333,7 @@ function ProvisionsApp({ scrollRootRef }) {
       const { added: n, readyOnHand: m } = await lockInAll(ids);
       await refreshProvenance();
       const line = m > 0 ? addAllOnHandLine(n, m) : addedToast(`${n} meal${n === 1 ? "" : "s"}`, rowsBefore);
-      showToast(line, { label: "Shop", onClick: () => goToDoor("list") });
+      showToast(line, { label: "List", onClick: () => goToDoor("list") });
     } finally {
       setLockingAll(false);
     }
@@ -7443,25 +7652,19 @@ function ProvisionsApp({ scrollRootRef }) {
   // renders it as a reveal card instead (F1b Layer 1, the honest UX on top of
   // the floor): live → un-hide only; not live → un-hide and add at 1, the same
   // branch addSearchedItem takes.
-  const hiddenMatch = useMemo(() => {
-    const typed = searchQuery.trim();
-    if (!typed) return null;
-    const norm = normalizeName(typed);
-    const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
-    if (!hidden) return null;
-    const liveRow = listRows.find(r => r.catalogItemId === hidden.id && (r.quantity || 0) > 0);
-    return { item: hidden, qty: liveRow ? liveRow.quantity : 0, live: !!liveRow };
-  }, [searchQuery, hiddenCatalogItems, listRows]);
+  const hiddenMatch = useMemo(() => hiddenMatchFor(searchQuery, hiddenCatalogItems, listRows), [searchQuery, hiddenCatalogItems, listRows]);
 
   // Search "add to your list" handler (F1b Layer 1 — the floor). Re-adding a HIDDEN
   // item must never write quantity across the person boundary: hide is a lens, not an
   // edit. Resolve the typed name against the hidden set first.
   // Resolves to adjustQty's `{ listItemId, catalogItemId }` when a quantity was
-  // written, null otherwise (reveal-only, or nothing typed) — the Shop Add sheet
+  // written, null otherwise (reveal-only, or nothing typed) — the quick picker
   // records its added_in_store event from that. Browse ignores the value.
-  const addSearchedItem = async (rawCategory) => {
-    const typed = searchQuery.trim();
-    setSearchQuery("");
+  // The TEXT is an argument (SPEC_one_list R7): Browse passes its searchQuery and
+  // clears it; the picker passes its own query, so it never touches Browse's search.
+  // opts: adjustQty's (source, door, onTransient).
+  const addSearchedItem = async (rawCategory, text, opts = {}) => {
+    const typed = (text || "").trim();
     if (!typed) return null;
     const norm = normalizeName(typed);
     const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
@@ -7474,10 +7677,10 @@ function ProvisionsApp({ scrollRootRef }) {
       }
       // Hidden while at qty 0 (not on the list) → un-hide, then add at typed qty.
       unhideItem(hidden.id);
-      return adjustQty(typed, 1, rawCategory);
+      return adjustQty(typed, 1, rawCategory, undefined, opts);
     }
     // No hidden match → today's behavior: add as a (possibly new) item (+1 through adjustQty).
-    return adjustQty(typed, 1, rawCategory);
+    return adjustQty(typed, 1, rawCategory, undefined, opts);
   };
 
   // Show the join banner once the lens has landed on the joined household.
@@ -8248,52 +8451,130 @@ function ProvisionsApp({ scrollRootRef }) {
     window.history.replaceState(null, "", WRAP_UP_HASH);
   };
 
-  const openAddSheet = () => {
-    setSearchQuery("");
-    setAddSheetOpen(true);
+  // THE QUICK PICKER's openers (SPEC_one_list R7). Each runs inside its tap: picker.show() is the same-tap
+  // flushSync(open) + focus() that raises the keyboard on the first tap. `from` is picker_opened's
+  // (list_add | helm | guide); the door rides every add (item_added_to_list's door). The page's scroll is
+  // noted here and put back on close: the view's scroll-home may move the window while the keyboard is up.
+  const picker = useItemSearch();
+  // The new member welcome (R12–R13): decided by the effect after the list counts (shouldShowWelcome).
+  const [listWelcomeOpen, setListWelcomeOpen] = useState(false);
+  const pickerDoorRef = useRef("list");
+  const pickerScrollRef = useRef(null);
+  const openPicker = (from) => {
+    pickerDoorRef.current = from === "guide" ? "guide" : view === "input" ? "browse" : "list";
+    pickerScrollRef.current = { y: window.scrollY, root: scrollRootRef.current ? scrollRootRef.current.scrollTop : 0 };
+    picker.show();
+    pickerOpened(from, household?.id);
   };
-  const closeAddSheet = () => {
-    setAddSheetOpen(false);
-    setSearchQuery("");
+  const onPickerClosed = ({ added, openMs }) => {
+    pickerClosed(added, openMs, household?.id);
+    const at = pickerScrollRef.current;
+    if (!at) return;
+    const back = () => {
+      if (Math.abs(window.scrollY - at.y) > 1) window.scrollTo(0, at.y);
+      const root = scrollRootRef.current;
+      if (root && Math.abs(root.scrollTop - at.root) > 1) root.scrollTop = at.root;
+    };
+    requestAnimationFrame(back);
+    setTimeout(back, 400);   // again after the keyboard has gone down
   };
-  // D11 — the + does the DOOR's add. Shop → the Add sheet (add-from-the-aisle,
-  // "added here"); Browse → the same sheet, plain; Plan → what the switch row's
+  // D11 — the + does the DOOR's add. List → the Add sheet; Browse → the same
+  // sheet ("added here" on either only during this person's trip: noteAddedHere,
+  // SPEC_one_list R5); Plan → what the switch row's
   // own button does on the view you are on (SPEC_plan_week_meals_switch D11:
   // one rule everywhere — the pill's + does what the header button above it
   // did): on This Week, "+ Add" → Meals; on Meals, "+ New" → the New Meal sheet
   // (signed in only, like the button). The labels are the buttons' aria-labels.
   // Home → absent, so no + ever renders there (D12). The + never becomes a menu.
   const doorAdd = {
-    list:  { label: "Add something", run: openAddSheet },
-    input: { label: "Add to your list", run: openAddSheet },
+    list:  { label: "Add something", run: () => openPicker("helm") },
+    input: { label: "Add to your list", run: () => openPicker("helm") },
     ...(MEALS_ENABLED
       ? (planScreen === "library"
         ? (isSignedIn ? { plan: { label: "Create a new meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {})
         : { plan: { label: "Add a meal to this week", run: () => setPlanScreen("library") } })
       : {}),
   };
-  // "added here" and the added_in_store event are Shop semantics: the same sheet
-  // opened from Browse's + adds plainly (no tag, no event, no session start).
-  const noteAddedHere = (res) => {
-    if (!res || view !== "list") return;
-    setAddedHereIds(prev => { const n = new Set(prev); n.add(res.catalogItemId); return n; });
-    recordListEvent("added_in_store", res);
+  // "Added here" means added DURING YOUR TRIP, and an add never starts one (SPEC_one_list R5, 2026-11-26).
+  // Not a door rule any more: an add from List or Browse while this person's session is open is tagged
+  // and logged as added_in_store; with no open session it is a plain add (no tag, no event, no session).
+  // The tag shows at once from this phone's activeSession; the event is written through adoptOnly,
+  // which re-reads the open sessions and never calls startSession. If that read finds no open session
+  // (the trip was wrapped up on another phone, or passed the 8 h expiry), no event is written and the
+  // tag comes off again: it was a plain add after all.
+  const noteAddedHere = async (res) => {
+    if (!res || !activeSession) return;
+    const cid = res.catalogItemId;
+    setAddedHereIds(prev => { const n = new Set(prev); n.add(cid); return n; });
+    const session = await recordListEvent("added_in_store", { ...res, adoptOnly: true });
+    if (!session) setAddedHereIds(prev => { if (!prev.has(cid)) return prev; const n = new Set(prev); n.delete(cid); return n; });
   };
-  // A catalog hit — the same change Browse's row makes: +1 through adjustQty. Adds land unchecked
-  // (D6); on a row already in the cart the server makes it a NEW need of 1, never old + 1 (085 Q4).
-  const handleShopAddResult = async (item) => {
-    closeAddSheet();
-    const res = await adjustQty(item.name, 1, item.rawCategory);
+  // The picker's adds (SPEC_one_list R8 revised, R14). A catalog hit is the change Browse's row makes: +1
+  // through adjustQty; adds land unchecked (D6); on a row already in the cart the server makes it a NEW need
+  // of 1, never old + 1 (085 Q4) — "added again", never undoable (a −1 would remove the row; the cart state
+  // can't come back). A plain add answers with the row (id), not a toast; its undo is −1. Off grid nothing is
+  // sent and the picker says so at the tap; a transient failure past that check says the same; a real error
+  // says so in the picker too (setError's toast sits under it). "Added here" only during this trip (R5).
+  const pickerOffGrid = () => offline || (typeof navigator !== "undefined" && navigator.onLine === false);
+  const pickNeedsSignal = { kind: "needsSignal", text: PICKER_COPY.needsSignal };
+  const pickError = { kind: "error", text: PICKER_COPY.error };
+  const pickOpts = (flag, door = true) => ({
+    ...(door ? { source: "picker", door: pickerDoorRef.current } : {}),
+    onTransient: () => { flag.transient = true; },
+    onError: () => { flag.error = true; },
+  });
+  const pickFailed = (flag) => (flag.transient ? pickNeedsSignal : pickError);
+  const pickerAdd = async (item, status) => {
+    if (pickerOffGrid()) return pickNeedsSignal;
+    const flag = {};
+    const res = await adjustQty(item.name, 1, item.rawCategory, undefined, pickOpts(flag));
+    if (!res) return pickFailed(flag);
     noteAddedHere(res);
+    if (status === "cart") return { kind: "renewed", text: PICKER_COPY.renewed(item.name) };
+    return { kind: "added", id: res.catalogItemId };
   };
-  // Create / reveal-add — Browse's addSearchedItem, unchanged, with the category
-  // fixed to `Other` for a genuinely new item (D7). It resolves hidden items
-  // before anything else (F1b), which is also the reveal card's not-live path.
-  const handleShopAddNew = async (category = "Other") => {
-    const res = await addSearchedItem(category);
-    setAddSheetOpen(false);
+  // The fresh ✓'s tap: take it back off (−1), the same change the old toast's Undo made.
+  const pickerUndo = async (item) => {
+    if (pickerOffGrid()) return pickNeedsSignal;
+    const flag = {};
+    await adjustQty(item.name, -1, item.rawCategory, undefined, pickOpts(flag, false));
+    if (flag.transient || flag.error) return pickFailed(flag);
+    return { kind: "undone" };
+  };
+  // No match → a new item under `Other` (D7), through Browse's addSearchedItem, which resolves hidden items
+  // before anything else (F1b). Its row is fresh, so it is undoable like any other.
+  const pickerCreate = async (text) => {
+    if (pickerOffGrid()) return pickNeedsSignal;
+    const flag = {};
+    const res = await addSearchedItem("Other", text, pickOpts(flag));
+    if (!res) return pickFailed(flag);
     noteAddedHere(res);
+    return { kind: "added", id: res.catalogItemId };
   };
+  // The reveal card (F1b): live → un-hide only (it is on the list already: its row reads "On the list");
+  // not live → un-hide and add at 1 (fresh).
+  const pickerReveal = async (m, text) => {
+    if (m.live) { unhideItem(m.item.id); return { kind: "revealed" }; }
+    if (pickerOffGrid()) return pickNeedsSignal;
+    const flag = {};
+    const res = await addSearchedItem(m.item.category, text, pickOpts(flag));
+    if (!res) return pickFailed(flag);
+    noteAddedHere(res);
+    return { kind: "added", id: res.catalogItemId };
+  };
+  const pickerTapListed = () => {
+    pickerTapOnListed(household?.id);
+  };
+  const pickerList = useMemo(() => pickerItems(categories, catalogMap), [categories, catalogMap]);
+  // The guide's rows (R10). Add items opens the picker in the tap; Browse goes to Browse on everything, or
+  // with Staples selected when the household has staples (the selection waits in a ref: the view effect
+  // resets Browse's filters on every door switch, and applies it there); Plan a meal opens the library.
+  const hasStaples = useMemo(() => Object.values(catalogMap).some((i) => i && i.is_staple), [catalogMap]);
+  const guideAdd = () => { openPicker("guide"); listGuideCta("add", null, household?.id); };
+  const guideBrowse = () => { listGuideCta("browse", hasStaples ? "staples" : "aisles", household?.id); pendingStaplesRef.current = hasStaples; goToDoor("input"); };
+  const guidePlan = () => { listGuideCta("plan", null, household?.id); setPlanScreen("library"); goToDoor("plan"); };
+  const pickerStatus = (cid) => itemStatus(cid, { listRows, quantities, checked });
+  const pickerHidden = (typed) => hiddenMatchFor(typed, hiddenCatalogItems, listRows);
   const handleStorePick = async (name) => {
     setStoreSaving(true);
     const ok = await setSessionStore(name);
@@ -8362,23 +8643,13 @@ function ProvisionsApp({ scrollRootRef }) {
   useEffect(() => {
     setTrayOpen(false);
     setAddedHereIds(new Set());
-    setAddSheetOpen(false);
     setStorePromptOpen(false);
     setStorePromptSkippedFor(null);
   }, [activeHouseholdId]);
-  useEffect(() => {
-    if (addSheetOpen) addSheetInputRef.current?.focus();
-  }, [addSheetOpen]);
-  // The Add sheet rides on top of the on-screen keyboard (2026-11-04): iOS keeps the
-  // layout viewport full height when the keyboard opens, so the fixed sheet sat under
-  // it. Lifted by the covered strip, capped to the visible height (see the sheet).
-  const addSheetKeyboard = useKeyboardInset(addSheetOpen);
-  // While the sheet is open the page behind the scrim never scrolls — otherwise iOS
-  // scrolls the list when the input takes focus, and a drag behind the sheet rubber-bands
-  // the list, whose visualViewport scroll events shook the lift (2026-11-05). Locks both
-  // scroll roots: .phone-scroll by ref (≥ COLUMN_MIN_WIDTH) and the body (a phone upright),
-  // scrollTop kept. The scrim's touch-action none is the half iOS actually obeys.
-  useScrollLock(addSheetOpen, scrollRootRef);
+  // While the quick picker is open the page behind it never scrolls (both scroll roots, scrollTop kept;
+  // the Add sheet's rule, 2026-11-05). The picker's own touchmove guard is the half iOS obeys.
+  useScrollLock(picker.open, scrollRootRef);
+  useScrollLock(listWelcomeOpen, scrollRootRef);   // the welcome's card sits over the dimmed list: nothing scrolls behind it
 
   const handleRemoveMember = async (m) => {
     const name = m.users?.full_name || (m.users?.email ? m.users.email.split("@")[0] : "this member");
@@ -8893,6 +9164,31 @@ function ProvisionsApp({ scrollRootRef }) {
     }
     if (!showSplash && !loading) setLandingDecided(true);
   }, [landingDecided, authPhase, householdReady, showSplash, loading, totalItems, checkedCount]);
+  // THE WELCOME's decision (R12): on List, signed in, the list loaded and NOT empty, and not yet seen by this
+  // person in this household on this phone. A household switch closes it; the next household decides afresh.
+  useEffect(() => { setListWelcomeOpen(false); }, [household?.id]);
+  useEffect(() => {
+    if (listWelcomeOpen || welcomeOpen) return;   // never over the place's own welcome sheet
+    if (shouldShowWelcome({ view, signedIn: isSignedIn, listReady: householdReady && !!household?.id, totalItems, seen: welcomeSeen(user?.id, household?.id) })) setListWelcomeOpen(true);
+  }, [listWelcomeOpen, welcomeOpen, view, isSignedIn, householdReady, household?.id, totalItems, user?.id]);
+  const dismissWelcome = () => { markWelcomeSeen(user?.id, household?.id); setListWelcomeOpen(false); listWelcomeDismissed(household?.id); };
+  // first_item_added (SPEC_one_list Telemetry): the time from first seeing the guide (this load) or the welcome
+  // to this person's first manual add, once per household per load. The welcome, shown later, re-arms it.
+  const firstAddRef = useRef(null);       // { after: "guide" | "welcome", at }
+  const firstAddDoneRef = useRef(false);
+  useEffect(() => { firstAddRef.current = null; firstAddDoneRef.current = false; }, [household?.id]);
+  useEffect(() => {
+    if (firstAddDoneRef.current) return;
+    if (listWelcomeOpen) { firstAddRef.current = { after: "welcome", at: Date.now() }; return; }
+    if (!firstAddRef.current && view === "list" && isSignedIn && householdReady && totalItems === 0) firstAddRef.current = { after: "guide", at: Date.now() };
+  }, [listWelcomeOpen, view, isSignedIn, householdReady, totalItems]);
+  onItemAddedRef.current = () => {
+    const m = firstAddRef.current;
+    if (!m || firstAddDoneRef.current) return;
+    firstAddRef.current = null;
+    firstAddDoneRef.current = true;
+    firstItemAdded(m.after, Date.now() - m.at, household?.id);
+  };
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.listItemId] ? i.subtotal : 0), 0), 0);
 
@@ -9294,7 +9590,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .hdr-action { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 44px; padding: 0 18px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
         .hdr-action:disabled { opacity: 0.6; cursor: default; }
-        /* "add to Shop →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
+        /* "add to the list →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
            hit box; the matching negative margins keep the line box exactly where it was. Not a bar, not teal. */
         .plan-addall { display: inline-block; vertical-align: baseline; border: none; background: none; color: #6f5a45; cursor: pointer;
                        padding: 15px 4px; margin: -15px -4px; line-height: inherit;
@@ -9341,7 +9637,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .board-card.ready .board-line { color: #6f5a45; }
         .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .board-actions-gap { flex: 1; }
-        /* One primary per state. Add to Shop / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
+        /* One primary per state. Add to list / See on list: espresso outline. Cooked it: teal fill — the household finished something. */
         .board-lock, .board-see, .board-cook { flex: none; border-radius: 999px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 900; letter-spacing: 0.5px; }
         .board-lock { border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45; }
@@ -9975,7 +10271,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .deck-status { margin: 6px 0 0; font-family: 'Lato', sans-serif; font-size: calc(14.7px * var(--op-text-scale)); line-height: 1.45; color: #6E5A4A; }
         .deck.cooked .deck-title { opacity: 0.55; }
         .deck-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 16px; }
-        /* Primary: espresso outline (Add to Shop); teal fill ONLY for Cooked it — the household finished something; deep sand (--op-add) for
+        /* Primary: espresso outline (Add to list); teal fill ONLY for Cooked it — the household finished something; deep sand (--op-add) for
            Add a meal, the same as both of Plan's add buttons. */
         .deck-primary { flex: none; min-height: 44px; padding: 0 22px; border-radius: 22px; cursor: pointer; white-space: nowrap;
                         border: 1.5px solid #6f5a45; background: transparent; color: #6f5a45;
@@ -10031,8 +10327,8 @@ function ProvisionsApp({ scrollRootRef }) {
            partly covered and hard to hit (iPhone, the 2026-10-11 walk). Hidden, not
            lowered: a lowered Helm would still read as reachable. SAME SIGNAL as the
            stack rule above, so the two cannot disagree. Restored on close. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .helm,
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .helm-fade { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .board-menu-backdrop, .ask-editor) .helm,
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .board-menu-backdrop, .ask-editor) .helm-fade { display: none; }
         /* …under EVERY bottom sheet, not only the modal overlay (Dan 2026-10-31): the thank-you sheet's Send / Skip and
            the arrival sheet's Open it sat under the pill. The same six surfaces as the Wrap Up bar's rule below. */
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
@@ -10264,18 +10560,45 @@ function ProvisionsApp({ scrollRootRef }) {
         .price-input { font-family: 'Lato', sans-serif; font-size: 0.82rem; border: 1.5px solid #c8973a; border-radius: 4px; padding: 3px 6px; width: 70px; color: #2C1A0E; background: #F5EDE0; outline: none; }
         .price-save-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; background: #c8973a; color: white; border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; }
         .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; text-align: right; }
-        .list-empty { text-align: center; padding: 60px 20px; }
-        /* Shop empty state on the knob (pass 2): heading = page-title rate k .4 at its 24, #8A5F3A (espresso tried 7b1e0b4, too heavy for an empty state);
-           line = body 15; the shared .home-line-link scales on its own rule since Home joined. */
-        .list-empty h2 { font-family: 'Playfair Display', serif; font-size: calc(24px * (1 + (var(--op-text-scale) - 1) * 0.4)); color: #8A5F3A; }
-        .list-empty-line { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 6px; margin-top: 12px;
-                           font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; }
-        /* Wrap, never squeeze (SPEC_global_text_size decision 9): the count keeps its one line; when the three controls
-           don't fit beside it (phone width, "+ Add" is wider than the old round +), they drop to a second line as ONE
-           group, right-aligned — never split, never a count ellipsed to "4 …". */
-        .list-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px 8px; }
-        .list-header.empty { justify-content: flex-end; }
-        .list-progress { flex: 1 0 auto; white-space: nowrap; }
+        /* THE GUIDE (SPEC_one_list R10, mockup screen 1): the ask, three quiet rows (72px, a 16px radius, a ›),
+           Add items in teal, then the footer. Body type on the knob, like the rest of List. */
+        .list-guide { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 24px; }
+        .list-guide-ask { margin: 4px 2px 2px; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); color: #5B4A3A; }
+        .list-guide-row { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 72px; padding: 10px 16px; text-align: left; cursor: pointer;
+                          border: 1px solid #d8bf94; border-radius: 16px; background: #fff; color: #2C1A0E; font-family: 'Lato', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .list-guide-row.teal { border: 2px solid #13877C; background: #E3F1EE; }
+        .list-guide-ico { flex: none; display: flex; color: #9A7350; }
+        .list-guide-row.teal .list-guide-ico { color: #13877C; }
+        .list-guide-text { flex: 1; min-width: 0; }
+        .list-guide-label { display: block; font-size: calc(17px * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; }
+        .list-guide-row.teal .list-guide-label { color: #0A5049; }
+        .list-guide-sub { display: block; margin-top: 2px; font-size: calc(14px * var(--op-text-scale)); color: #5B4A3A; }
+        .list-guide-chev { flex: none; color: #9A7350; }
+        /* THE WELCOME (R12, mockup screen 5): the list dimmed at 55% espresso, a 24px-radius card 12px off the
+           edges at the bottom (above the safe area), Got it as the one dark pill. Above the Helm (z 900). */
+        .list-welcome-scrim { position: fixed; inset: 0; z-index: 1500; background: rgba(26,15,8,0.55); display: flex; align-items: flex-end; justify-content: center;
+                              padding: 12px 12px calc(12px + var(--op-inset-bottom, 0px)); touch-action: none; }
+        .list-welcome { width: 100%; max-width: 520px; max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box;
+                        display: flex; flex-direction: column; gap: 14px; padding: 22px 20px 18px; border-radius: 24px; background: #FBF4EC; color: #2C1A0E;
+                        box-shadow: 0 -8px 40px rgba(0,0,0,0.3); font-family: 'Lato', sans-serif; touch-action: pan-y; }
+        .list-welcome-eyebrow { font-size: calc(11px * var(--op-text-scale)); letter-spacing: 2px; text-transform: uppercase; color: #6F5C48; }
+        .list-welcome-title { margin: 4px 0 0; font: 400 calc(26px * (1 + (var(--op-text-scale) - 1) * 0.4)) 'Playfair Display', serif; line-height: 1.2; overflow-wrap: anywhere; }
+        .list-welcome-lead { margin: 6px 0 0; font-size: calc(14px * var(--op-text-scale)); line-height: 1.5; color: #5B4A3A; }
+        .list-welcome-line { display: flex; gap: 12px; align-items: flex-start; }
+        .list-welcome-ico { flex: none; display: flex; color: #9A7350; }
+        .list-welcome-head { font-size: calc(15px * var(--op-text-scale)); font-weight: 700; }
+        .list-welcome-sub { font-size: calc(13px * var(--op-text-scale)); line-height: 1.45; color: #5B4A3A; }
+        .list-welcome-ok { margin-top: 4px; min-height: 50px; border: none; border-radius: 999px; background: #3A281C; color: #FFFDF9; cursor: pointer;
+                           font: 700 calc(16px * var(--op-text-scale)) 'Lato', sans-serif; }
+        .list-guide-foot { margin: 10px 0 0; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.5; color: #5B4A3A; }
+        /* THE LIST HEADER (SPEC_one_list R2, mockup "Our List — one list, one screen" screens 2 + 4): "Our list" in
+           Playfair 400 at 28 (the page-title rate k .4), the list tools on the right, then a 1.5px sand hairline
+           (#d8bf94) 12px under the row. Wrap, never squeeze (SPEC_global_text_size decision 9): the title keeps its one
+           line; when the controls don't fit beside it (XXL), they drop to a second line as ONE group, right-aligned. */
+        .list-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 8px;
+                       margin-bottom: 8px; padding-bottom: 12px; border-bottom: 1.5px solid #d8bf94; }
+        .list-title { flex: 1 0 auto; margin: 0; white-space: nowrap; font-family: 'Playfair Display', serif; font-weight: 400;
+                      font-size: calc(28px * (1 + (var(--op-text-scale) - 1) * 0.4)); line-height: 1.15; color: #2C1A0E; }
         .list-controls { flex: none; display: flex; align-items: center; gap: 8px; margin-left: auto; }
         /* ── The Wrap Up bar (src/components/WrapUpBar.js; docs/mockups/mockup_shop_wrapup_bar.html) ──
            Pinned above the Helm: bottom = the Helm's 18px + its 56px + a 10px gap (+ safe area); 16px sides = the container's
@@ -10289,8 +10612,7 @@ function ProvisionsApp({ scrollRootRef }) {
         /* While ANY sheet or modal is open the bar hides and returns on close (Dan 2026-10-30: at z 900 it
            floated over every sheet and partly covered the arrival form's Not for us / Add to our meals).
            Keyed off the document like the Helm rule above: every surface that owns a scrim or overlay. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .wrapbar { display: none; }
-        .wrapbar.p0 { border-style: dashed; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .board-menu-backdrop, .ask-editor) .wrapbar { display: none; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
         /* No hard edge on the fill: its 2px right border was the line through the "W" of
            the label at XXL (pass 2, Shop). The soft tint alone marks progress. */
@@ -10303,10 +10625,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .wrapbar-spacer { height: 58px; }
         .cat-toggle { background: none; border: none; cursor: pointer; padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; gap: 5px; font-family: 'Lato', sans-serif; font-size: 0.68rem; letter-spacing: 1px; text-transform: uppercase; transition: opacity 0.2s; }
         .cat-toggle:hover { opacity: 0.7; }
-        /* List header + In-cart tray on the knob (pass 2, Shop slice 2): progress = eyebrow k 1 at
-           its 12.8; lens toggle = button 14 k .8 (the 46px segment keeps its height); aisle + A–Z
-           eyebrows 11.2 → 12.5; tray title = body 15, tray count = meta 14. Muted → #8A5F3A. */
-        .list-progress { font-family: 'Lato', sans-serif; font-size: calc(12.8px * var(--op-text-scale)); color: #8A5F3A; letter-spacing: 1px; text-transform: uppercase; }
+        /* List header + In-cart tray on the knob (pass 2, Shop slice 2): lens toggle = button 14 k .8 (the 46px
+           segment keeps its height); aisle eyebrows 11.2 → 12.5; tray title = body 15, tray count = meta 14. Muted → #8A5F3A.
+           The header count and the A–Z "N to find" eyebrow retired 2026-11-26 (SPEC_one_list R3). */
         .cyc-ico { flex: none; width: 46px; height: 46px; border-radius: 11px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8D5B7; background: #fff; color: #A0724A; cursor: pointer; padding: 0; transition: background 0.18s, border-color 0.18s, color 0.18s; }
         .cyc-ico.on { background: #A0724A; border-color: #8A5F3A; color: #fff; }
         .cyc-ico svg { width: 22px; height: 22px; display: block; }
@@ -10321,7 +10642,6 @@ function ProvisionsApp({ scrollRootRef }) {
         .store-line b { color: #2C1A0E; font-weight: 700; }
         .store-line .chev { font-size: calc(12.5px * var(--op-text-scale)); color: #8A5F3A; }
         .store-line .store-set { color: #8A5F3A; font-weight: 700; text-decoration: underline dotted; text-underline-offset: 3px; }
-        .az-eyebrow { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; margin: 2px 0 6px; }
         /* A–Z is a different MODE, not the same rows minus headers: one flat list, small circle, no provenance, no prices.
            Padding is set so a single-line row lands at roughly an Aisles row's tap height. */
         .list-item.az { padding: 13px 4px; gap: 12px; border-bottom: 1px solid #F0E6D6; }
@@ -10435,33 +10755,28 @@ function ProvisionsApp({ scrollRootRef }) {
         .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 10px; cursor: pointer; text-decoration: underline; text-align: left; }
         .store-field-label { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 7px; }
         .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; background: #F5EDE0; outline: none; }
-        /* touch-action none + overscroll contain (2026-11-05): a drag on the dimmed area never reaches the
-           page (iOS ignores overflow hidden for touch). Taps still close. The sheet's own scroller is its
-           own touch-action root, so .add-sheet-body still scrolls and the head still pulls to close. */
-        .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; touch-action: none; overscroll-behavior: contain; }
-        .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; transition: transform 150ms ease-out; }
-        @media (prefers-reduced-motion: reduce) { .add-sheet { transition: none; } }
-        .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; flex: none; }
-        /* Add sheet on the knob (pass 2, Shop slice 2): title = sheet-title rate k .5 at its
-           current 18.4 (not promoted to 22.4 — not a .modal h2, same call as the Profile sheet);
-           hint = meta 14 #8A5F3A. The search input is CatalogSearchBox (body 15, shared with Browse). */
-        .add-sheet-title { font-family: 'Playfair Display', serif; font-size: calc(18.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; margin-bottom: 12px; flex: none; }
-        /* Clip, don't spill (2026-11-05): the sheet is overflow hidden; grab, title and search row hold
-           their height (flex none); .add-sheet-body (results + hint) is the only scroller, so the
-           keyboard cap shrinks the body, never draws the hint below the sheet's edge. */
-        .add-sheet-head { flex: none; }
-        .add-sheet-search { display: flex; align-items: center; gap: 10px; flex: none; }
-        .add-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; margin-top: 10px; }
-        .add-result { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #E8D5B7; cursor: pointer; }
-        .add-result .ar-main { flex: 1; min-width: 0; }
-        .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
-        .add-result .ar-cat { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 2px; }
-        .add-result .ar-go { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; }
-        .add-result.create { border-bottom: none; }
-        .add-result.create .ar-name { color: #8A5F3A; }
-        .add-result.create .ar-name b { color: #2C1A0E; }
-        .add-sheet-hint { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 12px; line-height: 1.45; }
-        .op-later-badge { position: absolute; top: -8px; right: -8px; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 700; letter-spacing: .5px; background: #0D9488; color: #fff; padding: 2px 6px; border-radius: 8px; }
+        /* THE QUICK PICKER's list (SPEC_one_list R7, mockup screen 3): letter headers, 54px rows, the name over
+           "On the list", a 36px mark — teal ✓ (on the list, inert) or an outlined + — and its own toast inside the
+           view (above the keyboard). */
+        .pick-letter { font-family: 'Lato', sans-serif; font-size: calc(11px * var(--op-text-scale)); letter-spacing: 2px; text-transform: uppercase; color: #6F5C48; margin: 10px 0 2px; }
+        .pick-row { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 6px 4px; border: none; border-bottom: 1px solid #EADFCF;
+                    background: none; text-align: left; font-family: 'Lato', sans-serif; color: #2C1A0E; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .pick-row.on { cursor: default; }
+        .pick-main { flex: 1; min-width: 0; }
+        .pick-name { display: block; font-size: calc(16px * var(--op-text-scale)); overflow-wrap: anywhere; }
+        .pick-sub { display: block; font-size: calc(12px * var(--op-text-scale)); color: #3F5A55; }
+        /* Added this visit: the row is the undo (R8 revised) — the line says so in teal ink. */
+        .pick-row.fresh .pick-sub { color: #0A776D; font-weight: 700; }
+        .pick-mark { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid #C9A26A; color: #9A7350; font-size: 20px; line-height: 1; }
+        .pick-mark.on { border-color: #13877C; background: #13877C; color: #fff; }
+        .pick-create { border-bottom: none; }
+        .pick-create .pick-name { color: #8A5F3A; }
+        .pick-create .pick-name b { color: #2C1A0E; }
+        .item-picker .ask-search-list { padding-bottom: 96px; }
+        .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+                      padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
+                      box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
+        .pick-toast-text { min-width: 0; overflow-wrap: anywhere; }
         .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
         /* Names in the filter descriptor read as content, not as voice. */
         .declutter-desc b { font-style: normal; font-weight: 700; color: #8A5F3A; }
@@ -10546,8 +10861,6 @@ function ProvisionsApp({ scrollRootRef }) {
         .bf-row { width: 100%; justify-content: flex-start; box-sizing: border-box; }
         .picker-sub { font-family: 'Lato', sans-serif; font-size: 0.82rem; color: #8a7a60; margin-bottom: 12px; }
         .flat-header { font-family: 'Lato', sans-serif; font-size: 0.7rem; letter-spacing: 2.5px; text-transform: uppercase; color: #8a7a60; margin-top: 12px; padding-bottom: 6px; }
-        .progress-bar { height: 4px; background: #E8D5B7; border-radius: 2px; margin-bottom: 24px; overflow: hidden; }
-        .progress-fill { height: 100%; background: #A0724A; border-radius: 2px; transition: width 0.4s ease; }
         .list-cat-title { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 2.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 0; margin-top: 28px; padding-bottom: 6px; border-bottom: 2px solid #c8973a; }
         .list-item { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px; background: transparent; border: none; border-bottom: 1px solid #E8D5B7; transition: all 0.2s; user-select: none; -webkit-tap-highlight-color: transparent; }
         /* The hand-back's See (W9; 2026-11-15 revised): the rows an Ask just landed hold the people tint
@@ -11735,7 +12048,7 @@ function ProvisionsApp({ scrollRootRef }) {
               // The recipe view over Home (SPEC_recipe_view D1/D2): a sheet, no route change —
               // closing it lands back here. openRecipe ignores a held night itself.
               onView: (m) => openRecipe(m, "make"),
-              onLockIn: handleAddMealToList,      // the board's Add to Shop — on-hand prompt included
+              onLockIn: handleAddMealToList,      // the board's Add to list — on-hand prompt included
               onCooked: handleCookedMeal,
               onSkip: handleSkipMeal,
               onSwitch: handleSwitchDeck,
@@ -11749,7 +12062,7 @@ function ProvisionsApp({ scrollRootRef }) {
               checkedCount,
               firstItem: pendingItems[0]?.name || "",
               shopping: !!activeSession,
-              onStartList: () => goToDoor("input"),
+              onStartList: () => goToDoor("list"),   // SPEC_one_list R11: List (the guide, Slice 3), not Browse
               onShop: () => goToDoor("list"),
             }}
             // D7: only when Shop would show it — prices on, a budget set, a non-empty list.
@@ -11763,7 +12076,7 @@ function ProvisionsApp({ scrollRootRef }) {
           <>
             {/* THE BOARD (v2) under the title switch (SPEC_plan_week_meals_switch):
                 "This Week" active, "Meals" one tap away, the subtitle carrying the
-                count AND the batch action ("4 nights · 2 meals to add to Shop →" —
+                count AND the batch action ("4 nights · 2 meals to add to the list →" —
                 see boardSubtitle), and ONE control top-right — the add button
                 (--op-add: deep sand = adding things) into the library. The switch
                 row is the door's control row, so it is the compact sentinel
@@ -11785,9 +12098,9 @@ function ProvisionsApp({ scrollRootRef }) {
                   {boardSubtitle.head}{boardSubtitle.tail}
                   {boardSubtitle.link > 0 && (isSignedIn ? (
                     <button type="button" className="plan-addall" disabled={lockingAll} onClick={handleLockInAll}>
-                      {lockingAll ? "adding…" : "add to Shop →"}
+                      {lockingAll ? "adding…" : "add to the list →"}
                     </button>
-                  ) : "add to Shop")}
+                  ) : "add to the list")}
                 </>
               ) : null}
               action={boardReady && !showWelcome ? (
@@ -12061,7 +12374,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   hiddenMatch={hiddenMatch}
                   onReveal={(m) => {
                     if (m.live) { unhideItem(m.item.id); setSearchQuery(""); }
-                    else addSearchedItem(m.item.category);   // un-hide + add at 1 — the F1b branch
+                    else { addSearchedItem(m.item.category, searchQuery); setSearchQuery(""); }   // un-hide + add at 1 — the F1b branch
                   }}
                   listClassName="items-grid"
                   renderRow={(item) => {
@@ -12241,50 +12554,30 @@ function ProvisionsApp({ scrollRootRef }) {
             )}
             {totalItems === 0 ? (
               <>
-                {/* Empty form of the header row: the "+ Add" pill alone (Add sheet,
-                    in-store paths) — no count line (there is no trip to count), no
-                    lens, no Wrap up. Still the compact sentinel (ref), though the
+                {/* Empty form of the header row: "Our list" alone (mockup screen 1) — the guide's Add items is
+                    the add, so no "+ Add", no lens, no Wrap up. Still the compact sentinel (ref), though the
                     page is too short to scroll. */}
                 <div className="list-header empty" ref={controlRowRef}>
-                  <HeaderAction verb="add" label="Add something" onClick={openAddSheet} />
+                  <h2 className="list-title">Our list</h2>
                 </div>
-                {/* Empty state — Home's list-line pattern (status · link). Planned
-                    meals not yet on the list (boardStats.stillToAdd, the board
-                    subtitle's N) point at This Week; otherwise at Browse — the
-                    same door Home's "Start a list →" opens. The count sits in the
-                    text span, never in the link (RUM: the link is fixed copy). */}
-                <div className="list-empty">
-                  <h2>Your list is empty</h2>
-                  <div className="list-empty-line">
-                    {boardStats.stillToAdd.length > 0 ? (
-                      <>
-                        <span>{boardStats.stillToAdd.length} {boardStats.stillToAdd.length === 1 ? "meal" : "meals"} to</span>
-                        <button type="button" className="home-line-link" onClick={() => goToDoor("plan")}>add to Shop →</button>
-                      </>
-                    ) : (
-                      <button type="button" className="home-line-link" onClick={() => goToDoor("input")}>Browse items →</button>
-                    )}
-                  </div>
-                </div>
+                {/* THE GUIDE (R10): the empty list's three ways in. It goes with the first item and returns
+                    whenever the list is empty again. */}
+                <ListGuide hasStaples={hasStaples} onAdd={guideAdd} onBrowse={guideBrowse} onPlan={guidePlan} />
               </>
             ) : (
               <>
+                {/* THE LIST HEADER (SPEC_one_list R2/R3, 2026-11-26): "Our list", then the list tools, then
+                    the sand hairline. No count and no progress bar: trip progress lives only in the Wrap up
+                    bar, the count from other doors only in the LIST badge (say it once). Not pinned: the row
+                    scrolls away with the list and hands off to the Helm's compact + (D9′, controlRowRef).
+                    The header holds LIST TOOLS only (2026-10-05): Wrap up is the WrapUpBar above the Helm —
+                    one Wrap Up control per state, the All done card's teal button at 100%. */}
                 <div className="list-header" ref={controlRowRef}>
-                  <span className="list-progress">{checkedCount} of {totalItems} in cart</span>
-                  {activeCycle && <span style={{display:'none'}}>{activeCycle.id}</span>}
+                  <h2 className="list-title">Our list</h2>
                   <div className="list-controls">
-                  <ShopLensSegment lens={shopLens} onChange={setShopLens} />
-                  {/* D4′ (v2): the trip's controls are part of the list — this row
-                      scrolls away with it; the pill is chrome. "+ Add" opens the
-                      Add sheet (add-from-the-aisle). The header holds LIST TOOLS
-                      only (2026-10-05): Wrap up left this row for the WrapUpBar
-                      above the Helm — one Wrap Up control per state, the All
-                      done card's teal button at 100% (what D9 guards against). */}
-                  <HeaderAction verb="add" label="Add something" onClick={openAddSheet} />
+                    <ShopLensSegment lens={shopLens} onChange={setShopLens} />
+                    <HeaderAction verb="add" label="Add something" onClick={() => openPicker("list_add")} />
                   </div>
-                </div>
-                <div className="progress-bar">
-                  <div className="progress-fill" style={{ width: `${(checkedCount / totalItems) * 100}%` }} />
                 </div>
                 {checkedCount === totalItems && totalItems > 0 && !shopCheckSettling && (() => {
                   /* All done (mockup_shop_all_done.html) — the one earned moment on
@@ -12356,7 +12649,6 @@ function ProvisionsApp({ scrollRootRef }) {
                 ) : (
                   /* ── A–Z — a different mode: one flat alphabetical list, no provenance, no per-row prices. ── */
                   <div>
-                    {shopFlatItems.length > 0 && <div className="az-eyebrow">{shopFlatItems.length} to find</div>}
                     {shopFlatItems.map((item) => (
                       <SwipeToRemove key={item.name} onRemove={() => handleSwipeRemove(item)} removeLabel="Remove" style={{ borderRadius: 0, background: "transparent" }}>
                         <div className={`list-item az shop-row-in${rowMotionClass(item.listItemId)}${landed.hl?.ids.has(item.catalogItemId) ? ` ask-landed-hl${landed.hl.fading ? " fading" : ""}` : ""}`}>
@@ -12405,7 +12697,8 @@ function ProvisionsApp({ scrollRootRef }) {
                 {/* The Wrap Up bar — the trip's one exit until 100%, when it hands
                     off to the All done card (the bar renders nothing there). The
                     spacer keeps the last rows above it; both go with the list. */}
-                {checkedCount < totalItems && <div className="wrapbar-spacer" aria-hidden="true" />}
+                {/* R4: the spacer follows the bar's own rule — none at 0 checked, none at 100%. */}
+                {checkedCount > 0 && checkedCount < totalItems && <div className="wrapbar-spacer" aria-hidden="true" />}
                 <WrapUpBar checked={checkedCount} total={totalItems} onWrapUp={openWrapUp} busy={wrappingUp} />
               </>
             )}
@@ -12520,7 +12813,7 @@ function ProvisionsApp({ scrollRootRef }) {
 
       {/* The recipe view (SPEC_recipe_view): read first. Edit opens the sheet above in
           its place; the view returns on Cancel / Save with the live row. */}
-      {/* !onHandPrompt (Amendment B, R5): the board's Add to Shop opens the "I have this" prompt, a
+      {/* !onHandPrompt (Amendment B, R5): the board's Add to list opens the "I have this" prompt, a
           .modal-overlay (z 100) that would sit UNDER this view's scrim (z 1000) — the view steps aside
           while it is open and returns in its new state, the same pattern as the Edit sheet. */}
       {MEALS_ENABLED && rvMeal && !mealSheet && !onHandPrompt && (
@@ -13119,89 +13412,12 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       )}
 
-      {/* ── Shop Add sheet (mockup frame C) — transactional, so the scrim closes it.
-          Same search path Browse has, through the shared components: catalog hit
-          adds at one tap, hidden-live item surfaces as the reveal card, no match
-          creates under `Other`. The mic is designed in and NOT wired (LATER). ── */}
-      {addSheetOpen && (
-        <div className="add-sheet-scrim" onClick={closeAddSheet}>
-          {/* AddSheetPanel (2026-11-05): pull down on the head always closes; on the body (results +
-              hint, the one scroller; the sheet clips) only from the top, otherwise it scrolls. */}
-          <AddSheetPanel
-            onClose={closeAddSheet}
-            inset={addSheetKeyboard.inset}
-            style={
-              // Never taller than what is on screen, so it can't run under the status
-              // bar with the keyboard up; 80vh stays the cap when nothing is covered.
-              addSheetKeyboard.viewportHeight
-                ? { maxHeight: `min(80vh, ${Math.max(0, addSheetKeyboard.viewportHeight - 16)}px)` }
-                : undefined
-            }
-            head={
-              <>
-                <div className="add-sheet-grab" />
-                <div className="add-sheet-title">Add something</div>
-                <div className="add-sheet-search">
-                  <CatalogSearchBox
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    onClear={() => setSearchQuery("")}
-                    placeholder="Search your catalog…"
-                    inputRef={addSheetInputRef}
-                  />
-                  <span style={{ position: "relative", flex: "none" }}>
-                    <button type="button" className="op-mic-btn" disabled aria-label="Voice add — coming later" title="Voice add — coming later">
-                      <svg viewBox="0 0 24 24" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="9" y="3" width="6" height="11" rx="3" />
-                        <path d="M5 11a7 7 0 0 0 14 0" />
-                        <line x1="12" y1="18" x2="12" y2="21" />
-                      </svg>
-                    </button>
-                    <span className="op-later-badge">LATER</span>
-                  </span>
-                </div>
-              </>
-            }
-          >
-            <div className="add-sheet-results">
-              {searchResults !== null && (
-                <SearchResultsList
-                  query={searchQuery}
-                  results={searchResults}
-                  hiddenMatch={hiddenMatch}
-                  onReveal={(m) => {
-                    if (m.live) { unhideItem(m.item.id); closeAddSheet(); }
-                    else handleShopAddNew(m.item.category);   // un-hide + add at 1, recorded as added_in_store
-                  }}
-                  showCount={false}
-                  renderRow={(item) => (
-                    <div key={item.name} className="add-result" onClick={() => handleShopAddResult(item)} role="button" tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === "Enter") handleShopAddResult(item); }}>
-                      <div className="ar-main">
-                        <div className="ar-name">{item.name}</div>
-                        <div className="ar-cat">{item.category}</div>
-                      </div>
-                      <span className="ar-go">Add</span>
-                    </div>
-                  )}
-                  createSlot={
-                    <div className="add-result create" onClick={() => handleShopAddNew()} role="button" tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === "Enter") handleShopAddNew(); }}>
-                      <div className="ar-main">
-                        <div className="ar-name">Add <b>“{searchQuery.trim()}”</b> as a new item…</div>
-                      </div>
-                    </div>
-                  }
-                />
-              )}
-            </div>
-            <div className="add-sheet-hint">
-              Added items land in their aisle, unchecked
-              {activeSession?.store_name_raw ? `, and are remembered as picked up at ${activeSession.store_name_raw}` : ""}.
-            </div>
-          </AddSheetPanel>
-        </div>
-      )}
+      {/* ── THE QUICK PICKER (SPEC_one_list R7) — always mounted, so an opener's tap can raise the keyboard.
+          It replaced the Shop Add sheet (AddSheetPanel, its disabled mic) on 2026-11-26. ── */}
+      <ListPicker search={picker} items={pickerList} statusOf={pickerStatus} hiddenFor={pickerHidden}
+        onAdd={pickerAdd} onCreate={pickerCreate} onReveal={pickerReveal} onUndo={pickerUndo} onTapListed={pickerTapListed} onClosed={onPickerClosed} />
+      {/* ── THE NEW MEMBER WELCOME (R12) — over the dimmed list, once per person per household. ── */}
+      {listWelcomeOpen && <ListWelcome householdName={household?.name || ""} onDone={dismissWelcome} />}
 
       {/* Profile Sheet — three ways out, all running the same close: backdrop
           tap (the scrim's onClick), the Close button (SheetClose: VoiceOver's

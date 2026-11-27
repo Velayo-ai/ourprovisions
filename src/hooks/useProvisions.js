@@ -29,6 +29,7 @@ import { landAskPicksArgs, askCompletedAttributes } from "../lib/askPicks";
 import { createAskArgs, editAskArgs, shapeAsks } from "../lib/askCreate";
 import { asksAfterCatalogDelete } from "../lib/askRun";
 import { ASK_ENABLED } from "../lib/featureFlags";
+import { ensureTripSession } from "../lib/tripSession";
 
 // RUM custom events ride the provider SplunkOtelWeb.init() registers in src/rum.js
 // (same module-level pattern as ActiveHouseholdContext). @splunk/otel-web 3.0.0
@@ -184,6 +185,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // this ref is that hook→App channel, the same shape refreshCatalogRef
   // already uses for the catalog poll. App assigns it; the poll calls it.
   const onListChangedRef = useRef(() => {});
+  // SPEC_one_list first_item_added: App's hook into every manual add this person makes (Browse, the picker,
+  // landscape, a meal's new rows) — the same moments item_added_to_list fires. App assigns it.
+  const onItemAddedRef = useRef(() => {});
   // Fingerprint of the list the poll last saw. "" until the first load, so
   // the initial fetch never counts as a change — arriving on a surface
   // already triggers its own provenance refresh, and double-firing would
@@ -1376,8 +1380,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const qtyCtxRef = useRef(new Map());
   const emitItemAdded = (ctx) => {
     // One emitter for every manual entry onto the list (Q10: the RPC's inserted / revived, never
-    // a bump). source: 'browse' covers Browse's Add, search quick-add, the new-item form, the
-    // Shop in-store Add sheet and landscape. Telemetry never throws into, or blocks, the add.
+    // a bump). source: 'browse' covers Browse's Add, search quick-add, the new-item form and
+    // landscape; 'picker' is the List's quick picker (SPEC_one_list Telemetry), with the door it was
+    // opened on ('list' | 'browse' | 'guide'). Count-only: an id and a category, never a name.
+    // Telemetry never throws into, or blocks, the add.
     try {
       tracer.startSpan("item_added_to_list", {
         attributes: {
@@ -1385,9 +1391,12 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           category: ctx.categoryName || ctx.catalogItem.category || null,
           is_custom: !ctx.catalogItem.is_global,
           household_id: ctx.hhId,
-          source: "browse",
+          source: ctx.source || "browse",
+          ...(ctx.door ? { door: ctx.door } : {}),
+          "workflow.name": "item_added_to_list",   // rum.workflow.count (SPEC_one_list_dashboard)
         },
       }).end();
+      onItemAddedRef.current();
     } catch (e) {
       console.warn("[rum] item_added_to_list event failed:", e);
     }
@@ -1467,8 +1476,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
             });
           }
           releaseChecks();
-          if (classifyFetchError(err) === 'transient') quietTransient(ctx.isAdd ? "add" : "qty");
-          else setError(`Could not update quantity: ${err?.message}`);
+          if (classifyFetchError(err) === 'transient') { quietTransient(ctx.isAdd ? "add" : "qty"); if (ctx.onTransient) ctx.onTransient(); }
+          else { setError(`Could not update quantity: ${err?.message}`); if (ctx.onError) ctx.onError(); }
         }
         ctx.keys.forEach((k) => qtyBusyRef.current.delete(k));
         qtyCtxRef.current.delete(key);
@@ -1476,7 +1485,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     });
   }
 
-  const adjustQty = useCallback(async (itemName, delta, categoryName, price) => {
+  // opts (SPEC_one_list, the quick picker): { source, door } for item_added_to_list; onTransient(), called
+  // when the change fails for want of signal, so the surface that made it can answer at the tap (R14:
+  // "Adding items needs signal for now."); onError(), called on a real error (setError still runs).
+  const adjustQty = useCallback(async (itemName, delta, categoryName, price, opts = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db || !Number.isInteger(delta) || delta === 0) return null;
@@ -1550,8 +1562,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         if (!qtyQueueRef.current.busy(`${hh.id}:${catalogItem?.id}`)) qtyBusyRef.current.delete(optKey);
         setQuantities((prev) => rollbackQty(prev, optKey, listRowsRef.current));
       }
-      if (classifyFetchError(err) === 'transient') quietTransient(delta > 0 && !(catalogItem && liveRowIdFor(catalogItem.id)) ? "add" : "qty");
-      else setError(`Could not update quantity: ${err.message}`);
+      if (classifyFetchError(err) === 'transient') { quietTransient(delta > 0 && !(catalogItem && liveRowIdFor(catalogItem.id)) ? "add" : "qty"); if (opts.onTransient) opts.onTransient(); }
+      else { setError(`Could not update quantity: ${err.message}`); if (opts.onError) opts.onError(); }
       return null;
     }
 
@@ -1562,6 +1574,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       ctx = { hhId: hh.id, cid: catalogItem.id, catalogItem, categoryName, keys: new Set(), price: null, optKey, renewing: false, uncheckedIds: new Set(), isAdd: delta > 0 && !liveRowIdFor(catalogItem.id) };
       qtyCtxRef.current.set(key, ctx);
     }
+    // The latest tap's surface names the burst (a burst is one item's taps while one request is out).
+    if (opts.source) { ctx.source = opts.source; ctx.door = opts.door || null; }
+    if (opts.onTransient) ctx.onTransient = opts.onTransient;
+    if (opts.onError) ctx.onError = opts.onError;
     if (renewRowId) { ctx.renewing = true; ctx.uncheckedIds.add(renewRowId); }
     ctx.keys.add(optKey);
     ctx.optKey = optKey;
@@ -2153,7 +2169,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       // Each pass replays one boundary or stops; the bound only guards against a loop that can't happen.
       for (let pass = 0; pass < 100; pass++) {
         const { send, boundary } = planFlushStep(checkQueueRef.current.entries, landings(), currentWrap(hh.id));
-        const sent = await sendQueuedChecks(send, wrapLanded ? tripAfter : tripBefore);
+        // The trip after a queued Wrap up starts at its own first check; with no Wrap up queued there is one
+        // trip, and it starts at the first queued check of all (R3). (wrapLanded starts true when there is
+        // no Wrap up, and `post` is then empty: keying on wrapLanded alone opened that trip at the reconnect.)
+        const sent = await sendQueuedChecks(send, wrap0 && wrapLanded ? tripAfter : tripBefore);
         if (!boundary) return;
         // Every check before the boundary has to have landed (or been dropped) before it goes.
         if (!sent || send.some((id) => checkQueueRef.current.entries[id])) return;
@@ -2485,22 +2504,20 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // taps cannot open two sessions during the GPS wait.
   // `startedAt` (R3, offline check-off): a trip whose first checks were queued offline starts at the first
   // queued tap, not at the reconnect. Only used when a NEW session is opened here.
-  const ensureSession = useCallback(async ({ silent = false, startedAt = null } = {}) => {
+  // `adoptOnly` (SPEC_one_list R5): return this person's open session or null, NEVER start one. An add
+  // passes it, so an add at home can't open a trip even when this phone's activeSession is stale (wrapped
+  // up on another phone, or past the 8 h expiry). The logic lives in lib/tripSession (tested there).
+  const ensureSession = useCallback(async ({ silent = false, startedAt = null, adoptOnly = false } = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!db || !hh) return null;
-    if (sessionStartingRef.current) return sessionStartingRef.current;
-    sessionStartingRef.current = (async () => {
-      await loadSessions(db, hh.id, { withStores: false });
-      const cur = activeSessionRef.current;
-      if (cur) return cur;
-      return startSession({ silent, startedAt });
-    })();
-    try {
-      return await sessionStartingRef.current;
-    } finally {
-      sessionStartingRef.current = null;
-    }
+    return ensureTripSession({
+      starting: sessionStartingRef,
+      reload: () => loadSessions(db, hh.id, { withStores: false }),
+      current: () => activeSessionRef.current,
+      start: () => startSession({ silent, startedAt }),
+      adoptOnly,
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startSession]);
 
@@ -2558,12 +2575,16 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   // errors and is logged, nothing more.
   // occurredAt / tripStartedAt (offline check-off): a queued check is logged when the server confirms it,
   // with its TAP time as created_at, and a trip it opens starts at the first queued tap (R3).
-  const recordListEvent = useCallback(async (eventType, { listItemId = null, catalogItemId, occurredAt = null, tripStartedAt = null } = {}) => {
+  // adoptOnly (SPEC_one_list R5, the added_in_store path): join this person's open session, never start
+  // one; with none open, NO event is written. Resolves to the session the event was written under, or
+  // null (none adopted, no row written, or a failure) — the caller's "was this during a trip?".
+  const recordListEvent = useCallback(async (eventType, { listItemId = null, catalogItemId, occurredAt = null, tripStartedAt = null, adoptOnly = false } = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
-    if (!db || !hh || !catalogItemId || !internalUserIdRef.current) return;
+    if (!db || !hh || !catalogItemId || !internalUserIdRef.current) return null;
     try {
-      const session = await ensureSession({ silent: true, startedAt: tripStartedAt });
+      const session = await ensureSession({ silent: true, startedAt: tripStartedAt, adoptOnly });
+      if (adoptOnly && !session) return null;
       eventSeqRef.current += 1;
       const { error: evErr } = await db
         .from("list_item_events")
@@ -2578,9 +2599,11 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           sequence: eventSeqRef.current,
           ...(occurredAt ? { created_at: occurredAt } : {}),
         });
-      if (evErr) console.warn(`list_item_events ${eventType}:`, evErr.message);
+      if (evErr) { console.warn(`list_item_events ${eventType}:`, evErr.message); return null; }
+      return session || null;
     } catch (err) {
       console.warn(`list_item_events ${eventType}:`, err?.message || err);
+      return null;
     }
   }, [ensureSession]);
 
@@ -5128,8 +5151,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
               household_id: hh.id,
               source: "meal",
               meal_id: mealId,
+              "workflow.name": "item_added_to_list",   // rum.workflow.count (SPEC_one_list_dashboard)
             },
           }).end();
+          onItemAddedRef.current();
         }
       } catch (e) {
         console.warn("[rum] item_added_to_list (meal) event failed:", e);
@@ -5220,7 +5245,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     hideItem, deleteItem, removeFromList, createInvite, acceptInvite, restoreHiddenByCategory, unhideItem, toggleStaple, renameItem, setItemCategory, refreshCatalog,
     createHousehold, renameHousehold, refreshMembers,
     referralCode, joinHouseholdByCode, discardUnclaimedHousehold,
-    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, createCatalogItemNow, addMealToList, fetchMealProvenance, onListChangedRef,
+    fetchMeals, createMeal, updateMeal, setMealOccasion, deleteMeal, requestMealSuggestion, requestRecipeImport, removeMealFromList, decrementMealBatch, createCatalogItem, materializePendingIngredients, createCatalogItemNow, addMealToList, fetchMealProvenance, onListChangedRef, onItemAddedRef,
     placements, refreshPlacements, reorderBoard, markCooked, cookIdsByMeal, skipMeal, upNext, planMeal, lockIn, lockInAll, planNoShop, madeBefore, cooks,
     uploadHouseholdPhoto, updateHouseholdBanner, removeHouseholdPhoto,
     addMealPhoto, uploadMealPhoto, saveMealPhoto, setPhotoKind, removeMealPhoto, fetchMealPhotos, rateCook, fetchCookRatings,

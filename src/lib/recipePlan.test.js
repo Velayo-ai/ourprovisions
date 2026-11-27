@@ -80,7 +80,7 @@ describe("recipeBlockFor agrees with the board card for the same placement", () 
     expect(recipeBlockFor(null)).toEqual({ onWeek: false, soft: null, action: "add", remove: null });
   });
   test("the remove words are the board's ⋯ → Remove words, word for word", () => {
-    expect(REMOVE_LABEL.shop).toBe("Remove (and take its items off Shop)");
+    expect(REMOVE_LABEL.shop).toBe("Remove (and take its items off the list)");
     expect(REMOVE_LABEL.week).toBe("Remove from This Week");
   });
   test("B4 transitions, on the board's own state after each action", () => {

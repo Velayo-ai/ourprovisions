@@ -112,7 +112,7 @@ describe("a stamped placement, everywhere", () => {
     const i = hook.indexOf("async function appendPlacement(");
     expect(hook.slice(i, hook.indexOf("\n  }\n", i))).toMatch(/ready_at: null,/);
     const s = surfaces(inputs());
-    expect(s.recipe.main).toBe("Add to Shop");
+    expect(s.recipe.main).toBe("Add to list");
     expect([s.board.cooked, s.deck, s.recipe.cooked]).toEqual([0, 0, 0]);
   });
 });
@@ -137,15 +137,15 @@ describe("the on-hand prompt: one question, two answers", () => {
   test("the confirm reads I have everything when nothing is Buy it, Add to Shop when anything is", () => {
     const { container: ac, unmount: au } = promptOf(PROMPT);
     expect(btn(ac, "I have everything")).toBeTruthy();
-    expect(btn(ac, "Add to Shop")).toBeFalsy();
+    expect(btn(ac, "Add to list")).toBeFalsy();
     au();
     const { container: bc } = promptOf({ ...PROMPT, choices: { dough: "include", cheese: "skip" } });
-    expect(btn(bc, "Add to Shop")).toBeTruthy();
+    expect(btn(bc, "Add to list")).toBeTruthy();
     expect(btn(bc, "I have everything")).toBeFalsy();
   });
   test("a partly-flagged meal (some ingredients not on hand) never offers I have everything — all I have it still adds the rest", () => {
     const { container } = promptOf({ ...PROMPT, allOnHand: false });
-    expect(btn(container, "Add to Shop")).toBeTruthy();
+    expect(btn(container, "Add to list")).toBeTruthy();
     expect(btn(container, "I have everything")).toBeFalsy();
   });
   test("the prompt is told whether every live ingredient is in it (source guard: handleAddMealToList)", () => {

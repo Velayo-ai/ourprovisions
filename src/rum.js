@@ -19,19 +19,22 @@ let rumReady = false;
 // the door button (its text is the label plus, on Shop, the badge count);
 // `.helm-label` still matters when the tap lands on the label span itself.
 const CHROME_ALLOW_LIST = [
-  '.helm-door',      // Helm + Rail door buttons: Home / Plan / Browse / Shop (+ badge count)
+  '.helm-door',      // Helm + Rail door buttons: Home / Plan / Browse / List (+ badge count)
   '.helm-label',     // the label span inside a door, when it is the tap target
   '.helm-plus',      // the compact pill's +
   '.shop-seg',       // Shop lens toggle: Aisles | A–Z
+  '.list-guide-row',  // the empty List's guide rows: "Add items" / "Browse the aisles" | "Browse our staples" / "Plan a meal" and their fixed lines (SPEC_one_list R10) — no household text
+  '.list-welcome-ok', // the new member welcome's "Got it" (R12) — fixed copy, a leaf button. NEVER the welcome's heading: it names the household
+  '.item-search-done', // the List's quick picker: "Done" — fixed copy, a leaf button (SPEC_one_list Telemetry). The picker's rows, its no-match row and its toast carry item names / typed text and are NEVER listed; the Ask search view's Done is .ask-search-done alone, not this
   '.hdr-action',     // THE header action pill: Shop "+ Add", This Week "+ Add", Meals "+ New" (src/components/HeaderAction.js)
-  '.wrapbar',        // Shop Wrap Up bar above the Helm: "Leaving early? Wrap up →" / "N of M · K carry forward Wrap up" (counts only, never a name)
+  '.wrapbar',        // List's Wrap Up bar above the Helm: "N of M · K carry forward Wrap up" (counts only, never a name; no bar at 0 checked since SPEC_one_list R4)
   '.all-done-btn',   // All done card's "Wrap up trip →"
   '.add-btn',        // row "Add" buttons (Browse, search, meal sheet)
-  '.board-lock',     // Plan board "Add to Shop" (v2; the class keeps the hook's name)
+  '.board-lock',     // Plan board "Add to list" (v2; the class keeps the hook's name)
   '.board-see',      // Plan board "See on list" / "Wrap up →" at 0 left (Amendment C) — fixed copy
   '.board-cook',     // Plan board "Cooked it"
   '.board-more',     // Plan board ⋯ menu trigger
-  '.plan-addall',    // Plan header "+ Add N to Shop"
+  '.plan-addall',    // Plan header "add to the list →"
   '.plan-view',      // Plan title switch links: "This Week" / "Meals" (D1; fixed copy)
   '.plan-noshop',    // Hold a night: "Leftovers" / "Eating out" / "Something else" (board foot + welcome)
   '.lib-occ',        // Library occasion rail pills: All / Dinner / Breakfast / … (Meal Library v1)
@@ -46,8 +49,8 @@ const CHROME_ALLOW_LIST = [
   '.lib-show',       // Library filter sheet: "Show N meals"
   '.lib-clear',      // Library filter sheet: "Clear"
   '.rv-edit',        // Recipe view: "Edit" — fixed copy; the title it edits is a sibling (#rv-title, masked), never in this element (SPEC_recipe_view)
-  '.rv-plan',        // Recipe view main action: "+ Add to This Week" / "+ Plan again" / "Add to Shop" / "Wrap up →" / "Cooked it" — fixed copy, the board's own words. The count-bearing "{n} left to buy · See list" is .rv-see, OFF this list (SPEC_recipe_view Amendment B, R4)
-  '.rv-remove',      // Recipe view quiet link: "Remove from This Week" / "Remove (and take its items off Shop)" — fixed copy, the board's ⋯ → Remove words
+  '.rv-plan',        // Recipe view main action: "+ Add to This Week" / "+ Plan again" / "Add to list" / "Wrap up →" / "Cooked it" — fixed copy, the board's own words. The count-bearing "{n} left to buy · See list" is .rv-see, OFF this list (SPEC_recipe_view Amendment B, R4)
+  '.rv-remove',      // Recipe view quiet link: "Remove from This Week" / "Remove (and take its items off the list)" — fixed copy, the board's ⋯ → Remove words
   '.rv-showall',     // Recipe view, Your cooks: "Show all N" — a count, never a name
   '.rv-photo-add',   // Recipe view photo strip: "Add a meal photo" / "Adding…" — fixed copy (SPEC_meal_photos_v1 R5/R6). The photos, the strip, its dots and caption are NOT here; every photo <img> is .op-replay-block
   '.rv-photo-replace', // Photo menu (hero + viewer ⋯): "Replace photo" — fixed copy (SPEC_photo_menu, 2026-10-25). The ⋯ trigger (.rv-photo-more) is off this list, named by aria-label "Photo options"
@@ -81,7 +84,7 @@ const CHROME_ALLOW_LIST = [
   '.rv-dot',         // Photo strip + viewer dots (buttons; clickable on desktop): no text content, aria-label "Show photo N" — a position, never content
   '.board-photo-add',// Board afterglow (Photos slice 2, S4): "Add a meal photo" / "Adding…" — fixed copy (R6)
   '.rate-star',      // Cook rating stars (afterglow "How was it?" + "Your cooks"): no text content, aria-label "Rate N of 3" — fixed copy; the note input and the label are OFF this list
-  '.deck-primary',   // Home on-deck card: "Add to Shop" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
+  '.deck-primary',   // Home on-deck card: "Add to list" / "Cooked it" / "✓ Cooked" / "Add a meal" (SPEC_home_v1_essentials)
   '.deck-switch',    // Home on-deck card: "Switch"
   '.deck-x',         // Home on-deck card: × on a held night
   '.home-line-link', // Home list line: "Let's shop →" / "Start a list →"

@@ -202,9 +202,15 @@ describe("Wrap Up bar", () => {
     });
     expect(nameOf(btn)).toBe("Wrap up 4 of 11 · 7 carry forward");
   });
-  test("empty bar keeps its fixed-copy label", () => {
+  test("no bar at 0 checked (SPEC_one_list R4: the first item in the cart brings it in)", () => {
     const { container } = render(<WrapUpBar checked={0} total={11} onWrapUp={noop} />);
-    expect(nameOf(container.querySelector("button.wrapbar"))).toBe("Wrap up the trip early");
+    expect(container.querySelector("button.wrapbar")).toBeNull();
+  });
+  test("the bar comes in with the first check, and hands off to All done at 100%", () => {
+    const one = render(<WrapUpBar checked={1} total={11} onWrapUp={noop} />);
+    expect(nameOf(one.container.querySelector("button.wrapbar"))).toBe("Wrap up 1 of 11 · 10 carry forward");
+    const all = render(<WrapUpBar checked={11} total={11} onWrapUp={noop} />);
+    expect(all.container.querySelector("button.wrapbar")).toBeNull();
   });
 });
 
