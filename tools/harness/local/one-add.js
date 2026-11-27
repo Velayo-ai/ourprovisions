@@ -33,7 +33,7 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
 
   // ── V2 #/browse lands on List, picker closed ──
   await p.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await p.reload({ waitUntil: "networkidle2" }); await sleep(3500);
-  const at = await p.evaluate(() => ({ hash: location.hash, list: !!document.querySelector(".list-header, .list-guide"), browse: !!document.querySelector(".cat-rail-wrap") }));
+  const at = await p.evaluate(() => ({ hash: location.hash, list: !!document.querySelector(".list-header, .list-guide"), browse: !!document.querySelector('button[aria-label="Filters"]') }));
   check("V2 #/browse lands on List (hash #/shop), no Browse screen", at.hash === "#/shop" && at.list && !at.browse, JSON.stringify(at));
   check("V2 … with the picker closed", !(await pickerOpen()));
 
@@ -71,6 +71,45 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   check("R2 aisle sections, each with + New item; the layout toggle", head.aisles.length > 0 && head.newItem && head.tool, JSON.stringify(head.aisles));
   await shot(p, "one-add-feeder-list");
 
+  // ── R3 the rail: ★ Staples · one Ask pill | categories ──
+  const rail = await p.evaluate(() => [...document.querySelectorAll(".item-picker .feeder-rail .cat-rail > *")].map((e) => e.classList.contains("cat-rail-divider") ? "|" : e.innerText.replace(/\s+/g, " ").trim()));
+  const asks = rail.filter((t) => /^Ask/.test(t));
+  const div = rail.indexOf("|");
+  check("R3 rail order: Staples first, then at most ONE Ask pill, a divider, then the aisles", /Staples$/.test(rail[0]) && asks.length <= 1 && div === 1 + asks.length && rail.length > div + 1, JSON.stringify(rail.slice(0, 5)));
+  if (asks[0] === "Ask…") {
+    await p.evaluate(() => [...document.querySelectorAll(".item-picker .feeder-rail .people-pill")][0].click()); await sleep(800);
+    const ch = await p.evaluate(() => { const d = document.querySelector('[role=dialog][aria-label="More asks"]'); return d ? { h2: d.querySelector("h2")?.innerText.trim(), rows: [...d.querySelectorAll(".more-asks-row")].map((e) => e.innerText.replace(/\s+/g, " ").trim()) } : null; });
+    check("R3 2+ asks: \"Ask…\" opens the chooser of every ask with + New ask", !!ch && ch.h2 === "Ask…" && ch.rows.filter((r) => /^Ask /.test(r)).length >= 2 && /New ask$/.test(ch.rows[ch.rows.length - 1]), JSON.stringify(ch));
+    check("R3 … the feeder steps aside for it", await p.evaluate(() => !!document.querySelector(".item-picker.open.suspended")));
+    await p.evaluate(() => document.querySelector(".modal-overlay")?.click()); await sleep(600);
+    check("R3 … and is back when it closes", (await pickerOpen()) && !(await p.evaluate(() => !!document.querySelector(".item-picker.suspended"))));
+    // V5: a chooser row starts the run as today (the feeder closes first); Close (held) ends it on List.
+    await p.evaluate(() => [...document.querySelectorAll(".item-picker .feeder-rail .people-pill")][0].click()); await sleep(700);
+    const label = await p.evaluate(() => { const r = [...document.querySelectorAll(".more-asks-row")].find((e) => /^Ask Test$/.test(e.innerText.replace(/\s+/g, " ").trim())) || [...document.querySelectorAll(".more-asks-row")][0]; r.click(); return r.innerText.replace(/\s+/g, " ").trim(); });
+    await sleep(3500);
+    const run = await p.evaluate(() => ({ run: !!document.querySelector(".ask-run"), picker: !!document.querySelector(".item-picker.open") }));
+    check("V5 a chooser row starts the run (the feeder has closed)", run.run && !run.picker, JSON.stringify({ label, ...run }));
+    await shot(p, "one-add-ask-run");
+    await p.evaluate(() => document.querySelector(".ask-top .ask-done")?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }))); await sleep(1400);
+    await p.evaluate(() => document.querySelector(".ask-top .ask-done")?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }))); await sleep(1200);
+    const back = await p.evaluate(() => ({ run: !!document.querySelector(".ask-run"), hash: location.hash }));
+    check("V5 … Close (held) ends it, back on List", !back.run && back.hash === "#/shop", JSON.stringify(back));
+    await p.click((await p.$(".list-header .hdr-action")) ? ".list-header .hdr-action" : ".list-guide-row.teal"); await sleep(900);
+  } else {
+    check(`R3 ${asks.length} ask(s): ${asks.length ? "one pill by name" : "no Ask pill"}`, asks.length === 0 || /^Ask \S/.test(asks[0]), JSON.stringify(asks));
+  }
+  // Staples narrows to staples (every row ★); a category pill narrows to its aisle
+  await p.evaluate(() => document.querySelector(".item-picker .feeder-rail .cat-pill").click()); await sleep(500);
+  const st = await p.evaluate(() => ({ rows: document.querySelectorAll(".item-picker .pick-group .pick-row").length, starred: document.querySelectorAll(".item-picker .pick-group .pick-row .pick-star").length }));
+  check("R3 ★ Staples shows only staples (each row ★)", st.rows === st.starred, JSON.stringify(st));
+  await p.evaluate(() => document.querySelector(".item-picker .feeder-rail .cat-pill").click()); await sleep(400);
+  const firstAisle = await p.evaluate(() => { const pills = [...document.querySelectorAll(".item-picker .feeder-rail .cat-rail-divider ~ .cat-pill")]; pills[0].click(); return pills[0].innerText.replace(/\s+/g, " ").trim(); });
+  await sleep(500);
+  const secs = await p.evaluate(() => [...document.querySelectorAll(".item-picker .pick-aisle-name")].map((e) => e.innerText.trim()));
+  check("R3 an aisle pill narrows the feeder to that aisle", secs.length === 1, JSON.stringify({ firstAisle, secs }));
+  await p.evaluate(() => [...document.querySelectorAll(".item-picker .feeder-rail .cat-rail-divider ~ .cat-pill")][0].click()); await sleep(400);
+  await shot(p, "one-add-feeder-rail");
+
   // grid / list toggle
   await p.click(".item-picker .pick-tool"); await sleep(400);
   check("R2 the toggle shows the grid", await p.evaluate(() => !!document.querySelector(".item-picker .pick-grid")));
@@ -79,10 +118,10 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   check("R2 … and back to the list", await p.evaluate(() => !document.querySelector(".item-picker .pick-grid")));
 
   // tap adds, ✓ shows
-  const name = await p.evaluate(() => { const r = [...document.querySelectorAll(".item-picker .pick-row:not(.on):not(.pick-create)")][0]; if (!r) return null; const n = r.querySelector(".pick-name")?.innerText.trim(); r.click(); return n; });
+  const name = await p.evaluate(() => { const r = [...document.querySelectorAll(".item-picker .pick-row:not(.on):not(.pick-create)")][0]; if (!r) return null; const n = r.querySelector(".pick-name")?.innerText.replace(/^★s*/, "").trim(); r.click(); return n; });
   if (name) touched.add(name);
   await sleep(1500);
-  const row = await p.evaluate((n) => { const r = [...document.querySelectorAll(".item-picker .pick-row")].find((e) => e.querySelector(".pick-name")?.innerText.trim() === n); return r ? { on: r.classList.contains("on"), sub: r.querySelector(".pick-sub")?.innerText.trim() || "" } : null; }, name);
+  const row = await p.evaluate((n) => { const r = [...document.querySelectorAll(".item-picker .pick-row")].find((e) => e.querySelector(".pick-name")?.innerText.replace(/^★s*/, "").trim() === n); return r ? { on: r.classList.contains("on"), sub: r.querySelector(".pick-sub")?.innerText.trim() || "" } : null; }, name);
   check("V3 a tap adds and the row shows ✓", !!row && row.on, JSON.stringify({ name, row }));
 
   // + New item: the feeder steps aside for the sheet, and comes back when it closes
