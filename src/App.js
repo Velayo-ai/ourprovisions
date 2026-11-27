@@ -72,7 +72,7 @@ import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { ASK_ENABLED, ASK_FLAG_MARKER, ONE_ADD_ENABLED, ONE_ADD_FLAG_MARKER } from './lib/featureFlags';
-import { routeView, helmDoors, listStatusLine, addedToastText } from './lib/oneAdd';
+import { routeView, helmDoors, listStatusLine, addedToastText, askPill, staplesHintVisit, STAPLES_HINT } from './lib/oneAdd';
 import { trace } from '@opentelemetry/api';
 import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
 
@@ -885,7 +885,9 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 //   sections: [{ name, rawName, items }] — Browse's category blocks after the rail's filters, items as `items`
 //   flat: the same items A–Z · organize: "category" | "alpha" · layout: "list" | "grid", onLayout(next)
 //   onNewItem(rawCategory | null) — the New item sheet (the feeder steps aside while it is up: suspended)
-//   rail, sheetButton, hint: nodes (R3 / R4) · suspended: bool }
+//   rail, sheetButton, hint: nodes (R3 / R4) · suspended: bool
+//   wrapRow(item, node) — Browse's swipe (Hide / Edit / ★ Staple) around a row · isStaple(name) — the row's ★
+//   closeRef — set to this view's close, so App can end the visit (an Ask pill hands over to a run) }
 export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate, onReveal, onUndo, onTapListed, onClosed, feeder = null }) {
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState(null);   // { text }
@@ -942,14 +944,15 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
     if (status === "on") { onTapListed(item); return; }
     answer(await onAdd(item, status));
   });
+  if (feeder?.closeRef) feeder.closeRef.current = close;
   const row = (item) => {
     const on = statusOf(item.id) === "on";
     const isFresh = on && fresh.has(item.id);
-    return (
+    const node = (
       <button key={item.id} type="button" className={`pick-row${on ? " on" : ""}${isFresh ? " fresh" : ""}`} aria-disabled={on && !isFresh ? "true" : undefined}
         onMouseDown={keepFocus} onClick={() => tap(item)}>
         <span className="pick-main">
-          <span className="pick-name">{item.name}</span>
+          <span className="pick-name">{feeder?.isStaple?.(item.name) && <span className="pick-star" aria-hidden="true">★ </span>}{item.name}</span>
           {isFresh ? <span className="pick-sub">Added · tap to undo</span> : on && <span className="pick-sub">On the list</span>}
         </span>
         <span className={`pick-mark${on ? " on" : ""}`} aria-hidden="true">
@@ -959,6 +962,7 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
         </span>
       </button>
     );
+    return feeder?.wrapRow ? feeder.wrapRow(item, node) : node;
   };
   const q = query.trim();
   // While a sheet the feeder opened is up, the field gives the keyboard back (the view is hidden, not closed).
@@ -8546,7 +8550,11 @@ function ProvisionsApp({ scrollRootRef }) {
   const [listWelcomeOpen, setListWelcomeOpen] = useState(false);
   const pickerDoorRef = useRef("list");
   const pickerScrollRef = useRef(null);
+  const hasStaples = useMemo(() => Object.values(catalogMap).some((i) => i && i.is_staple), [catalogMap]);
+  const [feederHint, setFeederHint] = useState(false);
   const openPicker = (from) => {
+    // One add (R3): the staples hint, while the household has no staples, on this device's first 3 visits.
+    if (ONE_ADD_ENABLED) { let s = null; try { s = window.localStorage; } catch { s = null; } setFeederHint(!hasStaples && !!s && staplesHintVisit(s)); }
     pickerDoorRef.current = from === "guide" ? "guide" : view === "input" ? "browse" : "list";
     pickerScrollRef.current = { y: window.scrollY, root: scrollRootRef.current ? scrollRootRef.current.scrollTop : 0 };
     picker.show();
@@ -8667,6 +8675,50 @@ function ProvisionsApp({ scrollRootRef }) {
   const feederFlat = useMemo(() => feederSections.flatMap((sec) => sec.items).sort((a, b) => a.name.localeCompare(b.name)), [feederSections]);
   // A sheet the feeder opened is up (it lives below the portal): the feeder steps aside until it closes.
   const feederSuspended = !!(addSheet || browseFilterOpen || moreAsksOpen || newAskOpen || editAskId || deleteAskId || deletingCategory || editModalItem);
+  // THE RAIL (R3): [ ★ Staples ] [ Ask… ] | [ categories ]. Staples and the ONE Ask pill are shortcuts; every
+  // pill after the divider is a filter (Browse's category chips). 0 asks → no Ask pill; 1 → "Ask {name}", a tap
+  // hands over (the feeder closes first: the run sits under its portal); 2+ → "Ask…", the chooser of every ask
+  // in the rail's frozen order with "+ New ask". Names sit in .op-name (K3), never an attribute.
+  const feederCloseRef = useRef(null);
+  const orderedAsks = useMemo(() => {
+    const byId = new Map(asks.map(a => [a.id, a]));
+    return ASK_ENABLED ? askOrder.ids.map(id => byId.get(id)).filter(Boolean) : [];
+  }, [asks, askOrder]);
+  const feederAsk = askPill(orderedAsks);
+  const feederHandover = (askId) => { feederCloseRef.current?.(); handoverAsk(askId); };
+  const feederRail = ONE_ADD_ENABLED ? (
+    <div className="cat-rail-wrap feeder-rail">
+      <div className="cat-rail">
+        <button type="button" className={`cat-pill${stapleFilter ? " on" : ""}`} data-active={stapleFilter ? "1" : undefined}
+          onMouseDown={keepFocus} onClick={() => setStapleFilter(f => !f)}>
+          <span className="cat-em">★</span>Staples
+        </button>
+        {feederAsk.kind === "one" && (
+          <button type="button" className={`cat-pill people-pill${activeAskId === feederAsk.ask.id ? " on" : ""}`} onClick={() => feederHandover(feederAsk.ask.id)}>
+            <span className="cat-em"><AskIcon /></span>
+            <span>Ask <span className="op-name">{feederAsk.ask.label}</span></span>
+          </button>
+        )}
+        {feederAsk.kind === "many" && (
+          <button type="button" className="cat-pill people-pill" aria-haspopup="dialog" onClick={() => setMoreAsksOpen(true)}>
+            <span className="cat-em"><AskIcon /></span>Ask…
+          </button>
+        )}
+        <span className="cat-rail-divider" aria-hidden="true" />
+        {categories.map(cat => {
+          const isActive = selectedCategories.has(cat.rawName);
+          return (
+            <button key={cat.rawName} type="button" className={`cat-pill${isActive ? " on" : ""}`} data-active={isActive ? "1" : undefined}
+              onMouseDown={keepFocus}
+              onClick={() => setSelectedCategories(prev => { const next = new Set(prev); if (next.has(cat.rawName)) next.delete(cat.rawName); else next.add(cat.rawName); return next; })}>
+              <span className="cat-em">{categoryGlyph(cat.rawName)}</span>
+              {categoryRailLabel(cat.rawName)}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  ) : null;
   const feeder = ONE_ADD_ENABLED ? {
     sections: feederSections,
     flat: feederFlat,
@@ -8674,15 +8726,26 @@ function ProvisionsApp({ scrollRootRef }) {
     layout: feederLayout,
     onLayout: chooseFeederLayout,
     onNewItem: (rawCategory) => openAddItem({ category: rawCategory }),
-    rail: null,
-    hint: null,
+    rail: feederRail,
+    hint: feederHint && !hasStaples ? <div className="feeder-hint" role="note"><span aria-hidden="true">★</span> {STAPLES_HINT}</div> : null,
     sheetButton: null,
     suspended: feederSuspended,
+    closeRef: feederCloseRef,
+    isStaple: (name) => !!catalogMap[name]?.is_staple,
+    // Browse's swipe on a feeder row: Hide (this person's view), Edit (custom items, or prices on), ★ Staple.
+    wrapRow: (item, node) => {
+      const isCustom = catalogMap[item.name]?.is_global === false;
+      return (
+        <SwipeToRemove key={item.id} onRemove={() => hideItem(item.name)} onEdit={() => openEditModal(item.name)} onStaple={() => toggleStaple(item.name)}
+          isStaple={!!catalogMap[item.name]?.is_staple} canEdit={isCustom || showPrices}>
+          {node}
+        </SwipeToRemove>
+      );
+    },
   } : null;
   // The guide's rows (R10). Add items opens the picker in the tap; Browse goes to Browse on everything, or
   // with Staples selected when the household has staples (the selection waits in a ref: the view effect
   // resets Browse's filters on every door switch, and applies it there); Plan a meal opens the library.
-  const hasStaples = useMemo(() => Object.values(catalogMap).some((i) => i && i.is_staple), [catalogMap]);
   const guideAdd = () => { openPicker("guide"); listGuideCta("add", null, household?.id); };
   const guideBrowse = () => { listGuideCta("browse", hasStaples ? "staples" : "aisles", household?.id); pendingStaplesRef.current = hasStaples; goToDoor("input"); };
   const guidePlan = () => { listGuideCta("plan", null, household?.id); setPlanScreen("library"); goToDoor("plan"); };
@@ -10903,6 +10966,13 @@ function ProvisionsApp({ scrollRootRef }) {
         .pick-tool { flex: none; width: 46px; height: 46px; border-radius: 14px; border: 1.5px solid #d8bf94; background: #fff; color: #6f5a45; display: grid; place-items: center; cursor: pointer; }
         .pick-tool.on { background: #3A281C; border-color: #3A281C; color: #FFFDF9; }
         .item-picker.feeder .item-search-field input { min-width: 0; }
+        /* The rail inside the feeder (R3): Browse's pills, edge to edge under the field; the staples hint under it. */
+        .feeder-rail { flex: none; margin: 4px 0 6px; padding: 0 16px; }
+        .feeder-hint { flex: none; margin: 0 16px 8px; padding: 10px 12px; border-radius: 12px; background: rgba(201,169,122,0.18);
+                       font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif; color: #6f5a45; }
+        .item-picker.feeder .pick-row { background: #FAF4EC; }
+        .item-picker.feeder .pick-grid .pick-row { background: #fff; }
+        .pick-star { color: #B8862F; }
         .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
                       padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
                       box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
@@ -13283,12 +13353,23 @@ function ProvisionsApp({ scrollRootRef }) {
         <div className="modal-overlay" onClick={() => setMoreAsksOpen(false)}>
           <div className="modal" role="dialog" aria-modal="true" aria-label="More asks" onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "88vh", overflowY: "auto" }}>
-            <MoreAsksSheet
-              asks={askRail.more}
-              activeAskId={activeAskId}
-              onOpen={(askId) => { setMoreAsksOpen(false); handoverAsk(askId); }}
-              closeButton={<SheetClose onClose={() => setMoreAsksOpen(false)} />}
-            />
+            {ONE_ADD_ENABLED ? (
+              <MoreAsksSheet
+                asks={orderedAsks}
+                activeAskId={activeAskId}
+                title="Ask…"
+                onOpen={(askId) => { setMoreAsksOpen(false); feederHandover(askId); }}
+                onNew={canMakeShelf ? () => { setMoreAsksOpen(false); openNewAsk("rail"); } : null}
+                closeButton={<SheetClose onClose={() => setMoreAsksOpen(false)} />}
+              />
+            ) : (
+              <MoreAsksSheet
+                asks={askRail.more}
+                activeAskId={activeAskId}
+                onOpen={(askId) => { setMoreAsksOpen(false); handoverAsk(askId); }}
+                closeButton={<SheetClose onClose={() => setMoreAsksOpen(false)} />}
+              />
+            )}
           </div>
         </div>
       )}

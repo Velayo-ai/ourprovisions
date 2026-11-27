@@ -125,3 +125,40 @@ describe("R2 — the feeder's aisle sections", () => {
     expect(APP).toContain(') : feeder ? feederBody() : letterGroups(items).map((g) => (');
   });
 });
+
+describe("R3 — the rail on the List feeder", () => {
+  test("Staples first, then the ONE Ask pill, a divider, then the aisles", () => {
+    const at = (s) => APP.indexOf(s, APP.indexOf("const feederRail = ONE_ADD_ENABLED ? ("));
+    const staples = at('<span className="cat-em">★</span>Staples');
+    const one = at('{feederAsk.kind === "one" && (');
+    const many = at('{feederAsk.kind === "many" && (');
+    const divider = at('<span className="cat-rail-divider" aria-hidden="true" />');
+    const aisles = at("{categories.map(cat => {");
+    expect(staples).toBeGreaterThan(0);
+    expect(staples < one && one < many && many < divider && divider < aisles).toBe(true);
+  });
+  test("an Ask pill (or a chooser row) closes the feeder before the hand-over", () => {
+    expect(APP).toContain("const feederHandover = (askId) => { feederCloseRef.current?.(); handoverAsk(askId); };");
+    expect(APP).toContain("onOpen={(askId) => { setMoreAsksOpen(false); feederHandover(askId); }}");
+  });
+  test("the chooser is every ask in rail order, titled Ask…, with + New ask; flag off it is More asks as before", () => {
+    expect(APP).toContain('asks={orderedAsks}');
+    expect(APP).toContain('title="Ask…"');
+    expect(APP).toContain("asks={askRail.more}");
+  });
+});
+
+describe("R3 — MoreAsksSheet as the chooser", () => {
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const { MoreAsksSheet } = require("../components/MoreAsksSheet");
+  const asks = [{ id: "1", label: "Ivy" }, { id: "2", label: "Sam" }];
+  test("title and + New ask only when asked for", () => {
+    const plain = renderToStaticMarkup(React.createElement(MoreAsksSheet, { asks, onOpen: () => {} }));
+    expect(plain).toContain("<h2>More asks</h2>");
+    expect(plain).not.toContain("New ask");
+    const chooser = renderToStaticMarkup(React.createElement(MoreAsksSheet, { asks, onOpen: () => {}, title: "Ask…", onNew: () => {} }));
+    expect(chooser).toContain("<h2>Ask…</h2>");
+    expect(chooser).toContain("New ask");
+  });
+});
