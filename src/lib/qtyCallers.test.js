@@ -52,15 +52,16 @@ describe("§6.4 the callers", () => {
   test("search add (both branches) is +1", () => {
     const i = app.indexOf("const addSearchedItem = async");
     const fn = app.slice(i, app.indexOf("\n  };\n", i));
-    expect((fn.match(/return adjustQty\(typed, 1, rawCategory\);/g) || []).length).toBe(2);
+    expect((fn.match(/return adjustQty\(typed, 1, rawCategory, undefined, opts\);/g) || []).length).toBe(2);
   });
   test("new-item form is +1 with its price", () => {
     expect(app).toMatch(/adjustQty\(name, 1, newItemCategory, price > 0 \? price : undefined\);/);
   });
-  test("Shop add sheet is +1, not qtyFor + 1 (the server makes a bought row a new need)", () => {
-    const i = app.indexOf("const handleShopAddResult = async");
+  test("the quick picker's add is +1, not qtyFor + 1 (the server makes a bought row a new need); its Undo is −1", () => {
+    const i = app.indexOf("const pickerAdd = async");
     const fn = app.slice(i, app.indexOf("\n  };\n", i));
-    expect(fn).toMatch(/await adjustQty\(item\.name, 1, item\.rawCategory\);/);
+    expect(fn).toMatch(/await adjustQty\(item\.name, 1, item\.rawCategory, undefined, pickOpts\(flag\)\);/);
+    expect(fn).toMatch(/undo: \(\) => adjustQty\(item\.name, -1, item\.rawCategory\)/);
     expect(fn).not.toMatch(/qtyFor/);
   });
   test("landscape: tap-add +1, tap-undo −1, press-and-hold removeItem; the view gets onUndo and onRemove apart", () => {

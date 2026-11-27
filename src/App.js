@@ -2,7 +2,6 @@ import { SignInButton, SignUpButton, useUser, useAuth, useClerk } from '@clerk/c
 import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useProvisions, isPendingCatalogId, normalizeOccasion } from './hooks/useProvisions';
-import { useKeyboardInset } from './hooks/useKeyboardInset';
 import { useScrollLock } from './hooks/useScrollLock';
 import { NAV_DOORS, COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH, useScrollCompact, WRAP_UP_HASH, hashForView, viewForHash } from './nav';
 import { ActiveHouseholdProvider, useActiveHousehold } from './contexts/ActiveHouseholdContext';
@@ -12,7 +11,8 @@ import { NOTE_MS, noteDue, readNoteShownAt, writeNoteShownAt, clearNoteShownAt, 
 import { HeaderAction } from './components/HeaderAction';
 import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
-import { AddSheetPanel } from './components/AddSheetPanel';
+import { ItemSearchView, useItemSearch, keepFocus } from './components/ItemSearchView';
+import { pickerItems, filterItems, letterGroups, itemStatus, hiddenMatchFor, openBucket, PICKER_COPY } from './lib/listPicker';
 import { CategorySelect } from './components/CategorySelect';
 import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText, renameInSet } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
@@ -851,6 +851,112 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
       {/* ── CREATE: the surface decides what "add as new" looks like ── */}
       {offerCreate && createSlot}
     </>
+  );
+}
+
+// THE QUICK PICKER (SPEC_one_list R7–R9, R14; mockup "Our List — one list, one screen" screen 3). The one add
+// surface for List's "+ Add", the Helm's + on List and on Browse, and the guide's Add (Slice 3). It is
+// ItemSearchView with a title bar — the Ask's search view, the same primitive — so the keyboard rises on
+// the first tap: App's openers call search.show() inside the tap, and this stays mounted.
+//   Rows: the person's Browse catalog A–Z with letter headers (hidden items excluded); typing filters.
+//   ✓ "On the list" comes from the shown rows (overlay included); a ✓ row is inert — a tap adds nothing and
+//   tells onTapListed (picker_tap_on_listed, the quantity-friction signal).
+//   A tap adds one (onAdd → adjustQty +1) and the picker stays open; its own toast says what happened, inside
+//   the view, so it sits above the keyboard: "{Item} is on the list · Undo"; an item checked off this trip is
+//   085's renewal, "{Item} added again · it was in your cart", with no Undo; off grid, "Adding items needs
+//   signal for now." and nothing written.
+//   With a query: the matches through SearchResultsList — the reveal card for a hidden exact match (F1b) and,
+//   with no exact match, "+ Add "{text}" as a new item" (D7: Other).
+// Item names and the typed text are household text: no element here is allow-listed except Done.
+export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate, onReveal, onTapListed, onClosed }) {
+  const [query, setQuery] = useState("");
+  const [toast, setToast] = useState(null);   // { text, undo }
+  const toastTimer = useRef(null);
+  const openedAt = useRef(0);
+  const added = useRef(0);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (search.open && !wasOpen.current) { openedAt.current = Date.now(); added.current = 0; }
+    wasOpen.current = search.open;
+  }, [search.open]);
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+  const say = (next) => {
+    clearTimeout(toastTimer.current);
+    setToast(next);
+    toastTimer.current = setTimeout(() => setToast(null), next.undo ? 5000 : 3500);
+  };
+  const answer = (r) => {
+    if (!r) return;
+    if (r.kind === "added" || r.kind === "renewed") added.current += 1;
+    say({ text: r.text, undo: r.undo || null });
+  };
+  const close = () => {
+    search.hide();
+    setQuery("");
+    clearTimeout(toastTimer.current);
+    setToast(null);
+    onClosed({ added: added.current, openMs: Date.now() - openedAt.current });
+  };
+  const tap = async (item) => {
+    const status = statusOf(item.id);
+    if (status === "on") { onTapListed(item); return; }
+    const r = await onAdd(item, status);
+    if (r && (r.kind === "added" || r.kind === "renewed")) setQuery("");
+    answer(r);
+  };
+  const row = (item) => {
+    const on = statusOf(item.id) === "on";
+    return (
+      <button key={item.id} type="button" className={`pick-row${on ? " on" : ""}`} aria-disabled={on ? "true" : undefined}
+        onMouseDown={keepFocus} onClick={() => tap(item)}>
+        <span className="pick-main">
+          <span className="pick-name">{item.name}</span>
+          {on && <span className="pick-sub">On the list</span>}
+        </span>
+        <span className={`pick-mark${on ? " on" : ""}`} aria-hidden="true">
+          {on
+            ? <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12l5 5 9-10" /></svg>
+            : "+"}
+        </span>
+      </button>
+    );
+  };
+  const q = query.trim();
+  return (
+    <ItemSearchView search={search} onClose={close} query={query} onQuery={setQuery} label="Add to our list" title="Add to our list"
+      input={{ className: "modal-input", placeholder: "Type, or scroll and tap", name: "list-pick-search", ariaLabel: "Type to find an item" }}
+      listTestId="list-picker" className="item-picker"
+      overlay={toast && (
+        <div className="pick-toast" role="status">
+          <span className="pick-toast-text">{toast.text}</span>
+          {toast.undo && (
+            <button type="button" className="pick-undo" onMouseDown={keepFocus}
+              onClick={async () => { const u = toast.undo; setToast(null); added.current = Math.max(0, added.current - 1); await u(); }}>Undo</button>
+          )}
+        </div>
+      )}>
+      {q ? (
+        <SearchResultsList
+          query={query}
+          results={filterItems(items, q)}
+          hiddenMatch={hiddenFor(q)}
+          onReveal={async (m) => { const r = await onReveal(m, q); if (r && r.kind !== "needsSignal") setQuery(""); answer(r); }}
+          showCount={false}
+          renderRow={row}
+          createSlot={
+            <button type="button" className="pick-row pick-create" onMouseDown={keepFocus}
+              onClick={async () => { const r = await onCreate(q); if (r && r.kind !== "needsSignal") setQuery(""); answer(r); }}>
+              <span className="pick-main"><span className="pick-name">+ Add <b>“{q}”</b> as a new item</span></span>
+            </button>
+          }
+        />
+      ) : letterGroups(items).map((g) => (
+        <div key={g.letter} className="pick-group">
+          <div className="pick-letter" aria-hidden="true">{g.letter}</div>
+          {g.items.map(row)}
+        </div>
+      ))}
+    </ItemSearchView>
   );
 }
 
@@ -6879,7 +6985,6 @@ function ProvisionsApp({ scrollRootRef }) {
   // session id). Reset on household switch and on Wrap up.
   const [trayOpen, setTrayOpen] = useState(false);
   const [addedHereIds, setAddedHereIds] = useState(() => new Set());
-  const [addSheetOpen, setAddSheetOpen] = useState(false);
   // Check motion (presentation only — the database write happens on the tap).
   // list_item.id → { dir: "out" (aisle → tray) | "in" (tray → aisle), phase: "mark" | "collapse" }.
   // Keyed by the ROW's id, not its name: names are not unique (a custom "Milk"
@@ -6906,7 +7011,6 @@ function ProvisionsApp({ scrollRootRef }) {
   const [storePromptOpen, setStorePromptOpen] = useState(false);
   const [storePromptSkippedFor, setStorePromptSkippedFor] = useState(null);
   const [storeSaving, setStoreSaving] = useState(false);
-  const addSheetInputRef = useRef(null);
   // Browse declutter cycle: 0 default (pills shown, grouped) · 1 tidied (pills hidden, grouped) · 2 flat (A–Z).
   const [browsePhase, setBrowsePhase] = useState(0);
   // How View & organize reads the phase (2026-11-13): "Organize items" — By category (phase 0 or 1) or
@@ -7442,25 +7546,19 @@ function ProvisionsApp({ scrollRootRef }) {
   // renders it as a reveal card instead (F1b Layer 1, the honest UX on top of
   // the floor): live → un-hide only; not live → un-hide and add at 1, the same
   // branch addSearchedItem takes.
-  const hiddenMatch = useMemo(() => {
-    const typed = searchQuery.trim();
-    if (!typed) return null;
-    const norm = normalizeName(typed);
-    const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
-    if (!hidden) return null;
-    const liveRow = listRows.find(r => r.catalogItemId === hidden.id && (r.quantity || 0) > 0);
-    return { item: hidden, qty: liveRow ? liveRow.quantity : 0, live: !!liveRow };
-  }, [searchQuery, hiddenCatalogItems, listRows]);
+  const hiddenMatch = useMemo(() => hiddenMatchFor(searchQuery, hiddenCatalogItems, listRows), [searchQuery, hiddenCatalogItems, listRows]);
 
   // Search "add to your list" handler (F1b Layer 1 — the floor). Re-adding a HIDDEN
   // item must never write quantity across the person boundary: hide is a lens, not an
   // edit. Resolve the typed name against the hidden set first.
   // Resolves to adjustQty's `{ listItemId, catalogItemId }` when a quantity was
-  // written, null otherwise (reveal-only, or nothing typed) — the Shop Add sheet
+  // written, null otherwise (reveal-only, or nothing typed) — the quick picker
   // records its added_in_store event from that. Browse ignores the value.
-  const addSearchedItem = async (rawCategory) => {
-    const typed = searchQuery.trim();
-    setSearchQuery("");
+  // The TEXT is an argument (SPEC_one_list R7): Browse passes its searchQuery and
+  // clears it; the picker passes its own query, so it never touches Browse's search.
+  // opts: adjustQty's (source, door, onTransient).
+  const addSearchedItem = async (rawCategory, text, opts = {}) => {
+    const typed = (text || "").trim();
     if (!typed) return null;
     const norm = normalizeName(typed);
     const hidden = hiddenCatalogItems.find(h => normalizeName(h.name) === norm);
@@ -7473,10 +7571,10 @@ function ProvisionsApp({ scrollRootRef }) {
       }
       // Hidden while at qty 0 (not on the list) → un-hide, then add at typed qty.
       unhideItem(hidden.id);
-      return adjustQty(typed, 1, rawCategory);
+      return adjustQty(typed, 1, rawCategory, undefined, opts);
     }
     // No hidden match → today's behavior: add as a (possibly new) item (+1 through adjustQty).
-    return adjustQty(typed, 1, rawCategory);
+    return adjustQty(typed, 1, rawCategory, undefined, opts);
   };
 
   // Show the join banner once the lens has landed on the joined household.
@@ -8247,13 +8345,30 @@ function ProvisionsApp({ scrollRootRef }) {
     window.history.replaceState(null, "", WRAP_UP_HASH);
   };
 
-  const openAddSheet = () => {
-    setSearchQuery("");
-    setAddSheetOpen(true);
+  // THE QUICK PICKER's openers (SPEC_one_list R7). Each runs inside its tap: picker.show() is the same-tap
+  // flushSync(open) + focus() that raises the keyboard on the first tap. `from` is picker_opened's
+  // (list_add | helm | guide); the door rides every add (item_added_to_list's door). The page's scroll is
+  // noted here and put back on close: the view's scroll-home may move the window while the keyboard is up.
+  const picker = useItemSearch();
+  const pickerDoorRef = useRef("list");
+  const pickerScrollRef = useRef(null);
+  const openPicker = (from) => {
+    pickerDoorRef.current = from === "guide" ? "guide" : view === "input" ? "browse" : "list";
+    pickerScrollRef.current = { y: window.scrollY, root: scrollRootRef.current ? scrollRootRef.current.scrollTop : 0 };
+    picker.show();
+    try { tracer.startSpan("picker_opened", { attributes: { from, household_id: household?.id || null } }).end(); } catch (e) { console.warn("[rum] picker_opened failed:", e); }
   };
-  const closeAddSheet = () => {
-    setAddSheetOpen(false);
-    setSearchQuery("");
+  const onPickerClosed = ({ added, openMs }) => {
+    try { tracer.startSpan("picker_closed", { attributes: { added, open_s: openBucket(openMs), household_id: household?.id || null } }).end(); } catch (e) { console.warn("[rum] picker_closed failed:", e); }
+    const at = pickerScrollRef.current;
+    if (!at) return;
+    const back = () => {
+      if (Math.abs(window.scrollY - at.y) > 1) window.scrollTo(0, at.y);
+      const root = scrollRootRef.current;
+      if (root && Math.abs(root.scrollTop - at.root) > 1) root.scrollTop = at.root;
+    };
+    requestAnimationFrame(back);
+    setTimeout(back, 400);   // again after the keyboard has gone down
   };
   // D11 — the + does the DOOR's add. List → the Add sheet; Browse → the same
   // sheet ("added here" on either only during this person's trip: noteAddedHere,
@@ -8264,8 +8379,8 @@ function ProvisionsApp({ scrollRootRef }) {
   // (signed in only, like the button). The labels are the buttons' aria-labels.
   // Home → absent, so no + ever renders there (D12). The + never becomes a menu.
   const doorAdd = {
-    list:  { label: "Add something", run: openAddSheet },
-    input: { label: "Add to your list", run: openAddSheet },
+    list:  { label: "Add something", run: () => openPicker("helm") },
+    input: { label: "Add to your list", run: () => openPicker("helm") },
     ...(MEALS_ENABLED
       ? (planScreen === "library"
         ? (isSignedIn ? { plan: { label: "Create a new meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {})
@@ -8286,21 +8401,49 @@ function ProvisionsApp({ scrollRootRef }) {
     const session = await recordListEvent("added_in_store", { ...res, adoptOnly: true });
     if (!session) setAddedHereIds(prev => { if (!prev.has(cid)) return prev; const n = new Set(prev); n.delete(cid); return n; });
   };
-  // A catalog hit — the same change Browse's row makes: +1 through adjustQty. Adds land unchecked
-  // (D6); on a row already in the cart the server makes it a NEW need of 1, never old + 1 (085 Q4).
-  const handleShopAddResult = async (item) => {
-    closeAddSheet();
-    const res = await adjustQty(item.name, 1, item.rawCategory);
+  // The picker's adds (SPEC_one_list R8, R14). A catalog hit is the change Browse's row makes: +1 through
+  // adjustQty; adds land unchecked (D6); on a row already in the cart the server makes it a NEW need of 1,
+  // never old + 1 (085 Q4) — "added again", with no Undo (an Undo can't restore the cart state). Off grid
+  // nothing is sent and the picker says so at the tap; a transient failure past that check says the same.
+  // A real error is setError's toast, as everywhere. "Added here" only during this person's trip (R5).
+  const pickerOffGrid = () => offline || (typeof navigator !== "undefined" && navigator.onLine === false);
+  const pickNeedsSignal = { kind: "needsSignal", text: PICKER_COPY.needsSignal };
+  const pickOpts = (flag) => ({ source: "picker", door: pickerDoorRef.current, onTransient: () => { flag.transient = true; } });
+  const pickerAdd = async (item, status) => {
+    if (pickerOffGrid()) return pickNeedsSignal;
+    const flag = { transient: false };
+    const res = await adjustQty(item.name, 1, item.rawCategory, undefined, pickOpts(flag));
+    if (!res) return flag.transient ? pickNeedsSignal : null;
     noteAddedHere(res);
+    if (status === "cart") return { kind: "renewed", text: PICKER_COPY.renewed(item.name) };
+    return { kind: "added", text: PICKER_COPY.added(item.name), undo: () => adjustQty(item.name, -1, item.rawCategory) };
   };
-  // Create / reveal-add — Browse's addSearchedItem, unchanged, with the category
-  // fixed to `Other` for a genuinely new item (D7). It resolves hidden items
-  // before anything else (F1b), which is also the reveal card's not-live path.
-  const handleShopAddNew = async (category = "Other") => {
-    const res = await addSearchedItem(category);
-    setAddSheetOpen(false);
+  // No match → a new item under `Other` (D7), through Browse's addSearchedItem, which resolves hidden items
+  // before anything else (F1b).
+  const pickerCreate = async (text) => {
+    if (pickerOffGrid()) return pickNeedsSignal;
+    const flag = { transient: false };
+    const res = await addSearchedItem("Other", text, pickOpts(flag));
+    if (!res) return flag.transient ? pickNeedsSignal : null;
     noteAddedHere(res);
+    return { kind: "added", text: PICKER_COPY.added(text), undo: () => adjustQty(text, -1, "Other") };
   };
+  // The reveal card (F1b): live → un-hide only (it is on the list already); not live → un-hide and add at 1.
+  const pickerReveal = async (m, text) => {
+    if (m.live) { unhideItem(m.item.id); return { kind: "revealed", text: PICKER_COPY.revealed(m.item.name) }; }
+    if (pickerOffGrid()) return pickNeedsSignal;
+    const flag = { transient: false };
+    const res = await addSearchedItem(m.item.category, text, pickOpts(flag));
+    if (!res) return flag.transient ? pickNeedsSignal : null;
+    noteAddedHere(res);
+    return { kind: "added", text: PICKER_COPY.added(m.item.name), undo: () => adjustQty(m.item.name, -1, m.item.category) };
+  };
+  const pickerTapListed = () => {
+    try { tracer.startSpan("picker_tap_on_listed", { attributes: { household_id: household?.id || null } }).end(); } catch (e) { console.warn("[rum] picker_tap_on_listed failed:", e); }
+  };
+  const pickerList = useMemo(() => pickerItems(categories, catalogMap), [categories, catalogMap]);
+  const pickerStatus = (cid) => itemStatus(cid, { listRows, quantities, checked });
+  const pickerHidden = (typed) => hiddenMatchFor(typed, hiddenCatalogItems, listRows);
   const handleStorePick = async (name) => {
     setStoreSaving(true);
     const ok = await setSessionStore(name);
@@ -8369,23 +8512,12 @@ function ProvisionsApp({ scrollRootRef }) {
   useEffect(() => {
     setTrayOpen(false);
     setAddedHereIds(new Set());
-    setAddSheetOpen(false);
     setStorePromptOpen(false);
     setStorePromptSkippedFor(null);
   }, [activeHouseholdId]);
-  useEffect(() => {
-    if (addSheetOpen) addSheetInputRef.current?.focus();
-  }, [addSheetOpen]);
-  // The Add sheet rides on top of the on-screen keyboard (2026-11-04): iOS keeps the
-  // layout viewport full height when the keyboard opens, so the fixed sheet sat under
-  // it. Lifted by the covered strip, capped to the visible height (see the sheet).
-  const addSheetKeyboard = useKeyboardInset(addSheetOpen);
-  // While the sheet is open the page behind the scrim never scrolls — otherwise iOS
-  // scrolls the list when the input takes focus, and a drag behind the sheet rubber-bands
-  // the list, whose visualViewport scroll events shook the lift (2026-11-05). Locks both
-  // scroll roots: .phone-scroll by ref (≥ COLUMN_MIN_WIDTH) and the body (a phone upright),
-  // scrollTop kept. The scrim's touch-action none is the half iOS actually obeys.
-  useScrollLock(addSheetOpen, scrollRootRef);
+  // While the quick picker is open the page behind it never scrolls (both scroll roots, scrollTop kept;
+  // the Add sheet's rule, 2026-11-05). The picker's own touchmove guard is the half iOS obeys.
+  useScrollLock(picker.open, scrollRootRef);
 
   const handleRemoveMember = async (m) => {
     const name = m.users?.full_name || (m.users?.email ? m.users.email.split("@")[0] : "this member");
@@ -10038,8 +10170,8 @@ function ProvisionsApp({ scrollRootRef }) {
            partly covered and hard to hit (iPhone, the 2026-10-11 walk). Hidden, not
            lowered: a lowered Helm would still read as reachable. SAME SIGNAL as the
            stack rule above, so the two cannot disagree. Restored on close. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .helm,
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .helm-fade { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .board-menu-backdrop, .ask-editor) .helm,
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .board-menu-backdrop, .ask-editor) .helm-fade { display: none; }
         /* …under EVERY bottom sheet, not only the modal overlay (Dan 2026-10-31): the thank-you sheet's Send / Skip and
            the arrival sheet's Open it sat under the pill. The same six surfaces as the Wrap Up bar's rule below. */
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
@@ -10298,7 +10430,7 @@ function ProvisionsApp({ scrollRootRef }) {
         /* While ANY sheet or modal is open the bar hides and returns on close (Dan 2026-10-30: at z 900 it
            floated over every sheet and partly covered the arrival form's Not for us / Add to our meals).
            Keyed off the document like the Helm rule above: every surface that owns a scrim or overlay. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .add-sheet-scrim, .board-menu-backdrop, .ask-editor) .wrapbar { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .board-menu-backdrop, .ask-editor) .wrapbar { display: none; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
         /* No hard edge on the fill: its 2px right border was the line through the "W" of
            the label at XXL (pass 2, Shop). The soft tint alone marks progress. */
@@ -10441,33 +10573,27 @@ function ProvisionsApp({ scrollRootRef }) {
         .store-skip { display: block; background: none; border: none; padding: 0; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 10px; cursor: pointer; text-decoration: underline; text-align: left; }
         .store-field-label { font-family: 'Lato', sans-serif; font-size: calc(12.5px * var(--op-text-scale)); letter-spacing: 1.5px; text-transform: uppercase; color: #8A5F3A; margin-bottom: 7px; }
         .store-input { flex: 1; min-width: 0; border: 1.5px solid #E8D5B7; border-radius: 20px; padding: 7px 14px; font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; background: #F5EDE0; outline: none; }
-        /* touch-action none + overscroll contain (2026-11-05): a drag on the dimmed area never reaches the
-           page (iOS ignores overflow hidden for touch). Taps still close. The sheet's own scroller is its
-           own touch-action root, so .add-sheet-body still scrolls and the head still pulls to close. */
-        .add-sheet-scrim { position: fixed; inset: 0; background: rgba(44,26,14,0.42); z-index: 1000; display: flex; align-items: flex-end; touch-action: none; overscroll-behavior: contain; }
-        .add-sheet { background: #FAF4EC; border-radius: 20px 20px 0 0; width: 100%; max-width: 680px; margin: 0 auto; padding: 12px 18px 26px; box-shadow: 0 -10px 30px rgba(44,26,14,0.25); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; transition: transform 150ms ease-out; }
-        @media (prefers-reduced-motion: reduce) { .add-sheet { transition: none; } }
-        .add-sheet-grab { width: 36px; height: 4px; border-radius: 2px; background: #C9A97A; margin: 0 auto 14px; flex: none; }
-        /* Add sheet on the knob (pass 2, Shop slice 2): title = sheet-title rate k .5 at its
-           current 18.4 (not promoted to 22.4 — not a .modal h2, same call as the Profile sheet);
-           hint = meta 14 #8A5F3A. The search input is CatalogSearchBox (body 15, shared with Browse). */
-        .add-sheet-title { font-family: 'Playfair Display', serif; font-size: calc(18.4px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; margin-bottom: 12px; flex: none; }
-        /* Clip, don't spill (2026-11-05): the sheet is overflow hidden; grab, title and search row hold
-           their height (flex none); .add-sheet-body (results + hint) is the only scroller, so the
-           keyboard cap shrinks the body, never draws the hint below the sheet's edge. */
-        .add-sheet-head { flex: none; }
-        .add-sheet-search { display: flex; align-items: center; gap: 10px; flex: none; }
-        .add-sheet-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; margin-top: 10px; }
-        .add-result { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid #E8D5B7; cursor: pointer; }
-        .add-result .ar-main { flex: 1; min-width: 0; }
-        .add-result .ar-name { font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); color: #2C1A0E; }
-        .add-result .ar-cat { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 2px; }
-        .add-result .ar-go { font-family: 'Lato', sans-serif; font-size: 0.78rem; font-weight: 700; color: #8A5F3A; }
-        .add-result.create { border-bottom: none; }
-        .add-result.create .ar-name { color: #8A5F3A; }
-        .add-result.create .ar-name b { color: #2C1A0E; }
-        .add-sheet-hint { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8A5F3A; margin-top: 12px; line-height: 1.45; }
-        .op-later-badge { position: absolute; top: -8px; right: -8px; font-family: 'Lato', sans-serif; font-size: 0.56rem; font-weight: 700; letter-spacing: .5px; background: #0D9488; color: #fff; padding: 2px 6px; border-radius: 8px; }
+        /* THE QUICK PICKER's list (SPEC_one_list R7, mockup screen 3): letter headers, 54px rows, the name over
+           "On the list", a 36px mark — teal ✓ (on the list, inert) or an outlined + — and its own toast inside the
+           view (above the keyboard). */
+        .pick-letter { font-family: 'Lato', sans-serif; font-size: calc(11px * var(--op-text-scale)); letter-spacing: 2px; text-transform: uppercase; color: #6F5C48; margin: 10px 0 2px; }
+        .pick-row { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 54px; padding: 6px 4px; border: none; border-bottom: 1px solid #EADFCF;
+                    background: none; text-align: left; font-family: 'Lato', sans-serif; color: #2C1A0E; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .pick-row.on { cursor: default; }
+        .pick-main { flex: 1; min-width: 0; }
+        .pick-name { display: block; font-size: calc(16px * var(--op-text-scale)); overflow-wrap: anywhere; }
+        .pick-sub { display: block; font-size: calc(12px * var(--op-text-scale)); color: #3F5A55; }
+        .pick-mark { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid #C9A26A; color: #9A7350; font-size: 20px; line-height: 1; }
+        .pick-mark.on { border-color: #13877C; background: #13877C; color: #fff; }
+        .pick-create { border-bottom: none; }
+        .pick-create .pick-name { color: #8A5F3A; }
+        .pick-create .pick-name b { color: #2C1A0E; }
+        .item-picker .ask-search-list { padding-bottom: 96px; }
+        .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+                      padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
+                      box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
+        .pick-toast-text { min-width: 0; overflow-wrap: anywhere; }
+        .pick-undo { flex: none; border: none; background: none; padding: 8px 4px; margin: -8px -4px; font: 700 calc(14px * var(--op-text-scale)) 'Lato', sans-serif; color: #9FD0C7; cursor: pointer; }
         .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
         /* Names in the filter descriptor read as content, not as voice. */
         .declutter-desc b { font-style: normal; font-weight: 700; color: #8A5F3A; }
@@ -12065,7 +12191,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   hiddenMatch={hiddenMatch}
                   onReveal={(m) => {
                     if (m.live) { unhideItem(m.item.id); setSearchQuery(""); }
-                    else addSearchedItem(m.item.category);   // un-hide + add at 1 — the F1b branch
+                    else { addSearchedItem(m.item.category, searchQuery); setSearchQuery(""); }   // un-hide + add at 1 — the F1b branch
                   }}
                   listClassName="items-grid"
                   renderRow={(item) => {
@@ -12250,7 +12376,7 @@ function ProvisionsApp({ scrollRootRef }) {
                     though the page is too short to scroll. */}
                 <div className="list-header empty" ref={controlRowRef}>
                   <h2 className="list-title">Our list</h2>
-                  <HeaderAction verb="add" label="Add something" onClick={openAddSheet} />
+                  <HeaderAction verb="add" label="Add something" onClick={() => openPicker("list_add")} />
                 </div>
                 {/* Empty state — Home's list-line pattern (status · link). Planned
                     meals not yet on the list (boardStats.stillToAdd, the board
@@ -12283,7 +12409,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   <h2 className="list-title">Our list</h2>
                   <div className="list-controls">
                     <ShopLensSegment lens={shopLens} onChange={setShopLens} />
-                    <HeaderAction verb="add" label="Add something" onClick={openAddSheet} />
+                    <HeaderAction verb="add" label="Add something" onClick={() => openPicker("list_add")} />
                   </div>
                 </div>
                 {checkedCount === totalItems && totalItems > 0 && !shopCheckSettling && (() => {
@@ -13119,89 +13245,10 @@ function ProvisionsApp({ scrollRootRef }) {
         </div>
       )}
 
-      {/* ── Shop Add sheet (mockup frame C) — transactional, so the scrim closes it.
-          Same search path Browse has, through the shared components: catalog hit
-          adds at one tap, hidden-live item surfaces as the reveal card, no match
-          creates under `Other`. The mic is designed in and NOT wired (LATER). ── */}
-      {addSheetOpen && (
-        <div className="add-sheet-scrim" onClick={closeAddSheet}>
-          {/* AddSheetPanel (2026-11-05): pull down on the head always closes; on the body (results +
-              hint, the one scroller; the sheet clips) only from the top, otherwise it scrolls. */}
-          <AddSheetPanel
-            onClose={closeAddSheet}
-            inset={addSheetKeyboard.inset}
-            style={
-              // Never taller than what is on screen, so it can't run under the status
-              // bar with the keyboard up; 80vh stays the cap when nothing is covered.
-              addSheetKeyboard.viewportHeight
-                ? { maxHeight: `min(80vh, ${Math.max(0, addSheetKeyboard.viewportHeight - 16)}px)` }
-                : undefined
-            }
-            head={
-              <>
-                <div className="add-sheet-grab" />
-                <div className="add-sheet-title">Add something</div>
-                <div className="add-sheet-search">
-                  <CatalogSearchBox
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    onClear={() => setSearchQuery("")}
-                    placeholder="Search your catalog…"
-                    inputRef={addSheetInputRef}
-                  />
-                  <span style={{ position: "relative", flex: "none" }}>
-                    <button type="button" className="op-mic-btn" disabled aria-label="Voice add — coming later" title="Voice add — coming later">
-                      <svg viewBox="0 0 24 24" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="9" y="3" width="6" height="11" rx="3" />
-                        <path d="M5 11a7 7 0 0 0 14 0" />
-                        <line x1="12" y1="18" x2="12" y2="21" />
-                      </svg>
-                    </button>
-                    <span className="op-later-badge">LATER</span>
-                  </span>
-                </div>
-              </>
-            }
-          >
-            <div className="add-sheet-results">
-              {searchResults !== null && (
-                <SearchResultsList
-                  query={searchQuery}
-                  results={searchResults}
-                  hiddenMatch={hiddenMatch}
-                  onReveal={(m) => {
-                    if (m.live) { unhideItem(m.item.id); closeAddSheet(); }
-                    else handleShopAddNew(m.item.category);   // un-hide + add at 1 (added_in_store only during a trip, R5)
-                  }}
-                  showCount={false}
-                  renderRow={(item) => (
-                    <div key={item.name} className="add-result" onClick={() => handleShopAddResult(item)} role="button" tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === "Enter") handleShopAddResult(item); }}>
-                      <div className="ar-main">
-                        <div className="ar-name">{item.name}</div>
-                        <div className="ar-cat">{item.category}</div>
-                      </div>
-                      <span className="ar-go">Add</span>
-                    </div>
-                  )}
-                  createSlot={
-                    <div className="add-result create" onClick={() => handleShopAddNew()} role="button" tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === "Enter") handleShopAddNew(); }}>
-                      <div className="ar-main">
-                        <div className="ar-name">Add <b>“{searchQuery.trim()}”</b> as a new item…</div>
-                      </div>
-                    </div>
-                  }
-                />
-              )}
-            </div>
-            <div className="add-sheet-hint">
-              Added items land in their aisle, unchecked
-              {activeSession?.store_name_raw ? `, and are remembered as picked up at ${activeSession.store_name_raw}` : ""}.
-            </div>
-          </AddSheetPanel>
-        </div>
-      )}
+      {/* ── THE QUICK PICKER (SPEC_one_list R7) — always mounted, so an opener's tap can raise the keyboard.
+          It replaced the Shop Add sheet (AddSheetPanel, its disabled mic) on 2026-11-26. ── */}
+      <ListPicker search={picker} items={pickerList} statusOf={pickerStatus} hiddenFor={pickerHidden}
+        onAdd={pickerAdd} onCreate={pickerCreate} onReveal={pickerReveal} onTapListed={pickerTapListed} onClosed={onPickerClosed} />
 
       {/* Profile Sheet — three ways out, all running the same close: backdrop
           tap (the scrim's onClick), the Close button (SheetClose: VoiceOver's

@@ -61,8 +61,9 @@ export function useItemSearch() {
 // query / onQuery: the input's value. label: the dialog's name. input: { className, placeholder, name,
 // ariaLabel }. title (optional): a title bar above the field — "Add to our list" with Done beside it; without
 // it the input and Done share one row (the Ask view). count (optional): the count line between the head and
-// the list. listTestId, className: for the host. children: the list.
-export function ItemSearchView({ search, onClose, query, onQuery, label, input = {}, title = null, count = null, listTestId, className = "", children }) {
+// the list. listTestId, className: for the host. children: the list. overlay (optional): drawn over the list
+// inside the view (the picker's toast), so it sits on the visible area, above the keyboard.
+export function ItemSearchView({ search, onClose, query, onQuery, label, input = {}, title = null, count = null, listTestId, className = "", overlay = null, children }) {
   const { open, viewRef, viewBox, setViewBox, inputRef } = search;
 
   useEffect(() => {
@@ -171,6 +172,7 @@ export function ItemSearchView({ search, onClose, query, onQuery, label, input =
           <div data-testid={listTestId} className="ask-search-list">
             {children}
           </div>
+          {overlay}
         </div>, document.body)}
       <style>{ITEM_SEARCH_CSS}</style>
     </>

@@ -67,8 +67,9 @@ describe("click-text privacy block", () => {
     // Phase A Commit 2 (give sheet): in .rv-more, .rv-give, .rv-stop-giving, .give-go, .give-nudge, .give-send, .give-copy,
     // .stop-giving-yes, .stop-giving-no → 80; Phase A Commit 3 (accept): in .gift-open, .gift-ok, .thanks-send, .thanks-skip → 84;
     // the header share button (Dan 2026-10-30): out .rv-more (the ⋯ and its menu are gone); .rv-give is now the button itself,
-    // .rv-stop-giving the give sheet's top-line button → 83; SPEC_ask_slice2 C1 adds no entry → 83
-    expect(rules.slice(0, -3)).toHaveLength(83);
+    // .rv-stop-giving the give sheet's top-line button → 83; SPEC_ask_slice2 C1 adds no entry → 83;
+    // SPEC_one_list Slice 2 (2026-11-26): in .item-search-done (the quick picker's Done) → 84
+    expect(rules.slice(0, -3)).toHaveLength(84);
     const sel = rules.map((r) => r.selector);
     [".rv-photo-replace", ".rv-photo-details", ".rv-photo-save", ".rv-photo-remove", ".rv-photo-confirm-remove", ".rv-photo-confirm-keep", ".rv-photo-placeholder",
       ".rv-photo-make-showcase", ".rv-photo-make-cook", ".rv-showcase-go", ".rv-showcase-cancel", ".rv-photo-full-ok", ".gift-add", ".gift-signin", ".gift-what", ".gift-retry",
@@ -105,9 +106,9 @@ describe(".op-name — excluded everywhere, allow-listed nowhere", () => {
       expect(unmasks.some((r) => r.selector.includes("op-name"))).toBe(false);
     }
   });
-  test("the prod click-text allow-list stays at 83 entries", () => {
+  test("the prod click-text allow-list stays at 84 entries", () => {
     const rules = initWith("production").web.privacy.sensitivityRules;
-    expect(rules.filter((r) => r.rule === "unmask")).toHaveLength(83);
+    expect(rules.filter((r) => r.rule === "unmask")).toHaveLength(84);
   });
 });
 

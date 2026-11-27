@@ -1377,8 +1377,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
   const qtyCtxRef = useRef(new Map());
   const emitItemAdded = (ctx) => {
     // One emitter for every manual entry onto the list (Q10: the RPC's inserted / revived, never
-    // a bump). source: 'browse' covers Browse's Add, search quick-add, the new-item form, the
-    // Shop in-store Add sheet and landscape. Telemetry never throws into, or blocks, the add.
+    // a bump). source: 'browse' covers Browse's Add, search quick-add, the new-item form and
+    // landscape; 'picker' is the List's quick picker (SPEC_one_list Telemetry), with the door it was
+    // opened on ('list' | 'browse' | 'guide'). Count-only: an id and a category, never a name.
+    // Telemetry never throws into, or blocks, the add.
     try {
       tracer.startSpan("item_added_to_list", {
         attributes: {
@@ -1386,7 +1388,8 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           category: ctx.categoryName || ctx.catalogItem.category || null,
           is_custom: !ctx.catalogItem.is_global,
           household_id: ctx.hhId,
-          source: "browse",
+          source: ctx.source || "browse",
+          ...(ctx.door ? { door: ctx.door } : {}),
         },
       }).end();
     } catch (e) {
@@ -1468,7 +1471,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
             });
           }
           releaseChecks();
-          if (classifyFetchError(err) === 'transient') quietTransient(ctx.isAdd ? "add" : "qty");
+          if (classifyFetchError(err) === 'transient') { quietTransient(ctx.isAdd ? "add" : "qty"); if (ctx.onTransient) ctx.onTransient(); }
           else setError(`Could not update quantity: ${err?.message}`);
         }
         ctx.keys.forEach((k) => qtyBusyRef.current.delete(k));
@@ -1477,7 +1480,10 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     });
   }
 
-  const adjustQty = useCallback(async (itemName, delta, categoryName, price) => {
+  // opts (SPEC_one_list, the quick picker): { source, door } for item_added_to_list, and onTransient(),
+  // called when the change fails for want of signal, so the surface that made it can answer at the tap
+  // (R14: "Adding items needs signal for now."). A real error still goes to setError.
+  const adjustQty = useCallback(async (itemName, delta, categoryName, price, opts = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
     if (!hh || !db || !Number.isInteger(delta) || delta === 0) return null;
@@ -1551,7 +1557,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         if (!qtyQueueRef.current.busy(`${hh.id}:${catalogItem?.id}`)) qtyBusyRef.current.delete(optKey);
         setQuantities((prev) => rollbackQty(prev, optKey, listRowsRef.current));
       }
-      if (classifyFetchError(err) === 'transient') quietTransient(delta > 0 && !(catalogItem && liveRowIdFor(catalogItem.id)) ? "add" : "qty");
+      if (classifyFetchError(err) === 'transient') { quietTransient(delta > 0 && !(catalogItem && liveRowIdFor(catalogItem.id)) ? "add" : "qty"); if (opts.onTransient) opts.onTransient(); }
       else setError(`Could not update quantity: ${err.message}`);
       return null;
     }
@@ -1563,6 +1569,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
       ctx = { hhId: hh.id, cid: catalogItem.id, catalogItem, categoryName, keys: new Set(), price: null, optKey, renewing: false, uncheckedIds: new Set(), isAdd: delta > 0 && !liveRowIdFor(catalogItem.id) };
       qtyCtxRef.current.set(key, ctx);
     }
+    // The latest tap's surface names the burst (a burst is one item's taps while one request is out).
+    if (opts.source) { ctx.source = opts.source; ctx.door = opts.door || null; }
+    if (opts.onTransient) ctx.onTransient = opts.onTransient;
     if (renewRowId) { ctx.renewing = true; ctx.uncheckedIds.add(renewRowId); }
     ctx.keys.add(optKey);
     ctx.optKey = optKey;
