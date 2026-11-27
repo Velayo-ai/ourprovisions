@@ -855,63 +855,91 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 }
 
 // THE QUICK PICKER (SPEC_one_list R7–R9, R14; mockup "Our List — one list, one screen" screen 3). The one add
-// surface for List's "+ Add", the Helm's + on List and on Browse, and the guide's Add (Slice 3). It is
+// surface for List's "+ Add", the Helm's + on List and on Browse, and the guide's Add items. It is
 // ItemSearchView with a title bar — the Ask's search view, the same primitive — so the keyboard rises on
 // the first tap: App's openers call search.show() inside the tap, and this stays mounted.
 //   Rows: the person's Browse catalog A–Z with letter headers (hidden items excluded); typing filters.
-//   ✓ "On the list" comes from the shown rows (overlay included); a ✓ row is inert — a tap adds nothing and
-//   tells onTapListed (picker_tap_on_listed, the quantity-friction signal).
-//   A tap adds one (onAdd → adjustQty +1) and the picker stays open; its own toast says what happened, inside
-//   the view, so it sits above the keyboard: "{Item} is on the list · Undo"; an item checked off this trip is
-//   085's renewal, "{Item} added again · it was in your cart", with no Undo; off grid, "Adding items needs
-//   signal for now." and nothing written.
+//   THE ROW IS THE CONFIRMATION AND THE UNDO (R8 revised 2026-11-27, Dan's walk: an accidental tap two items
+//   back had no way back, and a toast's Undo is small, brief and away from the eye). ✓ comes from the shown
+//   rows (overlay included). A row added THIS VISIT reads ✓ "Added · tap to undo", and a tap takes it back off
+//   (onUndo → −1, back to +), however far back it is. A row already on the list when the visit began reads
+//   "On the list" and is inert (onTapListed: picker_tap_on_listed, the quantity-friction signal). Done ends
+//   the visit: next time, everything reads "On the list".
+//   No toast for a plain add or its undo. The toast (inside the view, above the keyboard) says only what a row
+//   can't: off grid ("Adding items needs signal for now."), an item checked off this trip (085's renewal,
+//   "{Item} added again · it was in your cart"; its row then reads "On the list": a −1 would remove the row,
+//   and the cart state can't be restored), and an error.
 //   With a query: the matches through SearchResultsList — the reveal card for a hidden exact match (F1b) and,
-//   with no exact match, "+ Add "{text}" as a new item" (D7: Other).
+//   with no exact match, "+ Add "{text}" as a new item" (D7: Other); a row made this visit is undoable too.
+//   The query stays after a tap, so the row that confirms it stays in sight.
 // Item names and the typed text are household text: no element here is allow-listed except Done.
-export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate, onReveal, onTapListed, onClosed }) {
+// onAdd(item, status) / onCreate(text) / onReveal(match, text) / onUndo(item) resolve to { kind, id?, text? }:
+// "added" (id = the catalog item now on the list), "renewed", "revealed", "undone", "needsSignal", "error".
+export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate, onReveal, onUndo, onTapListed, onClosed }) {
   const [query, setQuery] = useState("");
-  const [toast, setToast] = useState(null);   // { text, undo }
+  const [toast, setToast] = useState(null);   // { text }
+  const [fresh, setFresh] = useState(() => new Set());   // catalog ids added this visit
+  const freshRef = useRef(fresh);
+  freshRef.current = fresh;
+  const inFlight = useRef(new Set());   // a second tap on a row whose change is still out does nothing
   const toastTimer = useRef(null);
   const openedAt = useRef(0);
-  const added = useRef(0);
   const wasOpen = useRef(false);
   useEffect(() => {
-    if (search.open && !wasOpen.current) { openedAt.current = Date.now(); added.current = 0; }
+    if (search.open && !wasOpen.current) { openedAt.current = Date.now(); setFresh(new Set()); }
     wasOpen.current = search.open;
   }, [search.open]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
-  const say = (next) => {
+  const say = (text) => {
     clearTimeout(toastTimer.current);
-    setToast(next);
-    toastTimer.current = setTimeout(() => setToast(null), next.undo ? 5000 : 3500);
+    setToast({ text });
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
   };
+  const mark = (id, on) => setFresh((prev) => {
+    if (on === prev.has(id)) return prev;
+    const n = new Set(prev);
+    if (on) n.add(id); else n.delete(id);
+    return n;
+  });
+  // The answer a row can't give: renewal, off grid, an error. A plain add / undo says nothing here.
   const answer = (r) => {
     if (!r) return;
-    if (r.kind === "added" || r.kind === "renewed") added.current += 1;
-    say({ text: r.text, undo: r.undo || null });
+    if (r.kind === "added" && r.id) mark(r.id, true);
+    if (r.kind === "renewed" || r.kind === "needsSignal" || r.kind === "error") say(r.text);
   };
   const close = () => {
     search.hide();
     setQuery("");
     clearTimeout(toastTimer.current);
     setToast(null);
-    onClosed({ added: added.current, openMs: Date.now() - openedAt.current });
+    onClosed({ added: freshRef.current.size, openMs: Date.now() - openedAt.current });
+    setFresh(new Set());
   };
-  const tap = async (item) => {
+  const once = async (id, run) => {
+    if (inFlight.current.has(id)) return;
+    inFlight.current.add(id);
+    try { await run(); } finally { inFlight.current.delete(id); }
+  };
+  const tap = (item) => once(item.id, async () => {
     const status = statusOf(item.id);
+    if (status === "on" && fresh.has(item.id)) {
+      const r = await onUndo(item);
+      if (r && r.kind === "undone") mark(item.id, false);
+      else answer(r);
+      return;
+    }
     if (status === "on") { onTapListed(item); return; }
-    const r = await onAdd(item, status);
-    if (r && (r.kind === "added" || r.kind === "renewed")) setQuery("");
-    answer(r);
-  };
+    answer(await onAdd(item, status));
+  });
   const row = (item) => {
     const on = statusOf(item.id) === "on";
+    const isFresh = on && fresh.has(item.id);
     return (
-      <button key={item.id} type="button" className={`pick-row${on ? " on" : ""}`} aria-disabled={on ? "true" : undefined}
+      <button key={item.id} type="button" className={`pick-row${on ? " on" : ""}${isFresh ? " fresh" : ""}`} aria-disabled={on && !isFresh ? "true" : undefined}
         onMouseDown={keepFocus} onClick={() => tap(item)}>
         <span className="pick-main">
           <span className="pick-name">{item.name}</span>
-          {on && <span className="pick-sub">On the list</span>}
+          {isFresh ? <span className="pick-sub">Added · tap to undo</span> : on && <span className="pick-sub">On the list</span>}
         </span>
         <span className={`pick-mark${on ? " on" : ""}`} aria-hidden="true">
           {on
@@ -929,10 +957,6 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
       overlay={toast && (
         <div className="pick-toast" role="status">
           <span className="pick-toast-text">{toast.text}</span>
-          {toast.undo && (
-            <button type="button" className="pick-undo" onMouseDown={keepFocus}
-              onClick={async () => { const u = toast.undo; setToast(null); added.current = Math.max(0, added.current - 1); await u(); }}>Undo</button>
-          )}
         </div>
       )}>
       {q ? (
@@ -940,12 +964,12 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
           query={query}
           results={filterItems(items, q)}
           hiddenMatch={hiddenFor(q)}
-          onReveal={async (m) => { const r = await onReveal(m, q); if (r && r.kind !== "needsSignal") setQuery(""); answer(r); }}
+          onReveal={(m) => once(m.item.id, async () => answer(await onReveal(m, q)))}
           showCount={false}
           renderRow={row}
           createSlot={
             <button type="button" className="pick-row pick-create" onMouseDown={keepFocus}
-              onClick={async () => { const r = await onCreate(q); if (r && r.kind !== "needsSignal") setQuery(""); answer(r); }}>
+              onClick={() => once(`new:${q}`, async () => answer(await onCreate(q)))}>
               <span className="pick-main"><span className="pick-name">+ Add <b>“{q}”</b> as a new item</span></span>
             </button>
           }
@@ -8401,42 +8425,58 @@ function ProvisionsApp({ scrollRootRef }) {
     const session = await recordListEvent("added_in_store", { ...res, adoptOnly: true });
     if (!session) setAddedHereIds(prev => { if (!prev.has(cid)) return prev; const n = new Set(prev); n.delete(cid); return n; });
   };
-  // The picker's adds (SPEC_one_list R8, R14). A catalog hit is the change Browse's row makes: +1 through
-  // adjustQty; adds land unchecked (D6); on a row already in the cart the server makes it a NEW need of 1,
-  // never old + 1 (085 Q4) — "added again", with no Undo (an Undo can't restore the cart state). Off grid
-  // nothing is sent and the picker says so at the tap; a transient failure past that check says the same.
-  // A real error is setError's toast, as everywhere. "Added here" only during this person's trip (R5).
+  // The picker's adds (SPEC_one_list R8 revised, R14). A catalog hit is the change Browse's row makes: +1
+  // through adjustQty; adds land unchecked (D6); on a row already in the cart the server makes it a NEW need
+  // of 1, never old + 1 (085 Q4) — "added again", never undoable (a −1 would remove the row; the cart state
+  // can't come back). A plain add answers with the row (id), not a toast; its undo is −1. Off grid nothing is
+  // sent and the picker says so at the tap; a transient failure past that check says the same; a real error
+  // says so in the picker too (setError's toast sits under it). "Added here" only during this trip (R5).
   const pickerOffGrid = () => offline || (typeof navigator !== "undefined" && navigator.onLine === false);
   const pickNeedsSignal = { kind: "needsSignal", text: PICKER_COPY.needsSignal };
-  const pickOpts = (flag) => ({ source: "picker", door: pickerDoorRef.current, onTransient: () => { flag.transient = true; } });
+  const pickError = { kind: "error", text: PICKER_COPY.error };
+  const pickOpts = (flag, door = true) => ({
+    ...(door ? { source: "picker", door: pickerDoorRef.current } : {}),
+    onTransient: () => { flag.transient = true; },
+    onError: () => { flag.error = true; },
+  });
+  const pickFailed = (flag) => (flag.transient ? pickNeedsSignal : pickError);
   const pickerAdd = async (item, status) => {
     if (pickerOffGrid()) return pickNeedsSignal;
-    const flag = { transient: false };
+    const flag = {};
     const res = await adjustQty(item.name, 1, item.rawCategory, undefined, pickOpts(flag));
-    if (!res) return flag.transient ? pickNeedsSignal : null;
+    if (!res) return pickFailed(flag);
     noteAddedHere(res);
     if (status === "cart") return { kind: "renewed", text: PICKER_COPY.renewed(item.name) };
-    return { kind: "added", text: PICKER_COPY.added(item.name), undo: () => adjustQty(item.name, -1, item.rawCategory) };
+    return { kind: "added", id: res.catalogItemId };
+  };
+  // The fresh ✓'s tap: take it back off (−1), the same change the old toast's Undo made.
+  const pickerUndo = async (item) => {
+    if (pickerOffGrid()) return pickNeedsSignal;
+    const flag = {};
+    await adjustQty(item.name, -1, item.rawCategory, undefined, pickOpts(flag, false));
+    if (flag.transient || flag.error) return pickFailed(flag);
+    return { kind: "undone" };
   };
   // No match → a new item under `Other` (D7), through Browse's addSearchedItem, which resolves hidden items
-  // before anything else (F1b).
+  // before anything else (F1b). Its row is fresh, so it is undoable like any other.
   const pickerCreate = async (text) => {
     if (pickerOffGrid()) return pickNeedsSignal;
-    const flag = { transient: false };
+    const flag = {};
     const res = await addSearchedItem("Other", text, pickOpts(flag));
-    if (!res) return flag.transient ? pickNeedsSignal : null;
+    if (!res) return pickFailed(flag);
     noteAddedHere(res);
-    return { kind: "added", text: PICKER_COPY.added(text), undo: () => adjustQty(text, -1, "Other") };
+    return { kind: "added", id: res.catalogItemId };
   };
-  // The reveal card (F1b): live → un-hide only (it is on the list already); not live → un-hide and add at 1.
+  // The reveal card (F1b): live → un-hide only (it is on the list already: its row reads "On the list");
+  // not live → un-hide and add at 1 (fresh).
   const pickerReveal = async (m, text) => {
-    if (m.live) { unhideItem(m.item.id); return { kind: "revealed", text: PICKER_COPY.revealed(m.item.name) }; }
+    if (m.live) { unhideItem(m.item.id); return { kind: "revealed" }; }
     if (pickerOffGrid()) return pickNeedsSignal;
-    const flag = { transient: false };
+    const flag = {};
     const res = await addSearchedItem(m.item.category, text, pickOpts(flag));
-    if (!res) return flag.transient ? pickNeedsSignal : null;
+    if (!res) return pickFailed(flag);
     noteAddedHere(res);
-    return { kind: "added", text: PICKER_COPY.added(m.item.name), undo: () => adjustQty(m.item.name, -1, m.item.category) };
+    return { kind: "added", id: res.catalogItemId };
   };
   const pickerTapListed = () => {
     try { tracer.startSpan("picker_tap_on_listed", { attributes: { household_id: household?.id || null } }).end(); } catch (e) { console.warn("[rum] picker_tap_on_listed failed:", e); }
@@ -10583,6 +10623,8 @@ function ProvisionsApp({ scrollRootRef }) {
         .pick-main { flex: 1; min-width: 0; }
         .pick-name { display: block; font-size: calc(16px * var(--op-text-scale)); overflow-wrap: anywhere; }
         .pick-sub { display: block; font-size: calc(12px * var(--op-text-scale)); color: #3F5A55; }
+        /* Added this visit: the row is the undo (R8 revised) — the line says so in teal ink. */
+        .pick-row.fresh .pick-sub { color: #0A776D; font-weight: 700; }
         .pick-mark { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid #C9A26A; color: #9A7350; font-size: 20px; line-height: 1; }
         .pick-mark.on { border-color: #13877C; background: #13877C; color: #fff; }
         .pick-create { border-bottom: none; }
@@ -10593,7 +10635,6 @@ function ProvisionsApp({ scrollRootRef }) {
                       padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
                       box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
         .pick-toast-text { min-width: 0; overflow-wrap: anywhere; }
-        .pick-undo { flex: none; border: none; background: none; padding: 8px 4px; margin: -8px -4px; font: 700 calc(14px * var(--op-text-scale)) 'Lato', sans-serif; color: #9FD0C7; cursor: pointer; }
         .declutter-desc { font-family: 'Lato', sans-serif; font-size: 0.72rem; color: #a9967c; font-style: italic; letter-spacing: 0.3px; margin: -8px 0 14px; }
         /* Names in the filter descriptor read as content, not as voice. */
         .declutter-desc b { font-style: normal; font-weight: 700; color: #8A5F3A; }
@@ -13248,7 +13289,7 @@ function ProvisionsApp({ scrollRootRef }) {
       {/* ── THE QUICK PICKER (SPEC_one_list R7) — always mounted, so an opener's tap can raise the keyboard.
           It replaced the Shop Add sheet (AddSheetPanel, its disabled mic) on 2026-11-26. ── */}
       <ListPicker search={picker} items={pickerList} statusOf={pickerStatus} hiddenFor={pickerHidden}
-        onAdd={pickerAdd} onCreate={pickerCreate} onReveal={pickerReveal} onTapListed={pickerTapListed} onClosed={onPickerClosed} />
+        onAdd={pickerAdd} onCreate={pickerCreate} onReveal={pickerReveal} onUndo={pickerUndo} onTapListed={pickerTapListed} onClosed={onPickerClosed} />
 
       {/* Profile Sheet — three ways out, all running the same close: backdrop
           tap (the scrim's onClick), the Close button (SheetClose: VoiceOver's

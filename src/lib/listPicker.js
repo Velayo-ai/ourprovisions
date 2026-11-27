@@ -75,10 +75,10 @@ export function openBucket(ms) {
   return "180plus";
 }
 
-// The toast after a tap (R8, R14). Item names are household text: they stay off every allow-list.
+// The picker's toast (R8 revised, R14): only what a row can't say. A plain add or its undo has none: the row
+// is the confirmation. Item names are household text: they stay off every allow-list.
 export const PICKER_COPY = {
-  added: (name) => `${name} is on the list`,
   renewed: (name) => `${name} added again · it was in your cart`,
-  revealed: (name) => `${name} is on the list`,
   needsSignal: "Adding items needs signal for now.",
+  error: "That didn't save. Try again.",
 };

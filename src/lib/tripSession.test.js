@@ -122,7 +122,7 @@ describe("the callers (source)", () => {
   const path = require("path");
   const APP = fs.readFileSync(path.join(__dirname, "..", "App.js"), "utf8");
   const HOOK = fs.readFileSync(path.join(__dirname, "..", "hooks", "useProvisions.js"), "utf8");
-  const noteAddedHere = APP.slice(APP.indexOf("const noteAddedHere"), APP.indexOf("// The picker's adds (SPEC_one_list R8, R14)"));
+  const noteAddedHere = APP.slice(APP.indexOf("const noteAddedHere"), APP.indexOf("// The picker's adds (SPEC_one_list"));
 
   test("noteAddedHere has no door gate, tags only during this person's trip, and logs through adoptOnly", () => {
     expect(noteAddedHere).not.toMatch(/view\s*[!=]==/);

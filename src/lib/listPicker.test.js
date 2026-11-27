@@ -61,8 +61,8 @@ test("picker_closed's open_s is a bucket, never a raw duration", () => {
   expect([0, 9999, 10000, 45000, 90000, 400000].map(openBucket)).toEqual(["lt10", "lt10", "10_30", "30_60", "60_180", "180plus"]);
 });
 
-test("the copy (R8, R14)", () => {
-  expect(PICKER_COPY.added("Bagels")).toBe("Bagels is on the list");
+test("the toast's copy (R8 revised, R14): only what a row can't say — no plain-add line", () => {
+  expect(Object.keys(PICKER_COPY).sort()).toEqual(["error", "needsSignal", "renewed"]);
   expect(PICKER_COPY.renewed("Apples")).toBe("Apples added again · it was in your cart");
   expect(PICKER_COPY.needsSignal).toBe("Adding items needs signal for now.");
 });

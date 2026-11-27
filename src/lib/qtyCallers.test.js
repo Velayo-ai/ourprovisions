@@ -57,12 +57,11 @@ describe("§6.4 the callers", () => {
   test("new-item form is +1 with its price", () => {
     expect(app).toMatch(/adjustQty\(name, 1, newItemCategory, price > 0 \? price : undefined\);/);
   });
-  test("the quick picker's add is +1, not qtyFor + 1 (the server makes a bought row a new need); its Undo is −1", () => {
-    const i = app.indexOf("const pickerAdd = async");
-    const fn = app.slice(i, app.indexOf("\n  };\n", i));
-    expect(fn).toMatch(/await adjustQty\(item\.name, 1, item\.rawCategory, undefined, pickOpts\(flag\)\);/);
-    expect(fn).toMatch(/undo: \(\) => adjustQty\(item\.name, -1, item\.rawCategory\)/);
-    expect(fn).not.toMatch(/qtyFor/);
+  test("the quick picker's add is +1, not qtyFor + 1 (the server makes a bought row a new need); its undo (the fresh ✓'s tap) is −1", () => {
+    const slice = (name) => { const i = app.indexOf(`const ${name} = async`); return app.slice(i, app.indexOf("\n  };\n", i)); };
+    expect(slice("pickerAdd")).toMatch(/await adjustQty\(item\.name, 1, item\.rawCategory, undefined, pickOpts\(flag\)\);/);
+    expect(slice("pickerAdd")).not.toMatch(/qtyFor/);
+    expect(slice("pickerUndo")).toMatch(/await adjustQty\(item\.name, -1, item\.rawCategory, undefined, pickOpts\(flag, false\)\);/);
   });
   test("landscape: tap-add +1, tap-undo −1, press-and-hold removeItem; the view gets onUndo and onRemove apart", () => {
     expect(app).toMatch(/const landscapeAdd = useCallback\(\(item\) => \{\s*landscapeAddedRef\.current\.add\(item\.name\);\s*adjustQty\(item\.name, 1, item\.rawCategory\);/);

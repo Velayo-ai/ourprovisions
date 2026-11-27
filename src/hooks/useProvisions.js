@@ -1472,7 +1472,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
           }
           releaseChecks();
           if (classifyFetchError(err) === 'transient') { quietTransient(ctx.isAdd ? "add" : "qty"); if (ctx.onTransient) ctx.onTransient(); }
-          else setError(`Could not update quantity: ${err?.message}`);
+          else { setError(`Could not update quantity: ${err?.message}`); if (ctx.onError) ctx.onError(); }
         }
         ctx.keys.forEach((k) => qtyBusyRef.current.delete(k));
         qtyCtxRef.current.delete(key);
@@ -1480,9 +1480,9 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     });
   }
 
-  // opts (SPEC_one_list, the quick picker): { source, door } for item_added_to_list, and onTransient(),
-  // called when the change fails for want of signal, so the surface that made it can answer at the tap
-  // (R14: "Adding items needs signal for now."). A real error still goes to setError.
+  // opts (SPEC_one_list, the quick picker): { source, door } for item_added_to_list; onTransient(), called
+  // when the change fails for want of signal, so the surface that made it can answer at the tap (R14:
+  // "Adding items needs signal for now."); onError(), called on a real error (setError still runs).
   const adjustQty = useCallback(async (itemName, delta, categoryName, price, opts = {}) => {
     const db = supabaseRef.current;
     const hh = householdRef.current;
@@ -1558,7 +1558,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
         setQuantities((prev) => rollbackQty(prev, optKey, listRowsRef.current));
       }
       if (classifyFetchError(err) === 'transient') { quietTransient(delta > 0 && !(catalogItem && liveRowIdFor(catalogItem.id)) ? "add" : "qty"); if (opts.onTransient) opts.onTransient(); }
-      else setError(`Could not update quantity: ${err.message}`);
+      else { setError(`Could not update quantity: ${err.message}`); if (opts.onError) opts.onError(); }
       return null;
     }
 
@@ -1572,6 +1572,7 @@ export function useProvisions({ getToken, userId, clerkId, email, fullName, acti
     // The latest tap's surface names the burst (a burst is one item's taps while one request is out).
     if (opts.source) { ctx.source = opts.source; ctx.door = opts.door || null; }
     if (opts.onTransient) ctx.onTransient = opts.onTransient;
+    if (opts.onError) ctx.onError = opts.onError;
     if (renewRowId) { ctx.renewing = true; ctx.uncheckedIds.add(renewRowId); }
     ctx.keys.add(optKey);
     ctx.optKey = optKey;
