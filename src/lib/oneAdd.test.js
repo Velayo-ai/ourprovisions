@@ -4,6 +4,8 @@
 // One add (SPEC_results_feeder_standard, an experiment on exp/one-add). The rules take the flag as an
 // argument, so both builds are read here whichever way the suite runs; the source checks pin that the
 // flag-off paths are today's.
+jest.mock("@splunk/otel-web", () => ({ __esModule: true, default: { init: () => {}, setGlobalAttributes: () => {} } }));
+jest.mock("@splunk/otel-web-session-recorder", () => ({ __esModule: true, default: { init: () => {} } }));
 const fs = require("fs");
 const path = require("path");
 const {
@@ -160,5 +162,34 @@ describe("R3 — MoreAsksSheet as the chooser", () => {
     const chooser = renderToStaticMarkup(React.createElement(MoreAsksSheet, { asks, onOpen: () => {}, title: "Ask…", onNew: () => {} }));
     expect(chooser).toContain("<h2>Ask…</h2>");
     expect(chooser).toContain("New ask");
+  });
+});
+
+describe("R4 — one sheet per feeder: View & filter", () => {
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  // App.js pulls in the whole app; the sheet is a plain function of its props.
+  const { LibraryFilterSheet } = require("../App");
+  const base = { draft: { from: null, made: false, ours: false, occ: "all" }, setDraft: () => {}, fromMembers: [], countFor: () => 3, onShow: () => {}, onClose: () => {} };
+  const order = (html, words) => words.map((w) => html.indexOf(`>${w}<`));
+  test("Meals, flag-on host: View → Filter → Manage, then Clear / Show N meals", () => {
+    const html = renderToStaticMarkup(React.createElement(LibraryFilterSheet, { ...base, oneAdd: { libView: "grid", onToggleView: () => {}, present: ["dinner"], onCreate: () => {} } }));
+    expect(html).toContain("<h2>View &amp; filter</h2>");
+    const [v, f, m, c, s] = order(html, ["View", "Filter", "Manage", "Clear", "Show 3 meals"]);
+    expect(v).toBeGreaterThan(0);
+    expect(v < f && f < m && m < c && c < s).toBe(true);
+    expect(html).toContain(">Type<");
+    expect(html).toContain("New meal");
+  });
+  test("Meals, no oneAdd: Filter meals as before", () => {
+    const html = renderToStaticMarkup(React.createElement(LibraryFilterSheet, base));
+    expect(html).toContain("<h2>Filter meals</h2>");
+    expect(html).not.toContain(">View<");
+    expect(html).not.toContain(">Manage<");
+  });
+  test("List: View & organize becomes View & filter with the flag on; Done as before without it", () => {
+    expect(APP).toContain('<h2>{ONE_ADD_ENABLED ? "View & filter" : <>View &amp; organize</>}</h2>');
+    expect(APP).toContain("Show {feederFlat.length} {feederFlat.length === 1 ? \"item\" : \"items\"}");
+    expect(APP).toContain('<button className="modal-confirm" onClick={closeOrganize}>Done</button>');
   });
 });

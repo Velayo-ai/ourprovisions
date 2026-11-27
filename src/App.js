@@ -2127,7 +2127,7 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
     return (
       <div className={`plan-ctl${className ? ` ${className}` : ""}`} ref={rowRef}>
         <div className="plan-ctl-text">
-          <h2 className="plan-view on" style={{ margin: 0 }}>{screen === "library" ? "Add to this week" : "This Week"}</h2>
+          <h2 className="plan-view on" style={{ margin: 0, borderBottomColor: "transparent", cursor: "default" }}>{screen === "library" ? "Add to this week" : "This Week"}</h2>
           {subtitle && <div className="plan-sub">{subtitle}</div>}
         </div>
         {action}
@@ -2240,13 +2240,29 @@ function OccasionRail({ present, value, onChange }) {
 // these three in the draft only — never the occasion or the search. The count
 // on Show is the live grid count with the draft applied (occasion and search
 // included), so a chip that would return nothing says so before it does.
-function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onShow, onClose }) {
+// ONE ADD (R4, flag-on hosts pass `oneAdd`): the Meals feeder's ONE sheet, "View & filter" — View (grid / list,
+// applied at once) → Filter (From, History, and Type: the occasion, in the draft like the rest) → Manage (+ New
+// meal) → Clear / Show N meals. Without it, Filter meals as above. oneAdd = { libView, onToggleView, present, onCreate }.
+export function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onShow, onClose, oneAdd = null }) {
   const n = countFor(draft);
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label="Filter meals" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" role="dialog" aria-modal="true" aria-label={oneAdd ? "View and filter" : "Filter meals"} onClick={(e) => e.stopPropagation()}>
         <SheetClose onClose={onClose} />
-        <h2>Filter meals</h2>
+        <h2>{oneAdd ? "View & filter" : "Filter meals"}</h2>
+        {oneAdd && (
+          <>
+            <div className="lib-sheet-lbl">View</div>
+            <div role="radiogroup" aria-label="Show meals as" style={{ display: "flex", gap: "8px" }}>
+              {[{ key: "grid", name: "A grid" }, { key: "list", name: "A list" }].map((o) => (
+                <button key={o.key} type="button" role="radio" aria-checked={oneAdd.libView === o.key}
+                  className={`cat-pill${oneAdd.libView === o.key ? " on" : ""}`} style={{ flex: "1 1 0", justifyContent: "center" }}
+                  onClick={() => { if (oneAdd.libView !== o.key) oneAdd.onToggleView(); }}>{o.name}</button>
+              ))}
+            </div>
+            <div className="lib-sheet-lbl" style={{ borderTop: "1px solid #e8ddd0", paddingTop: "16px", marginTop: "20px" }}>Filter</div>
+          </>
+        )}
         <div className="lib-sheet-lbl">From</div>
         {fromMembers.length > 0 && (
           <div className="lib-chips">
@@ -2274,8 +2290,30 @@ function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onShow, on
           <span><span className="lib-sw-l">Ours</span><span className="lib-sw-d">Made in this household, not shared in</span></span>
           <span className="lib-track" aria-hidden="true" />
         </button>
+        {oneAdd && oneAdd.present.length > 0 && (
+          <>
+            <div className="lib-sheet-lbl">Type</div>
+            <div className="lib-chips" role="radiogroup" aria-label="Type">
+              {[["all", "All"], ...oneAdd.present.map((k) => [k, OCCASION_PILL[k]])].map(([k, label]) => {
+                const on = (draft.occ || "all") === k;
+                return (
+                  <button key={k} type="button" role="radio" aria-checked={on} className={`lib-chef${on ? " on" : ""}`}
+                    onClick={() => setDraft({ ...draft, occ: k })}>{label}</button>
+                );
+              })}
+            </div>
+          </>
+        )}
+        {oneAdd && oneAdd.onCreate && (
+          <>
+            <div className="lib-sheet-lbl" style={{ borderTop: "1px solid #e8ddd0", paddingTop: "16px", marginTop: "20px" }}>Manage</div>
+            <button type="button" className="cat-pill cat-pill-new" onClick={() => { onClose(); oneAdd.onCreate(); }}>
+              <span className="cat-em">+</span>New meal
+            </button>
+          </>
+        )}
         <div className="lib-sheet-btns">
-          <button type="button" className="lib-clear" onClick={() => setDraft({ ...NO_LIB_FILTERS })}>Clear</button>
+          <button type="button" className="lib-clear" onClick={() => setDraft(oneAdd ? { ...NO_LIB_FILTERS, occ: "all" } : { ...NO_LIB_FILTERS })}>Clear</button>
           <button type="button" className="lib-show" onClick={onShow}>Show {n} {n === 1 ? "meal" : "meals"}</button>
         </div>
       </div>
@@ -3490,7 +3528,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
     && (!f.made || !!madeBefore?.has(m.id))
     && (!f.ours || !m.household_id || m.household_id === householdId), [q, madeBefore, householdId]);
   const shown = useMemo(() => meals.filter((m) => passes(m, filters, occ)), [meals, filters, occ, passes]);
-  const countFor = (f) => meals.filter((m) => passes(m, f, occ)).length;
+  const countFor = (f) => meals.filter((m) => passes(m, f, f.occ || occ)).length;
   const activeCount = (filters.from ? 1 : 0) + (filters.made ? 1 : 0) + (filters.ours ? 1 : 0);
   const fromMember = filters.from ? fromMembers.find((mb) => mb.id === filters.from) : null;
 
@@ -3568,15 +3606,15 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search your meals…"
-            aria-label="Search your meals"
+            placeholder={ONE_ADD_ENABLED ? "Search our meals…" : "Search your meals…"}
+            aria-label={ONE_ADD_ENABLED ? "Search our meals" : "Search your meals"}
           />
         </label>
         <button
           type="button"
           className="lib-fbtn"
-          aria-label={activeCount ? `Filter meals, ${activeCount} active` : "Filter meals"}
-          onClick={() => setDraft({ ...filters })}
+          aria-label={ONE_ADD_ENABLED ? (activeCount ? `View and filter, ${activeCount} active` : "View and filter") : activeCount ? `Filter meals, ${activeCount} active` : "Filter meals"}
+          onClick={() => setDraft(ONE_ADD_ENABLED ? { ...filters, occ } : { ...filters })}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
           {activeCount > 0 && <span className="lib-fdot" aria-hidden="true" />}
@@ -3650,8 +3688,13 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
           setDraft={setDraft}
           fromMembers={fromMembers}
           countFor={countFor}
-          onShow={() => { setFilters(draft); setDraft(null); }}
+          onShow={() => {
+            if (ONE_ADD_ENABLED) { const { occ: o, ...f } = draft; setFilters(f); setOcc(o || "all"); }
+            else setFilters(draft);
+            setDraft(null);
+          }}
           onClose={() => setDraft(null)}
+          oneAdd={ONE_ADD_ENABLED ? { libView, onToggleView: toggleLibView, present, onCreate: isSignedIn ? onCreate : null } : null}
         />
       )}
     </div>
@@ -8728,7 +8771,12 @@ function ProvisionsApp({ scrollRootRef }) {
     onNewItem: (rawCategory) => openAddItem({ category: rawCategory }),
     rail: feederRail,
     hint: feederHint && !hasStaples ? <div className="feeder-hint" role="note"><span aria-hidden="true">★</span> {STAPLES_HINT}</div> : null,
-    sheetButton: null,
+    sheetButton: (
+      <button type="button" className={`pick-tool${stapleFilter || selectedCategories.size > 0 || browseOrganize === "alpha" ? " on" : ""}`}
+        aria-label="View and filter" aria-haspopup="dialog" onClick={() => setBrowseFilterOpen(true)}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
+      </button>
+    ),
     suspended: feederSuspended,
     closeRef: feederCloseRef,
     isStaple: (name) => !!catalogMap[name]?.is_staple,
@@ -13161,10 +13209,26 @@ function ProvisionsApp({ scrollRootRef }) {
           scroller, and the page behind it is locked (useScrollLock). */}
       {browseFilterOpen && (
         <div className="modal-overlay" onClick={closeOrganize} style={{ zIndex: 1000, paddingTop: "calc(20px + var(--op-inset-top, 0px))", overflowY: "hidden" }}>
-          <div className="modal op-anchor-top" role="dialog" aria-modal="true" aria-label="View and organize" onClick={(e) => e.stopPropagation()}
+          <div className="modal op-anchor-top" role="dialog" aria-modal="true" aria-label={ONE_ADD_ENABLED ? "View and filter" : "View and organize"} onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "calc(100dvh - 40px - var(--op-inset-top, 0px))", overflowY: "auto" }}>
             <SheetClose onClose={closeOrganize} />
-            <h2>View &amp; organize</h2>
+            {/* ONE ADD (R4): the feeder's ONE sheet, "View & filter" — View (layout, organize) → Filter (Staples,
+                aisles) → Manage (your categories, your asks, + New item) → Clear / Show N items. Changes apply as
+                they are made (as View & organize's always have); Show closes. Flag off: View & organize as it was. */}
+            <h2>{ONE_ADD_ENABLED ? "View & filter" : <>View &amp; organize</>}</h2>
+            {ONE_ADD_ENABLED && (
+              <div className="modal-field" style={{ marginTop: "18px" }}>
+                <span className="lib-sheet-lbl" style={{ marginTop: 0 }}>View</span>
+                <span className="modal-label" id="feeder-layout">Show items as</span>
+                <div role="radiogroup" aria-labelledby="feeder-layout" style={{ display: "flex", gap: "8px" }}>
+                  {[{ key: "list", name: "A list" }, { key: "grid", name: "A grid" }].map((o) => (
+                    <button key={o.key} type="button" role="radio" aria-checked={feederLayout === o.key}
+                      className={`cat-pill${feederLayout === o.key ? " on" : ""}`} style={{ flex: "1 1 0", justifyContent: "center" }}
+                      onClick={() => chooseFeederLayout(o.key)}>{o.name}</button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="modal-field" style={{ marginTop: "18px" }}>
               <span className="modal-label" id="browse-view">Organize items</span>
               {/* The same radio cards as the shelf sheet's "How it looks" (name + a line under it). */}
@@ -13182,8 +13246,9 @@ function ProvisionsApp({ scrollRootRef }) {
                   </button>
                 ))}
               </div>
-              {/* The Library filter sheet's switch (.lib-sw). By category only: Alphabetically has no rail. */}
-              {browseOrganize === "category" && (
+              {/* The Library filter sheet's switch (.lib-sw). By category only: Alphabetically has no rail.
+                  One add: the feeder's rail always shows (it carries Staples and Ask), so no switch. */}
+              {!ONE_ADD_ENABLED && browseOrganize === "category" && (
                 <button type="button" role="switch" aria-checked={browsePhase === 0} className="lib-sw" style={{ marginTop: "10px", borderBottom: "none" }}
                   onClick={() => chooseShortcuts(browsePhase !== 0)}>
                   <span><span className="lib-sw-l">Show category shortcuts</span><span className="lib-sw-d">Quickly jump to staples, produce, and more</span></span>
@@ -13191,6 +13256,31 @@ function ProvisionsApp({ scrollRootRef }) {
                 </button>
               )}
             </div>
+            {ONE_ADD_ENABLED && (
+              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+                <span className="lib-sheet-lbl" style={{ marginTop: 0 }}>Filter</span>
+                <button type="button" role="switch" aria-checked={stapleFilter} className="lib-sw" style={{ borderBottom: "none" }}
+                  onClick={() => setStapleFilter(f => !f)}>
+                  <span><span className="lib-sw-l">Staples</span><span className="lib-sw-d">What we always buy</span></span>
+                  <span className="lib-track" aria-hidden="true" />
+                </button>
+                <span className="modal-label" id="feeder-aisles" style={{ marginTop: "10px" }}>Aisles</span>
+                <div role="group" aria-labelledby="feeder-aisles" style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                  {categories.map(cat => {
+                    const isActive = selectedCategories.has(cat.rawName);
+                    return (
+                      <button key={cat.rawName} type="button" aria-pressed={isActive} className={`cat-pill${isActive ? " on" : ""}`}
+                        onClick={() => setSelectedCategories(prev => { const next = new Set(prev); if (next.has(cat.rawName)) next.delete(cat.rawName); else next.add(cat.rawName); return next; })}>
+                        <span className="cat-em">{categoryGlyph(cat.rawName)}</span>{categoryRailLabel(cat.rawName)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {ONE_ADD_ENABLED && isSignedIn && (
+              <span className="lib-sheet-lbl" style={{ display: "block", borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>Manage</span>
+            )}
             {/* Categories (Dan, 2026-11-10): one row per CUSTOM category (name · "{n} items"); a tap on the
                 row turns the name into an inline input (Save / Cancel → renameCategory); a trash opens a
                 centred confirmation with the required move-items picker (Pantry preselected; never
@@ -13198,7 +13288,7 @@ function ProvisionsApp({ scrollRootRef }) {
                 "+ New category" at the end. The
                 rows are text: no category name in an <option> value or an aria-label (replay, 2026-10-19). */}
             {isSignedIn && (
-              <div className="modal-field" style={{ borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
+              <div className="modal-field" style={ONE_ADD_ENABLED ? { marginTop: "6px" } : { borderTop: "1px solid #e8ddd0", marginTop: "20px", paddingTop: "16px" }}>
                 <span className="modal-label" id="manage-categories">Your categories</span>
                 <p className="picker-sub" style={{ margin: "0 0 8px" }}>Built-in categories like Produce and Dairy stay as they are.</p>
                 {categoryError && (
@@ -13309,9 +13399,23 @@ function ProvisionsApp({ scrollRootRef }) {
               </div>
             )}
 
-            <div className="modal-actions">
-              <button className="modal-confirm" onClick={closeOrganize}>Done</button>
-            </div>
+            {ONE_ADD_ENABLED ? (
+              <>
+                {isSignedIn && (
+                  <button className="cat-pill cat-pill-new" style={{ marginTop: "14px" }} onClick={() => { closeOrganize(); openAddItem({ category: null }); }}>
+                    <span className="cat-em">+</span>New item
+                  </button>
+                )}
+                <div className="lib-sheet-btns">
+                  <button type="button" className="lib-clear" onClick={() => { setStapleFilter(false); setSelectedCategories(new Set()); }}>Clear</button>
+                  <button type="button" className="lib-show" onClick={closeOrganize}>Show {feederFlat.length} {feederFlat.length === 1 ? "item" : "items"}</button>
+                </div>
+              </>
+            ) : (
+              <div className="modal-actions">
+                <button className="modal-confirm" onClick={closeOrganize}>Done</button>
+              </div>
+            )}
           </div>
         </div>
       )}
