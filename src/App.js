@@ -984,6 +984,39 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
   );
 }
 
+// THE GUIDE (SPEC_one_list R10; mockup "Our List — one list, one screen" screen 1). The empty list is not a
+// dead end: "What do we need?" and three quiet rows named by intention, each with a ›. Add items (teal) opens
+// the quick picker — its handler runs openPicker("guide") inside the tap, so the keyboard rises on the first
+// tap. The Browse row adapts: no staples (a new household) → "Browse the aisles", Browse on everything;
+// staples → "Browse our staples", Browse with Staples selected. Plan a meal opens the meal library. Every
+// label is fixed copy (.list-guide-row is allow-listed); nothing here names the household or an item.
+const GUIDE_ICONS = {
+  add: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>,
+  browse: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>,
+  plan: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 6v3M5 10l2 1.5M19 10l-2 1.5" /></svg>,
+};
+export function ListGuide({ hasStaples, onAdd, onBrowse, onPlan }) {
+  const row = (key, label, sub, onClick, teal = false) => (
+    <button type="button" className={`list-guide-row${teal ? " teal" : ""}`} onClick={onClick}>
+      <span className="list-guide-ico">{GUIDE_ICONS[key]}</span>
+      <span className="list-guide-text">
+        <span className="list-guide-label">{label}</span>
+        <span className="list-guide-sub">{sub}</span>
+      </span>
+      <svg className="list-guide-chev" viewBox="0 0 10 16" width="10" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="m2 2 6 6-6 6" /></svg>
+    </button>
+  );
+  return (
+    <div className="list-guide">
+      <p className="list-guide-ask">What do we need?</p>
+      {row("add", "Add items", "I know what we need.", onAdd, true)}
+      {row("browse", hasStaples ? "Browse our staples" : "Browse the aisles", "Remind me what we might need.", onBrowse)}
+      {row("plan", "Plan a meal", "I know what I want to cook.", onPlan)}
+      <p className="list-guide-foot">One list for everyone in your household.<br />At the store, check things off here.</p>
+    </div>
+  );
+}
+
 // ── Shop tab: lens, In cart tray, store prompt (SPEC_shop_lens_instore_capture.md) ──
 // D3: a control shows its STATE, never its next state — both words visible,
 // the active one filled. Replaces the old tri-state declutter cycle icon on Shop only.
@@ -7048,11 +7081,15 @@ function ProvisionsApp({ scrollRootRef }) {
   // Declutter phase + Browse filters are per-view/per-household ephemeral state:
   // reset on tab or household switch so a stale filter can't shrink the new
   // household's list (phase 1 hides the pills that would otherwise explain it).
+  // The guide's "Browse our staples" (SPEC_one_list R10) arrives with Staples selected: the one filter a
+  // door switch may carry, set by the guide just before it switches.
+  const pendingStaplesRef = useRef(false);
   useEffect(() => {
     setBrowsePhase(0);
     setShortcutsPref(true);
     setSelectedCategories(new Set());
-    setStapleFilter(false);
+    setStapleFilter(view === "input" && pendingStaplesRef.current);
+    pendingStaplesRef.current = false;
     setBrowseFilterOpen(false);
   }, [view, activeHouseholdId]);
   // An Ask is the household's (SPEC_ask_slice2 C2), so View & organize's Asks section and the New ask
@@ -8482,6 +8519,13 @@ function ProvisionsApp({ scrollRootRef }) {
     try { tracer.startSpan("picker_tap_on_listed", { attributes: { household_id: household?.id || null } }).end(); } catch (e) { console.warn("[rum] picker_tap_on_listed failed:", e); }
   };
   const pickerList = useMemo(() => pickerItems(categories, catalogMap), [categories, catalogMap]);
+  // The guide's rows (R10). Add items opens the picker in the tap; Browse goes to Browse on everything, or
+  // with Staples selected when the household has staples (the selection waits in a ref: the view effect
+  // resets Browse's filters on every door switch, and applies it there); Plan a meal opens the library.
+  const hasStaples = useMemo(() => Object.values(catalogMap).some((i) => i && i.is_staple), [catalogMap]);
+  const guideAdd = () => openPicker("guide");
+  const guideBrowse = () => { pendingStaplesRef.current = hasStaples; goToDoor("input"); };
+  const guidePlan = () => { setPlanScreen("library"); goToDoor("plan"); };
   const pickerStatus = (cid) => itemStatus(cid, { listRows, quantities, checked });
   const pickerHidden = (typed) => hiddenMatchFor(typed, hiddenCatalogItems, listRows);
   const handleStorePick = async (name) => {
@@ -10443,12 +10487,21 @@ function ProvisionsApp({ scrollRootRef }) {
         .price-input { font-family: 'Lato', sans-serif; font-size: 0.82rem; border: 1.5px solid #c8973a; border-radius: 4px; padding: 3px 6px; width: 70px; color: #2C1A0E; background: #F5EDE0; outline: none; }
         .price-save-btn { font-family: 'Lato', sans-serif; font-size: 0.7rem; background: #c8973a; color: white; border: none; border-radius: 3px; padding: 4px 8px; cursor: pointer; }
         .item-subtotal { font-family: 'Lato', sans-serif; font-size: calc(0.75rem * var(--op-text-scale)); color: #c8973a; font-weight: 700; text-align: right; }
-        .list-empty { text-align: center; padding: 60px 20px; }
-        /* Shop empty state on the knob (pass 2): heading = page-title rate k .4 at its 24, #8A5F3A (espresso tried 7b1e0b4, too heavy for an empty state);
-           line = body 15; the shared .home-line-link scales on its own rule since Home joined. */
-        .list-empty h2 { font-family: 'Playfair Display', serif; font-size: calc(24px * (1 + (var(--op-text-scale) - 1) * 0.4)); color: #8A5F3A; }
-        .list-empty-line { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; column-gap: 6px; margin-top: 12px;
-                           font-family: 'Lato', sans-serif; font-size: calc(15px * var(--op-text-scale)); line-height: 1.45; color: #2C1A0E; }
+        /* THE GUIDE (SPEC_one_list R10, mockup screen 1): the ask, three quiet rows (72px, a 16px radius, a ›),
+           Add items in teal, then the footer. Body type on the knob, like the rest of List. */
+        .list-guide { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 24px; }
+        .list-guide-ask { margin: 4px 2px 2px; font-family: 'Lato', sans-serif; font-size: calc(16px * var(--op-text-scale)); color: #5B4A3A; }
+        .list-guide-row { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 72px; padding: 10px 16px; text-align: left; cursor: pointer;
+                          border: 1px solid #d8bf94; border-radius: 16px; background: #fff; color: #2C1A0E; font-family: 'Lato', sans-serif; -webkit-tap-highlight-color: transparent; }
+        .list-guide-row.teal { border: 2px solid #13877C; background: #E3F1EE; }
+        .list-guide-ico { flex: none; display: flex; color: #9A7350; }
+        .list-guide-row.teal .list-guide-ico { color: #13877C; }
+        .list-guide-text { flex: 1; min-width: 0; }
+        .list-guide-label { display: block; font-size: calc(17px * var(--op-text-scale)); font-weight: 700; color: #2C1A0E; }
+        .list-guide-row.teal .list-guide-label { color: #0A5049; }
+        .list-guide-sub { display: block; margin-top: 2px; font-size: calc(14px * var(--op-text-scale)); color: #5B4A3A; }
+        .list-guide-chev { flex: none; color: #9A7350; }
+        .list-guide-foot { margin: 10px 0 0; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.5; color: #5B4A3A; }
         /* THE LIST HEADER (SPEC_one_list R2, mockup "Our List — one list, one screen" screens 2 + 4): "Our list" in
            Playfair 400 at 28 (the page-title rate k .4), the list tools on the right, then a 1.5px sand hairline
            (#d8bf94) 12px under the row. Wrap, never squeeze (SPEC_global_text_size decision 9): the title keeps its one
@@ -12412,31 +12465,15 @@ function ProvisionsApp({ scrollRootRef }) {
             )}
             {totalItems === 0 ? (
               <>
-                {/* Empty form of the header row: "Our list" and the "+ Add" pill (Add
-                    sheet) — no lens, no Wrap up. Still the compact sentinel (ref),
-                    though the page is too short to scroll. */}
+                {/* Empty form of the header row: "Our list" alone (mockup screen 1) — the guide's Add items is
+                    the add, so no "+ Add", no lens, no Wrap up. Still the compact sentinel (ref), though the
+                    page is too short to scroll. */}
                 <div className="list-header empty" ref={controlRowRef}>
                   <h2 className="list-title">Our list</h2>
-                  <HeaderAction verb="add" label="Add something" onClick={() => openPicker("list_add")} />
                 </div>
-                {/* Empty state — Home's list-line pattern (status · link). Planned
-                    meals not yet on the list (boardStats.stillToAdd, the board
-                    subtitle's N) point at This Week; otherwise at Browse (Home's
-                    "Start a list →" lands here since R11). The count sits in the
-                    text span, never in the link (RUM: the link is fixed copy). */}
-                <div className="list-empty">
-                  <h2>Your list is empty</h2>
-                  <div className="list-empty-line">
-                    {boardStats.stillToAdd.length > 0 ? (
-                      <>
-                        <span>{boardStats.stillToAdd.length} {boardStats.stillToAdd.length === 1 ? "meal" : "meals"} to</span>
-                        <button type="button" className="home-line-link" onClick={() => goToDoor("plan")}>add to the list →</button>
-                      </>
-                    ) : (
-                      <button type="button" className="home-line-link" onClick={() => goToDoor("input")}>Browse items →</button>
-                    )}
-                  </div>
-                </div>
+                {/* THE GUIDE (R10): the empty list's three ways in. It goes with the first item and returns
+                    whenever the list is empty again. */}
+                <ListGuide hasStaples={hasStaples} onAdd={guideAdd} onBrowse={guideBrowse} onPlan={guidePlan} />
               </>
             ) : (
               <>
