@@ -7,6 +7,7 @@
 // path throws), which is why these live here and not beside the lens.
 import { createElement } from "react";
 import { displayTitle } from "../lib/displayTitle";
+import { ONE_ADD_ENABLED } from "../lib/featureFlags";
 
 // OCCASIONS (061). Fixed display order for the rail and the Good-for chips:
 // Dinner first because most meals are dinners. The singular word is what the
@@ -161,8 +162,30 @@ function LibraryMeta({ meal, variant = "grid", onSetType }) {
 // text = status: none → the round "+" (D7, "Plan {meal}"), planned → the same
 // round button in sand with a check (tapping UN-PLANS, fixed aria copy),
 // toBuy / ready → inert text. Behaviour is Meal Library v1 + un-plan, unchanged.
+// ONE ADD (SPEC_results_feeder_standard R5; flag on): one add control and one "it's on there" mark across both
+// feeders. Not on the board → the same circle +. On the board (planned, to buy, ready) → the teal ✓ circle and
+// one line, "This week"; readiness stays as information on a second line ("To buy" / "Ready"), never as the add
+// state. The ✓ of a PLANNED meal is still its one step back (tap un-plans); to buy / ready are inert, as before.
+function OneAddMark({ stage, busy, onUnplan, meal }) {
+  const ready = stage === "ready" ? "Ready" : stage === "toBuy" ? "To buy" : null;
+  return (
+    <span className="lib-on">
+      <span className="lib-on-text">
+        <span className="lib-on-line">This week</span>
+        {ready && <span className="lib-on-sub">{ready}</span>}
+      </span>
+      {stage === "planned" ? (
+        <button type="button" className="lib-plan on" disabled={busy} aria-labelledby="lib-verb-unplan"
+          onClick={() => { if (!busy) onUnplan(meal.id); }}><CheckGlyph /></button>
+      ) : (
+        <span className="lib-plan on" aria-hidden="true"><CheckGlyph /></span>
+      )}
+    </span>
+  );
+}
 function LibraryAction({ meal, stage, busy, canPlan, onPlan, onUnplan }) {
   if (!canPlan) return null;
+  if (ONE_ADD_ENABLED && stage !== "none") return <OneAddMark stage={stage} busy={busy} onUnplan={onUnplan} meal={meal} />;
   if (stage === "toBuy") return <span className="lib-stage">To buy</span>;
   if (stage === "ready") return <span className="lib-stage"><CheckGlyph />Ready</span>;
   if (stage === "planned") {
@@ -246,7 +269,7 @@ function LibraryRow({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen, onSe
 }
 function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen, onSetType }) {
   // Ready moves up into the band as a chip (grid only); the strip then carries the meta alone.
-  const readyChip = canPlan && stage === "ready";
+  const readyChip = !ONE_ADD_ENABLED && canPlan && stage === "ready";   // one add: Ready is the ✓'s second line
   return (
     <div className="lib-gcard">
       <button

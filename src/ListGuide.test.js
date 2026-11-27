@@ -7,34 +7,41 @@ import { render, screen, fireEvent } from "@testing-library/react";
 jest.mock("@splunk/otel-web", () => ({ __esModule: true, default: { init: () => {}, setGlobalAttributes: () => {} } }));
 jest.mock("@splunk/otel-web-session-recorder", () => ({ __esModule: true, default: { init: () => {} } }));
 const { ListGuide } = require("./App");
+// One add (SPEC_results_feeder_standard R1, the exp/one-add experiment): with REACT_APP_FEATURE_ONE_ADD=on the
+// guide is Add items and Plan a meal ("Browse our staples" retires: Browse lives inside + Add), and the welcome's
+// Browse line is an Ask line. Each test below states both builds; the flag-off expectations are today's, untouched.
+const { ONE_ADD_ENABLED } = require("./lib/featureFlags");
 
 const rows = () => [...document.querySelectorAll(".list-guide-row")].map((b) => [b.querySelector(".list-guide-label").textContent, b.querySelector(".list-guide-sub").textContent]);
 
 test("the ask, three rows named by intention (Add items first, in teal), and the footer", () => {
   render(<ListGuide hasStaples={false} onAdd={jest.fn()} onBrowse={jest.fn()} onPlan={jest.fn()} />);
   expect(screen.getByText("What do we need?")).toBeInTheDocument();
-  expect(rows()).toEqual([
+  expect(rows()).toEqual(ONE_ADD_ENABLED ? [
+    ["Add items", "Search, or pick from our aisles and staples."],
+    ["Plan a meal", "I know what I want to cook."],
+  ] : [
     ["Add items", "I know what we need."],
     ["Browse the aisles", "Remind me what we might need."],
     ["Plan a meal", "I know what I want to cook."],
   ]);
   expect(document.querySelector(".list-guide-row")).toHaveClass("teal");
   expect(document.querySelectorAll(".list-guide-row.teal")).toHaveLength(1);
-  expect(document.querySelectorAll(".list-guide-chev")).toHaveLength(3);
+  expect(document.querySelectorAll(".list-guide-chev")).toHaveLength(ONE_ADD_ENABLED ? 2 : 3);
   expect(document.querySelector(".list-guide-foot").textContent).toBe("One list for everyone in your household.At the store, check things off here.");
 });
 
 test("the Browse row adapts: a household with staples reads 'Browse our staples'", () => {
   render(<ListGuide hasStaples onAdd={jest.fn()} onBrowse={jest.fn()} onPlan={jest.fn()} />);
-  expect(rows()[1][0]).toBe("Browse our staples");
+  expect(rows()[1][0]).toBe(ONE_ADD_ENABLED ? "Plan a meal" : "Browse our staples");
 });
 
 test("each row runs its own handler", () => {
   const onAdd = jest.fn(); const onBrowse = jest.fn(); const onPlan = jest.fn();
   render(<ListGuide hasStaples={false} onAdd={onAdd} onBrowse={onBrowse} onPlan={onPlan} />);
-  const [a, b, c] = document.querySelectorAll(".list-guide-row");
-  fireEvent.click(a); fireEvent.click(b); fireEvent.click(c);
-  expect([onAdd.mock.calls.length, onBrowse.mock.calls.length, onPlan.mock.calls.length]).toEqual([1, 1, 1]);
+  const rowsEls = [...document.querySelectorAll(".list-guide-row")];
+  rowsEls.forEach((r) => fireEvent.click(r));
+  expect([onAdd.mock.calls.length, onBrowse.mock.calls.length, onPlan.mock.calls.length]).toEqual(ONE_ADD_ENABLED ? [1, 0, 1] : [1, 1, 1]);
 });
 
 test("on the source: Add items opens the picker in the tap; Browse carries Staples through the door switch; Plan opens the library", () => {
@@ -60,7 +67,9 @@ describe("the welcome card", () => {
     expect(dialog).not.toHaveAttribute("aria-label");
     expect(document.getElementById("list-welcome-title").textContent).toBe("This is Madbury's list");
     expect(document.querySelector(".list-welcome-eyebrow").textContent).toBe("Welcome aboard");
-    expect([...document.querySelectorAll(".list-welcome-head")].map((x) => x.textContent)).toEqual([
+    expect([...document.querySelectorAll(".list-welcome-head")].map((x) => x.textContent)).toEqual(ONE_ADD_ENABLED ? [
+      "+ Add brings things onto the list", "Ask when someone else should choose", "Check off in the store",
+    ] : [
       "+ Add when you know what you need", "Browse when you want to choose", "Check off in the store",
     ]);
     // No attribute anywhere in the card carries the household's name (the recorder copies attributes).

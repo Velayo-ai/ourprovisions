@@ -37,9 +37,9 @@ describe("R1 — Browse is not a door with the flag on", () => {
     expect(APP).toContain('useState(() => routeView(viewForHash(window.location.hash)) || "home")');
     expect(APP).toContain("setView(routeView(v)); }");
     expect(APP).toContain("const v = routeView(door);");
-    expect(APP).toContain('setView(routeView("input"));');
+    expect(APP).toContain('if (ONE_ADD_ENABLED) setView(routeView("input"));');
     expect(APP).toContain("{helmDoors(NAV_DOORS).map(");
-    expect(APP).not.toMatch(/setView\("input"\)/);
+    expect(APP.match(/setView\("input"\)/g)).toHaveLength(1);   // the hand-back's flag-off branch only
   });
 });
 
@@ -188,8 +188,42 @@ describe("R4 — one sheet per feeder: View & filter", () => {
     expect(html).not.toContain(">Manage<");
   });
   test("List: View & organize becomes View & filter with the flag on; Done as before without it", () => {
-    expect(APP).toContain('<h2>{ONE_ADD_ENABLED ? "View & filter" : <>View &amp; organize</>}</h2>');
+    expect(APP).toContain("{ONE_ADD_ENABLED ? <h2>View &amp; filter</h2> : <h2>View &amp; organize</h2>}");
     expect(APP).toContain("Show {feederFlat.length} {feederFlat.length === 1 ? \"item\" : \"items\"}");
     expect(APP).toContain('<button className="modal-confirm" onClick={closeOrganize}>Done</button>');
+  });
+});
+
+describe("R5 — one add control, one ✓ mark (this build's flag)", () => {
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const { ONE_ADD_ENABLED } = require("./featureFlags");
+  const { LibraryAction } = require("../components/LibraryCards");
+  const meal = { id: "m1", name: "Tacos" };
+  const act = (stage) => renderToStaticMarkup(React.createElement(LibraryAction, { meal, stage, busy: false, canPlan: true, onPlan: () => {}, onUnplan: () => {} }));
+  test("not on the board: the circle + either way", () => {
+    expect(act("none")).toContain('class="lib-plan"');
+    expect(act("none")).not.toContain("This week");
+  });
+  test("on the board: the teal ✓ + \"This week\", readiness on a second line (flag on); today's pill / words (flag off)", () => {
+    if (ONE_ADD_ENABLED) {
+      expect(act("planned")).toContain('class="lib-plan on"');
+      expect(act("planned")).toContain(">This week<");
+      expect(act("toBuy")).toContain(">To buy<");
+      expect(act("ready")).toContain(">Ready<");
+      expect(act("ready")).toContain(">This week<");
+    } else {
+      expect(act("planned")).toContain('class="lib-plan planned"');
+      expect(act("toBuy")).toBe('<span class="lib-stage">To buy</span>');
+      expect(act("planned")).not.toContain("This week");
+    }
+  });
+  test("the feeder's row: ✓ + \"On the list\", the stepper after it; never an undo tap", () => {
+    expect(APP).toContain('{on && <span className="pick-sub">On the list</span>}');
+    expect(APP).toContain('aria-label="One fewer"');
+    expect(APP).toContain('if (status === "on" && fresh.has(item.id) && !feeder) {');
+  });
+  test("no per-meal toast in the Meals feeder (the ✓ confirms; Done says N added)", () => {
+    expect(APP).toContain("if (ok && !ONE_ADD_ENABLED) showToast(`${mealById[mealId]?.name || \"Meal\"} added to your week ✓`);");
   });
 });

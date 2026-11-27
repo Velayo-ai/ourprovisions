@@ -935,7 +935,7 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
   };
   const tap = (item) => once(item.id, async () => {
     const status = statusOf(item.id);
-    if (status === "on" && fresh.has(item.id)) {
+    if (status === "on" && fresh.has(item.id) && !feeder) {
       const r = await onUndo(item);
       if (r && r.kind === "undone") mark(item.id, false);
       else answer(r);
@@ -945,7 +945,45 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
     answer(await onAdd(item, status));
   });
   if (feeder?.closeRef) feeder.closeRef.current = close;
+  // ONE ADD (R5): the stepper, after the ✓, for quantity — Browse's ±1 (− at 1 takes the item off). A row that
+  // leaves the list stops counting as added this visit.
+  const step = (item, delta) => once(item.id, async () => answer(await feeder.onStep(item, delta)));
+  useEffect(() => {
+    if (!feeder) return;
+    const gone = [...fresh].filter((id) => statusOf(id) === "off");
+    if (gone.length) setFresh((prev) => { const n = new Set(prev); gone.forEach((id) => n.delete(id)); return n; });
+  }, [feeder, fresh, statusOf]);   // statusOf is new each render; the guard (only when a fresh row has gone) ends the chain
+  // The feeder's row: one add control (the circle +) and one "it's on there" mark — the teal ✓ and one line,
+  // "On the list" — with the stepper after it. A div, so the stepper's buttons never sit inside the row's own.
+  const feederRow = (item) => {
+    const on = statusOf(item.id) === "on";
+    const node = (
+      <div key={item.id} className={`pick-row pick-frow${on ? " on" : ""}`}>
+        <button type="button" className="pick-hit" aria-disabled={on ? "true" : undefined} onMouseDown={keepFocus} onClick={() => tap(item)}>
+          <span className="pick-main">
+            <span className="pick-name">{feeder.isStaple?.(item.name) && <span className="pick-star" aria-hidden="true">★ </span>}{item.name}</span>
+            {on && <span className="pick-sub">On the list</span>}
+          </span>
+          {!on && <span className="pick-mark" aria-hidden="true">+</span>}
+        </button>
+        {on && (
+          <span className="pick-step">
+            <button type="button" className="pick-step-btn" aria-label="One fewer" onMouseDown={keepFocus} onClick={() => step(item, -1)}>−</button>
+            <span className="pick-qty">{feeder.qtyOf(item)}</span>
+            <button type="button" className="pick-step-btn" aria-label="One more" onMouseDown={keepFocus} onClick={() => step(item, 1)}>+</button>
+          </span>
+        )}
+        {on && (
+          <span className="pick-mark on" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12l5 5 9-10" /></svg>
+          </span>
+        )}
+      </div>
+    );
+    return feeder.wrapRow ? feeder.wrapRow(item, node) : node;
+  };
   const row = (item) => {
+    if (feeder) return feederRow(item);
     const on = statusOf(item.id) === "on";
     const isFresh = on && fresh.has(item.id);
     const node = (
@@ -6360,7 +6398,8 @@ function ProvisionsApp({ scrollRootRef }) {
     setPlanningMealId(mealId);
     try {
       const ok = await planMeal(mealId);
-      if (ok) showToast(`${mealById[mealId]?.name || "Meal"} added to your week ✓`);
+      // One add (R5): in the Meals feeder the card's ✓ "This week" is the confirmation; Done says "N added".
+      if (ok && !ONE_ADD_ENABLED) showToast(`${mealById[mealId]?.name || "Meal"} added to your week ✓`);
     } finally {
       setPlanningMealId(null);
     }
@@ -8780,6 +8819,16 @@ function ProvisionsApp({ scrollRootRef }) {
     suspended: feederSuspended,
     closeRef: feederCloseRef,
     isStaple: (name) => !!catalogMap[name]?.is_staple,
+    // R5: the stepper after the ✓ — Browse's ±1 through adjustQty (− at 1 takes it off; the server decides).
+    // Off grid nothing is sent and the feeder says so, like its adds.
+    qtyOf: (item) => qtyFor(item),
+    onStep: async (item, delta) => {
+      if (pickerOffGrid()) return pickNeedsSignal;
+      const flag = {};
+      await adjustQty(item.name, delta, item.rawCategory, undefined, pickOpts(flag, delta > 0));
+      if (flag.transient || flag.error) return pickFailed(flag);
+      return { kind: "stepped" };
+    },
     // Browse's swipe on a feeder row: Hide (this person's view), Edit (custom items, or prices on), ★ Staple.
     wrapRow: (item, node) => {
       const isCustom = catalogMap[item.name]?.is_global === false;
@@ -11021,6 +11070,23 @@ function ProvisionsApp({ scrollRootRef }) {
         .item-picker.feeder .pick-row { background: #FAF4EC; }
         .item-picker.feeder .pick-grid .pick-row { background: #fff; }
         .pick-star { color: #B8862F; }
+        /* R5 — the feeder's row: the hit area (name + the circle +), then, once on the list, the stepper and the ✓. */
+        .pick-frow { cursor: default; }
+        .pick-hit { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px; align-self: stretch; padding: 0; border: none; background: none;
+                    text-align: left; font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .pick-frow.on .pick-hit { cursor: default; }
+        .pick-step { flex: none; display: inline-flex; align-items: center; gap: 2px; border: 1.5px solid #E8D5B7; border-radius: 999px; padding: 2px; background: #fff; }
+        .pick-step-btn { width: 32px; height: 32px; border: none; border-radius: 50%; background: none; color: #6f5a45; font: 700 18px 'Lato', sans-serif; cursor: pointer; }
+        .pick-qty { min-width: 18px; text-align: center; font: 700 calc(14px * var(--op-text-scale)) 'Lato', sans-serif; color: #2C1A0E; }
+        .pick-grid .pick-frow { flex-wrap: wrap; row-gap: 8px; }
+        .pick-grid .pick-frow .pick-hit { flex-basis: 100%; }
+        .pick-grid .pick-frow.on .pick-mark.on { margin-left: auto; }
+        /* R5 on meal cards: the teal ✓ and "This week", readiness on a second line. */
+        .lib-on { display: inline-flex; align-items: center; gap: 8px; }
+        .lib-on-text { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; font-family: 'Lato', sans-serif; }
+        .lib-on-line { font-size: calc(12px * var(--op-text-scale)); font-weight: 700; color: #0A776D; white-space: nowrap; }
+        .lib-on-sub { font-size: calc(11.5px * var(--op-text-scale)); color: #8a7a60; white-space: nowrap; }
+        .lib-plan.on { background: #13877C; border-color: #13877C; color: #fff; display: inline-grid; place-items: center; }
         .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
                       padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
                       box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
@@ -13209,13 +13275,13 @@ function ProvisionsApp({ scrollRootRef }) {
           scroller, and the page behind it is locked (useScrollLock). */}
       {browseFilterOpen && (
         <div className="modal-overlay" onClick={closeOrganize} style={{ zIndex: 1000, paddingTop: "calc(20px + var(--op-inset-top, 0px))", overflowY: "hidden" }}>
-          <div className="modal op-anchor-top" role="dialog" aria-modal="true" aria-label={ONE_ADD_ENABLED ? "View and filter" : "View and organize"} onClick={(e) => e.stopPropagation()}
+          <div className="modal op-anchor-top" role="dialog" aria-modal="true" aria-label="View and organize" {...(ONE_ADD_ENABLED ? { "aria-label": "View and filter" } : {})} onClick={(e) => e.stopPropagation()}
             style={{ maxHeight: "calc(100dvh - 40px - var(--op-inset-top, 0px))", overflowY: "auto" }}>
             <SheetClose onClose={closeOrganize} />
             {/* ONE ADD (R4): the feeder's ONE sheet, "View & filter" — View (layout, organize) → Filter (Staples,
                 aisles) → Manage (your categories, your asks, + New item) → Clear / Show N items. Changes apply as
                 they are made (as View & organize's always have); Show closes. Flag off: View & organize as it was. */}
-            <h2>{ONE_ADD_ENABLED ? "View & filter" : <>View &amp; organize</>}</h2>
+            {ONE_ADD_ENABLED ? <h2>View &amp; filter</h2> : <h2>View &amp; organize</h2>}
             {ONE_ADD_ENABLED && (
               <div className="modal-field" style={{ marginTop: "18px" }}>
                 <span className="lib-sheet-lbl" style={{ marginTop: 0 }}>View</span>
@@ -13443,7 +13509,8 @@ function ProvisionsApp({ scrollRootRef }) {
             const label = runAsk.label;
             const style = runAsk.screenStyle;
             setRunAskId(null);
-            setView(routeView("input"));                        // Browse: where the run was handed over (one add: List, where + Add handed it over)
+            if (ONE_ADD_ENABLED) setView(routeView("input"));   // one add: List, where + Add handed it over
+            else setView("input");                              // Browse: where the run was handed over
             showToast(<><span className="op-name">{label}</span> added {count}</>, {
               label: "See",
               onClick: () => { emitAskEvent("ask_see_tapped", count, style); setView("list"); landed.start(label, ids); },
