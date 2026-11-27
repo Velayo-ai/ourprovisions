@@ -1,113 +1,66 @@
-Reported: 2026-11-27 04:23 ET · dev 01593b3 · main 5098508 · re: BUILD Slice 3 of SPEC_one_list.md · prompt adefe15
+Reported: 2026-11-27 04:56 ET · dev 01593b3 · main e93b265 · re: PROMOTE one list (Slices 1–3) + offline trip-start fix · prompt 2b541c4
 
-# One list, Slice 3 is on dev: the row is the undo, the empty list is the guide, the welcome, and the dashboard's events. Every harness walk passes; your iPhone walk is next.
+# Live on prod: one list (Slices 1–3) and the offline trip-start fix. Client-only; the bundle is read back. Your signed-in prod check is next.
 
-Built on dev and pushed with Dan's OK. Main and prod are untouched; no docs, migrations, dashboard or detector were written. Both specs (`SPEC_one_list.md`, `SPEC_one_list_dashboard.md`) were re-pulled into `handoff/`. The earlier version of this prompt (`3cbd9f7`) was never taken, so there was nothing in flight.
+**Prod now:** main **`e93b265`**, a single-parent commit on `5098508` whose **tree = dev `01593b3`** (`4f7eeca…`, proven equal before the push). Deployment **`dpl_4w4EHbkyGryjpzcQF1T8JaW34V7j`**, bundle **`main.ab743abc.js`**, served by `ourprovisions.velayo.ai` and the deployment URL alike.
+**Rollback:** Instant Rollback to **`dpl_3niRSygTFv6vT9RTQPhPz8Mrjpzc`** (main `5098508`, `main.92d845f6.js`), never a redeploy. No database step: nothing changed on prod's database.
 
-## The commits (dev, pushed)
-| | Commit | What |
-|---|---|---|
-| R8 revised | `4f51fc3` | **The row is the confirmation and the undo.** |
-| R10 | `6152c36` | **The guide.** |
-| R12 + R13 | `013a402` | **The new member welcome.** |
-| telemetry | `d6fd79a` | **The one-list spans for the dashboard.** |
-| harness | `3d47099`, `01593b3` | `one-list-walk.js` for Slice 3, then V11's wait for the RUM export. |
+## 1. Before (read only)
+- **Main** was `5098508` = the tree of dev `2b07573` (`a247a84…`, re-proven). Promotions are tree-identity commits, so main isn't an ancestor of dev; the shipped range is `2b07573..01593b3`.
+- **Prod** was `dpl_3niRSygTFv6vT9RTQPhPz8Mrjpzc` / `main.92d845f6.js` (READY, rollback candidate), confirmed in Vercel and on the domain.
+- **The range holds exactly what this promotion means to ship (19 commits):**
+  - Slice 1: `590ec35` `ebe695e` `e522940` `1ae1303` `80d4e5d`;
+  - `c783bea`, the offline trip-start fix;
+  - Slice 2: `d40b1f6` `7b53390`;
+  - Slice 3: `4f51fc3` `6152c36` `013a402` `d6fd79a`;
+  - harness: `f62dd27` `f6a9ce2` `3d47099` `01593b3`;
+  - docs: `9c2eb3a` `4ef6f16`.
+  - Nothing else. 37 files: 29 in src, 7 in docs, 1 in tools; **no migration files**.
 
-**R8 revised in detail:**
-- **Fresh rows:** a row added this visit reads ✓ "Added · tap to undo", and a tap takes it back off (−1, back to +), however far back.
-- **Rows already on the list** when the visit began read "On the list" and are inert (`picker_tap_on_listed`). Done ends the visit.
-- **No toast for a plain add or its undo.** The toast stays for:
-  - off grid;
-  - the renewal ("{Item} added again · it was in your cart"; its row then reads "On the list" and is never undoable);
-  - errors ("That didn't save. Try again."; `adjustQty` gains `onError`, so a failed undo keeps the row fresh).
-- **Undoable too:** a created row and a revealed-and-added row.
-- **The query stays** after a tap, so the confirming row stays in sight.
-- **A second tap** while a row's change is still out does nothing.
+## 2. Prod's database needs nothing (read only)
+- **No migration between 089 and dev's tree.** The diff adds or changes **no** `.rpc(` / `.from(` call: the one-list paths use only calls the live prod client already makes.
+- **Read back by object**, the CLI linked by ref `parpauldmbetptkmdwbd` (system id `7606130613603586966`), then relinked to dev:
+  - **Functions = dev**, by body hash, definer and ACL: `adjust_list_item_quantity` `51141803…`, `insert_custom_catalog_item` `510818fc…`, `remove_list_item` `ad4c6c7b…`, `get_list_items_for_household` `a504014b…`, `land_ask_picks` `9d80b8ab…`. All secdef, `authenticated=X`.
+  - **Tables:** `authenticated`'s grants on `shopping_sessions`, `list_item_events` (INSERT,SELECT), `user_hidden_items`, `household_staples`, `list_items`, `catalog_items` are identical to dev, and so are RLS on and the policy counts (3 / 2 / 3 / 1).
+  - **088 and 089** are present.
 
-**R10 in detail:**
-- "What do we need?", then three quiet rows with a ›:
-  - **Add items** · "I know what we need." (teal; `openPicker("guide")` inside the tap);
-  - **the Browse row** · "Remind me what we might need.":
-    - no staples → "Browse the aisles", Browse on everything;
-    - staples → "Browse our staples", Browse with Staples selected (carried through the door switch's filter reset);
-  - **Plan a meal** · "I know what I want to cook." (the meal library).
-- The footer as specified.
-- **The empty header reads "Our list" alone, with no + Add, as on mockup screen 1;** the guide's Add items is the add. Say if you want the pill back.
+## 3. dev → main (Dan's OK)
+- `CI=true` build of dev's tree: **green**.
+- **The promotion commit:** made as recent promotions were (tree identity, not a merge commit). `e93b265` = `commit-tree dev^{tree} -p origin/main`; parent `5098508`; tree = dev `01593b3`'s; then pushed.
+- **Vercel:** Production `dpl_4w4EHbkyGryjpzcQF1T8JaW34V7j`, BUILDING → **READY**.
+- **Build tag:** the prompt asked for "main · <sha>", but the tag is **dev-only by design** (as at the 11-25 promotion), so `op-build-tag` 0 on prod. The proof instead: the main sha `e93b2657…` is embedded once, and the old `50985086…` 0 times.
 
-**R12 + R13 in detail:**
-- **The card:** a bottom card over the list dimmed at 55%, with the copy as on mockup screen 5. Got it (focused) or Escape dismisses it; the page behind is scroll-locked.
-- **When it shows:** once per person per household (`op_list_welcome_seen:<clerk user id>:<household id>`), the first time they open a non-empty List, signed in and loaded. Never over the place's own welcome sheet; a household switch decides afresh.
-- **Storage:** storage that throws counts as seen.
-- **Privacy:** the household's name is heading text only, never in an attribute (the dialog is `aria-labelledby` its heading).
+## 4. Prod smoke (read only, signed out; nothing written to prod)
+- **Bundle markers** (`main.ab743abc.js`):
+  - the doors: `label:"List"` 2, `label:"Shop"` 0;
+  - the rename: "Add to Shop" 0, "Add to list" 6;
+  - the header and picker: "Our list" 3, "Add to our list" 2, "Added · tap to undo" 1 (the dot ships as `\xb7`);
+  - the guide and welcome: "What do we need?" 1, "Welcome aboard" 2, `op_list_welcome_seen` 1;
+  - telemetry: `workflow.name` 7, `picker_opened` 1, `added_bucket` 1;
+  - the allow-list: `.list-guide-row`, `.list-welcome-ok`, `.item-search-done` present;
+  - retired: "Leaving early?" 0, the Add sheet's mic 0;
+  - **Ask:** `op-ask:on` 1, still on and unchanged.
+- **Signed out, in a fresh browser context** on `#/shop`: the Helm reads **Home · Plan · Browse · List**, the hash stays `#/shop`, and the page runs `main.ab743abc.js`.
+- **Not run by me:**
+  - **The signed-in checks** (the List header, the picker from + Add with the focus in the field, the guide on an empty list, and `picker_opened` arriving with `workflow.name` and no names) need a signed-in prod account. The harness signs in only as the dev test account, never on prod, and I have no Splunk access.
+  - **These are your prod walk,** in your own household. Don't empty your list for the guide.
+  - The span shapes were proven on dev off the wire (81/81, `3d47099`), and the prod bundle carries the same code.
 
-**Telemetry (`lib/listTelemetry`):**
-- **workflow.name on every span**, set to its own name, so `rum.workflow.count` sees it:
-  - `picker_opened {from}`;
-  - `picker_closed {added, added_bucket 0|1|2-4|5+, open_s}`;
-  - `picker_tap_on_listed`;
-  - `list_guide_cta {choice, browse_kind on browse}`;
-  - `first_item_added {after guide|welcome, s bucket}`;
-  - `list_welcome_dismissed`.
-- **Both `item_added_to_list` emitters** (manual, meal) gain `workflow.name`.
-- **Attributes:** `household_id` stays a span attribute only; no ids or names as dimensions.
-- **`first_item_added`** fires through a new hook callback (`onItemAddedRef`) that every manual add calls.
-- **`CHROME_ALLOW_LIST`** gains `.list-guide-row` and `.list-welcome-ok` (now 86), never the welcome's heading.
-- **Ask has no `item_added_to_list`** (it sends `ask_completed`), so the dashboard's chart 1 will show no `ask` series.
+## 5. Rollback and the first day
+- **Rollback:**
+  - Vercel **Instant Rollback to `dpl_3niRSygTFv6vT9RTQPhPz8Mrjpzc`** (main `5098508`). Never a redeploy of an old commit: a redeploy rebuilds with today's env.
+  - No database rollback exists or is needed.
+  - Rolling back also takes the offline trip-start fix away again.
+- **Watch in the first day:**
+  - **The welcome shows once to every member,** existing ones included, the first time each opens a non-empty List on each phone. Accepted as a "what's new" (R12).
+  - **Installed apps** see "A new version is ready · Reload" on their next foreground.
+  - **Helen's and Elly's first visits:** the List door, + Add → the picker, and the fresh-✓ undo. The guide only appears when the list is empty.
+  - **`added_in_store` now fires only during the adder's own trip** (R5), so home adds stop polluting trips. The trip-qualification S1 signal changes accordingly; that's intended.
+  - **No Wrap up at 0 checked** (R4). A trip opened by a check and then fully unchecked has no Wrap up until the 8 h expiry; accepted.
+  - **Splunk (after you index the tags):** `picker_opened` in environment `production` with `workflow.name`. Until the tags are indexed, the charts show one undivided line.
 
-**Tests:**
-- Jest: **87 suites / 1360 tests** pass; the `CI=true` build compiles.
-- New: `ListGuide.test.js` (guide, welcome, its memory, V13 for both) and `lib/listTelemetry.test.js` (every attribute set pinned; the callers).
-- Rewritten: `ListPicker.test.js` (12, for the revised rows).
+## Unexpected
+- The build tag is dev-only, so the sha embedded in the bundle stands in for "main · <sha>".
+- Nothing else. The database read-backs all matched dev, and so did the bundle markers.
 
-## Pre-walk on the deployed preview (`3d47099`, Cody Test House)
-| Walk | Result |
-|---|---|
-| `one-list-walk.js` | **81/81** |
-| `offline-walk.js` | **60/60** |
-| `ask-offline-walk.js` | **31/31** |
-| `wagon-walk.js` | **ALL PASS** |
-| `shop-burst.js` | **ALL PASS** |
-| the Ask search probe | **PASS** |
-
-**What one-list-walk now covers:**
-- **Revised V6:**
-  - a tap reads ✓ "Added · tap to undo", with no toast;
-  - a row on the list before the visit is "On the list", and a tap adds nothing;
-  - three fresh adds, then a tap on the first (two back) takes it off the server and back to +, while the other two stay;
-  - the next visit reads them "On the list".
-- **Revised V7:** the renewal toast; the row is "On the list", inert.
-- **V8:** the created row is fresh.
-- **V9:**
-  - the guide's copy, rows and footer;
-  - "Browse our staples" → Browse with Staples selected;
-  - Plan a meal → Plan, Meals;
-  - Add items → the picker with the focus in the tap;
-  - the first add replaces the guide.
-- **V11:**
-  - the welcome on a non-empty List: "This is Cody Test House's list", aria-labelledby, no aria-label;
-  - Got it sets the key, and after a reload it never shows again;
-  - an empty List shows the guide, not the welcome.
-- **The spans, off the wire (OTLP to `/v1/rumotlp`):**
-  - every one-list event was sent at least once, each with `workflow.name` = its name;
-  - `picker_closed` carries `added_bucket` and `open_s`;
-  - `list_guide_cta` and `first_item_added` carry their labels;
-  - no item or household name appears in any attribute.
-
-**Before the push:** 77/80 on a local build. The 3 misses were the span checks, which need the deployed build's RUM token.
-
-**What the harness couldn't drive:**
-- **V9's "Browse the aisles" half:** Cody Test House already has 38 staples, so only the "Browse our staples" half ran. You declined deleting those test staples before, so the aisles half is covered by Jest only.
-- **V11's "second account":** there is one test account. It ran as the same account with its welcome key cleared; Jest pins that the key is per person.
-
-**Walk fix on the way:** the first dev run was 80/81. The walk reloaded right after Got it and dropped `list_welcome_dismissed` from the RUM batch. `01593b3` waits one export interval; then 81/81. (My push question named that commit "f8a3c8e" by mistake; the sha is `01593b3`, the only commit pushed.)
-
-## Housekeeping
-- `ask_landings` test rows from today's two ask-offline-walk runs: **11 deleted** on dev (Dan's OK), after the system-id check `7642734024280108049`, scoped to Cody Test House. **Read back 0.**
-
-## For Dan's phone walk (installed iPhone, dev) — only what needs real iOS
-- **The guide against screen 1 and the welcome against screen 5,** at XXL text too: row heights, the teal Add items, the dim behind the card, the card above the home indicator.
-- **The fresh-✓ undo by thumb:** tap two or three items, then take one back from further up.
-- **The dimmed list behind the welcome,** and that nothing scrolls under it.
-- **Whether the empty header** should keep "Our list" alone (as the mockup) or get its + Add back.
-
-Not built: the Splunk dashboard and the "Picker silent" detector (at the promotion, after the tags are indexed), and the Slices 1–3 promotion itself.
+Not done here: the Splunk tag indexing, the dashboard and the "Picker silent" detector; docs; SESSION END.
