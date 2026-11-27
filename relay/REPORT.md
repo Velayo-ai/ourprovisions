@@ -1,106 +1,102 @@
-Reported: 2026-11-26 13:44 ET · dev f62dd27 · main 5098508 · re: BUILD Slice 1 of SPEC_one_list.md · prompt 0150f2a
+Reported: 2026-11-27 02:52 ET · dev f6a9ce2 · main 5098508 · re: BUILD Slice 2 of SPEC_one_list.md · prompt e01b58b
 
-# One list, Slice 1 is on dev: List, "Our list", the bar after the first check-off, adds never start a trip. The pre-walk passes, and a separate prod bug found on the way is fixed on dev.
+# One list, Slice 2 is on dev: the quick picker replaces the Add sheet, built on a search view shared with the Ask. Every harness walk passes; your iPhone walk is next.
 
-Built on dev with Dan's OK to push: five scoped commits, then one fix and one harness commit, all pushed. Main and prod are untouched, and no docs or migrations were written. The spec was re-pulled (amended) into `handoff/`, where it stays for SESSION END.
+Built on dev and pushed with Dan's OK (Commit A first, then B plus the walk). Main and prod are untouched, and no docs or migrations were written. The spec stays in `handoff/`.
 
 ## The commits (dev, pushed)
 | | Commit | What |
 |---|---|---|
-| R1 | `590ec35` | **Shop → List**, everywhere it means the door. |
-| R2 + R3 | `ebe695e` | **The List header.** |
-| R4 | `e522940` | **No Wrap up bar and no spacer at 0 checked.** |
-| R5 | `1ae1303` | **`adoptOnly`**: an add never starts a trip. |
-| R11 | `80d4e5d` | **Home's "Start a list →" opens List** (`goToDoor("list")`). |
-| fix | `c783bea` | **Offline-flush trip start** (a prod bug, not part of Slice 1; below). |
-| harness | `f62dd27` | `tools/harness/one-list-walk.js`. |
+| A (R7) | `d40b1f6` | **`ItemSearchView` extracted from `NewShelfSheet`, no behaviour change.** |
+| B (R7–R9, R14, telemetry) | `7b53390` | **The quick picker** (`ListPicker` in App.js), replacing the Add sheet. |
+| harness | `f6a9ce2` | `one-list-walk.js` gains V6, V7, V8 and V12. |
 
-**R1 in detail:**
-- `nav.js` label → List; key, view, `#/shop` and `WRAP_UP_HASH` unchanged.
-- "Add to Shop" → "Add to list" (deck, board, recipe view, the on-hand confirm).
-- "1 meal to add to the list"; "add to the list →" / "add to the list"; "Remove (and take its items off the list)" (App + `recipePlan.js`).
-- The add-all toast's action → List.
-- **One more than the spec's list:** the board subtitle's "Everything's in Shop ✓" → "Everything's on the list ✓" (it means the door).
-- Left alone: the tagline and the verbs.
-- Tests updated: AllOnHand, CookedItSurfaces, RecipeViewActions, mealLinks, recipePlan. ReplayLabels pins no door copy.
+**Commit A in detail:**
+- `src/components/ItemSearchView.js` holds the portal (z 2100), the visible-area follow and scroll-home, the touch guard, the head (input + Done), a count-line slot, the list `children` and `keepFocus`.
+- `useItemSearch()` holds open / viewBox / the input ref; its `show()` is the same-tap sequence: `flushSync(open)` → `focus()` → `flushSync(viewBox)`.
+- The CSS moved unchanged and the `.ask-search*` class names are kept. A title-bar variant is added for the picker.
+- The one test change: NewShelfSheet's "held on the source" test now reads the open sequence in `ItemSearchView.js`, with the same assertions.
 
-**R2 + R3 in detail:**
-- "Our list" in Playfair 400 at 28, the lens and + Add on the right, a 1.5px `#d8bf94` hairline 12px under the row, `controlRowRef` kept.
-- The empty list's header row reads "Our list" too (the guide replaces the block under it in Slice 3).
-- Gone: the count, the progress bar and A–Z's "N to find", with their CSS.
-- `activeCycle` dropped from App's destructure.
+**Commit B, opening and layout:**
+- **Always mounted.** `openPicker(from)` calls `picker.show()` inside the tap, from List's + Add (both header forms), the Helm's + on List and on Browse, and `"guide"` for Slice 3.
+- **Layout (mockup screen 3):** "Add to our list" with a dark Done pill, a field reading "Type, or scroll and tap", then the person's Browse catalog A–Z with letter headers (`lib/listPicker`).
+- **Scroll:** the page's scroll is noted on open and put back on close.
 
-**R4 in detail:**
-- `WrapUpBar` renders only at 1+ checked and not all; the dashed state and `.wrapbar.p0` are gone.
-- The spacer keys on `checkedCount > 0` too.
-- ReplayLabels pins 0 → none, 1 → "Wrap up 1 of 11 · 10 carry forward", 100% → none.
+**Commit B, adding:**
+- **R8, the list state:** ✓ "On the list" comes from the shown rows, overlay included. A ✓ row is inert and fires `picker_tap_on_listed`.
+- **R8, a tap:** a tap = `adjustQty(name, +1, rawCategory)` and the picker stays open. Its toast sits inside the view, above the keyboard: "{Item} is on the list · Undo" (Undo = −1).
+- **R8, a renewal:** an item checked this trip toasts "{Item} added again · it was in your cart", with no Undo.
+- **With a query:** results go through `SearchResultsList`: the reveal card for a hidden exact match (F1b), else "+ Add "{text}" as a new item" (Other). "Added here" follows R5. **R9:** no quantity parsing.
+- **Browse's search:** `addSearchedItem(rawCategory, text, opts)` now takes the text as an argument. Browse passes `searchQuery` and clears it itself, so the Helm's + on Browse no longer wipes Browse's search.
 
-**R5 in detail:**
-- **`ensureSession`'s core moved to `src/lib/tripSession.js`** (`ensureTripSession`). Checks, unchecks and the offline flush behave as before.
-- **`adoptOnly`** re-reads the open sessions and returns this person's or null. It never calls `startSession` and never holds the start lock, so a check during its read still starts the trip. It does join a start already in flight.
-- **`recordListEvent(…, { adoptOnly })`** writes no event without an adopted session, and now resolves to the session it logged under (or null).
-- **`noteAddedHere`** no longer checks the door. It tags only while this phone's `activeSession` is set, and logs through `adoptOnly`. If the re-read finds the trip over, the tag comes off again.
-- **Jest:** `tripSession.test.js`, 12 tests:
-  - the stale-`activeSession` case, with and without `adoptOnly`;
-  - an open session adopted;
-  - an add joining the first check-off's start;
-  - the lock never held by an add;
-  - two taps → one session;
-  - the callers on the source.
+**R14, off grid:** with `offline` or `navigator.onLine === false`, nothing is sent and the picker answers "Adding items needs signal for now." A transient failure past that check gives the same answer, through the new `onTransient` in `adjustQty`. A real error is the usual error toast.
 
-**R6:** already built; checked as a regression only (V5).
+**Telemetry:**
+- `adjustQty(name, delta, cat, price, opts)` carries `{ source, door, onTransient }`. `emitItemAdded` stops hard-coding `'browse'`: picker adds send `source: 'picker'` with `door: list | browse | guide`.
+- New events, counts only: `picker_opened {from}`, `picker_closed {added, open_s bucket}`, `picker_tap_on_listed`.
+- `CHROME_ALLOW_LIST` gains `.item-search-done` only, so 84 entries. The Ask's Done is `.ask-search-done` alone and stays off the list.
 
-**Tests and build:** 85 suites / 1326 tests pass; `CI=true` build compiles at `1ae1303` and again with the fix.
+**Retired:** the Add sheet block, `AddSheetPanel` and its disabled mic + LATER badge, the `.add-sheet*` / `.add-result*` / `.op-later-badge` CSS, `AddSheetPanel.test.js` and `AddSheetClip.test.js`. `useKeyboardInset` is now unused by App; the hook and its test stay.
 
-## Pre-walk on the deployed preview (Cody Test House, the dev test account)
-**`one-list-walk.js` (new), 38/38** on `f62dd27` (`main.b0888dc6.js`, build tag "dev · f62dd27"). Also 38/38 on `80d4e5d` before the fix.
-- **V1:**
-  - the Helm reads Home · Plan · Browse · List;
-  - `#/shop` opens List, and a reload on `#/shop` lands there;
-  - no "Shop" door copy in the bundle, and the new copy is in it.
-- **V2:**
-  - "Our list", Aisles | A–Z, + Add, with no count, bar or "N to find" in either lens;
-  - the header scrolls away and the Helm's compact + appears;
-  - **the hairline:** the authored rule is `1.5px solid #d8bf94` and it computes solid sand. Headless Chrome snaps any 1.5px border to 1px (a bare test element does the same), so **the 1.5px look is for the iPhone.**
-- **V3:**
-  - 0 checked → no bar, no spacer;
-  - 1 checked → "1 of 15 · 14 carry forward Wrap up";
-  - all checked → All done, no bar, no spacer.
-- **V4, read from `shopping_sessions` and `list_item_events` on dev:**
-  - **(a) At home:** the add is plain. No tag, no session, no `added_in_store`.
-  - **(b) Stale:** a check-off opened the trip, then the "second phone" ended it (`ended_at`) without this phone hearing. The next add opened **no session** and wrote **no `added_in_store`**, and the tag came off.
-  - **(c) During a trip:** after another check-off opened a new trip, an add shows "added here". Exactly one `added_in_store` was logged, under that session, and no second session opened.
-- **V5:** ×3 on a quantity-3 row, nothing on a quantity-1 row.
-- **V10:** Home's "Nothing on your list · Start a list →" → `#/shop`, "Our list", no bar.
-- **Cleanup:** the list was read back empty and no session was left open.
+**Tests:**
+- New: `ListPicker.test.js` (9, including V13's prod-config masking check) and `lib/listPicker.test.js`.
+- Updated pins: `qtyCallers`, `tripSession`, `rum` (84).
+- Jest: **85 suites / 1332 tests** pass; the `CI=true` build compiles (at A, and at B).
 
-**Regression runs on `f62dd27`:**
-- `offline-walk.js` **60/60**;
-- `ask-offline-walk.js` **31/31**;
-- `shop-burst.js` **ALL PASS** (run on `80d4e5d`; nothing it covers changed after).
+## The gate before Commit B (on the deployed `d40b1f6`)
+- `ask-offline-walk.js` **31/31**; `wagon-walk.js` **ALL PASS**.
+- Neither walk drives the New ask search view, so a one-off probe drove it on dev. It passed:
+  - closed: hidden and on the body;
+  - one tap: open with the focus in the field;
+  - the same DOM (head · count · list);
+  - typing filters;
+  - a tap adds with the focus kept, and the count reads "The ask · 1 item";
+  - Done closes, and one tile is on the shelf.
 
-## Found on the way: an offline trip started at the reconnect (on prod since 11-25), now fixed on dev
-- **How it showed:** `offline-walk.js` V8·V10 failed twice on `80d4e5d`. A trip opened by the offline flush started 22 s after the first queued tap, at the reconnect.
-- **Not Slice 1.** It came in with **`7538d1d`** (Ask off grid slice 2's tap-order flush, 2026-11-24) and is on prod in main `5098508`.
-- **The cause:** with no Wrap up queued, `wrapLanded` starts true and the flush passed `tripAfter`, the first tap of the empty after-the-Wrap-up set (null).
-- **The fix** (`c783bea`, one line): `tripAfter` only after a queued Wrap up has landed, else `tripBefore`.
-- **Proof:**
-  - a local build with the fix: 60/60 against dev data, `started_at` equal to the tap to the millisecond;
-  - the deployed `f62dd27`: 60/60, `18:38:31.017` against a tap at `18:38:31.017`.
-- **Why it got through:** I didn't rerun `offline-walk.js` after the 11-24 flush rewrite; that slice's pre-walk ran the Ask, wagon and burst walks.
-- **On prod:** until a promotion, an offline-started trip on prod records its start as the reconnect. Only trip-duration data is affected; no list data.
+## Pre-walk on the deployed preview (`f6a9ce2`, Cody Test House)
+| Walk | Result |
+|---|---|
+| `one-list-walk.js` | **62/62** (61 + the build check). Before the push, 61/61 on a local build of `7b53390` against dev data. |
+| `offline-walk.js` | **60/60** |
+| `ask-offline-walk.js` | **31/31** |
+| `wagon-walk.js` | **ALL PASS** |
+| `shop-burst.js` | **ALL PASS** |
+| the Ask search probe | **PASS** |
 
-## For Dan's phone walk (installed iPhone, dev)
-- **V2 by eye:** "Our list" against the mockup (screens 2 and 4); the hairline's weight; how the header wraps at XXL text.
-- **The rename on screen:**
-  - the LIST door and its badge;
-  - "Add to list" on the Plan board, the Home deck and the recipe view;
-  - "add to the list →" on the board subtitle.
-- **V3's feel:** the bar arriving with your first check-off, and no bar at home.
-- **V4 on two real phones:** wrap up on one, then add on the other (the harness did this through the API).
+**What one-list-walk now covers:**
+- **V6:**
+  - **Openers:** List's + Add, the Helm's + on List and on Browse all open the same single picker, with the focus in its field inside the tap (a real CDP click).
+  - **Layout:** the title, A–Z letter headers, "On the list" on ✓ rows; typing filters.
+  - **A tap:** puts the item on the list once (quantity 1) and the picker stays open, with "{Item} is on the list" + Undo. The row then reads ✓.
+  - **Second tap and Undo:** a tap on a ✓ row adds nothing; Undo takes a fresh add off again; Done closes.
+  - **Browse's search:** text typed there survives the Helm's +.
+- **V7:** an item checked this trip shows +, and a tap makes it pending at quantity 1, toasting "added again · it was in your cart" with no Undo.
+- **V8:**
+  - **New item:** no match offers "+ Add "…" as a new item", which creates a custom item in Other at quantity 1.
+  - **Hidden item:** hidden for this account, it's absent from A–Z. Typed exactly, it shows the reveal card (no create row), and a tap reveals and adds it: one catalog row, hide removed.
+- **V12:** off grid, a tap answers "Adding items needs signal for now.", the picker stays open, and nothing is written.
+- **Cleanup:** the custom item is deleted (`delete_custom_catalog_item`), the hide is removed, the list reads back empty, and no session is left open.
 
-## Left on dev
-- **`ask_landings` rows** from `ask-offline-walk.js` (run id `aca87255…` and the replays). They have no client grant, so they're removed by SQL. The Supabase MCP is still timing out; I can delete them through the CLI on your word.
-- Walk-made sessions are ended and the house's list is empty.
+**Walk fixes on the way** (bugs in the walk, not the app):
+- Browse's test search first matched nothing, so the page couldn't scroll for the compact +; it now types "a".
+- The probe's bare `.ask-search` selector hit the always-mounted picker; it's now scoped to the Ask view.
+- App code only queries a view through its own ref, so this doesn't affect the app.
 
-Slice 2 waits for your go.
+## Housekeeping: `ask_landings` test rows (Dan said yes)
+- **Deleted on dev only**, through the CLI after a system-id check (`7642734024280108049`), scoped to Cody Test House:
+  - first the 9 older rows;
+  - then 22 written by today's two ask-offline-walk runs.
+- **Read back 0.** Prod is untouched.
+
+## For Dan's phone walk (installed iPhone, dev) — only what needs real iOS
+- **Keyboard on the first tap** from each opener: List's + Add, the Helm's + on List, the Helm's + on Browse.
+- **Scrolling A–Z with the keyboard down,** and the list ending at the keyboard's top.
+- **Done returns you to the same scroll position,** on List and on Browse. It's put back on close, and needs your eyes.
+- **The toast's placement:** inside the picker, above the keyboard; and the Undo tap.
+- **The look against mockup screen 3:** the title bar, the field with its glass, the ✓ and + marks, at XXL text too.
+
+## Notes
+- **R14 and the telemetry are in Commit B, not their own commits:** they run through the same few lines of the picker's handlers.
+- **"Write it" (pasting several lines) is not built.** That's Direction.
+
+Slice 3 (the guide and the welcome) waits for your go.
