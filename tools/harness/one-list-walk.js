@@ -1,12 +1,14 @@
-// one-list-walk.js — the SPEC_one_list Slice 1 pre-walk (V1–V5, V10: the parts a harness can drive). Dev only,
-// Cody Test House, signed in already (signin.js).
+// one-list-walk.js — the SPEC_one_list pre-walk: Slice 1 (V1–V5, V10) and Slice 2, the quick picker (V6, V7, V8,
+// V12): the parts a harness can drive. Dev only, Cody Test House, signed in already (signin.js).
 //   Tab A is the phone under test (the deployed dev URL, 375 × 667).
 //   Tab B is only the "second phone": the same account's token, writing to dev's PostgREST straight from here.
 //   V4's stale case: A checks an item off (its trip opens and A holds it as activeSession), then B ends that
 //   session the way a Wrap up on another phone does (ended_at), without A hearing of it. A's next add must not
 //   open a session, write an added_in_store event, or keep an "added here" tag.
 // The walk puts 14 seed items on the list, needs the house's list empty to start (it refuses otherwise), ends
-// every open session of the house before and after, and removes its rows at the end (read back as 0).
+// every open session of the house before and after, and removes its rows at the end (read back as 0). V8 makes
+// one custom item ("OL walk <time>") and deletes it again (delete_custom_catalog_item), and hides one seed item
+// for this account and reveals it through the picker (its user_hidden_items row is removed either way).
 // Screenshots: out/olw-*.png.
 //   node one-list-walk.js            (OP_EXPECT_SHA=<short sha> checks the build tag)
 const fs = require("fs");
@@ -88,18 +90,64 @@ const tapAisle = (name) => A.evaluate((name) => {
   const b = [...document.querySelectorAll("button.shop-check")].find((x) => !x.closest(".tray-body") && (x.querySelector(".sr-only") || x).innerText.trim().startsWith(name));
   if (!b) return false; b.scrollIntoView({ block: "center" }); b.click(); return true;
 }, name);
-// An add through List's "+ Add" sheet, the way a person does it: open, type, tap the result.
-async function sheetAdd(name) {
-  await A.evaluate(() => { window.scrollTo(0, 0); document.querySelector(".list-header .hdr-action")?.click(); });
-  await A.waitForSelector(".add-sheet-search input", { timeout: 5000 });
-  await A.focus(".add-sheet-search input");
-  await A.keyboard.type(name, { delay: 15 });
-  await sleep(500);
-  const hit = await A.evaluate((name) => {
-    const r = [...document.querySelectorAll(".add-result")].find((x) => x.querySelector(".ar-name")?.innerText.trim() === name);
-    if (!r) return false; r.click(); return true;
-  }, name);
+// The quick picker (Slice 2).
+const PICKER = ".ask-search.item-picker";
+const pickerState = () => A.evaluate((P) => {
+  const v = document.querySelector(P);
+  if (!v) return null;
+  const rows = [...v.querySelectorAll(".pick-row:not(.pick-create)")].map((b) => ({
+    name: b.querySelector(".pick-name")?.textContent.trim(), on: b.getAttribute("aria-disabled") === "true", sub: b.querySelector(".pick-sub")?.textContent.trim() || null,
+  }));
+  return {
+    open: v.classList.contains("open"),
+    focused: document.activeElement === v.querySelector("input[type=search]"),
+    count: document.querySelectorAll(P).length,
+    title: v.querySelector(".item-search-title")?.textContent.trim() || null,
+    letters: [...v.querySelectorAll(".pick-letter")].map((x) => x.textContent.trim()),
+    rows,
+    create: v.querySelector(".pick-create")?.textContent.trim() || null,
+    reveal: [...v.querySelectorAll('[role="button"]')].map((x) => x.textContent).find((x) => /Hidden from your view/.test(x)) || null,
+    toast: v.querySelector(".pick-toast-text")?.textContent.trim() || null,
+    undo: !!v.querySelector(".pick-undo"),
+  };
+}, PICKER);
+// Open it with a REAL tap on an opener (the keyboard rule: focus inside the tap). `how`: "header" (List's +
+// Add, scrolled to the top) or "helm" (the Helm's compact +, scrolled down until it appears).
+async function openPicker(how) {
+  if (how === "header") {
+    await A.evaluate(() => window.scrollTo(0, 0)); await sleep(300);
+    await A.click(".list-header .hdr-action");
+  } else {
+    await A.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); await sleep(900);
+    await A.waitForSelector(".helm.compact .helm-plus", { timeout: 5000 });
+    await A.click(".helm.compact .helm-plus");
+  }
+  await sleep(350);
+  return pickerState();
+}
+const pickerType = async (text) => {
+  await A.evaluate((P) => { const i = document.querySelector(`${P} input[type=search]`); i.focus(); }, PICKER);
+  await A.evaluate((P) => {
+    const i = document.querySelector(`${P} input[type=search]`);
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+    set.call(i, ""); i.dispatchEvent(new Event("input", { bubbles: true }));
+  }, PICKER);
+  if (text) await A.keyboard.type(text, { delay: 12 });
   await sleep(400);
+};
+const pickerTap = (name) => A.evaluate((P, name) => {
+  const b = [...document.querySelectorAll(`${P} .pick-row:not(.pick-create)`)].find((x) => x.querySelector(".pick-name")?.textContent.trim() === name);
+  if (!b) return false; b.scrollIntoView({ block: "center" }); b.click(); return true;
+}, PICKER, name);
+const pickerDone = async () => { await A.evaluate((P) => document.querySelector(`${P} .item-search-done`)?.click(), PICKER); await sleep(700); };
+// An add through List's "+ Add" → the picker, the way a person does it: open, type, tap, Done.
+async function sheetAdd(name) {
+  const st = await openPicker("header");
+  if (!st || !st.open) return false;
+  await pickerType(name);
+  const hit = await pickerTap(name);
+  await sleep(900);
+  await pickerDone();
   return hit;
 }
 
@@ -121,8 +169,6 @@ async function sheetAdd(name) {
   // ── setup ──
   const HH = (await rest("GET", `households?select=id&name=eq.${encodeURIComponent(HOUSE)}&deleted_at=is.null`))[0]?.id;
   if (!HH) throw new Error(`no ${HOUSE}`);
-  const live0 = await rest("GET", `list_items?select=id&household_id=eq.${HH}&deleted_at=is.null`);
-  if (live0.length) throw new Error(`${HOUSE} has ${live0.length} rows on its list — the walk needs it empty (V3 and V10 read the household's counts)`);
   const endOpen = async () => {
     const open = await rest("GET", `shopping_sessions?select=id&household_id=eq.${HH}&ended_at=is.null`);
     for (const s of open) await rest("PATCH", `shopping_sessions?id=eq.${s.id}`, { ended_at: new Date().toISOString() });
@@ -131,12 +177,17 @@ async function sheetAdd(name) {
   log(`ended ${await endOpen()} open session(s) first`);
   const openSessions = () => rest("GET", `shopping_sessions?select=id,started_at,created_at&household_id=eq.${HH}&ended_at=is.null`);
   const seeds = await rest("GET", `catalog_items?select=id,name,category&is_global=eq.true&deleted_at=is.null&order=name&limit=400`);
-  const pool = seeds.filter((s) => /^[A-Za-z][A-Za-z ]+$/.test(s.name)).slice(0, 17);
-  if (pool.length < 17) throw new Error(`not enough seed items (${seeds.length} seeds, ${pool.length} in the pool)`);
+  const pool = seeds.filter((s) => /^[A-Za-z][A-Za-z ]+$/.test(s.name)).slice(0, 19);
+  if (pool.length < 19) throw new Error(`not enough seed items (${seeds.length} seeds, ${pool.length} in the pool)`);
   const L = pool.slice(0, 14);          // put on the list by B
-  const [Y1, Y2, Y3] = pool.slice(14, 17).map((s) => s.name);   // added by A through the sheet (V4)
+  const [Y1, Y2, Y3] = pool.slice(14, 17).map((s) => s.name);   // added by A through the picker (V4)
+  const [P1, H1] = pool.slice(17, 19).map((s) => s.name);       // V6's add; V8's hidden item
   const CID = Object.fromEntries(pool.map((s) => [s.name, s.id]));
+  // A previous run that stopped midway may have left the walk's own items on the list: those go first; anything
+  // else on the list stops the walk (V3 and V10 read the household's counts).
   for (const s of pool) await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: s.id }).catch(() => {});
+  const live0 = await rest("GET", `list_items?select=id&household_id=eq.${HH}&deleted_at=is.null`);
+  if (live0.length) throw new Error(`${HOUSE} has ${live0.length} rows on its list — the walk needs it empty`);
   for (const s of L) await rpc("adjust_list_item_quantity", { p_household_id: HH, p_catalog_item_id: s.id, p_delta: 1, p_price_per_unit: null });
   const Q3 = L[0].name;
   await rpc("adjust_list_item_quantity", { p_household_id: HH, p_catalog_item_id: CID[Q3], p_delta: 2, p_price_per_unit: null });   // ×3 for V5
@@ -235,6 +286,110 @@ async function sheetAdd(name) {
   check("V4c the add opened no second session", (await openSessions()).length === 1);
   await shot(A, "olw-v4c-added-here");
 
+  // ── V6: one picker from every opener, the keyboard's focus in the tap ──
+  let ps = await openPicker("header");
+  check("V6 List's + Add opens the picker, focus in its field (in the tap), \"Add to our list\"", !!ps && ps.open && ps.focused && ps.title === "Add to our list" && ps.count === 1, JSON.stringify(ps && { open: ps.open, focused: ps.focused, title: ps.title, count: ps.count }));
+  check("V6 …the catalog A–Z with letter headers; on-the-list rows read \"On the list\"", ps.letters.length > 1 && ps.letters.join("") === [...ps.letters].sort().join("") && ps.rows.some((r) => r.on && r.sub === "On the list"), JSON.stringify(ps.letters));
+  await shot(A, "olw-v6-picker");
+  await pickerType(P1.slice(0, 3));
+  ps = await pickerState();
+  check(`V6 typing filters (\"${P1.slice(0, 3)}\")`, ps.rows.length > 0 && ps.rows.every((r) => r.name.toLowerCase().includes(P1.slice(0, 3).toLowerCase())), JSON.stringify(ps.rows.map((r) => r.name)));
+  await pickerTap(P1);
+  await waitFor(async () => !!(await rowOf(P1)), 8000);
+  await sleep(1200);
+  ps = await pickerState();
+  let r1 = await rowOf(P1);
+  check(`V6 a tap on ${P1} puts it on the list once (quantity 1), and the picker stays open`, !!r1 && r1.quantity === 1 && ps.open, JSON.stringify(r1));
+  check(`V6 …the toast: \"${P1} is on the list\" with Undo`, ps.toast === `${P1} is on the list` && ps.undo, JSON.stringify({ toast: ps.toast, undo: ps.undo }));
+  await pickerType("");
+  ps = await pickerState();
+  check(`V6 …and ${P1}'s row is now ✓ "On the list"`, !!ps.rows.find((r) => r.name === P1 && r.on), JSON.stringify(ps.rows.find((r) => r.name === P1)));
+  await pickerTap(P1); await sleep(1500);
+  r1 = await rowOf(P1);
+  check("V6 a tap on a ✓ row adds nothing (still quantity 1)", !!r1 && r1.quantity === 1, JSON.stringify(r1));
+  // Undo: a fresh add, then Undo on its toast → off the list again.
+  const U = L[4].name;
+  await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: CID[U] });
+  await sleep(2500);
+  await pickerType(U); await pickerTap(U);
+  await waitFor(async () => !!(await rowOf(U)), 8000); await sleep(800);
+  await A.evaluate((P) => document.querySelector(`${P} .pick-undo`)?.click(), PICKER);
+  const undone = await waitFor(async () => !(await rowOf(U)), 8000);
+  check(`V6 Undo takes ${U} off the list again`, !!undone);
+  await pickerDone();
+  ps = await pickerState();
+  check("V6 Done closes it", !ps.open);
+  ps = await openPicker("helm");
+  check("V6 the Helm's + on List opens the same picker (one in the page), focus in the tap", !!ps && ps.open && ps.focused && ps.count === 1, JSON.stringify(ps && { open: ps.open, focused: ps.focused, count: ps.count }));
+  await pickerDone();
+  // Browse: type a search, then the Helm's + — the picker opens and Browse's search survives it.
+  await go(A, "#/browse"); await sleep(1800);
+  await A.evaluate(() => { const i = [...document.querySelectorAll("input")].find((x) => /Search your catalog/.test(x.placeholder || "")); if (i) { i.focus(); } });
+  await A.keyboard.type("a", { delay: 10 }); await sleep(800);   // many matches: the page must scroll for the compact +
+  ps = await openPicker("helm");
+  check("V6 the Helm's + on Browse opens the same picker, focus in the tap", !!ps && ps.open && ps.focused && ps.count === 1, JSON.stringify(ps && { open: ps.open, focused: ps.focused }));
+  await pickerDone();
+  const browseQ = await A.evaluate(() => [...document.querySelectorAll("input")].find((x) => /Search your catalog/.test(x.placeholder || ""))?.value);
+  check("V6 Browse's typed search survives the Helm's + (\"a\")", browseQ === "a", JSON.stringify(browseQ));
+  await A.evaluate(() => { const i = [...document.querySelectorAll("input")].find((x) => /Search your catalog/.test(x.placeholder || "")); if (i) { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(i, ""); i.dispatchEvent(new Event("input", { bubbles: true })); } });
+  await go(A, "#/shop"); await sleep(1500);
+
+  // ── V7: an item checked this trip — +, a tap renews it, "added again", no Undo ──
+  const RZ = await rowOf(Z);
+  check(`V7 setup: ${Z} is in the cart`, !!RZ && RZ.status === "bought", JSON.stringify(RZ));
+  ps = await openPicker("header");
+  await pickerType(Z);
+  ps = await pickerState();
+  check(`V7 ${Z} (checked this trip) shows +, not ✓`, !!ps.rows.find((r) => r.name === Z && !r.on), JSON.stringify(ps.rows.find((r) => r.name === Z)));
+  await pickerTap(Z);
+  const renewed = await waitFor(async () => { const r = await rowOf(Z); return r && r.status === "pending" && r; }, 8000);
+  await sleep(600);
+  ps = await pickerState();
+  check(`V7 the tap is a new need of 1 (pending, quantity 1)`, !!renewed && renewed.quantity === 1, JSON.stringify(renewed));
+  check(`V7 the toast: \"${Z} added again · it was in your cart\", no Undo`, ps.toast === `${Z} added again · it was in your cart` && !ps.undo, JSON.stringify({ toast: ps.toast, undo: ps.undo }));
+
+  // ── V8: no match → a new item in Other; a hidden item is revealed, not duplicated ──
+  const NEW = `OL walk ${Date.now().toString(36)}`;
+  await pickerType(NEW);
+  ps = await pickerState();
+  check(`V8 no match offers \"+ Add “${NEW}” as a new item\"`, ps.create === `+ Add “${NEW}” as a new item`, JSON.stringify(ps.create));
+  await A.evaluate((P) => document.querySelector(`${P} .pick-create`)?.click(), PICKER);
+  const made = await waitFor(async () => (await rest("GET", `catalog_items?select=id,name,category,is_global&name=eq.${encodeURIComponent(NEW)}&deleted_at=is.null`))[0], 10000, 500);
+  const madeRow = made ? (await rest("GET", `list_items?select=id,quantity&household_id=eq.${HH}&catalog_item_id=eq.${made.id}&deleted_at=is.null`))[0] : null;
+  check(`V8 …it is a custom item in Other, on the list at 1`, !!made && made.category === "Other" && made.is_global === false && !!madeRow && madeRow.quantity === 1, JSON.stringify({ made, madeRow }));
+  // The hidden item: hide H1 for this account (B, the same account), reload so A knows it as hidden.
+  const clerkId = await B.evaluate(() => window.Clerk.user.id);
+  await rest("POST", "user_hidden_items", { clerk_id: clerkId, catalog_item_id: CID[H1] }, "return=minimal").catch(() => {});
+  await pickerDone();
+  await A.reload({ waitUntil: "networkidle2" }); await sleep(2500);
+  ps = await openPicker("header");
+  check(`V8 setup: ${H1} is hidden, so it isn't in the picker's A–Z`, !ps.rows.find((r) => r.name === H1), "");
+  await pickerType(H1);
+  ps = await pickerState();
+  check(`V8 typing ${H1} exactly shows the reveal card, not the create row`, !!ps.reveal && !ps.create, JSON.stringify({ reveal: ps.reveal, create: ps.create }));
+  await A.evaluate((P) => [...document.querySelectorAll(`${P} [role="button"]`)].find((x) => /Hidden from your view/.test(x.textContent))?.click(), PICKER);
+  const revealed = await waitFor(async () => !!(await rowOf(H1)), 8000);
+  const hiddenLeft = await rest("GET", `user_hidden_items?select=catalog_item_id&clerk_id=eq.${clerkId}&catalog_item_id=eq.${CID[H1]}`);
+  const dupes = await rest("GET", `catalog_items?select=id&name=eq.${encodeURIComponent(H1)}&deleted_at=is.null`);
+  check(`V8 …revealed and added (on the list, no longer hidden), not duplicated (one ${H1} in the catalog)`, !!revealed && hiddenLeft.length === 0 && dupes.length === 1, JSON.stringify({ hidden: hiddenLeft.length, catalog: dupes.length }));
+  await pickerDone();
+
+  // ── V12: off grid, a picker add answers at the tap and the picker stays open ──
+  const OG = L[5].name;
+  await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: CID[OG] });
+  await sleep(2500);
+  await A.setOfflineMode(true); await sleep(1200);
+  ps = await openPicker("header");
+  await pickerType(OG); await pickerTap(OG); await sleep(1200);
+  ps = await pickerState();
+  check("V12 off grid: the tap answers \"Adding items needs signal for now.\" and the picker stays open", ps.open && ps.toast === "Adding items needs signal for now.", JSON.stringify({ open: ps.open, toast: ps.toast }));
+  await shot(A, "olw-v12-off-grid");
+  await pickerDone();
+  await A.setOfflineMode(false);
+  await sleep(12000);   // OFF GRID holds ~10 s of steady signal
+  check(`V12 …and nothing was written (${OG} not on the list)`, !(await rowOf(OG)));
+  await A.reload({ waitUntil: "networkidle2" }); await sleep(2500);
+
   // ── V3 (all checked): the All done card, no bar ──
   const pending = (await rest("GET", `list_items?select=id&household_id=eq.${HH}&deleted_at=is.null&status=eq.pending`));
   for (const r of pending) await rest("PATCH", `list_items?id=eq.${r.id}`, { status: "bought" });
@@ -245,6 +400,13 @@ async function sheetAdd(name) {
 
   // ── cleanup, then V10 on the empty list ──
   for (const p of pool) await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: p.id }).catch(() => {});
+  if (made) {
+    await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: made.id }).catch(() => {});
+    await rpc("delete_custom_catalog_item", { p_household_id: HH, p_catalog_item_id: made.id }).catch((e) => log(`delete ${NEW}: ${e.message}`));
+  }
+  await rest("DELETE", `user_hidden_items?clerk_id=eq.${clerkId}&catalog_item_id=eq.${CID[H1]}`, null, "return=minimal").catch(() => {});
+  const madeLeft = await rest("GET", `catalog_items?select=id&name=eq.${encodeURIComponent(NEW)}&deleted_at=is.null`);
+  check(`cleanup: the walk's custom item is gone (${NEW})`, madeLeft.length === 0, `${madeLeft.length} rows`);
   log(`ended ${await endOpen()} open session(s) after`);
   const left = await rest("GET", `list_items?select=id&household_id=eq.${HH}&deleted_at=is.null`);
   check("cleanup: the house's list is empty again (read back)", left.length === 0, `${left.length} rows`);
