@@ -71,7 +71,7 @@ import { CategoryHeader, CATEGORY_HEADER_ACTION } from './components/CategoryHea
 import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
-import { ASK_ENABLED, ASK_FLAG_MARKER } from './lib/featureFlags';
+import { ASK_ENABLED, ASK_FLAG_MARKER, ONE_ADD_FLAG_MARKER } from './lib/featureFlags';
 import { trace } from '@opentelemetry/api';
 import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
 
@@ -9311,7 +9311,7 @@ function ProvisionsApp({ scrollRootRef }) {
   const WORDMARK_SHADOW = bannerHasPhoto ? "0 2px 14px rgba(0,0,0,0.85), 0 1px 3px rgba(0,0,0,0.7)" : "none";
 
   return (
-      <div className="app-root" data-op-ask={ASK_FLAG_MARKER} style={{ fontFamily: "'Georgia', serif", background: "#FAF4EC", color: "#2C1A0E" }}>
+      <div className="app-root" data-op-ask={ASK_FLAG_MARKER} data-op-one-add={ONE_ADD_FLAG_MARKER} style={{ fontFamily: "'Georgia', serif", background: "#FAF4EC", color: "#2C1A0E" }}>
       {/* ready (§5): Clerk auth resolved, and — if signed in — household/provisions
           loaded. Signed-out has nothing to load, so it's ready once auth resolves. */}
       {/* Gated on householdReady for the same reason as the landing effect — the list must have actually arrived, not merely stopped loading — so the landing tab is settled before the splash dissolves and there is no flash of Browse before Shop; the 5s failsafe still bounds it. */}

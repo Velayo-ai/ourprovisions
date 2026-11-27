@@ -12,7 +12,8 @@ const PORT = 9333;
 const CHROME = process.env.OP_CHROME || "C:/Program Files/Google/Chrome/Application/chrome.exe";
 // Not "HeadlessChrome": Clerk refuses to load under it. A browser-level flag, never per session.
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
-const DEV_URL = "https://dev.ourprovisions.velayo.ai/";
+// OP_BASE_URL points a walk at another dev-database deployment (e.g. the exp/one-add branch alias).
+const DEV_URL = process.env.OP_BASE_URL || "https://dev.ourprovisions.velayo.ai/";
 const VIEWPORT = { width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 
 fs.mkdirSync(OUT, { recursive: true });

@@ -78,4 +78,7 @@ describe("with the flag off the UI has no Ask door", () => {
   test("the build carries its flag as a marker on the app root", () => {
     expect(APP).toContain('<div className="app-root" data-op-ask={ASK_FLAG_MARKER}');
   });
+  test("the one-add experiment carries its own marker beside Ask's", () => {
+    expect(APP).toContain("data-op-ask={ASK_FLAG_MARKER} data-op-one-add={ONE_ADD_FLAG_MARKER}");
+  });
 });
