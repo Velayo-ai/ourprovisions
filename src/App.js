@@ -71,7 +71,8 @@ import { CategoryHeader, CATEGORY_HEADER_ACTION } from './components/CategoryHea
 import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
-import { ASK_ENABLED, ASK_FLAG_MARKER, ONE_ADD_FLAG_MARKER } from './lib/featureFlags';
+import { ASK_ENABLED, ASK_FLAG_MARKER, ONE_ADD_ENABLED, ONE_ADD_FLAG_MARKER } from './lib/featureFlags';
+import { routeView, helmDoors, listStatusLine, addedToastText } from './lib/oneAdd';
 import { trace } from '@opentelemetry/api';
 import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
 
@@ -1011,8 +1012,8 @@ export function ListGuide({ hasStaples, onAdd, onBrowse, onPlan }) {
   return (
     <div className="list-guide">
       <p className="list-guide-ask">What do we need?</p>
-      {row("add", "Add items", "I know what we need.", onAdd, true)}
-      {row("browse", hasStaples ? "Browse our staples" : "Browse the aisles", "Remind me what we might need.", onBrowse)}
+      {row("add", "Add items", ONE_ADD_ENABLED ? "Search, or pick from our aisles and staples." : "I know what we need.", onAdd, true)}
+      {!ONE_ADD_ENABLED && row("browse", hasStaples ? "Browse our staples" : "Browse the aisles", "Remind me what we might need.", onBrowse)}
       {row("plan", "Plan a meal", "I know what I want to cook.", onPlan)}
       <p className="list-guide-foot">One list for everyone in your household.<br />At the store, check things off here.</p>
     </div>
@@ -1025,7 +1026,11 @@ export function ListGuide({ hasStaples, onAdd, onBrowse, onPlan }) {
 // on rollout — accepted as a "what's new". The household's name is household text: it sits in the heading's
 // text only (masked on prod, never allow-listed) and never in an attribute — the dialog is named by the
 // heading (aria-labelledby), not an aria-label. Got it (.list-welcome-ok) is fixed copy, allow-listed.
-const WELCOME_LINES = [
+const WELCOME_LINES = ONE_ADD_ENABLED ? [
+  { key: "add", head: "+ Add brings things onto the list", sub: "Type it, or pick from our aisles and staples." },
+  { key: "browse", head: "Ask when someone else should choose", sub: "Like letting the kids pick their snacks, from + Add." },
+  { key: "check", head: "Check off in the store", sub: "Tick items as they go in the cart. Wrap up when you are done." },
+] : [
   { key: "add", head: "+ Add when you know what you need", sub: "Type it or tap it. The fastest way onto the list." },
   { key: "browse", head: "Browse when you want to choose", sub: "Quantities, staples, and letting the kids pick their snacks." },
   { key: "check", head: "Check off in the store", sub: "Tick items as they go in the cart. Wrap up when you are done." },
@@ -1106,7 +1111,7 @@ function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
       {/* Cream fade above the pill so the last row stays legible as it scrolls under (§6). */}
       <div className="helm-fade" aria-hidden="true" />
     <nav className={`helm ${compact ? "compact" : ""} ${armed ? "" : "no-anim"}`} aria-label="Main">
-      {NAV_DOORS.map(({ key, label, view: v, Icon, badge }) => {
+      {helmDoors(NAV_DOORS).map(({ key, label, view: v, Icon, badge }) => {
         const active = view === v;
         return (
           <button
@@ -2061,6 +2066,19 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
       >{label}</button>
     );
   };
+  // One add (R1/R2): Plan is This Week only — Meals leaves the results header and opens from + Add, as the
+  // Meals feeder titled "Add to this week" with Done (its `action`). One title, no switch.
+  if (ONE_ADD_ENABLED) {
+    return (
+      <div className={`plan-ctl${className ? ` ${className}` : ""}`} ref={rowRef}>
+        <div className="plan-ctl-text">
+          <h2 className="plan-view on" style={{ margin: 0 }}>{screen === "library" ? "Add to this week" : "This Week"}</h2>
+          {subtitle && <div className="plan-sub">{subtitle}</div>}
+        </div>
+        {action}
+      </div>
+    );
+  }
   return (
     <div className={`plan-ctl${className ? ` ${className}` : ""}`} ref={rowRef}>
       <div className="plan-ctl-text">
@@ -5847,7 +5865,7 @@ function ProvisionsApp({ scrollRootRef }) {
   // and Back land on the right door. No hash → Home until the landing rule has
   // spoken (SPEC_auth_state_ui_gating D4/D4a, §Landing — the effect sits below
   // the list counts it reads).
-  const [view, setView] = useState(() => viewForHash(window.location.hash) || "home");
+  const [view, setView] = useState(() => routeView(viewForHash(window.location.hash)) || "home");
   // §Landing — has THIS load decided where it lands? True from the start when the
   // URL named a door (deep link, invite, bookmark: that hash wins, and while signed
   // out the kept `view` IS the pendingRoute — the Home welcome renders over it and
@@ -6250,6 +6268,22 @@ function ProvisionsApp({ scrollRootRef }) {
     }
   }, [planMeal, showToast, mealById]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
+  // One add (R2): the Meals feeder is the library under "Add to this week". Done returns to This Week with a
+  // toast "N added": the meals on the board now that weren't when the feeder opened.
+  const mealsVisitRef = useRef(null);
+  useEffect(() => {
+    if (!ONE_ADD_ENABLED) return;
+    if (view === "plan" && planScreen === "library") { if (!mealsVisitRef.current) mealsVisitRef.current = new Set(onBoardIds); }
+    else mealsVisitRef.current = null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the snapshot is taken once, on the way in
+  }, [view, planScreen]);
+  const closeMealsFeeder = () => {
+    const before = mealsVisitRef.current || new Set();
+    const text = addedToastText([...onBoardIds].filter((id) => !before.has(id)).length);
+    mealsVisitRef.current = null;
+    setPlanScreen("board");
+    if (text) showToast(text);
+  };
   // The library's stage per meal (SPEC_meal_library_unplan D4): the board's own
   // derivation, so the pill can never disagree with This Week or Home. A meal
   // outside onBoardIds — never planned, removed, or cooked (afterglow included:
@@ -7017,7 +7051,8 @@ function ProvisionsApp({ scrollRootRef }) {
     const col = document.querySelector(".phone-scroll");
     if (col) col.scrollTop = 0;
   };
-  const goToDoor = useCallback((v) => {
+  const goToDoor = useCallback((door) => {
+    const v = routeView(door);   // one add (SPEC_results_feeder_standard R1): Browse is not a door, its routes land on List
     // D4 (SPEC_auth_state_ui_gating): without a live session, every door but Home
     // opens the sign-in modal instead of switching view — no household-shaped
     // shell renders behind a SIGN IN header. (Browse's signed-out preview went
@@ -7050,7 +7085,7 @@ function ProvisionsApp({ scrollRootRef }) {
   useEffect(() => {
     const onHashChange = () => {
       const v = viewForHash(window.location.hash);
-      if (v) { setLandingDecided(true); setView(v); }   // Back/forward/typed: the user's route
+      if (v) { setLandingDecided(true); setView(routeView(v)); }   // Back/forward/typed: the user's route (one add: #/browse → List)
       if (window.location.hash !== WRAP_UP_HASH) setShowWrapUpModal(false);
     };
     window.addEventListener("hashchange", onHashChange);
@@ -9590,6 +9625,11 @@ function ProvisionsApp({ scrollRootRef }) {
         .hdr-action { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 44px; padding: 0 18px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
         .hdr-action:disabled { opacity: 0.6; cursor: default; }
+        /* One add: the Meals feeder's Done (the item picker's Done, same weight), and List's status line. */
+        .hdr-done { flex: none; border: none; background: none; height: 44px; padding: 0 4px; cursor: pointer; white-space: nowrap;
+                    font: 700 calc(16px * (1 + (var(--op-text-scale) - 1) * 0.8)) 'Lato', sans-serif; color: #A0724A; }
+        .list-title-wrap { min-width: 0; }
+        .list-status { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 4px; }
         /* "add to the list →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
            hit box; the matching negative margins keep the line box exactly where it was. Not a bar, not teal. */
         .plan-addall { display: inline-block; vertical-align: baseline; border: none; background: none; color: #6f5a45; cursor: pointer;
@@ -12188,7 +12228,9 @@ function ProvisionsApp({ scrollRootRef }) {
               rowRef={controlRowRef}
               className="meals"
               subtitle={<>What sounds good? · {libraryMeals.length} {libraryMeals.length === 1 ? "meal" : "meals"}</>}
-              action={MEALS_ENABLED && isSignedIn ? (
+              action={ONE_ADD_ENABLED ? (
+                <button type="button" className="hdr-done" onClick={closeMealsFeeder}>Done</button>
+              ) : MEALS_ENABLED && isSignedIn ? (
                 <HeaderAction verb="new" label="Create a new meal" onClick={() => setMealSheet({ mode: "create", meal: null })} />
               ) : null}
             />
@@ -12573,7 +12615,15 @@ function ProvisionsApp({ scrollRootRef }) {
                     The header holds LIST TOOLS only (2026-10-05): Wrap up is the WrapUpBar above the Helm —
                     one Wrap Up control per state, the All done card's teal button at 100%. */}
                 <div className="list-header" ref={controlRowRef}>
-                  <h2 className="list-title">Our list</h2>
+                  {ONE_ADD_ENABLED ? (
+                    /* One add (R1): the results title gets a status line under it. Counts only (draft copy, flagged). */
+                    <div className="list-title-wrap">
+                      <h2 className="list-title">Our list</h2>
+                      <div className="list-status">{listStatusLine({ open: totalItems - checkedCount, cart: checkedCount, aisles: shopAisles.length })}</div>
+                    </div>
+                  ) : (
+                    <h2 className="list-title">Our list</h2>
+                  )}
                   <div className="list-controls">
                     <ShopLensSegment lens={shopLens} onChange={setShopLens} />
                     <HeaderAction verb="add" label="Add something" onClick={() => openPicker("list_add")} />
@@ -13129,7 +13179,7 @@ function ProvisionsApp({ scrollRootRef }) {
             const label = runAsk.label;
             const style = runAsk.screenStyle;
             setRunAskId(null);
-            setView("input");                                   // Browse: where the run was handed over
+            setView(routeView("input"));                        // Browse: where the run was handed over (one add: List, where + Add handed it over)
             showToast(<><span className="op-name">{label}</span> added {count}</>, {
               label: "See",
               onClick: () => { emitAskEvent("ask_see_tapped", count, style); setView("list"); landed.start(label, ids); },
