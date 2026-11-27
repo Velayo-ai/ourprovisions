@@ -46,3 +46,64 @@ test("on the source: Add items opens the picker in the tap; Browse carries Stapl
   expect(app).toMatch(/<ListGuide hasStaples=\{hasStaples\} onAdd=\{guideAdd\} onBrowse=\{guideBrowse\} onPlan=\{guidePlan\} \/>/);
   expect(app).not.toMatch(/Your list is empty/);
 });
+
+// ── The new member welcome (SPEC_one_list R12–R13, mockup screen 5) ──
+const { ListWelcome } = require("./App");
+const { welcomeKey, welcomeSeen, markWelcomeSeen, shouldShowWelcome } = require("./lib/listWelcome");
+
+describe("the welcome card", () => {
+  test("the copy, three lines and Got it; the dialog is named by its heading, never by an attribute holding the name", () => {
+    const onDone = jest.fn();
+    render(<ListWelcome householdName="Madbury" onDone={onDone} />);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-labelledby", "list-welcome-title");
+    expect(dialog).not.toHaveAttribute("aria-label");
+    expect(document.getElementById("list-welcome-title").textContent).toBe("This is Madbury's list");
+    expect(document.querySelector(".list-welcome-eyebrow").textContent).toBe("Welcome aboard");
+    expect([...document.querySelectorAll(".list-welcome-head")].map((x) => x.textContent)).toEqual([
+      "+ Add when you know what you need", "Browse when you want to choose", "Check off in the store",
+    ]);
+    // No attribute anywhere in the card carries the household's name (the recorder copies attributes).
+    const attrs = [...document.querySelectorAll(".list-welcome-scrim, .list-welcome-scrim *")].flatMap((el) => [...el.attributes].map((a) => a.value));
+    expect(attrs.some((v) => v.includes("Madbury"))).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Got it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Got it" }));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+  test("Escape dismisses too", () => {
+    const onDone = jest.fn();
+    render(<ListWelcome householdName="Madbury" onDone={onDone} />);
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the welcome's memory (R13)", () => {
+  const store = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), m }; };
+  test("one key per person per household", () => {
+    expect(welcomeKey("user_1", "hh_1")).toBe("op_list_welcome_seen:user_1:hh_1");
+  });
+  test("unseen until Got it, then seen for good on that phone — and only for that person in that household", () => {
+    const s = store();
+    expect(welcomeSeen("u", "h", s)).toBe(false);
+    markWelcomeSeen("u", "h", s);
+    expect(welcomeSeen("u", "h", s)).toBe(true);
+    expect(welcomeSeen("u", "other", s)).toBe(false);
+    expect(welcomeSeen("someone", "h", s)).toBe(false);
+  });
+  test("storage that throws, or no ids, counts as seen (it never shows on every open)", () => {
+    const bad = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+    expect(welcomeSeen("u", "h", bad)).toBe(true);
+    expect(() => markWelcomeSeen("u", "h", bad)).not.toThrow();
+    expect(welcomeSeen(null, "h", store())).toBe(true);
+  });
+  test("shown only on List, signed in, the list loaded and NOT empty, not seen", () => {
+    const base = { view: "list", signedIn: true, listReady: true, totalItems: 3, seen: false };
+    expect(shouldShowWelcome(base)).toBe(true);
+    expect(shouldShowWelcome({ ...base, totalItems: 0 })).toBe(false);   // the guide instead
+    expect(shouldShowWelcome({ ...base, seen: true })).toBe(false);
+    expect(shouldShowWelcome({ ...base, view: "home" })).toBe(false);
+    expect(shouldShowWelcome({ ...base, listReady: false })).toBe(false);
+    expect(shouldShowWelcome({ ...base, signedIn: false })).toBe(false);
+  });
+});

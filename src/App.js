@@ -13,6 +13,7 @@ import { WrapUpBar } from './components/WrapUpBar';
 import { SheetPanel } from './components/SheetPanel';
 import { ItemSearchView, useItemSearch, keepFocus } from './components/ItemSearchView';
 import { pickerItems, filterItems, letterGroups, itemStatus, hiddenMatchFor, openBucket, PICKER_COPY } from './lib/listPicker';
+import { welcomeSeen, markWelcomeSeen, shouldShowWelcome } from './lib/listWelcome';
 import { CategorySelect } from './components/CategorySelect';
 import { defaultMoveTarget, deleteCategoryLabel, runCategoryDelete, categoryCountText, renameInSet } from './lib/deleteCategory';
 import { editCategoryOptions, saveItemEdits } from './lib/itemCategory';
@@ -1013,6 +1014,48 @@ export function ListGuide({ hasStaples, onAdd, onBrowse, onPlan }) {
       {row("browse", hasStaples ? "Browse our staples" : "Browse the aisles", "Remind me what we might need.", onBrowse)}
       {row("plan", "Plan a meal", "I know what I want to cook.", onPlan)}
       <p className="list-guide-foot">One list for everyone in your household.<br />At the store, check things off here.</p>
+    </div>
+  );
+}
+
+// THE NEW MEMBER WELCOME (SPEC_one_list R12–R13; mockup screen 5). Once per person per household, the first
+// time they open List and the list is NOT empty (an empty list shows the guide): a bottom card over the
+// dimmed real list, then Got it, for good on this phone (lib/listWelcome). Existing members see it once too,
+// on rollout — accepted as a "what's new". The household's name is household text: it sits in the heading's
+// text only (masked on prod, never allow-listed) and never in an attribute — the dialog is named by the
+// heading (aria-labelledby), not an aria-label. Got it (.list-welcome-ok) is fixed copy, allow-listed.
+const WELCOME_LINES = [
+  { key: "add", head: "+ Add when you know what you need", sub: "Type it or tap it. The fastest way onto the list." },
+  { key: "browse", head: "Browse when you want to choose", sub: "Quantities, staples, and letting the kids pick their snacks." },
+  { key: "check", head: "Check off in the store", sub: "Tick items as they go in the cart. Wrap up when you are done." },
+];
+const WELCOME_ICONS = {
+  add: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#13877C" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>,
+  browse: GUIDE_ICONS.browse,
+  check: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="m8.5 12 2.5 2.5 4.5-5" /></svg>,
+};
+export function ListWelcome({ householdName, onDone }) {
+  return (
+    <div className="list-welcome-scrim">
+      <div className="list-welcome" role="dialog" aria-modal="true" aria-labelledby="list-welcome-title"
+        onKeyDown={(e) => { if (e.key === "Escape") onDone(); }}>
+        <div>
+          <div className="list-welcome-eyebrow">Welcome aboard</div>
+          <h2 id="list-welcome-title" className="list-welcome-title">This is {householdName ? <>{householdName}'s</> : "your household's"} list</h2>
+          <p className="list-welcome-lead">One list for the whole household. Whatever anyone adds shows up here for everyone, at home or in the store.</p>
+        </div>
+        {WELCOME_LINES.map((l) => (
+          <div key={l.key} className="list-welcome-line">
+            <span className="list-welcome-ico">{WELCOME_ICONS[l.key]}</span>
+            <div>
+              <div className="list-welcome-head">{l.head}</div>
+              <div className="list-welcome-sub">{l.sub}</div>
+            </div>
+          </div>
+        ))}
+        {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the card is modal: Got it takes the focus so a keyboard can leave it */}
+        <button type="button" className="list-welcome-ok" autoFocus onClick={onDone}>Got it</button>
+      </div>
     </div>
   );
 }
@@ -8411,6 +8454,8 @@ function ProvisionsApp({ scrollRootRef }) {
   // (list_add | helm | guide); the door rides every add (item_added_to_list's door). The page's scroll is
   // noted here and put back on close: the view's scroll-home may move the window while the keyboard is up.
   const picker = useItemSearch();
+  // The new member welcome (R12–R13): decided by the effect after the list counts (shouldShowWelcome).
+  const [listWelcomeOpen, setListWelcomeOpen] = useState(false);
   const pickerDoorRef = useRef("list");
   const pickerScrollRef = useRef(null);
   const openPicker = (from) => {
@@ -8602,6 +8647,7 @@ function ProvisionsApp({ scrollRootRef }) {
   // While the quick picker is open the page behind it never scrolls (both scroll roots, scrollTop kept;
   // the Add sheet's rule, 2026-11-05). The picker's own touchmove guard is the half iOS obeys.
   useScrollLock(picker.open, scrollRootRef);
+  useScrollLock(listWelcomeOpen, scrollRootRef);   // the welcome's card sits over the dimmed list: nothing scrolls behind it
 
   const handleRemoveMember = async (m) => {
     const name = m.users?.full_name || (m.users?.email ? m.users.email.split("@")[0] : "this member");
@@ -9116,6 +9162,14 @@ function ProvisionsApp({ scrollRootRef }) {
     }
     if (!showSplash && !loading) setLandingDecided(true);
   }, [landingDecided, authPhase, householdReady, showSplash, loading, totalItems, checkedCount]);
+  // THE WELCOME's decision (R12): on List, signed in, the list loaded and NOT empty, and not yet seen by this
+  // person in this household on this phone. A household switch closes it; the next household decides afresh.
+  useEffect(() => { setListWelcomeOpen(false); }, [household?.id]);
+  useEffect(() => {
+    if (listWelcomeOpen || welcomeOpen) return;   // never over the place's own welcome sheet
+    if (shouldShowWelcome({ view, signedIn: isSignedIn, listReady: householdReady && !!household?.id, totalItems, seen: welcomeSeen(user?.id, household?.id) })) setListWelcomeOpen(true);
+  }, [listWelcomeOpen, welcomeOpen, view, isSignedIn, householdReady, household?.id, totalItems, user?.id]);
+  const dismissWelcome = () => { markWelcomeSeen(user?.id, household?.id); setListWelcomeOpen(false); };
   const checkedCost = shoppingList.reduce((acc, c) =>
     acc + c.items.reduce((a, i) => a + (checked[i.listItemId] ? i.subtotal : 0), 0), 0);
 
@@ -10501,6 +10555,22 @@ function ProvisionsApp({ scrollRootRef }) {
         .list-guide-row.teal .list-guide-label { color: #0A5049; }
         .list-guide-sub { display: block; margin-top: 2px; font-size: calc(14px * var(--op-text-scale)); color: #5B4A3A; }
         .list-guide-chev { flex: none; color: #9A7350; }
+        /* THE WELCOME (R12, mockup screen 5): the list dimmed at 55% espresso, a 24px-radius card 12px off the
+           edges at the bottom (above the safe area), Got it as the one dark pill. Above the Helm (z 900). */
+        .list-welcome-scrim { position: fixed; inset: 0; z-index: 1500; background: rgba(26,15,8,0.55); display: flex; align-items: flex-end; justify-content: center;
+                              padding: 12px 12px calc(12px + var(--op-inset-bottom, 0px)); touch-action: none; }
+        .list-welcome { width: 100%; max-width: 520px; max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box;
+                        display: flex; flex-direction: column; gap: 14px; padding: 22px 20px 18px; border-radius: 24px; background: #FBF4EC; color: #2C1A0E;
+                        box-shadow: 0 -8px 40px rgba(0,0,0,0.3); font-family: 'Lato', sans-serif; touch-action: pan-y; }
+        .list-welcome-eyebrow { font-size: calc(11px * var(--op-text-scale)); letter-spacing: 2px; text-transform: uppercase; color: #6F5C48; }
+        .list-welcome-title { margin: 4px 0 0; font: 400 calc(26px * (1 + (var(--op-text-scale) - 1) * 0.4)) 'Playfair Display', serif; line-height: 1.2; overflow-wrap: anywhere; }
+        .list-welcome-lead { margin: 6px 0 0; font-size: calc(14px * var(--op-text-scale)); line-height: 1.5; color: #5B4A3A; }
+        .list-welcome-line { display: flex; gap: 12px; align-items: flex-start; }
+        .list-welcome-ico { flex: none; display: flex; color: #9A7350; }
+        .list-welcome-head { font-size: calc(15px * var(--op-text-scale)); font-weight: 700; }
+        .list-welcome-sub { font-size: calc(13px * var(--op-text-scale)); line-height: 1.45; color: #5B4A3A; }
+        .list-welcome-ok { margin-top: 4px; min-height: 50px; border: none; border-radius: 999px; background: #3A281C; color: #FFFDF9; cursor: pointer;
+                           font: 700 calc(16px * var(--op-text-scale)) 'Lato', sans-serif; }
         .list-guide-foot { margin: 10px 0 0; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.5; color: #5B4A3A; }
         /* THE LIST HEADER (SPEC_one_list R2, mockup "Our List — one list, one screen" screens 2 + 4): "Our list" in
            Playfair 400 at 28 (the page-title rate k .4), the list tools on the right, then a 1.5px sand hairline
@@ -13327,6 +13397,8 @@ function ProvisionsApp({ scrollRootRef }) {
           It replaced the Shop Add sheet (AddSheetPanel, its disabled mic) on 2026-11-26. ── */}
       <ListPicker search={picker} items={pickerList} statusOf={pickerStatus} hiddenFor={pickerHidden}
         onAdd={pickerAdd} onCreate={pickerCreate} onReveal={pickerReveal} onUndo={pickerUndo} onTapListed={pickerTapListed} onClosed={onPickerClosed} />
+      {/* ── THE NEW MEMBER WELCOME (R12) — over the dimmed list, once per person per household. ── */}
+      {listWelcomeOpen && <ListWelcome householdName={household?.name || ""} onDone={dismissWelcome} />}
 
       {/* Profile Sheet — three ways out, all running the same close: backdrop
           tap (the scrim's onClick), the Close button (SheetClose: VoiceOver's
