@@ -11,12 +11,16 @@ async function openFeeder(p, BASE) {
   if (p.url().startsWith(BASE.replace(/\/$/, "").replace(/#.*$/, ""))) { await p.evaluate(() => { window.location.hash = "#/shop"; }); await sleep(1500); }
   else { await p.goto(BASE + "#/shop", { waitUntil: "networkidle2" }); await sleep(2000); }
   await closeFeeder(p);
-  const sel = (await p.$(".list-header .hdr-action")) ? ".list-header .hdr-action" : ".list-guide-row.teal";
-  await p.click(sel);
+  // The new member welcome (SPEC_one_list R12) sits over a non-empty List once per person, household and
+  // origin — the first walk on a new deployment URL meets it. Got it, for good on this browser profile.
+  if (await p.$(".list-welcome-ok")) { await p.evaluate(() => document.querySelector(".list-welcome-ok").click()); await sleep(600); }
+  await p.waitForSelector(".list-header .hdr-action, .list-guide-row.teal", { timeout: 15000 });
+  // DOM clicks, as the walks' other taps: a CDP mouse click after a hold gesture can go missing on this tab.
+  await p.evaluate(() => (document.querySelector(".list-header .hdr-action") || document.querySelector(".list-guide-row.teal")).click());
   await p.waitForSelector(".item-picker.open", { visible: true, timeout: 10000 }); await sleep(500);
 }
 async function closeFeeder(p) {
-  if (await p.$(".item-picker.open")) { await p.click(".item-picker .item-search-done"); await sleep(700); }
+  if (await p.$(".item-picker.open")) { await p.evaluate(() => document.querySelector(".item-picker .item-search-done").click()); await sleep(700); }
 }
 
 // Add the first n items that aren't on the list (the circle +); returns their names.
@@ -47,6 +51,8 @@ async function feederZero(p, BASE, names) {
     const targets = names || [...document.querySelectorAll(".item-picker .pick-group .pick-row.on")].map(nameOf);
     const done = [];
     for (const n of [...new Set(targets)]) {
+      // Only a row ON the list counts (a row in the cart shows + — the feeder's renewal — and has no stepper).
+      if (!rowFor(n) || !rowFor(n).classList.contains("on")) continue;
       for (let k = 0; k < 20; k++) {
         const r = rowFor(n);
         if (!r || !r.classList.contains("on")) break;
