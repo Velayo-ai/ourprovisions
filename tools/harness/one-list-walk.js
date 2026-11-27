@@ -1,5 +1,9 @@
-// one-list-walk.js — the SPEC_one_list pre-walk: Slice 1 (V1–V5, V10) and Slice 2, the quick picker (V6, V7, V8,
-// V12): the parts a harness can drive. Dev only, Cody Test House, signed in already (signin.js).
+// one-list-walk.js — the SPEC_one_list pre-walk: Slice 1 (V1–V5, V10), Slice 2, the quick picker (V6, V7, V8,
+// V12, with R8 revised: the row is the undo), and Slice 3 (V9 the guide, V11 the welcome, the one-list spans read
+// off the wire): the parts a harness can drive. Dev only, Cody Test House, signed in already (signin.js).
+//   The welcome (R12) would cover the list on this account's first List visit, so the walk marks it seen for
+//   Cody Test House up front and V11 clears it on purpose. There is one test account: V11's "second account"
+//   is the same account with its welcome key cleared (the per-person key is pinned in Jest).
 //   Tab A is the phone under test (the deployed dev URL, 375 × 667).
 //   Tab B is only the "second phone": the same account's token, writing to dev's PostgREST straight from here.
 //   V4's stale case: A checks an item off (its trip opens and A holds it as activeSession), then B ends that
@@ -96,7 +100,9 @@ const pickerState = () => A.evaluate((P) => {
   const v = document.querySelector(P);
   if (!v) return null;
   const rows = [...v.querySelectorAll(".pick-row:not(.pick-create)")].map((b) => ({
-    name: b.querySelector(".pick-name")?.textContent.trim(), on: b.getAttribute("aria-disabled") === "true", sub: b.querySelector(".pick-sub")?.textContent.trim() || null,
+    name: b.querySelector(".pick-name")?.textContent.trim(),
+    on: !!b.querySelector(".pick-mark.on"), fresh: b.classList.contains("fresh"), inert: b.getAttribute("aria-disabled") === "true",
+    sub: b.querySelector(".pick-sub")?.textContent.trim() || null,
   }));
   return {
     open: v.classList.contains("open"),
@@ -108,7 +114,6 @@ const pickerState = () => A.evaluate((P) => {
     create: v.querySelector(".pick-create")?.textContent.trim() || null,
     reveal: [...v.querySelectorAll('[role="button"]')].map((x) => x.textContent).find((x) => /Hidden from your view/.test(x)) || null,
     toast: v.querySelector(".pick-toast-text")?.textContent.trim() || null,
-    undo: !!v.querySelector(".pick-undo"),
   };
 }, PICKER);
 // Open it with a REAL tap on an opener (the keyboard rule: focus inside the tap). `how`: "header" (List's +
@@ -139,6 +144,7 @@ const pickerTap = (name) => A.evaluate((P, name) => {
   const b = [...document.querySelectorAll(`${P} .pick-row:not(.pick-create)`)].find((x) => x.querySelector(".pick-name")?.textContent.trim() === name);
   if (!b) return false; b.scrollIntoView({ block: "center" }); b.click(); return true;
 }, PICKER, name);
+const pickRow = (ps, name) => (ps && ps.rows.find((r) => r.name === name)) || null;
 const pickerDone = async () => { await A.evaluate((P) => document.querySelector(`${P} .item-search-done`)?.click(), PICKER); await sleep(700); };
 // An add through List's "+ Add" → the picker, the way a person does it: open, type, tap, Done.
 async function sheetAdd(name) {
@@ -155,6 +161,19 @@ async function sheetAdd(name) {
   const browser = await connect();
   A = await firstPage(browser);
   await A.setViewport(VIEW);
+  // The one-list spans, read off the wire: the RUM agent POSTs OTLP JSON to /v1/rumotlp (never log its URL:
+  // the query carries the token).
+  const spans = [];
+  const attrVal = (v) => (v ? (v.stringValue ?? v.intValue ?? v.boolValue ?? v.doubleValue ?? null) : null);
+  A.on("request", (req) => {
+    if (!/\/v1\/rumotlp/.test(req.url()) || req.method() !== "POST") return;
+    try {
+      const body = JSON.parse(req.postData() || "{}");
+      for (const rs of body.resourceSpans || []) for (const ss of rs.scopeSpans || []) for (const sp of ss.spans || []) {
+        spans.push({ name: sp.name, attrs: Object.fromEntries((sp.attributes || []).map((a) => [a.key, attrVal(a.value)])) });
+      }
+    } catch (e) { /* not JSON: ignore */ }
+  });
   await A.goto(BASE + "#/home", { waitUntil: "networkidle2" });
   await A.waitForFunction(() => window.Clerk && window.Clerk.user, { timeout: 30000 });
   B = await browser.newPage();
@@ -175,6 +194,10 @@ async function sheetAdd(name) {
     return open.length;
   };
   log(`ended ${await endOpen()} open session(s) first`);
+  const clerkId = await B.evaluate(() => window.Clerk.user.id);
+  const WKEY = `op_list_welcome_seen:${clerkId}:${HH}`;
+  const setWelcome = (v) => A.evaluate((k, v) => { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); }, WKEY, v);
+  await setWelcome("1");   // V11 clears it on purpose
   const openSessions = () => rest("GET", `shopping_sessions?select=id,started_at,created_at&household_id=eq.${HH}&ended_at=is.null`);
   const seeds = await rest("GET", `catalog_items?select=id,name,category&is_global=eq.true&deleted_at=is.null&order=name&limit=400`);
   const pool = seeds.filter((s) => /^[A-Za-z][A-Za-z ]+$/.test(s.name)).slice(0, 19);
@@ -300,22 +323,32 @@ async function sheetAdd(name) {
   ps = await pickerState();
   let r1 = await rowOf(P1);
   check(`V6 a tap on ${P1} puts it on the list once (quantity 1), and the picker stays open`, !!r1 && r1.quantity === 1 && ps.open, JSON.stringify(r1));
-  check(`V6 …the toast: \"${P1} is on the list\" with Undo`, ps.toast === `${P1} is on the list` && ps.undo, JSON.stringify({ toast: ps.toast, undo: ps.undo }));
-  await pickerType("");
+  check(`V6 …its row reads ✓ "Added · tap to undo" (the query stays), and there is no toast`, !!pickRow(ps, P1) && pickRow(ps, P1).fresh && pickRow(ps, P1).sub === "Added · tap to undo" && !ps.toast, JSON.stringify({ row: pickRow(ps, P1), toast: ps.toast }));
+  // A row on the list before this visit: "On the list", inert.
+  const PRE = L[1].name;
+  await pickerType(PRE);
   ps = await pickerState();
-  check(`V6 …and ${P1}'s row is now ✓ "On the list"`, !!ps.rows.find((r) => r.name === P1 && r.on), JSON.stringify(ps.rows.find((r) => r.name === P1)));
-  await pickerTap(P1); await sleep(1500);
-  r1 = await rowOf(P1);
-  check("V6 a tap on a ✓ row adds nothing (still quantity 1)", !!r1 && r1.quantity === 1, JSON.stringify(r1));
-  // Undo: a fresh add, then Undo on its toast → off the list again.
-  const U = L[4].name;
-  await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: CID[U] });
-  await sleep(2500);
-  await pickerType(U); await pickerTap(U);
-  await waitFor(async () => !!(await rowOf(U)), 8000); await sleep(800);
-  await A.evaluate((P) => document.querySelector(`${P} .pick-undo`)?.click(), PICKER);
+  check(`V6 ${PRE} (on the list before the visit) reads "On the list" and is inert`, !!pickRow(ps, PRE) && pickRow(ps, PRE).on && pickRow(ps, PRE).inert && pickRow(ps, PRE).sub === "On the list", JSON.stringify(pickRow(ps, PRE)));
+  await pickerTap(PRE); await sleep(1500);
+  const rPre = await rowOf(PRE);
+  check(`V6 …a tap on it adds nothing (still quantity 1)`, !!rPre && rPre.quantity === 1, JSON.stringify(rPre));
+  // The undo, also two items back: three fresh adds, then a tap on the first takes it back off.
+  const [U, U2, U3] = [L[4].name, L[6].name, L[7].name];
+  for (const n of [U, U2, U3]) await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: CID[n] });
+  await pickerType("");
+  await waitFor(async () => { const x = await pickerState(); return [U, U2, U3].every((n) => pickRow(x, n) && !pickRow(x, n).on); }, 8000, 400);
+  for (const n of [U, U2, U3]) { await pickerTap(n); await sleep(700); }
+  await waitFor(async () => !!(await rowOf(U3)), 8000);
+  await sleep(800);
+  await pickerTap(U);   // two items back
   const undone = await waitFor(async () => !(await rowOf(U)), 8000);
-  check(`V6 Undo takes ${U} off the list again`, !!undone);
+  await sleep(800);
+  ps = await pickerState();
+  check(`V6 a tap on ${U}'s fresh ✓ two items back takes it back off the list (back to +), no toast`, !!undone && !!pickRow(ps, U) && !pickRow(ps, U).on && !ps.toast, JSON.stringify({ row: pickRow(ps, U), toast: ps.toast }));
+  check(`V6 …${U2} and ${U3} stay added (fresh ✓, on the server)`, [U2, U3].every((n) => pickRow(ps, n) && pickRow(ps, n).fresh) && !!(await rowOf(U2)) && !!(await rowOf(U3)));
+  await pickerDone();
+  ps = await openPicker("header");
+  check(`V6 Done ended the visit: ${U2} now reads "On the list" (inert)`, !!pickRow(ps, U2) && pickRow(ps, U2).inert && pickRow(ps, U2).sub === "On the list", JSON.stringify(pickRow(ps, U2)));
   await pickerDone();
   ps = await pickerState();
   check("V6 Done closes it", !ps.open);
@@ -346,7 +379,8 @@ async function sheetAdd(name) {
   await sleep(600);
   ps = await pickerState();
   check(`V7 the tap is a new need of 1 (pending, quantity 1)`, !!renewed && renewed.quantity === 1, JSON.stringify(renewed));
-  check(`V7 the toast: \"${Z} added again · it was in your cart\", no Undo`, ps.toast === `${Z} added again · it was in your cart` && !ps.undo, JSON.stringify({ toast: ps.toast, undo: ps.undo }));
+  check(`V7 the toast: \"${Z} added again · it was in your cart\"`, ps.toast === `${Z} added again · it was in your cart`, JSON.stringify({ toast: ps.toast }));
+  check(`V7 …and ${Z}'s row reads "On the list", inert (never undoable)`, !!pickRow(ps, Z) && pickRow(ps, Z).inert && pickRow(ps, Z).sub === "On the list", JSON.stringify(pickRow(ps, Z)));
 
   // ── V8: no match → a new item in Other; a hidden item is revealed, not duplicated ──
   const NEW = `OL walk ${Date.now().toString(36)}`;
@@ -357,8 +391,9 @@ async function sheetAdd(name) {
   const made = await waitFor(async () => (await rest("GET", `catalog_items?select=id,name,category,is_global&name=eq.${encodeURIComponent(NEW)}&deleted_at=is.null`))[0], 10000, 500);
   const madeRow = made ? (await rest("GET", `list_items?select=id,quantity&household_id=eq.${HH}&catalog_item_id=eq.${made.id}&deleted_at=is.null`))[0] : null;
   check(`V8 …it is a custom item in Other, on the list at 1`, !!made && made.category === "Other" && made.is_global === false && !!madeRow && madeRow.quantity === 1, JSON.stringify({ made, madeRow }));
+  const madeShown = await waitFor(async () => { const x = await pickerState(); return pickRow(x, NEW); }, 6000, 300);
+  check(`V8 …its row reads ✓ "Added · tap to undo" (undoable like any other)`, !!madeShown && madeShown.fresh, JSON.stringify(madeShown));
   // The hidden item: hide H1 for this account (B, the same account), reload so A knows it as hidden.
-  const clerkId = await B.evaluate(() => window.Clerk.user.id);
   await rest("POST", "user_hidden_items", { clerk_id: clerkId, catalog_item_id: CID[H1] }, "return=minimal").catch(() => {});
   await pickerDone();
   await A.reload({ waitUntil: "networkidle2" }); await sleep(2500);
@@ -420,8 +455,85 @@ async function sheetAdd(name) {
   s = await listState();
   const hash = await A.evaluate(() => location.hash);
   check("V10 Start a list → opens List (#/shop, \"Our list\")", hash === "#/shop" && s.title === "Our list", `${hash} ${s.title}`);
-  check("V10 …the empty List: \"Our list\" + Add, no bar", s.title === "Our list" && s.wrapbar === null && !s.allDone);
+  check("V10 …the empty List: \"Our list\" and the guide, no bar", s.title === "Our list" && s.wrapbar === null && !s.allDone && !!(await A.$(".list-guide")));
   await shot(A, "olw-v10-empty-list");
+
+  // ── V9: the guide — three rows, the adaptive Browse row before and after a staple, each row goes where it says ──
+  const guide = () => A.evaluate(() => ({
+    ask: document.querySelector(".list-guide-ask")?.textContent.trim() || null,
+    rows: [...document.querySelectorAll(".list-guide-row")].map((b) => [b.querySelector(".list-guide-label").textContent.trim(), b.querySelector(".list-guide-sub").textContent.trim(), b.classList.contains("teal")]),
+    foot: document.querySelector(".list-guide-foot")?.innerText.replace(/\s+/g, " ").trim() || null,
+    welcome: !!document.querySelector(".list-welcome"),
+  }));
+  const staplesBefore = await rest("GET", `household_staples?select=id&household_id=eq.${HH}`);
+  let g = await guide();
+  check("V9 the guide: \"What do we need?\", Add items (teal) · Browse · Plan a meal, and the footer", g.ask === "What do we need?" && g.rows.length === 3 && g.rows[0][0] === "Add items" && g.rows[0][2] && g.rows[1][1] === "Remind me what we might need." && g.rows[2][0] === "Plan a meal" && g.foot === "One list for everyone in your household. At the store, check things off here.", JSON.stringify(g));
+  const tapGuide = (i) => A.evaluate((i) => document.querySelectorAll(".list-guide-row")[i]?.click(), i);
+  const staplesPillOn = () => A.evaluate(() => [...document.querySelectorAll(".cat-rail .cat-pill")].find((b) => /Staples/.test(b.innerText))?.classList.contains("on") || false);
+  const STAPLE = L[8];
+  if (staplesBefore.length === 0) {
+    check("V9 with no staples the Browse row reads \"Browse the aisles\"", g.rows[1][0] === "Browse the aisles", JSON.stringify(g.rows[1]));
+    await tapGuide(1); await sleep(1500);
+    check("V9 …and opens Browse on everything (Staples not selected)", (await A.evaluate(() => location.hash)) === "#/browse" && !(await staplesPillOn()));
+    await rest("POST", "household_staples", { household_id: HH, catalog_item_id: STAPLE.id }, "return=minimal");
+    await A.goto(BASE + "#/shop", { waitUntil: "networkidle2" }); await sleep(3000);
+    g = await guide();
+  } else {
+    log(`V9 note: ${HOUSE} already has ${staplesBefore.length} staple(s); the "Browse the aisles" half needs a house with none`);
+  }
+  check("V9 with a staple the Browse row reads \"Browse our staples\"", g.rows[1] && g.rows[1][0] === "Browse our staples", JSON.stringify(g.rows[1]));
+  await tapGuide(1); await sleep(1500);
+  check("V9 …and opens Browse with Staples selected", (await A.evaluate(() => location.hash)) === "#/browse" && (await staplesPillOn()));
+  if (staplesBefore.length === 0) await rest("DELETE", `household_staples?household_id=eq.${HH}&catalog_item_id=eq.${STAPLE.id}`, null, "return=minimal");
+  await go(A, "#/shop"); await sleep(1500);
+  await tapGuide(2); await sleep(1500);
+  check("V9 Plan a meal opens Plan on the meal library", (await A.evaluate(() => location.hash)) === "#/plan" && (await A.evaluate(() => document.querySelector(".plan-view.on")?.innerText.trim())) === "Meals", await A.evaluate(() => document.querySelector(".plan-view.on")?.innerText.trim()));
+  await go(A, "#/shop"); await sleep(1500);
+  await A.click(".list-guide-row.teal"); await sleep(400);
+  ps = await pickerState();
+  check("V9 Add items opens the picker, focus in its field (in the tap)", ps.open && ps.focused, JSON.stringify({ open: ps.open, focused: ps.focused }));
+  await pickerType(P1); await pickerTap(P1);
+  await waitFor(async () => !!(await rowOf(P1)), 8000); await sleep(800);
+  await pickerDone(); await sleep(1500);
+  g = await guide();
+  s = await listState();
+  check("V9 the first add replaces the guide with the list", g.rows.length === 0 && s.rows.some((r) => r.name === P1), JSON.stringify({ guide: g.rows.length, rows: s.rows.map((r) => r.name) }));
+
+  // ── V11: the welcome — once on a non-empty List (this account, its key cleared), Got it for good; never on an empty one ──
+  await setWelcome(null);
+  await go(A, "#/home"); await sleep(1000);
+  await go(A, "#/shop");
+  const wel = await waitFor(() => A.evaluate(() => { const d = document.querySelector(".list-welcome"); return d ? { title: document.getElementById("list-welcome-title")?.textContent.trim(), ok: !!d.querySelector(".list-welcome-ok"), labelled: d.getAttribute("aria-labelledby"), label: d.getAttribute("aria-label") } : null; }), 8000, 300);
+  check(`V11 the welcome shows on the non-empty List: "This is ${HOUSE}'s list", Got it`, !!wel && wel.title === `This is ${HOUSE}'s list` && wel.ok && wel.labelled === "list-welcome-title" && !wel.label, JSON.stringify(wel));
+  await shot(A, "olw-v11-welcome");
+  await A.click(".list-welcome-ok"); await sleep(600);
+  check("V11 Got it dismisses it and remembers (op_list_welcome_seen = 1)", !(await A.$(".list-welcome")) && (await A.evaluate((k) => localStorage.getItem(k), WKEY)) === "1");
+  await A.reload({ waitUntil: "networkidle2" }); await sleep(3000);
+  await go(A, "#/shop"); await sleep(1500);
+  check("V11 …and it never shows again on this phone (after a reload)", !(await A.$(".list-welcome")));
+  await rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: CID[P1] });
+  await setWelcome(null);
+  await A.reload({ waitUntil: "networkidle2" }); await sleep(3000);
+  await go(A, "#/shop"); await sleep(2000);
+  g = await guide();
+  check("V11 an empty List shows the guide, not the welcome", g.rows.length === 3 && !g.welcome, JSON.stringify({ guide: g.rows.length, welcome: g.welcome }));
+  await setWelcome("1");
+
+  // ── the one-list spans, off the wire: workflow.name on every one, added_bucket on picker_closed, no names ──
+  await go(A, "#/home"); await sleep(1000);
+  await A.evaluate(() => { document.dispatchEvent(new Event("visibilitychange")); window.dispatchEvent(new Event("pagehide")); });
+  await sleep(8000);   // the agent's export interval
+  const ONE = ["picker_opened", "picker_closed", "picker_tap_on_listed", "item_added_to_list", "list_guide_cta", "first_item_added", "list_welcome_dismissed"];
+  const seen = spans.filter((x) => ONE.includes(x.name));
+  const byName = Object.fromEntries(ONE.map((n) => [n, seen.filter((x) => x.name === n)]));
+  log(`spans seen: ${JSON.stringify(Object.fromEntries(ONE.map((n) => [n, byName[n].length])))}`);
+  check("spans: every one-list event was sent at least once", ONE.every((n) => byName[n].length > 0), JSON.stringify(Object.fromEntries(ONE.map((n) => [n, byName[n].length]))));
+  check("spans: every one carries workflow.name = its own name", seen.length > 0 && seen.every((x) => x.attrs["workflow.name"] === x.name), JSON.stringify(seen.filter((x) => x.attrs["workflow.name"] !== x.name).map((x) => x.name)));
+  check("spans: picker_closed carries added_bucket (0 · 1 · 2-4 · 5+) and open_s", byName.picker_closed.length > 0 && byName.picker_closed.every((x) => ["0", "1", "2-4", "5+"].includes(x.attrs.added_bucket) && !!x.attrs.open_s), JSON.stringify(byName.picker_closed.map((x) => x.attrs)));
+  check("spans: list_guide_cta carries choice (+ browse_kind on browse); first_item_added after + s", byName.list_guide_cta.every((x) => ["add", "browse", "plan"].includes(x.attrs.choice) && (x.attrs.choice !== "browse" || ["aisles", "staples"].includes(x.attrs.browse_kind))) && byName.first_item_added.every((x) => ["guide", "welcome"].includes(x.attrs.after) && !!x.attrs.s), JSON.stringify({ cta: byName.list_guide_cta.map((x) => x.attrs), first: byName.first_item_added.map((x) => x.attrs) }));
+  const names = [...pool.map((x) => x.name), HOUSE, NEW];
+  const leaks = seen.filter((x) => Object.values(x.attrs).some((v) => typeof v === "string" && names.includes(v)));
+  check("spans: no item or household name in any one-list span's attributes", leaks.length === 0, JSON.stringify(leaks.map((x) => x.name)));
 
   log(`${results.length - fails}/${results.length} PASS`);
   fs.writeFileSync(path.join(lib.OUT, "one-list-walk.json"), JSON.stringify(results, null, 2));
