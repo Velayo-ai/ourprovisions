@@ -23,15 +23,22 @@ const setInput = (p, sel, value) => p.evaluate((sel, value) => {
 }, sel, value);
 const pills = (p) => p.evaluate(() => [...document.querySelectorAll(".cat-rail .people-pill")].map((b) => b.innerText.replace(/\s+/g, " ").trim()));
 
+const nav = require("./oneadd-nav");   // a build without Browse: List's + Add instead
+let ONE_ADD = false;
 async function browse(p) { await p.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500); }
 async function ensureAsk(p, label, look, target, nItems) {
+  if (ONE_ADD) {
+    if ((await nav.feederAskLabels(p, BASE)).includes(`Ask ${label}`)) return "exists";
+    await nav.feederOpenSheet(p, BASE);
+    await clickText(p, /New ask$/, '[role="dialog"][aria-label="View and filter"] button'); await sleep(900);
+  } else {
   await browse(p);
-  const all = await p.evaluate(() => [...document.querySelectorAll(".people-pill, .more-asks-row")].map((b) => b.innerText.trim()));
   if ((await pills(p)).some((t) => t === `Ask ${label}`)) return "exists";
   await p.click('button[aria-label="Filters"]'); await sleep(700);
   const listed = await p.evaluate(() => [...document.querySelectorAll('[aria-labelledby="manage-asks"] [role="listitem"]')].map((r) => r.innerText.split("\n")[0].trim()));
   if (listed.includes(`Ask ${label}`)) { await p.keyboard.press("Escape"); await p.evaluate(() => document.querySelector(".modal-overlay")?.click()); await sleep(400); return "exists (in more)"; }
   await clickText(p, /New ask$/, '[role="dialog"][aria-label="View and organize"] button'); await sleep(900);
+  }
   await setInput(p, "#new-shelf-label", label);
   await setInput(p, "#new-shelf-noun", "snacks");
   await clickText(p, new RegExp(`^${look}`), '[role="radio"]');
@@ -39,10 +46,10 @@ async function ensureAsk(p, label, look, target, nItems) {
   await p.evaluate((n) => [...document.querySelectorAll("[data-testid=new-shelf-catalog] button")].slice(0, n).forEach((b) => b.click()), nItems);
   await sleep(400);
   await clickText(p, /^Save ask$/); await sleep(3500);
-  void all;
   return "created";
 }
 async function openRun(p, label) {
+  if (ONE_ADD) { await nav.feederOpenRun(p, BASE, label); return; }
   await browse(p);
   const hit = await p.evaluate((label) => {
     const b = [...document.querySelectorAll(".cat-rail .people-pill")].find((x) => x.innerText.trim() === `Ask ${label}`);
@@ -89,6 +96,8 @@ const geom = (p) => p.evaluate(() => {
   await p.waitForFunction(() => window.Clerk && window.Clerk.user, { timeout: 30000 });
   const bundle = await p.evaluate(() => [...document.scripts].map((s) => s.src).find((s) => /main\.[a-z0-9]+\.js|bundle\.js/.test(s)) || "");
   log("bundle " + bundle.replace(/.*\//, ""));
+  ONE_ADD = await nav.isOneAdd(p);
+  if (ONE_ADD) log("one-add build: runs open from List's + Add; the hand-back lands on List");
   log("ask Wagon: " + await ensureAsk(p, "Wagon", "Shopper", 4, 5));
   log("ask Kid: " + await ensureAsk(p, "Kid", "Explorer", 1, 4));
 
@@ -148,7 +157,7 @@ const geom = (p) => p.evaluate(() => {
   await pressGiveBack(p, 1250); await sleep(900);
   const after = await p.evaluate(() => ({ run: !!document.querySelector(".ask-run"), hash: location.hash, toast: [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "See") ? document.body.textContent.match(/Wagon added \d+/)?.[0] : null }));   // textContent: the button's uppercase styling changes innerText
   await shot(p, "wagon-4-browse-toast");
-  check("give back: the run closes, Browse shows 'Wagon added 4 · See'", !after.run && /browse/.test(after.hash) && after.toast === "Wagon added 4", JSON.stringify(after));
+  check(`give back: the run closes, ${ONE_ADD ? "List" : "Browse"} shows 'Wagon added 4 · See'`, !after.run && (ONE_ADD ? /shop/ : /browse/).test(after.hash) && after.toast === "Wagon added 4", JSON.stringify(after));
   await p.evaluate(() => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "See").click()); await sleep(700);
   const hl = await p.evaluate(() => ({ hash: location.hash, rows: [...document.querySelectorAll(".list-item.ask-landed-hl .li-name")].map((n) => n.innerText.split("\n")[0].trim()) }));
   await shot(p, "wagon-5-see-highlight");
@@ -225,8 +234,7 @@ const geom = (p) => p.evaluate(() => {
   check("a held Close leaves the run", !(await p.$(".ask-run")));
 
   // tidy: the landed items back to 0
-  await browse(p);
-  const removed = await p.evaluate(async () => {
+  const removed = ONE_ADD ? await nav.feederZero(p, BASE, null) : await (async () => { await browse(p); return p.evaluate(async () => {
     const s = (ms) => new Promise((r) => setTimeout(r, ms)); const out = [];
     for (let k = 0; k < 20; k++) {
       const row = [...document.querySelectorAll(".item-row.has-qty")][0]; if (!row) break;
@@ -236,7 +244,7 @@ const geom = (p) => p.evaluate(() => {
       out.push(name); await s(500);
     }
     return out;
-  });
+  }); })();
   log(`tidied: ${JSON.stringify(removed)} back to 0`);
   log(fails ? `${fails} FAILED` : "ALL PASS");
   await browser.disconnect();

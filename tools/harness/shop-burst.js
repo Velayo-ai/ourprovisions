@@ -6,6 +6,7 @@
 // on Cody Test House's list; with fewer, it adds staples from Browse first and says so.
 const lib = require("./lib");
 const { sleep, log, connect, firstPage, shot } = lib;
+const { isOneAdd, feederAdd, feederZero } = require("./oneadd-nav");   // a build without Browse: List's + Add instead
 // The target: dev by default, a local build when run with  node -r ./local/use-local.js shop-burst.js
 const BASE = lib.DEV_URL;
 
@@ -48,8 +49,9 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
   let free = await unchecked(page);
   log(`unchecked rows on Shop: ${free}`);
   if (free < 7) {
-    // Top up from Browse: add staples (qty 0 → 1) until 7 rows are free.
-    await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
+    // Top up from Browse: add staples (qty 0 → 1) until 7 rows are free. (One add: from List's + Add.)
+    if (await isOneAdd(page)) addedNames = await feederAdd(page, BASE, 7 - free);
+    else { await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
     addedNames = await page.evaluate(async (need) => {
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const rows = [...document.querySelectorAll("button.add-btn")].filter((b) => b.offsetParent && b.innerText.trim() === "Add");
@@ -60,7 +62,7 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
         b.click(); await sleep(400);
       }
       return names;
-    }, 7 - free);
+    }, 7 - free); }
     log(`added ${addedNames.length} items from Browse to make room: ${JSON.stringify(addedNames)}`);
     await sleep(2500);
     await page.goto(BASE + "#/shop", { waitUntil: "networkidle2" }); await sleep(3000);
@@ -116,8 +118,9 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
   }
   if (reverts > 0) {
     if (addedNames.length) {
+      const removed = (await isOneAdd(page)) ? (await feederZero(page, BASE, addedNames)).length : await (async () => {
       await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
-      const removed = await page.evaluate(async (names) => {
+      return page.evaluate(async (names) => {
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         let n = 0;
         for (const name of names) {
@@ -126,7 +129,7 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
           if (minus) { minus.click(); n++; await sleep(500); }
         }
         return n;
-      }, addedNames);
+      }, addedNames); })();
       log(`tidied: set ${removed} of ${addedNames.length} added items back to 0`);
     }
     log(fails ? `${fails} FAILED` : "ALL PASS");
@@ -194,8 +197,9 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
   log(`tidied: unchecked ${restored} rows from burst 2`);
   if (addedNames.length) {
     // Put the list back as it was: the items this walk added go back to 0 from Browse.
+    const removed = (await isOneAdd(page)) ? (await feederZero(page, BASE, addedNames)).length : await (async () => {
     await page.goto(BASE + "#/browse", { waitUntil: "networkidle2" }); await sleep(2500);
-    const removed = await page.evaluate(async (names) => {
+    return page.evaluate(async (names) => {
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       let n = 0;
       for (const name of names) {
@@ -204,7 +208,7 @@ const check = (name, ok, detail = "") => { log(`${ok ? "PASS" : "FAIL"} ${name}$
         if (minus) { minus.click(); n++; await sleep(500); }
       }
       return n;
-    }, addedNames);
+    }, addedNames); })();
     log(`tidied: set ${removed} of ${addedNames.length} added items back to 0`);
   }
   log(fails ? `${fails} FAILED` : "ALL PASS");

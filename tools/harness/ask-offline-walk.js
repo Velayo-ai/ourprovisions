@@ -128,7 +128,15 @@ const onGrid = () => A.evaluate(() => (document.querySelector(".harbor-light")?.
 const go = (page, hash) => page.evaluate((h) => { window.location.hash = h; }, hash);
 
 // ── the run ──
+const nav = require("./oneadd-nav");   // a build without Browse: List's + Add instead
+let ONE_ADD = false;
 async function openRun(label) {
+  if (ONE_ADD) {
+    await nav.feederOpenRun(A, BASE, label);
+    await sleep(3200);
+    if (await A.evaluate(() => { const b = document.querySelector(".ask-go, .ask-turn .ask-primary"); if (b) b.click(); return !!b; })) await sleep(900);
+    return;
+  }
   await go(A, "#/browse"); await sleep(1500);
   const hit = await A.evaluate((label) => {
     const b = [...document.querySelectorAll(".cat-rail .people-pill")].find((x) => x.innerText.trim() === `Ask ${label}`);
@@ -213,6 +221,9 @@ async function run(label, names, how) {
   log(`bundle ${bundle.replace(/.*\//, "")} · build tag "${tag}"`);
   if (process.env.OP_EXPECT_SHA) check(`the build is ${process.env.OP_EXPECT_SHA}`, tag.includes(process.env.OP_EXPECT_SHA), tag);
 
+  ONE_ADD = await nav.isOneAdd(A);
+  if (ONE_ADD) log("one-add build: runs open from List's + Add");
+
   // ── setup ──
   const HH = (await rest("GET", `households?select=id&name=eq.${encodeURIComponent(HOUSE)}&deleted_at=is.null`))[0]?.id;
   if (!HH) throw new Error(`no ${HOUSE}`);
@@ -238,10 +249,14 @@ async function run(label, names, how) {
   const rowOf = async (name) => (await rest("GET", `list_items?select=id,status,quantity,deleted_at,status_changed_at,picked_by_labels&household_id=eq.${HH}&catalog_item_id=eq.${CID[name]}`))[0] || null;
   await A.goto(BASE + "#/browse", { waitUntil: "networkidle2" });   // the new asks, and X1 on the list
   const railReady = await waitFor(async () => {
+    let seen;
+    if (ONE_ADD) seen = await nav.feederAskLabels(A, BASE);
+    else {
     await A.evaluate(() => document.querySelector(".cat-rail .cat-pill-more")?.click());
     await sleep(500);
-    const seen = await A.evaluate(() => [...document.querySelectorAll(".cat-rail .people-pill, .more-asks-row")].map((b) => b.innerText.trim()));
+    seen = await A.evaluate(() => [...document.querySelectorAll(".cat-rail .people-pill, .more-asks-row")].map((b) => b.innerText.trim()));
     await A.evaluate(() => document.querySelector(".modal-overlay")?.click());
+    }
     return Object.values(LABELS).every((l) => seen.includes(`Ask ${l}`)) && seen;
   }, 30000, 1000);
   check("setup: the walk's three asks are on the rail (or in +N more)", !!railReady, JSON.stringify(railReady));

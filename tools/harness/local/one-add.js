@@ -135,11 +135,26 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   check("R2 … and back to the list", await p.evaluate(() => !document.querySelector(".item-picker .pick-grid")));
 
   // tap adds, ✓ shows
-  const name = await p.evaluate(() => { const r = [...document.querySelectorAll(".item-picker .pick-row:not(.on):not(.pick-create)")][0]; if (!r) return null; const n = r.querySelector(".pick-name")?.innerText.replace(/^★s*/, "").trim(); r.click(); return n; });
+  const nameOf = (el) => (el.querySelector(".pick-name")?.innerText || "").replace(/^★\s*/, "").trim();
+  const rowState = (n) => p.evaluate((n) => {
+    const r = [...document.querySelectorAll(".item-picker .pick-group .pick-row")].find((e) => (e.querySelector(".pick-name")?.innerText || "").replace(/^★\s*/, "").trim() === n);
+    return r ? { on: r.classList.contains("on"), sub: r.querySelector(".pick-sub")?.innerText.trim() || "", qty: r.querySelector(".pick-qty")?.innerText.trim() || null, plus: !!r.querySelector(".pick-mark:not(.on)"), tick: !!r.querySelector(".pick-mark.on") } : null;
+  }, n);
+  const tapRow = (n) => p.evaluate((n) => { const r = [...document.querySelectorAll(".item-picker .pick-group .pick-row")].find((e) => (e.querySelector(".pick-name")?.innerText || "").replace(/^★\s*/, "").trim() === n); (r.querySelector(".pick-hit") || r).click(); }, n);
+  const stepRow = (n, label) => p.evaluate((n, label) => { const r = [...document.querySelectorAll(".item-picker .pick-group .pick-row")].find((e) => (e.querySelector(".pick-name")?.innerText || "").replace(/^★\s*/, "").trim() === n); r.querySelector(`.pick-step-btn[aria-label="${label}"]`).click(); }, n, label);
+  const name = await p.evaluate(`(${nameOf.toString()})([...document.querySelectorAll(".item-picker .pick-group .pick-row:not(.on)")][0])`);
   if (name) touched.add(name);
-  await sleep(1500);
-  const row = await p.evaluate((n) => { const r = [...document.querySelectorAll(".item-picker .pick-row")].find((e) => e.querySelector(".pick-name")?.innerText.replace(/^★s*/, "").trim() === n); return r ? { on: r.classList.contains("on"), sub: r.querySelector(".pick-sub")?.innerText.trim() || "" } : null; }, name);
-  check("V3 a tap adds and the row shows ✓", !!row && row.on, JSON.stringify({ name, row }));
+  await tapRow(name); await sleep(1500);
+  const row = await rowState(name);
+  check("V3/R5 a tap adds: the teal ✓, one line \"On the list\", and the stepper after it at 1", !!row && row.on && row.tick && !row.plus && row.sub === "On the list" && row.qty === "1", JSON.stringify({ name, row }));
+  await stepRow(name, "One more"); await sleep(1500);
+  check("R5 the stepper's + makes it 2", (await rowState(name))?.qty === "2");
+  await stepRow(name, "One fewer"); await sleep(1500);
+  await stepRow(name, "One fewer"); await sleep(1800);
+  const off = await rowState(name);
+  check("R5 − at 1 takes it off: the circle + is back, no ✓, no stepper", !!off && !off.on && off.plus && !off.tick && off.qty === null, JSON.stringify(off));
+  await tapRow(name); await sleep(1500);
+  check("R5 … and a tap adds it again", (await rowState(name))?.on === true);
 
   // + New item: the feeder steps aside for the sheet, and comes back when it closes
   await p.click(".item-picker .pick-aisle-new"); await sleep(700);
