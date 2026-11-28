@@ -101,7 +101,7 @@ describe("R1/R2 — Plan is This Week only; Meals opens from + Add as the Meals 
     expect(APP).toContain('<HeaderAction verb="new" label="Create a new meal" onClick={() => setMealSheet({ mode: "create", meal: null })} />');
   });
   test("the feeder's Done returns to This Week with N added", () => {
-    expect(APP).toContain("<ItemSearchView search={feeder.search} onClose={feeder.onDone}");
+    expect(APP).toContain('<ItemSearchView search={feeder.search} onClose={() => { setQuery(""); feeder.onDone(); }}');   // Done empties the search
     expect(APP).toContain("feeder={{ search: mealsFeeder, onDone: closeMealsFeeder,");
     expect(APP).toMatch(/ {4}mealsFeeder\.hide\(\);\s+if \(text\) showToast\(text\);/);
     expect(addedToastText(0)).toBeNull();

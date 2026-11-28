@@ -3791,7 +3791,8 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
   // The feeder's layer around whatever the lens shows (the loading line, the empty library, the cards).
   const feederShell = (body, aside = null, tools = null, sheets = null) => (
     <>
-      <ItemSearchView search={feeder.search} onClose={feeder.onDone} query={query} onQuery={setQuery}
+      {/* Done empties the search, as the List feeder's does (the lens's other state — filters, view — stays). */}
+      <ItemSearchView search={feeder.search} onClose={() => { setQuery(""); feeder.onDone(); }} query={query} onQuery={setQuery}
         label="Add to this week" title="Add to this week"
         subtitle={`What sounds good? · ${meals.length} ${meals.length === 1 ? "meal" : "meals"}`}
         input={{ className: "modal-input", placeholder: "Type a meal, or scroll and tap", name: "meals-feeder-search", ariaLabel: "Search our meals" }}

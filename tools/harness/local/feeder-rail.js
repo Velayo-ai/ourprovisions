@@ -86,6 +86,13 @@ async function walk(p, name, sel, open, close) {
   await walk(p, "List feeder", ".item-picker", () => nav.openFeeder(p, BASE), () => nav.closeFeeder(p));
   await fakeMeals(p, true);
   await walk(p, "Meals feeder", ".meals-feeder", () => openMeals(p), () => closeMeals(p));
+  // Done empties the search, as the List feeder's does: type, Done, open again → an empty field
+  await openMeals(p);
+  await p.type(".meals-feeder .item-search-field input", "zzq", { delay: 10 }); await sleep(300);
+  await closeMeals(p);
+  await openMeals(p);
+  check("Meals feeder: Done empties the search (as the List feeder's)", (await p.$eval(".meals-feeder .item-search-field input", (i) => i.value)) === "");
+  await closeMeals(p);
   // Done lands on This Week
   check("Meals feeder: Done returns to This Week", (await p.evaluate(() => document.querySelector(".plan-ctl .plan-view")?.textContent.trim())) === "This Week" && !(await p.$(".meals-feeder.open")));
 
