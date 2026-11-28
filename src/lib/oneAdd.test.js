@@ -62,7 +62,7 @@ describe("R1 — the empty List's entry cards", () => {
   test("Browse our staples retires with the flag on; Add items and Plan a meal stay", () => {
     expect(APP).toContain('{!ONE_ADD_ENABLED && row("browse", hasStaples ? "Browse our staples" : "Browse the aisles"');
     expect(APP).toContain('{row("add", "Add items",');
-    expect(APP).toContain('{row("plan", "Plan a meal", "I know what I want to cook.", onPlan)}');
+    expect(APP).toContain(`{row("plan", "Plan a meal", ONE_ADD_ENABLED ? "Build or choose a meal, and we'll add what it needs." : "I know what I want to cook.", onPlan)}`);
   });
 });
 

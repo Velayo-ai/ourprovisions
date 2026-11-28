@@ -19,7 +19,7 @@ test("the ask, three rows named by intention (Add items first, in teal), and the
   expect(screen.getByText("What do we need?")).toBeInTheDocument();
   expect(rows()).toEqual(ONE_ADD_ENABLED ? [
     ["Add items", "Search, or pick from our aisles and staples."],
-    ["Plan a meal", "I know what I want to cook."],
+    ["Plan a meal", "Build or choose a meal, and we'll add what it needs."],
   ] : [
     ["Add items", "I know what we need."],
     ["Browse the aisles", "Remind me what we might need."],

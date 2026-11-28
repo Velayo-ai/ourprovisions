@@ -1182,7 +1182,7 @@ export function ListGuide({ hasStaples, onAdd, onBrowse, onPlan }) {
       <p className="list-guide-ask">What do we need?</p>
       {row("add", "Add items", ONE_ADD_ENABLED ? "Search, or pick from our aisles and staples." : "I know what we need.", onAdd, true)}
       {!ONE_ADD_ENABLED && row("browse", hasStaples ? "Browse our staples" : "Browse the aisles", "Remind me what we might need.", onBrowse)}
-      {row("plan", "Plan a meal", "I know what I want to cook.", onPlan)}
+      {row("plan", "Plan a meal", ONE_ADD_ENABLED ? "Build or choose a meal, and we'll add what it needs." : "I know what I want to cook.", onPlan)}
       <p className="list-guide-foot">One list for everyone in your household.<br />At the store, check things off here.</p>
     </div>
   );
