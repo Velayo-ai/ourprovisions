@@ -376,6 +376,16 @@ describe("un-planning from the feeder takes off only this meal's unchecked share
   });
 });
 
+describe("Review ingredients (This Week card ⋯)", () => {
+  test("on a meal with on-hand ingredients: the on-hand sheet in review mode; Buy it adds through the list's own add", () => {
+    expect(APP).toContain("{onReview && (m.meal_ingredients || []).some((mi) => mi.on_hand) && (");
+    expect(APP).toContain(">Review ingredients</button>");
+    expect(APP).toContain("onReview={ONE_ADD_ENABLED ? openIngredientReview : null}");
+    expect(APP).toContain("mealId, review: true, allOnHand: false,");
+    expect(APP).toContain("for (const it of chosen) await adjustQty(it.name, Math.max(1, Math.round(it.quantity_per_serving)), it.category || undefined);");
+  });
+});
+
 describe("R3 — one Ask pill", () => {
   const a = (id, label) => ({ id, label });
   test("0 → none, 1 → by name, 2+ → the chooser", () => {

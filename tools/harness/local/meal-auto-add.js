@@ -8,6 +8,8 @@
 //            added" → un-plan → "1 meal added" → "2 meals added"; Done plain; the toast on close "2 meals added · 4 items on the list"; none when nothing was added
 //   offline  the browser reports offline (navigator.onLine false, this tab) when a meal is saved → planned only, its
 //            card shows "Add to list"; back online, the tap adds it and the mark shows
+//   review   a meal with Garlic and Lemons (Lemons "I have this") → Garlic added, Lemons skipped; ⋯ → Review
+//            ingredients → the on-hand sheet with Lemons → Buy it → Lemons on the list, Garlic not added twice
 // Tidy: ⋯ Remove (and take its items off the list) → the app's delete (recipe → Edit → Delete meal); the DB read
 // back: no live meal of the walk's names, no open placement, nothing on the list. Flag-on build, signed in;
 // local or `remote`. Needs an empty list in the test house to start.
@@ -25,6 +27,7 @@ const A = `Auto Add ${tag}`;
 const B = `Auto Shared ${tag}`;
 const C = `Auto Three ${tag}`;
 const D = `Auto Offline ${tag}`;
+const E = `Auto Review ${tag}`;
 const nav = require("../oneadd-nav.js");
 
 (async () => {
@@ -44,7 +47,7 @@ const nav = require("../oneadd-nav.js");
   };
   const closeMeals = async () => { if (await p.$(".meals-feeder.open")) { await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done").click()); await sleep(1200); } };
   // a meal made in the Meals feeder: search → "Create “…” as a new meal" → the ingredients → Save (it goes on This Week)
-  const createMeal = async (name, ingredients) => {
+  const createMeal = async (name, ingredients, onHand = []) => {
     await openMeals();
     await clearField(".meals-feeder .item-search-field input");
     await p.type(".meals-feeder .item-search-field input", name, { delay: 10 }); await sleep(500);
@@ -56,6 +59,14 @@ const nav = require("../oneadd-nav.js");
         const row = [...document.querySelectorAll(".modal .add-btn")].map((btn) => ({ btn, name: btn.parentElement?.querySelector("[id^=ing-result-]")?.textContent.trim() })).find((r) => r.name === ing && r.btn.textContent.trim() === "+ Add");
         row?.btn.click();
       }, ing); await sleep(400);
+    }
+    // ingredients marked on hand: the staged row's "I have this"
+    for (const ing of onHand) {
+      await p.evaluate((ing) => {
+        const nm = [...document.querySelectorAll(".modal [id^=ing-name-]")].find((e) => e.textContent.trim() === ing);
+        if (!nm) return;
+        [...document.querySelectorAll(".modal button")].find((bt) => (bt.getAttribute("aria-labelledby") || "").split(" ").includes(nm.id) && bt.textContent.trim() === "I have this")?.click();
+      }, ing); await sleep(300);
     }
     await p.evaluate(() => [...document.querySelectorAll(".modal .modal-confirm")].find((e) => /Save Meal/.test(e.textContent))?.click());
     await p.waitForFunction(() => !document.querySelector('.modal input.modal-input[placeholder="Taco Night"]'), { timeout: 15000 }); await sleep(3000);
@@ -162,6 +173,24 @@ const nav = require("../oneadd-nav.js");
     wd = await weekCard(D);
     rows = await listRows();
     check("… back online, \"Add to list\" adds it (Apples +1), the teal mark", rows.Apples?.qty === applesBefore + 1 && !!wd && wd.mark === "✓On the list" && wd.buttons.length === 0, JSON.stringify({ applesBefore, rows, wd }));
+    await sleep(2800);
+
+    // ── Review ingredients: a skipped on-hand item, added from the card's ⋯ ──
+    await createMeal(E, ["Garlic", "Lemons"], ["Lemons"]);
+    await clearField(".meals-feeder .item-search-field input"); await sleep(400);
+    rows = await listRows();
+    check("plan with an on-hand ingredient: Garlic added, Lemons (I have this) skipped", rows.Garlic?.qty === 1 && !rows.Lemons, JSON.stringify(rows));
+    await closeMeals();
+    await p.evaluate((name) => [...document.querySelectorAll(".board-card")].find((e) => e.querySelector(".board-card-title")?.textContent.trim() === name)?.querySelector(".board-more")?.click(), E); await sleep(400);
+    const menu = await p.evaluate(() => [...document.querySelectorAll(".board-menu button")].map((x) => x.textContent.trim()));
+    check("⋯ offers \"Review ingredients\"", menu.includes("Review ingredients"), JSON.stringify(menu));
+    await p.evaluate(() => [...document.querySelectorAll(".board-menu button")].find((x) => x.textContent.trim() === "Review ingredients")?.click()); await sleep(700);
+    const sheet = await p.evaluate(() => { const m = document.querySelector('[role=dialog][aria-label="Already on hand"]'); return m && { items: [...m.querySelectorAll(".onhand-row")].map((r) => r.textContent.replace(/\s+/g, " ").trim()) }; });
+    check("… opens the on-hand sheet with the skipped item (Lemons)", !!sheet && sheet.items.length === 1 && /Lemons/.test(sheet.items[0]), JSON.stringify(sheet));
+    await p.evaluate(() => [...document.querySelectorAll('[role=dialog][aria-label="Already on hand"] .onhand-row button')].find((x) => /^Buy it/.test(x.textContent.trim()))?.click()); await sleep(300);
+    await p.evaluate(() => document.querySelector('[role=dialog][aria-label="Already on hand"] .modal-confirm')?.click()); await sleep(3000);
+    rows = await listRows();
+    check("Buy it → Lemons on the list (Garlic unchanged — nothing added twice)", rows.Lemons?.qty === 1 && rows.Garlic?.qty === 1, JSON.stringify(rows));
     await sleep(2800);
   } catch (e) {
     check("the walk ran to the end", false, e.message);

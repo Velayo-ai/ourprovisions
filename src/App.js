@@ -2024,7 +2024,9 @@ const BOARD_SLOP_PX = 8;
 const BOARD_CONTROLS = ".board-x, .board-cook, .board-lock, .board-see, .board-more, .board-menu";
 
 
-export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId, afterglow }) {
+// onReview (one add): ⋯ → "Review ingredients" on a meal with ingredients marked on hand — the on-hand sheet, to add
+// the ones its plan skipped.
+export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen, onSkip, onCooked, onLockIn, onSeeList, onReorder, busyMealId, afterglow, onReview = null }) {
   // A card cooked THIS board load stays in place, muted, until the next load
   // (cookedIds, owned by App). It is not in the queue: no drag, no number, no
   // rail word, excluded from upNext / counts / numbering.
@@ -2265,6 +2267,10 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                   {(planned || (ONE_ADD_ENABLED && ready)) && (
                     <button type="button" role="menuitem" disabled={busy}
                       onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onCooked(m.id); }}>Cooked it</button>
+                  )}
+                  {onReview && (m.meal_ingredients || []).some((mi) => mi.on_hand) && (
+                    <button type="button" role="menuitem" disabled={busy}
+                      onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onReview(m.id); }}>Review ingredients</button>
                   )}
                   <button type="button" role="menuitem"
                     onClick={(e) => { e.stopPropagation(); setMenuFor(null); onOpen(m); }}>Open recipe</button>
@@ -6935,6 +6941,28 @@ function ProvisionsApp({ scrollRootRef }) {
     });
   }, [meals, addMealToList, refreshProvenance, showToast, addedToast, _listRows]);
 
+  // ONE ADD — "Review ingredients" (This Week card ⋯): the existing on-hand sheet, every on-hand ingredient at its
+  // default "I have it". Its confirm adds the "Buy it" ones through the LIST's own add (adjustQty), not
+  // add_meal_to_list — that would add every other ingredient a second time, and recording a single item's meal link
+  // needs a server change (list_item_meals has no client UPDATE policy, by design — 041). So a reviewed item sits on
+  // the list as one a person added: un-planning the meal leaves it.
+  const openIngredientReview = useCallback((mealId) => {
+    const meal = (meals || []).find((m) => m.id === mealId);
+    const onHand = (meal?.meal_ingredients || []).filter((mi) => mi.on_hand);
+    if (onHand.length === 0) return;
+    setOnHandPrompt({
+      mealId, review: true, allOnHand: false,
+      mealName: meal?.name || "this meal",
+      items: onHand.map((mi) => ({
+        catalog_item_id: mi.catalog_item_id,
+        name: mi.catalog_items?.name || "Unknown item",
+        category: mi.catalog_items?.category || null,
+        quantity_per_serving: Number(mi.quantity_per_serving) || 1,
+      })),
+      choices: Object.fromEntries(onHand.map((mi) => [mi.catalog_item_id, "skip"])),
+    });
+  }, [meals]);
+
   // Create/edit sheet. `mealSheet` is null when closed, otherwise
   // { mode: 'create' | 'edit', meal } — one piece of state drives both modes.
   const [mealSheet, setMealSheet] = useState(null);
@@ -7905,6 +7933,15 @@ function ProvisionsApp({ scrollRootRef }) {
     if (!onHandPrompt) return;
     const { mealId, mealName, choices } = onHandPrompt;
     const includeIds = Object.entries(choices).filter(([, v]) => v === "include").map(([k]) => k);
+    if (onHandPrompt.review) {
+      // Review ingredients: the chosen items onto the list (the list's own add), one write each.
+      setOnHandPrompt(null);
+      const chosen = onHandPrompt.items.filter((it) => includeIds.includes(it.catalog_item_id));
+      for (const it of chosen) await adjustQty(it.name, Math.max(1, Math.round(it.quantity_per_serving)), it.category || undefined);
+      await refreshProvenance();
+      if (chosen.length) showToast(`${chosen.length} added to your list`);
+      return;
+    }
 
     setOnHandPrompt(null);
     setAddingMealId(mealId);
@@ -7920,7 +7957,7 @@ function ProvisionsApp({ scrollRootRef }) {
     } finally {
       setAddingMealId(null);
     }
-  }, [onHandPrompt, addMealToList, refreshProvenance, showToast, addedToast, _listRows]);
+  }, [onHandPrompt, addMealToList, refreshProvenance, showToast, addedToast, _listRows, adjustQty]);
 
 
   const budgetNum = household?.budget_goal ? parseFloat(household.budget_goal) : null;
@@ -12964,6 +13001,7 @@ function ProvisionsApp({ scrollRootRef }) {
                   onLockIn={handleAddMealToList}
                   onSeeList={() => goToDoor("list")}
                   onReorder={reorderBoard}
+                  onReview={ONE_ADD_ENABLED ? openIngredientReview : null}
                   busyMealId={busyMealId || addingMealId}
                   afterglow={boardAfterglow}
                 />
