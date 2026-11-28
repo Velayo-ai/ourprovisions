@@ -39,7 +39,7 @@ import { countFlaggedRows, bannerCheckLine } from './lib/importBanner';
 import { IMPORT_HINTS, GALLEY_HINTS } from './lib/importErrors';
 import { galleyMode, inventTooLong, TEXT_CAP, MODES, MODE_LABEL, MODE_ECHO, MODE_RUM, INVENT_TOO_LONG_ECHO, STARTER_PROMPTS } from './lib/galleyMode';
 import { displayTitle } from './lib/displayTitle';
-import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
+import { OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_GLYPH, OCCASION_TINT, OccasionIcon, occasionTint, PlusGlyph, LibraryItem } from './components/LibraryCards';
 import { leftToBuy, recipeBlockFor, REMOVE_LABEL } from './lib/recipePlan';
 import { isNoShop, NO_SHOP_LABELS, noShopLabel, noShopName, boardCardState } from './lib/boardState';
 import { rowCountsFromProvenance } from './lib/mealLinks';
@@ -3987,10 +3987,10 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
       body = groups.filter((g) => g.items.length > 0).map((g) => (
         <div key={g.key || "none"} className="pick-group meal-section">
           {canNew ? (
-            <AisleHead name={g.key ? OCCASION_PILL[g.key] : "No type yet"} long={g.key ? `＋ New ${OCCASION_WORD[g.key]} meal` : "＋ New meal"} short="＋ New meal"
+            <AisleHead name={g.key ? `${OCCASION_GLYPH[g.key]} ${OCCASION_PILL[g.key]}` : "No type yet"} long={g.key ? `＋ New ${OCCASION_WORD[g.key]} meal` : "＋ New meal"} short="＋ New meal"
               onNew={() => feeder.onNewMeal("", g.key ? [g.key] : [])} />
           ) : (
-            <div className="pick-aisle"><span className="pick-aisle-name">{g.key ? OCCASION_PILL[g.key] : "No type yet"}</span></div>
+            <div className="pick-aisle"><span className="pick-aisle-name">{g.key ? `${OCCASION_GLYPH[g.key]} ${OCCASION_PILL[g.key]}` : "No type yet"}</span></div>
           )}
           {box(g.items.map((m) => cardOf.get(m.id)))}
         </div>
@@ -9115,10 +9115,10 @@ function ProvisionsApp({ scrollRootRef }) {
         {categories.map(cat => {
           const isActive = selectedCategories.has(cat.rawName);
           return (
-            <button key={cat.rawName} type="button" className={`cat-pill${isActive ? " on" : ""}`} data-active={isActive ? "1" : undefined}
+            <button key={cat.rawName} type="button" className={`cat-pill txt${isActive ? " on" : ""}`} data-active={isActive ? "1" : undefined}
               onMouseDown={keepFocus}
               onClick={() => setSelectedCategories(prev => railCategoryTap(prev, cat.rawName))}>
-              <span className="cat-em">{categoryGlyph(cat.rawName)}</span>
+              {/* Text only on the feeder's rail; ★ Staples and ✋ Ask… keep their symbols, the headers keep theirs. */}
               {categoryRailLabel(cat.rawName)}
             </button>
           );
@@ -11503,6 +11503,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .meals-feeder .lib-newrow .lib-new-plus { width: 36px; height: 36px; margin-left: 12px; border-radius: 50%; border: 1.5px solid #C9A26A; display: grid; place-items: center;
           font: 400 22px/1 'Lato', sans-serif; color: #9A7350; }
         .cat-pill.occ { padding: 9px 16px; flex: none; }
+        .cat-pill.txt { padding: 9px 16px; }   /* one add: the feeder rail's text-only category chips */
         .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
                       padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
                       box-shadow: 0 8px 24px rgba(0,0,0,0.25); }

@@ -16,6 +16,11 @@ import { ONE_ADD_ENABLED } from "../lib/featureFlags";
 const OCCASION_ORDER = ["dinner", "breakfast", "lunch", "snack", "side", "appetizer", "dessert", "drink"];
 const OCCASION_WORD = { dinner: "Dinner", breakfast: "Breakfast", lunch: "Lunch", snack: "Snack", side: "Side", appetizer: "Appetizer", dessert: "Dessert", drink: "Drink" };
 const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appetizer: "Appetizers", drink: "Drinks" };
+// ONE ADD (flag on): each meal type's icon in the AISLE icons' family (the emoji the List's section headers carry,
+// "🥦 Produce") — on the Meals feeder's section headers, and as a photo-less card's placeholder. Dinner is the
+// plate with fork and knife, Lunch the sandwich, Dessert the cake slice, Drinks a glass; the rest follow suit.
+// An untyped meal has none: its header ("No type yet") is bare and its card keeps the neutral plate (untagged).
+const OCCASION_GLYPH = { dinner: "🍽️", lunch: "🥪", dessert: "🍰", drink: "🍹", breakfast: "🍳", snack: "🥨", side: "🥗", appetizer: "🍢" };
 // OCCASION MARKS (SPEC_meal_library_visual_v2 D5): one line icon + one tint per
 // occasion, keyed on occasion[1] — the same element that drives the meta word.
 // These are occasion marks, not photo placeholders: no camera glyph, no "add a
@@ -237,9 +242,12 @@ function LibrarySlot({ meal, thumb = false, chip = false }) {
       </span>
     );
   }
+  const glyph = ONE_ADD_ENABLED ? OCCASION_GLYPH[(meal.occasion || [])[0]] : null;   // one add: the type's icon
   return (
     <span className={base} style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
-      <OccasionIcon occasion={(meal.occasion || [])[0]} size={thumb ? 30 : 32} tint={tint.bg} />
+      {glyph
+        ? <span className="lib-slot-glyph" style={{ fontSize: thumb ? "28px" : "32px", lineHeight: 1 }}>{glyph}</span>
+        : <OccasionIcon occasion={(meal.occasion || [])[0]} size={thumb ? 30 : 32} tint={tint.bg} />}
       {chip && <ReadyChip />}
     </span>
   );
@@ -301,7 +309,7 @@ function LibraryItem({ kind, ...props }) {
 }
 
 export {
-  OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, UNTAGGED_TINT, OCCASION_PATHS,
+  OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_GLYPH, OCCASION_TINT, UNTAGGED_TINT, OCCASION_PATHS,
   OccasionIcon, occasionTint, CheckGlyph, PlusGlyph,
   LibraryMeta, LibraryAction, ReadyChip, LibrarySlot, LibraryRow, LibraryCard, LibraryItem,
 };

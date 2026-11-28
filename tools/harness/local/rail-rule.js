@@ -36,6 +36,8 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
     if (s.on.length) { for (const t of s.on) await tap(t); await sleep(300); s = await state(); }   // start clear
     const [c1, c2] = s.cats;
     check("the rail starts clear, the Ask pill not selected", s.on.length === 0 && !s.askOn && !!c1 && !!c2, JSON.stringify({ on: s.on, cats: s.cats }));
+    const glyphs = await p.evaluate(() => [...document.querySelectorAll(".item-picker .feeder-rail .cat-pill")].map((e) => ({ t: e.textContent.replace(/\s+/g, " ").trim(), em: !!e.querySelector(".cat-em"), kind: /Staples/.test(e.textContent) ? "staples" : e.classList.contains("people-pill") ? "ask" : "cat" })));
+    check("rail chips are text only — ★ Staples and the Ask pill keep their symbols", glyphs.filter((g) => g.kind === "cat").every((g) => !g.em) && glyphs.filter((g) => g.kind !== "cat").every((g) => g.em), JSON.stringify(glyphs));
     await tap(c1); await sleep(400); s = await state();
     check(`a category tap selects it alone (${c1}): one section`, s.on.length === 1 && s.on[0].endsWith(c1) && s.sections.length === 1, JSON.stringify({ on: s.on, sections: s.sections }));
     await tap(c2); await sleep(400); s = await state();

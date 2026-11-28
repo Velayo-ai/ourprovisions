@@ -214,6 +214,38 @@ describe("the landscape tip's places (flag on)", () => {
   });
 });
 
+describe("icons (flag on): text-only rail chips; meal types in the aisle icons' family", () => {
+  test("the List feeder's category chips carry no glyph; ★ Staples and Ask keep theirs", () => {
+    const rail = APP.slice(APP.indexOf("const feederRail = ONE_ADD_ENABLED ? ("), APP.indexOf("const railOneCat ="));
+    expect(rail).toContain('<span className="cat-em">★</span>Staples');
+    expect(rail).toContain('<span className="cat-em"><AskIcon /></span>');
+    expect(rail).not.toContain("categoryGlyph(cat.rawName)");
+    expect(rail).toContain('className={`cat-pill txt${isActive ? " on" : ""}`}');
+  });
+  test("meal-type headers and photo-less cards: Dinner plate, Lunch sandwich, Dessert cake slice, Drinks glass; untyped none", () => {
+    const { OCCASION_GLYPH } = require("../components/LibraryCards");
+    expect(OCCASION_GLYPH.dinner).toBe("🍽️");
+    expect(OCCASION_GLYPH.lunch).toBe("🥪");
+    expect(OCCASION_GLYPH.dessert).toBe("🍰");
+    expect(OCCASION_GLYPH.drink).toBe("🍹");
+    expect(APP).toContain('name={g.key ? `${OCCASION_GLYPH[g.key]} ${OCCASION_PILL[g.key]}` : "No type yet"}');
+    const React = require("react");
+    const { renderToStaticMarkup } = require("react-dom/server");
+    const { LibrarySlot } = require("../components/LibraryCards");
+    const { ONE_ADD_ENABLED } = require("./featureFlags");
+    const typed = renderToStaticMarkup(React.createElement(LibrarySlot, { meal: { id: "m", name: "Pie", occasion: ["dessert"] } }));
+    const untyped = renderToStaticMarkup(React.createElement(LibrarySlot, { meal: { id: "u", name: "Stew", occasion: [] } }));
+    if (ONE_ADD_ENABLED) {
+      expect(typed).toContain('<span class="lib-slot-glyph"');
+      expect(typed).toContain("🍰");
+    } else {
+      expect(typed).not.toContain("lib-slot-glyph");
+    }
+    expect(untyped).not.toContain("lib-slot-glyph");   // the neutral plate (line icon) either way
+    expect(untyped).toContain("<svg");
+  });
+});
+
 describe("Home's list card (flag on)", () => {
   test("empty: Our list is empty + \"+ Add items\" (the List feeder); with items: N things to get + Open list", () => {
     expect(APP).toContain('const title = empty ? "Our list is empty"');

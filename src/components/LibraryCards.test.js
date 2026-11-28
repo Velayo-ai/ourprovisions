@@ -17,7 +17,8 @@
 import { render } from "@testing-library/react";
 import { computeAccessibleName } from "dom-accessibility-api";
 import axe from "axe-core";
-import { LibraryCard, LibraryRow, OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OCCASION_PATHS } from "./LibraryCards";
+import { LibraryCard, LibraryRow, OCCASION_ORDER, OCCASION_WORD, OCCASION_PILL, OCCASION_TINT, OCCASION_PATHS, OCCASION_GLYPH } from "./LibraryCards";
+import { ONE_ADD_ENABLED } from "../lib/featureFlags";
 import { MEAL_OCCASIONS, normalizeOccasion } from "../hooks/useProvisions";
 
 const MEAL = {
@@ -145,7 +146,9 @@ describe("the card photo slot (Photos v1)", () => {
     const slot = c.querySelector(".lib-slot");
     expect(slot.classList.contains("photo")).toBe(false);
     expect(c.querySelector("img")).toBeNull();
-    expect(slot.querySelector("svg")).not.toBeNull();
+    // the occasion mark: the line icon, or with one add a typed meal's type icon (the aisle icons' family)
+    if (ONE_ADD_ENABLED && OCCASION_GLYPH[(MEAL.occasion || [])[0]]) expect(slot.querySelector(".lib-slot-glyph").textContent).toBe(OCCASION_GLYPH[MEAL.occasion[0]]);
+    else expect(slot.querySelector("svg")).not.toBeNull();
   });
   test("a photo that exists but has no URL yet → the photo-shaped slot (tinted), no <img>, no mark", () => {
     const c = card({ ...MEAL, hasCardPhoto: true, cardPhotoUrl: null });
@@ -192,8 +195,12 @@ describe("the drink occasion", () => {
     const c = render(<LibraryCard meal={drink} stage="none" busy={false} canPlan onPlan={() => {}} onUnplan={() => {}} onOpen={() => {}} onSetType={() => {}} />).container;
     const slot = c.querySelector(".lib-slot");
     expect(slot.getAttribute("style")).toMatch(/rgb\(216, 228, 242\)|#D8E4F2/i);
-    expect(slot.querySelectorAll("svg path")).toHaveLength(OCCASION_PATHS.drink.filter((s) => typeof s === "string").length);
-    expect(slot.querySelectorAll("svg circle")).toHaveLength(2);
+    if (ONE_ADD_ENABLED) {
+      expect(slot.querySelector(".lib-slot-glyph").textContent).toBe("🍹");   // one add: Drinks' glass, the aisle icons' family
+    } else {
+      expect(slot.querySelectorAll("svg path")).toHaveLength(OCCASION_PATHS.drink.filter((s) => typeof s === "string").length);
+      expect(slot.querySelectorAll("svg circle")).toHaveLength(2);
+    }
     expect(c.querySelector(".lib-gcard").textContent).toContain("Drink · 2" + String.fromCharCode(160) + "items");
   });
   test("normalizeOccasion keeps drink and still drops an unknown value", () => {

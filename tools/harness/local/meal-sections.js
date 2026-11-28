@@ -36,7 +36,8 @@ const ORDER = ["Dinner", "Breakfast", "Lunch", "Appetizers", "Dessert", "Drinks"
     const heads = [...document.querySelectorAll(".meals-feeder .meal-section .pick-aisle")].map((h) => {
       const nm = h.querySelector(".pick-aisle-name"), bt = h.querySelector("button.pick-aisle-new");
       const nb = nm.getBoundingClientRect(), bb = bt ? bt.getBoundingClientRect() : null;
-      return { name: nm.textContent.trim(), link: bt ? bt.textContent.trim() : null, oneLine: !bb || (Math.abs(nb.top - bb.top) < nb.height && bb.right <= h.getBoundingClientRect().right + 1),
+      const full = nm.textContent.trim();
+      return { full, name: full.replace(/^[^A-Za-z]+\s/, ""), link: bt ? bt.textContent.trim() : null, oneLine: !bb || (Math.abs(nb.top - bb.top) < nb.height && bb.right <= h.getBoundingClientRect().right + 1),
         cards: [...h.parentElement.querySelectorAll(".lib-gname, .lib-rname")].map((e) => e.textContent.trim()) };
     });
     const letters = [...document.querySelectorAll(".meals-feeder .meal-section .pick-letter")].map((e) => e.textContent.trim());
@@ -51,6 +52,17 @@ const ORDER = ["Dinner", "Breakfast", "Lunch", "Appetizers", "Dessert", "Drinks"
     check("\"✨ Ask the Galley\" first, above the sections; no \"+ New meal\" card", s.first === "lib-newrow galley" && !s.newCard, JSON.stringify({ first: s.first, newCard: s.newCard }));
     check("By type: one section per type in the app's order, \"No type yet\" last", JSON.stringify(s.heads.map((h) => h.name)) === JSON.stringify(ORDER), JSON.stringify(s.heads.map((h) => h.name)));
     check("the List feeder's header style (Playfair 700)", s.headStyle === "Playfair Display 700", s.headStyle);
+    const icons = { Dinner: "🍽️", Lunch: "🥪", Dessert: "🍰", Drinks: "🍹" };
+    check("type headers carry the aisle-style icon (🍽️ Dinner, 🥪 Lunch, 🍰 Dessert, 🍹 Drinks); \"No type yet\" none",
+      Object.entries(icons).every(([n, g]) => s.heads.find((h) => h.name === n)?.full === `${g} ${n}`) && s.heads.find((h) => h.name === "No type yet")?.full === "No type yet",
+      JSON.stringify(s.heads.map((h) => h.full)));
+    const slots = await p.evaluate(() => [...document.querySelectorAll(".meals-feeder .lib-gcard")].map((c) => ({ name: c.querySelector(".lib-gname")?.textContent.trim(), glyph: c.querySelector(".lib-slot-glyph")?.textContent || null, svg: !!c.querySelector(".lib-slot svg") })));
+    const sl = (n) => slots.find((x) => x.name === n) || {};
+    check("photo-less cards: the type's icon (Tiramisu 🍰, Lemonade 🍹, Club Sandwich 🥪, Chicken Curry 🍽️); untyped the neutral plate",
+      sl("Tiramisu").glyph === "🍰" && sl("Lemonade").glyph === "🍹" && sl("Club Sandwich").glyph === "🥪" && sl("Chicken Curry").glyph === "🍽️" && !sl("Mystery Stew").glyph && sl("Mystery Stew").svg,
+      JSON.stringify(slots));
+    const chips = await p.evaluate(() => [...document.querySelectorAll(".meals-feeder .lib-rail .cat-pill")].map((e) => ({ t: e.textContent.trim(), em: !!e.querySelector(".cat-em") })));
+    check("the Meals rail chips are text only", chips.length > 0 && chips.every((c) => !c.em && /^[A-Za-z]/.test(c.t)), JSON.stringify(chips));
     const want = { Dinner: "＋ New Dinner meal", Breakfast: "＋ New Breakfast meal", Lunch: "＋ New Lunch meal", Appetizers: "＋ New Appetizer meal", Dessert: "＋ New Dessert meal", Drinks: "＋ New Drink meal", "No type yet": "＋ New meal" };
     check("each link: \"+ New {type} meal\"; \"+ New meal\" on \"No type yet\" (at 390 wide)", s.heads.every((h) => h.link === want[h.name] && h.oneLine), JSON.stringify(s.heads.map((h) => `${h.name} | ${h.link} | ${h.oneLine}`)));
     check("a meal sits under its first type (Pad Thai: dinner, lunch → Dinner); untyped under \"No type yet\"", s.heads.find((h) => h.name === "Dinner")?.cards.includes("Pad Thai") && !s.heads.find((h) => h.name === "Lunch")?.cards.includes("Pad Thai") && s.heads.find((h) => h.name === "No type yet")?.cards.length === 2, JSON.stringify(s.heads.map((h) => [h.name, h.cards])));
@@ -60,7 +72,7 @@ const ORDER = ["Dinner", "Breakfast", "Lunch", "Appetizers", "Dessert", "Drinks"
     await p.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true }); await sleep(500);
 
     // + New Dinner meal → the sheet with Dinner picked
-    await p.evaluate(() => [...document.querySelectorAll(".meals-feeder .meal-section .pick-aisle")].find((h) => h.querySelector(".pick-aisle-name")?.textContent.trim() === "Dinner")?.querySelector("button.pick-aisle-new")?.click()); await sleep(900);
+    await p.evaluate(() => [...document.querySelectorAll(".meals-feeder .meal-section .pick-aisle")].find((h) => /(^|\s)Dinner$/.test(h.querySelector(".pick-aisle-name")?.textContent.trim() || ""))?.querySelector("button.pick-aisle-new")?.click()); await sleep(900);
     const sheet = await p.evaluate(() => {
       const m = document.querySelector(".modal"); if (!m) return null;
       const on = [...m.querySelectorAll(".gf-chip.on")].map((e) => e.firstChild?.textContent.trim());   // the Good for chips; the first carries "On card"
