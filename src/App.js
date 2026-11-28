@@ -6763,6 +6763,10 @@ function ProvisionsApp({ scrollRootRef }) {
           mealsItemsRef.current.set(mealId, 0);
           return 0;
         }
+        // Place first, then add: add_meal_to_list's 064 stamp ("Everything's in" when nothing is left to buy) needs
+        // the OPEN placement to exist when it runs, and addMealToList only places the meal after its RPC — so an
+        // all-on-hand meal planned fresh would otherwise sit at "Add to list". planMeal is a no-op when it's open.
+        await planMeal(mealId);
         const count = await addMealToList(mealId, 1, []);
         mealsItemsRef.current.set(mealId, count || 0);
         await refreshProvenance();   // the card's mark ("On the list" / "Everything's in") in the same beat

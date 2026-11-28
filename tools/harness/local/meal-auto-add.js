@@ -10,6 +10,8 @@
 //            card shows "Add to list"; back online, the tap adds it and the mark shows
 //   review   a meal with Garlic and Lemons (Lemons "I have this") → Garlic added, Lemons skipped; ⋯ → Review
 //            ingredients → the on-hand sheet with Lemons → Buy it → Lemons on the list, Garlic not added twice
+//   all in   a meal whose only ingredient is on hand → nothing added, "✓ Everything's in" with Cooked it beside it on
+//            This Week and on Home's ON DECK; un-planned again
 // Tidy: ⋯ Remove (and take its items off the list) → the app's delete (recipe → Edit → Delete meal); the DB read
 // back: no live meal of the walk's names, no open placement, nothing on the list. Flag-on build, signed in;
 // local or `remote`. Needs an empty list in the test house to start.
@@ -28,6 +30,7 @@ const B = `Auto Shared ${tag}`;
 const C = `Auto Three ${tag}`;
 const D = `Auto Offline ${tag}`;
 const E = `Auto Review ${tag}`;
+const F = `Auto Allset ${tag}`;
 const nav = require("../oneadd-nav.js");
 
 (async () => {
@@ -98,6 +101,20 @@ const nav = require("../oneadd-nav.js");
 
   try {
     await p.goto(BASE + "#/plan", { waitUntil: "networkidle2" }); await p.reload({ waitUntil: "networkidle2" }); await sleep(2500);
+    // ── everything's in: a meal whose only ingredient is on hand → nothing added; "Everything's in" + Cooked it ──
+    await createMeal(F, ["Lemons"], ["Lemons"]);
+    await clearField(".meals-feeder .item-search-field input"); await sleep(400);
+    let rf = await listRows();
+    await closeMeals();
+    await sleep(2800);
+    const wf = await weekCard(F);
+    check("all on hand: nothing added; the This Week card shows \"✓ Everything's in\" and Cooked it beside it", !rf.Lemons && !!wf && wf.mark === "✓Everything's in" && wf.buttons.join() === "Cooked it", JSON.stringify({ rf, wf }));
+    await p.evaluate(() => { location.hash = "#/home"; }); await sleep(1800);
+    const df = await p.evaluate(() => { const c = [...document.querySelectorAll(".home .deck")].find((e) => !e.classList.contains("home-list-card")); return c && { title: c.querySelector(".deck-title")?.textContent.trim(), mark: c.querySelector(".deck-mark")?.textContent.trim() || null, buttons: [...c.querySelectorAll(".deck-actions button")].map((x) => x.textContent.trim()) }; });
+    check("… Home's ON DECK too: the mark and Cooked it", !!df && df.title === F && df.mark === "✓Everything's in" && df.buttons.includes("Cooked it"), JSON.stringify(df));
+    await p.evaluate(() => { location.hash = "#/plan"; }); await sleep(1500);
+    await unplan(F);
+    await closeMeals(); await sleep(2800);
     // ── plan: the ingredients go on the list; the progress line counts ──
     await openMeals();
     let st = await sub();

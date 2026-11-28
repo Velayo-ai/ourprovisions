@@ -545,6 +545,8 @@ describe("R5 — one add control, one ✓ mark (this build's flag)", () => {
   test("adding a meal adds its ingredients: every plan door goes through addMealToList (flag on); flag off: planMeal + the toast", () => {
     const fn = APP.slice(APP.indexOf("  const handlePlanMeal = useCallback(async (mealId) => {"), APP.indexOf("  const onBoardIds = useMemo("));
     expect(fn).toMatch(/if \(ONE_ADD_ENABLED\) \{[\s\S]*?const count = await addMealToList\(mealId, 1, \[\]\);/);
+    // place first, then add (the 064 stamp needs the open placement)
+    expect(fn).toMatch(/await planMeal\(mealId\);\s+const count = await addMealToList\(mealId, 1, \[\]\);/);
     expect(fn).toMatch(/const ok = await planMeal\(mealId\);\s+if \(ok\) showToast\(/);
     // offline: plan only — the card shows "Add to list" (today's behaviour)
     expect(fn).toMatch(/if \(offline \|\| \(typeof navigator !== "undefined" && navigator\.onLine === false\)\) \{\s+await planMeal\(mealId\);/);
