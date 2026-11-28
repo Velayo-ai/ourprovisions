@@ -32,7 +32,7 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
     home: document.querySelector(".home-list-card .home-list-tip")?.textContent.trim() || null,
     // the card's action line: the button, then the tip beside it (two elements; the layout's gap spaces them)
     homeLine: (() => { const a = document.querySelector(".home-list-card .deck-actions"); return a ? [...a.children].map((e) => e.textContent.replace(/\s+/g, " ").trim()).join(" ") : null; })(),
-    emptyList: !!document.querySelector(".list-guide"), emptyHome: document.querySelector(".home-list-card .deck-title")?.textContent.trim() === "Our list is empty",
+    emptyList: !!document.querySelector(".list-guide"), emptyHome: document.querySelector(".home-list-card .deck-title")?.textContent.trim() === "Let's build our list.",
     screen: Math.min(screen.width, screen.height), coarse: matchMedia("(pointer: coarse)").matches,
   }));
   try {

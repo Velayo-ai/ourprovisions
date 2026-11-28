@@ -1,4 +1,4 @@
-// One add: Home's list card (flag on). Empty list → "Our list is empty" + "+ Add items", which opens the List
+// One add: Home's list card (flag on). Empty list → LIST / "Let's build our list." + "+ Add items", which opens the List
 // feeder (focused, on List, so Done lands on Our list). With items → "N things to get" + "Open list" → List.
 // The card sits near the top: above the On deck card, in its style; the old list line is gone. Adds two items
 // through the feeder and takes them back off (stepper −). Flag-on build, signed in; local or `remote`.
@@ -34,8 +34,9 @@ const readCard = (p) => p.evaluate(() => {
     check("a one-add build", await nav.isOneAdd(p));
     let c = await readCard(p);
     check("the card sits near the top: first card, above On deck, the meal card's style; no list line", !!c && c.firstCard && c.sameStyle && !c.listLine, JSON.stringify(c));
-    if (c && c.title === "Our list is empty") {
-      check("empty: \"Our list is empty\" + \"+ Add items\" (eyebrow List)", c.eyebrow === "List" && c.button === "+ Add items", JSON.stringify(c));
+    if (c && c.title === "Let's build our list.") {
+      const look = await p.evaluate(() => { const t = document.querySelector(".home .home-list-card .deck-title"), d = [...document.querySelectorAll(".home .deck .deck-title")].find((e) => e !== t), e = document.querySelector(".home .home-list-card .deck-eyebrow"); const f = (x) => x && `${getComputedStyle(x).fontFamily.split(",")[0]} ${getComputedStyle(x).fontWeight} ${getComputedStyle(x).fontSize}`; return { title: f(t), deck: f(d), eyebrowShown: e && e.innerText.trim() }; });
+      check("empty: LIST / \"Let's build our list.\" (the deck's title style, as \"What sounds good?\") + \"+ Add items\"", c.button === "+ Add items" && look.eyebrowShown === "LIST" && !!look.title && look.title === look.deck, JSON.stringify({ c, look }));
       await p.evaluate(() => document.querySelector(".home .home-list-card .deck-actions button").click());
       await p.waitForSelector(".item-picker.open", { visible: true, timeout: 10000 }); await sleep(600);
       const st = await p.evaluate(() => ({ focused: document.activeElement === document.querySelector(".item-picker .item-search-field input"), hash: location.hash }));

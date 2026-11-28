@@ -247,8 +247,8 @@ describe("icons (flag on): text-only rail chips; meal types in the aisle icons' 
 });
 
 describe("Home's list card (flag on)", () => {
-  test("empty: Our list is empty + \"+ Add items\" (the List feeder); with items: N things to get + Open list", () => {
-    expect(APP).toContain('const title = empty ? "Our list is empty"');
+  test("empty: Let's build our list. + \"+ Add items\" (the List feeder); with items: N things to get + Open list", () => {
+    expect(APP).toContain(`const title = empty ? "Let's build our list."`);
     expect(APP).toContain('`${open} thing${open === 1 ? "" : "s"} to get`');
     expect(APP).toContain('<button type="button" className="deck-primary add" onClick={onAdd}>+ Add items</button>');
     expect(APP).toContain('<button type="button" className="deck-primary" onClick={onOpen}>Open list</button>');

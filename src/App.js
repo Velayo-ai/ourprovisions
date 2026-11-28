@@ -1349,7 +1349,7 @@ function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
 // appear together, never one popping in above another, and never a state the
 // data then contradicts (a To-buy meal reading as Planned for a beat).
 // ONE ADD (flag on; Dan's household test with Helen and Elly): `listCard` puts the list's results card near the
-// top, in the meal card's style, in place of the list line: empty → "Our list is empty" + "+ Add items" (the
+// top, in the meal card's style, in place of the list line: empty → "Let's build our list." + "+ Add items" (the
 // List feeder); with items → "N things to get" + "Open list". Without it, Home is today's.
 function Home({ firstName, ready, deck, list, budget, listCard = null }) {
   const hour = new Date().getHours();
@@ -1532,7 +1532,7 @@ export function OnDeckCard({
 function HomeListCard({ total, open, checked, onAdd, onOpen, tipEligible = false }) {
   const empty = !total;
   const tip = useLandscapeTip(empty && tipEligible);
-  const title = empty ? "Our list is empty"
+  const title = empty ? "Let's build our list."   // the deck's title style, as "What sounds good?"
     : open > 0 ? `${open} thing${open === 1 ? "" : "s"} to get`
     : `All ${checked} in the cart`;
   return (
