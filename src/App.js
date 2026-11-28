@@ -14284,7 +14284,9 @@ function ProvisionsApp({ scrollRootRef }) {
           up (a meal's recipe view, the new-meal sheet, a gift, the on-hand prompt). */}
       {ONE_ADD_ENABLED && MEALS_ENABLED && (
         <MealsLens
-          feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(recipeView || mealSheet || giftArrival || thankYou || onHandPrompt),
+          // The recipe view counts only while it RENDERS (rvMeal): a meal deleted from it leaves recipeView set but the
+          // view gone, and the feeder must come back rather than stay stepped aside, hidden, for good.
+          feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(rvMeal || mealSheet || giftArrival || thankYou || onHandPrompt),
             onNewMeal: (name, occasion = []) => setMealSheet({ mode: "create", meal: null, name, occasion, planOnSave: true }),
             onAskGalley: () => setMealSheet({ mode: "create", meal: null, name: "", planOnSave: true, galley: true }),
             // Done · N: the meals on This Week now that weren't when the feeder opened (an un-plan takes one back off).

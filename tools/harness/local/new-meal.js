@@ -112,6 +112,8 @@ const HEADED = `Harness Stew ${stamp}`;
         await p.evaluate(() => [...document.querySelectorAll(".modal button")].find((e) => /Yes, delete meal/.test(e.textContent))?.click()); await sleep(2500);
       } catch (e) { log(`tidy ${name}: ${e.message}`); }
     }
+    // a meal deleted from its recipe view (opened from the feeder) gives the feeder back — not stepped aside for good
+    if (made.length) check("after a delete from the recipe view, the feeder is back (not left hidden)", await p.evaluate(() => { const v = document.querySelector(".meals-feeder.open"); return !!v && !v.classList.contains("suspended") && getComputedStyle(v).visibility === "visible"; }));
     await setQuery("").catch(() => {});
     if (await p.$(".meals-feeder.open")) { await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done").click()); await sleep(600); }
     const left = [];

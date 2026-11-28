@@ -102,7 +102,7 @@ describe("R1/R2 — Plan is This Week only; Meals opens from + Add as the Meals 
   });
   test("the feeder's Done returns to This Week with N added", () => {
     expect(APP).toContain('<ItemSearchView search={feeder.search} onClose={() => { setQuery(""); feeder.onDone(); }}');   // Done empties the search
-    expect(APP).toContain("feeder={{ search: mealsFeeder, onDone: closeMealsFeeder,");
+    expect(APP).toContain("feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(rvMeal || mealSheet || giftArrival || thankYou || onHandPrompt),");
     expect(APP).toMatch(/ {4}mealsFeeder\.hide\(\);\s+if \(text\) showToast\(text\);/);
     expect(addedToastText(0)).toBeNull();
     expect(addedToastText(1)).toBe("1 added");
