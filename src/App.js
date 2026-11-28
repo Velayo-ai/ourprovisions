@@ -1543,14 +1543,16 @@ function HomeListCard({ total, open, checked, onAdd, onOpen, tipEligible = false
     : open > 0 ? `${open} thing${open === 1 ? "" : "s"} to get`
     : `All ${checked} in the cart`;
   return (
-    <section className="deck home-list-card" aria-label="Our list">
+    // Empty: the highlight — the empty List's primary "Add items" treatment (light teal fill, teal border, a teal
+    // button). With items: sand, like ON DECK. ON DECK is never highlighted, so Home has at most one.
+    <section className={`deck home-list-card${empty ? " hl" : ""}`} aria-label="Our list">
       <div className="deck-eyebrow">List</div>
       <div className="deck-body">
         <h3 className="deck-title">{title}</h3>
       </div>
       <div className="deck-actions">
         {empty
-          ? <button type="button" className="deck-primary add" onClick={onAdd}>+ Add items</button>
+          ? <button type="button" className="deck-primary hl-add" onClick={onAdd}>+ Add items</button>
           : <button type="button" className="deck-primary" onClick={onOpen}>Open list</button>}
         {empty && tip && <span className="home-list-tip" role="note"><RotatePhoneIcon /><span>· {LANDSCAPE_TIP_HOME}</span></span>}
       </div>
@@ -10287,6 +10289,11 @@ function ProvisionsApp({ scrollRootRef }) {
         /* One add: the card's teal mark once its ingredients are on the list (or all in). */
         .board-mark { display: flex; align-items: center; gap: 6px; font: 700 calc(14px * var(--op-text-scale)) 'Lato', sans-serif; color: #0A776D; }
         .deck-mark { margin-top: 8px; }
+        /* Home's highlight (one add): the empty LIST card in the guide's teal "Add items" treatment; 2px border, the
+           padding 2px less, so the card keeps its size. */
+        .deck.home-list-card.hl { background: #E3F1EE; border: 2px solid #13877C; padding: 16px 18px 14px; }
+        .deck.home-list-card.hl .deck-eyebrow { color: #0A5049; }
+        .deck-primary.hl-add { border-color: #13877C; background: #13877C; color: #fff; }
         .board-mark-tick { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #13877C; color: #fff; font-size: 12px; }
         .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .board-actions-gap { flex: 1; }
