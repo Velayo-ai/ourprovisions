@@ -58,9 +58,10 @@ const ORDER = ["Dinner", "Breakfast", "Lunch", "Appetizers", "Dessert", "Drinks"
       JSON.stringify(s.heads.map((h) => h.full)));
     const slots = await p.evaluate(() => [...document.querySelectorAll(".meals-feeder .lib-gcard")].map((c) => ({ name: c.querySelector(".lib-gname")?.textContent.trim(), glyph: c.querySelector(".lib-slot-glyph")?.textContent || null, svg: !!c.querySelector(".lib-slot svg") })));
     const sl = (n) => slots.find((x) => x.name === n) || {};
-    check("photo-less cards: the type's icon (Tiramisu 🍰, Lemonade 🍹, Club Sandwich 🥪, Chicken Curry 🍽️); untyped the neutral plate",
-      sl("Tiramisu").glyph === "🍰" && sl("Lemonade").glyph === "🍹" && sl("Club Sandwich").glyph === "🥪" && sl("Chicken Curry").glyph === "🍽️" && !sl("Mystery Stew").glyph && sl("Mystery Stew").svg,
-      JSON.stringify(slots));
+    check("photo-less cards: the type's icon (Tiramisu 🍰, Lemonade 🍹, Club Sandwich 🥪, Chicken Curry 🍽️)",
+      sl("Tiramisu").glyph === "🍰" && sl("Lemonade").glyph === "🍹" && sl("Club Sandwich").glyph === "🥪" && sl("Chicken Curry").glyph === "🍽️", JSON.stringify(slots));
+    const tile = await p.evaluate(() => { const c = [...document.querySelectorAll(".meals-feeder .lib-gcard")].find((e) => e.querySelector(".lib-gname")?.textContent.trim() === "Mystery Stew"); const d = [...document.querySelectorAll(".meals-feeder .lib-gcard")].find((e) => e.querySelector(".lib-gname")?.textContent.trim() === "Chicken Curry"); const r = (e) => { const b = e.querySelector(".lib-slot").getBoundingClientRect(); return `${Math.round(b.width)}×${Math.round(b.height)}`; }; return { kids: c.querySelector(".lib-slot").children.length, text: c.querySelector(".lib-slot").textContent, size: r(c), dinner: r(d) }; });
+    check("an untyped card: a plain tile — same band and size, no glyph, no drawing (can't pass for Dinner's 🍽️)", tile.kids === 0 && tile.text === "" && tile.size === tile.dinner, JSON.stringify(tile));
     const chips = await p.evaluate(() => [...document.querySelectorAll(".meals-feeder .lib-rail .cat-pill")].map((e) => ({ t: e.textContent.trim(), em: !!e.querySelector(".cat-em") })));
     check("the Meals rail chips are text only", chips.length > 0 && chips.every((c) => !c.em && /^[A-Za-z]/.test(c.t)), JSON.stringify(chips));
     const want = { Dinner: "＋ New Dinner meal", Breakfast: "＋ New Breakfast meal", Lunch: "＋ New Lunch meal", Appetizers: "＋ New Appetizer meal", Dessert: "＋ New Dessert meal", Drinks: "＋ New Drink meal", "No type yet": "＋ New meal" };

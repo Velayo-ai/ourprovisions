@@ -19,7 +19,8 @@ const OCCASION_PILL = { ...OCCASION_WORD, snack: "Snacks", side: "Sides", appeti
 // ONE ADD (flag on): each meal type's icon in the AISLE icons' family (the emoji the List's section headers carry,
 // "🥦 Produce") — on the Meals feeder's section headers, and as a photo-less card's placeholder. Dinner is the
 // plate with fork and knife, Lunch the sandwich, Dessert the cake slice, Drinks a glass; the rest follow suit.
-// An untyped meal has none: its header ("No type yet") is bare and its card keeps the neutral plate (untagged).
+// An untyped meal has none: its header ("No type yet") is bare and its card is a plain tile — the same band and
+// size, no glyph — so it can't be mistaken for Dinner's 🍽️ (the old untagged plate is flag-off only).
 const OCCASION_GLYPH = { dinner: "🍽️", lunch: "🥪", dessert: "🍰", drink: "🍹", breakfast: "🍳", snack: "🥨", side: "🥗", appetizer: "🍢" };
 // OCCASION MARKS (SPEC_meal_library_visual_v2 D5): one line icon + one tint per
 // occasion, keyed on occasion[1] — the same element that drives the meta word.
@@ -247,7 +248,7 @@ function LibrarySlot({ meal, thumb = false, chip = false }) {
     <span className={base} style={{ background: tint.bg, color: tint.ink }} aria-hidden="true">
       {glyph
         ? <span className="lib-slot-glyph" style={{ fontSize: thumb ? "28px" : "32px", lineHeight: 1 }}>{glyph}</span>
-        : <OccasionIcon occasion={(meal.occasion || [])[0]} size={thumb ? 30 : 32} tint={tint.bg} />}
+        : ONE_ADD_ENABLED ? null : <OccasionIcon occasion={(meal.occasion || [])[0]} size={thumb ? 30 : 32} tint={tint.bg} />}
       {chip && <ReadyChip />}
     </span>
   );

@@ -241,8 +241,10 @@ describe("icons (flag on): text-only rail chips; meal types in the aisle icons' 
     } else {
       expect(typed).not.toContain("lib-slot-glyph");
     }
-    expect(untyped).not.toContain("lib-slot-glyph");   // the neutral plate (line icon) either way
-    expect(untyped).toContain("<svg");
+    expect(untyped).not.toContain("lib-slot-glyph");
+    // one add: a plain tile (the band, no glyph) so it can't pass for Dinner's 🍽️; flag off: the untagged plate
+    if (ONE_ADD_ENABLED) { expect(untyped).not.toContain("<svg"); expect(untyped).toContain('class="lib-slot"'); }
+    else expect(untyped).toContain("<svg");
   });
 });
 
