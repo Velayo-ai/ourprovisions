@@ -891,9 +891,11 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 //   rail, sheetButton, hint: nodes (R3 / R4) · suspended: bool
 //   wrapRow(item, node) — Browse's swipe (Hide / Edit / ★ Staple) around a row · isStaple(name) — the row's ★
 //   closeRef — set to this view's close, so App can end the visit (an Ask pill hands over to a run) }
-// The feeder's section header (one add): the aisle's name and "+ New {aisle} item" (that aisle prefilled), or
-// "+ New item" when the long link would not fit beside the name on one line (measured, and again on resize).
-function AisleHead({ name, aisle, onNew }) {
+// A feeder's section header (one add): the section's name and its link — the List's "+ New {aisle} item"
+// (that aisle prefilled), the Meals feeder's "+ New {type} meal" (that type prefilled) — or the short form
+// ("+ New item" / "+ New meal") when the long one would not fit beside the name on one line (measured, and
+// again on resize).
+function AisleHead({ name, long, short: shortLabel, onNew }) {
   const ref = useRef(null);
   const [short, setShort] = useState(false);
   useLayoutEffect(() => {
@@ -909,12 +911,12 @@ function AisleHead({ name, aisle, onNew }) {
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [name, aisle]);
+  }, [name, long]);
   return (
     <div className="pick-aisle" ref={ref}>
       <span className="pick-aisle-name">{name}</span>
-      <button type="button" className="pick-aisle-new" onClick={onNew}>{short ? "＋ New item" : `＋ New ${aisle} item`}</button>
-      <span className="pick-aisle-new pick-aisle-measure" aria-hidden="true">＋ New {aisle} item</span>
+      <button type="button" className="pick-aisle-new" onClick={onNew}>{short ? shortLabel : long}</button>
+      <span className="pick-aisle-new pick-aisle-measure" aria-hidden="true">{long}</span>
     </div>
   );
 }
@@ -1045,7 +1047,7 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
       ))
       : feeder.sections.map((sec) => (
         <div key={sec.rawName} className="pick-group">
-          <AisleHead name={sec.name} aisle={categoryRailLabel(sec.rawName)} onNew={() => feeder.onNewItem(sec.rawName)} />
+          <AisleHead name={sec.name} long={`＋ New ${categoryRailLabel(sec.rawName)} item`} short="＋ New item" onNew={() => feeder.onNewItem(sec.rawName)} />
           {rows(sec.items)}
         </div>
       ));
@@ -2445,6 +2447,26 @@ export function LibraryFilterSheet({ draft, setDraft, fromMembers, countFor, onS
                   onClick={() => { if (oneAdd.libView !== o.key) oneAdd.onToggleView(); }}>{o.name}</button>
               ))}
             </div>
+            {oneAdd.onOrganize && (
+              <>
+                <span className="modal-label" id="meals-organize" style={{ display: "block", marginTop: "14px" }}>Organize meals</span>
+                {/* The List feeder's radio cards (name + a line under it). */}
+                <div role="radiogroup" aria-labelledby="meals-organize" style={{ display: "flex", gap: "8px" }}>
+                  {[
+                    { key: "type", name: "By type", sub: "Dinner, lunch, dessert, and more" },
+                    { key: "alpha", name: "A–Z", sub: "All meals from A to Z" },
+                  ].map((o) => (
+                    <button key={o.key} type="button" role="radio" aria-checked={oneAdd.organize === o.key}
+                      className={`cat-pill${oneAdd.organize === o.key ? " on" : ""}`}
+                      style={{ flex: "1 1 0", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "2px", padding: "10px 12px", textAlign: "left", borderRadius: "14px", whiteSpace: "normal" }}
+                      onClick={() => oneAdd.onOrganize(o.key)}>
+                      <span style={{ fontWeight: 700 }}>{o.name}</span>
+                      <span style={{ fontSize: "0.8rem", fontWeight: 400 }}>{o.sub}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             <div className="lib-sheet-lbl" style={{ borderTop: "1px solid #e8ddd0", paddingTop: "16px", marginTop: "20px" }}>Filter</div>
           </>
         )}
@@ -3689,6 +3711,8 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
   const [typeFor, setTypeFor] = useState(null);
   const canSetType = !!(isSignedIn && onSetOccasion);
   const [occ, setOcc] = useState("all");
+  // One add (the feeder): sections By type (the default) or A–Z, from View & filter → View, as the List feeder's.
+  const [organize, setOrganize] = useState("type");
   const [filters, setFilters] = useState(NO_LIB_FILTERS);
   // null while closed; the sheet's draft (a copy of `filters`) while open.
   const [draft, setDraft] = useState(null);
@@ -3891,7 +3915,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
             setDraft(null);
           }}
           onClose={() => setDraft(null)}
-          oneAdd={ONE_ADD_ENABLED ? { libView, onToggleView: toggleLibView, present, onCreate: isSignedIn ? onCreate : null } : null}
+          oneAdd={ONE_ADD_ENABLED ? { libView, onToggleView: toggleLibView, present, onCreate: isSignedIn ? onCreate : null, organize, onOrganize: feeder ? setOrganize : null } : null}
         />
       )}
     </>
@@ -3923,30 +3947,57 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         </button>
       </>
     );
-    // The first cards of the grid (the first rows of the list): "+ New meal" and "✨ Ask the Galley" (the same
-    // new-meal sheet, opened at its Galley card). No section-scoped link on Meals.
-    const newKind = libView === "list" ? "lib-newrow" : "lib-newcard";
-    const newCard = feeder.onNewMeal && isSignedIn ? (
-      <>
-        <button type="button" className={newKind} onClick={() => feeder.onNewMeal("")}>
-          <span className="lib-new-plus" aria-hidden="true">+</span><span className="lib-new-t">New meal</span>
-        </button>
-        {feeder.onAskGalley && (
-          <button type="button" className={`${newKind} galley`} onClick={feeder.onAskGalley}>
-            <span className="lib-new-plus" aria-hidden="true">✨</span>
-            <span className="lib-new-text"><span className="lib-new-t">Ask the Galley</span><span className="lib-new-s">Not sure what to cook? Get ideas.</span></span>
-          </button>
-        )}
-      </>
+    // "✨ Ask the Galley" first (the new-meal sheet opened at its Galley card), above the sections.
+    const canNew = !!(feeder.onNewMeal && isSignedIn);
+    const galleyCard = canNew && feeder.onAskGalley && !q ? (
+      <button type="button" className="lib-newrow galley" onClick={feeder.onAskGalley}>
+        <span className="lib-new-plus" aria-hidden="true">✨</span>
+        <span className="lib-new-text"><span className="lib-new-t">Ask the Galley</span><span className="lib-new-s">Not sure what to cook? Get ideas.</span></span>
+      </button>
     ) : null;
-    const feederCards = (
-      <div className={libView === "list" ? "lib-list" : "lib-grid"}>
-        {newCard}
-        {cards.props.children}
-      </div>
-    );
+    const box = (items) => <div className={libView === "list" ? "lib-list" : "lib-grid"}>{items}</div>;
+    const cardList = cards.props.children;   // the shown meals' cards, in the lens's order
+    const cardOf = new Map(shown.map((m, i) => [m.id, cardList[i]]));
+    // By type: one section per type in the app's fixed order (a meal under its first type, the one its card
+    // names), "No type yet" last; with a rail chip picked, everything shown sits under that one. Each header has
+    // "+ New {type} meal" (the type prefilled), "+ New meal" on "No type yet". A–Z: letter headers and one
+    // "+ New meal" at the top. A search is one flat set, as the List feeder's.
+    let body;
+    if (q) body = box(cardList);
+    else if (organize === "alpha") {
+      const sorted = [...shown].sort((a, b) => displayTitle(a.name).localeCompare(displayTitle(b.name)));
+      body = (
+        <>
+          {canNew && (
+            <div className="meal-az-top"><button type="button" className="pick-aisle-new" onClick={() => feeder.onNewMeal("")}>＋ New meal</button></div>
+          )}
+          {letterGroups(sorted.map((m) => ({ ...m, name: displayTitle(m.name) }))).map((g) => (
+            <div key={g.letter} className="pick-group meal-section">
+              <div className="pick-letter" aria-hidden="true">{g.letter}</div>
+              {box(g.items.map((m) => cardOf.get(m.id)))}
+            </div>
+          ))}
+        </>
+      );
+    } else {
+      const typeOf = (m) => { const t = (m.occasion || [])[0]; return OCCASION_ORDER.includes(t) ? t : null; };
+      const groups = occ !== "all"
+        ? [{ key: occ, items: shown }]
+        : [...OCCASION_ORDER.map((k) => ({ key: k, items: shown.filter((m) => typeOf(m) === k) })), { key: null, items: shown.filter((m) => !typeOf(m)) }];
+      body = groups.filter((g) => g.items.length > 0).map((g) => (
+        <div key={g.key || "none"} className="pick-group meal-section">
+          {canNew ? (
+            <AisleHead name={g.key ? OCCASION_PILL[g.key] : "No type yet"} long={g.key ? `＋ New ${OCCASION_WORD[g.key]} meal` : "＋ New meal"} short="＋ New meal"
+              onNew={() => feeder.onNewMeal("", g.key ? [g.key] : [])} />
+          ) : (
+            <div className="pick-aisle"><span className="pick-aisle-name">{g.key ? OCCASION_PILL[g.key] : "No type yet"}</span></div>
+          )}
+          {box(g.items.map((m) => cardOf.get(m.id)))}
+        </div>
+      ));
+    }
     return feederShell(
-      <div className="lib oneadd">{verbs}{shown.length === 0 && createRow ? createRow : emptyLine}{feederCards}{createTile}</div>,
+      <div className="lib oneadd">{verbs}{galleyCard}{shown.length === 0 && createRow ? createRow : emptyLine}{body}{createTile}</div>,
       aside,
       <div className="feeder-rail meals-rail">{activeChips}{rail}</div>,
       sheets,
@@ -4055,7 +4106,7 @@ function GoodForChips({ value, onChange, style }) {
 // giver's note (not editable, never saved on the meal). The doors stay folded, Cancel reads "Not for us"
 // and Save reads "Add to our meals". The receipt and the photo copy run in the caller after the save.
 // initialName (one add): a create opened from the Meals feeder's search ("Create “{query}” as a new meal") starts named.
-export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn, gift = null, initialName = "", openAtGalley = false }) {
+export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn, gift = null, initialName = "", openAtGalley = false, initialOccasion = [] }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : initialName);
   const [rows, setRows] = useState(() =>
@@ -4084,7 +4135,8 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
   // Good for (061) — the ordered occasion list. Edit loads what is stored
   // (normalised: the client never trusts an array it did not write); create
   // starts untagged. Galley drafts arrive untagged in v1 and are tagged here.
-  const [occasion, setOccasion] = useState(() => (isEdit ? normalizeOccasion(meal?.occasion) : []));
+  // One add: "+ New {type} meal" starts with that type (initialOccasion).
+  const [occasion, setOccasion] = useState(() => (isEdit ? normalizeOccasion(meal?.occasion) : normalizeOccasion(initialOccasion)));
   // From (062 `meals.attribution`, SPEC_recipe_import D6): free text, editable,
   // never validated; '' saves NULL. The FIELD shows only when a draft carried an
   // attribution or the meal already has one — a hand-built meal never shows it.
@@ -11436,21 +11488,18 @@ function ProvisionsApp({ scrollRootRef }) {
         .meals-feeder .meals-rail .lib-active { margin: 0 0 8px; }
         .meals-feeder .meals-rail .lib-hint { margin: 2px 0 4px; }
         .meals-feeder .ask-search-list { padding-top: 8px; padding-bottom: 96px; }
-        /* "+ New meal" first in the grid (a dashed card the height of its row) / the list (a row), and the
+        /* "✨ Ask the Galley" above the sections (a dashed full-width card), the A–Z top link, the sections, and the
            search's no-match create row. */
         .meals-feeder .meal-create { margin: 0 0 12px; }
-        .meals-feeder .lib-grid .lib-newcard { grid-row: span 3; margin-bottom: 16px; min-height: 150px; display: flex; flex-direction: column;
-          align-items: center; justify-content: center; gap: 8px; border: 1.5px dashed #C9A26A; border-radius: 14px; background: transparent;
-          cursor: pointer; font: 700 calc(15px * var(--op-text-scale)) 'Lato', sans-serif; color: #8A5F3A; }
-        .meals-feeder .lib-newcard .lib-new-plus { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid #C9A26A; display: grid; place-items: center;
-          font: 400 22px/1 'Lato', sans-serif; color: #9A7350; }
-        .meals-feeder .lib-list .lib-newrow { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 4px; margin-bottom: 8px;
+        .meals-feeder .meal-az-top { display: flex; justify-content: flex-end; margin: 0 0 2px; }
+        .meals-feeder .meal-section .pick-aisle { margin-top: 12px; }
+        .meals-feeder .meal-section .pick-letter { margin-top: 14px; }
+        .meals-feeder .meal-section .lib-grid, .meals-feeder .meal-section .lib-list { margin-top: 6px; }
+        .meals-feeder .lib-newrow { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 4px; margin-bottom: 8px;
           border: 1.5px dashed #C9A26A; border-radius: 12px; background: transparent; cursor: pointer; font: 700 calc(15px * var(--op-text-scale)) 'Lato', sans-serif; color: #8A5F3A; }
-        .meals-feeder .lib-newcard.galley .lib-new-plus, .meals-feeder .lib-newrow.galley .lib-new-plus { font-size: 18px; }
-        .meals-feeder .lib-new-text { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
-        .meals-feeder .lib-newrow .lib-new-text { align-items: flex-start; text-align: left; }
-        .meals-feeder .lib-new-s { font: 400 calc(13px * var(--op-text-scale)) 'Lato', sans-serif; color: #8a7a60; padding: 0 10px; }
-        .meals-feeder .lib-newrow .lib-new-s { padding: 0; }
+        .meals-feeder .lib-newrow.galley .lib-new-plus { font-size: 18px; }
+        .meals-feeder .lib-new-text { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+        .meals-feeder .lib-new-s { font: 400 calc(13px * var(--op-text-scale)) 'Lato', sans-serif; color: #8a7a60; }
         .meals-feeder .lib-newrow .lib-new-plus { width: 36px; height: 36px; margin-left: 12px; border-radius: 50%; border: 1.5px solid #C9A26A; display: grid; place-items: center;
           font: 400 22px/1 'Lato', sans-serif; color: #9A7350; }
         .cat-pill.occ { padding: 9px 16px; flex: none; }
@@ -13494,6 +13543,7 @@ function ProvisionsApp({ scrollRootRef }) {
           gift={mealSheet.mode === "create" ? mealSheet.gift || null : null}
           initialName={mealSheet.mode === "create" ? mealSheet.name || "" : ""}
           openAtGalley={mealSheet.mode === "create" && !!mealSheet.galley}
+          initialOccasion={mealSheet.mode === "create" ? mealSheet.occasion || [] : []}
         />
       )}
 
@@ -14186,7 +14236,7 @@ function ProvisionsApp({ scrollRootRef }) {
       {ONE_ADD_ENABLED && MEALS_ENABLED && (
         <MealsLens
           feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(recipeView || mealSheet || giftArrival || thankYou || onHandPrompt),
-            onNewMeal: (name) => setMealSheet({ mode: "create", meal: null, name, planOnSave: true }),
+            onNewMeal: (name, occasion = []) => setMealSheet({ mode: "create", meal: null, name, occasion, planOnSave: true }),
             onAskGalley: () => setMealSheet({ mode: "create", meal: null, name: "", planOnSave: true, galley: true }) }}
           textSizeIdx={textSizeIdx}
           onSetOccasion={handleSetOccasion}

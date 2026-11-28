@@ -81,14 +81,20 @@ describe("R1/R2 — Plan is This Week only; Meals opens from + Add as the Meals 
     expect(APP).toContain('plan: { label: "Add a meal to this week", run: openMealsAdd }');
     expect(APP).not.toContain('setPlanScreen("library"); goToDoor("plan"); };');
   });
-  test("+ New meal: the first card of the grid (no section-scoped link), and the no-match row of a search; both plan the meal on save", () => {
-    expect(APP).toContain('<button type="button" className={newKind} onClick={() => feeder.onNewMeal("")}>');
+  test("+ New meal: a link per type section (the type prefilled), one at the top of A–Z, and the no-match row of a search; all plan the meal on save", () => {
+    expect(APP).toContain('long={g.key ? `＋ New ${OCCASION_WORD[g.key]} meal` : "＋ New meal"} short="＋ New meal"');
+    expect(APP).toContain('onNew={() => feeder.onNewMeal("", g.key ? [g.key] : [])} />');
+    expect(APP).toContain('<div className="meal-az-top"><button type="button" className="pick-aisle-new" onClick={() => feeder.onNewMeal("")}>＋ New meal</button></div>');
+    expect(APP).toContain('{ key: "type", name: "By type", sub: "Dinner, lunch, dessert, and more" },');
+    expect(APP).toContain('{ key: "alpha", name: "A–Z", sub: "All meals from A to Z" },');
+    expect(APP).toContain("normalizeOccasion(initialOccasion)");
+    expect(APP).not.toContain("lib-newcard");
     expect(APP).not.toContain("meal-head");
     expect(APP).toContain('<span className="lib-new-text"><span className="lib-new-t">Ask the Galley</span><span className="lib-new-s">Not sure what to cook? Get ideas.</span></span>');
     expect(APP).toContain('onAskGalley: () => setMealSheet({ mode: "create", meal: null, name: "", planOnSave: true, galley: true })');
     expect(APP).toContain('placeholder: "Type a meal, or scroll and tap"');
     expect(APP).toContain('<span className="pick-main"><span className="pick-name">Create <b>“{newName}”</b> as a new meal</span></span>');
-    expect(APP).toContain('onNewMeal: (name) => setMealSheet({ mode: "create", meal: null, name, planOnSave: true })');
+    expect(APP).toContain('onNewMeal: (name, occasion = []) => setMealSheet({ mode: "create", meal: null, name, occasion, planOnSave: true })');
     expect(APP).toContain('if (mealSheet.mode === "create" && mealSheet.planOnSave && typeof ok === "string") await handlePlanMeal(ok);');
     expect(APP).toContain('const [name, setName] = useState(isEdit ? (meal?.name || "") : initialName);');
     // flag off: the library screen keeps its + New
@@ -140,7 +146,8 @@ describe("the List feeder's search create (flag on)", () => {
     expect(APP).toContain("const guessed = offerAdd ? guessAisle(q, items, { skip: [STAPLES_CATEGORY] }) : null;");
     expect(APP).toContain("onSubmit={feeder ? submit : null}");
     expect(APP).toContain("{addCard}");
-    expect(APP).toContain('{short ? "＋ New item" : `＋ New ${aisle} item`}');
+    expect(APP).toContain("long={`＋ New ${categoryRailLabel(sec.rawName)} item`} short=\"＋ New item\"");
+    expect(APP).toContain("{short ? shortLabel : long}");
     expect(APP).toContain("const res = await addSearchedItem(rawCategory || \"Other\", text, pickOpts(flag));");
     // the quick picker (flag off) keeps its create row at the end
     expect(APP).toContain("createSlot={feeder ? null : (");

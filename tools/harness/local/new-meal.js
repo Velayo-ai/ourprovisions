@@ -1,7 +1,8 @@
 // One add: the Meals feeder's two "+ New meal" doors, end to end on the dev DB (normal app use, as the test
 // account). (b) a search with no match offers "Create “{query}” as a new meal": the new-meal sheet opens with
 // the name prefilled; Save puts the meal on This Week and its card shows the teal "This week". (a) the
-// "+ New meal" card, first in the grid (no section-scoped link): the sheet opens empty; the same on save. Both meals are deleted at the end
+// section link ("+ New meal" on "No type yet"; local/meal-sections.js checks the typed ones): the sheet opens
+// empty; the same on save. "✨ Ask the Galley" is the first card, above the sections. Both meals are deleted at the end
 // through the app's own delete (recipe → Edit → Delete meal → Yes), and the DB is read back: no live meal of
 // either name, no open placement. Flag-on build, signed in; a local build (see one-add.js) or `remote`.
 const lib = require("../lib.js");
@@ -69,22 +70,25 @@ const HEADED = `Harness Stew ${stamp}`;
     const db1 = await dbRead(SEARCHED);
     check("(b) the DB: one live meal of that name, on This Week (an open placement)", db1.live === 1 && db1.open === 1, JSON.stringify(db1));
 
-    // (a) the "+ New meal" card, first in the grid; no section-scoped link
+    // (a) the section link: the meal from (b) has no type, so it sits under "No type yet", whose link is "+ New meal"
     await setQuery("");
     const head = await p.evaluate(() => {
-      const g = document.querySelector(".meals-feeder .lib-grid, .meals-feeder .lib-list"); const [a, b] = g ? [...g.children] : [];
+      const list = document.querySelector(".meals-feeder .ask-search-list .lib");
+      const first = list && [...list.children].find((e) => !e.classList.contains("sr-only"));
       const t = (e) => (e ? [...e.querySelectorAll(".lib-new-t, .lib-new-s")].map((x) => x.textContent.trim()).join(" | ") : null);
-      return { first: a?.className, firstText: t(a), second: b?.className, secondText: t(b), sectionLink: !!document.querySelector(".meals-feeder .pick-aisle") };
+      const heads = [...document.querySelectorAll(".meals-feeder .meal-section .pick-aisle")].map((h) => ({ name: h.querySelector(".pick-aisle-name")?.textContent.trim(), link: h.querySelector("button.pick-aisle-new")?.textContent.trim() }));
+      return { first: first?.className, firstText: t(first), heads, newCard: !!document.querySelector(".meals-feeder .lib-newcard") };
     });
-    check("(a) the first two cards are \"+ New meal\" and \"✨ Ask the Galley\" (with its line); no section-scoped link",
-      head.first === "lib-newcard" && head.firstText === "New meal" && head.second === "lib-newcard galley" && head.secondText === "Ask the Galley | Not sure what to cook? Get ideas." && !head.sectionLink, JSON.stringify(head));
+    check("(a) \"✨ Ask the Galley\" is first, above the sections; no \"+ New meal\" card; \"No type yet\" carries \"+ New meal\"",
+      head.first === "lib-newrow galley" && head.firstText === "Ask the Galley | Not sure what to cook? Get ideas." && !head.newCard
+      && head.heads.length >= 1 && head.heads[head.heads.length - 1].name === "No type yet" && head.heads[head.heads.length - 1].link === "＋ New meal", JSON.stringify(head));
     // ✨ Ask the Galley: the new-meal sheet, opened at its Galley card (on screen), the name empty; Cancel
-    await p.evaluate(() => document.querySelector(".meals-feeder .lib-newcard.galley, .meals-feeder .lib-newrow.galley")?.click()); await sleep(1200);
+    await p.evaluate(() => document.querySelector(".meals-feeder .lib-newrow.galley")?.click()); await sleep(1200);
     const gal = await p.evaluate(() => { const c = document.querySelector(".modal .op-galley"); if (!c) return null; const r = c.getBoundingClientRect(); return { onScreen: r.top >= 0 && r.top < innerHeight - 40, name: document.querySelector('.modal input.modal-input[placeholder="Taco Night"]')?.value, suspended: !!document.querySelector(".meals-feeder.open.suspended") }; });
     check("✨ Ask the Galley opens the new-meal sheet at the Galley (on screen), the layer stepped aside", !!gal && gal.onScreen && gal.name === "" && gal.suspended, JSON.stringify(gal));
     await p.evaluate(() => [...document.querySelectorAll(".modal .modal-cancel")].find((e) => /Cancel/.test(e.textContent))?.click()); await sleep(800);
     check("the placeholder reads \"Type a meal, or scroll and tap\"", (await p.$eval(field, (i) => i.placeholder)) === "Type a meal, or scroll and tap");
-    await p.evaluate(() => document.querySelector(".meals-feeder .lib-grid .lib-newcard, .meals-feeder .lib-list .lib-newrow")?.click()); await sleep(900);
+    await p.evaluate(() => { const h = [...document.querySelectorAll(".meals-feeder .meal-section .pick-aisle")].find((e) => e.querySelector(".pick-aisle-name")?.textContent.trim() === "No type yet"); h?.querySelector("button.pick-aisle-new")?.click(); }); await sleep(900);
     check("(a) the new-meal sheet opens empty", (await sheetName()) === "", JSON.stringify(await sheetName()));
     await p.click('.modal input.modal-input[placeholder="Taco Night"]'); await p.type('.modal input.modal-input[placeholder="Taco Night"]', HEADED, { delay: 15 });
     await save(); made.push(HEADED);
