@@ -52,3 +52,31 @@ export function staplesHintVisit(storage) {
 
 // R2: Done → a toast "N added", only when something was added this visit.
 export const addedToastText = (n) => (n > 0 ? `${n} added` : null);
+
+// The List feeder's search create (Dan's household test): a typed name with no exact match is added from a
+// "+ Add '{query}'" row whose aisle is GUESSED from the household's own catalog and shown as a pill that can
+// be changed before adding. The guess: the aisle of the catalog item sharing the most words with the typed
+// name (words of 3+ letters, a plural folded to its singular on both sides — "apples" / "Gala apple"); then
+// the item whose whole name the typed name covers ("cherry tomatoes": "Tomatoes" in Produce beats "Canned
+// Tomatoes" in Pantry); then the aisle with more such items. No shared word → the fallback ("Other").
+// items: [{ name, rawCategory }]; skip: aisles never to guess (the staples pseudo-aisle).
+const guessWords = (s) => String(s || "").toLowerCase().split(/[^a-z0-9]+/)
+  .filter((w) => w.length >= 3)
+  .map((w) => (w.endsWith("ies") ? `${w.slice(0, -3)}y` : w.endsWith("oes") ? w.slice(0, -2) : w.endsWith("ss") ? w : w.endsWith("s") ? w.slice(0, -1) : w));
+export function guessAisle(query, items, { fallback = "Other", skip = [] } = {}) {
+  const q = new Set(guessWords(query));
+  if (!q.size) return fallback;
+  const best = {};
+  for (const it of items || []) {
+    if (!it || !it.rawCategory || skip.includes(it.rawCategory)) continue;
+    const words = guessWords(it.name);
+    const hit = words.filter((w) => q.has(w)).length;
+    if (!hit) continue;
+    const cov = hit / words.length;
+    const b = best[it.rawCategory] || { hit: 0, cov: 0, n: 0 };
+    const better = hit > b.hit || (hit === b.hit && cov > b.cov);
+    best[it.rawCategory] = { hit: better ? hit : b.hit, cov: better ? cov : b.cov, n: b.n + 1 };
+  }
+  const ranked = Object.entries(best).sort((a, b) => b[1].hit - a[1].hit || b[1].cov - a[1].cov || b[1].n - a[1].n);
+  return ranked.length ? ranked[0][0] : fallback;
+}

@@ -81,8 +81,12 @@ describe("R1/R2 — Plan is This Week only; Meals opens from + Add as the Meals 
     expect(APP).toContain('plan: { label: "Add a meal to this week", run: openMealsAdd }');
     expect(APP).not.toContain('setPlanScreen("library"); goToDoor("plan"); };');
   });
-  test("+ New meal: beside the first section header, and the no-match row of a search; both plan the meal on save", () => {
-    expect(APP).toContain('<button type="button" className="pick-aisle-new" onClick={() => feeder.onNewMeal("")}>＋ New meal</button>');
+  test("+ New meal: the first card of the grid (no section-scoped link), and the no-match row of a search; both plan the meal on save", () => {
+    expect(APP).toContain('<button type="button" className={newKind} onClick={() => feeder.onNewMeal("")}>');
+    expect(APP).not.toContain("meal-head");
+    expect(APP).toContain('<span className="lib-new-text"><span className="lib-new-t">Ask the Galley</span><span className="lib-new-s">Not sure what to cook? Get ideas.</span></span>');
+    expect(APP).toContain('onAskGalley: () => setMealSheet({ mode: "create", meal: null, name: "", planOnSave: true, galley: true })');
+    expect(APP).toContain('placeholder: "Type a meal, or scroll and tap"');
     expect(APP).toContain('<span className="pick-main"><span className="pick-name">Create <b>“{newName}”</b> as a new meal</span></span>');
     expect(APP).toContain('onNewMeal: (name) => setMealSheet({ mode: "create", meal: null, name, planOnSave: true })');
     expect(APP).toContain('if (mealSheet.mode === "create" && mealSheet.planOnSave && typeof ok === "string") await handlePlanMeal(ok);');
@@ -97,6 +101,49 @@ describe("R1/R2 — Plan is This Week only; Meals opens from + Add as the Meals 
     expect(addedToastText(0)).toBeNull();
     expect(addedToastText(1)).toBe("1 added");
     expect(addedToastText(3)).toBe("3 added");
+  });
+});
+
+describe("the search create's aisle guess", () => {
+  const { guessAisle } = require("./oneAdd");
+  const items = [
+    { name: "Apples", rawCategory: "Produce" }, { name: "Tomatoes", rawCategory: "Produce" }, { name: "Berries", rawCategory: "Produce" },
+    { name: "Chicken Breast", rawCategory: "Meat & Seafood" }, { name: "Chicken Stock", rawCategory: "Pantry" }, { name: "Chicken Thighs", rawCategory: "Meat & Seafood" },
+    { name: "Whole Milk", rawCategory: "Dairy" }, { name: "Glass Cleaner", rawCategory: "Household" }, { name: "Apples", rawCategory: "⭐ My Custom Items" },
+  ];
+  test("a shared word picks its aisle, plurals folded both ways", () => {
+    expect(guessAisle("Gala apple", items)).toBe("Produce");
+    expect(guessAisle("cherry tomato", items)).toBe("Produce");
+    expect(guessAisle("blueberry", items)).toBe("Other");
+    expect(guessAisle("oat milk", items)).toBe("Dairy");
+    expect(guessAisle("glass jars", items)).toBe("Household");
+  });
+  test("the item whose whole name is covered beats more partial matches (\"cherry tomatoes\" → Produce)", () => {
+    const more = [...items, { name: "Canned Tomatoes", rawCategory: "Pantry" }, { name: "Diced Tomatoes", rawCategory: "Pantry" }, { name: "Tomato Paste", rawCategory: "Pantry" }];
+    expect(guessAisle("cherry tomatoes", more)).toBe("Produce");
+    expect(guessAisle("canned tomatoes", more)).toBe("Pantry");
+  });
+  test("ties go to the aisle with more matching items; no match → the fallback; skipped aisles never", () => {
+    expect(guessAisle("chicken wings", items)).toBe("Meat & Seafood");
+    expect(guessAisle("chicken stock cubes", items)).toBe("Pantry");
+    expect(guessAisle("zz", items)).toBe("Other");
+    expect(guessAisle("widget", items, { fallback: "Household" })).toBe("Household");
+    expect(guessAisle("apple", items, { skip: ["Produce"] })).toBe("⭐ My Custom Items");
+    expect(guessAisle("apple", items, { skip: ["Produce", "⭐ My Custom Items"] })).toBe("Other");
+  });
+});
+
+describe("the List feeder's search create (flag on)", () => {
+  test("placeholder; the teal + Add row first with the guessed aisle as a pill; return adds; + New {aisle} item", () => {
+    expect(APP).toContain('placeholder: feeder ? "Type anything, or scroll and tap" : "Type, or scroll and tap"');
+    expect(APP).toContain('<span className="pick-main"><span className="pick-name">Add <b>“{q}”</b></span></span>');
+    expect(APP).toContain("const guessed = offerAdd ? guessAisle(q, items, { skip: [STAPLES_CATEGORY] }) : null;");
+    expect(APP).toContain("onSubmit={feeder ? submit : null}");
+    expect(APP).toContain("{addCard}");
+    expect(APP).toContain('{short ? "＋ New item" : `＋ New ${aisle} item`}');
+    expect(APP).toContain("const res = await addSearchedItem(rawCategory || \"Other\", text, pickOpts(flag));");
+    // the quick picker (flag off) keeps its create row at the end
+    expect(APP).toContain("createSlot={feeder ? null : (");
   });
 });
 

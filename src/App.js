@@ -72,9 +72,11 @@ import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { ASK_ENABLED, ASK_FLAG_MARKER, ONE_ADD_ENABLED, ONE_ADD_FLAG_MARKER } from './lib/featureFlags';
-import { routeView, helmDoors, listStatusLine, addedToastText, askPill, staplesHintVisit, STAPLES_HINT } from './lib/oneAdd';
+import { routeView, helmDoors, listStatusLine, addedToastText, askPill, staplesHintVisit, STAPLES_HINT, guessAisle } from './lib/oneAdd';
 import { trace } from '@opentelemetry/api';
 import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
+// The staples pseudo-aisle: never a guess for a new item, never one of its aisle pills.
+const STAPLES_CATEGORY = "⭐ My Custom Items";
 
 // Same proxy pattern as ActiveHouseholdContext: binds to the provider rum.js
 // registers; a no-op provider stands in with no RUM token.
@@ -797,7 +799,7 @@ const SEARCH_EYEBROW_STYLE = { padding: "0 0 8px", fontFamily: "'Lato', sans-ser
 
 const normalizeSearchName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
 
-function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, createSlot, listClassName, showCount = true }) {
+function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, createSlot, listClassName, showCount = true, noResultsLine = true }) {
   const normQuery = normalizeSearchName(query);
   const exactInResults = results.some(r => normalizeSearchName(r.name) === normQuery);
   // Exact-match-wins: create is offered only when NOTHING matches exactly.
@@ -848,7 +850,7 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
           </div>
         </>
       )}
-      {results.length === 0 && !hiddenMatch && (
+      {results.length === 0 && !hiddenMatch && noResultsLine && (
         <div style={SEARCH_EYEBROW_STYLE}>No results for "{query}"</div>
       )}
       {/* ── CREATE: the surface decides what "add as new" looks like ── */}
@@ -888,7 +890,36 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 //   rail, sheetButton, hint: nodes (R3 / R4) · suspended: bool
 //   wrapRow(item, node) — Browse's swipe (Hide / Edit / ★ Staple) around a row · isStaple(name) — the row's ★
 //   closeRef — set to this view's close, so App can end the visit (an Ask pill hands over to a run) }
+// The feeder's section header (one add): the aisle's name and "+ New {aisle} item" (that aisle prefilled), or
+// "+ New item" when the long link would not fit beside the name on one line (measured, and again on resize).
+function AisleHead({ name, aisle, onNew }) {
+  const ref = useRef(null);
+  const [short, setShort] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const fit = () => {
+      const nm = el.querySelector(".pick-aisle-name"), long = el.querySelector(".pick-aisle-measure");
+      if (!nm || !long) return;
+      setShort(nm.scrollWidth + 12 + long.scrollWidth > el.clientWidth);
+    };
+    fit();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [name, aisle]);
+  return (
+    <div className="pick-aisle" ref={ref}>
+      <span className="pick-aisle-name">{name}</span>
+      <button type="button" className="pick-aisle-new" onClick={onNew}>{short ? "＋ New item" : `＋ New ${aisle} item`}</button>
+      <span className="pick-aisle-new pick-aisle-measure" aria-hidden="true">＋ New {aisle} item</span>
+    </div>
+  );
+}
 export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate, onReveal, onUndo, onTapListed, onClosed, feeder = null }) {
+  const [pickedAisle, setPickedAisle] = useState(null);   // one add: the aisle chosen over the guess, for this name
+  const [aislePick, setAislePick] = useState(false);      // one add: every aisle shown, to change the guess
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState(null);   // { text }
   const [fresh, setFresh] = useState(() => new Set());   // catalog ids added this visit
@@ -1013,10 +1044,7 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
       ))
       : feeder.sections.map((sec) => (
         <div key={sec.rawName} className="pick-group">
-          <div className="pick-aisle">
-            <span className="pick-aisle-name">{sec.name}</span>
-            <button type="button" className="pick-aisle-new" onClick={() => feeder.onNewItem(sec.rawName)}>＋ New item</button>
-          </div>
+          <AisleHead name={sec.name} aisle={categoryRailLabel(sec.rawName)} onNew={() => feeder.onNewItem(sec.rawName)} />
           {rows(sec.items)}
         </div>
       ));
@@ -1030,10 +1058,57 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
       </>
     );
   };
+  // ONE ADD — the feeder's create path is search (Dan's household test). With no exact match (and no hidden
+  // one), the first row is a teal "+ Add “{query}”" that creates the item and puts it on the list, in an aisle
+  // GUESSED from the household's catalog (guessAisle), shown as a pill: tap it for every aisle (the Ask create
+  // card's pills) and pick another before adding. The return key does the same; with an exact match it adds
+  // that item. After an add the field empties and keeps the focus, for the next name.
+  const results = q ? filterItems(items, q) : [];
+  const exact = q ? results.find((it) => normalizeSearchName(it.name) === normalizeSearchName(q)) : null;
+  const hidden = q ? hiddenFor(q) : null;
+  const offerAdd = !!feeder && !!q && !exact && !hidden;
+  const guessed = offerAdd ? guessAisle(q, items, { skip: [STAPLES_CATEGORY] }) : null;
+  const aisleNow = offerAdd ? (pickedAisle || guessed) : null;
+  const aisleOf = (raw) => (feeder?.aisles || []).find((c) => c.rawName === raw) || { rawName: raw, label: categoryRailLabel(raw), glyph: categoryGlyph(raw) };
+  const cleared = () => { setQuery(""); setPickedAisle(null); setAislePick(false); };
+  const done = (r) => { answer(r); if (r && (r.kind === "added" || r.kind === "renewed" || r.kind === "revealed")) cleared(); };
+  const addTyped = () => { const text = q; const cat = aisleNow; once(`new:${text}`, async () => done(await onCreate(text, cat))); };
+  const submit = () => {
+    if (!q) return;
+    if (offerAdd) { addTyped(); return; }
+    if (exact) { if (statusOf(exact.id) !== "on") once(exact.id, async () => done(await onAdd(exact, statusOf(exact.id)))); return; }
+    if (hidden) once(hidden.item.id, async () => done(await onReveal(hidden, q)));
+  };
+  const addCard = offerAdd && (
+    <div className="pick-addcard">
+      <button type="button" className="pick-row pick-add-new" onMouseDown={keepFocus} onClick={addTyped}>
+        <span className="pick-mark on" aria-hidden="true">+</span>
+        <span className="pick-main"><span className="pick-name">Add <b>“{q}”</b></span></span>
+      </button>
+      <div className="pick-addcard-aisle">
+        <span className="pick-addcard-in">in</span>
+        <button type="button" className={`cat-pill on pick-aisle-pill${aislePick ? " open" : ""}`} aria-expanded={aislePick} onMouseDown={keepFocus}
+          aria-label={`Aisle: ${aisleOf(aisleNow).label}. Change the aisle`} onClick={() => setAislePick((v) => !v)}>
+          <span className="cat-em">{aisleOf(aisleNow).glyph}</span>{aisleOf(aisleNow).label}<span className="pick-aisle-caret" aria-hidden="true">▾</span>
+        </button>
+      </div>
+      {aislePick && (
+        <div className="cat-grid" role="group" aria-label="Aisle for the new item">
+          {(feeder.aisles || []).map((cat) => (
+            <button key={cat.rawName} type="button" className={`cat-pill${cat.rawName === aisleNow ? " on" : ""}`} onMouseDown={keepFocus}
+              onClick={() => { setPickedAisle(cat.rawName); setAislePick(false); }}>
+              <span className="cat-em">{cat.glyph}</span>{cat.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
   return (
     <ItemSearchView search={search} onClose={close} query={query} onQuery={setQuery} label="Add to our list" title="Add to our list"
       subtitle={feeder ? `What do we need? · ${items.length} ${items.length === 1 ? "item" : "items"}` : null}
-      input={{ className: "modal-input", placeholder: feeder ? "Search our provisions…" : "Type, or scroll and tap", name: "list-pick-search", ariaLabel: "Type to find an item" }}
+      onSubmit={feeder ? submit : null}
+      input={{ className: "modal-input", placeholder: feeder ? "Type anything, or scroll and tap" : "Type, or scroll and tap", name: "list-pick-search", ariaLabel: "Type to find an item" }}
       listTestId="list-picker" className={`item-picker${feeder ? " feeder" : ""}`}
       fieldAside={feeder ? (
         <>
@@ -1052,20 +1127,24 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
         </div>
       )}>
       {q ? (
-        <SearchResultsList
-          query={query}
-          results={filterItems(items, q)}
-          hiddenMatch={hiddenFor(q)}
-          onReveal={(m) => once(m.item.id, async () => answer(await onReveal(m, q)))}
-          showCount={false}
-          renderRow={row}
-          createSlot={
-            <button type="button" className="pick-row pick-create" onMouseDown={keepFocus}
-              onClick={() => once(`new:${q}`, async () => answer(await onCreate(q)))}>
-              <span className="pick-main"><span className="pick-name">+ Add <b>“{q}”</b> as a new item</span></span>
-            </button>
-          }
-        />
+        <>
+          {addCard}
+          <SearchResultsList
+            query={query}
+            results={results}
+            hiddenMatch={hidden}
+            onReveal={(m) => once(m.item.id, async () => answer(await onReveal(m, q)))}
+            showCount={false}
+            noResultsLine={!feeder}
+            renderRow={row}
+            createSlot={feeder ? null : (
+              <button type="button" className="pick-row pick-create" onMouseDown={keepFocus}
+                onClick={() => once(`new:${q}`, async () => answer(await onCreate(q)))}>
+                <span className="pick-main"><span className="pick-name">+ Add <b>“{q}”</b> as a new item</span></span>
+              </button>
+            )}
+          />
+        </>
       ) : feeder ? feederBody() : letterGroups(items).map((g) => (
         <div key={g.letter} className="pick-group">
           <div className="pick-letter" aria-hidden="true">{g.letter}</div>
@@ -3649,7 +3728,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
       <ItemSearchView search={feeder.search} onClose={feeder.onDone} query={query} onQuery={setQuery}
         label="Add to this week" title="Add to this week"
         subtitle={`What sounds good? · ${meals.length} ${meals.length === 1 ? "meal" : "meals"}`}
-        input={{ className: "modal-input", placeholder: "Search our meals…", name: "meals-feeder-search", ariaLabel: "Search our meals" }}
+        input={{ className: "modal-input", placeholder: "Type a meal, or scroll and tap", name: "meals-feeder-search", ariaLabel: "Search our meals" }}
         listTestId="meals-feeder" className="meals-feeder" fieldAside={aside} tools={tools}
         suspended={!!(feeder.suspended || typeFor || draft)}>
         {body}
@@ -3811,15 +3890,30 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         </button>
       </>
     );
-    // The first section header, with "+ New meal" beside it (the List feeder's aisle header + "+ New item").
-    const head = feeder.onNewMeal && isSignedIn ? (
-      <div className="pick-aisle meal-head">
-        <span className="pick-aisle-name">{occ === "all" ? "Our meals" : OCCASION_PILL[occ]}</span>
-        <button type="button" className="pick-aisle-new" onClick={() => feeder.onNewMeal("")}>＋ New meal</button>
-      </div>
+    // The first cards of the grid (the first rows of the list): "+ New meal" and "✨ Ask the Galley" (the same
+    // new-meal sheet, opened at its Galley card). No section-scoped link on Meals.
+    const newKind = libView === "list" ? "lib-newrow" : "lib-newcard";
+    const newCard = feeder.onNewMeal && isSignedIn ? (
+      <>
+        <button type="button" className={newKind} onClick={() => feeder.onNewMeal("")}>
+          <span className="lib-new-plus" aria-hidden="true">+</span><span className="lib-new-t">New meal</span>
+        </button>
+        {feeder.onAskGalley && (
+          <button type="button" className={`${newKind} galley`} onClick={feeder.onAskGalley}>
+            <span className="lib-new-plus" aria-hidden="true">✨</span>
+            <span className="lib-new-text"><span className="lib-new-t">Ask the Galley</span><span className="lib-new-s">Not sure what to cook? Get ideas.</span></span>
+          </button>
+        )}
+      </>
     ) : null;
+    const feederCards = (
+      <div className={libView === "list" ? "lib-list" : "lib-grid"}>
+        {newCard}
+        {cards.props.children}
+      </div>
+    );
     return feederShell(
-      <div className="lib oneadd">{verbs}{head}{shown.length === 0 && createRow ? createRow : emptyLine}{cards}{createTile}</div>,
+      <div className="lib oneadd">{verbs}{shown.length === 0 && createRow ? createRow : emptyLine}{feederCards}{createTile}</div>,
       aside,
       <div className="feeder-rail meals-rail">{activeChips}{rail}</div>,
       sheets,
@@ -3928,7 +4022,7 @@ function GoodForChips({ value, onChange, style }) {
 // giver's note (not editable, never saved on the meal). The doors stay folded, Cancel reads "Not for us"
 // and Save reads "Add to our meals". The receipt and the photo copy run in the caller after the save.
 // initialName (one add): a create opened from the Meals feeder's search ("Create “{query}” as a new meal") starts named.
-export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn, gift = null, initialName = "" }) {
+export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn, gift = null, initialName = "", openAtGalley = false }) {
   const isEdit = mode === "edit";
   const [name, setName] = useState(isEdit ? (meal?.name || "") : initialName);
   const [rows, setRows] = useState(() =>
@@ -4003,6 +4097,14 @@ export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting
   const aiSnapshotRef = useRef(null);
   const aiCardRef = useRef(null);   // the thinking card, scrolled into view on Ask (either door)
   const galleyCardRef = useRef(null);   // the Galley card: "inside the Galley" for its focus state (galleyFocused)
+  // One add: the Meals feeder's "✨ Ask the Galley" opens the sheet AT its Galley card — scrolled to it, never
+  // focused (no autofocus in this sheet: iOS would raise the keyboard over the fields).
+  useEffect(() => {
+    if (!openAtGalley) return undefined;
+    const t = setTimeout(() => galleyCardRef.current?.scrollIntoView({ block: "start", behavior: "auto" }), 60);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on open
+  }, []);
 
   // Reading a recipe (SPEC_recipe_import chunk 2, now inside the one Galley card —
   // SPEC_galley_composer). The text box is `aiText` above, shared by every mode;
@@ -8853,10 +8955,11 @@ function ProvisionsApp({ scrollRootRef }) {
   };
   // No match → a new item under `Other` (D7), through Browse's addSearchedItem, which resolves hidden items
   // before anything else (F1b). Its row is fresh, so it is undoable like any other.
-  const pickerCreate = async (text) => {
+  // rawCategory: the List feeder's guessed (or chosen) aisle; the quick picker keeps "Other".
+  const pickerCreate = async (text, rawCategory = "Other") => {
     if (pickerOffGrid()) return pickNeedsSignal;
     const flag = {};
-    const res = await addSearchedItem("Other", text, pickOpts(flag));
+    const res = await addSearchedItem(rawCategory || "Other", text, pickOpts(flag));
     if (!res) return pickFailed(flag);
     noteAddedHere(res);
     return { kind: "added", id: res.catalogItemId };
@@ -8941,6 +9044,12 @@ function ProvisionsApp({ scrollRootRef }) {
     layout: feederLayout,
     onLayout: chooseFeederLayout,
     onNewItem: (rawCategory) => openAddItem({ category: rawCategory }),
+    // The search create's aisle pills: every household aisle (the Ask create card's set), plus "Other" (the
+    // guess's fallback) when the household has none of that name.
+    aisles: [
+      ...categories.filter((cat) => cat.rawName !== STAPLES_CATEGORY).map((cat) => ({ rawName: cat.rawName, label: categoryRailLabel(cat.rawName), glyph: categoryGlyph(cat.rawName) })),
+      ...(categories.some((cat) => cat.rawName === "Other") ? [] : [{ rawName: "Other", label: "Other", glyph: categoryGlyph("Other") }]),
+    ],
     rail: feederRail,
     hint: feederHint && !hasStaples ? <div className="feeder-hint" role="note"><span aria-hidden="true">★</span> {STAPLES_HINT}</div> : null,
     sheetButton: (
@@ -11199,6 +11308,21 @@ function ProvisionsApp({ scrollRootRef }) {
         .pick-aisle { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 16px 0 4px; }
         .pick-aisle-name { font-family: 'Playfair Display', serif; font-weight: 700; font-size: calc(17px * (1 + (var(--op-text-scale) - 1) * 0.5)); color: #2C1A0E; }
         .pick-aisle-new { flex: none; border: none; background: none; padding: 10px 0; cursor: pointer; font: 700 calc(13px * var(--op-text-scale)) 'Lato', sans-serif; color: #8A5F3A; }
+        /* The link's long form, measured off screen: AisleHead falls back to "+ New item" when it won't fit beside the name. */
+        .pick-aisle { position: relative; }
+        .pick-aisle-measure { position: absolute; visibility: hidden; pointer-events: none; white-space: nowrap; left: 0; top: 0; }
+        .pick-aisle-new { white-space: nowrap; }
+        /* The search create (one add): the teal "+ Add “…”" row, then "in" + the guessed aisle as a pill (tap: every aisle). */
+        .pick-addcard { margin: 4px 0 10px; padding: 0 0 12px; border-bottom: 1px solid #EADFCF; }
+        .pick-add-new { border-bottom: none; }
+        .pick-add-new .pick-name { color: #0A776D; font-weight: 400; }
+        .pick-add-new .pick-name b { font-weight: 700; color: #0A776D; }
+        .pick-add-new .pick-mark.on { font-size: 22px; }
+        .pick-addcard-aisle { display: flex; align-items: center; gap: 8px; padding: 0 4px; }
+        .pick-addcard-in { font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif; color: #8a7a60; }
+        .pick-aisle-pill { display: inline-flex; }
+        .pick-aisle-caret { margin-left: 6px; font-size: 0.7em; opacity: 0.8; }
+        .pick-addcard .cat-grid { margin-top: 10px; }
         .pick-empty { padding: 24px 4px; font: italic 400 calc(15px * var(--op-text-scale)) 'Playfair Display', serif; color: #8a7a60; }
         .pick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
         .pick-grid .pick-row { min-height: 72px; padding: 10px 10px 10px 12px; border: 1.5px solid #EADFCF; border-radius: 14px; background: #fff; align-items: flex-start; }
@@ -11243,9 +11367,23 @@ function ProvisionsApp({ scrollRootRef }) {
         .meals-feeder .meals-rail .lib-active { margin: 0 0 8px; }
         .meals-feeder .meals-rail .lib-hint { margin: 2px 0 4px; }
         .meals-feeder .ask-search-list { padding-top: 8px; padding-bottom: 96px; }
-        /* The first section header + "+ New meal" (the List feeder's aisle header), and the no-match create row. */
-        .meals-feeder .meal-head { margin: 4px 0 10px; }
+        /* "+ New meal" first in the grid (a dashed card the height of its row) / the list (a row), and the
+           search's no-match create row. */
         .meals-feeder .meal-create { margin: 0 0 12px; }
+        .meals-feeder .lib-grid .lib-newcard { grid-row: span 3; margin-bottom: 16px; min-height: 150px; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 8px; border: 1.5px dashed #C9A26A; border-radius: 14px; background: transparent;
+          cursor: pointer; font: 700 calc(15px * var(--op-text-scale)) 'Lato', sans-serif; color: #8A5F3A; }
+        .meals-feeder .lib-newcard .lib-new-plus { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid #C9A26A; display: grid; place-items: center;
+          font: 400 22px/1 'Lato', sans-serif; color: #9A7350; }
+        .meals-feeder .lib-list .lib-newrow { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 4px; margin-bottom: 8px;
+          border: 1.5px dashed #C9A26A; border-radius: 12px; background: transparent; cursor: pointer; font: 700 calc(15px * var(--op-text-scale)) 'Lato', sans-serif; color: #8A5F3A; }
+        .meals-feeder .lib-newcard.galley .lib-new-plus, .meals-feeder .lib-newrow.galley .lib-new-plus { font-size: 18px; }
+        .meals-feeder .lib-new-text { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
+        .meals-feeder .lib-newrow .lib-new-text { align-items: flex-start; text-align: left; }
+        .meals-feeder .lib-new-s { font: 400 calc(13px * var(--op-text-scale)) 'Lato', sans-serif; color: #8a7a60; padding: 0 10px; }
+        .meals-feeder .lib-newrow .lib-new-s { padding: 0; }
+        .meals-feeder .lib-newrow .lib-new-plus { width: 36px; height: 36px; margin-left: 12px; border-radius: 50%; border: 1.5px solid #C9A26A; display: grid; place-items: center;
+          font: 400 22px/1 'Lato', sans-serif; color: #9A7350; }
         .cat-pill.occ { padding: 9px 16px; flex: none; }
         .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
                       padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
@@ -13286,6 +13424,7 @@ function ProvisionsApp({ scrollRootRef }) {
           isSignedIn={isSignedIn}
           gift={mealSheet.mode === "create" ? mealSheet.gift || null : null}
           initialName={mealSheet.mode === "create" ? mealSheet.name || "" : ""}
+          openAtGalley={mealSheet.mode === "create" && !!mealSheet.galley}
         />
       )}
 
@@ -13978,7 +14117,8 @@ function ProvisionsApp({ scrollRootRef }) {
       {ONE_ADD_ENABLED && MEALS_ENABLED && (
         <MealsLens
           feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(recipeView || mealSheet || giftArrival || thankYou || onHandPrompt),
-            onNewMeal: (name) => setMealSheet({ mode: "create", meal: null, name, planOnSave: true }) }}
+            onNewMeal: (name) => setMealSheet({ mode: "create", meal: null, name, planOnSave: true }),
+            onAskGalley: () => setMealSheet({ mode: "create", meal: null, name: "", planOnSave: true, galley: true }) }}
           textSizeIdx={textSizeIdx}
           onSetOccasion={handleSetOccasion}
           meals={libraryCards}

@@ -74,11 +74,14 @@ export function useItemSearch() {
 // One add (SPEC_results_feeder_standard R2, flag-on hosts only; every one defaults to today's view):
 //   fieldAside — controls beside the field in the title variant (the layout toggle, View & filter).
 //   tools      — a row under the field (the rail), above the count and the list.
+//   onSubmit   — the return key with text in the field: the host's add (the List feeder adds what was typed);
+//                the field keeps the focus, so the keyboard stays up for the next. Without it, return only
+//                drops the keyboard.
 //   subtitle   — a status line under the title in the title bar ("What do we need? · N items").
 //   suspended  — the view stays open (its state, its query) but is hidden while a sheet the feeder
 //                opened sits over the app (New item, View & filter, the Ask chooser); those sheets live in
 //                the app's tree below this portal's z 2100, so the feeder steps aside rather than out-stack them.
-export function ItemSearchView({ search, onClose, query, onQuery, label, input = {}, title = null, subtitle = null, count = null, listTestId, className = "", overlay = null, fieldAside = null, tools = null, suspended = false, children }) {
+export function ItemSearchView({ search, onClose, query, onQuery, label, input = {}, title = null, subtitle = null, onSubmit = null, count = null, listTestId, className = "", overlay = null, fieldAside = null, tools = null, suspended = false, children }) {
   const { open, viewRef, viewBox, setViewBox, inputRef } = search;
 
   useEffect(() => {
@@ -152,7 +155,11 @@ export function ItemSearchView({ search, onClose, query, onQuery, label, input =
     <input ref={inputRef} className={input.className || "modal-input"} type="search" autoComplete="off" placeholder={input.placeholder}
       name={input.name} enterKeyHint="search" autoCorrect="off" tabIndex={open ? 0 : -1}
       aria-label={input.ariaLabel} value={query} onChange={(e) => onQuery(e.target.value)}
-      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} />
+      onKeyDown={(e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        if (onSubmit && query.trim()) onSubmit(); else e.currentTarget.blur();
+      }} />
   );
   const done = (extra = "") => (
     <button type="button" className={`ask-search-done${extra}`} onClick={onClose} tabIndex={open ? 0 : -1}>Done</button>
