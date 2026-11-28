@@ -89,3 +89,28 @@ export function railCategoryTap(selected, raw) {
   if (selected.has(raw)) { const next = new Set(selected); next.delete(raw); return next; }
   return new Set([raw]);
 }
+
+// THE LANDSCAPE TIP (Dan's household test): on the empty List — and in Home's list card while the list is empty —
+// a phone whose household has 8+ staples, with no Ask run going, is told it can turn sideways for the staples.
+// One record per device, shared by both places: it stops for good after the first landscape use or 3 shows.
+// Storage that can't be read or written shows nothing (never nags forever).
+export const LANDSCAPE_TIP_KEY = "op_one_add_landscape_tip";
+export const LANDSCAPE_TIP_SHOWS = 3;
+export const LANDSCAPE_TIP_MIN_STAPLES = 8;
+export const LANDSCAPE_TIP = "Tip: turn your phone sideways to add our staples.";
+export const LANDSCAPE_TIP_HOME = "or turn your phone sideways for our staples";
+export function landscapeTipRead(storage) {
+  try {
+    const v = JSON.parse(storage.getItem(LANDSCAPE_TIP_KEY) || "{}") || {};
+    return { shows: Number(v.shows) || 0, used: !!v.used, ok: true };
+  } catch {
+    return { shows: 0, used: false, ok: false };
+  }
+}
+const landscapeTipWrite = (storage, v) => { try { storage.setItem(LANDSCAPE_TIP_KEY, JSON.stringify({ shows: v.shows, used: v.used })); return true; } catch { return false; } };
+export const landscapeTipDue = (state) => !!state && state.ok && !state.used && state.shows < LANDSCAPE_TIP_SHOWS;
+export function landscapeTipShown(storage) { const v = landscapeTipRead(storage); return v.ok && landscapeTipWrite(storage, { ...v, shows: v.shows + 1 }); }
+export function landscapeTipUsed(storage) { const v = landscapeTipRead(storage); return v.ok && landscapeTipWrite(storage, { ...v, used: true }); }
+// Who sees it at all: a phone (coarse pointer, short screen side ≤ 500 — landscape staples' own measure), 8+
+// staples, no Ask run.
+export const landscapeTipEligible = ({ phone, staples, askRun }) => !!phone && staples >= LANDSCAPE_TIP_MIN_STAPLES && !askRun;

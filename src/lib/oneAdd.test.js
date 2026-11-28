@@ -167,6 +167,46 @@ describe("the rail rule (both feeders)", () => {
   });
 });
 
+describe("the landscape tip gate", () => {
+  const T = require("./oneAdd");
+  const mem = () => { const m = {}; return { getItem: (k) => (k in m ? m[k] : null), setItem: (k, v) => { m[k] = String(v); }, m }; };
+  test("who: a phone, 8+ staples, no Ask run", () => {
+    expect(T.landscapeTipEligible({ phone: true, staples: 8, askRun: false })).toBe(true);
+    expect(T.landscapeTipEligible({ phone: true, staples: 7, askRun: false })).toBe(false);
+    expect(T.landscapeTipEligible({ phone: false, staples: 40, askRun: false })).toBe(false);
+    expect(T.landscapeTipEligible({ phone: true, staples: 40, askRun: true })).toBe(false);
+  });
+  test("3 shows, shared by Home and the List; the first landscape use ends it; storage that throws shows nothing", () => {
+    const s = mem();
+    expect(T.landscapeTipDue(T.landscapeTipRead(s))).toBe(true);
+    T.landscapeTipShown(s); T.landscapeTipShown(s);
+    expect(T.landscapeTipDue(T.landscapeTipRead(s))).toBe(true);
+    T.landscapeTipShown(s);
+    expect(T.landscapeTipRead(s).shows).toBe(3);
+    expect(T.landscapeTipDue(T.landscapeTipRead(s))).toBe(false);
+    const u = mem(); T.landscapeTipShown(u); T.landscapeTipUsed(u);
+    expect(T.landscapeTipRead(u)).toEqual({ shows: 1, used: true, ok: true });
+    expect(T.landscapeTipDue(T.landscapeTipRead(u))).toBe(false);
+    const bad = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+    expect(T.landscapeTipDue(T.landscapeTipRead(bad))).toBe(false);
+    expect(T.landscapeTipShown(bad)).toBe(false);
+    const junk = { getItem: () => "{not json", setItem: () => {} };
+    expect(T.landscapeTipDue(T.landscapeTipRead(junk))).toBe(false);
+    expect(T.LANDSCAPE_TIP).toBe("Tip: turn your phone sideways to add our staples.");
+    expect(T.LANDSCAPE_TIP_HOME).toBe("or turn your phone sideways for our staples");
+  });
+});
+
+describe("the landscape tip's places (flag on)", () => {
+  test("under the empty List's guide rows, and in Home's empty list card beside + Add items; the first landscape use ends it", () => {
+    expect(APP).toContain('return visible ? <p className="list-landscape-tip" role="note"><RotatePhoneIcon />{LANDSCAPE_TIP}</p> : null;');
+    expect(APP).toContain('{empty && tip && <span className="home-list-tip" role="note"><RotatePhoneIcon /><span>· {LANDSCAPE_TIP_HOME}</span></span>}');
+    expect(APP).toContain("const tip = useLandscapeTip(empty && tipEligible);");
+    expect(APP).toContain("const tipEligible = ONE_ADD_ENABLED && !tipUsedNow && landscapeTipEligible({ phone: tipPhone, staples: stapleCount, askRun: !!runAskId });");
+    expect(APP).toMatch(/if \(!ONE_ADD_ENABLED \|\| !landscapeStaples\) return;\s+try \{ landscapeTipUsed\(window\.localStorage\); \}/);
+  });
+});
+
 describe("Home's list card (flag on)", () => {
   test("empty: Our list is empty + \"+ Add items\" (the List feeder); with items: N things to get + Open list", () => {
     expect(APP).toContain('const title = empty ? "Our list is empty"');

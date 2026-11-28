@@ -51,7 +51,8 @@ test("on the source: Add items opens the picker in the tap; Browse carries Stapl
   expect(app).toMatch(/setStapleFilter\(view === "input" && pendingStaplesRef\.current\);\s*pendingStaplesRef\.current = false;/);
   // Plan: the library screen without one add; with it, the Meals feeder opened inside the tap (after the door switch).
   expect(app).toMatch(/const guidePlan = \(\) => \{\s*listGuideCta\("plan", null, household\?\.id\);\s*if \(ONE_ADD_ENABLED\) \{ goToDoor\("plan"\); openMealsFeeder\(\); \} else \{ setPlanScreen\("library"\); goToDoor\("plan"\); \}\s*\};/);
-  expect(app).toMatch(/<ListGuide hasStaples=\{hasStaples\} onAdd=\{guideAdd\} onBrowse=\{guideBrowse\} onPlan=\{guidePlan\} \/>/);
+  // one add passes the landscape tip (flag on only; without it the element is as before)
+  expect(app).toMatch(/<ListGuide hasStaples=\{hasStaples\} onAdd=\{guideAdd\} onBrowse=\{guideBrowse\} onPlan=\{guidePlan\} \{\.\.\.\(ONE_ADD_ENABLED \? \{ tip: <ListLandscapeTip eligible=\{tipEligible\} \/> \} : \{\}\)\} \/>/);
   expect(app).not.toMatch(/Your list is empty/);
 });
 

@@ -64,7 +64,7 @@ import ShopCheckbox from './components/ShopCheckbox';
 import { CHECK_HOLD_MS, undoAllIds, undoSettling } from './lib/shopCheck';
 import { useCheckUndos } from './hooks/useCheckUndos';
 import { useLandedHighlight } from './hooks/useLandedHighlight';
-import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS } from './hooks/useLandscapePhone';
+import { useLandscapePhone, isTextEntry, LANDSCAPE_PHONE_QUERY, LANDSCAPE_ELIGIBLE_CLASS, LANDSCAPE_MAX_HEIGHT } from './hooks/useLandscapePhone';
 import { landscapeItems, staplesAddedLine } from './lib/landscapeStaples';
 import { LandscapeStaples } from './components/LandscapeStaples';
 import { CategoryHeader, CATEGORY_HEADER_ACTION } from './components/CategoryHeader';
@@ -72,7 +72,8 @@ import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { ASK_ENABLED, ASK_FLAG_MARKER, ONE_ADD_ENABLED, ONE_ADD_FLAG_MARKER } from './lib/featureFlags';
-import { routeView, helmDoors, listStatusLine, addedToastText, askPill, staplesHintVisit, STAPLES_HINT, guessAisle, railCategoryTap } from './lib/oneAdd';
+import { routeView, helmDoors, listStatusLine, addedToastText, askPill, staplesHintVisit, STAPLES_HINT, guessAisle, railCategoryTap,
+  LANDSCAPE_TIP, LANDSCAPE_TIP_HOME, landscapeTipRead, landscapeTipDue, landscapeTipShown, landscapeTipUsed, landscapeTipEligible } from './lib/oneAdd';
 import { trace } from '@opentelemetry/api';
 import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
 // The staples pseudo-aisle: never a guess for a new item, never one of its aisle pills.
@@ -1171,7 +1172,31 @@ const GUIDE_ICONS = {
   browse: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>,
   plan: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 6v3M5 10l2 1.5M19 10l-2 1.5" /></svg>,
 };
-export function ListGuide({ hasStaples, onAdd, onBrowse, onPlan }) {
+// THE LANDSCAPE TIP (one add; rules in src/lib/oneAdd.js). Visible when the surface says it may be (eligible)
+// and this device's record says it is still due; a show is counted once per appearance. The record is read when
+// the surface mounts; App takes `eligible` away the moment the phone is used sideways.
+const RotatePhoneIcon = () => (
+  <svg className="tip-rotate" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="7" y="3" width="10" height="16" rx="2" transform="rotate(-30 12 11)" /><path d="M3.5 15.5a8.5 8.5 0 0 0 6 5" /><path d="m9.2 22.2.3-1.7-1.6-.6" />
+  </svg>
+);
+function useLandscapeTip(eligible) {
+  const [state] = useState(() => { let st = null; try { st = window.localStorage; } catch { st = null; } return st ? landscapeTipRead(st) : null; });
+  const visible = ONE_ADD_ENABLED && !!eligible && landscapeTipDue(state);
+  const counted = useRef(false);
+  useEffect(() => {
+    if (!visible || counted.current) return;
+    counted.current = true;
+    try { landscapeTipShown(window.localStorage); } catch { /* storage blocked: nothing counted, nothing shown next time */ }
+  }, [visible]);
+  return visible;
+}
+export function ListLandscapeTip({ eligible }) {
+  const visible = useLandscapeTip(eligible);
+  return visible ? <p className="list-landscape-tip" role="note"><RotatePhoneIcon />{LANDSCAPE_TIP}</p> : null;
+}
+// tip (one add): the landscape tip, under the rows.
+export function ListGuide({ hasStaples, onAdd, onBrowse, onPlan, tip = null }) {
   const row = (key, label, sub, onClick, teal = false) => (
     <button type="button" className={`list-guide-row${teal ? " teal" : ""}`} onClick={onClick}>
       <span className="list-guide-ico">{GUIDE_ICONS[key]}</span>
@@ -1188,6 +1213,7 @@ export function ListGuide({ hasStaples, onAdd, onBrowse, onPlan }) {
       {row("add", "Add items", ONE_ADD_ENABLED ? "Search, or pick from our aisles and staples." : "I know what we need.", onAdd, true)}
       {!ONE_ADD_ENABLED && row("browse", hasStaples ? "Browse our staples" : "Browse the aisles", "Remind me what we might need.", onBrowse)}
       {row("plan", "Plan a meal", ONE_ADD_ENABLED ? "Build or choose a meal, and we'll add what it needs." : "I know what I want to cook.", onPlan)}
+      {tip}
       <p className="list-guide-foot">One list for everyone in your household.<br />At the store, check things off here.</p>
     </div>
   );
@@ -1501,8 +1527,9 @@ export function OnDeckCard({
 
 // THE LIST CARD (one add) — the deck's card, eyebrow "List". total = live rows, open = unchecked (the Helm's
 // badge number), checked = in the cart. Counts sit in .deck-title (masked); the buttons carry fixed copy only.
-function HomeListCard({ total, open, checked, onAdd, onOpen }) {
+function HomeListCard({ total, open, checked, onAdd, onOpen, tipEligible = false }) {
   const empty = !total;
+  const tip = useLandscapeTip(empty && tipEligible);
   const title = empty ? "Our list is empty"
     : open > 0 ? `${open} thing${open === 1 ? "" : "s"} to get`
     : `All ${checked} in the cart`;
@@ -1516,6 +1543,7 @@ function HomeListCard({ total, open, checked, onAdd, onOpen }) {
         {empty
           ? <button type="button" className="deck-primary add" onClick={onAdd}>+ Add items</button>
           : <button type="button" className="deck-primary" onClick={onOpen}>Open list</button>}
+        {empty && tip && <span className="home-list-tip" role="note"><RotatePhoneIcon /><span>· {LANDSCAPE_TIP_HOME}</span></span>}
       </div>
     </section>
   );
@@ -9574,6 +9602,20 @@ function ProvisionsApp({ scrollRootRef }) {
   // landscape VISIT, 300ms behind the display, and never decides what is on screen.
   const landscapePhone = useLandscapePhone();
   const landscapeStaples = landscapePhone && landscapeEligible;
+  // One add — the landscape tip (src/lib/oneAdd.js): a phone (coarse pointer, short screen side ≤ landscape
+  // staples' 500), 8+ staples, no Ask run. The first time the landscape view really shows, the device's record
+  // says "used" and the tip goes at once.
+  const tipPhone = useMemo(() => {
+    try { return window.matchMedia("(pointer: coarse)").matches && Math.min(window.screen.width, window.screen.height) <= LANDSCAPE_MAX_HEIGHT; } catch { return false; }
+  }, []);
+  const stapleCount = useMemo(() => Object.values(catalogMap).filter((it) => it.is_staple).length, [catalogMap]);
+  const [tipUsedNow, setTipUsedNow] = useState(false);
+  useEffect(() => {
+    if (!ONE_ADD_ENABLED || !landscapeStaples) return;
+    try { landscapeTipUsed(window.localStorage); } catch { /* blocked storage: the tip never showed there */ }
+    setTipUsedNow(true);
+  }, [landscapeStaples]);
+  const tipEligible = ONE_ADD_ENABLED && !tipUsedNow && landscapeTipEligible({ phone: tipPhone, staples: stapleCount, askRun: !!runAskId });
   // Really sideways with a field focused: drop the focus (and the keyboard) so the class
   // above comes on and the view can show. A keyboard-shrunk portrait never gets here — the
   // hook's guard reads the screen as portrait.
@@ -11130,6 +11172,11 @@ function ProvisionsApp({ scrollRootRef }) {
         .list-welcome-sub { font-size: calc(13px * var(--op-text-scale)); line-height: 1.45; color: #5B4A3A; }
         .list-welcome-ok { margin-top: 4px; min-height: 50px; border: none; border-radius: 999px; background: #3A281C; color: #FFFDF9; cursor: pointer;
                            font: 700 calc(16px * var(--op-text-scale)) 'Lato', sans-serif; }
+        /* One add: the landscape tip under the guide's rows, and in Home's list card beside + Add items. */
+        .list-landscape-tip { display: flex; align-items: center; gap: 8px; margin: 12px 4px 0; font: 400 calc(13px * var(--op-text-scale)) 'Lato', sans-serif; color: #5B4A3A; }
+        .tip-rotate { flex: none; color: #8A5F3A; }
+        .home-list-tip { display: inline-flex; align-items: center; gap: 6px; font: 400 calc(13px * var(--op-text-scale)) 'Lato', sans-serif; color: #5B4A3A; }
+        .home-list-card .deck-actions { flex-wrap: wrap; }
         .list-guide-foot { margin: 10px 0 0; text-align: center; font-family: 'Lato', sans-serif; font-size: calc(13px * var(--op-text-scale)); line-height: 1.5; color: #5B4A3A; }
         /* THE LIST HEADER (SPEC_one_list R2, mockup "Our List — one list, one screen" screens 2 + 4): "Our list" in
            Playfair 400 at 28 (the page-title rate k .4), the list tools on the right, then a 1.5px sand hairline
@@ -12694,7 +12741,7 @@ function ProvisionsApp({ scrollRootRef }) {
             // One add: the list's card near the top. + Add items opens the List feeder inside the tap (its keyboard
             // rule), on List, so Done lands on Our list.
             listCard={ONE_ADD_ENABLED ? {
-              total: totalItems, open: totalItems - checkedCount, checked: checkedCount,
+              total: totalItems, open: totalItems - checkedCount, checked: checkedCount, tipEligible,
               onAdd: () => { goToDoor("list"); openPicker("home"); },
               onOpen: () => goToDoor("list"),
             } : null}
@@ -13203,7 +13250,7 @@ function ProvisionsApp({ scrollRootRef }) {
                 </div>
                 {/* THE GUIDE (R10): the empty list's three ways in. It goes with the first item and returns
                     whenever the list is empty again. */}
-                <ListGuide hasStaples={hasStaples} onAdd={guideAdd} onBrowse={guideBrowse} onPlan={guidePlan} />
+                <ListGuide hasStaples={hasStaples} onAdd={guideAdd} onBrowse={guideBrowse} onPlan={guidePlan} {...(ONE_ADD_ENABLED ? { tip: <ListLandscapeTip eligible={tipEligible} /> } : {})} />
               </>
             ) : (
               <>
