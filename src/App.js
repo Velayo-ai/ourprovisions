@@ -2163,10 +2163,10 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
   // Meals feeder titled "Add to this week" with Done (its `action`). One title, no switch.
   if (ONE_ADD_ENABLED) {
     return (
-      <div className={`plan-ctl${className ? ` ${className}` : ""}`} ref={rowRef}>
+      <div className={`plan-ctl results-head${className ? ` ${className}` : ""}`} ref={rowRef}>
         <div className="plan-ctl-text">
-          <h2 className="plan-view on" style={{ margin: 0, borderBottomColor: "transparent", cursor: "default" }}>{screen === "library" ? "Add to this week" : "This Week"}</h2>
-          {subtitle && <div className="plan-sub">{subtitle}</div>}
+          <h2 className="plan-view on results-title">{screen === "library" ? "Add to this week" : "This Week"}</h2>
+          {subtitle && <div className="plan-sub results-status">{subtitle}</div>}
         </div>
         {action}
       </div>
@@ -10878,6 +10878,15 @@ function ProvisionsApp({ scrollRootRef }) {
         .list-title { flex: 1 0 auto; margin: 0; white-space: nowrap; font-family: 'Playfair Display', serif; font-weight: 400;
                       font-size: calc(28px * (1 + (var(--op-text-scale) - 1) * 0.4)); line-height: 1.15; color: #2C1A0E; }
         .list-controls { flex: none; display: flex; align-items: center; gap: 8px; margin-left: auto; }
+        /* One add (flag on only): ONE results title for "This Week" and "Our list". Playfair regular at the page-title
+           rate (28, k .4), no rule underneath, the same 6px top on both rows, the status line 4px under the title.
+           The List row drops its sand hairline and top-aligns like Plan's, so + Add sits on the title line. */
+        .results-head { margin-top: 6px; }
+        .list-header.results-head { align-items: flex-start; border-bottom: none; padding-bottom: 0; margin-bottom: 20px; }
+        .results-title, .plan-view.results-title { margin: 0; padding: 0; border: none; cursor: default; white-space: nowrap;
+                      font-family: 'Playfair Display', serif; font-weight: 400; font-size: calc(28px * (1 + (var(--op-text-scale) - 1) * 0.4));
+                      line-height: 1.15; color: #2C1A0E; }
+        .results-status, .plan-sub.results-status { margin-top: 4px; font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; }
         /* ── The Wrap Up bar (src/components/WrapUpBar.js; docs/mockups/mockup_shop_wrapup_bar.html) ──
            Pinned above the Helm: bottom = the Helm's 18px + its 56px + a 10px gap (+ safe area); 16px sides = the container's
            content edge. z 900 = the Helm's (they never overlap) and above .helm-fade (899). Cream, hairline border, soft shadow.
@@ -12873,8 +12882,8 @@ function ProvisionsApp({ scrollRootRef }) {
                 {/* Empty form of the header row: "Our list" alone (mockup screen 1) — the guide's Add items is
                     the add, so no "+ Add", no lens, no Wrap up. Still the compact sentinel (ref), though the
                     page is too short to scroll. */}
-                <div className="list-header empty" ref={controlRowRef}>
-                  <h2 className="list-title">Our list</h2>
+                <div className={`list-header empty${ONE_ADD_ENABLED ? " results-head" : ""}`} ref={controlRowRef}>
+                  <h2 className={`list-title${ONE_ADD_ENABLED ? " results-title" : ""}`}>Our list</h2>
                 </div>
                 {/* THE GUIDE (R10): the empty list's three ways in. It goes with the first item and returns
                     whenever the list is empty again. */}
@@ -12888,12 +12897,12 @@ function ProvisionsApp({ scrollRootRef }) {
                     scrolls away with the list and hands off to the Helm's compact + (D9′, controlRowRef).
                     The header holds LIST TOOLS only (2026-10-05): Wrap up is the WrapUpBar above the Helm —
                     one Wrap Up control per state, the All done card's teal button at 100%. */}
-                <div className="list-header" ref={controlRowRef}>
+                <div className={`list-header${ONE_ADD_ENABLED ? " results-head" : ""}`} ref={controlRowRef}>
                   {ONE_ADD_ENABLED ? (
                     /* One add (R1): the results title gets a status line under it. Counts only (draft copy, flagged). */
                     <div className="list-title-wrap">
-                      <h2 className="list-title">Our list</h2>
-                      <div className="list-status">{listStatusLine({ open: totalItems - checkedCount, cart: checkedCount, aisles: shopAisles.length })}</div>
+                      <h2 className="list-title results-title">Our list</h2>
+                      <div className="list-status results-status">{listStatusLine({ open: totalItems - checkedCount, cart: checkedCount, aisles: shopAisles.length })}</div>
                     </div>
                   ) : (
                     <h2 className="list-title">Our list</h2>
