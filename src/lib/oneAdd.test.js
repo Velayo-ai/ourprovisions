@@ -68,11 +68,23 @@ describe("R1 — the empty List's entry cards", () => {
 
 describe("R1/R2 — Plan is This Week only; Meals opens from + Add as the Meals feeder", () => {
   test("one title, no switch, with the flag on", () => {
-    expect(APP).toContain('<h2 className="plan-view on feeder-title">Add to this week</h2>');
     expect(APP).toContain('<h2 className="plan-view on results-title">This Week</h2>');
   });
+  test("the Meals feeder is the List feeder's layer (ItemSearchView), opened inside the tap", () => {
+    expect(APP).toContain('label="Add to this week" title="Add to this week"');
+    expect(APP).toContain('listTestId="meals-feeder" className="meals-feeder" fieldAside={aside} tools={tools}');
+    expect(APP).toContain("const mealsFeeder = useItemSearch();");
+    expect(APP).toContain("    mealsFeeder.show();");
+    // every add-a-meal door goes through the feeder with the flag on
+    expect(APP).toContain('<HeaderAction verb="add" label="Add a meal to this week" onClick={openMealsAdd} />');
+    expect(APP).toContain("<PlanWelcome firstMeal={!everCooked} onAdd={openMealsAdd}>");
+    expect(APP).toContain('plan: { label: "Add a meal to this week", run: openMealsAdd }');
+    expect(APP).not.toContain('setPlanScreen("library"); goToDoor("plan"); };');
+  });
   test("the feeder's Done returns to This Week with N added", () => {
-    expect(APP).toContain('<button type="button" className="hdr-done pill" onClick={closeMealsFeeder}>Done</button>');
+    expect(APP).toContain("<ItemSearchView search={feeder.search} onClose={feeder.onDone}");
+    expect(APP).toContain("feeder={{ search: mealsFeeder, onDone: closeMealsFeeder,");
+    expect(APP).toMatch(/ {4}mealsFeeder\.hide\(\);\s+if \(text\) showToast\(text\);/);
     expect(addedToastText(0)).toBeNull();
     expect(addedToastText(1)).toBe("1 added");
     expect(addedToastText(3)).toBe("3 added");

@@ -49,7 +49,8 @@ test("on the source: Add items opens the picker in the tap; Browse carries Stapl
   expect(app).toMatch(/const guideAdd = \(\) => \{ openPicker\("guide"\); listGuideCta\("add", null, household\?\.id\); \};/);   // the picker first: the focus stays in the tap
   expect(app).toMatch(/const guideBrowse = \(\) => \{ listGuideCta\("browse", hasStaples \? "staples" : "aisles", household\?\.id\); pendingStaplesRef\.current = hasStaples; goToDoor\("input"\); \};/);
   expect(app).toMatch(/setStapleFilter\(view === "input" && pendingStaplesRef\.current\);\s*pendingStaplesRef\.current = false;/);
-  expect(app).toMatch(/const guidePlan = \(\) => \{ listGuideCta\("plan", null, household\?\.id\); setPlanScreen\("library"\); goToDoor\("plan"\); \};/);
+  // Plan: the library screen without one add; with it, the Meals feeder opened inside the tap (after the door switch).
+  expect(app).toMatch(/const guidePlan = \(\) => \{\s*listGuideCta\("plan", null, household\?\.id\);\s*if \(ONE_ADD_ENABLED\) \{ goToDoor\("plan"\); openMealsFeeder\(\); \} else \{ setPlanScreen\("library"\); goToDoor\("plan"\); \}\s*\};/);
   expect(app).toMatch(/<ListGuide hasStaples=\{hasStaples\} onAdd=\{guideAdd\} onBrowse=\{guideBrowse\} onPlan=\{guidePlan\} \/>/);
   expect(app).not.toMatch(/Your list is empty/);
 });

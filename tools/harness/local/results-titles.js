@@ -34,6 +34,17 @@ const read = (p, rowSel) => p.evaluate((rowSel) => {
   };
 }, rowSel);
 
+// A feeder layer's title bar (both feeders are ItemSearchView): title font, Done, the rule, the status line.
+const feederBar = (p, sel) => p.evaluate((sel) => {
+  const t = document.querySelector(`${sel}.open .item-search-titlebar`);
+  if (!t) return null;
+  const h = t.querySelector("h2"), d = t.querySelector(".item-search-done");
+  const cs = getComputedStyle(h), ds = getComputedStyle(d), ts = getComputedStyle(t);
+  return { text: h.textContent.trim(), font: `${cs.fontFamily.split(",")[0].replace(/"/g, "")} ${cs.fontWeight} ${cs.fontSize}`, color: cs.color,
+    done: `${ds.backgroundColor} ${ds.color} ${ds.borderRadius}`, rule: `${ts.borderBottomStyle} ${ts.borderBottomColor}`,
+    status: t.querySelector(".item-search-sub")?.textContent.trim() || null };
+}, sel);
+
 (async () => {
   const b = await connect(); const p = await firstPage(b);
   await p.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
@@ -41,25 +52,21 @@ const read = (p, rowSel) => p.evaluate((rowSel) => {
   const out = {};
   await go("#/plan"); out.week = await read(p, ".plan-ctl");
   await p.evaluate(() => (document.querySelector(".plan-ctl .hdr-action") || document.querySelector(".plan-welcome-add"))?.click()); await sleep(1500);
-  out.feeder = await read(p, ".plan-ctl");
+  const mealsFeeder = await feederBar(p, ".meals-feeder");
+  await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done")?.click()); await sleep(700);
   await go("#/shop"); out.listEmpty = await read(p, ".list-header");
   const added = out.listEmpty && (await p.evaluate(() => !!document.querySelector(".list-header.empty"))) ? await nav.feederAdd(p, BASE, 1) : [];
   await go("#/shop"); out.list = await read(p, ".list-header");
   // the List feeder's title bar
   await nav.openFeeder(p, BASE);
-  const listFeeder = await p.evaluate(() => {
-    const t = document.querySelector(".item-picker .item-search-titlebar"), h = t.querySelector("h2"), d = t.querySelector(".item-search-done");
-    const cs = getComputedStyle(h), ds = getComputedStyle(d), ts = getComputedStyle(t);
-    return { text: h.textContent.trim(), font: `${cs.fontFamily.split(",")[0].replace(/"/g, "")} ${cs.fontWeight} ${cs.fontSize}`, color: cs.color,
-      done: `${ds.backgroundColor} ${ds.color} ${ds.borderRadius}`, rule: `${ts.borderBottomStyle} ${ts.borderBottomColor}`,
-      status: t.querySelector(".item-search-sub")?.textContent.trim() || null };
-  });
+  const listFeeder = await feederBar(p, ".item-picker");
   await nav.closeFeeder(p);
   for (const [k, v] of Object.entries(out)) log(`${k}: ${JSON.stringify(v)}`);
   log(`listFeeder: ${JSON.stringify(listFeeder)}`);
+  log(`mealsFeeder: ${JSON.stringify(mealsFeeder)}`);
 
-  const feeder = out.feeder; delete out.feeder;
-  check("the Meals feeder's title = the List feeder's", !!feeder && feeder.font.split("/")[0] === listFeeder.font && feeder.color === listFeeder.color, `${feeder && feeder.font} vs ${listFeeder.font}`);
+  const feeder = mealsFeeder;
+  check("the Meals feeder's title = the List feeder's", !!feeder && feeder.text === "Add to this week" && feeder.font === listFeeder.font && feeder.color === listFeeder.color, `${feeder && feeder.font} vs ${listFeeder.font}`);
   check("both feeders: the dark Done pill, a rule under the bar, a status line",
     feeder.done === listFeeder.done && feeder.rule === listFeeder.rule && listFeeder.rule.startsWith("solid") && !!feeder.status && /^What do we need\? · \d+ items?$/.test(listFeeder.status || ""),
     JSON.stringify({ meals: [feeder.done, feeder.rule, feeder.status], list: [listFeeder.done, listFeeder.rule, listFeeder.status] }));

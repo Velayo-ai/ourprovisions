@@ -63,17 +63,18 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   check("R1 Plan's title is This Week, no Meals switch", plan.title === "This Week" && !plan.meals, JSON.stringify(plan));
   const opened = await p.evaluate(() => { const b = document.querySelector('.plan-ctl .hdr-action[aria-label="Add a meal to this week"]') || [...document.querySelectorAll(".plan-welcome button, .plan-ctl button")].find((e) => /Add/.test(e.innerText)); if (b) b.click(); return !!b; });
   await sleep(1200);
-  const feederMeals = await p.evaluate(() => ({ title: document.querySelector(".plan-ctl .plan-view")?.innerText.trim(), done: !!document.querySelector(".plan-ctl .hdr-done"), search: document.querySelector(".lib-search input")?.placeholder || null }));
-  check("V4 + Add opens the Meals feeder: \"Add to this week\" + Done", opened && feederMeals.title === "Add to this week" && feederMeals.done, JSON.stringify(feederMeals));
+  // The Meals feeder is the List feeder's layer: its title bar, Done, and the field (focused on open).
+  const feederMeals = await p.evaluate(() => { const v = document.querySelector(".meals-feeder.open"); return v && { title: v.querySelector(".item-search-title")?.textContent.trim(), done: !!v.querySelector(".item-search-done"), search: v.querySelector(".item-search-field input")?.placeholder || null, focused: document.activeElement === v.querySelector(".item-search-field input") }; });
+  check("V4 + Add opens the Meals feeder on the List feeder's layer: \"Add to this week\" + Done, the field focused", opened && !!feederMeals && feederMeals.title === "Add to this week" && feederMeals.done && feederMeals.search === "Search our meals…" && feederMeals.focused, JSON.stringify(feederMeals));
   await shot(p, "one-add-meals-feeder");
   // V6 the Meals feeder's View & filter
-  if (await p.$(".lib .lib-fbtn")) {
-    await p.evaluate(() => document.querySelector(".lib .lib-fbtn")?.click()); await sleep(600);
+  if (await p.$('.meals-feeder .pick-tool[aria-label^="View and filter"]')) {
+    await p.evaluate(() => document.querySelector('.meals-feeder .pick-tool[aria-label^="View and filter"]')?.click()); await sleep(600);
     const ms = await sheetShape();
     check("V6 Meals: View & filter — View → Filter → Manage → Clear / Show N meals", shapeOk(ms, "meal"), JSON.stringify(ms));
     await p.evaluate(() => document.querySelector(".modal-overlay")?.click()); await sleep(500);
-  } else log("SKIP  V6 Meals: this place has no meals, so no search row or sheet (Jest renders the sheet; the look is Dan's walk)");
-  await p.click(".plan-ctl .hdr-done"); await sleep(800);
+  } else log("SKIP  V6 Meals: this place has no meals, so no tools or sheet (Jest renders the sheet; local/feeder-rail.js fakes meals for the layer)");
+  await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done").click()); await sleep(800);
   check("V4 Done returns to This Week", (await txt(".plan-ctl .plan-view")) === "This Week");
 
   // ── V3 List → + Add → the feeder ──

@@ -2155,17 +2155,13 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
       >{label}</button>
     );
   };
-  // One add (R1/R2): Plan is This Week only — Meals leaves the results header and opens from + Add, as the
-  // Meals feeder titled "Add to this week" with Done (its `action`). One title, no switch.
+  // One add (R1/R2): Plan is This Week only — Meals leaves the results header and opens from + Add as the
+  // Meals feeder, the List feeder's full-screen layer (MealsLens `feeder`). One title, no switch.
   if (ONE_ADD_ENABLED) {
     return (
-      <div className={`plan-ctl results-head${screen === "library" ? " feeder-bar" : ""}${className ? ` ${className}` : ""}`} ref={rowRef}>
+      <div className={`plan-ctl results-head${className ? ` ${className}` : ""}`} ref={rowRef}>
         <div className="plan-ctl-text">
-          {screen === "library" ? (
-            /* The Meals feeder's title bar matches the List feeder's (ItemSearchView's): Playfair 400 at 22, the dark
-               Done pill, the status line under the title, a thin rule under the bar. */
-            <h2 className="plan-view on feeder-title">Add to this week</h2>
-          ) : <h2 className="plan-view on results-title">This Week</h2>}
+          <h2 className="plan-view on results-title">This Week</h2>
           {subtitle && <div className="plan-sub results-status">{subtitle}</div>}
         </div>
         {action}
@@ -3538,7 +3534,13 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
   );
 }
 
-function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onOpen, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx, onSetOccasion }) {
+// ONE ADD (flag on): `feeder` = { search, onDone, suspended } puts the library on the List feeder's full-screen
+// layer (ItemSearchView): title bar + Done, the search field (the keyboard rises on the first tap, the view
+// follows the visible area — the layer's own iOS rules), grid/list · View & filter beside it, the rail under
+// it; only the cards scroll. The lens keeps every piece of its own state. Its two sheets (Set type, View &
+// filter) render beside the layer in the app's tree and the layer steps aside while they are up, as the List
+// feeder does for its sheets. Without `feeder` the lens is the Plan library screen, unchanged.
+function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onOpen, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx, onSetOccasion, feeder = null }) {
   const [query, setQuery] = useState("");
   const [libView, toggleLibView] = useLibraryView(textSizeIdx);
   // The meal whose "Set meal type" sheet is open (Amendment A4/A5); null when closed.
@@ -3611,16 +3613,31 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
     </div>
   );
 
+  // The feeder's layer around whatever the lens shows (the loading line, the empty library, the cards).
+  const feederShell = (body, aside = null, tools = null, sheets = null) => (
+    <>
+      <ItemSearchView search={feeder.search} onClose={feeder.onDone} query={query} onQuery={setQuery}
+        label="Add to this week" title="Add to this week"
+        subtitle={`What sounds good? · ${meals.length} ${meals.length === 1 ? "meal" : "meals"}`}
+        input={{ className: "modal-input", placeholder: "Search our meals…", name: "meals-feeder-search", ariaLabel: "Search our meals" }}
+        listTestId="meals-feeder" className="meals-feeder" fieldAside={aside} tools={tools}
+        suspended={!!(feeder.suspended || typeFor || draft)}>
+        {body}
+      </ItemSearchView>
+      {sheets}
+    </>
+  );
   if (loading && meals.length === 0) {
-    return (
+    const node = (
       <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7a60",
         fontFamily: "'Playfair Display', serif", fontStyle: "italic", fontSize: ts(16.8, 0.5) }}>
         Loading meals…
       </div>
     );
+    return feeder ? feederShell(node) : node;
   }
   if (meals.length === 0) {
-    return (
+    const node = (
       <div style={{ padding: "32px 0 0" }}>
         <div style={{ textAlign: "center" }}>
           <p style={{ fontFamily: "'Playfair Display', serif", fontStyle: "italic",
@@ -3633,6 +3650,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         <div style={{ marginTop: "6px" }}>{createTile}</div>
       </div>
     );
+    return feeder ? feederShell(node) : node;
   }
 
   // The search row's two tools; ONE toggle (D8): it shows the view you'd switch TO and names the action.
@@ -3660,6 +3678,109 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
   // Made before alone emptying the grid keeps its own line; everything else
   // is "Nothing matches that yet."
   const madeAlone = filters.made && !filters.from && !filters.ours && !q && occ === "all";
+  // Active filters are always visible (decision 10): a filtered grid must never read as a short library.
+  const activeChips = activeCount > 0 && (
+    <div className="lib-active">
+      {fromMember && (
+        <button type="button" className="lib-chip-x" aria-labelledby="lib-verb-unfilter lib-from-chip-name" onClick={() => setFilters((f) => ({ ...f, from: null }))}>
+          <span className="lib-mini" aria-hidden="true">{fromMember.initial}</span><span id="lib-from-chip-name">{fromMember.firstName}'s</span> <span aria-hidden="true">×</span>
+        </button>
+      )}
+      {filters.made && (
+        <button type="button" className="lib-chip-x" aria-label="Remove filter: Made before" onClick={() => setFilters((f) => ({ ...f, made: false }))}>Made before <span aria-hidden="true">×</span></button>
+      )}
+      {filters.ours && (
+        <button type="button" className="lib-chip-x" aria-label="Remove filter: Ours" onClick={() => setFilters((f) => ({ ...f, ours: false }))}>Ours <span aria-hidden="true">×</span></button>
+      )}
+    </div>
+  );
+  const rail = anyTagged
+    ? <OccasionRail present={present} value={occ} onChange={setOcc} />
+    : <div className="lib-hint">Sort meals by when you eat them — open any meal to mark it Dinner, Lunch…</div>;
+  const emptyLine = shown.length === 0 && (
+    <div className="lib-empty">
+      {madeAlone ? "Nothing cooked from This Week yet — Cooked it fills this." : "Nothing matches that yet."}
+    </div>
+  );
+  const cards = (
+    <div className={libView === "list" ? "lib-list" : "lib-grid"}>
+      {shown.map((m) => (
+        <LibraryItem
+          kind={libView}
+          key={m.id}
+          onSetType={canSetType ? setTypeFor : null}
+          meal={m}
+          stage={stages?.[m.id] || "none"}
+          busy={planningMealId === m.id}
+          canPlan={!!(isSignedIn && onPlan)}
+          onPlan={onPlan}
+          onUnplan={onUnplan}
+          onOpen={(meal) => onOpen && onOpen(meal)}
+        />
+      ))}
+    </div>
+  );
+  const sheets = (
+    <>
+      {typeFor && (
+        <SetTypeSheet
+          meal={typeFor}
+          onSave={(occ) => onSetOccasion(typeFor.id, occ)}
+          onClose={() => setTypeFor(null)}
+        />
+      )}
+
+      {draft && (
+        <LibraryFilterSheet
+          draft={draft}
+          setDraft={setDraft}
+          fromMembers={fromMembers}
+          countFor={countFor}
+          onShow={() => {
+            if (ONE_ADD_ENABLED) { const { occ: o, ...f } = draft; setFilters(f); setOcc(o || "all"); }
+            else setFilters(draft);
+            setDraft(null);
+          }}
+          onClose={() => setDraft(null)}
+          oneAdd={ONE_ADD_ENABLED ? { libView, onToggleView: toggleLibView, present, onCreate: isSignedIn ? onCreate : null } : null}
+        />
+      )}
+    </>
+  );
+  const verbs = (
+    <>
+      {/* The fixed VERB half of every aria-labelledby name on this screen, rendered once, outside
+          every button: "Plan {meal}", "Remove from this week", "Set meal type for {meal}",
+          "Open {meal}", "Remove filter: {name}'s". The other half is the masked title element
+          (id meal-name-{uuid} / lib-from-chip-name). Closes the v1 .lib-plan replay gap:
+          no attribute carries a meal or member name. */}
+      <span id="lib-verb-plan" className="sr-only">Plan</span>
+      <span id="lib-verb-unplan" className="sr-only">Remove from this week</span>
+      <span id="lib-verb-settype" className="sr-only">Set meal type for</span>
+      <span id="lib-verb-open" className="sr-only">Open</span>
+      <span id="lib-verb-unfilter" className="sr-only">Remove filter:</span>
+    </>
+  );
+  if (feeder) {
+    // The List feeder's tools beside the field: grid/list, then View & filter (dark while a filter is on).
+    const aside = (
+      <>
+        <button type="button" className="pick-tool" onMouseDown={keepFocus} aria-label={TOGGLE_LABEL[libView]} onClick={toggleLibView}>
+          {libView === "list" ? <GridGlyph /> : <ListGlyph />}
+        </button>
+        <button type="button" className={`pick-tool${activeCount > 0 ? " on" : ""}`} aria-haspopup="dialog"
+          aria-label={activeCount ? `View and filter, ${activeCount} active` : "View and filter"} onClick={() => setDraft({ ...filters, occ })}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
+        </button>
+      </>
+    );
+    return feederShell(
+      <div className="lib oneadd">{verbs}{emptyLine}{cards}{createTile}</div>,
+      aside,
+      <div className="feeder-rail meals-rail">{activeChips}{rail}</div>,
+      sheets,
+    );
+  }
   return (
     <div className={ONE_ADD_ENABLED ? "lib oneadd" : "lib"}>
       {/* The fixed VERB half of every aria-labelledby name on this screen, rendered once, outside
@@ -3687,73 +3808,15 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         {ONE_ADD_ENABLED ? <>{viewToggle}{filterBtn}</> : <>{filterBtn}{viewToggle}</>}
       </div>
 
-      {/* Active filters are always visible (decision 10): a filtered grid must never read as a short library. */}
-      {activeCount > 0 && (
-        <div className="lib-active">
-          {fromMember && (
-            <button type="button" className="lib-chip-x" aria-labelledby="lib-verb-unfilter lib-from-chip-name" onClick={() => setFilters((f) => ({ ...f, from: null }))}>
-              <span className="lib-mini" aria-hidden="true">{fromMember.initial}</span><span id="lib-from-chip-name">{fromMember.firstName}'s</span> <span aria-hidden="true">×</span>
-            </button>
-          )}
-          {filters.made && (
-            <button type="button" className="lib-chip-x" aria-label="Remove filter: Made before" onClick={() => setFilters((f) => ({ ...f, made: false }))}>Made before <span aria-hidden="true">×</span></button>
-          )}
-          {filters.ours && (
-            <button type="button" className="lib-chip-x" aria-label="Remove filter: Ours" onClick={() => setFilters((f) => ({ ...f, ours: false }))}>Ours <span aria-hidden="true">×</span></button>
-          )}
-        </div>
-      )}
+      {activeChips}
 
-      {anyTagged
-        ? <OccasionRail present={present} value={occ} onChange={setOcc} />
-        : <div className="lib-hint">Sort meals by when you eat them — open any meal to mark it Dinner, Lunch…</div>}
+      {rail}
 
-      {shown.length === 0 && (
-        <div className="lib-empty">
-          {madeAlone ? "Nothing cooked from This Week yet — Cooked it fills this." : "Nothing matches that yet."}
-        </div>
-      )}
-      <div className={libView === "list" ? "lib-list" : "lib-grid"}>
-        {shown.map((m) => (
-          <LibraryItem
-            kind={libView}
-            key={m.id}
-            onSetType={canSetType ? setTypeFor : null}
-            meal={m}
-            stage={stages?.[m.id] || "none"}
-            busy={planningMealId === m.id}
-            canPlan={!!(isSignedIn && onPlan)}
-            onPlan={onPlan}
-            onUnplan={onUnplan}
-            onOpen={(meal) => onOpen && onOpen(meal)}
-          />
-        ))}
-      </div>
+      {emptyLine}
+      {cards}
       {createTile}
 
-      {typeFor && (
-        <SetTypeSheet
-          meal={typeFor}
-          onSave={(occ) => onSetOccasion(typeFor.id, occ)}
-          onClose={() => setTypeFor(null)}
-        />
-      )}
-
-      {draft && (
-        <LibraryFilterSheet
-          draft={draft}
-          setDraft={setDraft}
-          fromMembers={fromMembers}
-          countFor={countFor}
-          onShow={() => {
-            if (ONE_ADD_ENABLED) { const { occ: o, ...f } = draft; setFilters(f); setOcc(o || "all"); }
-            else setFilters(draft);
-            setDraft(null);
-          }}
-          onClose={() => setDraft(null)}
-          oneAdd={ONE_ADD_ENABLED ? { libView, onToggleView: toggleLibView, present, onCreate: isSignedIn ? onCreate : null } : null}
-        />
-      )}
+      {sheets}
     </div>
   );
 }
@@ -6424,22 +6487,25 @@ function ProvisionsApp({ scrollRootRef }) {
     }
   }, [planMeal, showToast, mealById]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
-  // One add (R2): the Meals feeder is the library under "Add to this week". Done returns to This Week with a
-  // toast "N added": the meals on the board now that weren't when the feeder opened.
+  // One add (R2): the Meals feeder is the library on the List feeder's full-screen layer (ItemSearchView),
+  // "Add to this week". It opens INSIDE the tap (show(): visible + focused synchronously, so the keyboard rises
+  // on the first tap, as the List feeder's). Done returns to This Week with a toast "N added": the meals on the
+  // board now that weren't when the feeder opened.
+  const mealsFeeder = useItemSearch();
   const mealsVisitRef = useRef(null);
-  useEffect(() => {
-    if (!ONE_ADD_ENABLED) return;
-    if (view === "plan" && planScreen === "library") { if (!mealsVisitRef.current) mealsVisitRef.current = new Set(onBoardIds); }
-    else mealsVisitRef.current = null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the snapshot is taken once, on the way in
-  }, [view, planScreen]);
+  const openMealsFeeder = () => {
+    mealsVisitRef.current = new Set(onBoardIds);
+    mealsFeeder.show();
+  };
   const closeMealsFeeder = () => {
     const before = mealsVisitRef.current || new Set();
     const text = addedToastText([...onBoardIds].filter((id) => !before.has(id)).length);
     mealsVisitRef.current = null;
-    setPlanScreen("board");
+    mealsFeeder.hide();
     if (text) showToast(text);
   };
+  // Every "add a meal" door: the feeder with the flag on, the library screen without it.
+  const openMealsAdd = () => { if (ONE_ADD_ENABLED) openMealsFeeder(); else setPlanScreen("library"); };
   // The library's stage per meal (SPEC_meal_library_unplan D4): the board's own
   // derivation, so the pill can never disagree with This Week or Home. A meal
   // outside onBoardIds — never planned, removed, or cooked (afterglow included:
@@ -6653,7 +6719,7 @@ function ProvisionsApp({ scrollRootRef }) {
   // recipe's view copies (up to 3). Minted in one batch, reused for the session by path,
   // re-minted only near expiry; the <img> is loading="lazy", so a card below the fold
   // costs its URL, not its bytes, until it scrolls in.
-  const libraryOnScreen = view === "plan" && planScreen === "library";
+  const libraryOnScreen = (view === "plan" && planScreen === "library") || mealsFeeder.open;
   const wantedPhotoPaths = useMemo(() => {
     const paths = [];
     if (libraryOnScreen) libraryMeals.forEach((m) => { const p = (photosByMealId[m.id] || [])[0]; if (p) paths.push(p.thumb_path); });
@@ -8688,7 +8754,7 @@ function ProvisionsApp({ scrollRootRef }) {
     ...(MEALS_ENABLED
       ? (planScreen === "library"
         ? (isSignedIn ? { plan: { label: "Create a new meal", run: () => setMealSheet({ mode: "create", meal: null }) } } : {})
-        : { plan: { label: "Add a meal to this week", run: () => setPlanScreen("library") } })
+        : { plan: { label: "Add a meal to this week", run: openMealsAdd } })
       : {}),
   };
   // "Added here" means added DURING YOUR TRIP, and an add never starts one (SPEC_one_list R5, 2026-11-26).
@@ -8864,7 +8930,10 @@ function ProvisionsApp({ scrollRootRef }) {
   // resets Browse's filters on every door switch, and applies it there); Plan a meal opens the library.
   const guideAdd = () => { openPicker("guide"); listGuideCta("add", null, household?.id); };
   const guideBrowse = () => { listGuideCta("browse", hasStaples ? "staples" : "aisles", household?.id); pendingStaplesRef.current = hasStaples; goToDoor("input"); };
-  const guidePlan = () => { listGuideCta("plan", null, household?.id); setPlanScreen("library"); goToDoor("plan"); };
+  const guidePlan = () => {
+    listGuideCta("plan", null, household?.id);
+    if (ONE_ADD_ENABLED) { goToDoor("plan"); openMealsFeeder(); } else { setPlanScreen("library"); goToDoor("plan"); }
+  };
   const pickerStatus = (cid) => itemStatus(cid, { listRows, quantities, checked });
   const pickerHidden = (typed) => hiddenMatchFor(typed, hiddenCatalogItems, listRows);
   const handleStorePick = async (name) => {
@@ -9882,9 +9951,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .hdr-action { flex: none; border: none; background: var(--op-add); color: var(--op-add-ink); border-radius: 999px; height: 44px; padding: 0 18px; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; white-space: nowrap; }
         .hdr-action:disabled { opacity: 0.6; cursor: default; }
-        /* One add: the Meals feeder's Done (the item picker's Done, same weight), and List's status line. */
-        .hdr-done { flex: none; border: none; background: none; height: 44px; padding: 0 4px; cursor: pointer; white-space: nowrap;
-                    font: 700 calc(16px * (1 + (var(--op-text-scale) - 1) * 0.8)) 'Lato', sans-serif; color: #A0724A; }
+        /* One add: List's status line. */
         .list-title-wrap { min-width: 0; }
         .list-status { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; margin-top: 4px; }
         /* "add to the list →" — the subtitle's tap target at N ≥ 2. Prose-sized, underlined, espresso. 15px vertical padding gives a ≥44px
@@ -10039,14 +10106,6 @@ function ProvisionsApp({ scrollRootRef }) {
         .lib-fbtn, .lib-vtog { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
                     display: flex; align-items: center; justify-content: center; position: relative; padding: 0; }
         .lib-fdot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #A0724A; border: 1.5px solid #FFFDF9; }
-        /* One add (flag on): the Meals search row = the List feeder's — the 52px white field (radius 16, sand border,
-           the 18px glass, 17px text, the focus border) and the 46px tool buttons (radius 14), 12px apart. */
-        .lib.oneadd .lib-search-row { gap: 12px; align-items: center; }
-        .lib.oneadd .lib-search { height: 52px; border-radius: 16px; border-color: #d8bf94; background: #fff; color: #9A7350; transition: border-color 0.2s; }
-        .lib.oneadd .lib-search:focus-within { border-color: #c8973a; }
-        .lib.oneadd .lib-search svg { width: 18px; height: 18px; }
-        .lib.oneadd .lib-search input { font-size: calc(17px * var(--op-text-scale)); }
-        .lib.oneadd .lib-fbtn, .lib.oneadd .lib-vtog { width: 46px; height: 46px; border-radius: 14px; border-color: #d8bf94; background: #fff; }
         .lib-active { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
         .lib-chip-x { height: 32px; padding: 0 10px 0 6px; border-radius: 16px; border: 1.5px solid #6f5a45; background: #FFFDF9; color: #2C1A0E; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
@@ -10632,8 +10691,8 @@ function ProvisionsApp({ scrollRootRef }) {
            partly covered and hard to hit (iPhone, the 2026-10-11 walk). Hidden, not
            lowered: a lowered Helm would still read as reachable. SAME SIGNAL as the
            stack rule above, so the two cannot disagree. Restored on close. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .board-menu-backdrop, .ask-editor) .helm,
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .board-menu-backdrop, .ask-editor) .helm-fade { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .meals-feeder.open, .board-menu-backdrop, .ask-editor) .helm,
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .meals-feeder.open, .board-menu-backdrop, .ask-editor) .helm-fade { display: none; }
         /* …under EVERY bottom sheet, not only the modal overlay (Dan 2026-10-31): the thank-you sheet's Send / Skip and
            the arrival sheet's Open it sat under the pill. The same six surfaces as the Wrap Up bar's rule below. */
         .container { max-width: 680px; margin: 0 auto; padding: 24px 16px; }
@@ -10926,7 +10985,7 @@ function ProvisionsApp({ scrollRootRef }) {
         /* While ANY sheet or modal is open the bar hides and returns on close (Dan 2026-10-30: at z 900 it
            floated over every sheet and partly covered the arrival form's Not for us / Add to our meals).
            Keyed off the document like the Helm rule above: every surface that owns a scrim or overlay. */
-        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .board-menu-backdrop, .ask-editor) .wrapbar { display: none; }
+        body:has(.modal-overlay, .rv-scrim, .rv-psheet-scrim, .lib-type-scrim, .item-picker.open, .meals-feeder.open, .board-menu-backdrop, .ask-editor) .wrapbar { display: none; }
         .wrapbar:disabled { cursor: default; opacity: 0.7; }
         /* No hard edge on the fill: its 2px right border was the line through the "W" of
            the label at XXL (pass 2, Shop). The soft tint alone marks progress. */
@@ -11129,12 +11188,13 @@ function ProvisionsApp({ scrollRootRef }) {
         .lib.oneadd .lib-plan:not(.on) { background: none; border: 1.5px solid #C9A26A; color: #9A7350; }
         .lib.oneadd .lib-plan.on { border: 1.5px solid #13877C; }
         .lib.oneadd .lib-plan svg { width: 16px; height: 16px; }
-        /* The Meals feeder's title bar = the List feeder's: Playfair 400 at 22, the dark Done pill, a thin rule under
-           the bar (edge to edge, as in the List feeder), the status line under the title. */
-        .plan-ctl.feeder-bar { align-items: center; margin: 6px -16px 16px; padding: 0 16px 12px; border-bottom: 1.5px solid #d8bf94; }
-        .plan-view.feeder-title { margin: 0; padding: 0; border: none; cursor: default; white-space: nowrap; font-family: 'Playfair Display', serif;
-                                  font-weight: 400; font-size: calc(22px * (1 + (var(--op-text-scale) - 1) * 0.4)); line-height: 1.2; color: #2C1A0E; }
-        .hdr-done.pill { min-height: 44px; padding: 0 22px; border-radius: 999px; background: #3A281C; color: #FFFDF9; }
+        /* THE MEALS FEEDER on the List feeder's layer (ItemSearchView, .meals-feeder): the rail and any active filter
+           chips sit in the fixed top under the field, edge to edge like the List rail; only the cards scroll. */
+        .meals-feeder .item-search-field input { min-width: 0; }
+        .meals-feeder .meals-rail .lib-rail { margin: 0; }
+        .meals-feeder .meals-rail .lib-active { margin: 0 0 8px; }
+        .meals-feeder .meals-rail .lib-hint { margin: 2px 0 4px; }
+        .meals-feeder .ask-search-list { padding-top: 8px; padding-bottom: 96px; }
         .cat-pill.occ { padding: 9px 16px; flex: none; }
         .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
                       padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
@@ -12407,7 +12467,7 @@ function ProvisionsApp({ scrollRootRef }) {
               boardMeals, boardCards, placements, rows: mealRowCounts, mealById, cookedIds: afterglowIds,
               busyMealId: busyMealId || addingMealId, switching: deckSwitching,
               holdNight: MEALS_ENABLED && isSignedIn,
-              onAdd: () => { setPlanScreen("library"); goToDoor("plan"); },
+              onAdd: () => { if (ONE_ADD_ENABLED) { goToDoor("plan"); openMealsFeeder(); } else { setPlanScreen("library"); goToDoor("plan"); } },
               // The recipe view over Home (SPEC_recipe_view D1/D2): a sheet, no route change —
               // closing it lands back here. openRecipe ignores a held night itself.
               onView: (m) => openRecipe(m, "make"),
@@ -12467,11 +12527,11 @@ function ProvisionsApp({ scrollRootRef }) {
                 </>
               ) : null}
               action={boardReady && !showWelcome ? (
-                <HeaderAction verb="add" label="Add a meal to this week" onClick={() => setPlanScreen("library")} />
+                <HeaderAction verb="add" label="Add a meal to this week" onClick={openMealsAdd} />
               ) : null}
             />
             {!boardReady ? null : showWelcome ? (
-              <PlanWelcome firstMeal={!everCooked} onAdd={() => setPlanScreen("library")}>
+              <PlanWelcome firstMeal={!everCooked} onAdd={openMealsAdd}>
                 {MEALS_ENABLED && isSignedIn && (
                   <HoldANightButtons
                     label="OR HOLD A NIGHT"
@@ -12551,9 +12611,7 @@ function ProvisionsApp({ scrollRootRef }) {
               rowRef={controlRowRef}
               className="meals"
               subtitle={<>What sounds good? · {libraryMeals.length} {libraryMeals.length === 1 ? "meal" : "meals"}</>}
-              action={ONE_ADD_ENABLED ? (
-                <button type="button" className="hdr-done pill" onClick={closeMealsFeeder}>Done</button>
-              ) : MEALS_ENABLED && isSignedIn ? (
+              action={MEALS_ENABLED && isSignedIn ? (
                 <HeaderAction verb="new" label="Create a new meal" onClick={() => setMealSheet({ mode: "create", meal: null })} />
               ) : null}
             />
@@ -13855,6 +13913,28 @@ function ProvisionsApp({ scrollRootRef }) {
 
       {/* ── THE QUICK PICKER (SPEC_one_list R7) — always mounted, so an opener's tap can raise the keyboard.
           It replaced the Shop Add sheet (AddSheetPanel, its disabled mic) on 2026-11-26. ── */}
+      {/* THE MEALS FEEDER (one add, flag on): the library on the List feeder's layer, mounted while hidden so
+          its field can take focus inside the opening tap. It steps aside while a sheet from the app's tree is
+          up (a meal's recipe view, the new-meal sheet, a gift, the on-hand prompt). */}
+      {ONE_ADD_ENABLED && MEALS_ENABLED && (
+        <MealsLens
+          feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(recipeView || mealSheet || giftArrival || thankYou || onHandPrompt) }}
+          textSizeIdx={textSizeIdx}
+          onSetOccasion={handleSetOccasion}
+          meals={libraryCards}
+          loading={mealsLoading}
+          onPlan={handlePlanMeal}
+          onUnplan={handleUnplanMeal}
+          planningMealId={planningMealId}
+          onCreate={() => setMealSheet({ mode: "create", meal: null })}
+          isSignedIn={isSignedIn}
+          onOpen={(m) => openRecipe(m, "top")}
+          stages={libraryStages}
+          madeBefore={madeBefore}
+          householdId={household?.id}
+          members={householdMembers}
+        />
+      )}
       <ListPicker search={picker} items={pickerList} statusOf={pickerStatus} hiddenFor={pickerHidden}
         onAdd={pickerAdd} onCreate={pickerCreate} onReveal={pickerReveal} onUndo={pickerUndo} onTapListed={pickerTapListed} onClosed={onPickerClosed}
         feeder={feeder} />
