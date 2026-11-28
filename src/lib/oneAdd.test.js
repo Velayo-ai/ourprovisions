@@ -288,6 +288,39 @@ describe("Done · N, both feeders", () => {
   });
 });
 
+describe("This Week cards: the button before, the teal mark after", () => {
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const { ONE_ADD_ENABLED } = require("./featureFlags");
+  const { PlanBoard } = require("../App");
+  const meal = (id, name, ings) => ({ id, name, kind: "meal", meal_ingredients: ings.map((x) => ({ id: x })) });
+  const board = (m, { rows = {}, placements = {} } = {}) => renderToStaticMarkup(React.createElement(PlanBoard, {
+    meals: [m], rows, placements: { [m.id]: { sortOrder: 0, ...placements[m.id] }, ...{} }, mealById: { [m.id]: m }, cookedIds: new Set(),
+    onOpen: () => {}, onSkip: () => {}, onCooked: () => {}, onLockIn: () => {}, onSeeList: () => {}, onReorder: () => {}, busyMealId: null,
+  }));
+  test("not on the list: \"Add to list\" alone — no Planned chip, no \"Not on the list yet\"", () => {
+    const html = board(meal("a", "Tacos", [1, 2]));
+    expect(html).toContain(">Add to list</button>");
+    if (ONE_ADD_ENABLED) { expect(html).not.toContain("Not on the list yet"); expect(html).not.toContain("board-chip"); expect(html).not.toContain("board-mark"); }
+    else { expect(html).toContain("Not on the list yet"); expect(html).toContain(">Planned</span>"); }
+  });
+  test("on the list: the teal mark \"On the list\", no button (flag on)", () => {
+    const html = board(meal("b", "Curry", [1]), { rows: { b: { total: 2, bought: 0 } } });
+    if (ONE_ADD_ENABLED) {
+      expect(html).toContain('<div class="board-mark"><span class="board-mark-tick" aria-hidden="true">✓</span>On the list</div>');
+      expect(html).not.toContain("See on list"); expect(html).not.toContain("2 to buy"); expect(html).not.toContain("board-chip");
+    } else { expect(html).toContain("See on list"); expect(html).toContain("2 to buy"); }
+  });
+  test("all in: \"Everything's in\", no button at rest (Cooked it under ⋯) (flag on)", () => {
+    const html = board(meal("c", "Soup", [1]), { placements: { c: { readyAt: "2026-11-28T00:00:00Z" } } });
+    if (ONE_ADD_ENABLED) { expect(html).toContain("✓</span>Everything&#x27;s in</div>"); expect(html).not.toContain('class="board-cook"'); }
+    else { expect(html).toContain('class="board-cook"'); }
+  });
+  test("a planned meal with no ingredients keeps \"Nothing to shop for\"", () => {
+    expect(board(meal("d", "Pizza", []))).toContain("Nothing to shop for");
+  });
+});
+
 describe("R3 — one Ask pill", () => {
   const a = (id, label) => ({ id, label });
   test("0 → none, 1 → by name, 2+ → the chooser", () => {

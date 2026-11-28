@@ -14,6 +14,7 @@
 //     any attribute;
 //   - Add all's toast line; the client reloads placements after a 0 count.
 import { render, fireEvent } from "@testing-library/react";
+import { ONE_ADD_ENABLED } from "./lib/featureFlags";
 import { boardCardState } from "./lib/boardState";
 import { recipeBlockFor } from "./lib/recipePlan";
 import { addAllOnHandLine } from "./lib/onHand";
@@ -70,7 +71,7 @@ function surfaces(inp) {
   const st = boardCardState(MEAL, inp);
   const { container: bc, unmount: bu } = render(<PlanBoard meals={[MEAL]} rows={inp.rows} placements={inp.placements} mealById={{}} cookedIds={inp.cookedIds}
     onOpen={noop} onSkip={noop} onCooked={noop} onLockIn={noop} onSeeList={noop} onReorder={noop} busyMealId={null} />);
-  const board = { cooked: cookedIt(bc.querySelector(".board-actions")), line: bc.querySelector(".board-line")?.textContent };
+  const board = { cooked: cookedIt(bc.querySelector(".board-actions")), line: bc.querySelector(".board-line")?.textContent, mark: bc.querySelector(".board-mark")?.textContent };
   bu();
   const { container: dc, unmount: du } = render(<OnDeckCard boardMeals={[MEAL]} boardCards={[MEAL]} placements={inp.placements} rows={inp.rows} mealById={{}} cookedIds={inp.cookedIds}
     busyMealId={null} switching={false} holdNight={false} onAdd={noop} onView={noop} onLockIn={noop} onCooked={noop} onSkip={noop} onSwitch={noop}
@@ -92,7 +93,8 @@ describe("a stamped placement, everywhere", () => {
   test("all on hand → Everything's in, Cooked it on the board card, Home's deck and the recipe view", () => {
     const s = surfaces(inputs({ readyAt: "2026-10-19T23:30:00Z" }));
     expect(s.st).toMatchObject({ ready: true, toBuy: false, planned: false });
-    expect(s.board).toEqual({ cooked: 1, line: "Everything's in — go cook" });
+    // One add: the teal mark "Everything's in" and no button at rest (Cooked it under ⋯).
+    expect(s.board).toEqual(ONE_ADD_ENABLED ? { cooked: 0, line: undefined, mark: "✓Everything's in" } : { cooked: 1, line: "Everything's in — go cook", mark: undefined });
     expect(s.deck).toBe(1);
     expect(s.recipe).toEqual({ cooked: 1, main: "Cooked it", status: "✓ On This Week · Everything's in" });
   });

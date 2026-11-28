@@ -11,6 +11,7 @@
 // Never before wrap-up: everything in the cart nudges "Wrap up →" (board card and recipe
 // view, the same door to Shop).
 import { render, fireEvent } from "@testing-library/react";
+import { ONE_ADD_ENABLED } from "./lib/featureFlags";
 import { boardCardState } from "./lib/boardState";
 
 jest.mock("@splunk/otel-web", () => ({ __esModule: true, default: { init: () => {}, setGlobalAttributes: () => {} } }));
@@ -66,7 +67,8 @@ describe("C2: where Cooked it is offered, per surface", () => {
     ["A · planned, never added to Shop (freezer pizza)", MEAL, {},                                      0, 1, 0, 0],
     ["B · on the list, items left",                      MEAL, { total: 3, bought: 1 },                 0, 0, 0, 0],
     ["C1 · everything in the cart, not wrapped up",      MEAL, { total: 3, bought: 3 },                 0, 0, 0, 0],
-    ["C · Ready (wrapped up)",                           MEAL, { readyAt: "2026-10-19T12:00:00Z" },     1, 0, 1, 1],
+    // One add: a Ready card shows "Everything's in" with no button at rest; Cooked it moves into ⋯.
+    ["C · Ready (wrapped up)",                           MEAL, { readyAt: "2026-10-19T12:00:00Z" },     ONE_ADD_ENABLED ? 0 : 1, ONE_ADD_ENABLED ? 1 : 0, 1, 1],
     ["C · nothing to shop for",                          EMPTY, {},                                     0, 1, 1, 1],
     ["D · cooked this load",                             MEAL, { cooked: true },                        0, 0, 0, 0],
   ])("%s", (_, m, o, card, menu, deckN, rv) => {
@@ -82,8 +84,9 @@ describe("C2: where Cooked it is offered, per surface", () => {
 
 describe("C1: everything in the cart nudges to wrap up, in the same words on both surfaces", () => {
   test("board card at 0 left reads Wrap up →; with items left it reads See on list", () => {
-    expect(boardCard(MEAL, inputs(MEAL, { total: 3, bought: 3 })).see).toBe("Wrap up →");
-    expect(boardCard(MEAL, inputs(MEAL, { total: 3, bought: 1 })).see).toBe("See on list");
+    // One add: once on the list the card shows the teal mark and no button (the recipe view keeps the nudge).
+    expect(boardCard(MEAL, inputs(MEAL, { total: 3, bought: 3 })).see).toBe(ONE_ADD_ENABLED ? null : "Wrap up →");
+    expect(boardCard(MEAL, inputs(MEAL, { total: 3, bought: 1 })).see).toBe(ONE_ADD_ENABLED ? null : "See on list");
   });
   test("the recipe view's main action at 0 left is Wrap up →", () => {
     const inp = inputs(MEAL, { total: 3, bought: 3 });

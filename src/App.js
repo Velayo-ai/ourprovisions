@@ -2150,7 +2150,8 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
               <div className="board-top">
                 {/* Display casing only (displayTitle, visual v2 D11) on a meal; a held night's title is its label. */}
                 <span id={`board-title-${m.id}`} className="board-card-title">{noShop ? title : displayTitle(title)}</span>
-                {chip && <span className={`board-chip${ready ? " ready" : ""}`}>{chip}</span>}
+                {/* One add: no state chip — the card's one action, or its teal mark, says where it is. */}
+                {chip && !ONE_ADD_ENABLED && <span className={`board-chip${ready ? " ready" : ""}`}>{chip}</span>}
                 {/* × at rest only on a no-shop card — it is that card's one action.
                     A meal card shows NO destructive control at rest: Remove lives
                     behind ⋯ (the rule, logged 2026-09-21). */}
@@ -2175,7 +2176,13 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                   </svg>
                 )}
               </div>
-              {line && <div className="board-line">{line}</div>}
+              {/* ONE ADD (flag on): ingredients not on the list → the "Add to list" button alone (no "Not on the list
+                  yet"); once added → the teal mark "On the list", or "Everything's in" (all on hand, or wrapped up),
+                  and no button (Cooked it moves into ⋯). A planned meal with no ingredients keeps its line. */}
+              {line && !(ONE_ADD_ENABLED && (canAdd || toBuy || ready)) && <div className="board-line">{line}</div>}
+              {ONE_ADD_ENABLED && (toBuy || ready) && (
+                <div className="board-mark"><span className="board-mark-tick" aria-hidden="true">✓</span>{ready ? "Everything's in" : "On the list"}</div>
+              )}
               {/* Cooked this load: the card mutes in place; the button reads ✓ Cooked
                   (teal outline, disabled). It leaves on the next board load. */}
               {cooked && (
@@ -2200,14 +2207,14 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                 )}
                 {/* At 0 left (everything in the cart, not wrapped up) the same door reads "Wrap up →"
                     — the recipe view's nudge, word for word (Amendment C, ruling 4). Wording only. */}
-                {toBuy && (
+                {toBuy && !ONE_ADD_ENABLED && (
                   <button
                     type="button"
                     className="board-see"
                     onClick={(e) => { e.stopPropagation(); onSeeList(); }}
                   >{rc.bought >= rc.total ? "Wrap up →" : "See on list"}</button>
                 )}
-                {ready && (
+                {ready && !ONE_ADD_ENABLED && (
                   <button
                     type="button"
                     className="board-cook"
@@ -2235,7 +2242,7 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                     onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onSkip(m.id, toBuy); }}>
                     {toBuy ? "Remove (and take its items off the list)" : "Remove"}
                   </button>
-                  {planned && (
+                  {(planned || (ONE_ADD_ENABLED && ready)) && (
                     <button type="button" role="menuitem" disabled={busy}
                       onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onCooked(m.id); }}>Cooked it</button>
                   )}
@@ -10271,6 +10278,9 @@ function ProvisionsApp({ scrollRootRef }) {
                       border: 1px solid #E8D5B7; border-radius: 999px; padding: 2px 7px; }
         .board-line { font-family: 'Lato', sans-serif; font-size: calc(14px * var(--op-text-scale)); color: #8a7a60; line-height: 1.25; }
         .board-card.ready .board-line { color: #6f5a45; }
+        /* One add: the card's teal mark once its ingredients are on the list (or all in). */
+        .board-mark { display: flex; align-items: center; gap: 6px; font: 700 calc(14px * var(--op-text-scale)) 'Lato', sans-serif; color: #0A776D; }
+        .board-mark-tick { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #13877C; color: #fff; font-size: 12px; }
         .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .board-actions-gap { flex: 1; }
         /* One primary per state. Add to list / See on list: espresso outline. Cooked it: teal fill — the household finished something. */

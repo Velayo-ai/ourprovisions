@@ -18,6 +18,7 @@
 // Splunk packages cannot load under jsdom ("Automatic publicPath is not supported"),
 // so those two are stubbed. Nothing else in App.js is.
 import { render, fireEvent } from "@testing-library/react";
+import { ONE_ADD_ENABLED } from "./lib/featureFlags";
 import { computeAccessibleName } from "dom-accessibility-api";
 import axe from "axe-core";
 import { displayTitle } from "./lib/displayTitle";
@@ -470,9 +471,15 @@ describe("Wrap up → (Amendment C1): fixed copy, no attribute, on the allow-lis
   test("board card: the same words on .board-see, no attribute carries the count", () => {
     const { container } = render(<PlanBoard meals={[M]} rows={inp.rows} placements={inp.placements} mealById={{}} cookedIds={inp.cookedIds}
       onOpen={noop} onSkip={noop} onCooked={noop} onLockIn={noop} onSeeList={noop} onReorder={noop} busyMealId={null} />);
-    const b = container.querySelector(".board-see");
-    expect(b.textContent).toBe("Wrap up →");
-    expect(b.hasAttribute("aria-label")).toBe(false);
+    if (ONE_ADD_ENABLED) {
+      // One add: no button once on the list — the teal mark, fixed copy, no attribute with the count.
+      expect(container.querySelector(".board-see")).toBeNull();
+      expect(container.querySelector(".board-mark").textContent).toBe("✓On the list");
+    } else {
+      const b = container.querySelector(".board-see");
+      expect(b.textContent).toBe("Wrap up →");
+      expect(b.hasAttribute("aria-label")).toBe(false);
+    }
     expectNoTokens(container, ["Grilled", "Shrimp", "Chimichurri"]);
   });
 });
