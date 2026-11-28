@@ -52,6 +52,9 @@ export function staplesHintVisit(storage) {
 
 // R2: Done → a toast "N added", only when something was added this visit.
 export const addedToastText = (n) => (n > 0 ? `${n} added` : null);
+// The live count on the feeders' Done pill: "Done · N" after the first add (adds this visit, minus undos),
+// plain "Done" at 0.
+export const doneCountLabel = (n) => (n > 0 ? `Done · ${n}` : "Done");
 
 // The List feeder's search create (Dan's household test): a typed name with no exact match is added from a
 // "+ Add '{query}'" row whose aisle is GUESSED from the household's own catalog and shown as a pill that can

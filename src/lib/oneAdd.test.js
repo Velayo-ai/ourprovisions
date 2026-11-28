@@ -276,6 +276,18 @@ describe("Home's list card (flag on)", () => {
   });
 });
 
+describe("Done · N, both feeders", () => {
+  const { doneCountLabel } = require("./oneAdd");
+  test("plain Done at 0, Done · N after the first add; the toast on close stays", () => {
+    expect(doneCountLabel(0)).toBe("Done");
+    expect(doneCountLabel(1)).toBe("Done · 1");
+    expect(doneCountLabel(2)).toBe("Done · 2");
+    expect(APP).toContain("doneLabel={feeder ? doneCountLabel(fresh.size) : null}");
+    expect(APP).toContain("doneLabel={doneCountLabel(feeder.added || 0)}");
+    expect(APP).toContain("if (ONE_ADD_ENABLED) { const text = addedToastText(added); if (text) showToast(text); }");
+  });
+});
+
 describe("R3 — one Ask pill", () => {
   const a = (id, label) => ({ id, label });
   test("0 → none, 1 → by name, 2+ → the chooser", () => {

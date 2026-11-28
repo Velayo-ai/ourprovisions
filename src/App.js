@@ -72,7 +72,7 @@ import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { ASK_ENABLED, ASK_FLAG_MARKER, ONE_ADD_ENABLED, ONE_ADD_FLAG_MARKER } from './lib/featureFlags';
-import { routeView, helmDoors, listStatusLine, addedToastText, askPill, staplesHintVisit, STAPLES_HINT, guessAisle, railCategoryTap,
+import { routeView, helmDoors, listStatusLine, addedToastText, doneCountLabel, askPill, staplesHintVisit, STAPLES_HINT, guessAisle, railCategoryTap,
   LANDSCAPE_TIP, LANDSCAPE_TIP_HOME, landscapeTipRead, landscapeTipDue, landscapeTipShown, landscapeTipUsed, landscapeTipEligible } from './lib/oneAdd';
 import { trace } from '@opentelemetry/api';
 import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
@@ -1116,6 +1116,7 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
     <ItemSearchView search={search} onClose={close} query={query} onQuery={setQuery} label="Add to our list" title="Add to our list"
       subtitle={feeder ? `What do we need? · ${items.length} ${items.length === 1 ? "item" : "items"}` : null}
       onSubmit={feeder ? submit : null}
+      doneLabel={feeder ? doneCountLabel(fresh.size) : null}
       input={{ className: "modal-input", placeholder: feeder ? "Type anything, or scroll and tap" : "Type, or scroll and tap", name: "list-pick-search", ariaLabel: "Type to find an item" }}
       listTestId="list-picker" className={`item-picker${feeder ? " feeder" : ""}`}
       fieldAside={feeder ? (
@@ -3787,7 +3788,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         label="Add to this week" title="Add to this week"
         subtitle={`What sounds good? · ${meals.length} ${meals.length === 1 ? "meal" : "meals"}`}
         input={{ className: "modal-input", placeholder: "Type a meal, or scroll and tap", name: "meals-feeder-search", ariaLabel: "Search our meals" }}
-        listTestId="meals-feeder" className="meals-feeder" fieldAside={aside} tools={tools}
+        listTestId="meals-feeder" className="meals-feeder" fieldAside={aside} tools={tools} doneLabel={doneCountLabel(feeder.added || 0)}
         suspended={!!(feeder.suspended || typeFor || draft)}>
         {body}
       </ItemSearchView>
@@ -14239,7 +14240,9 @@ function ProvisionsApp({ scrollRootRef }) {
         <MealsLens
           feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(recipeView || mealSheet || giftArrival || thankYou || onHandPrompt),
             onNewMeal: (name, occasion = []) => setMealSheet({ mode: "create", meal: null, name, occasion, planOnSave: true }),
-            onAskGalley: () => setMealSheet({ mode: "create", meal: null, name: "", planOnSave: true, galley: true }) }}
+            onAskGalley: () => setMealSheet({ mode: "create", meal: null, name: "", planOnSave: true, galley: true }),
+            // Done · N: the meals on This Week now that weren't when the feeder opened (an un-plan takes one back off).
+            added: mealsFeeder.open && mealsVisitRef.current ? [...onBoardIds].filter((id) => !mealsVisitRef.current.has(id)).length : 0 }}
           textSizeIdx={textSizeIdx}
           onSetOccasion={handleSetOccasion}
           meals={libraryCards}
